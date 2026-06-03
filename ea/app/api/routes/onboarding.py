@@ -124,7 +124,7 @@ class RegisterVerifyIn(BaseModel):
     workspace_name: str = Field(default="", max_length=200)
     timezone: str = Field(default="", max_length=80)
     language: str = Field(default="", max_length=80)
-    scope_bundle: str = Field(default="core", max_length=50)
+    scope_bundle: str = Field(default="identity", max_length=50)
 
 
 class RegisterVerifyOut(BaseModel):
@@ -160,7 +160,7 @@ class OnboardingStartIn(BaseModel):
 
 class OnboardingGoogleStartIn(BaseModel):
     principal_id: str | None = Field(default=None, min_length=1, max_length=200)
-    scope_bundle: str = Field(default="core", min_length=1, max_length=50)
+    scope_bundle: str = Field(default="identity", min_length=1, max_length=50)
 
 
 class OnboardingTelegramStartIn(BaseModel):
@@ -296,7 +296,7 @@ class OnboardingFlagshipStartIn(BaseModel):
     language: str = Field(default="en", max_length=80)
     timezone: str = Field(default="Europe/Vienna", max_length=80)
     selected_channels: list[str] = Field(default_factory=lambda: ["google", "telegram", "whatsapp"])
-    scope_bundle: str = Field(default="full_workspace", min_length=1, max_length=50)
+    scope_bundle: str = Field(default="identity", min_length=1, max_length=50)
     telegram_ref: str = Field(default="", max_length=200)
     telegram_identity_mode: str = Field(default="login_widget", min_length=1, max_length=80)
     telegram_history_mode: str = Field(default="future_only", min_length=1, max_length=80)
@@ -481,7 +481,7 @@ def register_verify(
     try:
         google_status = container.onboarding.start_google(
             principal_id=principal_id,
-            scope_bundle=str(body.scope_bundle or "core").strip() or "core",
+            scope_bundle=str(body.scope_bundle or "identity").strip() or "identity",
             redirect_uri_override=f"{_registration_base_url(request)}/google/callback" if request is not None else None,
             return_to="/register?ready=1",
             browser_source="register",

@@ -429,8 +429,8 @@ def test_activation_and_memo_flow_in_real_browser(page: Page, product_browser_se
     assert response is not None and response.ok
     assert "Start a workspace that shows the first useful loop." in page.content()
     assert "Workspace shape" in page.content()
-    assert "Google Core" in page.content()
-    assert "Build first morning memo" in page.content()
+    assert "Google sign-in" in page.content()
+    assert "Open property workspace" in page.content()
 
     response = page.goto(f"{base_url}/app/today", wait_until="networkidle")
     assert response is not None and response.ok

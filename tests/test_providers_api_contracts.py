@@ -368,7 +368,7 @@ def test_onboarding_google_start_reports_missing_oauth_configuration(
         },
     )
 
-    google = owner.post("/v1/onboarding/google/start", json={"scope_bundle": "core"})
+    google = owner.post("/v1/onboarding/google/start", json={"scope_bundle": "identity"})
     assert google.status_code == 200
     body = google.json()
     google_start = dict(body["google_start"])
@@ -395,7 +395,7 @@ def test_onboarding_flagship_start_bootstraps_google_telegram_whatsapp(monkeypat
             "telegram_ref": "@ops-suite",
             "whatsapp_export_label": "Ops Suite Export",
             "selected_channels": ["google", "telegram", "whatsapp"],
-            "scope_bundle": "full_workspace",
+            "scope_bundle": "identity",
         },
     )
     assert payload.status_code == 200
@@ -407,12 +407,12 @@ def test_onboarding_flagship_start_bootstraps_google_telegram_whatsapp(monkeypat
     assert body["channels"]["telegram"]["status"] == "guided_manual"
     assert body["channels"]["whatsapp"]["status"] == "export_planned"
     assert body["flagship_start"]["profile"] == "executive_flagship"
-    assert body["flagship_start"]["google_bundle"] == "full_workspace"
+    assert body["flagship_start"]["google_bundle"] == "identity"
     assert body["flagship_start"]["telegram_started"] is True
     assert body["flagship_start"]["whatsapp_export_started"] is True
     assert body["google_start"]["ready"] is True
-    assert body["google_start"]["oauth_bundle"] == "full_workspace"
-    assert "https://www.googleapis.com/auth/calendar" in body["google_start"]["requested_scopes"]
+    assert body["google_start"]["oauth_bundle"] == "identity"
+    assert body["google_start"]["requested_scopes"] == ["openid", "email", "profile"]
     assert body["telegram_start"]["status"] == "guided_manual"
     assert body["whatsapp_export"]["status"] == "export_planned"
 
@@ -430,7 +430,7 @@ def test_onboarding_flagship_start_continues_without_google_secret(monkeypatch: 
         "/v1/onboarding/flagship/start",
         json={
             "workspace_name": "Flagship Recovery",
-            "scope_bundle": "core",
+            "scope_bundle": "identity",
             "selected_channels": ["telegram", "whatsapp"],
         },
     )
@@ -458,14 +458,14 @@ def test_onboarding_flagship_start_marks_partial_if_google_not_ready(monkeypatch
         "/v1/onboarding/flagship/start",
         json={
             "workspace_name": "Flagship Recovery",
-            "scope_bundle": "core",
+            "scope_bundle": "identity",
             "selected_channels": ["google", "telegram"],
         },
     )
     assert payload.status_code == 200
     body = payload.json()
     assert body["flagship_start"]["profile"] == "executive_flagship"
-    assert body["flagship_start"]["google_bundle"] == "core"
+    assert body["flagship_start"]["google_bundle"] == "identity"
     assert body["flagship_start"]["stage"] == "partial"
     assert body["channels"]["google"]["status"] == "credentials_missing"
     assert body["google_start"]["ready"] is False
@@ -499,16 +499,14 @@ def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatc
     assert started_body["workspace"]["name"] == "Ops Desk"
     assert started_body["selected_channels"] == ["google", "telegram", "whatsapp"]
 
-    google = owner.post("/v1/onboarding/google/start", json={"scope_bundle": "core"})
+    google = owner.post("/v1/onboarding/google/start", json={"scope_bundle": "identity"})
     assert google.status_code == 200
     google_body = google.json()
     assert google_body["google_start"]["ready"] is True
-    assert google_body["google_start"]["requested_bundle"] == "core"
-    assert google_body["google_start"]["oauth_bundle"] == "core"
-    assert "https://www.googleapis.com/auth/gmail.metadata" in google_body["google_start"]["requested_scopes"]
-    assert "https://www.googleapis.com/auth/calendar.readonly" in google_body["google_start"]["requested_scopes"]
-    assert "https://www.googleapis.com/auth/contacts.readonly" in google_body["google_start"]["requested_scopes"]
-    assert google_body["google_start"]["bundle_label"] == "Google Core"
+    assert google_body["google_start"]["requested_bundle"] == "identity"
+    assert google_body["google_start"]["oauth_bundle"] == "identity"
+    assert google_body["google_start"]["requested_scopes"] == ["openid", "email", "profile"]
+    assert google_body["google_start"]["bundle_label"] == "Google sign-in"
     assert google_body["channels"]["google"]["status"] == "ready_to_connect"
     google_query = urllib.parse.parse_qs(urllib.parse.urlparse(google_body["google_start"]["auth_url"]).query)
     assert google_query["redirect_uri"][0] == "https://ea.example/v1/providers/google/oauth/callback"
@@ -584,7 +582,7 @@ def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatc
     assert status_body["channels"]["google"]["status"] == "ready_to_connect"
     assert status_body["channels"]["telegram"]["status"] == "guided_manual"
     assert status_body["channels"]["whatsapp"]["status"] == "export_planned"
-    assert status_body["next_step"] == "Complete Google Core consent to unlock the first real connected channel."
+    assert status_body["next_step"] == "Complete Google sign-in to finish Google account linking."
     assert status_body["storage_posture"]["source_of_truth"] == "EA Postgres"
     assert status_body["delivery_preferences"]["morning_memo"]["recipient_email"] == "briefs@example.com"
     assert status_body["brief_preview"]["first_brief"] == status_body["brief_preview"]["first_brief_preview"]
@@ -644,7 +642,7 @@ def test_onboarding_google_callback_returns_api_payload(monkeypatch: pytest.Monk
 
     started = owner.post(
         "/v1/onboarding/google/start",
-        json={"scope_bundle": "full_workspace"},
+        json={"scope_bundle": "identity"},
     )
     assert started.status_code == 200
     started_body = started.json()
@@ -659,7 +657,7 @@ def test_onboarding_google_callback_returns_api_payload(monkeypatch: pytest.Monk
         lambda **kwargs: {
             "access_token": "access-token",
             "refresh_token": "refresh-token",
-            "scope": "openid email profile https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.metadata https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/contacts.readonly",
+            "scope": "openid email profile",
             "expires_in": 3600,
         },
     )
@@ -683,8 +681,8 @@ def test_onboarding_google_callback_returns_api_payload(monkeypatch: pytest.Monk
     assert callback_body["principal_id"] == "exec-onboarding-callback"
     assert callback_body["google_email"] == "onboarding@gmail.example"
     assert callback_body["connector_binding_id"]
-    assert "https://www.googleapis.com/auth/gmail.metadata" in callback_body["granted_scopes"]
-    assert "https://www.googleapis.com/auth/calendar.readonly" in callback_body["granted_scopes"]
+    assert callback_body["granted_scopes"] == ["email", "openid", "profile"]
+    assert callback_body["consent_stage"] == "identity"
 
 
 def test_telegram_ingest_rejects_missing_secret_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2840,6 +2838,7 @@ def test_telegram_ingest_answers_question_mark_probe_immediately(monkeypatch: py
 
 
 def test_telegram_ingest_answers_google_photos_capability_request_from_grounded_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos")
@@ -3207,6 +3206,7 @@ def test_telegram_ingest_deduped_voice_message_skips_retranscription(monkeypatch
 
 
 def test_telegram_ingest_answers_done_from_recent_google_photos_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-done")
@@ -3297,6 +3297,7 @@ def test_telegram_ingest_answers_done_from_recent_google_photos_context(monkeypa
 
 
 def test_telegram_ingest_suppresses_repeated_done_when_google_photos_state_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-done-repeat")
@@ -3407,6 +3408,7 @@ def test_telegram_ingest_suppresses_repeated_done_when_google_photos_state_uncha
 
 
 def test_telegram_ingest_suppresses_repeated_again_when_google_photos_state_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-again-repeat")
@@ -3500,6 +3502,7 @@ def test_telegram_ingest_suppresses_repeated_again_when_google_photos_state_unch
 def test_telegram_ingest_reuses_google_photos_context_for_voice_message_placeholder(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-voice")
@@ -3569,6 +3572,7 @@ def test_telegram_ingest_reuses_google_photos_context_for_voice_message_placehol
 
 
 def test_telegram_ingest_answers_start_picker_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-picker")
@@ -3632,6 +3636,7 @@ def test_telegram_ingest_answers_start_picker_immediately(monkeypatch: pytest.Mo
 
 
 def test_telegram_ingest_surfaces_google_photos_picker_forbidden(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-forbidden")
@@ -3691,6 +3696,7 @@ def test_telegram_ingest_surfaces_google_photos_picker_forbidden(monkeypatch: py
 
 
 def test_telegram_ingest_surfaces_google_photos_picker_service_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-service-disabled")
@@ -4061,9 +4067,9 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     landing = owner.get("/")
     assert landing.status_code == 200
     _assert_no_product_drift(landing.text)
-    assert "Wake up to a clear morning memo, not a wall of inbox noise." in landing.text
-    assert "Create personal workspace" in landing.text
-    assert "Nothing sends without your review." in landing.text
+    assert "Search once. Rank hard. Research the shortlist." in landing.text
+    assert "Create account" in landing.text
+    assert "PropertyQuarry" in landing.text
     for href in _internal_links(landing.text):
         resolved = owner.get(href, follow_redirects=False)
         assert resolved.status_code in {200, 303, 307}, href
@@ -4071,15 +4077,15 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     setup = owner.get("/register")
     assert setup.status_code == 200
     _assert_no_product_drift(setup.text)
-    assert "Start a workspace that shows the first useful loop." in setup.text
+    assert "Start a workspace that finds and ranks the right properties." in setup.text
     assert "Workspace shape" in setup.text
-    assert "Google Core" in setup.text
+    assert "Google sign-in" in setup.text
 
     sign_in = owner.get("/sign-in")
     assert sign_in.status_code == 200
     _assert_no_product_drift(sign_in.text)
-    assert "Sign in if you already have workspace access." in sign_in.text
-    assert "New customers start with a personal workspace first." in sign_in.text
+    assert "Return to an existing property workspace." in sign_in.text
+    assert "Create account" in sign_in.text
     assert "Email me a sign-in link" in sign_in.text
 
     legacy_setup = owner.get("/setup", follow_redirects=False)
@@ -4102,7 +4108,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
 
     started = owner.post(
         "/google/connect",
-        data={"scope_bundle": "send", "api_token": ""},
+        data={"scope_bundle": "identity", "api_token": ""},
         follow_redirects=False,
     )
     assert started.status_code == 303
@@ -4147,11 +4153,11 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
 
     callback = owner.get("/google/callback", params={"code": "code-123", "state": state})
     assert callback.status_code == 200
-    assert "Google is connected. The next step is to use it." in callback.text
+    assert "Google account linked." in callback.text
     assert "browser@gmail.example" in callback.text
-    assert "gmail.send" in callback.text
+    assert "openid" in callback.text
     assert 'href="/get-started"' in callback.text
-    assert "First signal sync finished." in callback.text
+    assert "No Gmail or Calendar sync was requested for this workspace." in callback.text
 
 
 def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4186,12 +4192,12 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     landing = owner.get("/")
     assert landing.status_code == 200
     assert "Open current session" in landing.text
-    assert "Wake up to a clear morning memo, not a wall of inbox noise." in landing.text
+    assert "Search once. Rank hard. Research the shortlist." in landing.text
     assert "browser@gmail.com" not in landing.text
 
     started = owner.post(
         "/google/connect",
-        data={"scope_bundle": "send"},
+        data={"scope_bundle": "identity"},
         follow_redirects=False,
     )
     assert started.status_code == 303
@@ -4234,11 +4240,11 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
 
     callback = owner.get("/google/callback", params={"code": "code-123", "state": state})
     assert callback.status_code == 200
-    assert "Google is connected. The next step is to use it." in callback.text
+    assert "Google account linked." in callback.text
     assert "browser@gmail.com" in callback.text
     assert "cf-email:browser@gmail.com" not in callback.text
     assert 'href="/get-started"' in callback.text
-    assert "First signal sync finished." in callback.text
+    assert "No Gmail or Calendar sync was requested for this workspace." in callback.text
 
 
 def test_browser_google_callback_renders_error_page_for_google_error_params(monkeypatch: pytest.MonkeyPatch) -> None:

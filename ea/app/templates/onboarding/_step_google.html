@@ -2,9 +2,9 @@
   <div class="wizard-panel-header">
     <div>
       <div class="eyebrow">Step 2</div>
-      <h2>Connect Google first.</h2>
+      <h2>Link Google if you want easier return access.</h2>
     </div>
-    <p class="step-context">For most customers, Google is where the product becomes useful first: email context, calendar pressure, people context, and a real morning memo.</p>
+    <p class="step-context">PropertyQuarry does not need broad Google workspace scopes by default. Use Google only as a narrow identity and return-access path unless a deeper workflow genuinely requires more.</p>
   </div>
 
   <div class="status-grid">
@@ -14,27 +14,22 @@
       <p class="copy">This shows where the Google connection stands today.</p>
     </div>
       <div class="status-card">
-        <div class="kicker">Recommended choice</div>
-        <strong>Google Core</strong>
-      <p class="copy">Enough for a useful memo, a first draft workflow, and a commitment loop without expanding the scope more than necessary on day one.</p>
+      <div class="kicker">Recommended choice</div>
+        <strong>Google sign-in</strong>
+      <p class="copy">Enough to link the same Google account to the workspace without pulling mailbox, calendar, or contacts data into day one.</p>
     </div>
     <div class="status-card">
       <div class="kicker">Identity boundary</div>
-      <strong>Google is workspace data, not app sign-in.</strong>
-      <p class="copy">Authenticate to the workspace first through your deployment access path. Then connect Google so the product can read context and build the memo.</p>
+      <strong>Keep Google narrow.</strong>
+      <p class="copy">Authenticate to the workspace first through your deployment access path. Then link Google only if you want account continuity from that same identity.</p>
     </div>
   </div>
 
   <div class="bundle-grid">
     <div class="bundle-card">
-      <strong>Google Core</strong>
-      <p class="copy">Read email metadata, calendar, and people context, and support drafting and verification where needed.</p>
-      <button class="btn ghost" type="button" data-set-google-bundle="core">Select Google Core</button>
-    </div>
-    <div class="bundle-card">
-      <strong>Full Workspace</strong>
-      <p class="copy">Use this only when the office loop genuinely needs broader Google coverage from the beginning.</p>
-      <button class="btn ghost" type="button" data-set-google-bundle="full_workspace">Select Full Workspace</button>
+      <strong>Google sign-in</strong>
+      <p class="copy">Only link Google identity and a verified return path. No Gmail, Calendar, or Contacts sync is requested in this default flow.</p>
+      <button class="btn ghost" type="button" data-set-google-bundle="identity">Select Google sign-in</button>
     </div>
   </div>
 
@@ -43,30 +38,27 @@
       <div>
         <label for="scope_bundle">Google access level</label>
         <select id="scope_bundle" name="scope_bundle">
-        <option value="core">Google Core (recommended)</option>
-        <option value="full_workspace">Google Full Workspace</option>
-        <option value="verify">Advanced Gmail verify</option>
-        <option value="send">Send only</option>
+        <option value="identity">Google sign-in (recommended)</option>
       </select>
-      <div class="field-help">Google will ask for the Gmail, calendar, and people-context access needed for the selected bundle. This binds Google data to the workspace after access is already established.</div>
+      <div class="field-help">Google will only ask for identity scopes in this flow. Broader workspace scopes stay outside the default PropertyQuarry onboarding path.</div>
     </div>
     <div class="status-grid">
       <div class="status-card">
         <div class="kicker">What Google is for</div>
-        <strong>Better memos and better timing</strong>
-        <p class="copy">Calendar pressure, people context, and Gmail signals help the product decide what matters first.</p>
+        <strong>Verified account return</strong>
+        <p class="copy">The linked Google account can act as a clean identity anchor for returning to the same workspace.</p>
       </div>
       <div class="status-card">
-        <div class="kicker">Why the permissions look broad</div>
-        <strong>They support real drafting and delivery checks</strong>
-        <p class="copy">Drafts, send, delivery verification, and connected-mail behavior require more than a single lightweight scope.</p>
+        <div class="kicker">What stays out</div>
+        <strong>No mailbox or calendar sync by default</strong>
+        <p class="copy">PropertyQuarry should not pull more Google data than it needs to support the core property workflow.</p>
       </div>
     </div>
     <div class="wizard-actions">
       <button class="btn ghost" type="button" data-step-back="1">Back</button>
       <div class="right">
         <button class="btn ghost" type="button" data-step-next="3">Skip for now</button>
-        <button class="btn primary" type="submit">Connect Google</button>
+        <button class="btn primary" type="submit">Link Google</button>
       </div>
     </div>
   </form>

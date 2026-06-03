@@ -20,7 +20,7 @@ from app.api.routes.landing import (
 )
 from app.container import AppContainer
 from app.product.service import build_product_service
-from app.services.google_oauth import complete_google_oauth_callback, read_google_oauth_state
+from app.services.google_oauth import complete_google_oauth_callback, google_bundle_supports_workspace_sync, read_google_oauth_state
 
 router = APIRouter(tags=["landing"])
 
@@ -57,7 +57,10 @@ def _google_post_connect_sync(
     container: AppContainer,
     principal_id: str,
     actor: str,
+    granted_scopes: tuple[str, ...] | list[str] = (),
 ) -> dict[str, object]:
+    if not google_bundle_supports_workspace_sync(scopes=tuple(granted_scopes)):
+        return {"status": "identity_only"}
     product = build_product_service(container)
     try:
         result = product.sync_google_workspace_signals(
@@ -79,6 +82,8 @@ def _google_post_connect_sync(
 
 def _google_sync_detail(sync_result: dict[str, object]) -> str:
     status = str(sync_result.get("status") or "").strip().lower()
+    if status == "identity_only":
+        return "Google account linking is complete. No Gmail or Calendar sync was requested for this workspace."
     if status != "completed":
         error = str(sync_result.get("error") or "").strip()
         return f"Google is connected, but the first signal sync needs attention: {error or 'google_sync_failed'}."
@@ -264,7 +269,7 @@ async def google_connect_browser(
     return_to = _normalize_browser_return_to(_form_value(form_data, "return_to", "/get-started"), default="/get-started")
     result = container.onboarding.start_google(
         principal_id=principal_id,
-        scope_bundle=_form_value(form_data, "scope_bundle", "core"),
+        scope_bundle=_form_value(form_data, "scope_bundle", "identity"),
         redirect_uri_override=f"{_public_app_base_url(request)}/google/callback",
         return_to=return_to,
         browser_source="public_setup",
@@ -284,7 +289,7 @@ async def google_connect_browser(
         workspace=dict(result.get("workspace") or {}),
         channels=dict(result.get("channels") or {}),
         channel_cards=_channel_cards(dict(result.get("channels") or {})),
-        selected_channels_label=", ".join(result.get("selected_channels") or []) or "Google Core recommended",
+        selected_channels_label=", ".join(result.get("selected_channels") or []) or "Google sign-in recommended",
         workspace_mode_label=_humanize(str(dict(result.get("workspace") or {}).get("mode") or "personal")),
         brief_headline=str(dict(result.get("brief_preview") or {}).get("headline") or "Turn your channels into a prioritized day."),
         first_brief_items=[],
@@ -394,6 +399,7 @@ def google_oauth_browser_callback(
         container=container,
         principal_id=account.binding.principal_id,
         actor=str(account.google_email or account.binding.principal_id or "google_oauth").strip(),
+        granted_scopes=account.granted_scopes,
     )
     browser_source = str(state_payload.get("browser_source") or "").strip()
     return_to = _normalize_browser_return_to(str(state_payload.get("return_to") or ""), default="")
@@ -412,6 +418,8 @@ def google_oauth_browser_callback(
                     "sync_suppressed_total": str(int(sync_result.get("suppressed_total") or 0)),
                 }
             )
+        elif str(sync_result.get("status") or "").strip().lower() == "identity_only":
+            redirect_values["sync_error"] = "google_identity_only"
         else:
             redirect_values["sync_error"] = str(sync_result.get("error") or "google_sync_failed")
         destination = _append_query_value(return_to, **redirect_values)

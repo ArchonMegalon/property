@@ -53,9 +53,9 @@ FEATURE_CARDS = (
 )
 
 HOW_STEPS = (
-    {"title": "Connect Google", "body": "Start with the narrowest useful Google bundle so EA can read calendar pressure and recent email signals."},
-    {"title": "Get your first morning memo", "body": "See one morning memo, one real queue, and one visible commitment list before adding anything broader."},
-    {"title": "Review queue work", "body": "Clear one draft, one decision, or one captured commitment before you add operators, messaging channels, or wider office rules."},
+    {"title": "Connect Google", "body": "Use Google only for identity and return access unless a broader workspace scope becomes truly necessary."},
+    {"title": "Run your first search", "body": "See one ranked shortlist, one research packet, and one visible fit explanation before adding anything broader."},
+    {"title": "Review shortlisted properties", "body": "Clear one candidate, one feedback decision, or one research follow-up before widening the workflow."},
 )
 
 PERSONAS = (

@@ -121,7 +121,7 @@ def delivery_rows(values: object) -> list[dict[str, str]]:
 
 def channel_cards(channels: dict[str, Any]) -> list[dict[str, str]]:
     ordered = (
-        ("google", "Google Core", "/integrations/google"),
+        ("google", "Google sign-in", "/integrations/google"),
         ("telegram", "Telegram", "/integrations/telegram"),
         ("whatsapp", "WhatsApp", "/integrations/whatsapp"),
     )
@@ -174,7 +174,7 @@ def app_section_payload(
     ]
     first_brief = list_rows(
         preview.get("first_brief_preview") or preview.get("first_brief"),
-        ("Connect Google Core to generate the first morning memo.",),
+        ("Connect Google sign-in if you want a faster return path and verified account access.",),
     )
     suggested = list_rows(preview.get("suggested_actions"), ("Finish onboarding and request the first memo.",))
     trust_notes = list_rows(preview.get("trust_notes"), ("Keep approvals and retention rules explicit.",))
@@ -213,7 +213,7 @@ def app_section_payload(
         ),
         row_item(
             "Connect Google for workspace context",
-            "Treat Google as the first data connection for memo, queue, and people context.",
+            "Treat Google as optional account access first; only widen scopes later if the product truly needs them.",
             "Linked",
         ),
         row_item(
@@ -578,7 +578,7 @@ def app_section_payload(
                     "items": live_queue
                     or string_rows(
                         first_brief,
-                        ("Connect Google Core to unlock the first useful memo.",),
+                        ("Connect Google sign-in if you want easier return access from the same account.",),
                         tag="Next",
                         detail="This is the shortest path to a real working day.",
                     ),
@@ -703,7 +703,7 @@ def app_section_payload(
             "title": "Channels",
             "summary": "Channels widen coverage. They never redefine the product core or become the main story of the workspace.",
             "cards": [
-                {"eyebrow": "Google", "title": cards[0]["label"], "items": [cards[0]["detail"], cards[0]["summary"] or "Google Core is the recommended first connection."]},
+                {"eyebrow": "Google", "title": cards[0]["label"], "items": [cards[0]["detail"], cards[0]["summary"] or "Google sign-in is the recommended first connection."]},
                 {"eyebrow": "Telegram", "title": cards[1]["label"], "items": [cards[1]["detail"], cards[1]["summary"] or "Personal identity and bot install stay distinct."]},
                 {"eyebrow": "WhatsApp", "title": cards[2]["label"], "items": [cards[2]["detail"], cards[2]["summary"] or "Business onboarding and export intake stay separate."]},
             ],

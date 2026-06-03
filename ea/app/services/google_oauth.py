@@ -88,6 +88,7 @@ GOOGLE_SCOPE_FULL_WORKSPACE_AND_PHOTOS = GOOGLE_SCOPE_FULL_WORKSPACE + (
 )
 
 SCOPE_BUNDLES: dict[str, tuple[str, ...]] = {
+    "identity": GOOGLE_SCOPE_IDENTITY,
     "send": GOOGLE_SCOPE_SEND_ONLY,
     "verify": GOOGLE_SCOPE_VERIFY,
     "keep": GOOGLE_SCOPE_KEEP_ONLY,
@@ -100,6 +101,20 @@ SCOPE_BUNDLES: dict[str, tuple[str, ...]] = {
 }
 
 SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
+    "identity": {
+        "label": "Google sign-in",
+        "summary": "Only use Google for account identity, verified return access, and explicit sign-in convenience.",
+        "capabilities": (
+            "Sign in with Google identity",
+            "Return to the workspace with the same Google account",
+        ),
+        "limitations": (
+            "No Gmail access",
+            "No calendar context",
+            "No contacts context",
+            "No background workspace sync",
+        ),
+    },
     "send": {
         "label": "Send only",
         "summary": "Sign in and send mail from the connected Gmail account.",
@@ -231,6 +246,23 @@ def google_scope_bundle_details(bundle: str | None) -> dict[str, object]:
     metadata["bundle"] = normalized
     metadata["scopes"] = list(SCOPE_BUNDLES[normalized])
     return metadata
+
+
+def google_bundle_supports_workspace_sync(
+    bundle: str | None = None,
+    *,
+    scopes: tuple[str, ...] | list[str] | None = None,
+) -> bool:
+    effective_scopes = tuple(scopes or SCOPE_BUNDLES[normalize_scope_bundle(bundle)])
+    supported_signal_scopes = {
+        GOOGLE_SCOPE_METADATA,
+        GOOGLE_SCOPE_GMAIL_MODIFY,
+        GOOGLE_SCOPE_CALENDAR,
+        GOOGLE_SCOPE_CALENDAR_READONLY,
+        GOOGLE_SCOPE_CONTACTS_READONLY,
+        GOOGLE_SCOPE_DRIVE_METADATA_READONLY,
+    }
+    return any(scope in supported_signal_scopes for scope in effective_scopes)
 
 
 def _primary_google_binding_id(principal_id: str) -> str:
@@ -469,7 +501,7 @@ def load_google_oauth_config() -> GoogleOAuthConfig:
 
 
 def normalize_scope_bundle(raw: str | None) -> str:
-    bundle = str(raw or "send").strip().lower() or "send"
+    bundle = str(raw or "identity").strip().lower() or "identity"
     if bundle not in SCOPE_BUNDLES:
         raise RuntimeError("google_oauth_scope_bundle_invalid")
     return bundle
@@ -507,9 +539,9 @@ def build_google_oauth_start(
             "client_id": config.client_id,
             "redirect_uri": redirect_uri,
             "scope": " ".join(requested_scopes),
-            "access_type": "offline",
+            "access_type": "online" if normalized_bundle == "identity" else "offline",
             "include_granted_scopes": "false",
-            "prompt": "consent",
+            "prompt": "select_account" if normalized_bundle == "identity" else "consent",
             "state": state,
         }
     )
@@ -539,7 +571,7 @@ def complete_google_oauth_callback(
     principal_id = str(state_payload.get("principal_id") or "").strip()
     if not principal_id:
         raise RuntimeError("google_oauth_principal_missing")
-    scope_bundle = normalize_scope_bundle(str(state_payload.get("scope_bundle") or "send"))
+    scope_bundle = normalize_scope_bundle(str(state_payload.get("scope_bundle") or "identity"))
     redirect_uri = str(state_payload.get("redirect_uri") or config.redirect_uri).strip() or config.redirect_uri
     token_payload = _exchange_google_code_for_tokens(
         code=code,
@@ -562,7 +594,12 @@ def complete_google_oauth_callback(
             }
         )
     ) or SCOPE_BUNDLES[scope_bundle]
-    consent_stage = "verify" if GOOGLE_SCOPE_METADATA in granted_scopes else "send"
+    if set(granted_scopes).issubset(set(GOOGLE_SCOPE_IDENTITY)):
+        consent_stage = "identity"
+    elif GOOGLE_SCOPE_METADATA in granted_scopes:
+        consent_stage = "verify"
+    else:
+        consent_stage = "send"
     refresh_token = str(token_payload.get("refresh_token") or "").strip()
     primary_binding_id = _primary_google_binding_id(principal_id)
     existing_primary = container.provider_registry.get_persisted_binding_record(

@@ -169,7 +169,7 @@
     <section class="register-hero">
       <div class="kicker">{% if brand.key == 'propertyquarry' %}Property onboarding{% else %}Personal workspace{% endif %}</div>
       <h1>{% if brand.key == 'propertyquarry' %}Start a workspace that finds and ranks the right properties.{% else %}Start a workspace that shows the first useful loop.{% endif %}</h1>
-      <p class="lead">{% if brand.key == 'propertyquarry' %}Create the account, connect Google if you want delivery and memory, then move straight into the property brief and first crawl.{% else %}Connect Google, surface the first morning memo, and keep the first week narrow until the office loop is already useful.{% endif %}</p>
+      <p class="lead">{% if brand.key == 'propertyquarry' %}Create the account, link Google only if you want easier return access, then move straight into the property brief and first crawl.{% else %}Connect Google, surface the first morning memo, and keep the first week narrow until the office loop is already useful.{% endif %}</p>
       <div class="register-note">
         {% if brand.key == 'propertyquarry' %}We’ll use your email to create the account and reopen your saved search posture later. Google is optional account context, not the sign-in method.{% else %}We’ll use your email to create the workspace and let you come back. Google is a workspace data source, not the app login method.{% endif %}
       </div>
@@ -180,7 +180,7 @@
         </div>
         <div class="summary">
           <div class="label">{% if brand.key == 'propertyquarry' %}Research lane{% else %}Recommended connection{% endif %}</div>
-          <strong>{% if brand.key == 'propertyquarry' %}Property search and review{% else %}Google Core{% endif %}</strong>
+          <strong>{% if brand.key == 'propertyquarry' %}Property search and review{% else %}Google sign-in{% endif %}</strong>
         </div>
         <div class="summary">
           <div class="label">Expand later</div>
@@ -254,36 +254,32 @@
       <section class="register-step" data-step="3">
         <div>
           <div class="kicker">Step 3</div>
-          <h2>Connect Google</h2>
-          <p class="copy">Start with the narrowest useful bundle. Google is workspace data, not app login.</p>
+          <h2>Link Google</h2>
+          <p class="copy">Keep Google narrow. PropertyQuarry only needs identity and return access in the default path.</p>
         </div>
         <div class="register-choice">
-          <strong>Google Core</strong>
-          <p class="copy">Recommended for the first morning memo, queue, calendar pressure, and visible commitments.</p>
+          <strong>Google sign-in</strong>
+          <p class="copy">Recommended only as an identity anchor so the same Google account can return to the workspace later.</p>
         </div>
-        <details class="register-note">
-          <summary>Advanced options</summary>
-          <p class="copy">Broader bundles still exist, but they stay out of the default path until the personal workspace has already shown value.</p>
-        </details>
         <div class="register-inline" data-google-inline></div>
         <div class="register-error" data-google-error></div>
         <div class="cta-row">
-          <button class="btn primary" type="button" data-action="google-consent">Open Google consent</button>
-          <button class="btn" type="button" data-action="build-brief">Build first morning memo</button>
+          <button class="btn primary" type="button" data-action="google-consent">Link Google account</button>
+          <button class="btn" type="button" data-action="build-brief">Open property workspace</button>
         </div>
       </section>
 
       <section class="register-step" data-step="4">
         <div>
           <div class="kicker">Step 4</div>
-          <h2>Build first morning memo</h2>
-          <p class="copy">Show progress clearly so the first useful workspace feels like a product moment, not a setup blur.</p>
+          <h2>Prepare your workspace</h2>
+          <p class="copy">Show progress clearly so the first useful shortlist feels like a product moment, not a setup blur.</p>
         </div>
         <div class="register-milestones">
-          <div class="register-milestone" data-milestone="calendar"><span>Connecting calendar</span><strong>Pending</strong></div>
-          <div class="register-milestone" data-milestone="email"><span>Reading recent email signals</span><strong>Pending</strong></div>
-          <div class="register-milestone" data-milestone="queue"><span>Building first queue</span><strong>Pending</strong></div>
-          <div class="register-milestone" data-milestone="commitments"><span>Finding open commitments</span><strong>Pending</strong></div>
+          <div class="register-milestone" data-milestone="calendar"><span>Saving your profile</span><strong>Pending</strong></div>
+          <div class="register-milestone" data-milestone="email"><span>Opening the property workspace</span><strong>Pending</strong></div>
+          <div class="register-milestone" data-milestone="queue"><span>Preparing saved defaults</span><strong>Pending</strong></div>
+          <div class="register-milestone" data-milestone="commitments"><span>Getting the first shortlist ready</span><strong>Pending</strong></div>
         </div>
         <div class="register-inline" data-build-inline></div>
       </section>
@@ -291,23 +287,23 @@
       <section class="register-step" data-step="5">
         <div>
           <div class="kicker">Step 5</div>
-          <h2>Your personal workspace is ready.</h2>
-          <p class="copy">Start with the first morning memo, the first queue, and the first visible commitment loop. Shared review can come later.</p>
+          <h2>Your PropertyQuarry workspace is ready.</h2>
+          <p class="copy">Start with your first shortlist, your first research packet, and the first visible feedback loop. Shared review can come later.</p>
         </div>
         <div class="register-preview-grid">
           <section class="register-preview">
-            <strong>First morning memo items</strong>
+            <strong>First shortlist signals</strong>
             <ul data-preview-brief></ul>
           </section>
           <section class="register-preview">
-            <strong>First queue items</strong>
+            <strong>Next actions</strong>
             <ul data-preview-queue></ul>
           </section>
         </div>
         <div class="register-note">Add an operator later from Settings if you need shared review.</div>
         <div class="cta-row">
-          <a class="btn primary" href="/app/today">Open my workspace</a>
-          <a class="btn" href="/app/properties">Search properties</a>
+          <a class="btn primary" href="/app/properties">Open property workspace</a>
+          <a class="btn" href="/app/settings">Workspace settings</a>
         </div>
       </section>
     </section>
@@ -452,8 +448,8 @@
       return;
     }
     if (state.preview.brief.length || state.preview.queue.length) {
-      setList(briefList, state.preview.brief, ['Your first morning memo items will appear here.']);
-      setList(queueList, state.preview.queue, ['Your first queue items will appear here.']);
+      setList(briefList, state.preview.brief, ['Your first shortlist signals will appear here.']);
+      setList(queueList, state.preview.queue, ['Your next actions will appear here.']);
       setStep(5);
       return;
     }
@@ -503,7 +499,7 @@
         workspace_name: String(verifyForm.elements.workspace_name.value || '').trim(),
         timezone: String(verifyForm.elements.timezone.value || '').trim(),
         language: String(verifyForm.elements.language.value || '').trim(),
-        scope_bundle: 'core',
+        scope_bundle: 'identity',
       };
       const response = await fetch('/v1/register/verify', {
         method: 'POST',
@@ -532,11 +528,11 @@
       googleError.textContent = errorMessage;
       return;
     }
-    googleInline.textContent = 'Google consent opened in a new tab. Return here when you are ready to build the first morning memo.';
+    googleInline.textContent = 'Google account link opened in a new tab. Return here when you are ready to open the property workspace.';
     window.open(startUrl, '_blank', 'noopener');
   });
 
-  const buildFirstMorningMemo = async (intro = 'Building your first morning memo…') => {
+  const buildFirstMorningMemo = async (intro = 'Preparing your property workspace…') => {
     if (buildInFlight) return;
     buildInFlight = true;
     buildInline.textContent = intro;
@@ -552,22 +548,22 @@
       const briefItems = (briefBody.items || []).map((row) => row.title).filter(Boolean);
       const queueItems = (queueBody.items || []).map((row) => row.title).filter(Boolean);
       state.preview = {
-        brief: briefItems.length ? briefItems : ['Your morning memo will start with the first live signals from Google.'],
-        queue: queueItems.length ? queueItems : ['Your queue will show decisions, drafts, and commitments as they become visible.'],
+        brief: briefItems.length ? briefItems : ['Your shortlist signals will appear after you save your first property search preferences.'],
+        queue: queueItems.length ? queueItems : ['Your next actions will show searches, reviews, and follow-ups as they become available.'],
       };
       setState();
-      setList(briefList, state.preview.brief, ['Your morning memo will appear here.']);
-      setList(queueList, state.preview.queue, ['Your first queue items will appear here.']);
-      buildInline.textContent = 'First morning memo ready.';
+      setList(briefList, state.preview.brief, ['Your shortlist signals will appear here.']);
+      setList(queueList, state.preview.queue, ['Your next actions will appear here.']);
+      buildInline.textContent = 'Workspace ready.';
       setStep(5);
     } catch (_error) {
       state.preview = {
-        brief: ['Your morning memo will appear after Google signals are available.'],
-        queue: ['Your queue will show decisions, drafts, and commitments in one review surface.'],
+        brief: ['Your shortlist signals will appear after your first property search is configured.'],
+        queue: ['Your next actions will show searches, reviews, and follow-ups in one review surface.'],
       };
       setState();
-      setList(briefList, state.preview.brief, ['Your morning memo will appear here.']);
-      setList(queueList, state.preview.queue, ['Your first queue items will appear here.']);
+      setList(briefList, state.preview.brief, ['Your shortlist signals will appear here.']);
+      setList(queueList, state.preview.queue, ['Your next actions will appear here.']);
       buildInline.textContent = 'Workspace ready. Open the app to continue the first loop.';
       setStep(5);
     } finally {
@@ -604,7 +600,7 @@
     googleError.textContent = '';
     googleInline.textContent = googleSyncSummary(payload);
     if (!state.preview.brief.length && !state.preview.queue.length) {
-      await buildFirstMorningMemo('Google connected. Building your first morning memo…');
+      await buildFirstMorningMemo('Google linked. Preparing your property workspace…');
     }
   };
 
@@ -628,7 +624,7 @@
   };
 
   document.querySelector('[data-action="build-brief"]')?.addEventListener('click', async () => {
-    await buildFirstMorningMemo('Building your first morning memo…');
+    await buildFirstMorningMemo('Preparing your property workspace…');
   });
 
   window.addEventListener('storage', (event) => {

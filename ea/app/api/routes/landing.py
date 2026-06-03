@@ -295,21 +295,21 @@ def _public_context(
         "privacy": dict(status.get("privacy") or {}),
         "channels": channels,
         "channel_cards": _channel_cards(channels),
-        "selected_channels_label": ", ".join(selected_channels) if selected_channels else "Google Core recommended",
+        "selected_channels_label": ", ".join(selected_channels) if selected_channels else "Google sign-in recommended",
         "workspace_mode_label": _humanize(str(workspace.get("mode") or "personal")),
         "brief_headline": str(preview.get("headline") or "Turn your channels into a prioritized day."),
         "first_brief_items": _list_rows(
             preview.get("first_brief_preview") or preview.get("first_brief"),
             (
-                "Connect Google Core and surface the first useful morning memo.",
-                "Keep one reviewable workflow before widening the channel footprint.",
+                "Connect Google sign-in if you want easier return access from the same account.",
+                "Keep one reviewable property workflow before widening the channel footprint.",
                 "Make approvals and memory rules explicit before automating actions.",
             ),
         ),
         "suggested_actions": _list_rows(
             preview.get("suggested_actions"),
             (
-                "Turn the workspace posture into a useful morning memo and queue.",
+                "Turn the workspace posture into a useful shortlist and research loop.",
                 "Add more channels only after the first loop already feels useful.",
             ),
         ),
@@ -640,17 +640,17 @@ def integration_detail(
     channels = dict(status.get("channels") or {})
     mapping = {
         "google": {
-            "title": "Google Core",
+            "title": "Google sign-in",
             "eyebrow": "Google",
             "detail_points": (
-                "Start with Google Core unless you already know you need broader workspace actions.",
-                "Google Core is enough for drafts, delivery verification, calendar context, people context, and a useful first morning memo.",
-                "Full Workspace is the explicit upgrade path when you need broader Gmail or Drive context.",
+                "Start with Google sign-in unless you already know you need broader workspace actions.",
+                "PropertyQuarry only needs Google identity by default so the same account can return cleanly.",
+                "Broader Gmail or Drive context stays an explicit upgrade path instead of the default.",
             ),
             "body_points": (
                 "Explain permissions in plain language first and raw scopes second.",
                 "Show a real connected account and a real first success instead of treating consent as the finish line.",
-                "Keep Google as the recommended first connection in the public product flow.",
+                "Keep Google as optional account access, not as the center of the product story.",
             ),
         },
         "telegram": {

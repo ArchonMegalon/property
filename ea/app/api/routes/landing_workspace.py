@@ -34,9 +34,10 @@ def _search_item_key(item: dict[str, object]) -> tuple[str, str, str]:
 def _google_connect_action(sync: dict[str, object], *, return_to: str = "/app/settings/google") -> dict[str, str]:
     connected = bool(sync.get("connected"))
     token_status = str(sync.get("token_status") or "missing").strip()
+    workspace_sync_supported = bool(sync.get("workspace_sync_supported"))
     if not connected:
         return {
-            "detail": "Google sync cannot start until the workspace is connected.",
+            "detail": "Google account linking is not set up yet.",
             "label": "Connect Google",
             "href": f"/app/actions/google/connect?return_to={return_to}",
             "method": "get",
@@ -46,6 +47,13 @@ def _google_connect_action(sync: dict[str, object], *, return_to: str = "/app/se
             "detail": str(sync.get("reauth_required_reason") or "Google access needs attention before the next loop."),
             "label": "Reconnect Google",
             "href": f"/app/actions/google/connect?return_to={return_to}",
+            "method": "get",
+        }
+    if not workspace_sync_supported:
+        return {
+            "detail": "Google is linked for sign-in and verified return access only.",
+            "label": "Manage Google",
+            "href": return_to,
             "method": "get",
         }
     return {
@@ -71,7 +79,7 @@ def _google_connect_email_recipient(*, principal_id: str, access_email: str = ""
     return ""
 
 
-def _google_connect_email_href(*, recipient_email: str, return_to: str = "/app/settings/google", scope_bundle: str = "full_workspace") -> str:
+def _google_connect_email_href(*, recipient_email: str, return_to: str = "/app/settings/google", scope_bundle: str = "identity") -> str:
     return "/app/actions/google/email-connect-link?" + urllib.parse.urlencode(
         {
             "recipient_email": str(recipient_email or "").strip().lower(),
@@ -193,7 +201,7 @@ def _google_account_row(
     encoded_return_to = urllib.parse.quote(return_to, safe="/?:=&")
     reconnect_href = (
         f"/app/actions/google/connect?return_to={encoded_return_to}"
-        f"&scope_bundle={urllib.parse.quote(str(account.consent_stage or 'core'), safe='')}"
+        f"&scope_bundle={urllib.parse.quote(str(account.consent_stage or 'identity'), safe='')}"
     )
     verify_href = f"/app/actions/google/accounts/{encoded_binding_id}/verify-send"
     verify_label = "Verify again" if str(dict(verification or {}).get("state") or "").strip().lower() == "completed" else "Verify send"
@@ -1027,22 +1035,14 @@ def settings_google_detail(
     ).strip()
     connect_another_href = (
         "/app/actions/google/connect?"
-        + urllib.parse.urlencode({"return_to": "/app/settings/google", "scope_bundle": "core"})
+        + urllib.parse.urlencode({"return_to": "/app/settings/google", "scope_bundle": "identity"})
     )
     email_connect_recipient = _google_connect_email_recipient(
         principal_id=context.principal_id,
         access_email=str(context.access_email or ""),
         primary_email=primary_email,
     )
-    email_connect_href = (
-        _google_connect_email_href(
-            recipient_email=email_connect_recipient,
-            return_to="/app/settings/google",
-            scope_bundle="full_workspace",
-        )
-        if email_connect_recipient
-        else ""
-    )
+    email_connect_href = ""
     covered_sync_candidates = int(sync.get("covered_signal_candidates") or 0)
     action = _google_connect_action(sync, return_to="/app/settings/google")
     resolved_verify_state = verify_status or str(sync.get("last_send_verification_state") or "").strip()
@@ -1097,12 +1097,10 @@ def settings_google_detail(
     if email_link_error:
         email_link_detail = email_link_error
     elif email_link_status == "sent" and email_link_email:
-        bundle_label = str(google_oauth_service.google_scope_bundle_details(email_link_bundle or "full_workspace").get("label") or "Google Full Workspace")
+        bundle_label = str(google_oauth_service.google_scope_bundle_details(email_link_bundle or "identity").get("label") or "Google sign-in")
         email_link_detail = f"Sent {bundle_label} link to {email_link_email}"
-    elif email_connect_recipient:
-        email_link_detail = f"Ready to send a full-access Google link to {email_connect_recipient}"
     else:
-        email_link_detail = "No workspace email is available for this action yet."
+        email_link_detail = "Google email links are disabled on this product surface. Use direct connect from this device."
     sync_summary = (
         f"{connected_account_total} connected inbox{'es' if connected_account_total != 1 else ''} · "
         f"{str(sync.get('freshness_state') or 'watch').replace('_', ' ')} freshness · "
@@ -1153,10 +1151,6 @@ def settings_google_detail(
                 action_href=connect_another_href,
                 action_label="Add inbox",
                 action_method="get",
-                secondary_action_href=email_connect_href,
-                secondary_action_label="Email full-access link" if email_connect_href else "",
-                secondary_action_method="post" if email_connect_href else "",
-                secondary_return_to="/app/settings/google" if email_connect_href else "",
             ),
             _object_detail_row("Primary inbox", primary_email or "Not connected", "Google"),
             _object_detail_row("Last sync", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
@@ -1173,10 +1167,6 @@ def settings_google_detail(
                 action_label=action["label"],
                 action_method=action["method"],
                 return_to="/app/settings/google",
-                secondary_action_href=email_connect_href,
-                secondary_action_label="Email full-access link" if email_connect_href else "",
-                secondary_action_method="post" if email_connect_href else "",
-                secondary_return_to="/app/settings/google" if email_connect_href else "",
             ),
             _object_detail_row("Last manual sync", last_manual_sync_detail, "Action"),
             _object_detail_row("Last account change", account_change_detail, "Accounts"),
@@ -1195,7 +1185,7 @@ def settings_google_detail(
                     _object_detail_row("Last refresh", str(sync.get("last_refresh_at") or "Not recorded"), "Auth"),
                     _object_detail_row("Reauth reason", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
                     _object_detail_row("Last send verification", verify_detail, "Verify"),
-                    _object_detail_row("Last emailed connect link", email_link_detail, "Email"),
+                    _object_detail_row("Google link posture", email_link_detail, "Access"),
                     _object_detail_row(
                         action["label"],
                         action["detail"],
@@ -1205,10 +1195,6 @@ def settings_google_detail(
                         action_label=action["label"],
                         action_method=action["method"],
                         return_to="/app/settings/google",
-                        secondary_action_href=email_connect_href,
-                        secondary_action_label="Email full-access link" if email_connect_href else "",
-                        secondary_action_method="post" if email_connect_href else "",
-                        secondary_return_to="/app/settings/google" if email_connect_href else "",
                     ),
                 ],
             },
@@ -1233,10 +1219,6 @@ def settings_google_detail(
                         action_href=connect_another_href,
                         action_label="Connect inbox",
                         action_method="get",
-                        secondary_action_href=email_connect_href,
-                        secondary_action_label="Email full-access link" if email_connect_href else "",
-                        secondary_action_method="post" if email_connect_href else "",
-                        secondary_return_to="/app/settings/google" if email_connect_href else "",
                     )
                 ],
             },
@@ -1848,6 +1830,10 @@ def app_google_signal_sync(
     actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
     return_to = _normalize_browser_return_to(request.query_params.get("return_to"), default="/app/settings/google")
     separator = "&" if "?" in return_to else "?"
+    diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
+    sync = dict(dict(diagnostics.get("analytics") or {}).get("sync") or {})
+    if not bool(sync.get("google_workspace_sync_supported")):
+        return RedirectResponse(f"{return_to}{separator}sync_error=google_identity_only", status_code=303)
     try:
         product.sync_google_workspace_signals(
             principal_id=context.principal_id,
@@ -1868,7 +1854,7 @@ def app_google_connect(
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
     return_to = _normalize_browser_return_to(request.query_params.get("return_to"), default="/app/settings/google")
-    scope_bundle = str(request.query_params.get("scope_bundle") or "core").strip() or "core"
+    scope_bundle = str(request.query_params.get("scope_bundle") or "identity").strip() or "identity"
     separator = "&" if "?" in return_to else "?"
     try:
         started = container.onboarding.start_google(
@@ -1910,7 +1896,7 @@ async def app_google_email_connect_link(
             access_email=str(context.access_email or ""),
         )
     )
-    scope_bundle = _form_value(body, "scope_bundle", str(query.get("scope_bundle") or "full_workspace"))
+    scope_bundle = _form_value(body, "scope_bundle", str(query.get("scope_bundle") or "identity"))
     product = build_product_service(container)
     try:
         result = product.send_google_connect_email_link(
