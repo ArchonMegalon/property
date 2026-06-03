@@ -3,6 +3,7 @@ set -euo pipefail
 
 APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXTRA_COMPOSE_OVERRIDES=()
+export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-propertyquarry}"
 
 memory_only="${PROPERTYQUARRY_MEMORY_ONLY:-${EA_MEMORY_ONLY:-0}}"
 bootstrap_db="${PROPERTYQUARRY_BOOTSTRAP_DB:-${EA_BOOTSTRAP_DB:-0}}"
@@ -50,7 +51,7 @@ EOF
   esac
 done
 
-echo "== PropertyQuarry deploy: ${APP_ROOT} =="
+echo "== PropertyQuarry deploy: ${APP_ROOT} (project=${COMPOSE_PROJECT_NAME}) =="
 
 if [[ ! -f "${APP_ROOT}/.env" ]]; then
   cp "${APP_ROOT}/.env.example" "${APP_ROOT}/.env"
