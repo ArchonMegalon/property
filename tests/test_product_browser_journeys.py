@@ -75,7 +75,8 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert onboarding.status_code == 200
     assert "Start a workspace that shows the first useful loop." in onboarding.text
     assert "Google sign-in" in onboarding.text
-    assert "Workspace shape" in onboarding.text
+    assert "Search shape" in onboarding.text
+    assert "Digest cadence" in onboarding.text
     assert 'href="/app/properties"' in onboarding.text
     assert "Current plan posture" not in onboarding.text
     assert "operator seat" not in onboarding.text
