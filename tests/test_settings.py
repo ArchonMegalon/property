@@ -41,6 +41,8 @@ def _clear_env() -> None:
         "PROPERTYQUARRY_ENABLE_PUBLIC_RESULTS",
         "PROPERTYQUARRY_ENABLE_PUBLIC_TOURS",
         "PROPERTYQUARRY_ENABLE_PUBLIC_MEMORIALS",
+        "PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES",
+        "EA_ENABLE_LEGACY_RUNTIME_SURFACES",
     ):
         os.environ.pop(key, None)
 
@@ -192,6 +194,16 @@ def test_propertyquarry_public_surface_aliases_can_enable_tours_without_memorial
     assert s.public_tours_enabled is True
     assert s.public_results_enabled is False
     assert s.public_memorials_enabled is False
+
+
+def test_propertyquarry_legacy_runtime_surface_alias_defaults_off_and_can_enable() -> None:
+    _clear_env()
+    s = get_settings()
+    assert s.legacy_runtime_surfaces_enabled is False
+
+    os.environ["PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES"] = "1"
+    s = get_settings()
+    assert s.legacy_runtime_surfaces_enabled is True
 
 
 def test_readiness_service_rejects_prod_without_api_token() -> None:

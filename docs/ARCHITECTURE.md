@@ -40,10 +40,11 @@ New property product work should land here first. The older EA repo should no lo
 ## Recommended next isolation steps
 
 1. Narrow public-route registration to property-facing surfaces by default.
-2. Split property runtime tests from inherited assistant/runtime suites.
-3. Rename service/container identities from `ea-*` to `propertyquarry-*`.
-4. Separate product release receipts and docs from the inherited EA canon.
-5. Move shared generic runtime pieces into a reusable base package only if duplication becomes expensive.
+2. Keep inherited authenticated runtime surfaces behind an explicit legacy flag.
+3. Split property runtime tests from inherited assistant/runtime suites.
+4. Rename service/container identities from `ea-*` to `propertyquarry-*`.
+5. Separate product release receipts and docs from the inherited EA canon.
+6. Move shared generic runtime pieces into a reusable base package only if duplication becomes expensive.
 
 ## Product capabilities preserved
 

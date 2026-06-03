@@ -59,22 +59,36 @@ def _include_authenticated_routes(
     app: FastAPI,
     *,
     auth_dependency: list,
+    onboarding_router: APIRouter,
+    images_router: APIRouter,
+    google_oauth_router: APIRouter,
+    product_api_delivery_router: APIRouter,
+    product_api_workspace_router: APIRouter,
+    product_api_router: APIRouter,
+    runtime_router: APIRouter,
+) -> None:
+    app.include_router(onboarding_router, dependencies=auth_dependency)
+    app.include_router(images_router, dependencies=auth_dependency)
+    app.include_router(google_oauth_router)
+    app.include_router(product_api_delivery_router, dependencies=auth_dependency)
+    app.include_router(product_api_workspace_router, dependencies=auth_dependency)
+    app.include_router(product_api_router, dependencies=auth_dependency)
+    app.include_router(runtime_router, dependencies=auth_dependency)
+
+
+def _include_legacy_authenticated_routes(
+    app: FastAPI,
+    *,
+    auth_dependency: list,
     channels_router: APIRouter,
     human_router: APIRouter,
     memory_router: APIRouter,
     evidence_router: APIRouter,
     observations_router: APIRouter,
-    onboarding_router: APIRouter,
     delivery_router: APIRouter,
-    images_router: APIRouter,
     connectors_router: APIRouter,
-    google_oauth_router: APIRouter,
     policy_router: APIRouter,
     providers_router: APIRouter,
-    product_api_delivery_router: APIRouter,
-    product_api_workspace_router: APIRouter,
-    product_api_router: APIRouter,
-    runtime_router: APIRouter,
     ltd_runtime_router: APIRouter,
     plans_router: APIRouter,
     rewrite_router: APIRouter,
@@ -88,17 +102,10 @@ def _include_authenticated_routes(
     app.include_router(memory_router, dependencies=auth_dependency)
     app.include_router(evidence_router, dependencies=auth_dependency)
     app.include_router(observations_router, dependencies=auth_dependency)
-    app.include_router(onboarding_router, dependencies=auth_dependency)
     app.include_router(delivery_router, dependencies=auth_dependency)
-    app.include_router(images_router, dependencies=auth_dependency)
     app.include_router(connectors_router, dependencies=auth_dependency)
-    app.include_router(google_oauth_router)
     app.include_router(policy_router, dependencies=auth_dependency)
     app.include_router(providers_router, dependencies=auth_dependency)
-    app.include_router(product_api_delivery_router, dependencies=auth_dependency)
-    app.include_router(product_api_workspace_router, dependencies=auth_dependency)
-    app.include_router(product_api_router, dependencies=auth_dependency)
-    app.include_router(runtime_router, dependencies=auth_dependency)
     app.include_router(ltd_runtime_router, dependencies=auth_dependency)
     app.include_router(plans_router, dependencies=auth_dependency)
     app.include_router(rewrite_router, dependencies=auth_dependency)
@@ -166,28 +173,33 @@ def create_app() -> FastAPI:
     _include_authenticated_routes(
         app,
         auth_dependency=auth_dependency,
-        channels_router=channels_router,
-        human_router=human_router,
-        memory_router=memory_router,
-        evidence_router=evidence_router,
-        observations_router=observations_router,
         onboarding_router=onboarding_router,
-        delivery_router=delivery_router,
         images_router=images_router,
-        connectors_router=connectors_router,
         google_oauth_router=google_oauth_router,
-        policy_router=policy_router,
-        providers_router=providers_router,
         product_api_delivery_router=product_api_delivery_router,
         product_api_workspace_router=product_api_workspace_router,
         product_api_router=product_api_router,
         runtime_router=runtime_router,
-        ltd_runtime_router=ltd_runtime_router,
-        plans_router=plans_router,
-        rewrite_router=rewrite_router,
-        skills_router=skills_router,
-        task_contracts_router=task_contracts_router,
-        tools_router=tools_router,
-        responses_router=responses_router,
     )
+    if s.legacy_runtime_surfaces_enabled:
+        _include_legacy_authenticated_routes(
+            app,
+            auth_dependency=auth_dependency,
+            channels_router=channels_router,
+            human_router=human_router,
+            memory_router=memory_router,
+            evidence_router=evidence_router,
+            observations_router=observations_router,
+            delivery_router=delivery_router,
+            connectors_router=connectors_router,
+            policy_router=policy_router,
+            providers_router=providers_router,
+            ltd_runtime_router=ltd_runtime_router,
+            plans_router=plans_router,
+            rewrite_router=rewrite_router,
+            skills_router=skills_router,
+            task_contracts_router=task_contracts_router,
+            tools_router=tools_router,
+            responses_router=responses_router,
+        )
     return app

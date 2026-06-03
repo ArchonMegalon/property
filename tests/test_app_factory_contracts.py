@@ -90,3 +90,29 @@ def test_app_factory_propertyquarry_flags_win_over_ea_public_surface_flags() -> 
     assert "/results/{slug}" not in route_paths
     assert "/tours/{slug}.json" not in route_paths
     assert "/memorials/{slug}" not in route_paths
+
+
+def test_app_factory_omits_legacy_authenticated_runtime_routes_by_default() -> None:
+    client = _client()
+    route_paths = {route.path for route in client.app.routes}
+
+    assert "/v1/responses" not in route_paths
+    assert "/v1/human/tasks" not in route_paths
+    assert "/v1/channels/telegram/ingest" not in route_paths
+    assert "/v1/memory/items" not in route_paths
+    assert "/v1/providers/registry" not in route_paths
+
+
+def test_app_factory_mounts_legacy_authenticated_runtime_routes_when_enabled() -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ["EA_API_TOKEN"] = ""
+    os.environ["PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES"] = "1"
+    from app.api.app import create_app
+
+    client = TestClient(create_app())
+    route_paths = {route.path for route in client.app.routes}
+    assert "/v1/responses" in route_paths
+    assert "/v1/human/tasks" in route_paths
+    assert "/v1/channels/telegram/ingest" in route_paths
+    assert "/v1/memory/items" in route_paths
+    assert "/v1/providers/registry" in route_paths
