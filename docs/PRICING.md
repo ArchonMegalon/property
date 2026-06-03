@@ -51,3 +51,5 @@ It should also control:
 ## Billing note
 
 PayFunnels is the preferred first commercial lane for self-serve plan gating and upgrades.
+
+PayPal API credentials are also captured locally as a direct payment fallback or expansion lane for PropertyQuarry. They are not wired into checkout, webhooks, or entitlements yet.

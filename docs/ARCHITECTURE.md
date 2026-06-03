@@ -20,6 +20,7 @@ Backend remains shared with EA for:
 - hosted review packets
 - handoff packets
 - notification triggers
+- international provider catalog and market selection
 
 ## Phase 2
 
@@ -41,6 +42,8 @@ Full runtime separation if justified.
 ## Product capabilities to preserve
 
 - source scanning
+- country-aware provider selection
+- language-aware search posture
 - ranking against profile preferences
 - hosted property review pages
 - research request escalation

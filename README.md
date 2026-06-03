@@ -14,6 +14,9 @@ It is aimed at renters and buyers who want:
 
 - consumer-first
 - English-language product shell
+- multilingual property brief defaults
+- multi-country provider selection
+- market-aware budget posture by country and currency
 - freemium onboarding
 - paid research and agent tiers
 - shared backend heritage with EA during the extraction phase
@@ -29,6 +32,18 @@ PropertyQuarry should turn fragmented listings into:
 - researched property packets
 - hosted review pages
 - optional 360/tour enrichment when available
+
+Current market layer targets:
+
+- Austria
+- Germany
+- Switzerland
+- United Kingdom
+- Spain
+- Italy
+- France
+- Netherlands
+- United States
 
 ## Planned surfaces
 
@@ -52,3 +67,14 @@ PropertyQuarry should turn fragmented listings into:
 ## Extraction principle
 
 The product should be extracted as a dedicated frontend and commercial shell first, while reusing the proven EA property-search backend until the domain model and revenue loop are stable.
+
+## Local environment
+
+Use [.env.example](.env.example) as the local starting point for:
+
+- `PROPERTYQUARRY_PUBLIC_BASE_URL`
+- `PAYFUNNELS_API_KEY`
+- `PAYFUNNELS_WEBHOOK_SECRET`
+- `PAYPAL_CLIENT_ID`
+- `PAYPAL_SECRET`
+- `PAYPAL_ACCOUNT_EMAIL`

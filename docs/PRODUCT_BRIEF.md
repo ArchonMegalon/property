@@ -40,6 +40,9 @@ PropertyQuarry aggregates listings, ranks them against personal preferences, and
 
 1. Discovery
    - search major portals
+   - support multiple countries and research languages
+   - switch provider sets by market
+   - keep budget posture market-aware instead of assuming one currency everywhere
    - save profile preferences
    - re-run searches over time
 
@@ -69,3 +72,10 @@ PropertyQuarry aggregates listings, ranks them against personal preferences, and
 ## Monetization stance
 
 Freemium entry with paid research depth.
+
+## Current flagship scope
+
+- Austria, Germany, Switzerland, United Kingdom, Spain, Italy, France, Netherlands, and United States market selection
+- per-country provider catalog in the workspace
+- language-aware property brief defaults
+- provider-specific source generation as the crawl entry layer

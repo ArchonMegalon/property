@@ -14,9 +14,19 @@ Product shell extraction
 Search workspace productization
 
 - preference onboarding
+- country and language selection
 - platform selection
 - search-run progress
 - shortlist and ranking
+
+## Milestone 2a
+
+International market coverage
+
+- country-specific provider catalogs
+- major provider bundles per market
+- market-aware crawl entry URLs
+- future provider-specific crawler upgrades behind the same catalog
 
 ## Milestone 3
 
