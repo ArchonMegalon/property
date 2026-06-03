@@ -183,6 +183,10 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     response = client.get("/app/properties", params={"run_id": "run-42"})
     assert response.status_code == 200
     assert "Run a premium market sweep" in response.text
+    assert "Search posture" in response.text
+    assert "Areas and priorities" in response.text
+    assert "Providers and launch" in response.text
+    assert "State or metro area" in response.text
     assert "Target areas" in response.text
     assert "What matters" in response.text
     assert "Country" in response.text
@@ -193,6 +197,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Germany" in response.text
     assert "Buy" in response.text
     assert "Apartment" in response.text
+    assert "Lower Austria" in response.text
     assert "lift family balcony" in response.text
     assert "Which providers this country unlocks" in response.text
     assert "ImmoScout24 Germany" in response.text
@@ -209,6 +214,13 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in response.text
     assert "Plus checkout" in response.text
     assert 'data-console-form-variant="property_search"' in response.text
+    assert 'data-property-step-trigger="search"' in response.text
+    assert 'data-property-step-trigger="areas"' in response.text
+    assert 'data-property-step-trigger="providers"' in response.text
+    assert 'data-property-actions hidden' in response.text
+    assert 'data-property-step-panel="providers" hidden' in response.text
+    assert "JavaScript is unavailable. The guided wizard is disabled" in response.text
+    assert "Step 1 of 3" in response.text
     assert "Saved. Learning loop updated." in response.text
     assert "Reload the page to see the updated learning summary." not in response.text
 
@@ -568,7 +580,7 @@ def test_google_settings_surface_connect_action_and_browser_connect_route(monkey
     parsed = urllib.parse.urlparse(started.headers["location"])
     query = urllib.parse.parse_qs(parsed.query)
     assert "https://accounts.google.com/o/oauth2/v2/auth" in started.headers["location"]
-    assert query["redirect_uri"][0] == "https://ea.example/google/callback"
+    assert query["redirect_uri"][0] == "https://propertyquarry.com/google/callback"
     assert read_google_oauth_state(query["state"][0])["return_to"] == "/app/settings/google"
     blocked = client.get("/app/actions/google/connect", params={"return_to": "https://evil.example/phish"}, follow_redirects=False)
     assert blocked.status_code == 303

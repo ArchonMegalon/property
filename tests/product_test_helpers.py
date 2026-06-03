@@ -18,8 +18,13 @@ def build_product_client(*, principal_id: str = "exec-product-api") -> TestClien
     os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
     from app.api.app import create_app
 
-    client = TestClient(create_app())
-    client.headers.update({"X-EA-Principal-ID": principal_id})
+    client = TestClient(create_app(), base_url="https://propertyquarry.com")
+    client.headers.update(
+        {
+            "X-EA-Principal-ID": principal_id,
+            "host": "propertyquarry.com",
+        }
+    )
     return client
 
 
@@ -34,12 +39,13 @@ def build_operator_product_client(*, principal_id: str = "exec-product-api", ope
     os.environ.pop("EA_ENABLE_PUBLIC_TOURS", None)
     from app.api.app import create_app
 
-    client = TestClient(create_app())
+    client = TestClient(create_app(), base_url="https://propertyquarry.com")
     client.headers.update(
         {
             "Authorization": "Bearer test-token",
             "X-EA-Principal-ID": principal_id,
             "X-EA-Operator-ID": operator_id,
+            "host": "propertyquarry.com",
         }
     )
     return client

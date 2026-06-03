@@ -7,7 +7,21 @@ PUBLIC_NAV = (
     {"href": "/sign-in", "label": "Sign in", "key": "sign-in"},
 )
 
-APP_NAV_GROUPS = (
+EA_APP_NAV_GROUPS = (
+    {
+        "label": "Workspace",
+        "items": (
+            {"href": "/app/today", "label": "Today", "key": "today"},
+            {"href": "/app/queue", "label": "Queue", "key": "queue"},
+            {"href": "/app/commitments", "label": "Commitments", "key": "commitments"},
+            {"href": "/app/people", "label": "People", "key": "people"},
+            {"href": "/app/evidence", "label": "Evidence", "key": "evidence"},
+            {"href": "/app/settings", "label": "Settings", "key": "settings"},
+        ),
+    },
+)
+
+PROPERTY_APP_NAV_GROUPS = (
     {
         "label": "Workspace",
         "items": (
@@ -17,10 +31,20 @@ APP_NAV_GROUPS = (
     },
 )
 
+
+def app_nav_groups_for_brand(brand_key: str) -> tuple[dict[str, object], ...]:
+    if str(brand_key or "").strip().lower() == "propertyquarry":
+        return PROPERTY_APP_NAV_GROUPS
+    return EA_APP_NAV_GROUPS
+
+
+APP_NAV_GROUPS = EA_APP_NAV_GROUPS
+
 ADMIN_NAV_GROUPS = (
     {
         "label": "Operator center",
         "items": (
+            {"href": "/admin/office", "label": "Office", "key": "office"},
             {"href": "/admin/providers", "label": "Providers", "key": "providers"},
             {"href": "/admin/audit-trail", "label": "Audit Trail", "key": "audit-trail"},
             {"href": "/admin/operators", "label": "Operators", "key": "operators"},

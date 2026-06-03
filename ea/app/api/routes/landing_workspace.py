@@ -15,10 +15,11 @@ from app.api.routes.landing import (
     _render_console_object_detail,
     _render_public_template,
 )
-from app.api.routes.landing_content import APP_NAV_GROUPS
+from app.api.routes.landing_content import app_nav_groups_for_brand
 from app.container import AppContainer
 from app.product.service import build_product_service
 from app.services import google_oauth as google_oauth_service
+from app.services.public_branding import request_brand
 
 router = APIRouter(tags=["landing"])
 
@@ -2165,7 +2166,7 @@ def app_search(
             context=context,
             console_title="Workspace search",
             console_summary="Search is the fastest way to jump across the office object model and execute the next obvious action.",
-            nav_groups=APP_NAV_GROUPS,
+            nav_groups=app_nav_groups_for_brand(request_brand(request)["key"]),
             workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
             cards=cards,
             stats=stats,
