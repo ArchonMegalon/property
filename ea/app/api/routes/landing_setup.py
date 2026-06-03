@@ -20,12 +20,29 @@ from app.api.routes.landing import (
 )
 from app.container import AppContainer
 from app.product.service import build_product_service
-from app.services.google_oauth import complete_google_oauth_callback, google_bundle_supports_workspace_sync, read_google_oauth_state
+from app.services.google_oauth import (
+    complete_google_oauth_callback,
+    google_bundle_supports_workspace_sync,
+    read_google_oauth_state,
+    read_google_oauth_state_unchecked,
+)
 
 router = APIRouter(tags=["landing"])
 
 
+def _propertyquarry_public_base_url() -> str:
+    return str(os.environ.get("PROPERTYQUARRY_PUBLIC_BASE_URL") or "https://propertyquarry.com").strip().rstrip("/")
+
+
 def _public_app_base_url(request: Request) -> str:
+    forwarded = str(request.headers.get("x-forwarded-host") or "").strip().lower().rstrip(".")
+    request_host = str(request.url.hostname or "").strip().lower().rstrip(".")
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
+    effective_host = forwarded or request_host
+    if effective_host in {"propertyquarry.com", "www.propertyquarry.com"}:
+        if forwarded:
+            return f"{forwarded_proto}://{forwarded}"
+        return str(request.base_url).rstrip("/")
     explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
     if explicit:
         return explicit
@@ -34,8 +51,6 @@ def _public_app_base_url(request: Request) -> str:
         parsed = urllib.parse.urlparse(redirect_uri)
         if parsed.scheme and parsed.netloc:
             return f"{parsed.scheme}://{parsed.netloc}"
-    forwarded = str(request.headers.get("x-forwarded-host") or "").strip()
-    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
     if forwarded:
         return f"{forwarded_proto}://{forwarded}"
     return str(request.base_url).rstrip("/")
@@ -127,8 +142,8 @@ def _render_google_oauth_callback_failure(
             "Retry the consent flow from the latest setup page if this was an expired or cancelled sign-in.",
         ),
         body_points=(
-            "EA keeps the browser callback fail-closed and should show the real blocker instead of a blank gateway error.",
-            "If this persists, check Google OAuth credentials, redirect URI, and provider availability.",
+            "PropertyQuarry keeps the browser callback fail-closed and should show the real blocker instead of a blank gateway error.",
+            "If this persists, check the Google OAuth credentials, redirect URI, and provider availability for propertyquarry.com.",
         ),
     )
     response.status_code = status_code
@@ -145,7 +160,7 @@ async def setup_start(
     principal_id = _browser_form_context(form_data=form_data, container=container, access_identity=access_identity)
     container.onboarding.start_workspace(
         principal_id=principal_id,
-        workspace_name=_form_value(form_data, "workspace_name", "Executive Workspace"),
+        workspace_name=_form_value(form_data, "workspace_name", "PropertyQuarry Workspace"),
         workspace_mode=_form_value(form_data, "workspace_mode", "personal"),
         region=_form_value(form_data, "region", ""),
         language=_form_value(form_data, "language", ""),
@@ -255,7 +270,7 @@ async def setup_finalize(
         auto_brief_recipient_email=_form_value(form_data, "auto_brief_recipient_email", ""),
         auto_brief_delivery_channel=_form_value(form_data, "auto_brief_delivery_channel", "email"),
     )
-    return RedirectResponse("/app/today", status_code=303)
+    return RedirectResponse("/app/properties", status_code=303)
 
 
 @router.post("/google/connect", response_model=None)
@@ -380,7 +395,20 @@ def google_oauth_browser_callback(
             )
         account = complete_google_oauth_callback(container=container, code=code, state=state)
     except RuntimeError as exc:
-        return _render_google_oauth_callback_failure(request, detail=str(exc), status_code=400)
+        detail = str(exc or "google_oauth_callback_failed")
+        if detail == "google_oauth_state_expired" and str(state or "").strip():
+            try:
+                expired_state = read_google_oauth_state_unchecked(state)
+            except Exception:
+                expired_state = {}
+            return_to = _normalize_browser_return_to(str(expired_state.get("return_to") or ""), default="")
+            if return_to:
+                separator = "&" if "?" in return_to else "?"
+                return RedirectResponse(
+                    f"{return_to}{separator}google_error=google_oauth_state_expired",
+                    status_code=303,
+                )
+        return _render_google_oauth_callback_failure(request, detail=detail, status_code=400)
     except Exception as exc:
         return _render_google_oauth_callback_failure(request, detail=str(exc or "google_oauth_callback_failed"), status_code=502)
     product = build_product_service(container)
@@ -426,8 +454,9 @@ def google_oauth_browser_callback(
         return RedirectResponse(destination, status_code=303)
     register_signal_payload: dict[str, object] | None = None
     if return_to.startswith("/register"):
+        register_return_to = f"{_propertyquarry_public_base_url()}{return_to}"
         register_signal_payload = {
-            "return_to": return_to,
+            "return_to": register_return_to,
             "google_connected": True,
             "account_email": account.google_email,
             "sync_status": str(sync_result.get("status") or "").strip(),

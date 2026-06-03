@@ -57,17 +57,17 @@ ASSISTANT_MODE_CATALOG: tuple[dict[str, str], ...] = (
     {
         "key": "personal",
         "label": "Personal",
-        "summary": "One private operator across your own mail, chats, memory, and morning memo.",
+        "summary": "One private property workspace for search posture, shortlist review, and saved feedback.",
     },
     {
         "key": "team",
         "label": "Shared workspace",
-        "summary": "A shared workspace for handoffs, inbox triage, commitments, and tenant-safe memory.",
+        "summary": "A shared property workspace for shortlist review, research follow-ups, and coordinated decisions.",
     },
     {
         "key": "executive_ops",
         "label": "Executive support",
-        "summary": "Cross-channel executive operations with briefs, drafts, commitments, and durable memory.",
+        "summary": "A heavier property operation with deeper research, more operators, and stronger delivery controls.",
     },
 )
 
@@ -599,7 +599,7 @@ class OnboardingService(AssistantOnboardingService):
                 "ingestion_mode": "plan_confirmed",
                 "status": completion_status,
                 "last_imported_count": int(imported_message_count or 0),
-                "next_step": "Use next setup steps to finalize memory policy and generate the first morning memo.",
+                "next_step": "Use the next setup steps to finalize preferences and prepare the first useful property shortlist.",
             }
         )
         updated = self._replace_channel_pref(state, "whatsapp", whatsapp_pref, status="in_progress")
@@ -1075,12 +1075,12 @@ class OnboardingService(AssistantOnboardingService):
         if "whatsapp" in state.selected_channels and str(dict(channel_statuses.get("whatsapp") or {}).get("status") or "") in {"planned_business", "export_planned", "not_selected"}:
             return "Choose the WhatsApp path: supported business onboarding or export-planned intake."
         if not dict(state.privacy_preferences_json):
-            return "Finalize privacy and morning memo preferences so EA can build the first trustworthy morning memo."
+            return "Finalize your workspace preferences so PropertyQuarry can open the first useful property workflow cleanly."
         if bool(dict(state.privacy_preferences_json).get("allow_auto_briefs")) and not bool(
             dict(morning_memo_schedule or {}).get("resolved_recipient_email")
         ):
-            return "Connect Google or set a delivery email so the morning memo can actually send."
-        return "Review the first morning memo, then keep connecting the next real channel or import path."
+            return "Connect Google or set a delivery email so notifications can actually send when you enable them."
+        return "Review the first shortlist, save feedback, and only then add more providers or delivery lanes."
 
     @staticmethod
     def _normalize_auto_brief_cadence(value: str) -> str:

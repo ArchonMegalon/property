@@ -90,6 +90,14 @@ def _google_connect_email_href(*, recipient_email: str, return_to: str = "/app/s
 
 
 def _public_app_base_url(request: Request) -> str:
+    forwarded = str(request.headers.get("x-forwarded-host") or "").strip().lower().rstrip(".")
+    request_host = str(request.url.hostname or "").strip().lower().rstrip(".")
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
+    effective_host = forwarded or request_host
+    if effective_host in {"propertyquarry.com", "www.propertyquarry.com"}:
+        if forwarded:
+            return f"{forwarded_proto}://{forwarded}"
+        return str(request.base_url).rstrip("/")
     explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
     if explicit:
         return explicit
@@ -98,8 +106,6 @@ def _public_app_base_url(request: Request) -> str:
         parsed = urllib.parse.urlparse(redirect_uri)
         if parsed.scheme and parsed.netloc:
             return f"{parsed.scheme}://{parsed.netloc}"
-    forwarded = str(request.headers.get("x-forwarded-host") or "").strip()
-    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
     if forwarded:
         return f"{forwarded_proto}://{forwarded}"
     return str(request.base_url).rstrip("/")
@@ -279,8 +285,8 @@ def settings_plan_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Workspace plan",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title="PropertyQuarry plan",
         current_nav="settings",
         console_title="Workspace plan",
         console_summary="Plan unit, billing posture, messaging scope, and seat boundaries for this office.",
@@ -369,8 +375,8 @@ def settings_usage_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Workspace usage",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title="PropertyQuarry usage",
         current_nav="settings",
         console_title="Usage and activation",
         console_summary="Queue pressure, memo activity, operator load, and time-to-value stay visible while shaping rules and support posture.",
@@ -497,8 +503,8 @@ def settings_support_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Workspace support",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title="PropertyQuarry support",
         current_nav="settings",
         console_title="Support and recovery",
         console_summary="Support posture explains what is blocked, what is pending human review, what the providers are doing, and what bundle is ready to export.",
@@ -815,8 +821,8 @@ def settings_outcomes_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Workspace outcomes",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title="PropertyQuarry outcomes",
         current_nav="settings",
         console_title="Workspace outcomes",
         console_summary="First value, review activity, commitment closure, and correction signals explain whether this office is actually getting value.",
@@ -1125,8 +1131,8 @@ def settings_google_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Google sync",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title="PropertyQuarry Google connection",
         current_nav="settings",
         console_title="Google sync",
         console_summary="Google signal sync is visible in product language: primary sender, additional inboxes, freshness, staged work, and whether the office needs reauth before the next loop.",
@@ -1274,8 +1280,8 @@ def settings_trust_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Workspace trust",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title="PropertyQuarry trust",
         current_nav="settings",
         console_title="Workspace trust",
         console_summary="Evidence, rules, readiness, provider posture, and recent product events make the assistant legible when the office asks why something happened.",
@@ -1413,8 +1419,8 @@ def settings_access_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Workspace access",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title="PropertyQuarry access",
         current_nav="settings",
         console_title="Workspace access",
         console_summary="Active access sessions are visible and revocable from the browser, not buried in API payloads or support tooling.",
@@ -1434,7 +1440,7 @@ def settings_access_detail(
             _object_detail_row("Access opens", str(total_opens), "Telemetry"),
             _object_detail_row("Revoked sessions", str(len(revoked_sessions)), "Access"),
             _object_detail_row("Default operator target", "/admin/office", "Operators"),
-            _object_detail_row("Default principal target", "/app/today", "Principal"),
+            _object_detail_row("Default principal target", "/app/properties", "Principal"),
             _object_detail_row("Latest access action", access_detail, "Access"),
             _object_detail_row(
                 "Latest revocation",
@@ -1449,7 +1455,7 @@ def settings_access_detail(
                 "items": [
                     _object_detail_row(
                         str(item.get("email") or "unknown"),
-                        f"{str(item.get('role') or 'principal').replace('_', ' ')} · {str(item.get('default_target') or '/app/today')} · expires {str(item.get('expires_at') or '')[:19] or 'n/a'}",
+                        f"{str(item.get('role') or 'principal').replace('_', ' ')} · {str(item.get('default_target') or '/app/properties')} · expires {str(item.get('expires_at') or '')[:19] or 'n/a'}",
                         str(item.get("source_kind") or "workspace_access").replace("_", " ").title(),
                         action_href=f"/app/actions/access-sessions/{urllib.parse.quote(str(item.get('session_id') or '').strip(), safe='')}/revoke",
                         action_label="Revoke",
@@ -1537,8 +1543,8 @@ def settings_invitations_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Workspace invitations",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title="PropertyQuarry invitations",
         current_nav="settings",
         console_title="Workspace invitations",
         console_summary="Pending invites, accepted roles, and revoked access stay visible where the workspace decides who joins the office loop.",
@@ -2154,13 +2160,13 @@ def app_search(
         "console_shell.html",
         **_console_shell_context(
             request=request,
-            page_title="Executive Assistant Workspace search",
+            page_title="PropertyQuarry property search",
             current_nav="settings",
             context=context,
             console_title="Workspace search",
             console_summary="Search is the fastest way to jump across the office object model and execute the next obvious action.",
             nav_groups=APP_NAV_GROUPS,
-            workspace_label=str(workspace.get("name") or "Executive Workspace"),
+            workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
             cards=cards,
             stats=stats,
             console_form={

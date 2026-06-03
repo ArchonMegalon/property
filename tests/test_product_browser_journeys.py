@@ -1584,7 +1584,7 @@ def test_browser_settings_access_and_invitation_pages_render_live_workspace_stat
     assert access_url in access_page.text
     access_preview = client.get(access_url, follow_redirects=False)
     assert access_preview.status_code == 303
-    assert access_preview.headers["location"] == "/app/today"
+    assert access_preview.headers["location"] == "/app/properties"
     revoked_access = client.post(
         f"/app/actions/access-sessions/{session_id}/revoke",
         data={"return_to": "/app/settings/access"},

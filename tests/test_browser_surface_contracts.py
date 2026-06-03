@@ -19,9 +19,7 @@ PUBLIC_ROUTES = (
 )
 
 APP_ROUTES = (
-    "/app/today",
-    "/app/queue",
-    "/app/people",
+    "/app/properties",
     "/app/settings",
 )
 
@@ -73,9 +71,9 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         _assert_no_drift(response.text)
 
     landing = client.get("/")
-    assert "Wake up to a clear morning memo, not a wall of inbox noise." in landing.text
-    assert "Create personal workspace" in landing.text
-    assert "Nothing sends without your review." in landing.text
+    assert "Search once. Rank hard. Research the shortlist." in landing.text
+    assert "Create account" in landing.text
+    assert "Personalized search" in landing.text
     for href in _internal_links(landing.text):
         assert not href.startswith("/tours")
         assert not href.startswith("/results")
@@ -99,20 +97,12 @@ def test_app_surface_routes_render_without_product_drift() -> None:
         _assert_no_drift(response.text)
         assert principal_id not in response.text
 
-    today = client.get("/app/today")
-    assert "Morning Memo" in today.text
-    assert "Today" in today.text
-    assert "What is most likely to slip" in today.text
+    properties = client.get("/app/properties")
+    assert "Run a premium market sweep" in properties.text
+    assert "What this search is optimizing for" in properties.text
 
-    queue = client.get("/app/queue")
-    assert "Queue" in queue.text
-    assert "What needs an explicit call" in queue.text
-    assert "What gets tight first" in queue.text
-
-    people = client.get("/app/people")
-    assert "People" in people.text
-    assert "Who matters right now" in people.text
-    assert "What still hangs off those relationships" in people.text
+    settings = client.get("/app/settings")
+    assert "Rules" in settings.text or "Preferences" in settings.text
 
 
 def test_legacy_app_aliases_redirect_to_canonical_routes() -> None:

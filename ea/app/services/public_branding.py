@@ -33,6 +33,12 @@ def _propertyquarry_brand() -> dict[str, str]:
         "create_label": "Create account",
         "sign_in_label": "Sign in",
         "workspace_label": "Property research workspace",
+        "app_home": "/app/properties",
+        "public_base_url": str(
+            os.getenv("PROPERTY_PUBLIC_BASE_URL")
+            or os.getenv("PROPERTYQUARRY_PUBLIC_BASE_URL")
+            or "https://propertyquarry.com"
+        ).strip().rstrip("/"),
         "repo_url": "https://github.com/ArchonMegalon/property",
     }
 
@@ -48,6 +54,8 @@ def brand_from_hostname(hostname: str | None) -> dict[str, str]:
         "create_label": "Create personal workspace",
         "sign_in_label": "Sign in",
         "workspace_label": "Assistant workspace",
+        "app_home": "/app/today",
+        "public_base_url": str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/"),
         "repo_url": "https://github.com/ArchonMegalon/executive-assistant/blob/main/ARCHITECTURE_MAP.md",
     }
 

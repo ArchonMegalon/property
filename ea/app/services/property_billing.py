@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import base64
+import hashlib
+import hmac
 import os
+import urllib.parse
 from typing import Any
 
 import requests
@@ -63,8 +66,8 @@ _PAID_PLANS = {
     "plus": PropertyPlanSpec(
         plan_key="plus",
         display_name="Plus",
-        checkout_label="EUR 29 / 30 days",
-        amount_eur="29.00",
+        checkout_label="EUR 3 / 30 days",
+        amount_eur="3.00",
         pass_days=30,
         max_platforms=3,
         max_results_per_source=5,
@@ -204,6 +207,70 @@ def enforce_property_plan_limits(
 
 def paypal_configured() -> bool:
     return bool(str(os.getenv("PAYPAL_CLIENT_ID") or "").strip() and str(os.getenv("PAYPAL_SECRET") or "").strip())
+
+
+def _payfunnels_checkout_env_name(plan_key: str) -> str:
+    normalized = str(plan_key or "").strip().upper()
+    return f"PAYFUNNELS_{normalized}_CHECKOUT_URL"
+
+
+def payfunnels_checkout_url(*, plan_key: str) -> str:
+    return str(os.getenv(_payfunnels_checkout_env_name(plan_key)) or "").strip()
+
+
+def payfunnels_configured(*, plan_key: str = "") -> bool:
+    if str(plan_key or "").strip():
+        return bool(payfunnels_checkout_url(plan_key=plan_key) and str(os.getenv("PAYFUNNELS_WEBHOOK_SECRET") or "").strip())
+    for candidate in _PAID_PLANS:
+        if payfunnels_checkout_url(plan_key=candidate):
+            return True
+    return False
+
+
+def create_payfunnels_property_checkout(
+    *,
+    principal_id: str,
+    plan_key: str,
+    return_url: str,
+    cancel_url: str,
+) -> dict[str, object]:
+    spec = property_plan_spec(plan_key)
+    if spec.plan_key == "free":
+        raise RuntimeError("property_plan_free_does_not_require_checkout")
+    checkout_base = payfunnels_checkout_url(plan_key=spec.plan_key)
+    if not checkout_base:
+        raise RuntimeError("payfunnels_checkout_not_configured")
+    if not str(os.getenv("PAYFUNNELS_WEBHOOK_SECRET") or "").strip():
+        raise RuntimeError("payfunnels_webhook_not_configured")
+    checkout_ref = f"pf-{spec.plan_key}-{hashlib.sha256(f'{principal_id}:{_now_iso()}'.encode('utf-8')).hexdigest()[:20]}"
+    parsed = urllib.parse.urlparse(checkout_base)
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    query.extend(
+        [
+            ("client_reference_id", principal_id),
+            ("external_id", checkout_ref),
+            ("plan_key", spec.plan_key),
+            ("success_url", return_url),
+            ("cancel_url", cancel_url),
+        ]
+    )
+    approve_url = urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(query)))
+    return {
+        "order_id": checkout_ref,
+        "approve_url": approve_url,
+        "status": "redirect",
+        "plan_key": spec.plan_key,
+        "amount_eur": spec.amount_eur,
+    }
+
+
+def verify_payfunnels_webhook_signature(*, body_bytes: bytes, signature: str) -> bool:
+    secret = str(os.getenv("PAYFUNNELS_WEBHOOK_SECRET") or "").strip()
+    provided = str(signature or "").strip()
+    if not secret or not provided:
+        return False
+    expected = hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(provided, expected)
 
 
 def _paypal_api_base() -> str:

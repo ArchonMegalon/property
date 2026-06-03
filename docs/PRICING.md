@@ -17,7 +17,7 @@ Freemium with paid research depth.
 
 ### Plus
 
-Indicative price: 19 to 29 EUR per month
+Indicative price: 3 EUR per month
 
 - broader search coverage
 - ongoing saved search alerts
@@ -52,4 +52,10 @@ It should also control:
 
 PayFunnels is the preferred first commercial lane for self-serve plan gating and upgrades.
 
-PayPal API credentials are also captured locally as a direct payment fallback or expansion lane for PropertyQuarry. They are not wired into checkout, webhooks, or entitlements yet.
+The first enabled paid lane is `Plus` at `3 EUR / 30 days`.
+
+PropertyQuarry now supports:
+
+- PayFunnels-hosted checkout as the preferred first checkout lane for paid plans
+- a signed PayFunnels webhook for fail-closed plan activation
+- PayPal as the direct fallback lane where PayFunnels is not configured

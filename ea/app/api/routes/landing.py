@@ -48,7 +48,7 @@ from app.product.commercial import workspace_plan_for_mode
 from app.product.service import build_product_service
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import complete_google_oauth_callback
-from app.services.property_billing import paypal_configured, property_commercial_snapshot
+from app.services.property_billing import payfunnels_configured, paypal_configured, property_commercial_snapshot
 from app.services.property_market_catalog import (
     country_label as property_country_label,
     country_options as property_country_options,
@@ -121,10 +121,12 @@ def _principal_for_page(
 
 
 def _anonymous_onboarding_status() -> dict[str, object]:
+    payfunnels_plus = payfunnels_configured(plan_key="plus")
+    paypal_enabled = paypal_configured()
     return {
         "principal_id": "",
         "status": "anonymous",
-        "workspace": {"name": "Executive Assistant"},
+        "workspace": {"name": "PropertyQuarry"},
         "selected_channels": [],
         "privacy": {},
         "assistant_modes": [],
@@ -150,11 +152,18 @@ def _load_status(
 
 
 def _public_app_base_url(request: Request) -> str:
+    forwarded = str(request.headers.get("x-forwarded-host") or "").strip().lower().rstrip(".")
+    request_host = str(request.url.hostname or "").strip().lower().rstrip(".")
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
+    effective_host = forwarded or request_host
+    if effective_host in {"propertyquarry.com", "www.propertyquarry.com"}:
+        if forwarded:
+            forwarded_proto = _first_forwarded_https_or_first_token(forwarded_proto)
+            return f"{forwarded_proto}://{forwarded}"
+        return str(request.base_url).rstrip("/")
     explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
     if explicit:
         return explicit
-    forwarded = str(request.headers.get("x-forwarded-host") or "").strip()
-    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
     if forwarded:
         forwarded_proto = _first_forwarded_https_or_first_token(forwarded_proto)
     if forwarded:
@@ -469,6 +478,8 @@ def _property_console_context(
     preferences = normalize_property_search_preferences(dict(raw_property_preferences.get("raw_preferences") or raw_property_preferences))
     selected_country = normalize_country_code(preferences.get("country_code"))
     commercial = property_commercial_snapshot(preferences)
+    payfunnels_plus = payfunnels_configured(plan_key="plus")
+    paypal_enabled = paypal_configured()
     selected_platforms = {
         str(value or "").strip().lower()
         for value in (preferences.get("selected_platforms") or [])
@@ -569,8 +580,19 @@ def _property_console_context(
         "start_endpoint": "/app/api/signals/property/search/run",
         "preferences_endpoint": "/v1/onboarding/property-search/preferences",
         "commercial": commercial,
-        "paypal_checkout_enabled": paypal_configured(),
-        "paypal_order_endpoint": "/app/api/signals/property/billing/paypal/order",
+        "billing_checkout_provider": ("payfunnels" if payfunnels_plus else ("paypal" if paypal_enabled else "")),
+        "billing_checkout_provider_label": ("PayFunnels" if payfunnels_plus else ("PayPal" if paypal_enabled else "")),
+        "billing_checkout_enabled": bool(payfunnels_plus or paypal_enabled),
+        "billing_checkout_enabled_plans": (
+            ["plus"]
+            if payfunnels_plus
+            else (["plus", "agent"] if paypal_enabled else [])
+        ),
+        "billing_order_endpoint": (
+            "/app/api/signals/property/billing/payfunnels/order"
+            if payfunnels_plus
+            else "/app/api/signals/property/billing/paypal/order"
+        ),
     }
 
 
@@ -621,7 +643,7 @@ def integrations_page(
         **_public_context(
             request=request,
             current_nav="integrations",
-            page_title="Executive Assistant Integrations",
+            page_title="PropertyQuarry Integrations",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -692,7 +714,7 @@ def integration_detail(
         **_public_context(
             request=request,
             current_nav="integrations",
-            page_title=f"Executive Assistant {current['title']}",
+            page_title=f"PropertyQuarry {current['title']}",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -720,7 +742,7 @@ def security_page(
         **_public_context(
             request=request,
             current_nav="security",
-            page_title="Executive Assistant Security",
+            page_title="PropertyQuarry Security",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -742,7 +764,7 @@ def pricing_page(
         **_public_context(
             request=request,
             current_nav="pricing",
-            page_title="Executive Assistant Pricing",
+            page_title="PropertyQuarry Pricing",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -764,7 +786,7 @@ def docs_page(
         **_public_context(
             request=request,
             current_nav="docs",
-            page_title="Executive Assistant Docs",
+            page_title="PropertyQuarry Docs",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -917,7 +939,7 @@ def workspace_invite_preview(
             primary_action_href="/sign-in",
             primary_action_label="Request new sign-in link",
             secondary_action_href="/register",
-            secondary_action_label="Create personal workspace",
+            secondary_action_label="Create account",
             status_code=404,
         )
     access_url = str(invite.get("access_url") or "").strip()
@@ -976,12 +998,12 @@ def workspace_access_session(
             primary_action_href="/sign-in",
             primary_action_label="Request new sign-in link",
             secondary_action_href="/register",
-            secondary_action_label="Create personal workspace",
+            secondary_action_label="Create account",
             status_code=404,
         )
     target = _normalize_browser_return_to(
         request.query_params.get("return_to") or str(session.get("default_target") or "").strip(),
-        default="/app/today",
+        default="/app/properties",
     )
     response = RedirectResponse(target, status_code=303)
     response.set_cookie(
@@ -1027,7 +1049,7 @@ def workspace_invite_accept(
                 primary_action_href="/sign-in",
                 primary_action_label="Return to sign in",
                 secondary_action_href="/register",
-                secondary_action_label="Create personal workspace",
+                secondary_action_label="Create account",
                 status_code=409,
             )
         raise
@@ -1048,7 +1070,7 @@ def workspace_invite_accept(
             primary_action_href="/sign-in",
             primary_action_label="Request new sign-in link",
             secondary_action_href="/register",
-            secondary_action_label="Create personal workspace",
+            secondary_action_label="Create account",
             status_code=404,
         )
     access_url = str(invite.get("access_url") or "").strip()
@@ -1071,7 +1093,7 @@ def workspace_invite_accept(
         ],
         primary_action_href="/sign-in",
         primary_action_label="Continue to sign in",
-        secondary_action_href="/app/today",
+        secondary_action_href="/app/properties",
         secondary_action_label="Open current session",
     )
 
@@ -1083,7 +1105,7 @@ def get_started() -> RedirectResponse:
 
 @router.get("/app", response_class=HTMLResponse)
 def app_root() -> RedirectResponse:
-    return RedirectResponse("/app/today", status_code=307)
+    return RedirectResponse("/app/properties", status_code=307)
 
 
 def _object_detail_row(
@@ -1287,7 +1309,7 @@ def app_shell(
                 console_title=str(pack.get("headline") or "Inline loop"),
                 console_summary=str(pack.get("summary") or "Clear the compact office loop."),
                 nav_groups=APP_NAV_GROUPS,
-                workspace_label=str(workspace.get("name") or "Executive Workspace"),
+                workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
                 cards=[
                     {
                         "eyebrow": "Inline loop",
@@ -1382,7 +1404,7 @@ def app_shell(
             console_title=str(payload["title"]),
             console_summary=str(payload["summary"]),
             nav_groups=APP_NAV_GROUPS,
-            workspace_label=str(workspace.get("name") or "Executive Workspace"),
+            workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
             cards=list(payload["cards"]),
             stats=list(payload["stats"]),
             console_form=dict(payload.get("console_form") or {}),
@@ -1488,13 +1510,13 @@ def commitment_candidate_review(
         **{
             **_console_shell_context(
                 request=request,
-                page_title=f"Executive Assistant Review {candidate.title}",
+                page_title=f"PropertyQuarry Review {candidate.title}",
                 current_nav="queue",
                 context=context,
                 console_title="Review extracted commitment",
                 console_summary="Edit the wording, due date, or ownership before this enters the commitment ledger.",
                 nav_groups=APP_NAV_GROUPS,
-                workspace_label=str(workspace.get("name") or "Executive Workspace"),
+                workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
                 cards=[],
                 stats=[
                     {"label": "Confidence", "value": f"{int(candidate.confidence * 100)}%"},

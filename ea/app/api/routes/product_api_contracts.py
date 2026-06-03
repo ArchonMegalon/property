@@ -632,7 +632,7 @@ class WorkspaceAccessSessionOut(BaseModel):
     expires_at: str = ""
     access_token: str = ""
     access_url: str = ""
-    default_target: str = "/app/today"
+    default_target: str = "/app/properties"
 
 
 class WorkspaceAccessSessionResponse(BaseModel):
@@ -666,7 +666,7 @@ class ChannelDigestDeliveryOut(BaseModel):
     access_session_id: str = ""
     access_token: str = ""
     access_url: str = ""
-    default_target: str = "/app/today"
+    default_target: str = "/app/properties"
     headline: str = ""
     preview_text: str = ""
     plain_text: str = ""

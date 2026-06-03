@@ -169,14 +169,14 @@
     <section class="register-hero">
       <div class="kicker">{% if brand.key == 'propertyquarry' %}Property onboarding{% else %}Personal workspace{% endif %}</div>
       <h1>{% if brand.key == 'propertyquarry' %}Start a workspace that finds and ranks the right properties.{% else %}Start a workspace that shows the first useful loop.{% endif %}</h1>
-      <p class="lead">{% if brand.key == 'propertyquarry' %}Create the account, link Google only if you want easier return access, then move straight into the property brief and first crawl.{% else %}Connect Google, surface the first morning memo, and keep the first week narrow until the office loop is already useful.{% endif %}</p>
+      <p class="lead">{% if brand.key == 'propertyquarry' %}Create the account, link Google only if you want easier return access, then move straight into the property brief and first crawl.{% else %}Create the account, define the property brief, and keep the first week narrow until the shortlist is already useful.{% endif %}</p>
       <div class="register-note">
         {% if brand.key == 'propertyquarry' %}We’ll use your email to create the account and reopen your saved search posture later. Google is optional account context, not the sign-in method.{% else %}We’ll use your email to create the workspace and let you come back. Google is a workspace data source, not the app login method.{% endif %}
       </div>
       <div class="summary-strip">
         <div class="summary">
           <div class="label">First goal</div>
-          <strong>{% if brand.key == 'propertyquarry' %}One useful ranked shortlist{% else %}One useful morning memo{% endif %}</strong>
+          <strong>{% if brand.key == 'propertyquarry' %}One useful ranked shortlist{% else %}One useful property workspace{% endif %}</strong>
         </div>
         <div class="summary">
           <div class="label">{% if brand.key == 'propertyquarry' %}Research lane{% else %}Recommended connection{% endif %}</div>
@@ -532,24 +532,24 @@
     window.open(startUrl, '_blank', 'noopener');
   });
 
-  const buildFirstMorningMemo = async (intro = 'Preparing your property workspace…') => {
+  const buildPropertyWorkspace = async (intro = 'Preparing your property workspace…') => {
     if (buildInFlight) return;
     buildInFlight = true;
     buildInline.textContent = intro;
     setStep(4);
     await markMilestones();
     try {
-      const [briefResponse, queueResponse] = await Promise.all([
-        fetch('/app/api/brief'),
-        fetch('/app/api/queue'),
-      ]);
-      const briefBody = await briefResponse.json();
-      const queueBody = await queueResponse.json();
-      const briefItems = (briefBody.items || []).map((row) => row.title).filter(Boolean);
-      const queueItems = (queueBody.items || []).map((row) => row.title).filter(Boolean);
       state.preview = {
-        brief: briefItems.length ? briefItems : ['Your shortlist signals will appear after you save your first property search preferences.'],
-        queue: queueItems.length ? queueItems : ['Your next actions will show searches, reviews, and follow-ups as they become available.'],
+        brief: [
+          'Save your first country, budget, and property type preferences.',
+          'Run the first portal sweep from the Properties workspace.',
+          'Review the top candidates with visible fit reasons and research gaps.',
+        ],
+        queue: [
+          'Decide which providers should stay enabled for this search.',
+          'Mark one candidate as like, maybe, dislike, or hide.',
+          'Request deeper research only after the shortlist proves useful.',
+        ],
       };
       setState();
       setList(briefList, state.preview.brief, ['Your shortlist signals will appear here.']);
@@ -600,7 +600,7 @@
     googleError.textContent = '';
     googleInline.textContent = googleSyncSummary(payload);
     if (!state.preview.brief.length && !state.preview.queue.length) {
-      await buildFirstMorningMemo('Google linked. Preparing your property workspace…');
+      await buildPropertyWorkspace('Google linked. Preparing your property workspace…');
     }
   };
 
@@ -624,7 +624,7 @@
   };
 
   document.querySelector('[data-action="build-brief"]')?.addEventListener('click', async () => {
-    await buildFirstMorningMemo('Preparing your property workspace…');
+    await buildPropertyWorkspace('Preparing your property workspace…');
   });
 
   window.addEventListener('storage', (event) => {

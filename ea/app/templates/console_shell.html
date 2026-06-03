@@ -921,7 +921,7 @@
               <li>{{ feature }}</li>
               {% endfor %}
             </ul>
-            {% if property_meta.get('paypal_checkout_enabled') and plan.get('plan_key') != 'free' and not plan.get('is_current') %}
+            {% if property_meta.get('billing_checkout_enabled') and plan.get('plan_key') != 'free' and not plan.get('is_current') and plan.get('plan_key') in (property_meta.get('billing_checkout_enabled_plans') or []) %}
             <button class="console-action" type="button" data-property-upgrade="{{ plan.get('plan_key') }}">{{ plan.get('display_name') }} checkout</button>
             {% endif %}
           </section>
@@ -1278,21 +1278,22 @@
   const startCheckout = async (form, meta, planKey) => {
     const statusNode = form.querySelector('[data-property-billing-status]');
     const errorNode = form.querySelector('[data-property-billing-error]');
-    if (statusNode) statusNode.textContent = 'Opening PayPal checkout…';
+    const providerLabel = String(meta.billing_checkout_provider_label || 'checkout').trim() || 'checkout';
+    if (statusNode) statusNode.textContent = `Opening ${providerLabel} checkout…`;
     if (errorNode) errorNode.textContent = '';
-    const response = await fetch(String(meta.paypal_order_endpoint || ''), {
+    const response = await fetch(String(meta.billing_order_endpoint || ''), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ plan_key: planKey }),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(String(body.detail || 'Could not start PayPal checkout.'));
+      throw new Error(String(body.detail || `Could not start ${providerLabel} checkout.`));
     }
-    if (statusNode) statusNode.textContent = 'Redirecting to PayPal…';
+    if (statusNode) statusNode.textContent = `Redirecting to ${providerLabel}…`;
     const approveUrl = String(body.approve_url || '').trim();
     if (!approveUrl) {
-      throw new Error('PayPal approval URL missing.');
+      throw new Error(`${providerLabel} approval URL missing.`);
     }
     window.location.href = approveUrl;
   };
@@ -1395,7 +1396,7 @@
           const errorNode = form.querySelector('[data-property-billing-error]');
           const statusNode = form.querySelector('[data-property-billing-status]');
           if (statusNode) statusNode.textContent = '';
-          if (errorNode) errorNode.textContent = error instanceof Error ? error.message : 'Could not start PayPal checkout.';
+          if (errorNode) errorNode.textContent = error instanceof Error ? error.message : 'Could not start checkout.';
         }
       });
     }
