@@ -37,6 +37,20 @@ Then open:
 - `http://localhost:8090/register`
 - `http://localhost:8090/app/properties`
 
+## Runtime modes
+
+PropertyQuarry keeps the inherited runtime-mode contract because deploy and smoke gates depend on it:
+
+- `EA_RUNTIME_MODE=dev|test|prod`
+- `EA_RUNTIME_MODE=prod` must fail fast when durable runtime prerequisites are missing
+- `bash scripts/smoke_postgres.sh` verifies the Postgres-backed path and the prod fail-fast behavior
+
+Runtime and environment details live in:
+
+- [ENVIRONMENT_MATRIX.md](/docker/property/ENVIRONMENT_MATRIX.md)
+- [HTTP_EXAMPLES.http](/docker/property/HTTP_EXAMPLES.http)
+- [RELEASE_CHECKLIST.md](/docker/property/RELEASE_CHECKLIST.md)
+
 ## Key docs
 
 - product brief: [docs/PRODUCT_BRIEF.md](/docker/property/docs/PRODUCT_BRIEF.md)

@@ -2,6 +2,8 @@
 set -euo pipefail
 
 EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SMOKE_TMP_DIR="${EA_ROOT}/.smoke_tmp"
+API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'EOF'
@@ -98,10 +100,10 @@ curl_status_code() {
   shift
   local response_base response_tmp
   local header_path code rc
-  mkdir -p "${EA_ROOT}/.smoke_tmp"
+  mkdir -p "${SMOKE_TMP_DIR}"
   header_path="$(mktemp)"
   response_base="$(basename "${response_path}")"
-  response_tmp="${EA_ROOT}/.smoke_tmp/${response_base}"
+  response_tmp="${SMOKE_TMP_DIR}/${response_base}"
   curl -sS -D "${header_path}" -o "${response_tmp}" "$@"
   rc=$?
   code="$(awk '/^HTTP\// { code=$2 } END { print code }' "${header_path}")"
@@ -143,7 +145,10 @@ if [[ -z "${EA_API_TOKEN}" && -f "${EA_ROOT}/.env" ]]; then
   EA_API_TOKEN="$(grep -E '^EA_API_TOKEN=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
 fi
 if [[ -z "${EA_API_TOKEN}" ]] && command -v docker >/dev/null 2>&1; then
-  EA_API_TOKEN="$(docker exec ea-api /bin/sh -lc 'printenv EA_API_TOKEN' 2>/dev/null || true)"
+  api_container="$(resolve_api_container)"
+  if [[ -n "${api_container}" ]]; then
+    EA_API_TOKEN="$(docker exec "${api_container}" /bin/sh -lc 'printenv EA_API_TOKEN' 2>/dev/null || true)"
+  fi
 fi
 AUTH_ARGS=()
 if [[ -n "${EA_API_TOKEN:-}" ]]; then
@@ -154,7 +159,10 @@ if [[ -z "${EA_TELEGRAM_INGEST_SECRET}" && -f "${EA_ROOT}/.env" ]]; then
   EA_TELEGRAM_INGEST_SECRET="$(grep -E '^EA_TELEGRAM_INGEST_SECRET=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
 fi
 if [[ -z "${EA_TELEGRAM_INGEST_SECRET}" ]] && command -v docker >/dev/null 2>&1; then
-  EA_TELEGRAM_INGEST_SECRET="$(docker exec ea-api /bin/sh -lc 'printenv EA_TELEGRAM_INGEST_SECRET' 2>/dev/null || true)"
+  api_container="$(resolve_api_container)"
+  if [[ -n "${api_container}" ]]; then
+    EA_TELEGRAM_INGEST_SECRET="$(docker exec "${api_container}" /bin/sh -lc 'printenv EA_TELEGRAM_INGEST_SECRET' 2>/dev/null || true)"
+  fi
 fi
 TELEGRAM_INGEST_ARGS=()
 if [[ -n "${EA_TELEGRAM_INGEST_SECRET:-}" ]]; then
@@ -177,9 +185,9 @@ resolve_api_container() {
   if ! command -v docker >/dev/null 2>&1; then
     return 0
   fi
-  container="$(docker ps --filter label=com.docker.compose.service=ea-api --format '{{.Names}}' | head -n1)"
+  container="$(docker ps --filter "label=com.docker.compose.service=${API_SERVICE}" --format '{{.Names}}' | head -n1)"
   if [[ -z "${container}" ]]; then
-    container="$(docker ps --filter name='ea-api' --format '{{.Names}}' | head -n1)"
+    container="$(docker ps --filter "name=${API_SERVICE}" --format '{{.Names}}' | head -n1)"
   fi
   printf '%s' "${container}"
 }
@@ -487,49 +495,49 @@ curl -fsS "${BASE}/v1/rewrite/run-costs/${COST_ID}" "${AUTH_ARGS[@]}" "${PRINCIP
 curl -fsS "${BASE}/v1/policy/decisions/recent?session_id=${SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/policy/approvals/pending?limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/policy/approvals/history?limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
-POLICY_EVAL_SCOPE_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_policy_eval_scope_mismatch_resp.json -X POST "${BASE}/v1/policy/evaluate" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"content\":\"scoped policy evaluate\",\"tool_name\":\"connector.dispatch\",\"action_kind\":\"delivery.send\",\"channel\":\"email\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\"}")"
+POLICY_EVAL_SCOPE_MISMATCH_CODE="$(curl_status_code "${SMOKE_TMP_DIR}/ea_policy_eval_scope_mismatch_resp.json" -X POST "${BASE}/v1/policy/evaluate" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"content\":\"scoped policy evaluate\",\"tool_name\":\"connector.dispatch\",\"action_kind\":\"delivery.send\",\"channel\":\"email\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\"}")"
 if [[ "${POLICY_EVAL_SCOPE_MISMATCH_CODE}" != "403" ]]; then
   echo "expected policy evaluate principal mismatch to return 403; got ${POLICY_EVAL_SCOPE_MISMATCH_CODE}" >&2
-  cat /docker/EA/.smoke_tmp/ea_policy_eval_scope_mismatch_resp.json >&2
+  cat "${SMOKE_TMP_DIR}/ea_policy_eval_scope_mismatch_resp.json" >&2
   fail 12 "policy contract mismatch"
 fi
-POLICY_EVAL_SCOPE_MISMATCH_REASON="$(python3 -c 'import json,sys; body=json.load(open(sys.argv[1])); print(((body.get("error") or {}).get("code","")))' /docker/EA/.smoke_tmp/ea_policy_eval_scope_mismatch_resp.json)"
+POLICY_EVAL_SCOPE_MISMATCH_REASON="$(python3 -c 'import json,sys; body=json.load(open(sys.argv[1])); print(((body.get("error") or {}).get("code","")))' "${SMOKE_TMP_DIR}/ea_policy_eval_scope_mismatch_resp.json")"
 if [[ "${POLICY_EVAL_SCOPE_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
   echo "expected policy evaluate principal mismatch code principal_scope_mismatch; got ${POLICY_EVAL_SCOPE_MISMATCH_REASON}" >&2
-  cat /docker/EA/.smoke_tmp/ea_policy_eval_scope_mismatch_resp.json >&2
+  cat "${SMOKE_TMP_DIR}/ea_policy_eval_scope_mismatch_resp.json" >&2
   fail 12 "policy contract mismatch"
 fi
-REWRITE_PRINCIPAL_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_rewrite_principal_mismatch_resp.json -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"text\":\"principal mismatch\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\"}")"
+REWRITE_PRINCIPAL_MISMATCH_CODE="$(curl_status_code "${SMOKE_TMP_DIR}/ea_rewrite_principal_mismatch_resp.json" -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"text\":\"principal mismatch\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\"}")"
 if [[ "${REWRITE_PRINCIPAL_MISMATCH_CODE}" != "403" ]]; then
   echo "expected rewrite principal mismatch create to return 403; got ${REWRITE_PRINCIPAL_MISMATCH_CODE}" >&2
-  cat /docker/EA/.smoke_tmp/ea_rewrite_principal_mismatch_resp.json >&2
+  cat "${SMOKE_TMP_DIR}/ea_rewrite_principal_mismatch_resp.json" >&2
   fail 12 "policy contract mismatch"
 fi
-REWRITE_PRINCIPAL_MISMATCH_REASON="$(python3 -c 'import json,sys; body=json.load(open(sys.argv[1])); print(((body.get("error") or {}).get("code","")))' /docker/EA/.smoke_tmp/ea_rewrite_principal_mismatch_resp.json)"
+REWRITE_PRINCIPAL_MISMATCH_REASON="$(python3 -c 'import json,sys; body=json.load(open(sys.argv[1])); print(((body.get("error") or {}).get("code","")))' "${SMOKE_TMP_DIR}/ea_rewrite_principal_mismatch_resp.json")"
 if [[ "${REWRITE_PRINCIPAL_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
   echo "expected rewrite principal mismatch create code principal_scope_mismatch; got ${REWRITE_PRINCIPAL_MISMATCH_REASON}" >&2
-  cat /docker/EA/.smoke_tmp/ea_rewrite_principal_mismatch_resp.json >&2
+  cat "${SMOKE_TMP_DIR}/ea_rewrite_principal_mismatch_resp.json" >&2
   fail 12 "policy contract mismatch"
 fi
-REWRITE_SESSION_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_rewrite_session_mismatch_resp.json "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
-REWRITE_ARTIFACT_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_rewrite_artifact_mismatch_resp.json "${BASE}/v1/rewrite/artifacts/${ARTIFACT_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
-REWRITE_RECEIPT_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_rewrite_receipt_mismatch_resp.json "${BASE}/v1/rewrite/receipts/${RECEIPT_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
-REWRITE_COST_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_rewrite_cost_mismatch_resp.json "${BASE}/v1/rewrite/run-costs/${COST_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+REWRITE_SESSION_MISMATCH_CODE="$(curl_status_code "${SMOKE_TMP_DIR}/ea_rewrite_session_mismatch_resp.json" "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+REWRITE_ARTIFACT_MISMATCH_CODE="$(curl_status_code "${SMOKE_TMP_DIR}/ea_rewrite_artifact_mismatch_resp.json" "${BASE}/v1/rewrite/artifacts/${ARTIFACT_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+REWRITE_RECEIPT_MISMATCH_CODE="$(curl_status_code "${SMOKE_TMP_DIR}/ea_rewrite_receipt_mismatch_resp.json" "${BASE}/v1/rewrite/receipts/${RECEIPT_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+REWRITE_COST_MISMATCH_CODE="$(curl_status_code "${SMOKE_TMP_DIR}/ea_rewrite_cost_mismatch_resp.json" "${BASE}/v1/rewrite/run-costs/${COST_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
 if [[ "${REWRITE_SESSION_MISMATCH_CODE}|${REWRITE_ARTIFACT_MISMATCH_CODE}|${REWRITE_RECEIPT_MISMATCH_CODE}|${REWRITE_COST_MISMATCH_CODE}" != "403|403|403|403" ]]; then
   echo "expected foreign-principal session/artifact/receipt/run-cost fetches to return 403; got ${REWRITE_SESSION_MISMATCH_CODE}|${REWRITE_ARTIFACT_MISMATCH_CODE}|${REWRITE_RECEIPT_MISMATCH_CODE}|${REWRITE_COST_MISMATCH_CODE}" >&2
-  cat /docker/EA/.smoke_tmp/ea_rewrite_session_mismatch_resp.json >&2
-  cat /docker/EA/.smoke_tmp/ea_rewrite_artifact_mismatch_resp.json >&2
-  cat /docker/EA/.smoke_tmp/ea_rewrite_receipt_mismatch_resp.json >&2
-  cat /docker/EA/.smoke_tmp/ea_rewrite_cost_mismatch_resp.json >&2
+  cat "${SMOKE_TMP_DIR}/ea_rewrite_session_mismatch_resp.json" >&2
+  cat "${SMOKE_TMP_DIR}/ea_rewrite_artifact_mismatch_resp.json" >&2
+  cat "${SMOKE_TMP_DIR}/ea_rewrite_receipt_mismatch_resp.json" >&2
+  cat "${SMOKE_TMP_DIR}/ea_rewrite_cost_mismatch_resp.json" >&2
   fail 12 "policy contract mismatch"
 fi
-REWRITE_SCOPE_MISMATCH_REASONS="$(python3 -c 'import json,sys; paths=sys.argv[1:]; print("|".join(((json.load(open(path)).get("error") or {}).get("code","")) for path in paths))' /docker/EA/.smoke_tmp/ea_rewrite_session_mismatch_resp.json /docker/EA/.smoke_tmp/ea_rewrite_artifact_mismatch_resp.json /docker/EA/.smoke_tmp/ea_rewrite_receipt_mismatch_resp.json /docker/EA/.smoke_tmp/ea_rewrite_cost_mismatch_resp.json)"
+REWRITE_SCOPE_MISMATCH_REASONS="$(python3 -c 'import json,sys; paths=sys.argv[1:]; print("|".join(((json.load(open(path)).get("error") or {}).get("code","")) for path in paths))' "${SMOKE_TMP_DIR}/ea_rewrite_session_mismatch_resp.json" "${SMOKE_TMP_DIR}/ea_rewrite_artifact_mismatch_resp.json" "${SMOKE_TMP_DIR}/ea_rewrite_receipt_mismatch_resp.json" "${SMOKE_TMP_DIR}/ea_rewrite_cost_mismatch_resp.json")"
 if [[ "${REWRITE_SCOPE_MISMATCH_REASONS}" != "principal_scope_mismatch|principal_scope_mismatch|principal_scope_mismatch|principal_scope_mismatch" ]]; then
   echo "expected foreign-principal rewrite fetches to report principal_scope_mismatch; got ${REWRITE_SCOPE_MISMATCH_REASONS}" >&2
-  cat /docker/EA/.smoke_tmp/ea_rewrite_session_mismatch_resp.json >&2
-  cat /docker/EA/.smoke_tmp/ea_rewrite_artifact_mismatch_resp.json >&2
-  cat /docker/EA/.smoke_tmp/ea_rewrite_receipt_mismatch_resp.json >&2
-  cat /docker/EA/.smoke_tmp/ea_rewrite_cost_mismatch_resp.json >&2
+  cat "${SMOKE_TMP_DIR}/ea_rewrite_session_mismatch_resp.json" >&2
+  cat "${SMOKE_TMP_DIR}/ea_rewrite_artifact_mismatch_resp.json" >&2
+  cat "${SMOKE_TMP_DIR}/ea_rewrite_receipt_mismatch_resp.json" >&2
+  cat "${SMOKE_TMP_DIR}/ea_rewrite_cost_mismatch_resp.json" >&2
   fail 12 "policy contract mismatch"
 fi
 echo "session/policy ok"
@@ -539,15 +547,15 @@ SESSION_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read()
 if [[ -z "${SESSION_STEP_ID}" ]]; then
   fail 13 "missing step_id from session response"
 fi
-HUMAN_CREATE_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_human_create_mismatch_resp.json -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" -H 'content-type: application/json' \
+HUMAN_CREATE_MISMATCH_CODE="$(curl_status_code "${SMOKE_TMP_DIR}/ea_human_create_mismatch_resp.json" -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" -H 'content-type: application/json' \
   -d "{\"session_id\":\"${SESSION_ID}\",\"step_id\":\"${SESSION_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Cross-principal attach attempt.\"}")"
-HUMAN_CREATE_MISMATCH_REASON="$(python3 -c 'import json; from pathlib import Path; body=json.loads(Path("/docker/EA/.smoke_tmp/ea_human_create_mismatch_resp.json").read_text() or "{}"); print((body.get("error") or {}).get("code",""))')"
-HUMAN_SESSION_LIST_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_human_session_list_mismatch_resp.json "${BASE}/v1/human/tasks?session_id=${SESSION_ID}&limit=10" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
-HUMAN_SESSION_LIST_MISMATCH_REASON="$(python3 -c 'import json; from pathlib import Path; body=json.loads(Path("/docker/EA/.smoke_tmp/ea_human_session_list_mismatch_resp.json").read_text() or "{}"); print((body.get("error") or {}).get("code",""))')"
+HUMAN_CREATE_MISMATCH_REASON="$(python3 -c 'import json; from pathlib import Path; import sys; body=json.loads(Path(sys.argv[1]).read_text() or "{}"); print((body.get("error") or {}).get("code",""))' "${SMOKE_TMP_DIR}/ea_human_create_mismatch_resp.json")"
+HUMAN_SESSION_LIST_MISMATCH_CODE="$(curl_status_code "${SMOKE_TMP_DIR}/ea_human_session_list_mismatch_resp.json" "${BASE}/v1/human/tasks?session_id=${SESSION_ID}&limit=10" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+HUMAN_SESSION_LIST_MISMATCH_REASON="$(python3 -c 'import json; from pathlib import Path; import sys; body=json.loads(Path(sys.argv[1]).read_text() or "{}"); print((body.get("error") or {}).get("code",""))' "${SMOKE_TMP_DIR}/ea_human_session_list_mismatch_resp.json")"
 if [[ "${HUMAN_CREATE_MISMATCH_CODE}" != "403" || "${HUMAN_CREATE_MISMATCH_REASON}" != "principal_scope_mismatch" || "${HUMAN_SESSION_LIST_MISMATCH_CODE}" != "403" || "${HUMAN_SESSION_LIST_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
   echo "expected foreign-principal session-bound human task create/list requests to fail with principal_scope_mismatch; got ${HUMAN_CREATE_MISMATCH_CODE}|${HUMAN_CREATE_MISMATCH_REASON}|${HUMAN_SESSION_LIST_MISMATCH_CODE}|${HUMAN_SESSION_LIST_MISMATCH_REASON}" >&2
-  cat /docker/EA/.smoke_tmp/ea_human_create_mismatch_resp.json >&2
-  cat /docker/EA/.smoke_tmp/ea_human_session_list_mismatch_resp.json >&2
+  cat "${SMOKE_TMP_DIR}/ea_human_create_mismatch_resp.json" >&2
+  cat "${SMOKE_TMP_DIR}/ea_human_session_list_mismatch_resp.json" >&2
   fail 12 "policy contract mismatch"
 fi
 HUMAN_CREATE_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
@@ -1229,14 +1237,14 @@ if [[ -z "${PRIORITY_SUMMARY_STEP_ID}" ]]; then
   fail 13 "missing priority summary step_id from session response"
 fi
 curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_ROLE}\",\"brief\":\"Urgent task.\",\"priority\":\"urgent\",\"resume_session_on_return\":false}" >/docker/EA/.smoke_tmp/ea_priority_summary_urgent.json
+  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_ROLE}\",\"brief\":\"Urgent task.\",\"priority\":\"urgent\",\"resume_session_on_return\":false}" >${SMOKE_TMP_DIR}/ea_priority_summary_urgent.json
 PRIORITY_SUMMARY_HIGH_ASSIGNED_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_ROLE}\",\"brief\":\"High assigned task.\",\"priority\":\"high\",\"resume_session_on_return\":false}")"
 PRIORITY_SUMMARY_HIGH_ASSIGNED_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${PRIORITY_SUMMARY_HIGH_ASSIGNED_JSON}")"
 curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_ROLE}\",\"brief\":\"High unassigned task.\",\"priority\":\"high\",\"resume_session_on_return\":false}" >/docker/EA/.smoke_tmp/ea_priority_summary_high_unassigned.json
+  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_ROLE}\",\"brief\":\"High unassigned task.\",\"priority\":\"high\",\"resume_session_on_return\":false}" >${SMOKE_TMP_DIR}/ea_priority_summary_high_unassigned.json
 curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_ROLE}\",\"brief\":\"Normal task.\",\"priority\":\"normal\",\"resume_session_on_return\":false}" >/docker/EA/.smoke_tmp/ea_priority_summary_normal.json
+  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_ROLE}\",\"brief\":\"Normal task.\",\"priority\":\"normal\",\"resume_session_on_return\":false}" >${SMOKE_TMP_DIR}/ea_priority_summary_normal.json
 PRIORITY_SUMMARY_OPERATOR="operator-priority-summary-${PRIORITY_SUMMARY_SCOPE_SUFFIX}"
 ensure_operator_profile "${PRIORITY_SUMMARY_OPERATOR}" "${PRIORITY_SUMMARY_ROLE}" '["tone"]' "standard" "Priority Summary Reviewer"
 operator_post_json "${BASE}/v1/human/tasks/${PRIORITY_SUMMARY_HIGH_ASSIGNED_ID}/assign" -H 'content-type: application/json' -d "{\"operator_id\":\"${PRIORITY_SUMMARY_OPERATOR}\"}" >/dev/null
@@ -1290,7 +1298,7 @@ if [[ "${PRIORITY_SUMMARY_MANUAL_SESSION_FIELDS}" != "True" ]]; then
   fail 12 "policy contract mismatch"
 fi
 curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_ROLE}\",\"brief\":\"Ownerless low task.\",\"priority\":\"low\",\"resume_session_on_return\":false}" >/docker/EA/.smoke_tmp/ea_priority_summary_ownerless_low.json
+  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_ROLE}\",\"brief\":\"Ownerless low task.\",\"priority\":\"low\",\"resume_session_on_return\":false}" >${SMOKE_TMP_DIR}/ea_priority_summary_ownerless_low.json
 PRIORITY_SUMMARY_MANUAL_MIXED_FIELDS="$(curl -fsS "${BASE}/v1/human/tasks/priority-summary?status=pending&role_required=${PRIORITY_SUMMARY_ROLE}&assignment_source=manual" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); counts=body.get('counts_json') or {}; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('assignment_source',''), body.get('total',''), body.get('highest_priority',''), counts.get('urgent',''), counts.get('high',''), counts.get('normal',''), counts.get('low','')))" )"
 if [[ "${PRIORITY_SUMMARY_MANUAL_MIXED_FIELDS}" != "manual|1|high|0|1|0|0" ]]; then
   echo "expected manual assignment_source summary to stay isolated after extra ownerless rows are added; got ${PRIORITY_SUMMARY_MANUAL_MIXED_FIELDS}" >&2
@@ -1308,11 +1316,11 @@ operator_post_json "${BASE}/v1/human/tasks/operators" -H 'content-type: applicat
 operator_post_json "${BASE}/v1/human/tasks/operators" -H 'content-type: application/json' \
   -d "{\"operator_id\":\"${PRIORITY_SUMMARY_MATCH_SCHED_OPERATOR}\",\"display_name\":\"Scheduler\",\"roles\":[\"${PRIORITY_SUMMARY_SCHED_ROLE}\"],\"skill_tags\":[\"calendar\"],\"trust_tier\":\"standard\",\"status\":\"active\"}" >/dev/null
 curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_MATCH_ROLE}\",\"brief\":\"Urgent specialist-only task.\",\"authority_required\":\"send_on_behalf_review\",\"quality_rubric_json\":{\"checks\":[\"tone\",\"accuracy\",\"stakeholder_sensitivity\"]},\"priority\":\"urgent\",\"resume_session_on_return\":false}" >/docker/EA/.smoke_tmp/ea_priority_summary_match_urgent.json
+  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_MATCH_ROLE}\",\"brief\":\"Urgent specialist-only task.\",\"authority_required\":\"send_on_behalf_review\",\"quality_rubric_json\":{\"checks\":[\"tone\",\"accuracy\",\"stakeholder_sensitivity\"]},\"priority\":\"urgent\",\"resume_session_on_return\":false}" >${SMOKE_TMP_DIR}/ea_priority_summary_match_urgent.json
 curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_MATCH_ROLE}\",\"brief\":\"High specialist-only task.\",\"authority_required\":\"send_on_behalf_review\",\"quality_rubric_json\":{\"checks\":[\"tone\",\"accuracy\",\"stakeholder_sensitivity\"]},\"priority\":\"high\",\"resume_session_on_return\":false}" >/docker/EA/.smoke_tmp/ea_priority_summary_match_high.json
+  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_MATCH_ROLE}\",\"brief\":\"High specialist-only task.\",\"authority_required\":\"send_on_behalf_review\",\"quality_rubric_json\":{\"checks\":[\"tone\",\"accuracy\",\"stakeholder_sensitivity\"]},\"priority\":\"high\",\"resume_session_on_return\":false}" >${SMOKE_TMP_DIR}/ea_priority_summary_match_high.json
 curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"schedule_review\",\"role_required\":\"${PRIORITY_SUMMARY_SCHED_ROLE}\",\"brief\":\"Normal scheduler task.\",\"priority\":\"normal\",\"resume_session_on_return\":false}" >/docker/EA/.smoke_tmp/ea_priority_summary_match_scheduler.json
+  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"schedule_review\",\"role_required\":\"${PRIORITY_SUMMARY_SCHED_ROLE}\",\"brief\":\"Normal scheduler task.\",\"priority\":\"normal\",\"resume_session_on_return\":false}" >${SMOKE_TMP_DIR}/ea_priority_summary_match_scheduler.json
 PRIORITY_SUMMARY_MATCHED_JSON="$(curl -fsS "${BASE}/v1/human/tasks/priority-summary?status=pending&assignment_state=unassigned&operator_id=${PRIORITY_SUMMARY_MATCH_OPERATOR}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 PRIORITY_SUMMARY_MATCHED_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); counts=body.get('counts_json') or {}; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('operator_id',''), body.get('total',''), body.get('highest_priority',''), counts.get('urgent',''), counts.get('high',''), counts.get('normal',''), counts.get('low','')))" <<<"${PRIORITY_SUMMARY_MATCHED_JSON}")"
 if [[ "${PRIORITY_SUMMARY_MATCHED_FIELDS}" != "${PRIORITY_SUMMARY_MATCH_OPERATOR}|2|urgent|1|1|0|0" ]]; then
@@ -1334,7 +1342,7 @@ if [[ "${PRIORITY_SUMMARY_MATCHED_SCHED_FIELDS}" != "${PRIORITY_SUMMARY_MATCH_SC
   echo "${PRIORITY_SUMMARY_MATCHED_SCHED_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-rm -f /docker/EA/.smoke_tmp/ea_priority_summary_urgent.json /docker/EA/.smoke_tmp/ea_priority_summary_high_unassigned.json /docker/EA/.smoke_tmp/ea_priority_summary_normal.json /docker/EA/.smoke_tmp/ea_priority_summary_match_urgent.json /docker/EA/.smoke_tmp/ea_priority_summary_match_high.json /docker/EA/.smoke_tmp/ea_priority_summary_match_scheduler.json
+rm -f ${SMOKE_TMP_DIR}/ea_priority_summary_urgent.json ${SMOKE_TMP_DIR}/ea_priority_summary_high_unassigned.json ${SMOKE_TMP_DIR}/ea_priority_summary_normal.json ${SMOKE_TMP_DIR}/ea_priority_summary_match_urgent.json ${SMOKE_TMP_DIR}/ea_priority_summary_match_high.json ${SMOKE_TMP_DIR}/ea_priority_summary_match_scheduler.json
 echo "human task priority summary ok"
 
 echo "== smoke: human task SLA sort =="
@@ -1477,7 +1485,7 @@ PY
 )" > "${APPROVAL_PAYLOAD}"
 APPROVAL_CODE=""
 for _ in $(seq 1 5); do
-  APPROVAL_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_approval_required_resp.json -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' --data-binary @"${APPROVAL_PAYLOAD}")"
+  APPROVAL_CODE="$(curl_status_code ${SMOKE_TMP_DIR}/ea_approval_required_resp.json -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' --data-binary @"${APPROVAL_PAYLOAD}")"
   if [[ "${APPROVAL_CODE}" == "202" ]]; then
     break
   fi
@@ -1486,14 +1494,14 @@ done
 rm -f "${APPROVAL_PAYLOAD}"
 if [[ "${APPROVAL_CODE}" != "202" ]]; then
   echo "expected 202 for approval-required path; got ${APPROVAL_CODE}" >&2
-  cat /docker/EA/.smoke_tmp/ea_approval_required_resp.json >&2 || true
+  cat ${SMOKE_TMP_DIR}/ea_approval_required_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
 APPROVAL_FIELDS="$(python3 - <<'PY'
 import json
 from pathlib import Path
 
-path = Path("/docker/EA/.smoke_tmp/ea_approval_required_resp.json")
+path = Path("${SMOKE_TMP_DIR}/ea_approval_required_resp.json")
 if not path.exists():
     print("")
     raise SystemExit(0)
@@ -1509,7 +1517,7 @@ APPROVAL_SESSION_ID="$(python3 - <<'PY'
 import json
 from pathlib import Path
 
-path = Path("/docker/EA/.smoke_tmp/ea_approval_required_resp.json")
+path = Path("${SMOKE_TMP_DIR}/ea_approval_required_resp.json")
 if not path.exists():
     print("")
     raise SystemExit(0)
@@ -1525,7 +1533,7 @@ APPROVAL_ID="$(python3 - <<'PY'
 import json
 from pathlib import Path
 
-path = Path("/docker/EA/.smoke_tmp/ea_approval_required_resp.json")
+path = Path("${SMOKE_TMP_DIR}/ea_approval_required_resp.json")
 if not path.exists():
     print("")
     raise SystemExit(0)
@@ -1539,7 +1547,7 @@ PY
 )"
 if [[ "${APPROVAL_FIELDS}" != "awaiting_approval|poll_or_subscribe|${APPROVAL_SESSION_ID}|${APPROVAL_ID}" ]]; then
   echo "expected approval-required acceptance contract; got ${APPROVAL_FIELDS}" >&2
-  cat /docker/EA/.smoke_tmp/ea_approval_required_resp.json >&2 || true
+  cat ${SMOKE_TMP_DIR}/ea_approval_required_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
 if [[ -z "${APPROVAL_ID}" || -z "${APPROVAL_SESSION_ID}" ]]; then
@@ -1559,12 +1567,12 @@ if [[ "${FOREIGN_PENDING_MATCH}" != "False" ]]; then
   echo "${FOREIGN_PENDING_APPROVALS_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-FOREIGN_APPROVAL_HISTORY_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_policy_history_scope_mismatch_resp.json "${BASE}/v1/policy/approvals/history?session_id=${APPROVAL_SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
-FOREIGN_DECISIONS_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_policy_decisions_scope_mismatch_resp.json "${BASE}/v1/policy/decisions/recent?session_id=${APPROVAL_SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+FOREIGN_APPROVAL_HISTORY_CODE="$(curl_status_code ${SMOKE_TMP_DIR}/ea_policy_history_scope_mismatch_resp.json "${BASE}/v1/policy/approvals/history?session_id=${APPROVAL_SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+FOREIGN_DECISIONS_CODE="$(curl_status_code ${SMOKE_TMP_DIR}/ea_policy_decisions_scope_mismatch_resp.json "${BASE}/v1/policy/decisions/recent?session_id=${APPROVAL_SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
 if [[ "${FOREIGN_APPROVAL_HISTORY_CODE}|${FOREIGN_DECISIONS_CODE}" != "403|403" ]]; then
   echo "expected foreign principal policy history/decision reads to return 403; got ${FOREIGN_APPROVAL_HISTORY_CODE}|${FOREIGN_DECISIONS_CODE}" >&2
-  cat /docker/EA/.smoke_tmp/ea_policy_history_scope_mismatch_resp.json >&2
-  cat /docker/EA/.smoke_tmp/ea_policy_decisions_scope_mismatch_resp.json >&2
+  cat ${SMOKE_TMP_DIR}/ea_policy_history_scope_mismatch_resp.json >&2
+  cat ${SMOKE_TMP_DIR}/ea_policy_decisions_scope_mismatch_resp.json >&2
   fail 12 "policy contract mismatch"
 fi
 APPROVAL_WAITING_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${APPROVAL_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
@@ -1574,10 +1582,10 @@ if [[ "${APPROVAL_WAITING_FIELDS}" != "awaiting_approval|waiting_approval|True|T
   echo "${APPROVAL_WAITING_SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-FOREIGN_APPROVE_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_policy_approve_scope_mismatch_resp.json -X POST "${BASE}/v1/policy/approvals/${APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" -H 'content-type: application/json' -d "{\"decided_by\":\"${MISMATCH_PRINCIPAL_ID}\",\"reason\":\"cross principal approval should fail\"}")"
+FOREIGN_APPROVE_CODE="$(curl_status_code ${SMOKE_TMP_DIR}/ea_policy_approve_scope_mismatch_resp.json -X POST "${BASE}/v1/policy/approvals/${APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" -H 'content-type: application/json' -d "{\"decided_by\":\"${MISMATCH_PRINCIPAL_ID}\",\"reason\":\"cross principal approval should fail\"}")"
 if [[ "${FOREIGN_APPROVE_CODE}" != "403" ]]; then
   echo "expected foreign principal approval decision to return 403; got ${FOREIGN_APPROVE_CODE}" >&2
-  cat /docker/EA/.smoke_tmp/ea_policy_approve_scope_mismatch_resp.json >&2
+  cat ${SMOKE_TMP_DIR}/ea_policy_approve_scope_mismatch_resp.json >&2
   fail 12 "policy contract mismatch"
 fi
 curl -fsS -X POST "${BASE}/v1/policy/approvals/${APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
@@ -1608,17 +1616,17 @@ printf '{"text":"%s"}' "$(python3 - <<'PY'
 print("x" * 20001)
 PY
 )" > "${BLOCKED_PAYLOAD}"
-BLOCKED_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_blocked_policy_resp.json -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' --data-binary @"${BLOCKED_PAYLOAD}")"
+BLOCKED_CODE="$(curl_status_code ${SMOKE_TMP_DIR}/ea_blocked_policy_resp.json -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' --data-binary @"${BLOCKED_PAYLOAD}")"
 rm -f "${BLOCKED_PAYLOAD}"
 if [[ "${BLOCKED_CODE}" != "403" ]]; then
   echo "expected 403 for blocked policy path; got ${BLOCKED_CODE}" >&2
-  cat /docker/EA/.smoke_tmp/ea_blocked_policy_resp.json >&2 || true
+  cat ${SMOKE_TMP_DIR}/ea_blocked_policy_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
 BLOCKED_REASON="$(python3 - <<'PY'
 import json
 from pathlib import Path
-path = Path("/docker/EA/.smoke_tmp/ea_blocked_policy_resp.json")
+path = Path("${SMOKE_TMP_DIR}/ea_blocked_policy_resp.json")
 if not path.exists():
     print("")
     raise SystemExit(0)
@@ -1632,7 +1640,7 @@ PY
 )"
 if [[ "${BLOCKED_REASON}" != "policy_denied:input_too_large" ]]; then
   echo "expected blocked policy code policy_denied:input_too_large; got ${BLOCKED_REASON}" >&2
-  cat /docker/EA/.smoke_tmp/ea_blocked_policy_resp.json >&2 || true
+  cat ${SMOKE_TMP_DIR}/ea_blocked_policy_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
 echo "blocked policy path ok"
@@ -1703,19 +1711,19 @@ fi
 if [[ "${TOOL_EXEC_STATUS}" == "retry" && "${DELIVERY_PENDING_MATCH}" != "True" ]]; then
   echo "tool-executed connector dispatch deferred into retry state before pending outbox enqueue; delivery_id=${TOOL_EXEC_DELIVERY_ID}" >&2
 fi
-TOOL_EXEC_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_tool_exec_mismatch_resp.json -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+TOOL_EXEC_MISMATCH_CODE="$(curl_status_code ${SMOKE_TMP_DIR}/ea_tool_exec_mismatch_resp.json -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" \
   -d "{\"tool_name\":\"connector.dispatch\",\"action_kind\":\"delivery.send\",\"payload_json\":{\"principal_id\":\"${PRINCIPAL_ID}\",\"binding_id\":\"${BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"ops@example.com\",\"content\":\"blocked dispatch\"}}")"
 if [[ "${TOOL_EXEC_MISMATCH_CODE}" != "403" ]]; then
   echo "expected 403 for foreign principal tool execution; got ${TOOL_EXEC_MISMATCH_CODE}" >&2
-  cat /docker/EA/.smoke_tmp/ea_tool_exec_mismatch_resp.json >&2 || true
+  cat ${SMOKE_TMP_DIR}/ea_tool_exec_mismatch_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
 TOOL_EXEC_MISMATCH_REASON="$(python3 - <<'PY'
 import json
 from pathlib import Path
 
-path = Path("/docker/EA/.smoke_tmp/ea_tool_exec_mismatch_resp.json")
+path = Path("${SMOKE_TMP_DIR}/ea_tool_exec_mismatch_resp.json")
 if not path.exists():
     print("")
     raise SystemExit(0)
@@ -1729,7 +1737,7 @@ PY
 )"
 if [[ "${TOOL_EXEC_MISMATCH_REASON}" != "operator_scope_required" && "${TOOL_EXEC_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
   echo "expected foreign principal tool execution code operator_scope_required or principal_scope_mismatch; got ${TOOL_EXEC_MISMATCH_REASON}" >&2
-  cat /docker/EA/.smoke_tmp/ea_tool_exec_mismatch_resp.json >&2 || true
+  cat ${SMOKE_TMP_DIR}/ea_tool_exec_mismatch_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
 BROWSERACT_BINDING_JSON="$(operator_post_json "${BASE}/v1/connectors/bindings" -H 'content-type: application/json' \
@@ -1756,27 +1764,27 @@ if [[ "${BROWSERACT_INVENTORY_FIELDS}" != "browseract.extract_account_inventory|
 fi
 echo "tools ok"
 if [[ -n "${BINDING_ID}" ]]; then
-  FOREIGN_BINDING_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_foreign_binding_resp.json -X POST "${BASE}/v1/connectors/bindings/${BINDING_ID}/status" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  FOREIGN_BINDING_CODE="$(curl_status_code ${SMOKE_TMP_DIR}/ea_foreign_binding_resp.json -X POST "${BASE}/v1/connectors/bindings/${BINDING_ID}/status" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
     -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" -d '{"status":"disabled"}')"
   if [[ "${FOREIGN_BINDING_CODE}" != "404" ]]; then
     echo "expected 404 for foreign principal binding status update; got ${FOREIGN_BINDING_CODE}" >&2
-    cat /docker/EA/.smoke_tmp/ea_foreign_binding_resp.json >&2 || true
+    cat ${SMOKE_TMP_DIR}/ea_foreign_binding_resp.json >&2 || true
     fail 12 "policy contract mismatch"
   fi
   curl -fsS -X POST "${BASE}/v1/connectors/bindings/${BINDING_ID}/status" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"status":"disabled"}' >/dev/null
 fi
 curl -fsS "${BASE}/v1/connectors/bindings?limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
-CONNECTOR_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_connector_mismatch_resp.json "${BASE}/v1/connectors/bindings?principal_id=${PRINCIPAL_ID}&limit=5" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+CONNECTOR_MISMATCH_CODE="$(curl_status_code ${SMOKE_TMP_DIR}/ea_connector_mismatch_resp.json "${BASE}/v1/connectors/bindings?principal_id=${PRINCIPAL_ID}&limit=5" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
 if [[ "${CONNECTOR_MISMATCH_CODE}" != "403" ]]; then
   echo "expected 403 for connector principal mismatch; got ${CONNECTOR_MISMATCH_CODE}" >&2
-  cat /docker/EA/.smoke_tmp/ea_connector_mismatch_resp.json >&2 || true
+  cat ${SMOKE_TMP_DIR}/ea_connector_mismatch_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
 CONNECTOR_MISMATCH_REASON="$(python3 - <<'PY'
 import json
 from pathlib import Path
 
-path = Path("/docker/EA/.smoke_tmp/ea_connector_mismatch_resp.json")
+path = Path("${SMOKE_TMP_DIR}/ea_connector_mismatch_resp.json")
 if not path.exists():
     print("")
     raise SystemExit(0)
@@ -1790,7 +1798,7 @@ PY
 )"
 if [[ "${CONNECTOR_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
   echo "expected connector principal mismatch code principal_scope_mismatch; got ${CONNECTOR_MISMATCH_REASON}" >&2
-  cat /docker/EA/.smoke_tmp/ea_connector_mismatch_resp.json >&2 || true
+  cat ${SMOKE_TMP_DIR}/ea_connector_mismatch_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
 echo "tools/connectors ok"
@@ -1912,16 +1920,16 @@ if [[ "${PLAN_PRINCIPAL_FIELDS}" != "${PRINCIPAL_ID}|${PRINCIPAL_ID}" ]]; then
   echo "${PLAN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-PLAN_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_plan_mismatch_resp.json -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"task_key\":\"${PLAN_COMPILE_TASK_KEY}\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\",\"goal\":\"rewrite this text\"}")"
+PLAN_MISMATCH_CODE="$(curl_status_code ${SMOKE_TMP_DIR}/ea_plan_mismatch_resp.json -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"task_key\":\"${PLAN_COMPILE_TASK_KEY}\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\",\"goal\":\"rewrite this text\"}")"
 if [[ "${PLAN_MISMATCH_CODE}" != "403" ]]; then
   echo "expected plan compile principal mismatch to return 403; got ${PLAN_MISMATCH_CODE}" >&2
-  cat /docker/EA/.smoke_tmp/ea_plan_mismatch_resp.json >&2
+  cat ${SMOKE_TMP_DIR}/ea_plan_mismatch_resp.json >&2
   fail 12 "policy contract mismatch"
 fi
-PLAN_MISMATCH_REASON="$(python3 -c 'import json,sys; body=json.load(open(sys.argv[1])); print(((body.get("error") or {}).get("code","")))' /docker/EA/.smoke_tmp/ea_plan_mismatch_resp.json)"
+PLAN_MISMATCH_REASON="$(python3 -c 'import json,sys; body=json.load(open(sys.argv[1])); print(((body.get("error") or {}).get("code","")))' ${SMOKE_TMP_DIR}/ea_plan_mismatch_resp.json)"
 if [[ "${PLAN_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
   echo "expected plan compile mismatch code principal_scope_mismatch; got ${PLAN_MISMATCH_REASON}" >&2
-  cat /docker/EA/.smoke_tmp/ea_plan_mismatch_resp.json >&2
+  cat ${SMOKE_TMP_DIR}/ea_plan_mismatch_resp.json >&2
   fail 12 "policy contract mismatch"
 fi
 operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/json' \
@@ -2034,16 +2042,16 @@ if [[ "${EVIDENCE_MERGE_FIELDS}" != "evidence_pack|3|3|2|2|2" ]]; then
   echo "${EVIDENCE_MERGE_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-TASK_EXECUTE_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_task_execute_mismatch_resp.json -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"task_key\":\"stakeholder_briefing\",\"text\":\"Should stay in principal scope.\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\",\"goal\":\"prepare a stakeholder briefing\"}")"
+TASK_EXECUTE_MISMATCH_CODE="$(curl_status_code ${SMOKE_TMP_DIR}/ea_task_execute_mismatch_resp.json -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"task_key\":\"stakeholder_briefing\",\"text\":\"Should stay in principal scope.\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\",\"goal\":\"prepare a stakeholder briefing\"}")"
 if [[ "${TASK_EXECUTE_MISMATCH_CODE}" != "403" ]]; then
   echo "expected generic task execution principal mismatch to return 403; got ${TASK_EXECUTE_MISMATCH_CODE}" >&2
-  cat /docker/EA/.smoke_tmp/ea_task_execute_mismatch_resp.json >&2
+  cat ${SMOKE_TMP_DIR}/ea_task_execute_mismatch_resp.json >&2
   fail 12 "policy contract mismatch"
 fi
-TASK_EXECUTE_MISMATCH_REASON="$(python3 -c 'import json,sys; body=json.load(open(sys.argv[1])); print(((body.get("error") or {}).get("code","")))' /docker/EA/.smoke_tmp/ea_task_execute_mismatch_resp.json)"
+TASK_EXECUTE_MISMATCH_REASON="$(python3 -c 'import json,sys; body=json.load(open(sys.argv[1])); print(((body.get("error") or {}).get("code","")))' ${SMOKE_TMP_DIR}/ea_task_execute_mismatch_resp.json)"
 if [[ "${TASK_EXECUTE_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
   echo "expected generic task execution mismatch code principal_scope_mismatch; got ${TASK_EXECUTE_MISMATCH_REASON}" >&2
-  cat /docker/EA/.smoke_tmp/ea_task_execute_mismatch_resp.json >&2
+  cat ${SMOKE_TMP_DIR}/ea_task_execute_mismatch_resp.json >&2
   fail 12 "policy contract mismatch"
 fi
 echo "generic task execution ok"
@@ -2236,9 +2244,9 @@ if [[ "${BROWSERACT_INVENTORY_SESSION_FIELDS}" != "browseract_ltd_inventory_refr
   echo "${BROWSERACT_INVENTORY_SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-TMP_LTD_MD="$(mktemp /docker/EA/.smoke_tmp/ea_ltds_smoke.XXXXXX.md)"
+TMP_LTD_MD="$(mktemp ${SMOKE_TMP_DIR}/ea_ltds_smoke.XXXXXX.md)"
 cp "${EA_ROOT}/LTDs.md" "${TMP_LTD_MD}"
-TMP_LTD_JSON="$(mktemp /docker/EA/.smoke_tmp/ea_ltd_inventory.XXXXXX.json)"
+TMP_LTD_JSON="$(mktemp ${SMOKE_TMP_DIR}/ea_ltd_inventory.XXXXXX.json)"
 bash "${EA_ROOT}/scripts/refresh_ltds_via_api.sh" \
   --host "${BASE}" \
   --api-token "${EA_API_TOKEN:-}" \
@@ -2729,7 +2737,7 @@ if [[ "${HUMAN_REWRITE_AUTO_SUMMARY_FIELDS}" != "auto_preselected|1|high|0|1|0|0
   fail 12 "policy contract mismatch"
 fi
 curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d "{\"session_id\":\"${HUMAN_REWRITE_SESSION_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${HUMAN_REWRITE_ROLE}\",\"brief\":\"Ownerless mixed-source review task.\",\"priority\":\"low\",\"resume_session_on_return\":false}" >/docker/EA/.smoke_tmp/ea_human_rewrite_ownerless_low.json
+  -d "{\"session_id\":\"${HUMAN_REWRITE_SESSION_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${HUMAN_REWRITE_ROLE}\",\"brief\":\"Ownerless mixed-source review task.\",\"priority\":\"low\",\"resume_session_on_return\":false}" >${SMOKE_TMP_DIR}/ea_human_rewrite_ownerless_low.json
 HUMAN_REWRITE_AUTO_SUMMARY_MIXED_FIELDS="$(curl -fsS "${BASE}/v1/human/tasks/priority-summary?status=pending&assignment_source=auto_preselected&role_required=${HUMAN_REWRITE_ROLE}&assigned_operator_id=${HUMAN_REWRITE_SPECIALIST_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); counts=body.get('counts_json') or {}; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('assignment_source',''), body.get('total',''), body.get('highest_priority',''), counts.get('urgent',''), counts.get('high',''), counts.get('normal',''), counts.get('low','')))" )"
 if [[ "${HUMAN_REWRITE_AUTO_SUMMARY_MIXED_FIELDS}" != "auto_preselected|1|high|0|1|0|0" ]]; then
   echo "expected auto_preselected assignment_source summary to stay isolated after extra ownerless rows are added; got ${HUMAN_REWRITE_AUTO_SUMMARY_MIXED_FIELDS}" >&2
@@ -2776,17 +2784,17 @@ if [[ -z "${MEMORY_ITEM_ID}" ]]; then
 fi
 curl -fsS "${BASE}/v1/memory/candidates?limit=5&status=promoted" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/memory/items?limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
-MEMORY_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_memory_mismatch_resp.json "${BASE}/v1/memory/items?limit=5&principal_id=${MISMATCH_PRINCIPAL_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+MEMORY_MISMATCH_CODE="$(curl_status_code ${SMOKE_TMP_DIR}/ea_memory_mismatch_resp.json "${BASE}/v1/memory/items?limit=5&principal_id=${MISMATCH_PRINCIPAL_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 if [[ "${MEMORY_MISMATCH_CODE}" != "403" ]]; then
   echo "expected 403 for memory principal mismatch; got ${MEMORY_MISMATCH_CODE}" >&2
-  cat /docker/EA/.smoke_tmp/ea_memory_mismatch_resp.json >&2 || true
+  cat ${SMOKE_TMP_DIR}/ea_memory_mismatch_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
 MEMORY_MISMATCH_REASON="$(python3 - <<'PY'
 import json
 from pathlib import Path
 
-path = Path("/docker/EA/.smoke_tmp/ea_memory_mismatch_resp.json")
+path = Path("${SMOKE_TMP_DIR}/ea_memory_mismatch_resp.json")
 if not path.exists():
     print("")
     raise SystemExit(0)
@@ -2800,7 +2808,7 @@ PY
 )"
 if [[ "${MEMORY_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
   echo "expected memory principal mismatch code principal_scope_mismatch; got ${MEMORY_MISMATCH_REASON}" >&2
-  cat /docker/EA/.smoke_tmp/ea_memory_mismatch_resp.json >&2 || true
+  cat ${SMOKE_TMP_DIR}/ea_memory_mismatch_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
 curl -fsS "${BASE}/v1/memory/items/${MEMORY_ITEM_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null

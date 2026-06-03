@@ -1,0 +1,2116 @@
+@host = http://localhost:8090
+@token = replace_with_token_or_leave_blank
+@principal_id = exec-1
+@session_id = replace_me
+@artifact_id = replace_me
+@evidence_id = replace_me
+@receipt_id = replace_me
+@cost_id = replace_me
+@delivery_id = replace_me
+@approval_id = replace_me
+@step_id = replace_me
+@human_task_id = replace_me
+@memory_candidate_id = replace_me
+@memory_item_id = replace_me
+@entity_id = replace_me
+@relationship_id = replace_me
+@commitment_id = replace_me
+@authority_binding_id = replace_me
+@delivery_preference_id = replace_me
+@follow_up_id = replace_me
+@interruption_budget_id = replace_me
+@oversized_text = replace_with_20001_chars
+
+### Principal-scoped rewrite/session/plan, connector, human-task, and memory routes
+### Use X-EA-Principal-ID to set the effective principal.
+### body/query principal_id values below are compatibility filters only and mismatches return 403 principal_scope_mismatch.
+
+### Health
+GET {{host}}/health
+
+### Liveness
+GET {{host}}/health/live
+
+### Readiness
+GET {{host}}/health/ready
+
+### Version
+GET {{host}}/version
+
+### Codex-compatible responses facade (EA aliases plus configured upstream model ids)
+GET {{host}}/v1/models
+X-EA-Principal-ID: {{principal_id}}
+
+POST {{host}}/v1/responses
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "model": "ea-coder-best",
+  "instructions": "Produce concise player-facing updates.",
+  "input": "Summarize three actionable next priorities for the local Chummer session."
+}
+
+POST {{host}}/v1/responses
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "model": "ea-coder-best",
+  "input": "Generate a compact scene-facing caption for the hero asset.",
+  "stream": true
+}
+
+### Response retrieval
+GET {{host}}/v1/responses/replace_with_response_id
+X-EA-Principal-ID: {{principal_id}}
+
+GET {{host}}/v1/responses/replace_with_response_id/input_items
+X-EA-Principal-ID: {{principal_id}}
+
+### Responses provider health debug (account-attributed credit estimates, no secret keys)
+GET {{host}}/v1/responses/_provider_health
+X-EA-Principal-ID: {{principal_id}}
+
+### Explicit 1min slot probe sweep
+POST {{host}}/v1/providers/onemin/probe-all
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "include_reserve": true
+}
+
+### Codex three-layer profiles and lanes (same provider health surface plus lane defaults)
+GET {{host}}/v1/codex/profiles
+X-EA-Principal-ID: {{principal_id}}
+
+POST {{host}}/v1/codex/core
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "input": "Run this change through the hard lane."
+}
+
+POST {{host}}/v1/codex/easy
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "input": "Write a short, mechanical docs cleanup patch."
+}
+
+POST {{host}}/v1/codex/repair
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "input": "Apply a bounded retry-handling fix without moving onto the hard lane."
+}
+
+POST {{host}}/v1/codex/groundwork
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "input": "Map the design tradeoffs and leave implementation for a later pass."
+}
+
+POST {{host}}/v1/codex/review-light
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "input": "Run a cheap posthoc diff review and summarize only actionable issues."
+}
+
+POST {{host}}/v1/codex/survival
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "input": "Continue the task slowly and cheaply if the premium lanes are unavailable."
+}
+
+### Poll the survival response until status=completed
+GET {{host}}/v1/responses/replace_with_survival_response_id
+X-EA-Principal-ID: {{principal_id}}
+
+POST {{host}}/v1/codex/audit
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "input": "Review the prior payload for factuality, completeness, and risk."
+}
+
+### Rewrite -> artifact + execution session
+POST {{host}}/v1/rewrite/artifact
+Content-Type: application/json
+Authorization: Bearer {{token}}
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "text": "Prepare a concise follow-up draft."
+}
+
+### Rewrite -> fetch session
+GET {{host}}/v1/rewrite/sessions/{{session_id}}
+X-EA-Principal-ID: {{principal_id}}
+
+### Rewrite -> fetch session filtered to one human-task assignment source
+GET {{host}}/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=manual
+X-EA-Principal-ID: {{principal_id}}
+
+### Rewrite -> fetch session filtered to current ownerless human-task rows
+GET {{host}}/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=none
+X-EA-Principal-ID: {{principal_id}}
+
+### Rewrite -> fetch artifact (includes principal_id ownership, originating task_key/deliverable_type, plus preview_text and storage_handle, plus mime_type, body_ref, and structured attachment metadata)
+GET {{host}}/v1/rewrite/artifacts/{{artifact_id}}
+X-EA-Principal-ID: {{principal_id}}
+
+### Evidence -> list materialized evidence-pack rows by artifact
+GET {{host}}/v1/evidence/objects?artifact_id={{artifact_id}}&principal_id={{principal_id}}&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Evidence -> fetch one evidence row
+GET {{host}}/v1/evidence/objects/{{evidence_id}}
+X-EA-Principal-ID: {{principal_id}}
+
+### Evidence -> merge cited evidence rows back into an evidence pack
+POST {{host}}/v1/evidence/merge
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "principal_id": "{{principal_id}}",
+  "evidence_ids": ["{{evidence_id}}"]
+}
+
+### Rewrite -> fetch receipt (includes originating task_key and deliverable_type)
+GET {{host}}/v1/rewrite/receipts/{{receipt_id}}
+X-EA-Principal-ID: {{principal_id}}
+
+### Rewrite -> fetch run cost (includes originating task_key and deliverable_type)
+GET {{host}}/v1/rewrite/run-costs/{{cost_id}}
+X-EA-Principal-ID: {{principal_id}}
+
+### Rewrite -> fetch session (inline artifact/proof, human-task packet, and human-task assignment-history rows include originating task_key and deliverable_type)
+GET {{host}}/v1/rewrite/sessions/{{session_id}}
+X-EA-Principal-ID: {{principal_id}}
+
+### Rewrite -> body principal mismatch (expected 403 principal_scope_mismatch)
+POST {{host}}/v1/rewrite/artifact
+Content-Type: application/json
+Authorization: Bearer {{token}}
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "text": "This should stay inside one principal scope.",
+  "principal_id": "exec-2"
+}
+
+### Rewrite -> blocked policy (expected 403)
+POST {{host}}/v1/rewrite/artifact
+Content-Type: application/json
+
+{
+  "text": "{{oversized_text}}"
+}
+
+### Policy audit -> recent decisions
+### Policy routes are principal-scoped. If you pass body/query principal context, it must match `X-EA-Principal-ID`.
+GET {{host}}/v1/policy/decisions/recent?limit=20
+
+### Policy audit -> by session
+GET {{host}}/v1/policy/decisions/recent?session_id={{session_id}}&limit=20
+
+### Policy -> evaluate external-send approval
+POST {{host}}/v1/policy/evaluate
+Content-Type: application/json
+
+{
+  "content": "Send the board update to the distribution list.",
+  "tool_name": "connector.dispatch",
+  "action_kind": "delivery.send",
+  "channel": "email",
+  "step_kind": "connector_call",
+  "authority_class": "execute",
+  "review_class": "manager"
+}
+
+### Approvals -> pending (includes originating task_key and deliverable_type)
+GET {{host}}/v1/policy/approvals/pending?limit=20
+
+### Approvals -> history (includes originating task_key and deliverable_type)
+GET {{host}}/v1/policy/approvals/history?limit=20
+
+### Approvals -> approve and resume execution
+POST {{host}}/v1/policy/approvals/{{approval_id}}/approve
+Content-Type: application/json
+
+{
+  "decided_by": "operator",
+  "reason": "approved for execution"
+}
+
+### Approvals -> deny
+POST {{host}}/v1/policy/approvals/{{approval_id}}/deny
+Content-Type: application/json
+
+{
+  "decided_by": "operator",
+  "reason": "deny in smoke"
+}
+
+### Approvals -> expire
+POST {{host}}/v1/policy/approvals/{{approval_id}}/expire
+Content-Type: application/json
+
+{
+  "decided_by": "operator",
+  "reason": "manual expiry"
+}
+
+### Human tasks -> create linked review packet
+POST {{host}}/v1/human/tasks
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "session_id": "{{session_id}}",
+  "step_id": "{{step_id}}",
+  "task_type": "communications_review",
+  "role_required": "communications_reviewer",
+  "brief": "Review the draft before external send.",
+  "input_json": {
+    "artifact_id": "{{artifact_id}}"
+  },
+  "desired_output_json": {
+    "format": "review_packet"
+  },
+  "priority": "high",
+  "resume_session_on_return": true
+}
+
+### Human tasks -> list for principal / role backlog (includes originating task_key and deliverable_type)
+GET {{host}}/v1/human/tasks?principal_id={{principal_id}}&role_required=communications_reviewer&overdue_only=true&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> list for assigned operator
+GET {{host}}/v1/human/tasks?principal_id={{principal_id}}&assigned_operator_id=operator&status=claimed&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> list for one session and one assignment source
+GET {{host}}/v1/human/tasks?principal_id={{principal_id}}&session_id={{session_id}}&assignment_source=manual&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> direct pending backlog sorted by latest ownership churn
+GET {{host}}/v1/human/tasks/backlog?sort=last_transition_desc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> direct detail (includes originating task_key and deliverable_type)
+GET {{host}}/v1/human/tasks/{{human_task_id}}
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> direct pending backlog sorted by oldest created task first
+GET {{host}}/v1/human/tasks/backlog?sort=created_asc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> direct pending backlog sorted by priority band, then oldest created task first
+GET {{host}}/v1/human/tasks/backlog?sort=priority_desc_created_asc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> direct pending backlog filtered to high-priority work
+GET {{host}}/v1/human/tasks/backlog?priority=high&sort=created_asc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> direct pending backlog filtered to urgent and high work together
+GET {{host}}/v1/human/tasks/backlog?priority=urgent,high&sort=priority_desc_created_asc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> direct pending backlog filtered to planner auto-preselected work
+GET {{host}}/v1/human/tasks/backlog?assignment_source=auto_preselected&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> priority summary for a reviewer queue
+GET {{host}}/v1/human/tasks/priority-summary?status=pending&role_required=communications_reviewer
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> priority summary for an exact operator-profile match queue
+GET {{host}}/v1/human/tasks/priority-summary?status=pending&assignment_state=unassigned&operator_id=operator-specialist
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> priority summary for one assigned reviewer queue
+GET {{host}}/v1/human/tasks/priority-summary?status=pending&role_required=communications_reviewer&assigned_operator_id=operator
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> priority summary for one pending assignment source
+GET {{host}}/v1/human/tasks/priority-summary?status=pending&assignment_source=manual
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> ownerless pending priority summary
+GET {{host}}/v1/human/tasks/priority-summary?status=pending&assignment_state=unassigned&assignment_source=none
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> direct pending backlog sorted by earliest SLA
+GET {{host}}/v1/human/tasks/backlog?sort=sla_due_at_asc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> direct pending backlog sorted by earliest SLA, then latest ownership churn
+GET {{host}}/v1/human/tasks/backlog?sort=sla_due_at_asc_last_transition_desc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> general list sorted by earliest SLA, with no-SLA work falling back to oldest-created
+GET {{host}}/v1/human/tasks?principal_id={{principal_id}}&status=pending&sort=sla_due_at_asc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> direct pending backlog
+GET {{host}}/v1/human/tasks/backlog?role_required=communications_reviewer&overdue_only=true&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> direct unassigned pending backlog
+GET {{host}}/v1/human/tasks/unassigned?role_required=communications_reviewer&overdue_only=true&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> ownerless unassigned pending backlog
+GET {{host}}/v1/human/tasks/unassigned?assignment_source=none&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> ownerless slice through the general pending backlog
+GET {{host}}/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> ownerless backlog oldest-first
+GET {{host}}/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=created_asc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> ownerless backlog newest-first by transition time
+GET {{host}}/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=last_transition_desc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> ownerless unassigned queue oldest-first
+GET {{host}}/v1/human/tasks/unassigned?assignment_source=none&sort=created_asc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> ownerless unassigned queue newest-first by transition time
+GET {{host}}/v1/human/tasks/unassigned?assignment_source=none&sort=last_transition_desc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> ownerless pending list oldest-first
+GET {{host}}/v1/human/tasks?status=pending&assignment_state=unassigned&assignment_source=none&sort=created_asc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> ownerless pending list newest-first by transition time
+GET {{host}}/v1/human/tasks?status=pending&assignment_state=unassigned&assignment_source=none&sort=last_transition_desc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> session-scoped ownerless queue oldest-first
+GET {{host}}/v1/human/tasks?session_id={{session_id}}&assignment_source=none&sort=created_asc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> session-scoped ownerless queue newest-first by transition time
+GET {{host}}/v1/human/tasks?session_id={{session_id}}&assignment_source=none&sort=last_transition_desc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> direct operator queue
+GET {{host}}/v1/human/tasks/mine?operator_id=operator&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> assign operator while task remains pending
+POST {{host}}/v1/human/tasks/{{human_task_id}}/assign
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "operator_id": "operator"
+}
+
+### Human tasks -> assignment history (includes originating task_key and deliverable_type)
+GET {{host}}/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> filtered assignment history
+GET {{host}}/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&event_name=human_task_assigned&assigned_by_actor_id={{principal_id}}
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> assignment history filtered by assignment source
+GET {{host}}/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&assignment_source=recommended
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> assignment history filtered to ownerless creation transitions
+GET {{host}}/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&assignment_source=none
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> assigned-only pending backlog
+GET {{host}}/v1/human/tasks/backlog?role_required=communications_reviewer&overdue_only=true&assignment_state=assigned&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> any claimed packets
+GET {{host}}/v1/human/tasks?principal_id={{principal_id}}&assignment_state=claimed&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> claim
+POST {{host}}/v1/human/tasks/{{human_task_id}}/claim
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "operator_id": "operator"
+}
+
+### Human tasks -> return structured review packet
+POST {{host}}/v1/human/tasks/{{human_task_id}}/return
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "operator_id": "operator",
+  "resolution": "ready_for_send",
+  "returned_payload_json": {
+    "summary": "Reviewed and ready."
+  },
+  "provenance_json": {
+    "review_mode": "human"
+  }
+}
+
+### Observations -> ingest
+POST {{host}}/v1/observations/ingest
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "channel": "email",
+  "event_type": "thread.opened",
+  "source_id": "gmail:exec-1",
+  "external_id": "msg-42",
+  "dedupe_key": "gmail:exec-1:msg-42",
+  "auth_context_json": {
+    "scope": "mail.readonly"
+  },
+  "raw_payload_uri": "s3://ea-observations/raw/msg-42.json",
+  "payload": {
+    "subject": "Board prep",
+    "from": "ceo@example.com"
+  }
+}
+
+### Observations -> recent
+GET {{host}}/v1/observations/recent?limit=20
+
+### Delivery outbox -> enqueue
+POST {{host}}/v1/delivery/outbox
+Content-Type: application/json
+
+{
+  "channel": "slack",
+  "recipient": "U12345",
+  "content": "Draft prepared and queued for review.",
+  "idempotency_key": "delivery-slack-u12345-thread-1",
+  "metadata": {
+    "priority": "high",
+    "thread": "T-1"
+  }
+}
+
+### Delivery outbox -> pending
+GET {{host}}/v1/delivery/outbox/pending?limit=20
+
+### Delivery outbox -> mark sent
+POST {{host}}/v1/delivery/outbox/{{delivery_id}}/sent
+
+### Delivery outbox -> mark failed (retry)
+POST {{host}}/v1/delivery/outbox/{{delivery_id}}/failed
+Content-Type: application/json
+
+{
+  "error": "temporary send failure",
+  "retry_in_seconds": 60,
+  "dead_letter": false
+}
+
+### Delivery outbox -> mark sent unknown id (expected 404)
+POST {{host}}/v1/delivery/outbox/not-a-real-id/sent
+
+### Telegram channel adapter -> ingest
+POST {{host}}/v1/channels/telegram/ingest
+Content-Type: application/json
+
+{
+  "update": {
+    "message": {
+      "chat": { "id": 42 },
+      "message_id": 7,
+      "date": 1234567890,
+      "text": "hello from telegram"
+    }
+  }
+}
+
+### Rewrite -> unknown session (expected 404)
+GET {{host}}/v1/rewrite/sessions/not-a-real-session-id
+
+### Rewrite -> approval-required acceptance contract (expected 202)
+POST {{host}}/v1/rewrite/artifact
+Content-Type: application/json
+
+{
+  "text": "This payload should be longer than the approval threshold configured in your runtime profile."
+}
+
+### Tools -> upsert registry entry
+POST {{host}}/v1/tools/registry
+Content-Type: application/json
+
+{
+  "tool_name": "email.send",
+  "version": "v1",
+  "input_schema_json": {
+    "type": "object"
+  },
+  "output_schema_json": {
+    "type": "object"
+  },
+  "policy_json": {
+    "risk": "medium"
+  },
+  "allowed_channels": [
+    "email",
+    "slack"
+  ],
+  "approval_default": "manager",
+  "enabled": true
+}
+
+### Tools -> list enabled
+GET {{host}}/v1/tools/registry?limit=20
+
+### Tools -> get by name
+GET {{host}}/v1/tools/registry/email.send
+
+### Tools -> execute builtin connector dispatch
+POST {{host}}/v1/tools/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "tool_name": "connector.dispatch",
+  "action_kind": "delivery.send",
+  "payload_json": {
+    "binding_id": "replace-with-a-real-binding-id",
+    "channel": "email",
+    "recipient": "ops@example.com",
+    "content": "Queue this via tool execution",
+    "metadata": {
+      "source": "http-example"
+    },
+    "idempotency_key": "tool-dispatch-http-example"
+  }
+}
+
+### Tools -> execute builtin BrowserAct account extraction
+POST {{host}}/v1/tools/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "tool_name": "browseract.extract_account_facts",
+  "action_kind": "account.extract",
+  "payload_json": {
+    "binding_id": "replace-with-browseract-binding-id",
+    "service_name": "BrowserAct",
+    "requested_fields": [
+      "tier",
+      "account_email",
+      "status"
+    ],
+    "run_url": "https://browseract.example/run",
+    "instructions": "Use stored BrowserAct credentials to verify the BrowserAct workspace tier.",
+    "account_hints_json": {
+      "BrowserAct": {
+        "workspace": "primary"
+      }
+    }
+  }
+}
+
+### Tools -> execute builtin BrowserAct LTD inventory extraction
+POST {{host}}/v1/tools/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "tool_name": "browseract.extract_account_inventory",
+  "action_kind": "account.extract_inventory",
+  "payload_json": {
+    "binding_id": "replace-with-browseract-binding-id",
+    "service_names": [
+      "BrowserAct",
+      "Teable",
+      "UnknownService"
+    ],
+    "requested_fields": [
+      "tier",
+      "account_email",
+      "status"
+    ],
+    "run_url": "https://browseract.example/run",
+    "instructions": "Use stored BrowserAct credentials to verify the BrowserAct and Teable workspace tiers.",
+    "account_hints_json": {
+      "Teable": {
+        "workspace": "ops"
+      }
+    }
+  }
+}
+
+### Connectors -> upsert binding
+POST {{host}}/v1/connectors/bindings
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "connector_name": "gmail",
+  "external_account_ref": "acct-1",
+  "scope_json": {
+    "scopes": [
+      "mail.readonly"
+    ]
+  },
+  "auth_metadata_json": {
+    "provider": "google"
+  },
+  "status": "enabled"
+}
+
+### Connectors -> upsert BrowserAct binding
+POST {{host}}/v1/connectors/bindings
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "connector_name": "browseract",
+  "external_account_ref": "browseract-main",
+  "scope_json": {
+    "services": [
+      "BrowserAct",
+      "Teable"
+    ]
+  },
+  "auth_metadata_json": {
+    "service_accounts_json": {
+      "BrowserAct": {
+        "tier": "Tier 3",
+        "account_email": "ops@example.com",
+        "status": "activated"
+      },
+      "Teable": {
+        "tier": "License Tier 4",
+        "account_email": "ops@teable.example",
+        "status": "activated"
+      }
+    }
+  },
+  "status": "enabled"
+}
+
+### Connectors -> list by principal
+GET {{host}}/v1/connectors/bindings?limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Connectors -> principal mismatch (expected 403)
+GET {{host}}/v1/connectors/bindings?principal_id=exec-2&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Connectors -> set status
+POST {{host}}/v1/connectors/bindings/replace_with_binding_id/status
+Content-Type: application/json
+
+{
+  "status": "disabled"
+}
+
+### Providers -> upsert binding
+POST {{host}}/v1/providers/bindings
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "provider_key": "browseract",
+  "status": "enabled",
+  "priority": 10,
+  "probe_state": "ready",
+  "probe_details_json": {
+    "checked_by": "http-example"
+  },
+  "scope_json": {
+    "allowed_tools": [
+      "browseract.extract_account_inventory"
+    ]
+  }
+}
+
+### Providers -> list bindings
+GET {{host}}/v1/providers/bindings?limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Providers -> list states
+GET {{host}}/v1/providers/states
+X-EA-Principal-ID: {{principal_id}}
+
+### Providers -> get one state
+GET {{host}}/v1/providers/states/browseract
+X-EA-Principal-ID: {{principal_id}}
+
+### Task Contracts -> upsert
+POST {{host}}/v1/tasks/contracts
+Content-Type: application/json
+
+{
+  "task_key": "rewrite_text",
+  "deliverable_type": "rewrite_note",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "allowed_tools": [
+    "artifact_repository"
+  ],
+  "evidence_requirements": [],
+  "memory_write_policy": "reviewed_only",
+  "budget_policy_json": {
+    "class": "low"
+  }
+}
+
+### Task Contracts -> list
+GET {{host}}/v1/tasks/contracts?limit=20
+
+### Task Contracts -> get by key
+GET {{host}}/v1/tasks/contracts/rewrite_text
+
+### Plans -> compile from task contract (steps include owner/authority/review/failure semantics plus timeout/retry budgets)
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "rewrite_text",
+  "goal": "rewrite this text for board notes"
+}
+
+### Task Contracts -> upsert dispatch workflow template (artifact -> policy -> connector.dispatch)
+POST {{host}}/v1/tasks/contracts
+Content-Type: application/json
+
+{
+  "task_key": "stakeholder_dispatch",
+  "deliverable_type": "stakeholder_briefing",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "allowed_tools": ["artifact_repository", "connector.dispatch"],
+  "evidence_requirements": ["stakeholder_context"],
+  "memory_write_policy": "reviewed_only",
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "artifact_then_dispatch"
+  }
+}
+
+### Task Contracts -> upsert BrowserAct LTD discovery workflow template
+POST {{host}}/v1/tasks/contracts
+Content-Type: application/json
+
+{
+  "task_key": "browseract_ltd_discovery",
+  "deliverable_type": "ltd_service_profile",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "allowed_tools": [
+    "browseract.extract_account_facts",
+    "artifact_repository"
+  ],
+  "evidence_requirements": [
+    "account_inventory"
+  ],
+  "memory_write_policy": "none",
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "browseract_extract_then_artifact"
+  }
+}
+
+### Skills -> upsert `meeting_prep` into the first-class skill catalog
+POST {{host}}/v1/skills
+Content-Type: application/json
+
+{
+  "skill_key": "meeting_prep",
+  "task_key": "meeting_prep",
+  "name": "Meeting Prep",
+  "description": "Build an executive-ready meeting prep packet.",
+  "deliverable_type": "meeting_pack",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "workflow_template": "artifact_then_memory_candidate",
+  "allowed_tools": [
+    "artifact_repository"
+  ],
+  "evidence_requirements": [
+    "stakeholder_context",
+    "decision_context"
+  ],
+  "memory_write_policy": "reviewed_only",
+  "memory_reads": [
+    "stakeholders",
+    "commitments",
+    "decision_windows"
+  ],
+  "memory_writes": [
+    "meeting_pack_fact"
+  ],
+  "tags": [
+    "executive",
+    "meeting",
+    "briefing"
+  ],
+  "authority_profile_json": {
+    "authority_class": "draft",
+    "review_class": "operator"
+  },
+  "provider_hints_json": {
+    "primary": [
+      "1min.AI"
+    ],
+    "research": [
+      "BrowserAct",
+      "Paperguide"
+    ],
+    "output": [
+      "MarkupGo"
+    ]
+  },
+  "tool_policy_json": {
+    "allowed_tools": [
+      "artifact_repository"
+    ]
+  },
+  "human_policy_json": {
+    "review_roles": [
+      "briefing_reviewer"
+    ]
+  },
+  "evaluation_cases_json": [
+    {
+      "case_key": "meeting_prep_golden",
+      "priority": "high"
+    }
+  ],
+  "budget_policy_json": {
+    "class": "low",
+    "memory_candidate_category": "meeting_pack_fact",
+    "memory_candidate_confidence": 0.8,
+    "memory_candidate_sensitivity": "internal"
+  }
+}
+
+### Skills -> upsert `ltd_inventory_refresh` into the first-class skill catalog
+POST {{host}}/v1/skills
+Content-Type: application/json
+
+{
+  "skill_key": "ltd_inventory_refresh",
+  "task_key": "ltd_inventory_refresh",
+  "name": "LTD Inventory Refresh",
+  "description": "Refresh BrowserAct-backed LTD tier, email, and status facts for the local inventory tracker.",
+  "deliverable_type": "ltd_inventory_profile",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "workflow_template": "tool_then_artifact",
+  "allowed_tools": [
+    "browseract.extract_account_inventory",
+    "artifact_repository"
+  ],
+  "evidence_requirements": [
+    "account_inventory"
+  ],
+  "memory_write_policy": "none",
+  "memory_reads": [
+    "account_inventory"
+  ],
+  "memory_writes": [],
+  "tags": [
+    "ltd",
+    "inventory",
+    "operations"
+  ],
+  "authority_profile_json": {
+    "authority_class": "observe",
+    "review_class": "none"
+  },
+  "provider_hints_json": {
+    "primary": [
+      "BrowserAct"
+    ],
+    "ops": [
+      "Teable"
+    ],
+    "output": [
+      "MarkupGo"
+    ]
+  },
+  "tool_policy_json": {
+    "allowed_tools": [
+      "browseract.extract_account_inventory",
+      "artifact_repository"
+    ]
+  },
+  "evaluation_cases_json": [
+    {
+      "case_key": "ltd_inventory_refresh_golden",
+      "priority": "medium"
+    }
+  ],
+  "budget_policy_json": {
+    "class": "low",
+    "pre_artifact_tool_name": "browseract.extract_account_inventory"
+  }
+}
+
+### Skills -> upsert `browseract_bootstrap_manager` into the first-class skill catalog
+POST {{host}}/v1/skills
+Content-Type: application/json
+
+{
+  "skill_key": "browseract_bootstrap_manager",
+  "task_key": "browseract_bootstrap_manager",
+  "name": "BrowserAct Bootstrap Manager",
+  "description": "Planner-executed BrowserAct workflow-spec builder for stage-0 BrowserAct template creation and architect packets.",
+  "deliverable_type": "browseract_workflow_spec_packet",
+  "default_risk_class": "medium",
+  "default_approval_class": "none",
+  "workflow_template": "tool_then_artifact",
+  "allowed_tools": [
+    "browseract.build_workflow_spec",
+    "artifact_repository"
+  ],
+  "evidence_requirements": [
+    "target_domain_brief",
+    "workflow_spec",
+    "browseract_seed_state"
+  ],
+  "memory_write_policy": "none",
+  "memory_reads": [
+    "entities",
+    "relationships"
+  ],
+  "memory_writes": [],
+  "tags": [
+    "browseract",
+    "bootstrap",
+    "workflow",
+    "architect"
+  ],
+  "authority_profile_json": {
+    "authority_class": "draft",
+    "review_class": "operator"
+  },
+  "provider_hints_json": {
+    "primary": [
+      "BrowserAct"
+    ],
+    "notes": [
+      "Stage-0 architect compiles prepared workflow specs into BrowserAct-ready packets."
+    ]
+  },
+  "tool_policy_json": {
+    "allowed_tools": [
+      "browseract.build_workflow_spec",
+      "artifact_repository"
+    ]
+  },
+  "human_policy_json": {
+    "review_roles": [
+      "automation_architect"
+    ]
+  },
+  "evaluation_cases_json": [
+    {
+      "case_key": "browseract_bootstrap_manager_golden",
+      "priority": "medium"
+    }
+  ],
+  "budget_policy_json": {
+    "class": "medium",
+    "workflow_template": "tool_then_artifact",
+    "pre_artifact_capability_key": "workflow_spec_build",
+    "browseract_failure_strategy": "retry",
+    "browseract_max_attempts": 2,
+    "browseract_retry_backoff_seconds": 1
+  }
+}
+
+### Skills -> upsert `chummer6_public_writer` into the first-class skill catalog
+POST {{host}}/v1/skills
+Content-Type: application/json
+
+{
+  "skill_key": "chummer6_public_writer",
+  "task_key": "chummer6_public_copy_refresh",
+  "name": "Chummer6 Public Writer",
+  "description": "Planner-executed public-writer lane for Chummer6 guide copy, audience translation, and reader-safe OODA framing.",
+  "deliverable_type": "chummer6_guide_refresh_packet",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "workflow_template": "tool_then_artifact",
+  "allowed_tools": [
+    "provider.gemini_vortex.structured_generate",
+    "artifact_repository"
+  ],
+  "evidence_requirements": [
+    "public_page_registry",
+    "public_part_registry",
+    "public_faq_registry",
+    "public_status",
+    "source_prompt"
+  ],
+  "memory_write_policy": "reviewed_only",
+  "memory_reads": [
+    "entities",
+    "relationships",
+    "public_page_registry",
+    "public_part_registry",
+    "public_faq_registry",
+    "public_status"
+  ],
+  "memory_writes": [
+    "chummer6_public_copy_fact"
+  ],
+  "tags": [
+    "chummer6",
+    "guide",
+    "public-writer",
+    "audience",
+    "copy"
+  ],
+  "authority_profile_json": {
+    "authority_class": "draft",
+    "review_class": "operator"
+  },
+  "model_policy_json": {
+    "provider": "gemini_vortex",
+    "default_model": "gemini-2.5-flash",
+    "output_mode": "json"
+  },
+  "provider_hints_json": {
+    "primary": [
+      "Gemini Vortex"
+    ],
+    "research": [
+      "BrowserAct"
+    ],
+    "output": [
+      "Gemini Vortex",
+      "Prompting Systems"
+    ],
+    "style": [
+      "Gemini Vortex"
+    ]
+  },
+  "tool_policy_json": {
+    "allowed_tools": [
+      "provider.gemini_vortex.structured_generate",
+      "artifact_repository"
+    ]
+  },
+  "human_policy_json": {
+    "review_roles": [
+      "guide_reviewer"
+    ]
+  },
+  "evaluation_cases_json": [
+    {
+      "case_key": "chummer6_guide_refresh_golden",
+      "priority": "medium"
+    }
+  ],
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "tool_then_artifact",
+    "pre_artifact_capability_key": "structured_generate",
+    "artifact_failure_strategy": "retry",
+    "artifact_max_attempts": 2,
+    "artifact_retry_backoff_seconds": 1,
+    "style_epoch_enabled": true,
+    "variation_guard_enabled": true
+  }
+}
+
+### Skills -> upsert `chummer6_visual_director` into the first-class skill catalog
+POST {{host}}/v1/skills
+Content-Type: application/json
+
+{
+  "skill_key": "chummer6_visual_director",
+  "task_key": "chummer6_guide_refresh",
+  "name": "Chummer6 Visual Director",
+  "description": "Planner-executed Chummer6 scene planning, style-epoch selection, scene-ledger guidance, and structured visual-direction skill for the public-facing guide.",
+  "deliverable_type": "chummer6_guide_refresh_packet",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "workflow_template": "tool_then_artifact",
+  "allowed_tools": [
+    "provider.gemini_vortex.structured_generate",
+    "artifact_repository"
+  ],
+  "evidence_requirements": [
+    "public_page_registry",
+    "public_part_registry",
+    "public_faq_registry",
+    "public_status",
+    "source_prompt"
+  ],
+  "memory_write_policy": "reviewed_only",
+  "memory_reads": [
+    "entities",
+    "relationships",
+    "public_page_registry",
+    "public_part_registry",
+    "public_faq_registry",
+    "public_status"
+  ],
+  "memory_writes": [
+    "chummer6_style_epoch",
+    "chummer6_scene_ledger",
+    "chummer6_visual_critic_fact"
+  ],
+  "tags": [
+    "chummer6",
+    "guide",
+    "visual-direction",
+    "style-epoch",
+    "scene-ledger"
+  ],
+  "authority_profile_json": {
+    "authority_class": "draft",
+    "review_class": "operator"
+  },
+  "model_policy_json": {
+    "provider": "gemini_vortex",
+    "default_model": "gemini-2.5-flash",
+    "output_mode": "json"
+  },
+  "provider_hints_json": {
+    "primary": [
+      "Gemini Vortex"
+    ],
+    "research": [
+      "BrowserAct"
+    ],
+    "output": [
+      "Gemini Vortex",
+      "AI Magicx",
+      "Prompting Systems",
+      "BrowserAct"
+    ],
+    "media": [
+      "AI Magicx",
+      "Prompting Systems",
+      "BrowserAct"
+    ],
+    "style": [
+      "Gemini Vortex"
+    ]
+  },
+  "tool_policy_json": {
+    "allowed_tools": [
+      "provider.gemini_vortex.structured_generate",
+      "artifact_repository"
+    ]
+  },
+  "human_policy_json": {
+    "review_roles": [
+      "guide_reviewer"
+    ]
+  },
+  "evaluation_cases_json": [
+    {
+      "case_key": "chummer6_guide_refresh_golden",
+      "priority": "medium"
+    }
+  ],
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "tool_then_artifact",
+    "pre_artifact_capability_key": "structured_generate",
+    "artifact_failure_strategy": "retry",
+    "artifact_max_attempts": 2,
+    "artifact_retry_backoff_seconds": 1,
+    "style_epoch_enabled": true,
+    "variation_guard_enabled": true
+  }
+}
+
+### Skills -> list catalog entries
+GET {{host}}/v1/skills?limit=20
+
+### Skills -> filter catalog entries by provider hint
+GET {{host}}/v1/skills?limit=20&provider_hint=BrowserAct
+
+### Skills -> fetch `meeting_prep`
+GET {{host}}/v1/skills/meeting_prep
+
+### Skills -> fetch `ltd_inventory_refresh`
+GET {{host}}/v1/skills/ltd_inventory_refresh
+
+### Skills -> fetch `browseract_bootstrap_manager`
+GET {{host}}/v1/skills/browseract_bootstrap_manager
+
+### Skills -> fetch `chummer6_public_writer`
+GET {{host}}/v1/skills/chummer6_public_writer
+
+### Skills -> fetch `chummer6_visual_director`
+GET {{host}}/v1/skills/chummer6_visual_director
+
+### Plans -> compile dispatch workflow template
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_dispatch",
+  "goal": "prepare and send a stakeholder briefing"
+}
+
+### Task Contracts -> upsert reusable post-artifact workflow packs template
+POST {{host}}/v1/tasks/contracts
+Content-Type: application/json
+
+{
+  "task_key": "stakeholder_pack_template",
+  "deliverable_type": "stakeholder_briefing",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "allowed_tools": ["artifact_repository", "connector.dispatch"],
+  "evidence_requirements": ["stakeholder_context"],
+  "memory_write_policy": "reviewed_only",
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "artifact_then_packs",
+    "post_artifact_packs": ["dispatch", "memory_candidate"],
+    "memory_candidate_category": "stakeholder_follow_up_fact",
+    "memory_candidate_confidence": 0.8,
+    "memory_candidate_sensitivity": "internal"
+  }
+}
+
+### Plans -> compile reusable post-artifact workflow packs template
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_pack_template",
+  "goal": "prepare, send, and stage stakeholder follow-up memory"
+}
+
+### Plans -> compile BrowserAct LTD discovery workflow template
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "browseract_ltd_discovery",
+  "goal": "extract LTD account facts for BrowserAct"
+}
+
+### Plans -> compile `meeting_prep` skill via its backing task contract
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "meeting_prep",
+  "goal": "prepare the board meeting packet"
+}
+
+### Plans -> compile `meeting_prep` directly via `skill_key`
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "skill_key": "meeting_prep",
+  "goal": "prepare the board meeting packet"
+}
+
+### Plans -> compile `ltd_inventory_refresh` skill via its backing task contract
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "ltd_inventory_refresh",
+  "goal": "refresh LTD inventory facts"
+}
+
+### Plans -> compile `browseract_bootstrap_manager` directly via `skill_key`
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "skill_key": "browseract_bootstrap_manager",
+  "goal": "build a BrowserAct workflow spec packet"
+}
+
+### Plans -> compile `chummer6_public_writer` directly via `skill_key`
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "skill_key": "chummer6_public_writer",
+  "goal": "author reader-safe Chummer6 guide copy"
+}
+
+### Plans -> compile `chummer6_visual_director` directly via `skill_key`
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "skill_key": "chummer6_visual_director",
+  "goal": "author a structured Chummer6 guide refresh packet"
+}
+
+### Task Contracts -> upsert generic tool-then-artifact workflow template (BrowserAct via reusable macro)
+POST {{host}}/v1/tasks/contracts
+Content-Type: application/json
+
+{
+  "task_key": "browseract_ltd_discovery_generic",
+  "deliverable_type": "ltd_service_profile",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "allowed_tools": [
+    "browseract.extract_account_facts",
+    "artifact_repository"
+  ],
+  "evidence_requirements": [
+    "account_inventory"
+  ],
+  "memory_write_policy": "none",
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "tool_then_artifact",
+    "pre_artifact_tool_name": "browseract.extract_account_facts"
+  }
+}
+
+### Plans -> compile generic tool-then-artifact workflow template
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "browseract_ltd_discovery_generic",
+  "goal": "extract LTD account facts for BrowserAct"
+}
+
+### Task Contracts -> upsert BrowserAct LTD inventory refresh workflow template (generic tool -> artifact)
+POST {{host}}/v1/tasks/contracts
+Content-Type: application/json
+
+{
+  "task_key": "browseract_ltd_inventory_refresh",
+  "deliverable_type": "ltd_inventory_profile",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "allowed_tools": [
+    "browseract.extract_account_inventory",
+    "artifact_repository"
+  ],
+  "evidence_requirements": [
+    "account_inventory"
+  ],
+  "memory_write_policy": "none",
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "tool_then_artifact",
+    "pre_artifact_tool_name": "browseract.extract_account_inventory"
+  }
+}
+
+### Plans -> compile BrowserAct LTD inventory refresh workflow template
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "browseract_ltd_inventory_refresh",
+  "goal": "refresh LTD inventory facts"
+}
+
+### Task Contracts -> upsert memory-candidate workflow template (artifact -> memory candidate)
+POST {{host}}/v1/tasks/contracts
+Content-Type: application/json
+
+{
+  "task_key": "stakeholder_memory_candidate",
+  "deliverable_type": "stakeholder_briefing",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "allowed_tools": ["artifact_repository"],
+  "evidence_requirements": ["stakeholder_context"],
+  "memory_write_policy": "reviewed_only",
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "artifact_then_memory_candidate",
+    "memory_candidate_category": "stakeholder_briefing_fact",
+    "memory_candidate_confidence": 0.7,
+    "memory_candidate_sensitivity": "internal"
+  }
+}
+
+### Plans -> compile memory-candidate workflow template (`step_memory_candidate_stage` is the queue-backed memory step)
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_memory_candidate",
+  "goal": "prepare a stakeholder briefing and stage memory"
+}
+
+### Plans -> execute memory-candidate workflow template (expected 200 completed artifact plus staged pending memory candidate)
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_memory_candidate",
+  "goal": "prepare a stakeholder briefing and stage memory",
+  "input_json": {
+    "source_text": "Board context and stakeholder sensitivities."
+  }
+}
+
+### Task Contracts -> upsert dispatch-then-memory workflow template (artifact -> dispatch -> memory candidate)
+POST {{host}}/v1/tasks/contracts
+Content-Type: application/json
+
+{
+  "task_key": "stakeholder_dispatch_memory_candidate",
+  "deliverable_type": "stakeholder_briefing",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "allowed_tools": ["artifact_repository", "connector.dispatch"],
+  "evidence_requirements": ["stakeholder_context"],
+  "memory_write_policy": "reviewed_only",
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "artifact_then_dispatch_then_memory_candidate",
+    "memory_candidate_category": "stakeholder_follow_up_fact",
+    "memory_candidate_confidence": 0.8,
+    "memory_candidate_sensitivity": "internal"
+  }
+}
+
+### Plans -> compile dispatch-then-memory workflow template (`step_memory_candidate_stage` waits for the approval-backed send to finish)
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_dispatch_memory_candidate",
+  "goal": "prepare, send, and stage stakeholder follow-up memory"
+}
+
+### Plans -> execute dispatch-then-memory workflow template (expected 202 awaiting_approval, then memory stages after dispatch)
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_dispatch_memory_candidate",
+  "goal": "prepare, send, and stage stakeholder follow-up memory",
+  "input_json": {
+    "source_text": "Board context and stakeholder sensitivities.",
+    "binding_id": "{{binding_id}}",
+    "channel": "email",
+    "recipient": "dispatch-memory@example.com"
+  }
+}
+
+### Task Contracts -> upsert review-dispatch-memory workflow template (human review -> dispatch -> memory candidate)
+POST {{host}}/v1/tasks/contracts
+Content-Type: application/json
+
+{
+  "task_key": "stakeholder_review_dispatch_memory_candidate",
+  "deliverable_type": "stakeholder_briefing",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "allowed_tools": ["artifact_repository", "connector.dispatch"],
+  "evidence_requirements": ["stakeholder_context"],
+  "memory_write_policy": "reviewed_only",
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "artifact_then_dispatch_then_memory_candidate",
+    "human_review_role": "briefing_reviewer",
+    "human_review_task_type": "briefing_review",
+    "human_review_brief": "Review before stakeholder dispatch and memory staging.",
+    "human_review_priority": "high",
+    "human_review_desired_output_json": {
+      "format": "review_packet"
+    },
+    "memory_candidate_category": "stakeholder_follow_up_fact",
+    "memory_candidate_confidence": 0.8,
+    "memory_candidate_sensitivity": "internal"
+  }
+}
+
+### Plans -> compile review-dispatch-memory workflow template
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_review_dispatch_memory_candidate",
+  "goal": "review, send, and stage stakeholder follow-up memory"
+}
+
+### Plans -> execute review-dispatch-memory workflow template (expected 202 awaiting_human first, then 202 awaiting_approval, then post-dispatch memory staging)
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_review_dispatch_memory_candidate",
+  "goal": "review, send, and stage stakeholder follow-up memory",
+  "input_json": {
+    "source_text": "Board context and stakeholder sensitivities.",
+    "binding_id": "{{binding_id}}",
+    "channel": "email",
+    "recipient": "reviewed-memory@example.com"
+  }
+}
+
+### Plans -> principal mismatch (expected 403 principal_scope_mismatch)
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "rewrite_text",
+  "principal_id": "exec-2",
+  "goal": "rewrite this text for board notes"
+}
+
+### Plans -> execute a non-rewrite task contract through the queue-backed runtime
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_briefing",
+  "input_json": {
+    "source_text": "Board context and stakeholder sensitivities.",
+    "channel": "email",
+    "stakeholder_ref": "alex-exec"
+  },
+  "context_refs": [
+    "thread:board-prep",
+    "memory:item:stakeholder-brief"
+  ],
+  "goal": "prepare a stakeholder briefing"
+}
+
+### Plans -> execute dispatch workflow template (expected 202 awaiting_approval before connector dispatch)
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_dispatch",
+  "goal": "prepare and send a stakeholder briefing",
+  "input_json": {
+    "source_text": "Board context and stakeholder sensitivities.",
+    "binding_id": "{{binding_id}}",
+    "channel": "email",
+    "recipient": "workflow@example.com"
+  }
+}
+
+### Plans -> execute BrowserAct LTD discovery workflow template
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "browseract_ltd_discovery",
+  "goal": "extract LTD account facts for BrowserAct",
+  "input_json": {
+    "binding_id": "replace-with-browseract-binding-id",
+    "service_name": "BrowserAct",
+    "requested_fields": [
+      "tier",
+      "account_email",
+      "status"
+    ]
+  }
+}
+
+### Plans -> execute BrowserAct LTD inventory refresh workflow template
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "browseract_ltd_inventory_refresh",
+  "goal": "refresh LTD inventory facts",
+  "input_json": {
+    "binding_id": "replace-with-browseract-binding-id",
+    "service_names": [
+      "BrowserAct",
+      "Teable",
+      "UnknownService"
+    ],
+    "requested_fields": [
+      "tier",
+      "account_email",
+      "status"
+    ]
+  }
+}
+
+### Plans -> execute `ltd_inventory_refresh` directly via `skill_key`
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "skill_key": "ltd_inventory_refresh",
+  "goal": "refresh LTD inventory facts",
+  "input_json": {
+    "binding_id": "replace-with-browseract-binding-id",
+    "service_names": [
+      "BrowserAct",
+      "Teable",
+      "UnknownService"
+    ],
+    "requested_fields": [
+      "tier",
+      "account_email",
+      "status"
+    ]
+  }
+}
+
+### Plans -> execute `browseract_bootstrap_manager` directly via `skill_key`
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "skill_key": "browseract_bootstrap_manager",
+  "goal": "build a BrowserAct workflow spec packet",
+  "input_json": {
+    "workflow_name": "Prompt Forge",
+    "purpose": "Build a prepared BrowserAct workflow spec for prompt refinement.",
+    "login_url": "https://browseract.example/login",
+    "tool_url": "https://browseract.example/tools/prompting-systems"
+  }
+}
+
+### Plans -> execute principal mismatch (expected 403 principal_scope_mismatch)
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_briefing",
+  "text": "Should stay in principal scope.",
+  "principal_id": "exec-2",
+  "goal": "prepare a stakeholder briefing"
+}
+
+### Plans -> execute approval-backed task contract (expected 202 awaiting_approval)
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "decision_brief_approval",
+  "text": "Decision context for the approval-backed briefing.",
+  "goal": "prepare a decision brief"
+}
+
+### Plans -> inspect paused approval-backed session dependency projection
+GET {{host}}/v1/rewrite/sessions/{{session_id}}
+X-EA-Principal-ID: {{principal_id}}
+
+### Plans -> execute human-review-backed task contract (expected 202 awaiting_human)
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_briefing_review",
+  "text": "Stakeholder context for human-reviewed briefing.",
+  "goal": "prepare a stakeholder briefing"
+}
+
+### Plans -> inspect paused human-review-backed session dependency projection
+GET {{host}}/v1/rewrite/sessions/{{session_id}}
+X-EA-Principal-ID: {{principal_id}}
+
+### Memory -> stage candidate
+POST {{host}}/v1/memory/candidates
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "category": "stakeholder_pref",
+  "summary": "CEO prefers concise updates",
+  "fact_json": {
+    "tone": "concise"
+  },
+  "source_session_id": "session-1",
+  "source_event_id": "event-1",
+  "source_step_id": "step-1",
+  "confidence": 0.72,
+  "sensitivity": "internal"
+}
+
+### Memory -> list candidates
+GET {{host}}/v1/memory/candidates?limit=20&status=pending
+
+### Memory -> promote candidate
+POST {{host}}/v1/memory/candidates/{{memory_candidate_id}}/promote
+Content-Type: application/json
+
+{
+  "reviewer": "operator",
+  "sharing_policy": "private"
+}
+
+### Memory -> reject candidate
+POST {{host}}/v1/memory/candidates/{{memory_candidate_id}}/reject
+Content-Type: application/json
+
+{
+  "reviewer": "operator"
+}
+
+### Memory -> list items
+GET {{host}}/v1/memory/items?limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Memory -> principal mismatch (expected 403)
+GET {{host}}/v1/memory/items?limit=20&principal_id=exec-2
+X-EA-Principal-ID: {{principal_id}}
+
+### Memory -> get item
+GET {{host}}/v1/memory/items/{{memory_item_id}}
+
+### Memory -> upsert entity
+POST {{host}}/v1/memory/entities
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "entity_type": "person",
+  "canonical_name": "Alex Executive",
+  "attributes_json": {
+    "role": "executive"
+  },
+  "confidence": 0.9,
+  "status": "active"
+}
+
+### Memory -> list entities
+GET {{host}}/v1/memory/entities?limit=20&principal_id=exec-1
+
+### Memory -> get entity
+GET {{host}}/v1/memory/entities/{{entity_id}}
+
+### Memory -> upsert relationship
+POST {{host}}/v1/memory/relationships
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "from_entity_id": "replace_entity_a",
+  "to_entity_id": "replace_entity_b",
+  "relationship_type": "reports_to",
+  "attributes_json": {
+    "strength": "high"
+  },
+  "confidence": 0.75
+}
+
+### Memory -> list relationships
+GET {{host}}/v1/memory/relationships?limit=20&principal_id=exec-1
+
+### Memory -> get relationship
+GET {{host}}/v1/memory/relationships/{{relationship_id}}
+
+### Memory -> upsert commitment
+POST {{host}}/v1/memory/commitments
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "title": "Send board follow-up",
+  "details": "Draft and send by Friday",
+  "status": "open",
+  "priority": "high",
+  "due_at": "2026-03-06T10:00:00+00:00",
+  "source_json": {
+    "source": "manual"
+  }
+}
+
+### Memory -> list commitments (principal-scoped)
+GET {{host}}/v1/memory/commitments?principal_id=exec-1&limit=20
+
+### Memory -> get commitment (principal-scoped)
+GET {{host}}/v1/memory/commitments/{{commitment_id}}?principal_id=exec-1
+
+### Memory -> upsert authority binding (principal-scoped)
+POST {{host}}/v1/memory/authority-bindings
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "subject_ref": "assistant",
+  "action_scope": "calendar.write",
+  "approval_level": "manager",
+  "channel_scope": [
+    "email",
+    "slack"
+  ],
+  "policy_json": {
+    "quiet_hours_enforced": true
+  },
+  "status": "active"
+}
+
+### Memory -> list authority bindings (principal-scoped)
+GET {{host}}/v1/memory/authority-bindings?principal_id=exec-1&limit=20
+
+### Memory -> get authority binding (principal-scoped)
+GET {{host}}/v1/memory/authority-bindings/{{authority_binding_id}}?principal_id=exec-1
+
+### Memory -> upsert delivery preference (principal-scoped)
+POST {{host}}/v1/memory/delivery-preferences
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "channel": "email",
+  "recipient_ref": "ceo@example.com",
+  "cadence": "urgent_only",
+  "quiet_hours_json": {
+    "start": "22:00",
+    "end": "07:00"
+  },
+  "format_json": {
+    "style": "concise"
+  },
+  "status": "active"
+}
+
+### Memory -> list delivery preferences (principal-scoped)
+GET {{host}}/v1/memory/delivery-preferences?principal_id=exec-1&limit=20
+
+### Memory -> get delivery preference (principal-scoped)
+GET {{host}}/v1/memory/delivery-preferences/{{delivery_preference_id}}?principal_id=exec-1
+
+### Memory -> upsert follow-up (principal-scoped)
+POST {{host}}/v1/memory/follow-ups
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "stakeholder_ref": "ceo@example.com",
+  "topic": "Board follow-up",
+  "status": "open",
+  "due_at": "2026-03-07T09:00:00+00:00",
+  "channel_hint": "email",
+  "notes": "Send summary after prep call",
+  "source_json": {
+    "source": "manual"
+  }
+}
+
+### Memory -> list follow-ups (principal-scoped)
+GET {{host}}/v1/memory/follow-ups?principal_id=exec-1&limit=20
+
+### Memory -> get follow-up (principal-scoped)
+GET {{host}}/v1/memory/follow-ups/{{follow_up_id}}?principal_id=exec-1
+
+### Memory -> upsert deadline window (principal-scoped)
+POST {{host}}/v1/memory/deadline-windows
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "title": "Board prep delivery window",
+  "start_at": "2026-03-07T08:30:00+00:00",
+  "end_at": "2026-03-07T10:00:00+00:00",
+  "status": "open",
+  "priority": "high",
+  "notes": "Draft must be ready before board sync",
+  "source_json": {
+    "source": "manual"
+  }
+}
+
+### Memory -> list deadline windows (principal-scoped)
+GET {{host}}/v1/memory/deadline-windows?principal_id=exec-1&limit=20
+
+### Memory -> get deadline window (principal-scoped)
+GET {{host}}/v1/memory/deadline-windows/{{window_id}}?principal_id=exec-1
+
+### Memory -> upsert stakeholder (principal-scoped)
+POST {{host}}/v1/memory/stakeholders
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "display_name": "Sam Stakeholder",
+  "channel_ref": "email:sam@example.com",
+  "authority_level": "approver",
+  "importance": "high",
+  "response_cadence": "fast",
+  "tone_pref": "diplomatic",
+  "sensitivity": "confidential",
+  "escalation_policy": "notify_exec",
+  "open_loops_json": {
+    "board_follow_up": "open"
+  },
+  "friction_points_json": {
+    "scheduling": "tight"
+  },
+  "last_interaction_at": "2026-03-06T15:30:00+00:00",
+  "status": "active",
+  "notes": "Needs concise summaries"
+}
+
+### Memory -> list stakeholders (principal-scoped)
+GET {{host}}/v1/memory/stakeholders?principal_id=exec-1&limit=20
+
+### Memory -> get stakeholder (principal-scoped)
+GET {{host}}/v1/memory/stakeholders/{{stakeholder_id}}?principal_id=exec-1
+
+### Memory -> upsert decision window (principal-scoped)
+POST {{host}}/v1/memory/decision-windows
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "title": "Board response decision",
+  "context": "Choose timing and channel for reply",
+  "opens_at": "2026-03-06T08:00:00+00:00",
+  "closes_at": "2026-03-06T12:00:00+00:00",
+  "urgency": "high",
+  "authority_required": "exec",
+  "status": "open",
+  "notes": "Needs decision before board prep",
+  "source_json": {
+    "source": "manual"
+  }
+}
+
+### Memory -> list decision windows (principal-scoped)
+GET {{host}}/v1/memory/decision-windows?principal_id=exec-1&limit=20
+
+### Memory -> get decision window (principal-scoped)
+GET {{host}}/v1/memory/decision-windows/{{decision_window_id}}?principal_id=exec-1
+
+### Memory -> upsert communication policy (principal-scoped)
+POST {{host}}/v1/memory/communication-policies
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "scope": "board_threads",
+  "preferred_channel": "email",
+  "tone": "concise_diplomatic",
+  "max_length": 1200,
+  "quiet_hours_json": {
+    "start": "22:00",
+    "end": "07:00"
+  },
+  "escalation_json": {
+    "on_high_urgency": "notify_exec"
+  },
+  "status": "active",
+  "notes": "Board-facing communication defaults"
+}
+
+### Memory -> list communication policies (principal-scoped)
+GET {{host}}/v1/memory/communication-policies?principal_id=exec-1&limit=20
+
+### Memory -> get communication policy (principal-scoped)
+GET {{host}}/v1/memory/communication-policies/{{policy_id}}?principal_id=exec-1
+
+### Memory -> upsert follow-up rule (principal-scoped)
+POST {{host}}/v1/memory/follow-up-rules
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "name": "Board reminder escalation",
+  "trigger_kind": "deadline_risk",
+  "channel_scope": [
+    "email",
+    "slack"
+  ],
+  "delay_minutes": 120,
+  "max_attempts": 3,
+  "escalation_policy": "notify_exec",
+  "conditions_json": {
+    "priority": "high"
+  },
+  "action_json": {
+    "action": "draft_follow_up"
+  },
+  "status": "active",
+  "notes": "Escalate if follow-up is late"
+}
+
+### Memory -> list follow-up rules (principal-scoped)
+GET {{host}}/v1/memory/follow-up-rules?principal_id=exec-1&limit=20
+
+### Memory -> get follow-up rule (principal-scoped)
+GET {{host}}/v1/memory/follow-up-rules/{{rule_id}}?principal_id=exec-1
+
+### Memory -> upsert interruption budget (principal-scoped)
+POST {{host}}/v1/memory/interruption-budgets
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "scope": "workday",
+  "window_kind": "daily",
+  "budget_minutes": 120,
+  "used_minutes": 30,
+  "reset_at": "2026-03-07T00:00:00+00:00",
+  "quiet_hours_json": {
+    "start": "22:00",
+    "end": "07:00"
+  },
+  "status": "active",
+  "notes": "Keep non-critical interruptions bounded"
+}
+
+### Memory -> list interruption budgets (principal-scoped)
+GET {{host}}/v1/memory/interruption-budgets?principal_id=exec-1&limit=20
+
+### Memory -> get interruption budget (principal-scoped)
+GET {{host}}/v1/memory/interruption-budgets/{{interruption_budget_id}}?principal_id=exec-1

@@ -627,7 +627,8 @@ def test_postgres_smoke_exports_openapi_dependency_examples() -> None:
     smoke = (ROOT / "scripts/smoke_postgres.sh").read_text(encoding="utf-8")
 
     assert "exports OpenAPI and verifies paused session-step dependency examples" in smoke
-    assert "--force-recreate ea-api" in smoke
+    assert 'API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"' in smoke
+    assert '"${DC[@]}" up -d --build --force-recreate "${API_SERVICE}"' in smoke
     assert "bash scripts/export_openapi.sh" in smoke
     assert "step-artifact-save-waiting-approval" in smoke
     assert "step-artifact-save-blocked-human" in smoke

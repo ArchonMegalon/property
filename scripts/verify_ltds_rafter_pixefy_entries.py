@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 
-ROOT = Path("/docker/EA")
+ROOT = Path(__file__).resolve().parents[1]
 COMPLETION_ROOT = Path("/docker/chummercomplete/_completion/ltd_inventory")
 LTD_PATH = ROOT / "LTDs.md"
 
