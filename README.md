@@ -92,10 +92,18 @@ Supported controls include:
 - `SUPPORT_INCLUDE_DB_SIZE=0`
 - `SUPPORT_DB_SIZE_LIMIT=<n>`
 
+## Property release gates
+
+Use the product-only release bundle when validating the standalone PropertyQuarry surface:
+
+- `make property-release-gates`
+- `bash scripts/property_release_gates.sh`
+
 ## Key docs
 
 - product brief: [docs/PRODUCT_BRIEF.md](/docker/property/docs/PRODUCT_BRIEF.md)
 - architecture: [docs/ARCHITECTURE.md](/docker/property/docs/ARCHITECTURE.md)
+- greenfield redesign plan: [docs/GREENFIELD_REDESIGN_PLAN.md](/docker/property/docs/GREENFIELD_REDESIGN_PLAN.md)
 - brand: [docs/BRAND.md](/docker/property/docs/BRAND.md)
 - pricing: [docs/PRICING.md](/docker/property/docs/PRICING.md)
 - domain rollout: [docs/DOMAIN_ROLLOUT.md](/docker/property/docs/DOMAIN_ROLLOUT.md)

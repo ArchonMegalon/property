@@ -180,9 +180,16 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
     monkeypatch.setattr(ProductService, "list_handoffs", _fake_handoffs)
 
-    response = client.get("/app/properties", params={"run_id": "run-42"})
+    property_headers = {"host": "propertyquarry.com"}
+    response = client.get("/app/properties", params={"run_id": "run-42"}, headers=property_headers)
     assert response.status_code == 200
-    assert "Run a premium market sweep" in response.text
+    assert "Shape the next market sweep before the crawlers fan out." in response.text
+    assert 'href="/app/properties"' in response.text
+    assert 'href="/app/shortlist"' in response.text
+    assert 'href="/app/research"' in response.text
+    assert 'href="/app/profile"' in response.text
+    assert 'href="/app/alerts"' in response.text
+    assert 'href="/app/billing"' in response.text
     assert "Search posture" in response.text
     assert "Areas and priorities" in response.text
     assert "Providers and launch" in response.text
@@ -193,25 +200,18 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Research language" in response.text
     assert "Berlin" in response.text
     assert "What this search is optimizing for" in response.text
-    assert "Best candidates to review now" in response.text
+    assert "Which providers this country unlocks" in response.text
     assert "Germany" in response.text
     assert "Buy" in response.text
     assert "Apartment" in response.text
     assert "Lower Austria" in response.text
     assert "lift family balcony" in response.text
-    assert "Which providers this country unlocks" in response.text
     assert "ImmoScout24 Germany" in response.text
     assert "Immowelt" in response.text
     assert "Portugal" in response.text
     assert "Australia" in response.text
     assert "Property scouting run completed." in response.text
-    assert "Altbau near U6" in response.text
-    assert "Review packet" in response.text
-    assert "Open 360" in response.text
-    assert "What the product has learned from feedback" in response.text
-    assert 'data-property-learning-list' in response.text
-    assert "Hosted 3D page for Auhofstrasse shortlist" in response.text
-    assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in response.text
+    assert "Current crawl" in response.text
     assert "Plus checkout" in response.text
     assert 'data-console-form-variant="property_search"' in response.text
     assert 'data-property-step-trigger="search"' in response.text
@@ -221,8 +221,36 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert 'data-property-step-panel="providers" hidden' in response.text
     assert "JavaScript is unavailable. The guided wizard is disabled" in response.text
     assert "Step 1 of 3" in response.text
-    assert "Saved. Learning loop updated." in response.text
-    assert "Reload the page to see the updated learning summary." not in response.text
+    assert "Office signals ingested" not in response.text
+    assert "Morning Memo" not in response.text
+
+    shortlist = client.get("/app/shortlist", params={"run_id": "run-42"}, headers=property_headers)
+    assert shortlist.status_code == 200
+    assert "Review only the few properties that deserve attention now." in shortlist.text
+    assert "Altbau near U6" in shortlist.text
+    assert "Review packet" in shortlist.text
+    assert "Open 360" in shortlist.text
+    assert "data-feedback-save" in shortlist.text
+
+    research = client.get("/app/research", params={"run_id": "run-42"}, headers=property_headers)
+    assert research.status_code == 200
+    assert "Inspect the evidence before you open the raw listing." in research.text
+    assert "Hosted 3D page for Auhofstrasse shortlist" in research.text
+    assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in research.text
+
+    profile = client.get("/app/profile", params={"run_id": "run-42"}, headers=property_headers)
+    assert profile.status_code == 200
+    assert "Make the learning loop visible and editable." in profile.text
+    assert 'data-property-learning-list' in profile.text
+
+    alerts = client.get("/app/alerts", params={"run_id": "run-42"}, headers=property_headers)
+    assert alerts.status_code == 200
+    assert "Recent outbound property follow-ups" in alerts.text
+
+    billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=property_headers)
+    assert billing.status_code == 200
+    assert "Current commercial state" in billing.text
+    assert "Plus checkout" in billing.text
 
 
 def test_properties_workspace_surface_does_not_fallback_to_origin_listing_link(monkeypatch) -> None:
@@ -249,7 +277,7 @@ def test_properties_workspace_surface_does_not_fallback_to_origin_listing_link(m
 
     monkeypatch.setattr(ProductService, "list_handoffs", _fake_handoffs)
 
-    response = client.get("/app/properties")
+    response = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert response.status_code == 200
     assert "Review shortlisted property packet" in response.text
 
@@ -260,8 +288,9 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
 
     settings = client.get("/app/settings", headers={"host": "propertyquarry.com"})
     assert settings.status_code == 200
-    assert "/app/settings/google" in settings.text
-    assert "Token status" in settings.text
+    assert "Identity and return access" in settings.text
+    assert "Google sign-in" in settings.text
+    assert "Current search brief state" in settings.text
     assert "Sync runs" not in settings.text
     assert "Last Google sync" not in settings.text
     assert "Office signals ingested" not in settings.text
