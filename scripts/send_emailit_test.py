@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -11,6 +12,19 @@ from datetime import datetime, timezone
 
 
 EMAILIT_API_BASE = "https://api.emailit.com/v2/emails"
+
+
+def _idempotency_key(*, from_email: str, to_email: str, subject: str) -> str:
+    seed = json.dumps(
+        {
+            "from_email": str(from_email or "").strip().lower(),
+            "to_email": str(to_email or "").strip().lower(),
+            "subject": str(subject or "").strip(),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return f"propertyquarry-emailit-{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:24]}"
 
 
 def parse_args() -> argparse.Namespace:
@@ -56,7 +70,7 @@ def send_email(*, api_key: str, from_email: str, from_name: str, to_email: str, 
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "Idempotency-Key": f"propertyquarry-emailit-test:{from_email}:{to_email}:{subject}",
+            "Idempotency-Key": _idempotency_key(from_email=from_email, to_email=to_email, subject=subject),
         },
         method="POST",
     )

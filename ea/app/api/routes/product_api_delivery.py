@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import urllib.parse
 from urllib.parse import urlparse
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
@@ -75,6 +77,37 @@ from app.services.property_billing import (
 )
 
 router = APIRouter(prefix="/app/api", tags=["product"])
+
+
+_PAYFUNNELS_TITLE_PRINCIPAL_RE = re.compile(r"pq_principal:([^|]+)")
+_PAYFUNNELS_TITLE_ORDER_RE = re.compile(r"pq_order:([^|]+)")
+
+
+def _payfunnels_title_value(pattern: re.Pattern[str], title: str) -> str:
+    match = pattern.search(str(title or ""))
+    if match is None:
+        return ""
+    return str(match.group(1) or "").strip()
+
+
+def _payfunnels_field_value(payload: dict[str, object], label: str) -> str:
+    target = str(label or "").strip().lower()
+    if not target:
+        return ""
+    fields = payload.get("additionalFields")
+    if not isinstance(fields, list):
+        return ""
+    for item in fields:
+        if not isinstance(item, dict):
+            continue
+        item_label = str(item.get("label") or item.get("name") or "").strip().lower()
+        if item_label != target:
+            continue
+        for key in ("hiddenFieldValue", "value", "fieldValue"):
+            value = str(item.get(key) or "").strip()
+            if value:
+                return value
+    return ""
 
 
 def _public_base_url(request: Request) -> str:
@@ -879,23 +912,44 @@ async def payfunnels_property_billing_webhook(
     except Exception as exc:
         raise HTTPException(status_code=400, detail="payfunnels_webhook_invalid_json") from exc
     metadata = dict(payload.get("metadata") or {})
+    invoice_title = str(payload.get("invoiceTitle") or payload.get("title") or "").strip()
+    title_principal = _payfunnels_title_value(_PAYFUNNELS_TITLE_PRINCIPAL_RE, invoice_title)
+    title_order = _payfunnels_title_value(_PAYFUNNELS_TITLE_ORDER_RE, invoice_title)
+    field_principal = _payfunnels_field_value(payload, "pq_principal")
+    field_order = _payfunnels_field_value(payload, "pq_order")
+    field_plan = _payfunnels_field_value(payload, "pq_plan")
     principal_id = str(
         metadata.get("principal_id")
         or payload.get("principal_id")
         or payload.get("client_reference_id")
+        or field_principal
+        or urllib.parse.unquote(title_principal)
         or ""
     ).strip()
-    plan_key = str(metadata.get("plan_key") or payload.get("plan_key") or "").strip().lower()
+    plan_key = str(metadata.get("plan_key") or payload.get("plan_key") or field_plan or "").strip().lower()
+    if not plan_key and "plus" in invoice_title.lower():
+        plan_key = "plus"
+    if not plan_key and "agent" in invoice_title.lower():
+        plan_key = "agent"
     order_id = str(
         payload.get("order_id")
         or payload.get("checkout_id")
         or payload.get("external_id")
+        or payload.get("chargeId")
+        or payload.get("invoiceId")
+        or field_order
+        or urllib.parse.unquote(title_order)
         or metadata.get("order_id")
         or ""
     ).strip()
     payment_status = str(payload.get("payment_status") or payload.get("status") or "").strip().lower()
-    payer_email = str(payload.get("payer_email") or dict(payload.get("customer") or {}).get("email") or "").strip()
-    amount_eur = str(payload.get("amount_eur") or payload.get("amount") or "").strip()
+    payer_email = str(
+        payload.get("payer_email")
+        or payload.get("customerEmail")
+        or dict(payload.get("customer") or {}).get("email")
+        or ""
+    ).strip()
+    amount_eur = str(payload.get("amount_eur") or payload.get("amount") or payload.get("chargeAmount") or "").strip()
     event_type = str(payload.get("event_type") or payload.get("event") or "").strip().lower()
     if not principal_id or not plan_key or not order_id:
         raise HTTPException(status_code=400, detail="payfunnels_webhook_missing_fields")
