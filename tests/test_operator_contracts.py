@@ -536,6 +536,32 @@ def test_db_visibility_and_retention_help_contracts_cover_release_baseline_flags
     assert "SUPPORT_DB_SIZE_LIMIT=<n>" in support_bundle_help
 
 
+def test_db_operator_scripts_support_propertyquarry_service_aliases() -> None:
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    db_bootstrap = (ROOT / "scripts/db_bootstrap.sh").read_text(encoding="utf-8")
+    db_status = (ROOT / "scripts/db_status.sh").read_text(encoding="utf-8")
+    db_retention = (ROOT / "scripts/db_retention.sh").read_text(encoding="utf-8")
+    db_size = (ROOT / "scripts/db_size.sh").read_text(encoding="utf-8")
+
+    assert "PROPERTYQUARRY_API_SERVICE=ea-api" in env_example
+    assert "PROPERTYQUARRY_WORKER_SERVICE=ea-worker" in env_example
+    assert "PROPERTYQUARRY_SCHEDULER_SERVICE=ea-scheduler" in env_example
+    assert "PROPERTYQUARRY_DB_SERVICE=ea-db" in env_example
+
+    assert "PROPERTYQUARRY_DB_SERVICE" in readme
+    assert "PROPERTYQUARRY_DB_SERVICE" in runbook
+    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in db_bootstrap
+    assert '"${DC[@]}" up -d "${DB_SERVICE}"' in db_bootstrap
+    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in db_status
+    assert '"${DC[@]}" up -d "${DB_SERVICE}"' in db_status
+    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in db_retention
+    assert '"${DC[@]}" up -d "${DB_SERVICE}"' in db_retention
+    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in db_size
+    assert '"${DC[@]}" up -d "${DB_SERVICE}"' in db_size
+
+
 def test_db_visibility_and_retention_docs_and_scripts_are_pinned() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")

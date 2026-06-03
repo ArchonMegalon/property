@@ -51,6 +51,34 @@ Runtime and environment details live in:
 - [HTTP_EXAMPLES.http](/docker/property/HTTP_EXAMPLES.http)
 - [RELEASE_CHECKLIST.md](/docker/property/RELEASE_CHECKLIST.md)
 
+Operator scripts can be pointed at non-default compose service names with:
+
+- `PROPERTYQUARRY_API_SERVICE`
+- `PROPERTYQUARRY_WORKER_SERVICE`
+- `PROPERTYQUARRY_SCHEDULER_SERVICE`
+- `PROPERTYQUARRY_DB_SERVICE`
+
+## DB operator lane
+
+Runtime DB visibility and retention helpers remain part of the standalone release surface:
+
+- `bash scripts/db_bootstrap.sh`
+- `bash scripts/db_status.sh`
+- `bash scripts/db_size.sh`
+- `bash scripts/db_retention.sh`
+
+Supported controls include:
+
+- `EA_RETENTION_PROFILE=aggressive|standard|conservative`
+- `EA_RETENTION_TABLES`
+- `EA_RETENTION_SKIP_TABLES`
+- `EA_DB_SIZE_SCHEMA=<schema>`
+- `EA_DB_SIZE_SORT_KEY=total|table|index`
+- `EA_DB_SIZE_TABLE_PREFIX=<prefix>`
+- `EA_DB_SIZE_MIN_MB=<n>`
+- `SUPPORT_INCLUDE_DB_SIZE=0`
+- `SUPPORT_DB_SIZE_LIMIT=<n>`
+
 ## Key docs
 
 - product brief: [docs/PRODUCT_BRIEF.md](/docker/property/docs/PRODUCT_BRIEF.md)
