@@ -74,6 +74,19 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Search once. Rank hard. Research the shortlist." in landing.text
     assert "Create account" in landing.text
     assert "Personalized search" in landing.text
+
+    pricing = client.get("/pricing")
+    assert "Typical search path" in pricing.text
+    assert "Plus and Agent usually add" in pricing.text
+    assert "Typical office path" not in pricing.text
+
+    security = client.get("/security")
+    assert "Automatic digests" in security.text
+    assert "Morning memo schedule" not in security.text
+
+    sign_in = client.get("/sign-in")
+    assert "Shared review when needed" in sign_in.text
+
     for href in _internal_links(landing.text):
         assert not href.startswith("/tours")
         assert not href.startswith("/results")

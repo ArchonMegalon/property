@@ -71,7 +71,7 @@
   </section>
   <section class="google-step">
     <strong>What the workspace checked next</strong>
-    {{ sync_detail or 'Open Today first. That is usually the fastest way to confirm the connection is already producing a useful result.' }}
+    {{ sync_detail or 'Open Properties first. That is usually the fastest way to confirm the connection is already helping the active search.' }}
   </section>
 </section>
 
@@ -120,7 +120,7 @@
 <script>
 (() => {
   const payload = {{ register_signal_payload|tojson }};
-  const target = String(payload.return_to || '/register?ready=1').trim() || '/register?ready=1';
+  const target = String(payload.return_to || 'https://propertyquarry.com/register?ready=1').trim() || 'https://propertyquarry.com/register?ready=1';
   const separator = target.includes('?') ? '&' : '?';
   const query = new URLSearchParams();
   query.set('google_connected', '1');
