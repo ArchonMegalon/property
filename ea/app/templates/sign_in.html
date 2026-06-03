@@ -69,6 +69,21 @@
       <a class="btn primary" href="{% if brand.key == 'propertyquarry' %}/app/properties{% else %}/app/today{% endif %}">Open current session</a>
       <a class="btn" href="/register">{{ brand.create_label }}</a>
     </div>
+    <form class="access-form" method="post" action="/sign-in/google">
+      <div>
+        <label for="google_sign_in_email">Continue with Google</label>
+        <input id="google_sign_in_email" name="email" type="email" value="{{ sign_in_link_email or '' }}" placeholder="you@company.com" required>
+      </div>
+      <div class="cta-row">
+        <button class="btn primary" type="submit">Continue with Google</button>
+      </div>
+    </form>
+    {% if sign_in_google_error %}
+    <div class="access-feedback">
+      <strong>Google sign-in could not start.</strong>
+      <p class="copy">{{ sign_in_google_error }}</p>
+    </div>
+    {% endif %}
     {% if sign_in_link_enabled %}
     <form class="access-form" method="post" action="/sign-in/email-link">
       <div>
@@ -115,8 +130,8 @@
         <strong>{% if brand.key == 'propertyquarry' %}Start at /register and set up the first search profile before running crawls.{% else %}Start at /register and prove value with a personal workspace first.{% endif %}</strong>
       </div>
       <div class="summary">
-        <div class="label">Google</div>
-        <strong>Google is a workspace connection, not the app sign-in method.</strong>
+      <div class="label">Google</div>
+        <strong>Google can reopen an existing workspace with identity-only scope.</strong>
       </div>
     </div>
   </section>

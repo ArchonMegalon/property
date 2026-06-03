@@ -807,6 +807,7 @@ def sign_in_page(
     link_count = int(request.query_params.get("link_count") or 0)
     link_failed_total = int(request.query_params.get("link_failed_total") or 0)
     link_error = str(request.query_params.get("link_error") or "").strip()
+    google_error = str(request.query_params.get("google_error") or "").strip()
     return _render_public_template(
         request,
         "sign_in.html",
@@ -825,6 +826,7 @@ def sign_in_page(
                 "sign_in_link_count": link_count,
                 "sign_in_link_failed_total": link_failed_total,
                 "sign_in_link_error": link_error,
+                "sign_in_google_error": google_error,
             },
         ),
     )
@@ -885,6 +887,49 @@ async def sign_in_email_link(
         if first_error:
             query["link_error"] = first_error
     return RedirectResponse("/sign-in?" + urllib.parse.urlencode(query), status_code=303)
+
+
+@router.post("/sign-in/google")
+async def sign_in_google(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> RedirectResponse:
+    form_data = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    email = _form_value(form_data, "email", "").lower()
+    if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        return RedirectResponse(
+            "/sign-in?"
+            + urllib.parse.urlencode(
+                {
+                    "google_error": "google_sign_in_email_invalid",
+                    "link_email": email,
+                }
+            ),
+            status_code=303,
+        )
+    from app.api.routes.onboarding import _registration_principal_id
+    from app.services.google_oauth import build_google_oauth_start
+
+    try:
+        packet = build_google_oauth_start(
+            principal_id=_registration_principal_id(email),
+            scope_bundle="identity",
+            redirect_uri_override=f"{_public_app_base_url(request)}/google/callback",
+            return_to="/sign-in?google_connected=1",
+            browser_source="sign_in",
+        )
+    except RuntimeError as exc:
+        return RedirectResponse(
+            "/sign-in?"
+            + urllib.parse.urlencode(
+                {
+                    "google_error": str(exc or "google_oauth_not_ready"),
+                    "link_email": email,
+                }
+            ),
+            status_code=303,
+        )
+    return RedirectResponse(str(packet.auth_url), status_code=303)
 
 
 @router.get("/register", response_class=HTMLResponse)

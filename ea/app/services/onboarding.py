@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 
 from app.domain.models import ConnectorBinding, OnboardingState
@@ -160,6 +161,42 @@ class OnboardingService(AssistantOnboardingService):
             status="started",
         )
         return self.status(principal_id=principal_id, state_override=saved)
+
+    def _registration_principal_alias(self, principal_id: str) -> str:
+        normalized = str(principal_id or "").strip().lower()
+        prefix = "cf-email:"
+        if not normalized.startswith(prefix):
+            return ""
+        email = normalized[len(prefix) :].strip()
+        if not email or "@" not in email:
+            return ""
+        digest = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
+        return f"user-{digest}"
+
+    def _bridge_browser_principal_state(self, principal_id: str) -> OnboardingState | None:
+        existing = self._repo.get_for_principal(principal_id)
+        if existing is not None:
+            return existing
+        alias_principal_id = self._registration_principal_alias(principal_id)
+        if not alias_principal_id:
+            return None
+        aliased = self._repo.get_for_principal(alias_principal_id)
+        if aliased is None:
+            return None
+        return self._repo.upsert_state(
+            principal_id=principal_id,
+            workspace_name=aliased.workspace_name,
+            workspace_mode=aliased.workspace_mode,
+            region=aliased.region,
+            language=aliased.language,
+            timezone=aliased.timezone,
+            selected_channels=aliased.selected_channels,
+            property_search_preferences_json=dict(aliased.property_search_preferences_json),
+            privacy_preferences_json=dict(aliased.privacy_preferences_json),
+            channel_preferences_json=dict(aliased.channel_preferences_json),
+            brief_preview_json=dict(aliased.brief_preview_json),
+            status=aliased.status,
+        )
 
     def upsert_property_search_preferences(
         self,
@@ -690,7 +727,7 @@ class OnboardingService(AssistantOnboardingService):
         return self.status(principal_id=principal_id, state_override=saved)
 
     def status(self, *, principal_id: str, state_override: OnboardingState | None = None) -> dict[str, object]:
-        state = state_override or self._repo.get_for_principal(principal_id)
+        state = state_override or self._bridge_browser_principal_state(principal_id) or self._repo.get_for_principal(principal_id)
         google_binding = self._preferred_google_binding(principal_id=principal_id)
         google_state = self._provider_registry.binding_state(GOOGLE_PROVIDER_KEY, principal_id=principal_id)
         connectors = self._connectors_for_status(principal_id=principal_id)
@@ -766,7 +803,7 @@ class OnboardingService(AssistantOnboardingService):
         }
 
     def _ensure_state(self, principal_id: str) -> OnboardingState:
-        existing = self._repo.get_for_principal(principal_id)
+        existing = self._bridge_browser_principal_state(principal_id) or self._repo.get_for_principal(principal_id)
         if existing is not None:
             return existing
         return self._repo.upsert_state(principal_id=principal_id, status="draft")
