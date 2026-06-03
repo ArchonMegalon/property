@@ -21,10 +21,14 @@ def _client(
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ["EA_API_TOKEN"] = ""
-    os.environ["EA_ENABLE_PUBLIC_RESULTS"] = "1" if public_results_enabled else "0"
-    os.environ["EA_ENABLE_PUBLIC_TOURS"] = "1" if public_tours_enabled else "0"
-    os.environ["EA_ENABLE_PUBLIC_MEMORIALS"] = "1" if public_memorials_enabled else "0"
-    os.environ["EA_ENABLE_PUBLIC_SIDE_SURFACES"] = "1" if (public_results_enabled or public_tours_enabled or public_memorials_enabled) else "0"
+    os.environ["PROPERTYQUARRY_ENABLE_PUBLIC_RESULTS"] = "1" if public_results_enabled else "0"
+    os.environ["PROPERTYQUARRY_ENABLE_PUBLIC_TOURS"] = "1" if public_tours_enabled else "0"
+    os.environ["PROPERTYQUARRY_ENABLE_PUBLIC_MEMORIALS"] = "1" if public_memorials_enabled else "0"
+    os.environ["PROPERTYQUARRY_ENABLE_PUBLIC_SIDE_SURFACES"] = "1" if (public_results_enabled or public_tours_enabled or public_memorials_enabled) else "0"
+    os.environ["EA_ENABLE_PUBLIC_RESULTS"] = "0"
+    os.environ["EA_ENABLE_PUBLIC_TOURS"] = "0"
+    os.environ["EA_ENABLE_PUBLIC_MEMORIALS"] = "0"
+    os.environ["EA_ENABLE_PUBLIC_SIDE_SURFACES"] = "0"
     from app.api.app import create_app
 
     client = TestClient(create_app())
@@ -65,3 +69,24 @@ def test_app_factory_mounts_optional_public_routes_when_enabled() -> None:
     assert "/memorials/{slug}" in route_paths
     assert "/memorials/{slug}.json" in route_paths
     assert "/memorials/files/{slug}/{asset_path:path}" in route_paths
+
+
+def test_app_factory_propertyquarry_flags_win_over_ea_public_surface_flags() -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ["EA_API_TOKEN"] = ""
+    os.environ["EA_ENABLE_PUBLIC_SIDE_SURFACES"] = "1"
+    os.environ["EA_ENABLE_PUBLIC_RESULTS"] = "1"
+    os.environ["EA_ENABLE_PUBLIC_TOURS"] = "1"
+    os.environ["EA_ENABLE_PUBLIC_MEMORIALS"] = "1"
+    os.environ["PROPERTYQUARRY_ENABLE_PUBLIC_SIDE_SURFACES"] = "0"
+    os.environ["PROPERTYQUARRY_ENABLE_PUBLIC_RESULTS"] = "0"
+    os.environ["PROPERTYQUARRY_ENABLE_PUBLIC_TOURS"] = "0"
+    os.environ["PROPERTYQUARRY_ENABLE_PUBLIC_MEMORIALS"] = "0"
+
+    from app.api.app import create_app
+
+    client = TestClient(create_app())
+    route_paths = {route.path for route in client.app.routes}
+    assert "/results/{slug}" not in route_paths
+    assert "/tours/{slug}.json" not in route_paths
+    assert "/memorials/{slug}" not in route_paths

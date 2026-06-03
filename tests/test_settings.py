@@ -33,6 +33,14 @@ def _clear_env() -> None:
         "EA_APPROVAL_THRESHOLD_CHARS",
         "EA_APPROVAL_TTL_MINUTES",
         "EA_CHANNEL_DEFAULT_LIMIT",
+        "EA_ENABLE_PUBLIC_SIDE_SURFACES",
+        "EA_ENABLE_PUBLIC_RESULTS",
+        "EA_ENABLE_PUBLIC_TOURS",
+        "EA_ENABLE_PUBLIC_MEMORIALS",
+        "PROPERTYQUARRY_ENABLE_PUBLIC_SIDE_SURFACES",
+        "PROPERTYQUARRY_ENABLE_PUBLIC_RESULTS",
+        "PROPERTYQUARRY_ENABLE_PUBLIC_TOURS",
+        "PROPERTYQUARRY_ENABLE_PUBLIC_MEMORIALS",
     ):
         os.environ.pop(key, None)
 
@@ -157,6 +165,33 @@ def test_default_principal_override() -> None:
     os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "exec-1"
     s = get_settings()
     assert s.auth.default_principal_id == "exec-1"
+
+
+def test_propertyquarry_public_surface_aliases_override_ea_defaults() -> None:
+    _clear_env()
+    os.environ["EA_ENABLE_PUBLIC_SIDE_SURFACES"] = "1"
+    os.environ["EA_ENABLE_PUBLIC_RESULTS"] = "1"
+    os.environ["EA_ENABLE_PUBLIC_TOURS"] = "1"
+    os.environ["EA_ENABLE_PUBLIC_MEMORIALS"] = "1"
+    os.environ["PROPERTYQUARRY_ENABLE_PUBLIC_SIDE_SURFACES"] = "0"
+    os.environ["PROPERTYQUARRY_ENABLE_PUBLIC_RESULTS"] = "0"
+    os.environ["PROPERTYQUARRY_ENABLE_PUBLIC_TOURS"] = "0"
+    os.environ["PROPERTYQUARRY_ENABLE_PUBLIC_MEMORIALS"] = "0"
+    s = get_settings()
+    assert s.public_side_surfaces_enabled is False
+    assert s.public_results_enabled is False
+    assert s.public_tours_enabled is False
+    assert s.public_memorials_enabled is False
+
+
+def test_propertyquarry_public_surface_aliases_can_enable_tours_without_memorials() -> None:
+    _clear_env()
+    os.environ["PROPERTYQUARRY_ENABLE_PUBLIC_TOURS"] = "1"
+    s = get_settings()
+    assert s.public_side_surfaces_enabled is True
+    assert s.public_tours_enabled is True
+    assert s.public_results_enabled is False
+    assert s.public_memorials_enabled is False
 
 
 def test_readiness_service_rejects_prod_without_api_token() -> None:
