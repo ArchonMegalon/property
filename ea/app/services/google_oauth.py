@@ -560,6 +560,11 @@ def read_google_oauth_state(state: str) -> dict[str, Any]:
     return _decode_signed_state(state, secret=config.state_secret)
 
 
+def read_google_oauth_state_unchecked(state: str) -> dict[str, Any]:
+    config = load_google_oauth_config()
+    return _decode_signed_state(state, secret=config.state_secret, verify_age=False)
+
+
 def complete_google_oauth_callback(
     *,
     container: AppContainer,
@@ -2300,7 +2305,7 @@ def _encode_signed_state(payload: dict[str, Any], *, secret: str) -> str:
     return f"{body_b64}.{_b64url_encode(signature)}"
 
 
-def _decode_signed_state(state: str, *, secret: str) -> dict[str, Any]:
+def _decode_signed_state(state: str, *, secret: str, verify_age: bool = True) -> dict[str, Any]:
     raw = str(state or "").strip()
     if "." not in raw:
         raise RuntimeError("google_oauth_state_invalid")
@@ -2311,8 +2316,8 @@ def _decode_signed_state(state: str, *, secret: str) -> dict[str, Any]:
         raise RuntimeError("google_oauth_state_signature_invalid")
     payload = json.loads(_b64url_decode(body_b64).decode("utf-8"))
     issued_at = _safe_int(payload.get("issued_at"), default=0)
-    max_age_seconds = max(_safe_int(os.environ.get("EA_GOOGLE_OAUTH_STATE_MAX_AGE_SECONDS"), default=3600), 300)
-    if issued_at <= 0 or time.time() - issued_at > max_age_seconds:
+    max_age_seconds = max(_safe_int(os.environ.get("EA_GOOGLE_OAUTH_STATE_MAX_AGE_SECONDS"), default=21600), 300)
+    if verify_age and (issued_at <= 0 or time.time() - issued_at > max_age_seconds):
         raise RuntimeError("google_oauth_state_expired")
     return payload
 
