@@ -1,45 +1,51 @@
 # Architecture
 
-## Extraction approach
+PropertyQuarry is now housed in its own repository and runnable runtime.
 
-PropertyQuarry should be extracted in phases.
+## Current state
 
-## Phase 1
+This repo contains:
 
-Dedicated brand and frontend shell.
+- branded public landing, onboarding, sign-in, and property workspace
+- property search run orchestration
+- country/provider/language market catalog
+- shortlist ranking and review packet links
+- feedback learning loop
+- PayPal property plan upgrades
+- Emailit-backed notification delivery
+- Docker runtime, smoke scripts, and property contract tests
 
-- propertyquarry.com public site
-- propertyquarry.com onboarding
-- propertyquarry.com pricing
-- dedicated authenticated property workspace
+The application runtime still carries inherited EA infrastructure because that was the fastest safe extraction path:
 
-Backend remains shared with EA for:
+- shared FastAPI app shell
+- shared operator/runtime scaffolding
+- shared queue/memory/provider framework
+- shared responses and tool runtime spine
 
-- search runs
-- ranking
-- hosted review packets
-- handoff packets
-- notification triggers
-- international provider catalog and market selection
+That means the product runtime is already standalone at repo level, but not yet fully pruned at code-surface level.
 
-## Phase 2
+## Migration principle
 
-Isolate product-layer services.
+The repository is now the source of truth for PropertyQuarry.
 
-- dedicated product configuration
-- dedicated commercial state
-- separate domain-aware templates
-- optional separate DB namespace
+New property product work should land here first. The older EA repo should no longer be treated as the primary home of the property product lane.
 
-## Phase 3
+## What still needs pruning
 
-Full runtime separation if justified.
+- non-property public routes that do not belong in the product
+- unrelated memorial and assistant-specific surfaces
+- overly broad design canon and release material copied across during the extraction
+- inherited runtime scripts and tests that are not needed for the property product
 
-- dedicated deploy
-- dedicated operator tooling
-- separate auth/commercial stack
+## Recommended next isolation steps
 
-## Product capabilities to preserve
+1. Narrow public-route registration to property-facing surfaces by default.
+2. Split property runtime tests from inherited assistant/runtime suites.
+3. Rename service/container identities from `ea-*` to `propertyquarry-*`.
+4. Separate product release receipts and docs from the inherited EA canon.
+5. Move shared generic runtime pieces into a reusable base package only if duplication becomes expensive.
+
+## Product capabilities preserved
 
 - source scanning
 - country-aware provider selection
@@ -48,10 +54,5 @@ Full runtime separation if justified.
 - hosted property review pages
 - research request escalation
 - 360/tour handling when available
-
-## Commercial capabilities to add
-
-- free tier limits
-- upgrade triggers
-- billing state
-- feature gating by plan
+- free/paid commercial gating
+- feedback learning loop
