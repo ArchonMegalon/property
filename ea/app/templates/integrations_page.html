@@ -1,0 +1,96 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  .integration-hero,
+  .integration-card,
+  .integration-note,
+  .integration-use-case {
+    padding: 18px;
+  }
+  .integration-grid,
+  .integration-note-grid,
+  .integration-use-case-grid {
+    display: grid;
+    gap: 14px;
+  }
+  .integration-grid,
+  .integration-use-case-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .integration-note-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .integration-card,
+  .integration-note,
+  .integration-use-case {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+  }
+  .integration-card .pill {
+    margin-bottom: 12px;
+  }
+  @media (max-width: 1080px) {
+    .integration-grid,
+    .integration-note-grid,
+    .integration-use-case-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="section panel integration-hero">
+  <div class="kicker">Integrations</div>
+  <h1>Connect the channels that really shape the workday.</h1>
+  <p class="lead">Start with the channel that produces a useful morning memo quickly. For most customers, that is Google. Add Telegram or WhatsApp when those conversations genuinely need to show up in the same daily view.</p>
+</section>
+
+<section class="section integration-note-grid">
+  <section class="integration-note">
+    <div class="kicker">Recommended order</div>
+    <h2>Google first</h2>
+    <p class="copy">Google usually gives the fastest return: a better morning memo, better reply timing, and clearer people and calendar context.</p>
+  </section>
+  <section class="integration-note">
+    <div class="kicker">Channel contract</div>
+    <h2>Know what each connection can do</h2>
+    <p class="copy">Each connection says clearly what EA can read, draft, verify, or import today. Trust drops when the UI implies more than the channel contract really allows.</p>
+  </section>
+</section>
+
+<section class="section integration-use-case-grid">
+  <section class="integration-use-case">
+    <strong>Google</strong>
+    Best when email, calendar, and people context already drive the day.
+  </section>
+  <section class="integration-use-case">
+    <strong>Telegram</strong>
+    Best when important decisions or commitments regularly start in Telegram.
+  </section>
+  <section class="integration-use-case">
+    <strong>WhatsApp</strong>
+    Best when business messaging or imported chat context needs to stay in the same operating loop.
+  </section>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="kicker">Current channels</div>
+      <h2>Choose the next useful connection</h2>
+    </div>
+    <p>Start with the channel that improves the morning memo today. Add the others when they change real daily work.</p>
+  </div>
+  <div class="integration-grid">
+    {% for card in channel_cards %}
+    <section class="integration-card">
+      <div class="pill {{ card.tone }}">{{ card.status }}</div>
+      <h2>{{ card.label }}</h2>
+      <p class="copy">{{ card.detail }}</p>
+      {% if card.summary %}<p class="copy">{{ card.summary }}</p>{% endif %}
+      <div class="cta-row"><a class="btn" href="{{ card.href }}">View details</a></div>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

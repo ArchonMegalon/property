@@ -1,0 +1,8 @@
+ALTER TABLE human_tasks
+ADD COLUMN IF NOT EXISTS authority_required TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE human_tasks
+ADD COLUMN IF NOT EXISTS why_human TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE human_tasks
+ADD COLUMN IF NOT EXISTS quality_rubric_json JSONB NOT NULL DEFAULT '{}'::jsonb;

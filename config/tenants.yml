@@ -1,0 +1,10 @@
+tenants:
+  demo:
+    display_name: "Demo Tenant"
+    google_account: "user@example.com"
+    openclaw_container: "openclaw-gateway-demo"
+    include_family: false
+    task_list_name: "My Tasks"
+    tasks_enabled: false
+    telegram:
+      chat_id: 0

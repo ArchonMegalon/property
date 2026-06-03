@@ -1,0 +1,488 @@
+# Changelog
+
+All notable changes to the Executive Assistant runtime and product baseline are documented here.
+
+## 2026-06-02
+
+### Changed
+- Hardened the EA release/operator surface so the new hard-exit and LTD verification lanes are first-class operator commands rather than hidden implementation details: `make ltd-release-gates` now aggregates the critical and flagship LTD verifiers, `make operator-help` and `scripts/smoke_help.sh` cover the hard-exit/LTD scripts directly, and the README/RUNBOOK operator guidance now reflects the real release path.
+
+## 2026-03-22
+
+### Changed
+- Updated public assistant-facing landing, setup, privacy, and brief preview copy to enforce assistant-first messaging (`/`, `/setup`, `/privacy`, `/demo/brief`) and added `/chummer` as a separate featured-domain surface.
+- Promoted milestone capability `append_only_session_ledger_and_delta_sync_slice` to released, so release/operator guards now pin append-only session-event writes, `events_for(...)` inspection, and the delta-sync baseline as current branch baseline behavior.
+- Promoted milestone capability `portable_engine_host_posture` to released, so release/operator guards now pin that portability contract: a deterministic core host-portability posture, including server/browser/embed host profile planning, as current branch baseline behavior.
+- Promoted milestone capability `local_coprocessor_optional_lane` to released, so release/operator guards now pin the optional/local BYOC acceleration lane as feature-flagged and advisory-only baseline behavior, and no shipped runtime path requires local co-processor execution.
+- Promoted milestone capability `codex_onemin_specialist_router_admission` to released, so release/operator guards now pin the 1min specialist-escalation-only router posture, where core lane admission stays explicit and capacity-gated and proof-backed 1min top-up/billing snapshots remain part of the operator truth surface.
+- Promoted milestone capability `replay_forensics_horizon_bootstrap` to released, so release/operator guards now pin retry/approval snapshot replay stability coverage as the bootstrap for replay and forensics horizon work.
+
+## 2026-03-18
+
+### Changed
+- Promoted milestone capability `knowledge_fabric_projection_slice` to released, so release/operator guards now pin the existing evidence-object citation projection (`evidence_object_id`/`citation_handle`), query surfaces (`/v1/evidence/objects*`, `/v1/evidence/merge`), and receipt-backed help/canon contracts as current branch baseline behavior.
+- The BrowserAct content-template exporter now seeds two 1min.AI page-extract scaffolds: a daily bonus/check-in workflow and a billing/usage reader workflow, so operators can bootstrap authenticated BrowserAct specs for the recurring login-credit path and later billing normalization without hand-authoring those packets from scratch.
+
+## 2026-03-15
+
+### Changed
+- The Responses and Codex façade now returns dynamic upstream model IDs alongside the public EA aliases, exposes account-name-only provider health with observed `remaining_credits` / `required_credits`, aggregate `estimated_remaining_credits_total` / `remaining_percent_of_max`, and marks deleted 1min.AI keys with a dedicated quarantine state so operator diagnostics stay truthful without leaking raw secrets.
+- The 1min.AI provider-health surface now also reports rolling `estimated_burn_credits_per_hour`, `estimated_requests_per_hour`, and `estimated_hours_remaining_at_current_pace`, and `codexea-status` renders those pace estimates directly from EA’s live health report.
+- Provider health now subtracts observed per-key 1min usage before falling back to assumed-full estimates, exposes per-slot `observed_consumed_credits` / `observed_success_count`, and ships live Magicx probe controls so fallback readiness is based on a real upstream check.
+- `make test-api` and `make ci-local` now prefer `.venv/bin/python` and fall back to `python3`, so local validation no longer depends on `/usr/bin/python` being present.
+
+## 2026-03-13
+
+### Changed
+- Promoted milestone capability `startup_authoritative_runtime_profile` to released, and realigned runtime-capability backlog-reference contract checks to the materialized done IDs (`D-446`, `D-451`, `D-452`) so CI/operator contract lanes stay consistent with the current queue ledger state.
+- Promoted milestone capability `typed_task_and_skill_policy_models` to released, so release/operator guards now pin the typed runtime policy projection for workflow, retry, human-review, memory-candidate, artifact-output, and skill-catalog metadata across the existing docs, smoke-path budget-policy examples, and focused runtime-policy tests as current branch baseline behavior.
+- Promoted milestone capability `provider_registry_capability_routing` to released, fixed tool-execution routing so provider-catalog validation does not block dynamically registered runtime tools, and pinned smoke/unit/release-guard coverage for custom-tool execution plus `/v1/tools/execute` unknown-tool error-contract behavior.
+
+## 2026-03-11
+
+### Changed
+- Hardened production auth/startup guardrails are now pinned as branch-baseline behavior: prod startup rejects blank `EA_API_TOKEN`, request-context default-principal fallback remains non-prod-only, and readiness/dependency coverage keeps deterministic `prod_api_token_missing` plus prod backend dependency failure reasons visible.
+- Promoted milestone capability `memory_reasoning_context_packs` to released, so release/operator guards now pin `/v1/memory/context-pack` plus plan-execution `context_pack` injection across the existing README/RUNBOOK wording and focused runtime contract coverage as current branch baseline behavior.
+
+## 2026-03-10
+
+### Changed
+- Promoted milestone capability `skill_provider_hint_filtering` to released, so release/operator guards now pin the existing README/RUNBOOK/examples plus approved smoke coverage proving `GET /v1/skills?provider_hint=<value>` keeps filtering nested `provider_hints_json` for LTD-backed providers like `BrowserAct` as current branch baseline behavior.
+- Promoted milestone capability `inline_retry_drain_runtime` to released, so release/operator guards now pin the existing README/RUNBOOK wording plus focused retry-contract coverage proving immediately eligible `retry_backoff_seconds=0` queue rows keep draining the same session inline across create, approval-resume, and human-return entrypoints as current branch baseline behavior.
+- Promoted milestone capability `tool_then_artifact_workflow_template` to released, so release/operator guards now pin the existing README/RUNBOOK/examples plus approved smoke/runtime coverage proving BrowserAct account-discovery and inventory-refresh task contracts both route through the shared generic `tool_then_artifact` planner macro as current branch baseline behavior.
+- Promoted milestone capability `async_queue_projection_task_identity` to released, so release/operator guards now pin that self-describing async queue identity contract across the existing README/RUNBOOK/examples plus approved smoke coverage proving approval and human-task queue/detail payloads keep originating `task_key` and `deliverable_type` visible as current branch baseline behavior.
+- Promoted milestone capability `session_scoped_human_task_assignment_source_filters` to released, so release/operator guards now pin the existing README/RUNBOOK/examples plus approved smoke coverage proving session-scoped `assignment_source=<source>` queue filtering remains current branch baseline behavior.
+- Promoted milestone capability `session_ownerless_projection_created_order` to released, so release/operator guards now pin the existing README/RUNBOOK/examples plus approved smoke coverage proving `GET /v1/rewrite/sessions/{session_id}?human_task_assignment_source=none` keeps both filtered ownerless `human_tasks` rows and inline assignment-history rows in oldest-first order as current branch baseline behavior.
+- Promoted milestone capability `browseract_account_inventory_tool_execution_slice` to released, so release/operator guards now pin the BrowserAct-backed `/v1/tools/execute` `browseract.extract_account_inventory` summary flow, the generic `tool_then_artifact` runtime path, and the linked README/RUNBOOK/LTD tracking docs as current branch baseline behavior.
+- Promoted milestone capability `human_task_ownerless_backlog_alias` to released, so release/operator guards now pin the existing ownerless backlog alias docs, smoke coverage, and examples proving `assignment_state=unassigned&assignment_source=none` keeps backlog and unassigned queue slices aligned as current branch baseline behavior.
+
+## 2026-03-06
+
+### Changed
+- Promoted milestone capability `planner_human_task_auto_preselection` to released, so release/operator guards now pin the linked README/RUNBOOK guidance plus approved smoke and planner coverage for `human_review_auto_assign_if_unique` reviewer preselection as current branch baseline behavior.
+- Promoted milestone capability `planner_human_task_branch_projection` to released, so release/operator guards now pin the existing README/RUNBOOK wording plus smoke and planner coverage for visible `step_human_review` branch projection as current branch baseline behavior.
+- Promoted milestone capability `human_task_assignment_state_visibility` to released, so release/operator guards now pin the README/RUNBOOK guidance plus smoke and Postgres coverage proving explicit human-task `assignment_state` projection across unassigned, assigned, claimed, and returned visibility as current branch baseline behavior.
+- The built-in `connector.dispatch` tool definition now explicitly requires `binding_id`, declares `idempotency_key` as an optional passthrough policy, and is pinned by focused schema-versus-executor contract tests so the registry schema cannot drift from the execution handler silently.
+- Promoted milestone capability `policy_plane_principal_scope_enforcement` to released, so release/operator guards now pin the existing policy-plane principal-scope docs plus smoke and focused approval-scope coverage as current branch baseline behavior.
+- Promoted milestone capability `step_io_contract_enforcement` to released, so release/operator guards now pin the existing README/RUNBOOK wording plus focused contract coverage proving queued step execution only merges declared dependency inputs and fails missing declared outputs before completion as current branch baseline behavior.
+- Promoted milestone capability `session_human_task_assignment_history_projection` to released, so release/operator guards now pin inline session `human_task_assignment_history[]` assignment-history visibility as current branch baseline behavior.
+- Promoted milestone capability `human_task_review_contract_metadata` to released, so release/operator guards now pin the existing README/RUNBOOK wording plus smoke, planner, and focused Postgres review-contract metadata coverage as current branch baseline behavior.
+- Promoted milestone capability `human_task_pause_resume_session_flow` to released, so release/operator guards now pin the human-task pause-to-awaiting-human session contract across the existing README/RUNBOOK wording plus runtime/post-claim resumption coverage as current branch baseline behavior.
+- Promoted milestone capability `dependency_aware_execution_scheduler` to released, so release/operator guards now pin the existing README/RUNBOOK wording plus focused Postgres dependency-ready scheduling and paused-session queue-leasing coverage as current branch baseline behavior.
+- Promoted milestone capability `execution_queue_inline_worker` to released, so release/operator guards now pin the durable `execution_queue` migration plus the existing README/RUNBOOK wording, smoke/session queue projections, and focused Postgres worker-lease coverage as current branch baseline behavior.
+- Promoted milestone capability `postgres_contract_matrix` to released, so release/operator guards now pin the existing README/RUNBOOK coverage plus `scripts/test_postgres_contracts.sh`, the CI workflow job, and the focused Postgres repository-contract matrix as current branch baseline behavior.
+- Promoted milestone capability `artifact_evidence_pack_output_template` to released, so release/operator guards now pin `budget_policy_json.artifact_output_template=evidence_pack` across the existing planner/runtime docs, smoke coverage, and focused workflow-template tests as current branch baseline behavior.
+- Promoted milestone capability `runtime_skill_identity_projection` to released, so release/operator guards now pin `intent_skill_key` plus direct artifact/receipt/run-cost `skill_key` projection across the existing runtime inspection docs and smoke coverage as current branch baseline behavior.
+- Promoted milestone capability `session_status_transition_api` to released, so release/operator guards now pin the explicit `set_session_status(...)` nonterminal session-status transition contract across the existing runtime coverage, repository interfaces, and operator docs as current branch baseline behavior.
+- Promoted milestone capability `composable_post_artifact_workflow_packs` to released, so release/operator guards now pin `workflow_template=artifact_then_packs` plus `post_artifact_packs=[dispatch,memory_candidate]` across the existing docs, HTTP examples, and focused workflow-template tests as current branch baseline behavior.
+- Promoted milestone capability `review_then_dispatch_workflow_template` to released, so release/operator guards now pin the hybrid review-then-dispatch workflow for `budget_policy_json.workflow_template=artifact_then_dispatch` plus `human_review_role`, keeping the combined human-review and approval-backed dispatch path as current branch baseline behavior.
+- Promoted milestone capability `task_contract_workflow_templates` to released, so release/operator guards now pin the baseline dispatch-template contract for `budget_policy_json.workflow_template=artifact_then_dispatch` across the existing docs, smoke coverage, and focused workflow-template tests as current branch behavior.
+- Promoted milestone capability `session_human_task_assignment_history_task_identity_projection` to released, so release/operator guards now pin inline session `human_task_assignment_history[]` `task_key` and `deliverable_type` projection as current branch baseline behavior.
+- Promoted milestone capability `proof_lookup_task_identity_projection` to released, so release/operator guards now pin direct receipt and run-cost `task_key` plus `deliverable_type` lookup projection as current branch baseline behavior.
+- Promoted milestone capability `generic_task_execution_async_contracts` to released, so release/operator guards now pin the shared async workflow contract for `POST /v1/plans/execute` awaiting-approval and awaiting-human responses, including paused session dependency-state projection, as current branch baseline behavior.
+- Promoted milestone capability `human_task_ownerless_priority_summary_mixed_source_counts` to released, so release/operator guards now pin the ownerless `priority-summary?status=pending&assignment_state=unassigned&assignment_source=none` mixed-source count contract, keeping total and low-priority counts ownerless-only even while manual and auto-preselected work coexists as current branch baseline behavior.
+- Promoted milestone capability `human_task_operator_matched_priority_summary` to released, so release/operator guards now pin the README/RUNBOOK/existing smoke coverage proving `priority-summary?status=pending&assignment_state=unassigned&operator_id=<id>` returns backlog counts filtered by operator role/skill/trust matching before claim as current branch baseline behavior.
+- Promoted milestone capability `human_task_session_ownerless_mixed_source_isolation` to released, so release/operator guards now pin the ownerless `session_id=<id>&assignment_source=none&sort=created_asc|last_transition_desc` session-list mixed-source isolation contract, keeping manual and auto-preselected neighbors out while preserving ownerless ordering as current branch baseline behavior.
+- Promoted milestone capability `human_task_ownerless_list_last_transition_sort` to released, so release/operator guards now pin the README/RUNBOOK/examples plus approved smoke coverage proving `status=pending&assignment_state=unassigned&assignment_source=none&sort=last_transition_desc` preserves newest-first ownerless pending-list triage as current branch baseline behavior.
+- Promoted milestone capability `human_task_ownerless_backlog_last_transition_sort` to released, so release/operator guards now pin the README/RUNBOOK/examples plus approved smoke coverage proving `assignment_state=unassigned&assignment_source=none&sort=last_transition_desc` preserves newest-first ownerless backlog triage as current branch baseline behavior.
+- Promoted milestone capability `human_task_ownerless_assignment_source_alias` to released, so release/operator guards now pin the README/RUNBOOK/examples plus approved smoke and Postgres coverage proving `assignment_source=none` remains the ownerless queue and priority-summary alias as current branch baseline behavior.
+- Promoted milestone capability `human_task_session_ownerless_unsorted_mixed_source_isolation` to released, so release/operator guards now pin the unsorted session-scoped `session_id=<id>&assignment_source=none` ownerless-slice isolation contract, keeping mixed-source manual and auto-preselected neighbors out while preserving ownerless-only queue order as current branch baseline behavior.
+- Promoted milestone capability `human_task_priority_summary_mixed_source_non_ownerless_isolation` to released, so release/operator guards now pin the README/RUNBOOK wording plus approved smoke coverage proving mixed-source churn does not contaminate non-ownerless summary counts when manual or planner auto-preselected priority-summary slices are rechecked after ownerless rows are added.
+- Promoted milestone capability `human_task_ownerless_unassigned_created_sort` to released, so release/operator guards now pin the ownerless `assignment_source=none&sort=created_asc` queue ordering contract as current branch baseline behavior.
+- Promoted milestone capability `human_task_priority_summary` to released, so release/operator guards now pin the README/RUNBOOK/examples plus approved smoke coverage proving `GET /v1/human/tasks/priority-summary` exposes per-band counts, `total`, `highest_priority`, and unassigned summary filtering as current branch baseline behavior.
+- Promoted milestone capability `human_task_created_asc_sorting` to released, so release/operator guards now pin the README/RUNBOOK/examples plus approved smoke coverage proving `sort=created_asc` preserves explicit oldest-created FIFO queue ordering across the general pending list, backlog, unassigned, and mine queue views as current branch baseline behavior.
+- Promoted milestone capability `human_task_last_transition_sorting` to released, so release/operator guards now pin the README/RUNBOOK/examples plus approved smoke coverage proving `sort=last_transition_desc` preserves freshest-transition queue ordering across the general pending list and direct backlog views as current branch baseline behavior.
+- Promoted milestone capability `human_task_sla_transition_combined_sorting` to released, so release/operator guards now pin the `sort=sla_due_at_asc_last_transition_desc` tie-break ordering contract as current branch baseline behavior.
+- Promoted milestone capability `human_task_operator_backlog_endpoints` to released, so release/operator guards now pin the README/RUNBOOK/examples plus approved smoke coverage proving `/v1/human/tasks/backlog` and `/v1/human/tasks/mine` expose direct operator queues and reflect claim actions immediately as current branch baseline behavior.
+- Promoted milestone capability `delayed_retry_async_acceptance` to released, so release/operator guards now pin the README/RUNBOOK/OpenAPI examples plus focused runtime coverage proving nonzero-backoff retries return the first-class `202 queued` async acceptance contract as current branch baseline behavior.
+- Promoted milestone capability `approval_async_acceptance_contract` to released, so release/operator guards now pin the README/RUNBOOK/examples plus approved smoke/runtime coverage proving approval-required rewrites return the first-class `202 Accepted` async acceptance contract with `awaiting_approval` and `next_action=poll_or_subscribe` as current branch baseline behavior.
+- Promoted milestone capability `connector_dispatch_binding_scope_guardrails` to released, so release/operator guards now pin the README/RUNBOOK/examples plus approved smoke/runtime and tool-execution coverage proving `connector.dispatch` rejects foreign-principal or unbound bindings before any delivery side effect is queued as current branch baseline behavior.
+- Promoted milestone capability `human_task_assignment_provenance_fields` to released, so release/operator guards now pin the README/RUNBOOK provenance guidance plus approved smoke and Postgres coverage for `assigned_at` and `assigned_by_actor_id` across manual assignment, claim, return, and planner auto-preselection as current branch baseline behavior.
+- Promoted milestone capability `human_task_operator_assignment_hints` to released, so release/operator guards now pin the README/RUNBOOK routing-hints guidance plus approved smoke and Postgres contract coverage for `routing_hints_json`, `suggested_operator_ids`, `recommended_operator_id`, and `auto_assign_operator_id` as current branch baseline behavior.
+- Promoted milestone capability `human_review_payload_artifact_override` to released, so release/operator guards now pin the README/RUNBOOK wording plus approved smoke/runtime coverage that proves `returned_payload_json.final_text` overrides downstream artifact persistence with reviewer-edited content as current branch baseline behavior.
+- Promoted milestone capability `queued_policy_step_audit_truthfulness` to released, so release/operator guards now pin the README/RUNBOOK wording plus approved smoke/runtime ordering coverage that proves policy decisions are recorded from the queued `step_policy_evaluate` handler after `input_prepared` as current branch baseline behavior.
+- Promoted milestone capability `typed_step_handler_gateway` to released, so release/operator guards now pin the README/RUNBOOK guidance plus planner and smoke coverage for the explicit `step_input_prepare`, `step_policy_evaluate`, and `step_artifact_save` handler gateway as current branch baseline behavior.
+- Promoted milestone capability `principal_request_context_guardrails` to released, so release/operator guards now pin the `X-EA-Principal-ID` and `EA_DEFAULT_PRINCIPAL_ID` request-context contract plus approved smoke coverage for principal mismatch and foreign connector-update guardrails as current branch baseline behavior.
+- Promoted milestone capability `receipt_and_run_cost_lookup_api_exposure` to released, so release/operator guards now pin the README/RUNBOOK/examples plus approved smoke-path receipt and run-cost fetch coverage as current branch baseline behavior.
+- Promoted milestone capability `support_bundle_pgdata_attribution` to released, so release/operator guards now pin `SUPPORT_INCLUDE_DB_VOLUME`, README/RUNBOOK pgdata guidance, and captured `ea_pgdata` plus `/var/lib/postgresql/data` support-bundle attribution as current branch baseline behavior.
+- Promoted milestone capability `operator_db_visibility_and_retention` to released, so release/operator guards now pin DB-size schema/sort/prefix/min filters, retention profile plus table-filter usage, and support-bundle DB-size snapshot linkage as current branch baseline behavior.
+- Promoted milestone capability `evidence_object_ledger_api` to released, so release/operator guards now pin first-class evidence-object materialization, `/v1/evidence/objects*` query coverage, `POST /v1/evidence/merge`, and linked docs/examples as current branch baseline behavior.
+- Promoted milestone capability `principal_scoped_memory_seed_apis` to released, so release/operator guards now pin the documented principal-scoped memory candidate, stakeholder, and interruption-budget routes as current branch baseline behavior.
+- Promoted milestone capability `ltd_discovery_api_refresh_runner` to released, so release/operator guards now pin the BrowserAct-backed `/v1/plans/execute` LTD refresh runner, inventory payload capture, smoke round-trip, and linked docs as current branch baseline behavior.
+- Promoted milestone capability `ltd_discovery_markdown_refresh` to released, so release/operator guards now pin `ltd_inventory_markdown` coverage, including `refresh_ltds_from_inventory.sh` + `scripts/refresh_ltds_from_inventory.py`, plus linked docs and `LTDs.md` table updates as current branch baseline behavior.
+- Promoted milestone capability `plan_skill_key_entrypoint_alias` to released, so release/operator guards now pin `POST /v1/plans/compile` plus `POST /v1/plans/execute` first-class `skill_key` entrypoint selection, validation, and docs/examples as current branch baseline behavior.
+- Promoted milestone capability `skill_identity_projection` to released, so release/operator guards now pin `POST /v1/plans/compile` plus `POST /v1/plans/execute` resolved `skill_key` projection and first-class skill round-trip coverage as current branch baseline behavior.
+- Promoted milestone capability `skill_provider_hints_projection` to released, so release/operator guards now pin skill-catalog `provider_hints_json` round-trip coverage, approved smoke examples, and docs visibility as current branch baseline behavior.
+- Promoted milestone capability `ltd_inventory_refresh_skill_catalog_slice` to released, so release/operator guards now pin the BrowserAct-backed `ltd_inventory_refresh` skill catalog docs/examples plus compile/execute/runtime identity path as current branch baseline behavior.
+- Promoted milestone capability `review_dispatch_delayed_retry_runtime` to released, so release/operator guards now pin compiled dispatch retry posture plus delayed post-approval dispatch requeue semantics as current branch baseline behavior.
+- Promoted milestone capability `contract_retry_policy_metadata` to released, so release/operator guards now pin task-contract-driven artifact and dispatch retry metadata compilation as current branch baseline behavior.
+- Promoted milestone capability `execution_queue_retry_runtime` to released, so release/operator guards now pin queue-row retry reschedule, monotonic `attempt_count`, `step_retry_scheduled`, and retry-budget terminal failure semantics as current branch baseline behavior.
+- Promoted milestone capability `review_dispatch_then_memory_candidate_workflow_template` to released, so release/operator guards now pin the hybrid human-review plus approval-backed dispatch plus post-send memory-staging workflow as current branch baseline behavior.
+- Promoted milestone capability `artifact_then_memory_candidate_workflow_template` to released, so release/operator guards now pin the artifact-to-memory workflow shape, policy `memory_write_allowed` projection, and pending memory-candidate staging as current branch baseline behavior.
+- Promoted milestone capability `skill_catalog_layer` to released, so release/operator guards now pin the first-class `/v1/skills` catalog docs/examples plus focused skill and API-smoke coverage for the initial `meeting_prep` slice as current branch baseline behavior.
+- Promoted milestone capability `dispatch_then_memory_candidate_workflow_template` to released, so release/operator guards now pin the approval-gated `artifact_then_dispatch_then_memory_candidate` workflow shape, including post-dispatch `step_memory_candidate_stage` staging with delivery context and end-to-end documentation/API-smoke coverage as current branch baseline behavior.
+- Promoted milestone capability `evidence_pack_memory_candidate_projection` to released, so release/operator guards now pin evidence-pack memory-candidate staging that preserves `claims`, `evidence_refs`, `open_questions`, and the full evidence envelope as current branch baseline behavior.
+- Promoted milestone capability `workflow_template_registry_validation` to released, so release/operator guards now pin unknown workflow-template rejection at plan compile, plan execute, and rewrite API boundaries as current branch baseline behavior.
+- Promoted milestone capability `browseract_extract_then_artifact_workflow_template` to released, so release/operator guards now pin the BrowserAct extract-to-artifact workflow shape, receipt identity, and structured artifact projection as current branch baseline behavior.
+- Promoted milestone capability `artifact_preview_handle_projection` to released, so release/operator guards now pin direct artifact lookup and generic task artifact-envelope projection for `preview_text`, `storage_handle`, `mime_type`, and durable `body_ref` as current branch baseline behavior.
+- Promoted milestone capability `session_human_task_packet_task_identity_projection` to released, so release/operator guards now pin inline session `human_tasks[]` `task_key` and `deliverable_type` projection as current branch baseline behavior.
+- Promoted milestone capability `human_task_assignment_history_task_identity_projection` to released, so release/operator guards now pin direct human-task assignment-history `task_key` and `deliverable_type` projection as current branch baseline behavior.
+- Promoted milestone capability `session_artifact_task_identity_projection` to released, so release/operator guards now pin inline session artifact `task_key` and `deliverable_type` projection as current branch baseline behavior.
+- Promoted milestone capability `plan_graph_validation` to released, so release/operator guards now pin duplicate step key, unknown dependency, and dependency cycle rejection before queue execution or session creation as current branch baseline behavior.
+- Promoted milestone capability `generic_task_execution_runtime` to released, so release/operator guards now pin `POST /v1/plans/execute` non-`rewrite_text` runtime reuse, structured `input_json` plus `context_refs`, and principal-scoped task execution as current branch baseline behavior.
+- Promoted the direct artifact task-identity lookup slice into a released milestone capability, with release/operator guards pinning `/v1/rewrite/artifacts/{artifact_id}` task-key and deliverable-type projection as branch-baseline behavior.
+- Promoted the session-detail human-task assignment-source filter slice into a released milestone capability, with release/operator guards pinning `human_task_assignment_source=<source>` filtering across current session `human_tasks` rows and inline assignment history as branch-baseline behavior.
+- Promoted milestone capability `session_ownerless_projection_mixed_source_counts` to released, so release/operator guards now pin the ownerless `human_task_assignment_source=none` session-detail count contract for current ownerless rows versus longer empty-source history as current branch baseline behavior.
+- Promoted milestone capability `human_task_ownerless_unsorted_queue_mixed_source_isolation` to released, so release/operator guards now pin the ownerless unsorted pending-list, backlog, and unassigned mixed-source isolation contract as current branch baseline behavior.
+- Promoted milestone capability `human_task_ownerless_sorted_queue_mixed_source_isolation` to released, so release/operator guards now pin the ownerless sorted backlog, unassigned, and pending mixed-source isolation contract for `sort=created_asc` and `sort=last_transition_desc` as current branch baseline behavior.
+- Promoted milestone capability `session_ownerless_projection_mixed_source_isolation` to released, so release/operator guards now pin the ownerless `human_task_assignment_source=none` session-detail mixed-source isolation contract for current-row filtering and oldest-first empty-source history as current branch baseline behavior.
+- Promoted milestone capability `human_task_session_ownerless_last_transition_sort` to released, so release/operator guards now pin the ownerless `session_id=<id>&assignment_source=none&sort=last_transition_desc` session-list newest-first ordering contract as current branch baseline behavior.
+- Promoted the human-task exact priority-filter slice into a released milestone capability, with release/operator guards pinning README/RUNBOOK/examples plus approved smoke coverage for `priority=<level>` queue views as branch-baseline behavior.
+- Promoted milestone capability `human_task_ownerless_list_created_sort` to released, so release/operator guards now pin the ownerless `sort=created_asc` pending-list FIFO ordering contract as current branch baseline behavior.
+- Promoted milestone capability `human_task_ownerless_unassigned_last_transition_sort` to released, so release/operator guards now pin the ownerless `sort=last_transition_desc` unassigned queue ordering contract as current branch baseline behavior.
+- Promoted the ownerless human-task session/history alias slice into a released milestone capability, with release/operator guards pinning `assignment_source=none` filtering across task assignment-history and session detail views as branch-baseline behavior.
+- Promoted the human-task assignment-history source-filter slice into a released milestone capability, with release/operator guards pinning direct `assignment-history?assignment_source=...` audit filtering as branch-baseline behavior.
+- Promoted the human-task assignment-source queue-filter slice into a released milestone capability, with release/operator guards pinning list, backlog, and mine `assignment_source=<source>` filtering as branch-baseline behavior.
+- Promoted the human-task assignment-source priority-summary slice into a released milestone capability, with release/operator guards pinning `priority-summary?assignment_source=...` pending-load splits as branch-baseline behavior.
+- Promoted the human-task multi-priority filter slice into a released milestone capability, with release/operator guards pinning comma-separated `priority=urgent,high` combined queue views as branch-baseline behavior.
+- Promoted the artifact principal-ownership projection slice into a released milestone capability, with release/operator guards pinning explicit `principal_id` artifact ownership across durable storage, direct artifact reads, inline session rows, and generic task execution artifact projections as branch-baseline behavior.
+- Promoted the human-task assigned priority-summary slice into a released milestone capability, with release/operator guards pinning `priority-summary?assigned_operator_id=<id>` reviewer queue counts as branch-baseline behavior.
+- Promoted the human-task priority-banded created sorting slice into a released milestone capability, with release/operator guards pinning `sort=priority_desc_created_asc` queue ordering as branch-baseline behavior.
+- Promoted the human-task unscheduled SLA fallback sorting slice into a released milestone capability, with release/operator guards pinning oldest-created fallback ordering for rows without `sla_due_at` as branch-baseline behavior.
+- Promoted the human-task SLA sorting slice into a released milestone capability, with release/operator guards pinning earliest-due `sort=sla_due_at_asc` backlog ordering as branch-baseline behavior.
+- Promoted the human-task last-transition summary projection slice into a released milestone capability, with release/operator guards pinning compact `last_transition_*` queue/session visibility as branch-baseline behavior.
+- Promoted the human-task operator assignment slice into a released milestone capability, with release/operator guards pinning explicit pending-task reviewer assignment plus `human_task_assigned` ledger visibility as branch-baseline behavior.
+- Promoted the human-task operator queue filters slice into a released milestone capability, with release/operator guards pinning role-required, assigned-operator, and overdue-only reviewer queue filtering as branch-baseline behavior.
+- Promoted the BrowserAct live-discovery input projection slice into a released milestone capability, with release/operator guards pinning typed `run_url`, `instructions`, and `account_hints_json` projection across tool outputs, planner contracts, skill schemas, and HTTP examples as branch-baseline behavior.
+- Promoted the BrowserAct account-facts tool execution slice into a released milestone capability, with release/operator guards pinning `/v1/tools/execute` BrowserAct account-fact extraction, structured fact projection, and normalized `tool.v1` receipts as branch-baseline behavior.
+- Promoted the connector dispatch tool execution slice into a released milestone capability, with release/operator guards pinning `POST /v1/tools/execute`, queued outbox delivery, and normalized `tool.v1` dispatch receipts as branch-baseline behavior.
+- Promoted the registry-backed tool execution service slice into a released milestone capability, with release/operator guards pinning the normalized `tool.v1` receipt contract plus built-in registry self-heal behavior as branch-baseline behavior.
+- Promoted the human-task assignment-history filters slice into a released milestone capability, with release/operator guards pinning direct `event_name`, `assigned_operator_id`, and `assigned_by_actor_id` audit filtering as branch-baseline behavior.
+- Promoted the human-task assignment-history API slice into a released milestone capability, with release/operator guards pinning the task-scoped ledger-backed reassignment audit route as branch-baseline behavior.
+- Promoted the human-task assignment-source visibility slice into a released milestone capability, with release/operator guards pinning manual, recommended, and planner auto-preselected reviewer-source labels as branch-baseline behavior.
+- Promoted the operator-profile specialized backlog routing slice into a released milestone capability, with release/operator guards pinning role, skill-tag, and trust-tier backlog filtering as branch-baseline behavior.
+- Promoted the human-task packets kernel into a released milestone capability, with release/operator guards pinning principal-scoped packet create/list/claim/return behavior plus linked ledger/session visibility as branch-baseline behavior.
+- Promoted the planner human-review operational metadata slice into a released milestone capability, with release/operator guards pinning `priority`, relative SLA, and desired reviewer output projection as branch-baseline behavior.
+- Promoted the compiled human-review runtime execution slice into a released milestone capability, with release/operator guards pinning `202 awaiting_human`, queued pause, and resume-on-return behavior as branch-baseline behavior.
+- Promoted the human-task dependency input merge into a released milestone capability, with release/operator guards pinning dependency-fed human-review packet text, source-text normalization, and text-length projection as branch-baseline behavior.
+- Promoted the single-dependency session parent projection into a released milestone capability, with release/operator guards pinning truthful `parent_step_id` ancestry for simple chains while multi-prerequisite joins stay parentless as branch-baseline behavior.
+- Promoted the dependency-aware planner graph projection into a released milestone capability, with release/operator guards pinning `depends_on` plus declared `input_keys` / `output_keys` plan metadata as branch-baseline behavior.
+- Promoted the principal-scoped rewrite/session/artifact/receipt/run-cost and plan compile/execute routing contract into a released milestone capability, with release/operator guards pinning request-derived principal enforcement as branch-baseline behavior.
+- Promoted the session-scoped human task principal-boundary contract into a released milestone capability, with release/operator guards pinning foreign-principal `session_id` attach/list rejection as branch-baseline behavior.
+- Promoted the `EA_RUNTIME_MODE=prod` fail-fast storage contract into a released milestone capability, with release/operator guards pinning durable-boot enforcement as branch-baseline behavior.
+- Promoted the direct artifact lookup route coverage into a released milestone capability, with release/operator guards pinning `/v1/rewrite/artifacts/{artifact_id}` as branch-baseline behavior.
+- Added `scripts/refresh_ltds_via_api.sh`, which executes the BrowserAct-backed `ltd_inventory_refresh` skill through the local `/v1/plans/execute` API and rewrites the `## Discovery Tracking` table in `LTDs.md` from the returned structured inventory payload in one pass.
+- Principal-scoped connector and memory routes now derive the effective principal from `X-EA-Principal-ID` or `EA_DEFAULT_PRINCIPAL_ID` instead of trusting caller-supplied body/query values.
+- Caller-supplied `principal_id` on those routes is now a compatibility filter only; mismatches fail with `403 principal_scope_mismatch`.
+- Rewrite creation/session/artifact/receipt/run-cost and plan-compile routes now derive the effective principal from request context too, reject caller-supplied mismatches with `403 principal_scope_mismatch`, and block foreign-principal execution-proof fetches.
+- Generic `POST /v1/plans/execute` task execution now derives the effective principal from request context too, rejects caller-supplied mismatches with `403 principal_scope_mismatch`, and reuses the same queued session/artifact runtime as rewrite execution.
+- Generic `POST /v1/plans/execute` now accepts structured `input_json` plus `context_refs` in addition to the legacy `text` convenience field, so executive workflows can carry richer task payloads without collapsing back into one freeform string.
+- Generic `POST /v1/plans/execute` task execution now returns the same first-class `202 awaiting_approval` and `202 awaiting_human` async contract as rewrite execution, and those non-rewrite task sessions resume through the shared approval and human-task paths.
+- Those paused non-rewrite async sessions now also prove the same dependency-state projection as rewrite execution: approval-backed runs keep `step_artifact_save` in `waiting_approval` with satisfied dependencies, while human-review-backed runs keep downstream save steps queued behind `blocked_dependency_keys=["step_human_review"]` until the packet returns.
+- Direct artifact lookup now returns the originating task key and deliverable type, so non-rewrite executions can be inspected without expanding the full session envelope first.
+- Direct artifact lookup, inline session artifact rows, and generic task execution artifact responses now also return explicit `principal_id` ownership, so durable artifact scope is modeled directly instead of only inferred through the linked session.
+- Direct receipt and run-cost lookup now return the originating task key and deliverable type too, so non-rewrite proof records can be inspected without expanding the full session envelope first.
+- Inline session artifact rows now return the same task identity, so the main session envelope stays self-describing for non-rewrite runs too.
+- Approval queue/history rows and human-task queue/detail responses now return the same originating task identity, so paused non-rewrite async work stays self-describing before completion too.
+- Direct human-task assignment-history rows now return the same originating task identity, so operator transition logs stay self-describing for paused non-rewrite work too.
+- Inline session human-task assignment-history rows now return the same originating task identity, so one-fetch operator session views no longer lose non-rewrite task context in the embedded transition log.
+- Inline session human-task packet rows now return the same originating task identity, so paused non-rewrite packet detail stays self-describing inside the main session envelope.
+- Compiled plan steps now project explicit owner, authority_class, review_class, failure_strategy, timeout_budget_seconds, max_attempts, and retry_backoff_seconds semantics, and those same fields are copied into queued step input payloads plus `plan_compiled` event payloads for runtime inspection.
+- Promoted the external-action policy evaluation route coverage into a released milestone capability, with release/operator guards pinning `/v1/policy/evaluate` external-send approval metadata as branch-baseline behavior.
+- Direct artifact reads, inline session artifact rows, and generic task execution responses now also project `preview_text` plus a stable `storage_handle`, so artifact consumers can start moving toward metadata-plus-handle envelopes without losing inline content.
+- Agent-local memory and work-queue files are now gitignored, `TASKS_WORK_LOG.md` is no longer tracked, and archive/support/operator scripts treat the local task log as optional state.
+- TASKS_WORK_LOG.md is no longer tracked; operator debug contracts now treat it as optional local state and use CHANGELOG coverage as the release baseline.
+- Session-bound human task creation and session-scoped queue reads now enforce the linked execution session principal as well, so foreign principals cannot attach packets to or enumerate another principal's execution thread via `session_id`.
+- Connector binding status changes now honor the request principal and return `binding_not_found` for foreign-scope updates.
+- Rewrite execution now runs through a typed three-step handler path (`step_input_prepare` -> `step_policy_evaluate` -> `step_artifact_save`) instead of a thin artifact-save-only plan.
+- Queue advancement now enqueues the full ready set from satisfied `depends_on` edges instead of only the next parent-linked step, and queue leasing now skips paused sessions so joins wait for every prerequisite without running sibling work through approval or human-review holds.
+- Planner/orchestrator startup now rejects duplicate step keys, unknown dependency keys, and dependency cycles before queue execution or session creation begins, so invalid graph definitions fail fast instead of hanging the runtime.
+- Queued step handlers now only merge declared dependency inputs and now fail fast when a completed step omits any declared output key, so `input_keys` / `output_keys` act as real runtime contracts instead of descriptive metadata only.
+- Runtime-created session steps now derive `parent_step_id` only from actual single-dependency edges, so multi-prerequisite joins stop projecting fake linear ancestry while simple chains stay compatible for legacy consumers.
+- Queued step failures can now actually honor `failure_strategy=retry`: the runtime reschedules the same queue row with `next_attempt_at`, keeps `attempt_count` monotonic across leases, records `step_retry_scheduled`, and only terminally fails the session once `max_attempts` is exhausted.
+- Zero-backoff retries now keep draining the same session inline across create/approval/human-return entrypoints too, so immediately eligible retry rows finish in-process instead of surfacing `queued task did not execute` between attempts.
+- The execution ledger now exposes an explicit `set_session_status(...)` transition API for nonterminal states, and the queue runtime uses that for retry, pause, resume, and failure transitions instead of reusing `complete_session(...)` with statuses like `queued` or `awaiting_approval`.
+- Task-contract metadata can now tune the built-in artifact and dispatch retry posture too, so `step_artifact_save` and `step_connector_dispatch` no longer hardcode a single `failure_strategy|max_attempts|retry_backoff_seconds` profile.
+- Nonzero-backoff retries now surface as a first-class `202 queued` async acceptance on rewrite and plan execution, and approval resumption no longer raises `approved queue item did not execute` when the resumed step legitimately requeues itself into the future.
+- Review-then-dispatch workflows now preserve compiled dispatch retry posture through human review and approval too, and both focused/runtime plus HTTP smoke coverage now prove that a delayed `connector.dispatch` retry keeps the session queued instead of erroring once the operator gates have already cleared.
+- Policy decisions are now recorded from the queued `step_policy_evaluate` handler after `input_prepared`, so approval/block audit events match runtime step order instead of preflight bookkeeping.
+- Planner output can now project a first-class `human_task` review branch (`step_human_review`) from task-contract metadata via `budget_policy_json.human_review_role`.
+- Task contracts can now also select `workflow_template=browseract_extract_then_artifact`, compiling `step_input_prepare -> step_browseract_extract -> step_artifact_save` so BrowserAct-backed account discovery can extract tier/email/status facts and persist them as a structured artifact through the queue runtime.
+- Task contracts can now also select the generic `workflow_template=tool_then_artifact` macro with `budget_policy_json.pre_artifact_tool_name=browseract.extract_account_facts`, routing the BrowserAct account-discovery flow through shared planner composition helpers instead of another one-off workflow builder.
+- Task contracts can now also route `budget_policy_json.pre_artifact_tool_name=browseract.extract_account_inventory` through that same `tool_then_artifact` macro, so one queue-backed execution can summarize multiple BrowserAct-backed LTD services and persist a structured inventory artifact.
+- The BrowserAct discovery slice now also projects optional live-discovery inputs (`run_url`, `instructions`, and `account_hints_json`) through tool outputs, planner step contracts, skill schemas, and HTTP examples so BrowserAct-backed LTD refresh flows can carry auditable login/extraction hints without bypassing the typed runtime.
+- Added `scripts/refresh_ltds_from_inventory.sh`, which can rewrite the `## Discovery Tracking` table in `LTDs.md` from a BrowserAct inventory artifact/output payload so discovered tier/email/status facts stop living only in transient runtime JSON.
+- Added a first-class `/v1/skills` catalog layered on top of task contracts, so product-facing executive skills can persist workflow selection, memory reads/writes, authority/tool/human policy, and evaluation metadata without introducing a second storage backend; `SKILLS.md` now tracks the initial catalog and `meeting_prep` has focused plus API-smoke coverage.
+- `/v1/skills` now also persists `provider_hints_json`, so product-facing skill rows can name suggested LTD capability providers (for example `1min.AI`, `BrowserAct`, `Paperguide`, or `MarkupGo`) alongside memory/authority/human policy instead of keeping that mapping only in markdown notes.
+- `GET /v1/skills?provider_hint=<value>` now filters the catalog against those nested provider hints, so operator tooling can ask which skills depend on `BrowserAct`, `1min.AI`, or another LTD-backed provider without maintaining a separate lookup table.
+- The skill catalog now also carries a first BrowserAct-powered operations slice, `ltd_inventory_refresh`, which compiles the generic `tool_then_artifact` macro into `step_input_prepare -> step_browseract_inventory_extract -> step_artifact_save` and persists a structured `ltd_inventory_profile` artifact from one multi-service BrowserAct inventory refresh.
+- `/v1/plans/compile` and `/v1/plans/execute` now also project the resolved `skill_key` alongside `task_key`, so the runtime can expose the product-facing executive capability identity without forcing clients to reverse-map task contracts on every response.
+- `POST /v1/plans/compile` and `POST /v1/plans/execute` now also accept either `task_key` or `skill_key`, so product-facing clients can compile or execute a first-class skill without first resolving its backing task contract.
+- `/v1/rewrite/sessions/{session_id}` plus direct artifact/receipt/run-cost reads now also project that same `skill_key` (and `intent_skill_key` on the session root), keeping the main runtime inspection surface aligned with the product-facing skill catalog after execution.
+- Task contracts can now also select the built-in `artifact_then_dispatch` workflow template via `budget_policy_json.workflow_template`, compiling a materially different `step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch` graph instead of routing every task through the rewrite-shaped skeleton.
+- Task contracts can now also select the built-in `artifact_then_memory_candidate` workflow template via `budget_policy_json.workflow_template`, compiling `step_input_prepare -> step_policy_evaluate -> step_artifact_save -> step_memory_candidate_stage` so queue-backed generic tasks can persist an artifact and stage a reviewable memory candidate in one runtime flow.
+- Task contracts can now also set `budget_policy_json.artifact_output_template=evidence_pack`, causing `step_input_prepare` to emit structured `claims`, `evidence_refs`, `open_questions`, and `confidence` metadata that persists through `step_artifact_save` as a first-class evidence envelope and also carries into downstream memory-candidate staging instead of only plain text.
+- Evidence-pack artifact saves now also materialize first-class rows behind `/v1/evidence/objects`, emit stable `evidence_object_id` / `citation_handle` metadata from the artifact-save step, and `POST /v1/evidence/merge` can recombine cited rows into a reusable evidence pack without reparsing artifact JSON.
+- Task contracts can now also select the built-in `artifact_then_dispatch_then_memory_candidate` workflow template via `budget_policy_json.workflow_template`, compiling `step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage` so approval-backed sends can stage reviewable memory with delivery context only after the external action actually completes.
+- That same `artifact_then_dispatch_then_memory_candidate` workflow template now also has focused and API-smoke coverage for the hybrid human-review case, proving `budget_policy_json.human_review_role` can pause sensitive send flows before artifact persistence and still stage post-dispatch memory only after both human review and approval clear.
+- The `artifact_then_dispatch` workflow template now also has focused and API-smoke coverage for the combined human-review case, proving `budget_policy_json.human_review_role` can insert `step_human_review` ahead of artifact persistence, resume later into approval-backed `connector.dispatch`, and only queue the delivery outbox row after both human review and approval have cleared.
+- Unknown `budget_policy_json.workflow_template` values now fail fast with `422 unknown_workflow_template:<value>` at the rewrite and plan API boundary instead of silently falling back to the rewrite skeleton.
+- Human-review step execution now merges dependency outputs into the created packet input, so queued review work receives the same normalized text and text length that upstream dependency steps produced without leaning on parent-step-only context.
+- Non-`rewrite_text` task contracts can now execute through the same queue-backed graph runtime and persist their own deliverable type instead of hardcoding the rewrite vertical.
+- Rewrite execution now auto-runs compiled `step_human_review` nodes into real human task packets, pauses with `202 awaiting_human`, and resumes the queue after the packet is returned.
+- Returned human-review packets can now override the downstream artifact content via `returned_payload_json.final_text`, so compiled review branches affect the final persisted artifact instead of only gating it.
+- Rewrite tool-call execution now flows through a registry-backed `ToolExecutionService`, `artifact_repository` receipts expose a normalized `tool.v1` invocation contract, and missing built-in tool definitions now self-heal before runtime execution fails.
+- The built-in `browseract.extract_account_facts` and `browseract.extract_account_inventory` handlers now execute through the shared tool plane too, resolving scoped BrowserAct-backed single-service or multi-service account facts (optionally via a configured live BrowserAct run URL) before handing structured discovery output to artifact persistence.
+- The built-in `connector.dispatch` handler now executes through the shared tool plane and `POST /v1/tools/execute` can enqueue delivery outbox rows with normalized `tool.v1` receipt metadata.
+- `connector.dispatch` now requires an enabled connector binding owned by the request principal before the shared tool plane will queue delivery.
+- Approval-required rewrite requests now return a first-class `202 Accepted` workflow contract with `session_id` and `approval_id` instead of a `409` error envelope.
+- Added first-class principal-scoped human task packets linked to execution sessions/steps, with claim/return APIs and ledger events for returned-from-human work.
+- Human task packets can now reopen a linked session step into `waiting_human` and resume it back to `completed` when the returned packet arrives.
+- Human task packets and compiled `step_human_review` branches now carry explicit `authority_required`, `why_human`, and `quality_rubric_json` review-contract metadata for operator-facing hybrid-intelligence workflows.
+- Added durable operator profiles plus `operator_id`-scoped backlog matching so the human-task queue can route by reviewer role, rubric-derived skill tags, and trust tier instead of only raw role labels.
+- Human task and session projections now compute `routing_hints_json` so specialized reviewers can be suggested or preselected directly on each packet, including `suggested_operator_ids`, `recommended_operator_id`, and `auto_assign_operator_id` when a single exact reviewer match exists.
+- `POST /v1/human/tasks/{human_task_id}/assign` can now consume `auto_assign_operator_id` directly when the caller omits `operator_id`, so a preselected reviewer can be assigned without re-sending the same operator choice from the client.
+- Milestone capability `human_task_recommended_assignment_action` is now released, and the release/operator guards pin the omitted-`operator_id` recommended-assignment path as current branch baseline behavior.
+- Planner-native `step_human_review` branches can now opt into `human_review_auto_assign_if_unique`, and the queue runtime pre-assigns a single exact reviewer match before the packet lands in the human backlog.
+- Human task storage and projections now persist `assignment_source`, distinguishing manual assignment, route-level recommended assignment, and planner auto-preselection across session, backlog, and returned-packet views.
+- Human task storage and projections now also persist `assigned_at` and `assigned_by_actor_id`, so current reviewer ownership is timestamped and attributed across manual assignment, claim, return, and planner auto-preselection flows.
+- Human task list/detail/session rows now also expose compact `last_transition_*` summary fields so operator backlogs can show the latest ownership event and actor/source metadata without expanding the full assignment-history chain.
+- Human task list/backlog endpoints now also accept `sort=last_transition_desc`, letting operator queues order pending work by the freshest ownership churn instead of default repository order.
+- Human task list/backlog endpoints now also accept `sort=sla_due_at_asc`, letting operator queues order pending work by the earliest pending SLA when triaging aging backlog first.
+- Human task list/backlog endpoints now also accept `sort=sla_due_at_asc_last_transition_desc`, letting operator queues break same-SLA ties by the freshest ownership churn for stable triage under reassignment-heavy workloads.
+- SLA-oriented human task queue sorts now explicitly fall back to oldest-created ordering for rows without `sla_due_at`, preventing unscheduled backlog from being reshuffled by newer reassignment churn.
+- Added `GET /v1/human/tasks/{human_task_id}/assignment-history`, which exposes task-scoped ownership transitions from the execution ledger so recommended assignment, later manual reassignment, claim, and return provenance remain queryable after the packet state advances.
+- `GET /v1/rewrite/sessions/{session_id}` now also projects `human_task_assignment_history`, so operator tooling can render the same ownership transition chain inline with session detail instead of issuing a second history fetch.
+- `GET /v1/human/tasks/{human_task_id}/assignment-history` now supports `event_name`, `assigned_operator_id`, and `assigned_by_actor_id` filters so operator tooling can isolate reassignment, claim, or return transitions directly.
+- Human task queue listings now support `role_required`, `assigned_operator_id`, and `overdue_only` filters for operator-targeted backlogs.
+- Added direct `/v1/human/tasks/backlog` and `/v1/human/tasks/mine` endpoints so operators can pull pending and assigned queues without reconstructing filter sets manually.
+- Added `POST /v1/human/tasks/{human_task_id}/assign` so operator ownership can be set while a task remains pending, before `claim` transitions it into active work.
+- Added `GET /v1/human/tasks/unassigned` plus `assignment_state=assigned|unassigned` backlog filters so ownerless pending work is distinct from pre-assigned pending work.
+- Human task payloads now expose explicit `assignment_state` values (`unassigned`, `assigned`, `claimed`, `returned`) instead of requiring callers to infer pre-assigned pending work from generic `pending` status plus owner fields.
+- `GET /v1/human/tasks/priority-summary` now also accepts `operator_id`, so pre-claim reviewer-routing summaries can count only the pending packets that exactly match one operator profile’s role, rubric-derived skill tags, and trust tier.
+- `GET /v1/human/tasks/priority-summary` now also accepts `assignment_source`, so routing dashboards can separate manual, recommended, and planner `auto_preselected` pending work without opening the full queue.
+- Manual and planner auto-preselected `priority-summary?assignment_source=...` slices are now also rechecked after extra ownerless rows are added, so mixed-source churn does not contaminate non-ownerless summary counts.
+- That same ownerless `priority-summary?assignment_state=unassigned&assignment_source=none` slice is now also covered after mixed-source churn, so totals and low-priority counts stay ownerless-only even while manual and auto-preselected work coexists.
+- The unsorted ownerless `assignment_source=none` list, backlog, and unassigned slices are now also covered after mixed-source churn, so multi-row queue fetches still contain only ownerless packets even while manual and auto-preselected work coexists.
+- The unsorted session-scoped `session_id=<id>&assignment_source=none` slice is now also covered after mixed-source churn, so multi-row per-session queue fetches still contain only ownerless packets even while manual and auto-preselected work coexists.
+- Human task list, backlog, unassigned, and mine queue views now also accept `assignment_source`, so the exact pending slice surfaced by the summary endpoint can be opened directly without client-side filtering.
+- `assignment_source=none` now acts as the ownerless-source alias on human task list, unassigned, and priority-summary filters, so explicitly unassigned packets can be queried without empty-string request handling.
+- `assignment_source=none` now also works on task assignment-history and session detail filters, so ownerless creation transitions and current ownerless packets use the same alias contract end to end.
+- `GET /v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none` now has explicit smoke/docs coverage, keeping the general pending backlog aligned with the direct unassigned queue for ownerless work.
+- `GET /v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=created_asc` now has explicit FIFO coverage, so ownerless backlog slices keep oldest-created ordering during operator triage.
+- Promoted milestone capability `human_task_ownerless_backlog_created_sort` to released, so release/operator guards now pin that ownerless `sort=created_asc` FIFO backlog contract as current branch baseline behavior.
+- `GET /v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=last_transition_desc` now has explicit coverage too, so untouched ownerless slices sort newest-first even when every row only exposes the initial creation transition.
+- `GET /v1/human/tasks/unassigned?assignment_source=none&sort=created_asc` now has matching FIFO coverage, so the dedicated ownerless queue preserves oldest-created ordering just like the backlog slice.
+- `GET /v1/human/tasks/unassigned?assignment_source=none&sort=last_transition_desc` now has matching coverage, keeping the dedicated ownerless queue aligned with the general backlog’s newest-first ordering contract.
+- `GET /v1/human/tasks?status=pending&assignment_state=unassigned&assignment_source=none&sort=created_asc` now has matching FIFO coverage too, so the general pending list preserves the same ownerless oldest-first ordering as backlog and unassigned views.
+- `GET /v1/human/tasks?status=pending&assignment_state=unassigned&assignment_source=none&sort=last_transition_desc` now has matching newest-first coverage too, so the general pending list preserves the same untouched-ownerless transition ordering as backlog and unassigned views.
+- Those same ownerless backlog, unassigned, and general pending sorted queue slices are now also covered with manual and auto-preselected neighbors present, so mixed-source queues keep non-ownerless rows out of both created-first and freshest-transition views.
+- `GET /v1/human/tasks?session_id=<id>&assignment_source=none&sort=created_asc` now has matching FIFO coverage too, so session-scoped ownerless queues preserve the same oldest-first ordering as the global queue views.
+- Promoted milestone capability `human_task_session_ownerless_created_sort` to released, so release/operator guards now pin that ownerless `sort=created_asc` session-list FIFO contract as current branch baseline behavior.
+- `GET /v1/human/tasks?session_id=<id>&assignment_source=none&sort=last_transition_desc` now has matching newest-first coverage too, so session-scoped ownerless queues preserve the same untouched-ownerless transition ordering as the global queue views.
+- Those same session-scoped ownerless sorted queue slices are now also covered with manual and auto-preselected neighbors present, so mixed-source sessions keep non-ownerless rows out of both created-first and freshest-transition views.
+- `GET /v1/rewrite/sessions/{session_id}?human_task_assignment_source=none` now has matching multi-task ownerless projection coverage too, so filtered session detail keeps both `human_tasks` and inline assignment-history rows in oldest-first order for stable audit views.
+- That filtered session-detail ownerless projection is now also covered with manual and auto-preselected neighbors present, so mixed-source sessions keep current ownerless rows isolated while inline empty-source creation history remains oldest-first.
+- That same mixed-source session-detail ownerless projection is now also count-checked, so the current `human_tasks` block stays at two ownerless rows while inline empty-source history still exposes a longer audit trail.
+- `GET /v1/human/tasks/{human_task_id}/assignment-history` now also accepts `assignment_source`, so operator tooling can isolate recommended, manual, or planner `auto_preselected` ownership transitions directly at the event-history layer.
+- `GET /v1/rewrite/sessions/{session_id}` now also accepts `human_task_assignment_source`, so session detail can surface only manual, recommended, or planner auto-preselected human-task slices without client-side filtering.
+- `GET /v1/human/tasks?session_id=<id>&assignment_source=<source>` now also isolates one ownership-source slice inside a single session-scoped queue fetch, so operators can inspect manual or planner-preselected packets for one execution thread without client-side filtering.
+
+## 2026-03-05
+
+### Added
+- Execution-kernel primitives (`IntentSpecV3`, sessions/events, policy decisions, observations, delivery outbox).
+- Channel-agnostic API surface:
+  - rewrite/session audit
+  - policy decision audit
+  - observation intake/history
+  - delivery outbox queue/sent/pending
+  - Telegram adapter ingestion
+- Milestone 0 hardening primitives:
+  - app dependency container (`app.state.container`) with route-level dependency injection
+  - global error envelope (`error.code/message/details/correlation_id`)
+  - health split endpoints (`/health/live`, `/health/ready`) and `/version`
+  - optional token auth gate for non-health routes (`EA_API_TOKEN`)
+- Execution ledger v2 primitives:
+  - `execution_steps` stateful step log
+  - `tool_receipts` side-effect receipts
+  - `run_costs` per-session cost telemetry
+  - session detail projection now includes steps/receipts/artifacts/costs
+- Approval workflow primitives:
+  - `approval_requests` durable pending approvals
+  - `approval_decisions` durable approval/deny/expire audit rows
+  - policy API endpoints for pending/history + approve/deny/expire actions
+- Channel runtime reliability primitives:
+  - observation attribution fields (`source_id`, `external_id`, `dedupe_key`, `auth_context_json`, `raw_payload_uri`)
+  - delivery idempotency/retry fields (`idempotency_key`, `attempt_count`, `next_attempt_at`, `last_error`, `receipt_json`, `dead_lettered_at`)
+  - delivery failure endpoint (`POST /v1/delivery/outbox/{delivery_id}/failed`)
+- Tool/connector kernel primitives:
+  - `tool_registry` store for typed tool contracts and policy metadata
+  - `connector_bindings` store for external account bindings + status
+  - API endpoints for tool registry and connector binding CRUD/status updates
+- Task-contract kernel primitives:
+  - `task_contracts` store for typed task contracts
+  - API endpoints for task contract upsert/list/get
+  - orchestrator rewrite intent now compiles from task contracts (default fallback preserved)
+- Planner DSL primitives:
+  - `PlannerService` compiles `IntentSpecV3` + typed `PlanSpec`/`PlanStepSpec`
+  - `POST /v1/plans/compile` emits plan projections from task contracts
+  - rewrite orchestration now executes with compiled plan metadata and writes `plan_compiled` events
+- Policy decision hardening:
+  - rewrite policy now enforces declared allowed-tool contracts against the executing tool name
+  - rewrite policy approval gating now also considers task risk/budget metadata and external-send action kinds
+  - rewrite contract defaults/examples now align on `artifact_repository` instead of stale `rewrite_store`
+- Memory kernel seed primitives:
+  - `memory_candidates` store for reviewable memory promotion queue entries
+  - `memory_items` store for promoted durable memory entries with provenance
+  - API endpoints for candidate stage/list/promote/reject and memory item list/get
+- Semantic memory primitives:
+  - `entities` store for canonical semantic nodes per principal
+  - `relationships` store for relationship edges between entity nodes
+  - API endpoints for entity/relationship upsert/list/get stubs
+- Commitment primitives:
+  - `commitments` store for principal-scoped commitment tracking
+  - API endpoints for commitment upsert/list/get with principal-scoped reads
+- Authority-binding primitives:
+  - `authority_bindings` store for principal-scoped action authority metadata
+  - API endpoints for authority-binding upsert/list/get with principal-scoped reads
+- Delivery-preference primitives:
+  - `delivery_preferences` store for principal-scoped delivery preferences
+  - API endpoints for delivery-preference upsert/list/get with principal-scoped reads
+- Follow-up primitives:
+  - `follow_ups` store for principal-scoped follow-up tracking rows
+  - API endpoints for follow-up upsert/list/get with principal-scoped reads
+- Deadline-window primitives:
+  - `deadline_windows` store for principal-scoped deadline-window tracking rows
+  - API endpoints for deadline-window upsert/list/get with principal-scoped reads
+- Stakeholder primitives:
+  - `stakeholders` store for principal-scoped stakeholder profile rows
+  - API endpoints for stakeholder upsert/list/get with principal-scoped reads
+- Decision-window primitives:
+  - `decision_windows` store for principal-scoped decision-window tracking rows
+  - API endpoints for decision-window upsert/list/get with principal-scoped reads
+- Communication-policy primitives:
+  - `communication_policies` store for principal-scoped communication-policy rows
+  - API endpoints for communication-policy upsert/list/get with principal-scoped reads
+- Follow-up-rule primitives:
+  - `follow_up_rules` store for principal-scoped follow-up automation rules
+  - API endpoints for follow-up-rule upsert/list/get with principal-scoped reads
+- Interruption-budget primitives:
+  - `interruption_budgets` store for principal-scoped interruption-budget records
+  - API endpoints for interruption-budget upsert/list/get with principal-scoped reads
+- Postgres + in-memory repository backends for kernel stores.
+- Kernel SQL migrations:
+  - `v0_2` execution ledger
+  - `v0_3` channel runtime
+  - `v0_4` policy decisions
+  - `v0_5` artifacts durability
+  - `v0_6` execution ledger v2
+  - `v0_7` approvals workflow
+  - `v0_8` channel runtime reliability
+  - `v0_9` tool/connector kernel
+  - `v0_10` task-contracts kernel
+  - `v0_11` memory kernel seed
+  - `v0_12` entities/relationships kernel seed
+  - `v0_13` commitments kernel seed
+  - `v0_14` authority-bindings kernel seed
+  - `v0_15` delivery-preferences kernel seed
+  - `v0_16` follow-ups kernel seed
+  - `v0_17` deadline windows kernel seed
+  - `v0_18` stakeholders kernel seed
+  - `v0_19` decision windows kernel seed
+  - `v0_20` communication policies kernel seed
+  - `v0_21` follow-up rules kernel seed
+  - `v0_22` interruption budgets kernel seed
+- Operator tooling:
+  - `scripts/db_bootstrap.sh`
+  - `scripts/db_status.sh`
+  - `scripts/db_size.sh`
+  - `scripts/db_retention.sh`
+  - `scripts/smoke_api.sh`
+  - `scripts/smoke_postgres.sh`
+  - `scripts/smoke_help.sh`
+  - `Makefile` shortcuts
+  - `RUNBOOK.md`, `ARCHITECTURE_MAP.md`, `HTTP_EXAMPLES.http`
+- CI/local gate bundle tooling and docs (`make ci-gates`, `make release-smoke`, `make release-preflight`, `make docs-verify`, `make release-docs`, script `--help` contracts).
+- CI smoke workflow: `.github/workflows/smoke-runtime.yml`
+- Runtime API smoke tests: `tests/smoke_runtime_api.py`
+- DB size/operator clarity:
+  - `db_size.sh` now explains that Compose volume `ea_pgdata` maps to `/var/lib/postgresql/data`
+  - README/RUNBOOK now state that large `/var/lib/docker/volumes/.../ea_pgdata` paths are on-disk Postgres state, not RAM
+- Support bundle export now includes ea-db volume/mount attribution by default (`SUPPORT_INCLUDE_DB_VOLUME`) so pgdata investigations capture the backing host path.
+- `version_info.sh` now prints milestone capability-status counts and release tags for quick operator truth checks.
+- Added `scripts/test_postgres_contracts.sh`, `make test-postgres-contracts`, a Postgres repository contract test file, and a matching CI job so Postgres wiring is exercised beyond smoke-only flows.
+- Added dedicated rewrite-route coverage for `policy_denied:tool_not_allowed` so task-contract tool mismatches are asserted at the HTTP layer.
+- Promoted the rewrite disallowed-tool denial coverage into a released milestone capability, with operator-contract guards pinning `policy_denied:tool_not_allowed` as branch-baseline behavior.
+- Added `POST /v1/policy/evaluate` plus docs/examples/tests so external-send approval checks are reachable over HTTP without going through rewrite artifact saves.
+- Added `GET /v1/rewrite/artifacts/{artifact_id}` plus docs/examples/tests so persisted artifacts are directly retrievable over HTTP.
+- Added `GET /v1/rewrite/receipts/{receipt_id}` and `GET /v1/rewrite/run-costs/{cost_id}` plus docs/examples/tests so execution proof records are directly retrievable over HTTP.
+- Approved rewrites now resume execution immediately and complete the artifact/receipt/run-cost flow instead of stopping at `approved_pending_execution`.
+- Promoted the approval-resume execution slice into a released milestone capability, with release/operator guards pinning inline approval resume as branch-baseline behavior.
+- Added a durable `execution_queue` kernel plus queue-aware rewrite session projections so execution now runs through leaseable queue rows instead of direct artifact saves.
+- Added `EA_RUNTIME_MODE=prod` fail-fast storage enforcement plus smoke coverage so production boots no longer degrade silently from durable backends into memory mode.
+- `scripts/smoke_api.sh` now asserts `/v1/policy/evaluate` returns approval-required for external-send actions plus the echoed `step_kind|authority_class|review_class` contract, which automatically extends the existing Postgres smoke path.
+- Queued policy evaluation is now step-native: the runtime evaluates tool/action/channel plus step/authority/review metadata from the queued target step instead of replaying a rewrite-only preflight decision shape.
+- `scripts/test_postgres_contracts.sh` now exercises approvals, policy decisions, and task contracts in addition to the existing artifact/channel-runtime Postgres repository contracts.
+- Promoted the principal-scoped memory seed API milestone slice to `tested` now that both `tests/smoke_runtime_api.py` and the approved host smoke path explicitly cover that surface.
+
+- Added tracked `.env.example` template for default Postgres-capable local profile setup.
+
+### Changed
+- Container hardening: removed `docker.io` install from app images.
+- `scripts/smoke_postgres.sh` now provisions an isolated smoke DB (`EA_SMOKE_DB`), force-recreates `ea-api` when it rebuilds the image so host smoke cannot reuse stale API containers, and restores local `.env` state after smoke completion.
+- `v0_6` execution-ledger migration now infers FK identifier types from the live schema to support both UUID and TEXT session ledgers.
+- `v0_7` approvals migration now upgrades legacy approval table variants in place by adding runtime-required columns/indexes and backfilling IDs/status fields.
+- Deploy flow can optionally chain DB bootstrap (`EA_BOOTSTRAP_DB=1`).
+- Rewrite path now emits execution ledger events and policy audit records.
+- Milestone metadata now uses `planned|coded|wired|tested|released` capability statuses plus CI/docs/release gate tags.
+- Release checklist now includes explicit milestone release-tag parity verification.
+- Artifact persistence now supports durable Postgres metadata + file-backed content storage.
+- Approval-required rewrite sessions now pause with `waiting_approval` steps and transition on approve/deny/expire decisions.
+- Non-API runner roles now drain queued execution work instead of sitting idle, while API requests keep the same synchronous behavior by leasing and completing their own queued rewrite steps inline.
+- Observation ingest now supports dedupe and source attribution; delivery outbox now supports retry scheduling and idempotent enqueue.
+- API/runtime now includes first-class tool registry and connector binding management surfaces.
+- Rewrite orchestration now supports contract-driven intent compilation via task contracts.
+- Added plan compilation surface for contract-driven typed step output.
+- Rewrite execution now references typed plan-step metadata in step input/output and receipts.
+- Added reviewed memory promotion flow (`candidate -> promoted item`) with durable in-memory/Postgres backends.
+- Memory runtime now supports semantic entity and relationship stubs for graph-style context seeding.
+- Memory runtime now supports principal-scoped commitment records for durable follow-up tracking.
+- Memory runtime now supports principal-scoped authority-binding records for governance stubs.
+- Memory runtime now supports principal-scoped delivery-preference records for channel personalization stubs.
+- Memory runtime now supports principal-scoped follow-up records for proactive follow-through stubs.
+- Memory runtime now supports principal-scoped deadline-window records for proactive scheduling windows.
+- Memory runtime now supports principal-scoped stakeholder records for social-context modeling stubs.
+- Memory runtime now supports principal-scoped decision-window records for decision-timing stubs.
+- Memory runtime now supports principal-scoped communication-policy records for channel/tone governance stubs.
+- Memory runtime now supports principal-scoped follow-up-rule records for proactive follow-through automation stubs.
+- Memory runtime now supports principal-scoped interruption-budget records for interruption-threshold governance stubs.
+- Support bundle export now optionally includes DB size snapshots (`SUPPORT_INCLUDE_DB_SIZE`, `SUPPORT_DB_SIZE_LIMIT`).
+- Retention operator flow now supports profile presets (`EA_RETENTION_PROFILE=aggressive|standard|conservative`) with per-window overrides.
+- Retention operator flow now supports table allowlist/skip filters (`EA_RETENTION_TABLES`, `EA_RETENTION_SKIP_TABLES`).
+- DB size operator flow now supports table-prefix scoping (`EA_DB_SIZE_TABLE_PREFIX`).
+- DB size operator flow now supports minimum-size filtering (`EA_DB_SIZE_MIN_MB`).
+- DB size operator flow now supports schema scoping (`EA_DB_SIZE_SCHEMA`).
+- DB size operator flow now supports sort-key selection (`EA_DB_SIZE_SORT_KEY=total|table|index`).
+- CI smoke workflow now includes a Postgres-backed smoke job via `scripts/smoke_postgres.sh`.
+- Local gate bundle now has a combined API+Postgres parity target (`make ci-gates-postgres`).
+- Postgres smoke tooling now supports `--legacy-fixture`, with local parity entrypoints (`make smoke-postgres-legacy`, `make ci-gates-postgres-legacy`) and a dedicated CI legacy migration-regression job.
+- Operator summary output now includes legacy Postgres smoke and CI parity shortcuts.
+- Operator summary output now also surfaces release/support commands (`make verify-release-assets`, `make release-docs`, `make release-preflight`, `make operator-help`, `make support-bundle`).
+- Operator summary output now also includes `make release-smoke` and `make all-local` for quick readiness/release lookup.
+- Operator summary now exposes a `--help` contract and is included in `make operator-help` / `scripts/smoke_help.sh`.
+- Endpoint, version, and OpenAPI helper scripts now expose `--help` contracts and are included in `make operator-help` / `scripts/smoke_help.sh`.
+- `scripts/smoke_help.sh` now exposes its own `--help` contract and is included in `make operator-help`.
+- Operator summary output now also includes task-archive shortcuts (`make tasks-archive`, `make tasks-archive-dry-run`, `make tasks-archive-prune`).
+- Added fail-closed LTD release gates for the runtime-critical inventory and a broader flagship verified subset, and surfaced both in the operator command surface.
+- `EA_STORAGE_BACKEND` is now documented as the canonical backend env var, with `EA_LEDGER_BACKEND` kept only as a deprecated compatibility alias.
+- Human task queue views now accept `sort=created_asc`, giving operators an explicit oldest-created FIFO mode across list, backlog, unassigned, and assigned-my-queue views without relying on SLA fields.
+- Human task queue views now accept `sort=priority_desc_created_asc`, keeping urgent and high packets ahead of normal work while preserving oldest-created order within each priority band across list, backlog, unassigned, and assigned-my-queue views.
+- Human task queue views now accept exact `priority` filters, letting operators isolate `urgent`, `high`, `normal`, or `low` work across list, backlog, unassigned, and assigned-my-queue views before applying sort order.
+- Human task queue views now accept comma-separated `priority` filters such as `urgent,high`, so operators can pull a combined action queue without multiple requests or client-side merging.
+- Human task queues now expose `GET /v1/human/tasks/priority-summary`, returning per-band counts plus `total` and `highest_priority` so operators can choose a filter strategy before opening a backlog view.
+- Human task priority summaries now accept `assigned_operator_id`, so assigned reviewer queues can expose their own band counts without fetching the full list first.
+
+### Removed
+- Legacy assistant runtime modules, legacy docs, and historical test packs from pre-rewrite codebase.
+- Task-contract-projected `step_human_review` branches now carry `priority`, relative SLA minutes, and `desired_output_json` into the runtime-created human task packet so planner-native review work can route with stronger operational metadata.

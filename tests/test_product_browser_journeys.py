@@ -1,0 +1,1690 @@
+from __future__ import annotations
+
+import urllib.parse
+
+from app.product.models import HandoffNote
+from app.product.service import ProductService
+from app.services.google_oauth import read_google_oauth_state
+from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
+
+
+def test_workspace_pages_render_seeded_product_objects() -> None:
+    principal_id = "exec-browser-journey"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    today = client.get("/app/today")
+    assert today.status_code == 200
+    assert "Morning Memo" in today.text
+    assert "Send board materials" in today.text
+    assert "Approve reply to Sofia N." in today.text
+    assert "Sofia N." in today.text
+
+    queue = client.get("/app/queue")
+    assert queue.status_code == 200
+    assert "Queue" in queue.text
+    assert "Choose board memo owner" in queue.text
+    assert "Board memo delivery window" in queue.text
+
+    commitments = client.get("/app/commitments")
+    assert commitments.status_code == 200
+    assert "What is blocked outside the office loop" in commitments.text
+    assert "Prepare board follow-up handoff" in commitments.text
+    assert "Confirm investor meeting time" in commitments.text
+    assert "Send board materials" in commitments.text
+    assert "sofia@example.com" in commitments.text
+    assert seeded["human_task_id"] in client.get("/app/api/handoffs").text
+
+    settings = client.get("/app/settings")
+    assert settings.status_code == 200
+    assert "Rules" in settings.text
+    assert "Morning memo delivery" in settings.text
+    assert "What is feeding the office loop" in settings.text
+    assert "Office-loop proof" in settings.text
+    assert "Journey gate health" in settings.text
+    assert "Connect now" in settings.text
+    assert "/app/settings/outcomes" in settings.text
+    assert "/app/settings/google" in settings.text
+    assert "/app/settings/support" in settings.text
+    assert "/app/settings/access" in settings.text
+    assert "/app/settings/invitations" in settings.text
+    assert "Who can enter and who is waiting" in settings.text
+    assert "What needs support before the loop slips" in settings.text
+
+    invitations = client.get("/app/settings/invitations")
+    assert invitations.status_code == 200
+    assert "Workspace invitations" in invitations.text
+    assert "Invite email failures" in invitations.text
+
+    search_page = client.get("/app/search", params={"query": "Sofia"})
+    assert search_page.status_code == 200
+    assert "Workspace search" in search_page.text
+    assert "Results for “Sofia”" in search_page.text
+    assert "Sofia N." in search_page.text
+    assert "/app/threads/" in search_page.text
+    assert "/app/inbox?focus=" not in search_page.text
+    assert 'name="return_to" value="/app/search?query=Sofia&amp;limit=20"' in search_page.text
+
+    person_detail = client.get(f"/app/people/{seeded['stakeholder_id']}")
+    assert person_detail.status_code == 200
+    assert "Sofia N." in person_detail.text
+    assert "Open commitments" in person_detail.text
+    assert "Send board materials" in person_detail.text
+
+    onboarding = client.get("/register")
+    assert onboarding.status_code == 200
+    assert "Start a workspace that shows the first useful loop." in onboarding.text
+    assert "Google Core" in onboarding.text
+    assert "Workspace shape" in onboarding.text
+    assert 'href="/app/properties"' in onboarding.text
+    assert "Current plan posture" not in onboarding.text
+    assert "operator seat" not in onboarding.text
+
+    diagnostics = client.get("/app/api/diagnostics")
+    assert diagnostics.status_code == 200
+    counts = diagnostics.json()["analytics"]["counts"]
+    assert int(counts.get("memo_opened") or 0) >= 1
+    assert int(counts.get("rules_opened") or 0) >= 1
+
+
+def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeypatch) -> None:
+    principal_id = "exec-browser-properties"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    monkeypatch.setenv("PAYPAL_CLIENT_ID", "paypal-client")
+    monkeypatch.setenv("PAYPAL_SECRET", "paypal-secret")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "DE",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "property_type": "apartment",
+            "location_query": "Berlin",
+            "keywords": "lift family balcony",
+            "selected_platforms": ["immoscout_de", "immowelt"],
+            "preference_person_id": "elisabeth",
+            "max_results_per_source": 4,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "exec-browser-properties"
+        assert run_id == "run-42"
+        return {
+            "generated_at": "2026-06-02T10:00:00+00:00",
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "selected_platforms": ["immoscout_de", "immowelt"],
+            "progress": 100,
+            "current_step": "completed",
+            "message": "Property scouting run completed.",
+            "stages_total": 8,
+            "steps_completed": 8,
+            "summary": {
+                "sources_total": 2,
+                "listing_total": 7,
+                "tour_created_total": 1,
+                "tour_existing_total": 1,
+                "sources": [
+                    {
+                        "source_label": "ImmoScout24 Germany",
+                        "listing_total": 4,
+                        "high_fit_total": 2,
+                        "tour_created_total": 1,
+                        "notified_total": 1,
+                        "top_fit_score": 0.92,
+                        "top_candidates": [
+                            {
+                                "title": "Altbau near U6",
+                                "property_url": "https://www.immobilienscout24.de/expose/altbau-u6",
+                                "fit_summary": "Personal fit 92/100 · shortlist · Lift and transit fit.",
+                                "recommendation": "shortlist",
+                                "review_url": "https://myexternalbrain.com/app/handoffs/human_task:review-1",
+                                "tour_url": "https://myexternalbrain.com/tours/altbau-u6",
+                                "match_reasons": ["Lift and transit fit."],
+                                "mismatch_reasons": [],
+                            }
+                        ],
+                    }
+                ],
+            },
+            "events": [
+                {"step": "sources_resolved", "message": "Resolved 2 source(s) for scanning.", "status": "in_progress"},
+                {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
+            ],
+        }
+
+    def _fake_handoffs(self, *, principal_id: str, limit: int = 20, operator_id: str = "", status: str | None = "pending"):
+        assert principal_id == "exec-browser-properties"
+        return (
+            HandoffNote(
+                id="human_task:tour-1",
+                queue_item_ref="queue:tour-1",
+                summary="Hosted 3D page for Auhofstrasse shortlist",
+                owner="office",
+                due_time=None,
+                escalation_status="high",
+                task_type="property_tour_followup",
+                delivery_reason="Lift, playground and subway fit the profile.",
+                property_url="https://www.kalandra.at/objekt/14997053",
+                tour_url="https://myexternalbrain.com/tours/auhofstrasse-14997053",
+            ),
+        )
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(ProductService, "list_handoffs", _fake_handoffs)
+
+    response = client.get("/app/properties", params={"run_id": "run-42"})
+    assert response.status_code == 200
+    assert "Run a premium market sweep" in response.text
+    assert "Country" in response.text
+    assert "Research language" in response.text
+    assert "Berlin" in response.text
+    assert "What this search is optimizing for" in response.text
+    assert "Best candidates to review now" in response.text
+    assert "Germany" in response.text
+    assert "Buy" in response.text
+    assert "Apartment" in response.text
+    assert "lift family balcony" in response.text
+    assert "Which providers this country unlocks" in response.text
+    assert "ImmoScout24 Germany" in response.text
+    assert "Immowelt" in response.text
+    assert "Portugal" in response.text
+    assert "Australia" in response.text
+    assert "Property scouting run completed." in response.text
+    assert "Altbau near U6" in response.text
+    assert "Review packet" in response.text
+    assert "Open 360" in response.text
+    assert "What the product has learned from feedback" in response.text
+    assert 'data-property-learning-list' in response.text
+    assert "Hosted 3D page for Auhofstrasse shortlist" in response.text
+    assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in response.text
+    assert "Plus checkout" in response.text
+    assert 'data-console-form-variant="property_search"' in response.text
+    assert "Saved. Learning loop updated." in response.text
+    assert "Reload the page to see the updated learning summary." not in response.text
+
+
+def test_properties_workspace_surface_does_not_fallback_to_origin_listing_link(monkeypatch) -> None:
+    principal_id = "exec-browser-properties-no-origin-fallback"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    def _fake_handoffs(self, *, principal_id: str, limit: int = 20, operator_id: str = "", status: str | None = "pending"):
+        assert principal_id == "exec-browser-properties-no-origin-fallback"
+        return (
+            HandoffNote(
+                id="human_task:tour-2",
+                queue_item_ref="queue:tour-2",
+                summary="Review shortlisted property packet",
+                owner="office",
+                due_time=None,
+                escalation_status="high",
+                task_type="property_alert_review",
+                delivery_reason="Research page is still pending.",
+                property_url="https://www.kalandra.at/objekt/14997053",
+                tour_url="",
+            ),
+        )
+
+    monkeypatch.setattr(ProductService, "list_handoffs", _fake_handoffs)
+
+    response = client.get("/app/properties")
+    assert response.status_code == 200
+    assert "Review shortlisted property packet" in response.text
+    assert "Open listing" not in response.text
+    assert "https://www.kalandra.at/objekt/14997053" not in response.text
+
+
+def test_propertyquarry_host_renders_branded_public_surfaces() -> None:
+    client = build_product_client(principal_id="propertyquarry-brand")
+
+    landing = client.get("/", headers={"host": "propertyquarry.com"})
+    assert landing.status_code == 200
+    assert "PropertyQuarry" in landing.text
+    assert "Search once. Rank hard. Research the shortlist." in landing.text
+    assert "Executive Assistant" not in landing.text
+
+    sign_in = client.get("/sign-in", headers={"host": "propertyquarry.com"})
+    assert sign_in.status_code == 200
+    assert "Sign in to PropertyQuarry" in sign_in.text
+    assert "property search" in sign_in.text.lower()
+
+    register = client.get("/register", headers={"host": "propertyquarry.com"})
+    assert register.status_code == 200
+    assert "Create your property workspace" in register.text
+    assert "ranked shortlist" in register.text.lower()
+
+
+def test_propertyquarry_repo_defaults_to_property_brand_without_host_header() -> None:
+    client = build_product_client(principal_id="propertyquarry-default-brand")
+
+    landing = client.get("/")
+    assert landing.status_code == 200
+    assert "PropertyQuarry" in landing.text
+    assert "Search once. Rank hard. Research the shortlist." in landing.text
+    assert "Executive Assistant" not in landing.text
+
+    register = client.get("/register")
+    assert register.status_code == 200
+    assert "Create your property workspace" in register.text
+
+
+def test_browser_journey_updates_after_approval_and_commitment_closure() -> None:
+    principal_id = "exec-browser-journey-resolve"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    approved = client.post(
+        f"/app/api/drafts/approval:{seeded['approval_id']}/approve",
+        json={"reason": "Ready to send"},
+    )
+    assert approved.status_code == 200
+
+    queue_after_approval = client.get("/app/queue")
+    assert queue_after_approval.status_code == 200
+    assert "Approve reply to Sofia N." not in queue_after_approval.text
+
+    closed = client.post(
+        f"/app/api/queue/commitment:{seeded['commitment_id']}/resolve",
+        json={"action": "close", "reason": "Materials sent"},
+    )
+    assert closed.status_code == 200
+
+    commitments_after_close = client.get("/app/commitments")
+    assert commitments_after_close.status_code == 200
+    assert "Send board materials" in commitments_after_close.text
+    assert "Reopen" in commitments_after_close.text
+    assert "Prepare board follow-up handoff" in commitments_after_close.text
+
+    search_after_close = client.get("/app/search", params={"query": "board materials"})
+    assert search_after_close.status_code == 200
+    assert "Send board materials" in search_after_close.text
+    assert "Reopen" in search_after_close.text
+    assert "/app/commitment-items/" in search_after_close.text
+    assert "/app/follow-ups?focus=" not in search_after_close.text
+    commitment_search_ref = f"commitment:{seeded['commitment_id']}"
+    commitment_search_href = f"/app/commitment-items/{urllib.parse.quote(commitment_search_ref, safe='')}"
+    assert search_after_close.text.count(commitment_search_href) == 1
+    assert 'name="return_to" value="/app/search?query=board+materials&amp;limit=20"' in search_after_close.text
+
+
+def test_browser_action_routes_match_rendered_forms() -> None:
+    principal_id = "exec-browser-action-routes"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    approved = client.post(
+        f"/app/actions/drafts/approval:{seeded['approval_id']}/approve",
+        data={"return_to": "/app/queue"},
+        follow_redirects=False,
+    )
+    assert approved.status_code == 303
+    assert approved.headers["location"] == "/app/queue"
+    assert "Approve reply to Sofia N." not in client.get("/app/queue").text
+
+    closed = client.post(
+        f"/app/actions/queue/commitment:{seeded['commitment_id']}/resolve",
+        data={"action": "close", "return_to": "/app/commitments"},
+        follow_redirects=False,
+    )
+    assert closed.status_code == 303
+    assert closed.headers["location"] == "/app/commitments"
+    assert "Send board materials" in client.get("/app/commitments").text
+
+    reseeded_commitment = seed_product_state(client, principal_id=principal_id)
+    deferred = client.post(
+        f"/app/actions/queue/follow_up:{reseeded_commitment['follow_up_id']}/resolve",
+        data={"action": "defer", "return_to": "/app/commitments"},
+        follow_redirects=False,
+    )
+    assert deferred.status_code == 303
+    assert deferred.headers["location"] == "/app/commitments"
+    deferred_commitments = client.get("/app/commitments")
+    assert deferred_commitments.status_code == 200
+    assert "Confirm investor meeting time" in deferred_commitments.text
+    assert "Defer" in deferred_commitments.text
+
+    waiting = client.post(
+        f"/app/actions/queue/follow_up:{reseeded_commitment['follow_up_id']}/resolve",
+        data={
+            "action": "wait",
+            "reason_code": "waiting_on_external",
+            "reason": "Investor needs to confirm availability.",
+            "due_at": "2026-03-28T09:30:00+00:00",
+            "return_to": "/app/commitments",
+        },
+        follow_redirects=False,
+    )
+    assert waiting.status_code == 303
+    assert waiting.headers["location"] == "/app/commitments"
+    waiting_detail = client.get(f"/app/api/commitments/follow_up:{reseeded_commitment['follow_up_id']}")
+    assert waiting_detail.status_code == 200
+    assert waiting_detail.json()["status"] == "waiting_on_external"
+    assert waiting_detail.json()["resolution_code"] == "waiting_on_external"
+    assert waiting_detail.json()["due_at"] == "2026-03-28T09:30:00+00:00"
+
+    dropped = client.post(
+        f"/app/actions/queue/follow_up:{seeded['follow_up_id']}/resolve",
+        data={"action": "drop", "return_to": "/app/commitments"},
+        follow_redirects=False,
+    )
+    assert dropped.status_code == 303
+    assert dropped.headers["location"] == "/app/commitments"
+    dropped_detail = client.get(f"/app/api/commitments/follow_up:{seeded['follow_up_id']}")
+    assert dropped_detail.status_code == 200
+    assert dropped_detail.json()["status"] == "dropped"
+
+    reseeded = seed_product_state(client, principal_id=principal_id)
+    rejected = client.post(
+        f"/app/actions/drafts/approval:{reseeded['approval_id']}/reject",
+        data={"return_to": "/app/queue"},
+        follow_redirects=False,
+    )
+    assert rejected.status_code == 303
+    assert rejected.headers["location"] == "/app/queue"
+    assert f"approval:{reseeded['approval_id']}" not in client.get("/app/api/drafts").text
+
+
+def test_browser_handoff_and_people_memory_actions_work() -> None:
+    principal_id = "exec-browser-person-memory"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    assigned = client.post(
+        f"/app/actions/handoffs/human_task:{seeded['human_task_id']}/assign",
+        data={"return_to": "/app/commitments"},
+        follow_redirects=False,
+    )
+    assert assigned.status_code == 303
+    assert assigned.headers["location"] == "/app/commitments"
+
+    completed = client.post(
+        f"/app/actions/handoffs/human_task:{seeded['human_task_id']}/complete",
+        data={"return_to": "/app/commitments", "action": "completed"},
+        follow_redirects=False,
+    )
+    assert completed.status_code == 303
+    assert completed.headers["location"] == "/app/commitments"
+    commitments_page = client.get("/app/commitments")
+    assert commitments_page.status_code == 200
+    assert "Recently closed" in commitments_page.text
+    assert "Prepare board follow-up handoff" in commitments_page.text
+
+    corrected = client.post(
+        f"/app/actions/people/{seeded['stakeholder_id']}/correct",
+        data={
+            "return_to": f"/app/people/{seeded['stakeholder_id']}",
+            "preferred_tone": "warm",
+            "add_theme": "board packet",
+            "add_risk": "travel coordination",
+        },
+        follow_redirects=False,
+    )
+    assert corrected.status_code == 303
+    person_page = client.get(f"/app/people/{seeded['stakeholder_id']}")
+    assert person_page.status_code == 200
+    assert "warm" in person_page.text
+    assert "board packet" in person_page.text
+    assert "travel coordination" in person_page.text
+    assert "Recent threads" in person_page.text
+    assert "sofia@example.com" in person_page.text
+    assert "Recent relationship history" in person_page.text
+    assert "Relationship Updated" in person_page.text
+
+
+def test_delivery_followup_browser_actions_surface_send_and_reauth_controls() -> None:
+    principal_id = "exec-browser-delivery-followup"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    approved = client.post(
+        f"/app/api/drafts/approval:{seeded['approval_id']}/approve",
+        json={"reason": "Route to manual delivery"},
+    )
+    assert approved.status_code == 200
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    followup = next(item for item in handoffs.json() if item["task_type"] == "delivery_followup")
+
+    assigned = client.post(
+        f"/app/api/handoffs/{followup['id']}/assign",
+        json={"operator_id": seeded["operator_id"]},
+    )
+    assert assigned.status_code == 200
+
+    commitments_page = client.get("/app/commitments")
+    assert commitments_page.status_code == 200
+    assert "Retry send" in commitments_page.text
+    assert "Mark sent" in commitments_page.text
+    assert "Needs reauth" in commitments_page.text
+    assert "Waiting on principal" in commitments_page.text
+    assert "Connect Google" in commitments_page.text or "Reconnect Google" in commitments_page.text
+
+    handoff_page = client.get(f"/app/handoffs/{followup['id']}")
+    assert handoff_page.status_code == 200
+    assert "Delivery reason" in handoff_page.text
+    assert "Retry send" in handoff_page.text
+    assert "Waiting on principal" in handoff_page.text
+    assert "Connect Google" in handoff_page.text or "Reconnect Google" in handoff_page.text
+
+    threads = client.get("/app/api/threads")
+    assert threads.status_code == 200
+    thread_id = next(item["id"] for item in threads.json()["items"] if item["status"] == "delivery_followup")
+    thread_page = client.get(f"/app/threads/{thread_id}")
+    assert thread_page.status_code == 200
+    assert "Retry send" in thread_page.text
+    assert "Open handoff" in thread_page.text
+    assert "Mark sent" in thread_page.text
+    assert "Waiting on principal" in thread_page.text
+    assert "Connect Google" in thread_page.text or "Reconnect Google" in thread_page.text
+
+    handoff_detail = client.get(f"/app/api/handoffs/{followup['id']}")
+    assert handoff_detail.status_code == 200
+    assert handoff_detail.json()["delivery_reason"].startswith("google_")
+
+
+def test_thread_detail_can_resume_blocked_delivery_followup() -> None:
+    principal_id = "exec-browser-thread-resume-followup"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    approved = client.post(
+        f"/app/api/drafts/approval:{seeded['approval_id']}/approve",
+        json={"reason": "Route to manual delivery"},
+    )
+    assert approved.status_code == 200
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    followup = next(item for item in handoffs.json() if item["task_type"] == "delivery_followup")
+
+    assigned = client.post(
+        f"/app/api/handoffs/{followup['id']}/assign",
+        json={"operator_id": seeded["operator_id"]},
+    )
+    assert assigned.status_code == 200
+
+    completed = client.post(
+        f"/app/api/handoffs/{followup['id']}/complete",
+        json={"operator_id": seeded["operator_id"], "resolution": "waiting_on_principal"},
+    )
+    assert completed.status_code == 200
+
+    threads = client.get("/app/api/threads")
+    assert threads.status_code == 200
+    thread_id = next(item["id"] for item in threads.json()["items"] if item["status"] == "waiting_on_principal")
+
+    thread_page = client.get(f"/app/threads/{thread_id}")
+    assert thread_page.status_code == 200
+    assert "Resume handoff" in thread_page.text
+    assert "Open handoff" in thread_page.text
+
+    resumed = client.post(
+        f"/app/actions/threads/{thread_id}/resume-delivery",
+        data={"return_to": f"/app/threads/{thread_id}"},
+        follow_redirects=False,
+    )
+    assert resumed.status_code == 303
+    assert resumed.headers["location"].endswith("send_status=resumed")
+
+    pending_handoffs = client.get("/app/api/handoffs")
+    assert pending_handoffs.status_code == 200
+    reopened = next(item for item in pending_handoffs.json() if item["task_type"] == "delivery_followup")
+    assert reopened["draft_ref"] == f"approval:{seeded['approval_id']}"
+
+    reopened_thread_page = client.get(f"/app/threads/{thread_id}")
+    assert reopened_thread_page.status_code == 200
+    assert "Retry send" in reopened_thread_page.text
+    assert "Mark sent" in reopened_thread_page.text
+
+
+def test_google_settings_surface_connect_action_and_browser_connect_route(monkeypatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+    principal_id = "exec-browser-google-connect"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+
+    settings = client.get("/app/settings/google")
+    assert settings.status_code == 200
+    assert "Connect Google" in settings.text
+    assert "/app/actions/google/connect?return_to=/app/settings/google" in settings.text
+
+    started = client.get("/app/actions/google/connect", params={"return_to": "/app/settings/google"}, follow_redirects=False)
+    assert started.status_code == 303
+    parsed = urllib.parse.urlparse(started.headers["location"])
+    query = urllib.parse.parse_qs(parsed.query)
+    assert "https://accounts.google.com/o/oauth2/v2/auth" in started.headers["location"]
+    assert query["redirect_uri"][0] == "https://ea.example/google/callback"
+    assert read_google_oauth_state(query["state"][0])["return_to"] == "/app/settings/google"
+    blocked = client.get("/app/actions/google/connect", params={"return_to": "https://evil.example/phish"}, follow_redirects=False)
+    assert blocked.status_code == 303
+    blocked_query = urllib.parse.parse_qs(urllib.parse.urlparse(blocked.headers["location"]).query)
+    assert read_google_oauth_state(blocked_query["state"][0])["return_to"] == "/app/settings/google"
+    started_head = client.head("/app/actions/google/connect", params={"return_to": "/app/settings/google"}, follow_redirects=False)
+    assert started_head.status_code == 303
+    assert "https://accounts.google.com/o/oauth2/v2/auth" in started_head.headers["location"]
+
+
+def test_google_settings_surface_can_email_full_access_connect_link(monkeypatch) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    principal_id = "cf-email:browser.office@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+
+    from app.product import service as product_service
+    from app.services.registration_email import RegistrationEmailReceipt
+
+    observed: dict[str, object] = {}
+
+    def _fake_send_google_connect_email(**kwargs) -> RegistrationEmailReceipt:
+        observed.update(kwargs)
+        return RegistrationEmailReceipt(
+            provider="emailit",
+            message_id="google-connect-message-1",
+            accepted_at="2026-05-02T00:00:00+00:00",
+        )
+
+    monkeypatch.setattr(product_service, "send_google_connect_email", _fake_send_google_connect_email)
+
+    settings = client.get("/app/settings/google")
+    assert settings.status_code == 200
+    assert "Email full-access link" in settings.text
+    assert "Ready to send a full-access Google link to browser.office@example.com" in settings.text
+
+    sent = client.post(
+        "/app/actions/google/email-connect-link?recipient_email=browser.office@example.com&scope_bundle=full_workspace",
+        data={"return_to": "https://evil.example/phish"},
+        follow_redirects=False,
+    )
+    assert sent.status_code == 303
+    assert sent.headers["location"].startswith("/app/settings/google?")
+    assert "email_link_status=sent" in sent.headers["location"]
+    sent_page = client.get(sent.headers["location"])
+    assert sent_page.status_code == 200
+    assert "Sent Google Full Workspace link to browser.office@example.com" in sent_page.text
+    assert observed["recipient_email"] == "browser.office@example.com"
+    assert observed["workspace_name"] == "Founder Office"
+    assert observed["scope_label"] == "Google Full Workspace"
+    assert str(observed["connect_url"]).startswith("https://myexternalbrain.com/workspace-access/")
+    parsed = urllib.parse.urlparse(str(observed["connect_url"]))
+    outer_query = urllib.parse.parse_qs(parsed.query)
+    nested_return_to = urllib.parse.unquote(str(outer_query["return_to"][0]))
+    nested_query = urllib.parse.parse_qs(urllib.parse.urlparse(nested_return_to).query)
+    assert nested_query["scope_bundle"] == ["full_workspace"]
+
+
+def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+    principal_id = "exec-browser-google-multi"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": "openid email profile https://www.googleapis.com/auth/gmail.send",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_refresh_google_access_token",
+        lambda **kwargs: {
+            "access_token": "fresh-access-token",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(google_service, "_gmail_messages_payload", lambda **kwargs: {})
+    monkeypatch.setattr(google_service, "_list_recent_calendar_signals", lambda **kwargs: [])
+
+    started_primary = client.get(
+        "/app/actions/google/connect",
+        params={"return_to": "/app/settings/google", "scope_bundle": "send"},
+        follow_redirects=False,
+    )
+    assert started_primary.status_code == 303
+    primary_query = urllib.parse.parse_qs(urllib.parse.urlparse(started_primary.headers["location"]).query)
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-1",
+            "email": "tibor@girschele.com",
+            "hd": "girschele.com",
+        },
+    )
+    primary_callback = client.get(
+        "/google/callback",
+        params={"code": "code-primary", "state": primary_query["state"][0]},
+        follow_redirects=False,
+    )
+    assert primary_callback.status_code == 303
+    assert "account_status=account_connected" in primary_callback.headers["location"]
+    assert "sync_status=completed" in primary_callback.headers["location"]
+    primary_connected = client.get(primary_callback.headers["location"])
+    assert primary_connected.status_code == 200
+    assert "Inbox connected." in primary_connected.text
+    assert "tibor@girschele.com" in primary_connected.text
+    assert "Last manual sync" in primary_connected.text
+    assert "Completed" in primary_connected.text
+
+    started_secondary = client.get(
+        "/app/actions/google/connect",
+        params={"return_to": "/app/settings/google", "scope_bundle": "core"},
+        follow_redirects=False,
+    )
+    assert started_secondary.status_code == 303
+    secondary_query = urllib.parse.parse_qs(urllib.parse.urlparse(started_secondary.headers["location"]).query)
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-2",
+            "email": "office@girschele.com",
+            "hd": "girschele.com",
+        },
+    )
+    secondary_callback = client.get(
+        "/google/callback",
+        params={"code": "code-secondary", "state": secondary_query["state"][0]},
+        follow_redirects=False,
+    )
+    assert secondary_callback.status_code == 303
+    assert "account_status=account_connected" in secondary_callback.headers["location"]
+    assert "sync_status=completed" in secondary_callback.headers["location"]
+    secondary_connected = client.get(secondary_callback.headers["location"])
+    assert secondary_connected.status_code == 200
+    assert "Inbox connected." in secondary_connected.text
+    assert "office@girschele.com" in secondary_connected.text
+    monkeypatch.setattr(
+        google_service,
+        "_refresh_google_access_token",
+        lambda **kwargs: {
+            "access_token": f"fresh-{kwargs['refresh_token']}",
+            "expires_in": 3600,
+        },
+    )
+    captured_send: dict[str, str] = {}
+
+    def _fake_send(**kwargs):
+        captured_send["access_token"] = str(kwargs["access_token"])
+        return "gmail-message-verify"
+
+    monkeypatch.setattr(google_service, "_gmail_send_message", _fake_send)
+
+    settings = client.get("/app/settings/google")
+    assert settings.status_code == 200
+    assert "Connected inboxes and send defaults" in settings.text
+    assert "tibor@girschele.com" in settings.text
+    assert "office@girschele.com" in settings.text
+    assert settings.text.index("tibor@girschele.com") < settings.text.index("office@girschele.com")
+    assert "Add inbox" in settings.text
+    assert "Make primary" in settings.text
+    assert "Verify send" in settings.text
+    assert "Inbox connected." in settings.text
+    assert "/app/actions/google/accounts/exec-browser-google-multi:google_gmail:acct:google-sub-2/make-primary" in settings.text
+    assert "/app/actions/google/accounts/exec-browser-google-multi:google_gmail/verify-send" in settings.text
+
+    verified = client.post(
+        "/app/actions/google/accounts/exec-browser-google-multi:google_gmail/verify-send",
+        data={"return_to": "/app/settings/google"},
+        follow_redirects=False,
+    )
+    assert verified.status_code == 303
+    assert "verify_status=completed" in verified.headers["location"]
+    assert "verify_sender=tibor%40girschele.com" in verified.headers["location"]
+    assert captured_send["access_token"] == "fresh-refresh-token"
+    verified_page = client.get(verified.headers["location"])
+    assert verified_page.status_code == 200
+    assert "Last send verification" in verified_page.text
+    assert "Verified tibor@girschele.com" in verified_page.text
+    reloaded_settings = client.get("/app/settings/google")
+    assert reloaded_settings.status_code == 200
+    assert "Verified tibor@girschele.com" in reloaded_settings.text
+    diagnostics = client.get("/app/api/diagnostics")
+    assert diagnostics.status_code == 200
+    sync = diagnostics.json()["analytics"]["sync"]
+    assert sync["google_send_verification_last_state"] == "completed"
+    assert sync["google_send_verification_last_sender_email"] == "tibor@girschele.com"
+    assert sync["google_send_verification_last_recipient_email"] == "tibor@girschele.com"
+    verified_accounts = {row["binding_id"]: row for row in sync["google_send_verification_accounts"]}
+    assert verified_accounts["exec-browser-google-multi:google_gmail"]["state"] == "completed"
+    assert verified_accounts["exec-browser-google-multi:google_gmail"]["sender_email"] == "tibor@girschele.com"
+    assert verified_accounts["exec-browser-google-multi:google_gmail:acct:google-sub-2"]["state"] == ""
+
+    promoted = client.post(
+        "/app/actions/google/accounts/exec-browser-google-multi:google_gmail:acct:google-sub-2/make-primary",
+        data={"return_to": "/app/settings/google"},
+        follow_redirects=False,
+    )
+    assert promoted.status_code == 303
+    assert "account_status=primary_updated" in promoted.headers["location"]
+    promoted_page = client.get(promoted.headers["location"])
+    assert promoted_page.status_code == 200
+    assert "Primary inbox updated." in promoted_page.text
+    assert promoted_page.text.index("office@girschele.com") < promoted_page.text.index("tibor@girschele.com")
+    assert "/app/actions/google/accounts/exec-browser-google-multi:google_gmail/disconnect" in promoted_page.text
+    assert "send not yet verified" in promoted_page.text
+    reloaded_after_promote = client.get("/app/settings/google")
+    assert reloaded_after_promote.status_code == 200
+    assert "Primary inbox updated. office@girschele.com" in reloaded_after_promote.text
+
+    verified_primary_after_promotion = client.post(
+        "/app/actions/google/accounts/exec-browser-google-multi:google_gmail/verify-send",
+        data={"return_to": "/app/settings/google"},
+        follow_redirects=False,
+    )
+    assert verified_primary_after_promotion.status_code == 303
+    promoted_verified_page = client.get(verified_primary_after_promotion.headers["location"])
+    assert promoted_verified_page.status_code == 200
+    assert "Verified office@girschele.com" in promoted_verified_page.text
+    diagnostics_after_promotion = client.get("/app/api/diagnostics")
+    assert diagnostics_after_promotion.status_code == 200
+    sync_after_promotion = diagnostics_after_promotion.json()["analytics"]["sync"]
+    verified_accounts_after_promotion = {
+        row["binding_id"]: row for row in sync_after_promotion["google_send_verification_accounts"]
+    }
+    assert verified_accounts_after_promotion["exec-browser-google-multi:google_gmail"]["sender_email"] == "office@girschele.com"
+    assert (
+        verified_accounts_after_promotion["exec-browser-google-multi:google_gmail:acct:google-sub-1"]["sender_email"]
+        == "tibor@girschele.com"
+    )
+    assert verified_accounts_after_promotion["exec-browser-google-multi:google_gmail:acct:google-sub-1"]["state"] == "completed"
+
+    disconnected = client.post(
+        "/app/actions/google/accounts/exec-browser-google-multi:google_gmail:acct:google-sub-1/disconnect",
+        data={"return_to": "/app/settings/google"},
+        follow_redirects=False,
+    )
+    assert disconnected.status_code == 303
+    assert "account_status=account_disconnected" in disconnected.headers["location"]
+    disconnected_page = client.get(disconnected.headers["location"])
+    assert disconnected_page.status_code == 200
+    assert "Inbox disconnected." in disconnected_page.text
+    assert "Reconnect" in disconnected_page.text
+    reloaded_after_disconnect = client.get("/app/settings/google")
+    assert reloaded_after_disconnect.status_code == 200
+    assert "Inbox disconnected. tibor@girschele.com" in reloaded_after_disconnect.text
+    diagnostics_after_disconnect = client.get("/app/api/diagnostics")
+    assert diagnostics_after_disconnect.status_code == 200
+    sync_after_disconnect = diagnostics_after_disconnect.json()["analytics"]["sync"]
+    assert sync_after_disconnect["google_account_change_last_state"] == "account_disconnected"
+    assert sync_after_disconnect["google_account_change_last_email"] == "tibor@girschele.com"
+    changed_accounts = {row["binding_id"]: row for row in sync_after_disconnect["google_account_change_accounts"]}
+    assert changed_accounts["exec-browser-google-multi:google_gmail"]["state"] == "account_primary_updated"
+    assert changed_accounts["exec-browser-google-multi:google_gmail:acct:google-sub-1"]["state"] == "account_disconnected"
+
+
+def test_object_detail_routes_render_core_product_objects() -> None:
+    principal_id = "exec-browser-object-details"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    decisions = client.get("/app/api/decisions")
+    assert decisions.status_code == 200
+    decision_id = decisions.json()["items"][0]["id"]
+    assert f"/app/decisions/{decision_id}" in client.get("/app/queue").text
+    decision_page = client.get(f"/app/decisions/{decision_id}")
+    assert decision_page.status_code == 200
+    assert "Choose board memo owner" in decision_page.text
+    assert "Decision queue" in decision_page.text
+    assert "Impact" in decision_page.text
+    assert "SLA" in decision_page.text
+    assert "Next action" in decision_page.text
+    assert "Recent decision history" in decision_page.text
+    assert "Related threads" in decision_page.text
+    assert "Update decision state" in decision_page.text
+    deadline_ref = f"deadline:{seeded['deadline_window_id']}"
+    assert f"/app/deadlines/{deadline_ref}" in client.get("/app/queue").text
+    deadline_page = client.get(f"/app/deadlines/{deadline_ref}")
+    assert deadline_page.status_code == 200
+    assert "Board memo delivery window" in deadline_page.text
+    assert "Deadline window" in deadline_page.text
+    assert "Update deadline state" in deadline_page.text
+
+    threads = client.get("/app/api/threads")
+    assert threads.status_code == 200
+    thread_id = threads.json()["items"][0]["id"]
+    assert f"/app/threads/{thread_id}" in client.get("/app/queue").text
+    thread_page = client.get(f"/app/threads/{thread_id}")
+    assert thread_page.status_code == 200
+    assert "Conversation thread" in thread_page.text
+    assert "sofia@example.com" in thread_page.text
+
+    assert f"/app/commitment-items/commitment:{seeded['commitment_id']}" in client.get("/app/commitments").text
+    commitment_page = client.get(f"/app/commitment-items/commitment:{seeded['commitment_id']}")
+    assert commitment_page.status_code == 200
+    assert "Commitment ledger" in commitment_page.text
+    assert "Recent ledger activity" in commitment_page.text
+    assert "Update commitment state" in commitment_page.text
+    assert "Reason code" in commitment_page.text
+    assert "Due at" in commitment_page.text
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    handoff_id = handoffs.json()[0]["id"]
+    assert handoff_id in client.get("/app/commitments").text
+    handoff_page = client.get(f"/app/handoffs/{handoff_id}")
+    assert handoff_page.status_code == 200
+    assert "Handoffs" in handoff_page.text
+    assert "Recent assignment events" in handoff_page.text
+
+    evidence = client.get("/app/api/evidence")
+    assert evidence.status_code == 200
+    evidence_id = evidence.json()["items"][0]["id"]
+    assert f"/app/evidence/{evidence_id}" in client.get("/app/evidence").text
+    evidence_page = client.get(f"/app/evidence/{evidence_id}")
+    assert evidence_page.status_code == 200
+    assert "Evidence" in evidence_page.text
+    assert "Objects linked to this evidence" in evidence_page.text
+
+    rules = client.get("/app/api/rules")
+    assert rules.status_code == 200
+    rule_id = rules.json()["items"][0]["id"]
+    assert f"/app/rules/{rule_id}" in client.get("/app/settings").text
+    rule_page = client.get(f"/app/rules/{rule_id}")
+    assert rule_page.status_code == 200
+    assert "Rules" in rule_page.text
+    assert "Expected effect" in rule_page.text
+    assert seeded["decision_window_id"] in decisions.text
+
+    plan_page = client.get("/app/settings/plan")
+    assert plan_page.status_code == 200
+    assert "Workspace plan" in plan_page.text
+
+    usage_page = client.get("/app/settings/usage")
+    assert usage_page.status_code == 200
+    assert "Usage and activation" in usage_page.text
+    assert "Success metrics" in usage_page.text
+    assert "Draft approvals granted" in usage_page.text
+
+    support_page = client.get("/app/settings/support")
+    assert support_page.status_code == 200
+    assert "Support and recovery" in support_page.text
+    assert "Operational reliability" in support_page.text
+    assert "Fix verification" in support_page.text
+    assert "Support closure grounding" in support_page.text
+    assert "Weekly pulse and journey-gate truth" in support_page.text
+    assert "What the published release gate is saying" in support_page.text
+    assert "Support fallout" in support_page.text
+    assert "Public guide freshness" in support_page.text
+    assert "Open bundle" in support_page.text
+    assert "Download JSON" in support_page.text
+
+    outcomes_page = client.get("/app/settings/outcomes")
+    assert outcomes_page.status_code == 200
+    assert "Workspace outcomes" in outcomes_page.text
+    assert "How quickly the workspace reached first value" in outcomes_page.text
+    assert "How the daily loop is performing" in outcomes_page.text
+    assert "How the recurring memo loop is proving itself" in outcomes_page.text
+    assert "What the office-loop release gate would say right now" in outcomes_page.text
+    assert "Support fallout" in outcomes_page.text
+    assert "Public guide freshness" in outcomes_page.text
+    assert "Blocked delivery handoffs" in outcomes_page.text
+    assert "Delivery handoffs closed" in outcomes_page.text
+
+    trust_page = client.get("/app/settings/trust")
+    assert trust_page.status_code == 200
+    assert "Workspace trust" in trust_page.text
+    assert "Get help without guessing" in trust_page.text
+    assert "What the assistant recently did" in trust_page.text
+    assert "Evidence, rules, and retention" in trust_page.text
+    assert plan_page.status_code == 200
+    assert "Commercial boundary" in plan_page.text
+    assert "What this workspace includes" in plan_page.text
+    assert "Billing and renewal controls" in plan_page.text
+    assert "Upgrade path" in plan_page.text
+
+    usage_page = client.get("/app/settings/usage")
+    assert usage_page.status_code == 200
+    assert "Usage state" in usage_page.text
+    assert "Product loop signals" in usage_page.text
+    assert "Delivery reliability" in usage_page.text
+    assert "Success metrics" in usage_page.text
+    assert "Churn risk" in usage_page.text
+
+    support_page = client.get("/app/settings/support")
+    assert support_page.status_code == 200
+    assert "Support bundle" in support_page.text
+    assert "Pending review and recent decisions" in support_page.text
+    assert "Operational reliability" in support_page.text
+    assert "Commercial escalation" in support_page.text
+    assert "Workspace health" in support_page.text
+    assert "Runtime posture" in support_page.text
+    assert "Provider risk" in support_page.text
+    assert "Load score" in support_page.text
+
+    channel_loop = client.get("/app/channel-loop")
+    assert channel_loop.status_code == 200
+    assert "Inline loop" in channel_loop.text
+    assert "Approve now" in channel_loop.text
+    assert "Morning memo digest" in channel_loop.text
+    assert "Inline approvals" in channel_loop.text
+    assert "Operator handoff digest" in channel_loop.text
+
+    memo_digest = client.get("/app/channel-loop/memo")
+    assert memo_digest.status_code == 200
+    assert "Morning memo digest" in memo_digest.text
+    assert "Support closure grounding" in memo_digest.text
+    assert "Open memo" in memo_digest.text
+    memo_plain = client.get("/app/channel-loop/memo/plain")
+    assert memo_plain.status_code == 200
+    assert "Morning memo digest" in memo_plain.text
+    assert "Support closure grounding" in memo_plain.text
+    assert "Open memo:" in memo_plain.text
+
+    operator_digest = client.get("/app/channel-loop/operator")
+    assert operator_digest.status_code == 200
+    assert "Operator handoff digest" in operator_digest.text
+    assert "Operator memo grounding" in operator_digest.text
+
+
+def test_commitment_detail_form_can_schedule_commitment() -> None:
+    principal_id = "exec-browser-commitment-detail-form"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    commitment_ref = f"commitment:{seeded['commitment_id']}"
+    detail_path = f"/app/commitment-items/{commitment_ref}"
+    detail_page = client.get(detail_path)
+    assert detail_page.status_code == 200
+    assert "Update commitment state" in detail_page.text
+    assert "Reason code" in detail_page.text
+    assert "Due at" in detail_page.text
+
+    updated = client.post(
+        f"/app/actions/queue/{commitment_ref}/resolve",
+        data={
+            "action": "schedule",
+            "reason_code": "board_review_booked",
+            "reason": "Board review is booked for Friday morning.",
+            "due_at": "2026-03-29T08:00:00+00:00",
+            "return_to": detail_path,
+        },
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303
+    assert updated.headers["location"] == detail_path
+
+    detail_after_update = client.get(detail_path)
+    assert detail_after_update.status_code == 200
+    assert "Resolution code" in detail_after_update.text
+    assert "board_review_booked" in detail_after_update.text
+    assert "Scheduled" in detail_after_update.text
+
+    refreshed = client.get(f"/app/api/commitments/{commitment_ref}")
+    assert refreshed.status_code == 200
+    assert refreshed.json()["status"] == "scheduled"
+    assert refreshed.json()["resolution_code"] == "board_review_booked"
+    assert refreshed.json()["due_at"] == "2026-03-29T08:00:00+00:00"
+
+
+def test_decision_detail_form_can_resolve_and_reopen_decision() -> None:
+    principal_id = "exec-browser-decision-detail-form"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    decision_ref = f"decision:{seeded['decision_window_id']}"
+    detail_path = f"/app/decisions/{decision_ref}"
+    detail_page = client.get(detail_path)
+    assert detail_page.status_code == 200
+    assert "Update decision state" in detail_page.text
+    assert "Decision deadline" in detail_page.text
+
+    resolved = client.post(
+        f"/app/actions/queue/{decision_ref}/resolve",
+        data={
+            "action": "resolve",
+            "reason": "Principal confirmed the operator owner.",
+            "due_at": "2026-03-25T11:00:00+00:00",
+            "return_to": detail_path,
+        },
+        follow_redirects=False,
+    )
+    assert resolved.status_code == 303
+    assert resolved.headers["location"] == detail_path
+
+    detail_after_resolve = client.get(detail_path)
+    assert detail_after_resolve.status_code == 200
+    assert "Principal confirmed the operator owner." in detail_after_resolve.text
+    assert "Decided" in detail_after_resolve.text
+
+    reopened = client.post(
+        f"/app/actions/queue/{decision_ref}/resolve",
+        data={
+            "action": "reopen",
+            "reason": "Board requested another operator pass.",
+            "return_to": detail_path,
+        },
+        follow_redirects=False,
+    )
+    assert reopened.status_code == 303
+    assert reopened.headers["location"] == detail_path
+
+    detail_after_reopen = client.get(detail_path)
+    assert detail_after_reopen.status_code == 200
+    assert "Open" in detail_after_reopen.text
+    assert "No explicit resolution note yet." in detail_after_reopen.text
+    assert "Board requested another operator pass." in detail_after_reopen.text
+
+
+def test_deadline_detail_form_can_resolve_and_reopen_deadline() -> None:
+    principal_id = "exec-browser-deadline-detail-form"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    deadline_ref = f"deadline:{seeded['deadline_window_id']}"
+    detail_path = f"/app/deadlines/{deadline_ref}"
+    detail_page = client.get(detail_path)
+    assert detail_page.status_code == 200
+    assert "Update deadline state" in detail_page.text
+    assert "Window end" in detail_page.text
+
+    resolved = client.post(
+        f"/app/actions/queue/{deadline_ref}/resolve",
+        data={
+            "action": "resolve",
+            "reason": "Delivery window was covered in the queue.",
+            "due_at": "2026-03-25T15:00:00+00:00",
+            "return_to": detail_path,
+        },
+        follow_redirects=False,
+    )
+    assert resolved.status_code == 303
+    assert resolved.headers["location"] == detail_path
+
+    detail_after_resolve = client.get(detail_path)
+    assert detail_after_resolve.status_code == 200
+    assert "Elapsed" in detail_after_resolve.text
+    assert "Delivery window was covered in the queue." in detail_after_resolve.text
+
+    reopened = client.post(
+        f"/app/actions/queue/{deadline_ref}/resolve",
+        data={
+            "action": "reopen",
+            "reason": "Board requested a later delivery window.",
+            "due_at": "2026-03-26T15:00:00+00:00",
+            "return_to": detail_path,
+        },
+        follow_redirects=False,
+    )
+    assert reopened.status_code == 303
+    assert reopened.headers["location"] == detail_path
+
+    detail_after_reopen = client.get(detail_path)
+    assert detail_after_reopen.status_code == 200
+    assert "Open" in detail_after_reopen.text
+    assert "2026-03-26" in detail_after_reopen.text
+    assert "Board requested a later delivery window." in detail_after_reopen.text
+
+
+def test_morning_memo_issue_surfaces_reason_and_fix_target() -> None:
+    principal_id = "exec-browser-memo-issue"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Memo Issue Office")
+    updated = client.post(
+        "/app/actions/settings/morning-memo",
+        data={
+            "return_to": "/app/settings",
+            "enabled": "true",
+            "cadence": "daily_morning",
+            "recipient_email": "tibor@myexternalbrain.com",
+            "delivery_time_local": "08:00",
+            "quiet_hours_start": "20:00",
+            "quiet_hours_end": "07:00",
+        },
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="product",
+        event_type="scheduled_morning_memo_delivery_failed",
+        payload={
+            "schedule_key": "pref-memo-issue",
+            "local_day": "2026-03-29",
+            "email_delivery_status": "failed",
+            "email_delivery_error": 'registration_email_send_failed:422:{"error":"Domain not verified"}',
+        },
+        source_id="pref-memo-issue",
+        dedupe_key=f"{principal_id}|scheduled-memo-failed",
+    )
+
+    settings = client.get("/app/settings")
+    assert settings.status_code == 200
+    assert "Last memo issue" in settings.text
+    assert "Domain not verified" in settings.text
+    assert "/app/settings/support" in settings.text
+
+    outcomes_page = client.get("/app/settings/outcomes")
+    assert outcomes_page.status_code == 200
+    assert "Last memo issue" in outcomes_page.text
+    assert "Domain not verified" in outcomes_page.text
+    assert "Memo delivery blocker" in outcomes_page.text
+    assert "Open support" in outcomes_page.text
+    assert "/app/settings/support" in outcomes_page.text
+
+
+def test_manual_memo_issue_surfaces_reason_and_fix_target_even_when_schedule_disabled() -> None:
+    principal_id = "exec-browser-manual-memo-issue"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Manual Memo Issue Office")
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="product",
+        event_type="channel_digest_delivery_email_failed",
+        payload={
+            "delivery_id": "memo-delivery-issue",
+            "digest_key": "memo",
+            "recipient_email": "tibor@myexternalbrain.com",
+            "error": 'registration_email_send_failed:422:{"error":"Domain not verified"}',
+        },
+        source_id="memo-delivery-issue",
+        dedupe_key=f"{principal_id}|manual-memo-failed",
+    )
+
+    settings = client.get("/app/settings")
+    assert settings.status_code == 200
+    assert "Last memo issue" in settings.text
+    assert "Domain not verified" in settings.text
+    assert "/app/settings/support" in settings.text
+
+    outcomes_page = client.get("/app/settings/outcomes")
+    assert outcomes_page.status_code == 200
+    assert "Last memo issue" in outcomes_page.text
+    assert "Domain not verified" in outcomes_page.text
+    assert "Open support" in outcomes_page.text
+    assert "/app/settings/support" in outcomes_page.text
+
+
+def test_operator_admin_office_page_centers_the_operator_lane() -> None:
+    principal_id = "exec-browser-admin-office"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+    closed = client.post(
+        f"/app/api/queue/commitment:{seeded['commitment_id']}/resolve",
+        json={"action": "close", "reason": "Board packet sent from the operator lane."},
+    )
+    assert closed.status_code == 200
+
+    office = client.get("/admin/office")
+    assert office.status_code == 200
+    assert "Office" in office.text
+    assert "What the office control surface is carrying right now" in office.text
+    assert "What to clear next" in office.text
+    assert "What already belongs to this operator lane" in office.text
+    assert "What can be claimed next" in office.text
+    assert "Access, delivery, and Google posture" in office.text
+    assert "Prepare board follow-up handoff" in office.text
+    assert "Google sync freshness" in office.text
+    assert "What just moved through the operator lane" in office.text
+    assert "Send board materials" in office.text
+    assert "Reopen" in office.text
+
+    redirected = client.get("/app/activity", follow_redirects=False)
+    assert redirected.status_code == 307
+    assert redirected.headers["location"] == "/admin/office"
+
+
+def test_operator_admin_providers_page_surfaces_codex_governance() -> None:
+    principal_id = "exec-browser-admin-providers"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    start_workspace(client, mode="executive_ops", workspace_name="Provider Governance Office")
+    seed_product_state(client, principal_id=principal_id)
+
+    providers = client.get("/admin/providers")
+    assert providers.status_code == 200
+    assert "Providers" in providers.text
+    assert "Lane routing state" in providers.text
+    assert "What each codex lane is expected to do" in providers.text
+    assert "Hard coder lane" in providers.text
+    assert "Core batch lane" in providers.text
+    assert "Easy lane" in providers.text
+    assert "Groundwork lane" in providers.text
+    assert "Audit/jury lane" in providers.text
+    assert "What keeps codex from turning into hidden policy" in providers.text
+    assert "Review cadence" in providers.text
+    assert "Support/help boundary" in providers.text
+    assert "Support and help outputs stay grounded" in providers.text
+
+
+def test_support_page_explains_current_memo_issue_and_fix_detail() -> None:
+    principal_id = "exec-browser-support-memo-issue"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Support Memo Issue Office")
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="product",
+        event_type="channel_digest_delivery_email_failed",
+        payload={
+            "delivery_id": "memo-delivery-issue",
+            "digest_key": "memo",
+            "recipient_email": "tibor@myexternalbrain.com",
+            "error": 'registration_email_send_failed:422:{"error":"Domain not verified"}',
+        },
+        source_id="memo-delivery-issue",
+        dedupe_key=f"{principal_id}|manual-memo-failed",
+    )
+
+    support_page = client.get("/app/settings/support")
+    assert support_page.status_code == 200
+    assert "Last memo issue" in support_page.text
+    assert "Domain not verified" in support_page.text
+    assert "Memo fix detail" in support_page.text
+    assert "Verify the sending domain in the email provider before the next memo cycle." in support_page.text
+    assert "Memo fix target" in support_page.text
+    assert "Open support" in support_page.text
+
+
+def test_channel_loop_memo_digest_surfaces_memo_issue_fix_action() -> None:
+    principal_id = "exec-browser-channel-loop-memo-issue"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Channel Loop Memo Issue Office")
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="product",
+        event_type="channel_digest_delivery_email_failed",
+        payload={
+            "delivery_id": "memo-delivery-issue",
+            "digest_key": "memo",
+            "recipient_email": "tibor@myexternalbrain.com",
+            "error": 'registration_email_send_failed:422:{"error":"Domain not verified"}',
+        },
+        source_id="memo-delivery-issue",
+        dedupe_key=f"{principal_id}|manual-memo-failed",
+    )
+
+    loop_page = client.get("/app/channel-loop")
+    assert loop_page.status_code == 200
+    assert "Fix memo delivery blocker" in loop_page.text
+    assert "Domain not verified" in loop_page.text
+    assert "Open support" in loop_page.text
+
+    memo_digest = client.get("/app/channel-loop/memo")
+    assert memo_digest.status_code == 200
+    assert "Fix memo delivery blocker" in memo_digest.text
+    assert "Domain not verified" in memo_digest.text
+    assert "Open support" in memo_digest.text
+
+
+def test_channel_loop_get_actions_work() -> None:
+    principal_id = "exec-browser-channel-loop"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "Board packet follow-up",
+            "summary": "Send revised board packet to Sofia by EOD.",
+            "text": "Send revised board packet to Sofia by EOD.",
+            "counterparty": "Sofia N.",
+            "source_ref": "gmail-thread:browser-inline-1",
+            "external_id": "gmail-message:browser-inline-1",
+        },
+    )
+    assert signal.status_code == 200
+
+    loop_page = client.get("/app/channel-loop")
+    assert loop_page.status_code == 200
+    assert "Inline loop" in loop_page.text
+    assert "Resolve now" in loop_page.text
+
+    approvals_page = client.get("/app/channel-loop/approvals")
+    assert approvals_page.status_code == 200
+    assert "Inline approvals" in approvals_page.text
+    assert "Approve draft for Sofia N." in approvals_page.text
+    assert "Revised board packet to Sofia" not in approvals_page.text
+
+    loop_payload = client.get("/app/api/channel-loop")
+    assert loop_payload.status_code == 200
+    approvals_digest = next(item for item in loop_payload.json()["digests"] if item["key"] == "approvals")
+    assert all("board packet" not in item["title"].lower() for item in approvals_digest["items"] if item["tag"] == "Candidate")
+    drafts_before = client.get("/app/api/drafts")
+    assert drafts_before.status_code == 200
+    draft_count_before = len(drafts_before.json())
+    approved_href = next(item["action_href"] for item in approvals_digest["items"] if item["tag"] == "Draft")
+    approved = client.get(approved_href, follow_redirects=False)
+    assert approved.status_code == 303
+    assert approved.headers["location"] == "/app/channel-loop/approvals"
+    drafts_after = client.get("/app/api/drafts")
+    assert drafts_after.status_code == 200
+    assert len(drafts_after.json()) == draft_count_before - 1
+
+    pending_candidates = client.get("/app/api/commitments/candidates", params={"status": "pending"})
+    assert pending_candidates.status_code == 200
+    assert "board packet" not in pending_candidates.text.lower()
+
+    refreshed_approvals = next(item for item in client.get("/app/api/channel-loop").json()["digests"] if item["key"] == "approvals")
+    assert all("board packet" not in item["title"].lower() for item in refreshed_approvals["items"] if item["tag"] == "Candidate")
+
+    memo_digest = next(item for item in loop_payload.json()["digests"] if item["key"] == "memo")
+    closed_href = next(item["action_href"] for item in memo_digest["items"] if item["tag"] == "Commitment")
+    closed = client.get(closed_href, follow_redirects=False)
+    assert closed.status_code == 303
+    assert closed.headers["location"] == "/app/channel-loop/memo"
+    assert "Send board materials" in client.get("/app/commitments").text
+
+    refreshed_loop = client.get("/app/api/channel-loop")
+    approvals_after_commitment = next(item for item in refreshed_loop.json()["digests"] if item["key"] == "approvals")
+    decision_href = next(item["action_href"] for item in approvals_after_commitment["items"] if item["tag"] == "Decision")
+    decision_resolved = client.get(decision_href, follow_redirects=False)
+    assert decision_resolved.status_code == 303
+    assert decision_resolved.headers["location"] == "/app/channel-loop/approvals"
+    decision_detail = client.get(f"/app/api/decisions/decision:{seeded['decision_window_id']}")
+    assert decision_detail.status_code == 200
+    assert decision_detail.json()["status"] == "decided"
+
+
+def test_signal_reply_drafts_can_be_rejected_from_inline_channel_loop() -> None:
+    principal_id = "exec-browser-signal-draft-reject"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Signal Draft Office")
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "Board packet follow-up",
+            "summary": "Send revised board packet to Sofia by EOD.",
+            "text": "Send revised board packet to Sofia by EOD.",
+            "counterparty": "Sofia N.",
+            "source_ref": "gmail-thread:browser-inline-reject",
+            "external_id": "gmail-message:browser-inline-reject",
+            "payload": {"from_email": "sofia@example.com", "from_name": "Sofia N."},
+        },
+    )
+    assert signal.status_code == 200
+    draft_id = signal.json()["staged_drafts"][0]["id"]
+
+    approvals_page = client.get("/app/channel-loop/approvals")
+    assert approvals_page.status_code == 200
+    assert "Approve draft for Sofia N." in approvals_page.text
+    assert "Reject" in approvals_page.text
+
+    loop_payload = client.get("/app/api/channel-loop")
+    assert loop_payload.status_code == 200
+    approvals_digest = next(item for item in loop_payload.json()["digests"] if item["key"] == "approvals")
+    reject_href = next(
+        item["secondary_action_href"]
+        for item in approvals_digest["items"]
+        if item["tag"] == "Draft" and "Sofia N." in item["title"]
+    )
+    rejected = client.get(reject_href, follow_redirects=False)
+    assert rejected.status_code == 303
+    assert rejected.headers["location"] == "/app/channel-loop/approvals"
+    assert draft_id not in client.get("/app/api/drafts").text
+
+
+def test_workspace_access_and_channel_delivery_routes_issue_session_cookie() -> None:
+    principal_id = "exec-browser-workspace-access"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="team", workspace_name="Browser Access Office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    invite = client.post(
+        "/app/api/invitations",
+        json={
+            "email": "ops-route@example.com",
+            "role": "operator",
+            "display_name": "Route Operator",
+        },
+    )
+    assert invite.status_code == 200
+    accepted = client.post("/app/api/invitations/accept", json={"token": invite.json()["invite_token"]})
+    assert accepted.status_code == 200
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    access = client.get(accepted.json()["access_url"], follow_redirects=False)
+    assert access.status_code == 303
+    assert access.headers["location"] == "/admin/office"
+    assert "ea_workspace_session=" in str(access.headers.get("set-cookie") or "")
+    session_queue = client.get("/app/api/queue")
+    assert session_queue.status_code == 200
+    assert any(item["id"] == f"approval:{seeded['approval_id']}" for item in session_queue.json()["items"])
+
+    delivery = client.post(
+        "/app/api/channel-loop/memo/deliveries",
+        json={
+            "recipient_email": "ops-route@example.com",
+            "role": "operator",
+            "display_name": "Route Operator",
+            "operator_id": "operator-ops-route",
+        },
+    )
+    assert delivery.status_code == 200
+    opened = client.get(delivery.json()["delivery_url"], follow_redirects=False)
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/channel-loop/memo"
+    assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
+
+    session_issue = client.post(
+        "/app/api/access-sessions",
+        json={"email": "principal@example.com", "role": "principal", "display_name": "Principal Browser Access"},
+    )
+    assert session_issue.status_code == 200
+    session_body = session_issue.json()
+    revoked = client.post(f"/app/api/access-sessions/{session_body['session_id']}/revoke")
+    assert revoked.status_code == 200
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    blocked = client.get(session_body["access_url"], follow_redirects=False)
+    assert blocked.status_code == 404
+
+
+def test_browser_commitment_capture_actions_work() -> None:
+    principal_id = "exec-browser-capture"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    created = client.post(
+        "/app/actions/commitments/create",
+        data={
+            "title": "Confirm board dinner date",
+            "details": "Manual follow-up from the browser surface.",
+            "counterparty": "Sofia N.",
+            "kind": "follow_up",
+            "stakeholder_id": seeded["stakeholder_id"],
+            "return_to": "/app/commitments",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    commitments = client.get("/app/commitments")
+    assert commitments.status_code == 200
+    assert "Confirm board dinner date" in commitments.text
+
+    extracted = client.post(
+        "/app/actions/commitments/extract",
+        data={
+            "source_text": "Please send the revised board packet to Sofia tomorrow morning.",
+            "counterparty": "Sofia N.",
+            "return_to": "/app/queue",
+        },
+        follow_redirects=False,
+    )
+    assert extracted.status_code == 303
+    queue = client.get("/app/queue")
+    assert queue.status_code == 200
+    assert "Accept" in queue.text
+    assert "revised board packet" in queue.text.lower()
+
+
+def test_browser_settings_access_and_invitation_pages_render_live_workspace_state() -> None:
+    principal_id = "exec-browser-access-settings"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal")
+
+    invite = client.post(
+        "/app/actions/invitations/create",
+        data={"email": "operator@example.com", "role": "operator", "display_name": "Operator One", "return_to": "https://evil.example/phish"},
+        follow_redirects=False,
+    )
+    assert invite.status_code == 303
+    assert invite.headers["location"].startswith("/app/settings/invitations?")
+    assert "invite_status=created" in invite.headers["location"]
+    invite_created_page = client.get(invite.headers["location"])
+    assert invite_created_page.status_code == 200
+    assert "Invitation created for operator@example.com" in invite_created_page.text
+
+    access_session = client.post(
+        "/app/actions/access-sessions/issue",
+        data={"email": "principal@example.com", "role": "principal", "display_name": "Principal Access", "return_to": "//evil.example/phish"},
+        follow_redirects=False,
+    )
+    assert access_session.status_code == 303
+    assert access_session.headers["location"].startswith("/app/settings/access?")
+    assert "issue_status=issued" in access_session.headers["location"]
+    access_created_page = client.get(access_session.headers["location"])
+    assert access_created_page.status_code == 200
+    assert "Access link issued for principal@example.com" in access_created_page.text
+
+    invitations_page = client.get("/app/settings/invitations")
+    assert invitations_page.status_code == 200
+    assert "Workspace invitations" in invitations_page.text
+    assert "Invites waiting for acceptance" in invitations_page.text
+    assert "operator@example.com" in invitations_page.text
+
+    access_page = client.get("/app/settings/access")
+    assert access_page.status_code == 200
+    assert "Workspace access" in access_page.text
+    assert "Live workspace access links" in access_page.text
+    assert "principal@example.com" in access_page.text
+
+    invitation_rows = client.get("/app/api/invitations")
+    assert invitation_rows.status_code == 200
+    invitation_items = invitation_rows.json()["items"]
+    assert invitation_items
+    invitation_id = invitation_items[0]["invitation_id"]
+    invite_url = invitation_items[0]["invite_url"]
+    assert invite_url.startswith("/workspace-invites/")
+    assert invite_url in invitations_page.text
+    invite_preview = client.get(invite_url)
+    assert invite_preview.status_code == 200
+    assert "operator@example.com" in invite_preview.text
+    revoked_invite = client.post(
+        f"/app/actions/invitations/{invitation_id}/revoke",
+        data={"return_to": "/app/settings/invitations"},
+        follow_redirects=False,
+    )
+    assert revoked_invite.status_code == 303
+    assert "invite_status=revoked" in revoked_invite.headers["location"]
+    revoked_invite_page = client.get(revoked_invite.headers["location"])
+    assert revoked_invite_page.status_code == 200
+    assert "Revoked invitation for operator@example.com" in revoked_invite_page.text
+
+    access_rows = client.get("/app/api/access-sessions")
+    assert access_rows.status_code == 200
+    access_items = access_rows.json()["items"]
+    assert access_items
+    session_id = access_items[0]["session_id"]
+    access_url = access_items[0]["access_url"]
+    assert access_url.startswith("/workspace-access/")
+    assert access_url in access_page.text
+    access_preview = client.get(access_url, follow_redirects=False)
+    assert access_preview.status_code == 303
+    assert access_preview.headers["location"] == "/app/today"
+    revoked_access = client.post(
+        f"/app/actions/access-sessions/{session_id}/revoke",
+        data={"return_to": "/app/settings/access"},
+        follow_redirects=False,
+    )
+    assert revoked_access.status_code == 303
+    assert "access_status=revoked" in revoked_access.headers["location"]
+    revoked_access_page = client.get(revoked_access.headers["location"])
+    assert revoked_access_page.status_code == 200
+    assert "Revoked principal@example.com" in revoked_access_page.text
+
+    settings_page = client.get("/app/settings")
+    assert settings_page.status_code == 200
+    assert "/app/settings/invitations" in settings_page.text
+    assert "/app/settings/access" in settings_page.text
+    assert "Pending invitations" in settings_page.text
+    assert "Active access sessions" in settings_page.text
+
+
+def test_browser_rules_page_can_update_morning_memo_schedule() -> None:
+    principal_id = "exec-browser-memo-rules"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal")
+    seed_product_state(client, principal_id=principal_id)
+
+    updated = client.post(
+        "/app/actions/settings/morning-memo",
+        data={
+            "workspace_name": "Office Rules Lab",
+            "language": "en",
+            "timezone": "Europe/Vienna",
+            "enabled": "true",
+            "cadence": "weekdays_morning",
+            "recipient_email": "briefs@example.com",
+            "delivery_time_local": "07:30",
+            "quiet_hours_start": "21:00",
+            "quiet_hours_end": "06:30",
+            "return_to": "/app/settings",
+        },
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303
+    assert updated.headers["location"] == "/app/settings"
+
+    settings = client.get("/app/settings")
+    assert settings.status_code == 200
+    assert "Update workspace and morning memo rules" in settings.text
+    assert "Office Rules Lab" in settings.text
+    assert "Europe/Vienna" in settings.text
+    assert "briefs@example.com" in settings.text
+    assert "07:30" in settings.text
+
+    status = client.get("/v1/onboarding/status")
+    assert status.status_code == 200
+    workspace = status.json()["workspace"]
+    assert workspace["name"] == "Office Rules Lab"
+    assert workspace["language"] == "en"
+    assert workspace["timezone"] == "Europe/Vienna"
+    memo = status.json()["delivery_preferences"]["morning_memo"]
+    assert memo["enabled"] is True
+    assert memo["cadence"] == "weekdays_morning"
+    assert memo["delivery_time_local"] == "07:30"
+    assert memo["quiet_hours_start"] == "21:00"
+    assert memo["quiet_hours_end"] == "06:30"
+    assert memo["recipient_email"] == "briefs@example.com"
+
+
+def test_browser_google_settings_page_and_run_now_action_work() -> None:
+    principal_id = "exec-browser-google-settings"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    sync_page = client.get("/app/settings/google")
+    assert sync_page.status_code == 200
+    assert "Google sync" in sync_page.text
+    assert "Latest sync run and queued commitment work" in sync_page.text
+
+    triggered = client.get("/app/actions/signals/google/sync?return_to=https://evil.example/phish", follow_redirects=False)
+    assert triggered.status_code == 303
+    assert triggered.headers["location"].startswith("/app/settings/google")

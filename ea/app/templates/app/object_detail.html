@@ -1,0 +1,343 @@
+{% extends "base_console.html" %}
+{% block content %}
+<style>
+  .object-grid,
+  .object-meta,
+  .object-sections,
+  .object-list,
+  .object-form,
+  .object-field-grid {
+    display: grid;
+    gap: 14px;
+  }
+  .object-grid {
+    grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+  }
+  .object-panel,
+  .object-section,
+  .object-meta-card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, rgba(18, 23, 34, 0.98), rgba(15, 19, 26, 0.98));
+    box-shadow: var(--shadow);
+    padding: 18px;
+  }
+  .object-kicker {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .object-copy {
+    color: var(--text-soft);
+  }
+  .object-meta {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+  .object-meta-card span {
+    display: block;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+  .object-meta-card strong {
+    display: block;
+    color: var(--text);
+    font-size: 1.05rem;
+  }
+  .object-sections {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 14px;
+  }
+  .object-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(49, 60, 77, 0.72);
+  }
+  .object-row:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+  .object-row strong {
+    display: block;
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 3px;
+  }
+  .object-row strong a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .object-row strong a:hover {
+    text-decoration: underline;
+  }
+  .object-row small {
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  .object-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .object-form {
+    margin-top: 18px;
+  }
+  .object-field {
+    display: grid;
+    gap: 6px;
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .object-field span {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .object-form input,
+  .object-form textarea,
+  .object-form select {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    padding: 10px 12px;
+    font: inherit;
+  }
+  .object-form textarea {
+    min-height: 96px;
+    resize: vertical;
+  }
+  .object-tag {
+    white-space: nowrap;
+    height: fit-content;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.03);
+    color: var(--text-soft);
+    font-size: 12px;
+  }
+  @media (max-width: 1080px) {
+    .object-grid,
+    .object-sections {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="object-grid">
+  <section class="object-panel">
+    <div class="object-kicker">{{ object_kind }}</div>
+    <h1>{{ object_title }}</h1>
+    <p class="object-copy">{{ object_summary }}</p>
+    <div class="object-meta">
+      {% for item in object_meta %}
+      <div class="object-meta-card">
+        <span>{{ item.label }}</span>
+        <strong>{{ item.value }}</strong>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <aside class="object-panel">
+    <div class="object-kicker">Why it matters now</div>
+    <h2>{{ object_sidebar_title }}</h2>
+    <p class="object-copy">{{ object_sidebar_copy }}</p>
+    <div class="object-list">
+      {% for item in object_sidebar_rows %}
+      {% set href = item.get('href') or '' %}
+      {% set action_href = item.get('action_href') or '' %}
+      {% set action_label = item.get('action_label') or '' %}
+      {% set action_value = item.get('action_value') or '' %}
+      {% set action_method = (item.get('action_method') or 'post')|lower %}
+      {% set return_to = item.get('return_to') or '' %}
+      {% set secondary_action_href = item.get('secondary_action_href') or '' %}
+      {% set secondary_action_label = item.get('secondary_action_label') or '' %}
+      {% set secondary_action_value = item.get('secondary_action_value') or '' %}
+      {% set secondary_action_method = (item.get('secondary_action_method') or 'post')|lower %}
+      {% set secondary_return_to = item.get('secondary_return_to') or '' %}
+      {% set tertiary_action_href = item.get('tertiary_action_href') or '' %}
+      {% set tertiary_action_label = item.get('tertiary_action_label') or '' %}
+      {% set tertiary_action_value = item.get('tertiary_action_value') or '' %}
+      {% set tertiary_action_method = (item.get('tertiary_action_method') or 'post')|lower %}
+      {% set tertiary_return_to = item.get('tertiary_return_to') or '' %}
+      {% set quaternary_action_href = item.get('quaternary_action_href') or '' %}
+      {% set quaternary_action_label = item.get('quaternary_action_label') or '' %}
+      {% set quaternary_action_value = item.get('quaternary_action_value') or '' %}
+      {% set quaternary_action_method = (item.get('quaternary_action_method') or 'post')|lower %}
+      {% set quaternary_return_to = item.get('quaternary_return_to') or '' %}
+      <div class="object-row">
+        <div>
+          <strong>{% if href %}<a href="{{ href }}">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</strong>
+          <small>{{ item.detail }}</small>
+          {% if action_href or secondary_action_href or tertiary_action_href or quaternary_action_href %}
+          <div class="object-actions">
+            {% if action_href and action_method == 'get' %}
+            <a class="console-action" href="{{ action_href }}">{{ action_label }}</a>
+            {% elif action_href %}
+            <form method="post" action="{{ action_href }}">
+              {% if action_value %}<input type="hidden" name="action" value="{{ action_value }}">{% endif %}
+              {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
+              <button class="console-action" type="submit">{{ action_label }}</button>
+            </form>
+            {% endif %}
+            {% if secondary_action_href and secondary_action_method == 'get' %}
+            <a class="console-action" href="{{ secondary_action_href }}">{{ secondary_action_label }}</a>
+            {% elif secondary_action_href %}
+            <form method="post" action="{{ secondary_action_href }}">
+              {% if secondary_action_value %}<input type="hidden" name="action" value="{{ secondary_action_value }}">{% endif %}
+              {% if secondary_return_to %}<input type="hidden" name="return_to" value="{{ secondary_return_to }}">{% endif %}
+              <button class="console-action" type="submit">{{ secondary_action_label }}</button>
+            </form>
+            {% endif %}
+            {% if tertiary_action_href and tertiary_action_method == 'get' %}
+            <a class="console-action" href="{{ tertiary_action_href }}">{{ tertiary_action_label }}</a>
+            {% elif tertiary_action_href %}
+            <form method="post" action="{{ tertiary_action_href }}">
+              {% if tertiary_action_value %}<input type="hidden" name="action" value="{{ tertiary_action_value }}">{% endif %}
+              {% if tertiary_return_to %}<input type="hidden" name="return_to" value="{{ tertiary_return_to }}">{% endif %}
+              <button class="console-action" type="submit">{{ tertiary_action_label }}</button>
+            </form>
+            {% endif %}
+            {% if quaternary_action_href and quaternary_action_method == 'get' %}
+            <a class="console-action" href="{{ quaternary_action_href }}">{{ quaternary_action_label }}</a>
+            {% elif quaternary_action_href %}
+            <form method="post" action="{{ quaternary_action_href }}">
+              {% if quaternary_action_value %}<input type="hidden" name="action" value="{{ quaternary_action_value }}">{% endif %}
+              {% if quaternary_return_to %}<input type="hidden" name="return_to" value="{{ quaternary_return_to }}">{% endif %}
+              <button class="console-action" type="submit">{{ quaternary_action_label }}</button>
+            </form>
+            {% endif %}
+          </div>
+          {% endif %}
+        </div>
+        <div class="object-tag">{{ item.tag }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% if object_sidebar_form %}
+    <div class="object-kicker" style="margin-top: 18px;">{{ object_sidebar_form.get('eyebrow') or 'Update' }}</div>
+    <h2>{{ object_sidebar_form.get('title') or 'Update state' }}</h2>
+    {% if object_sidebar_form.get('copy') %}<p class="object-copy">{{ object_sidebar_form.get('copy') }}</p>{% endif %}
+    <form class="object-form" method="{{ object_sidebar_form.get('method') or 'post' }}" action="{{ object_sidebar_form.get('action') or '' }}">
+      {% for field in object_sidebar_form.get('fields') or [] %}
+      {% if field.type == 'hidden' %}
+      <input type="hidden" name="{{ field.name }}" value="{{ field.value or '' }}">
+      {% endif %}
+      {% endfor %}
+      {% set visible_fields = (object_sidebar_form.get('fields') or []) | rejectattr('type', 'equalto', 'hidden') | list %}
+      {% for field in visible_fields %}
+      {% if field.type == 'textarea' %}
+      <label class="object-field">
+        <span>{{ field.label }}</span>
+        <textarea name="{{ field.name }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}>{{ field.value or '' }}</textarea>
+      </label>
+      {% elif field.type == 'select' %}
+      <label class="object-field">
+        <span>{{ field.label }}</span>
+        <select name="{{ field.name }}">
+          {% for option in field.options or [] %}
+          <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% else %}
+      <label class="object-field">
+        <span>{{ field.label }}</span>
+        <input type="{{ field.type or 'text' }}" name="{{ field.name }}" value="{{ field.value or '' }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}>
+      </label>
+      {% endif %}
+      {% endfor %}
+      <button class="console-action" type="submit">{{ object_sidebar_form.get('submit_label') or 'Save' }}</button>
+    </form>
+    {% endif %}
+  </aside>
+</section>
+
+<section class="object-sections">
+  {% for section in object_sections %}
+  <section class="object-section">
+    <div class="object-kicker">{{ section["eyebrow"] }}</div>
+    <h2>{{ section["title"] }}</h2>
+    <div class="object-list">
+      {% for item in section["items"] %}
+      {% set href = item.get('href') or '' %}
+      {% set action_href = item.get('action_href') or '' %}
+      {% set action_label = item.get('action_label') or '' %}
+      {% set action_value = item.get('action_value') or '' %}
+      {% set action_method = (item.get('action_method') or 'post')|lower %}
+      {% set return_to = item.get('return_to') or '' %}
+      {% set secondary_action_href = item.get('secondary_action_href') or '' %}
+      {% set secondary_action_label = item.get('secondary_action_label') or '' %}
+      {% set secondary_action_value = item.get('secondary_action_value') or '' %}
+      {% set secondary_action_method = (item.get('secondary_action_method') or 'post')|lower %}
+      {% set secondary_return_to = item.get('secondary_return_to') or '' %}
+      {% set tertiary_action_href = item.get('tertiary_action_href') or '' %}
+      {% set tertiary_action_label = item.get('tertiary_action_label') or '' %}
+      {% set tertiary_action_value = item.get('tertiary_action_value') or '' %}
+      {% set tertiary_action_method = (item.get('tertiary_action_method') or 'post')|lower %}
+      {% set tertiary_return_to = item.get('tertiary_return_to') or '' %}
+      {% set quaternary_action_href = item.get('quaternary_action_href') or '' %}
+      {% set quaternary_action_label = item.get('quaternary_action_label') or '' %}
+      {% set quaternary_action_value = item.get('quaternary_action_value') or '' %}
+      {% set quaternary_action_method = (item.get('quaternary_action_method') or 'post')|lower %}
+      {% set quaternary_return_to = item.get('quaternary_return_to') or '' %}
+      <div class="object-row">
+        <div>
+          <strong>{% if href %}<a href="{{ href }}">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</strong>
+          <small>{{ item.detail }}</small>
+          {% if action_href or secondary_action_href or tertiary_action_href or quaternary_action_href %}
+          <div class="object-actions">
+            {% if action_href and action_method == 'get' %}
+            <a class="console-action" href="{{ action_href }}">{{ action_label }}</a>
+            {% elif action_href %}
+            <form method="post" action="{{ action_href }}">
+              {% if action_value %}<input type="hidden" name="action" value="{{ action_value }}">{% endif %}
+              {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
+              <button class="console-action" type="submit">{{ action_label }}</button>
+            </form>
+            {% endif %}
+            {% if secondary_action_href and secondary_action_method == 'get' %}
+            <a class="console-action" href="{{ secondary_action_href }}">{{ secondary_action_label }}</a>
+            {% elif secondary_action_href %}
+            <form method="post" action="{{ secondary_action_href }}">
+              {% if secondary_action_value %}<input type="hidden" name="action" value="{{ secondary_action_value }}">{% endif %}
+              {% if secondary_return_to %}<input type="hidden" name="return_to" value="{{ secondary_return_to }}">{% endif %}
+              <button class="console-action" type="submit">{{ secondary_action_label }}</button>
+            </form>
+            {% endif %}
+            {% if tertiary_action_href and tertiary_action_method == 'get' %}
+            <a class="console-action" href="{{ tertiary_action_href }}">{{ tertiary_action_label }}</a>
+            {% elif tertiary_action_href %}
+            <form method="post" action="{{ tertiary_action_href }}">
+              {% if tertiary_action_value %}<input type="hidden" name="action" value="{{ tertiary_action_value }}">{% endif %}
+              {% if tertiary_return_to %}<input type="hidden" name="return_to" value="{{ tertiary_return_to }}">{% endif %}
+              <button class="console-action" type="submit">{{ tertiary_action_label }}</button>
+            </form>
+            {% endif %}
+            {% if quaternary_action_href and quaternary_action_method == 'get' %}
+            <a class="console-action" href="{{ quaternary_action_href }}">{{ quaternary_action_label }}</a>
+            {% elif quaternary_action_href %}
+            <form method="post" action="{{ quaternary_action_href }}">
+              {% if quaternary_action_value %}<input type="hidden" name="action" value="{{ quaternary_action_value }}">{% endif %}
+              {% if quaternary_return_to %}<input type="hidden" name="return_to" value="{{ quaternary_return_to }}">{% endif %}
+              <button class="console-action" type="submit">{{ quaternary_action_label }}</button>
+            </form>
+            {% endif %}
+          </div>
+          {% endif %}
+        </div>
+        <div class="object-tag">{{ item.tag }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+</section>
+{% endblock %}

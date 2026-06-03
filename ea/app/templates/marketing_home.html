@@ -1,0 +1,308 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  .landing-grid,
+  .landing-outcomes,
+  .landing-steps,
+  .landing-trust,
+  .landing-faq {
+    display: grid;
+    gap: 16px;
+  }
+  .landing-grid {
+    grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr);
+    align-items: stretch;
+  }
+  .hero-panel,
+  .mockup-panel,
+  .outcome-card,
+  .step-card,
+  .trust-card,
+  .faq-card,
+  .resource-card {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: rgba(255,255,255,0.03);
+    box-shadow: var(--shadow);
+  }
+  .hero-panel,
+  .mockup-panel {
+    padding: 28px;
+  }
+  .hero-panel {
+    display: grid;
+    gap: 20px;
+    align-content: start;
+  }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(138, 164, 255, 0.12);
+    border: 1px solid rgba(138, 164, 255, 0.2);
+    color: var(--text-soft);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .hero-panel h1 {
+    max-width: 11ch;
+    font-size: clamp(2.4rem, 4.8vw, 4.2rem);
+    line-height: 0.98;
+    margin: 0;
+  }
+  .hero-panel .lead {
+    max-width: 34rem;
+    font-size: 1.02rem;
+  }
+  .microcopy {
+    color: var(--text-dim);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .mockup-panel {
+    display: grid;
+    gap: 14px;
+    background:
+      radial-gradient(circle at top right, rgba(138, 164, 255, 0.16), transparent 20rem),
+      rgba(255,255,255,0.03);
+  }
+  .mockup-card {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(11, 14, 19, 0.72);
+    padding: 18px;
+    display: grid;
+    gap: 10px;
+  }
+  .mockup-card header,
+  .faq-card summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .mockup-card strong {
+    font-size: 15px;
+  }
+  .mockup-card ul,
+  .step-card ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-soft);
+  }
+  .mockup-card li + li,
+  .step-card li + li {
+    margin-top: 6px;
+  }
+  .landing-outcomes,
+  .landing-steps,
+  .landing-trust {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .outcome-card,
+  .step-card,
+  .trust-card,
+  .resource-card {
+    padding: 18px;
+  }
+  .section-kicker {
+    margin-bottom: 8px;
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .landing-faq {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .faq-card {
+    padding: 0;
+    overflow: hidden;
+  }
+  .faq-card summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 18px;
+    font-weight: 600;
+  }
+  .faq-card summary::-webkit-details-marker { display: none; }
+  .faq-card p {
+    padding: 0 18px 18px;
+    color: var(--text-soft);
+  }
+  .resource-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .resource-card strong {
+    display: block;
+    margin-bottom: 8px;
+  }
+  .resource-card p {
+    color: var(--text-soft);
+    margin-bottom: 10px;
+  }
+  .resource-card a {
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  @media (max-width: 1080px) {
+    .landing-grid,
+    .landing-outcomes,
+    .landing-steps,
+    .landing-trust,
+    .landing-faq,
+    .resource-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="landing-grid">
+  <section class="hero-panel">
+    <div class="eyebrow">Personal workspace</div>
+    <div>
+      <h1>Wake up to a clear morning memo, not a wall of inbox noise.</h1>
+      <p class="lead">Executive Assistant turns your email and calendar into a morning memo, one review queue, visible commitments, and explainable evidence.</p>
+    </div>
+    <div class="cta-row">
+      <a class="btn primary" href="/register">Create personal workspace</a>
+      <a class="btn" href="#sample-memo">See sample memo</a>
+    </div>
+    <div class="microcopy">Nothing sends without your review.</div>
+  </section>
+
+  <section class="mockup-panel" id="sample-memo">
+    <div class="mockup-card">
+      <header>
+        <strong>Morning Memo</strong>
+        <span class="pill good">3 now</span>
+      </header>
+      <ul>
+        <li>Board packet deadline moved forward by one day.</li>
+        <li>Two investor replies need a decision before noon.</li>
+        <li>Calendar pressure is clustered around one stakeholder meeting.</li>
+      </ul>
+    </div>
+    <div class="mockup-card">
+      <header>
+        <strong>Queue</strong>
+        <span class="pill warn">5 review</span>
+      </header>
+      <ul>
+        <li>Approve draft reply for the investor thread.</li>
+        <li>Choose next step for vendor renewal thread.</li>
+        <li>Confirm deadline owner for recruiting loop.</li>
+      </ul>
+    </div>
+    <div class="mockup-card">
+      <header>
+        <strong>Commitments</strong>
+        <span class="pill">4 open</span>
+      </header>
+      <ul>
+        <li>Close the finance handoff after approval.</li>
+        <li>Re-open one commitment drifting past its due date.</li>
+        <li>Keep the next stakeholder reply visible until it lands.</li>
+      </ul>
+    </div>
+  </section>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="section-kicker">Outcome</div>
+      <h2>Start with a clear day.</h2>
+    </div>
+    <p>The first visit shows what moves today, what needs review, and what stays visible until it is closed.</p>
+  </div>
+  <div class="landing-outcomes">
+    {% for feature in feature_cards %}
+    <section class="outcome-card">
+      <strong>{{ feature.title }}</strong>
+      <p class="copy">{{ feature.body }}</p>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="section-kicker">How it works</div>
+      <h2>Connect Google, get the first morning memo, review one real loop.</h2>
+    </div>
+    <p>Setup stays narrow until you have seen one useful morning memo, one queue, and one visible commitment ledger.</p>
+  </div>
+  <div class="landing-steps">
+    {% for step in how_steps %}
+    <section class="step-card">
+      <div class="section-kicker">Step {{ loop.index }}</div>
+      <strong>{{ step.title }}</strong>
+      <p class="copy">{{ step.body }}</p>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="section-kicker">Trust</div>
+      <h2>Make the product feel safe before it feels powerful.</h2>
+    </div>
+    <p>You can see what EA reads, what it prepares, and what still waits for approval.</p>
+  </div>
+  <div class="landing-trust">
+    {% for card in trust_cards %}
+    <section class="trust-card">
+      <strong>{{ card.title }}</strong>
+      <p class="copy">{{ card.body }}</p>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="section-kicker">FAQ</div>
+      <h2>First-visit questions only.</h2>
+    </div>
+    <p>Start with the basics: what it connects to, how review works, and whether one person can begin alone.</p>
+  </div>
+  <div class="landing-faq">
+    {% for row in landing_faqs %}
+    <details class="faq-card">
+      <summary>{{ row.question }}</summary>
+      <p>{{ row.answer }}</p>
+    </details>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="section-kicker">Resources</div>
+      <h2>Go deeper when you need the details.</h2>
+    </div>
+    <p>Docs, integrations, API, and architecture are available once you want the operating detail behind the product.</p>
+  </div>
+  <div class="resource-grid">
+    {% for link in doc_links %}
+    <section class="resource-card">
+      <strong>{{ link.title }}</strong>
+      <p>{{ link.body }}</p>
+      <a href="{{ link.href }}">Open</a>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

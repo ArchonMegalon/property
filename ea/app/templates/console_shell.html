@@ -1,0 +1,1508 @@
+{% extends "base_console.html" %}
+{% block content %}
+<style>
+  .console-stage,
+  .console-section-grid,
+  .console-support-grid,
+  .console-list,
+  .console-metric-grid {
+    display: grid;
+    gap: 14px;
+  }
+  .console-stage,
+  .console-support-grid {
+    grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  }
+  .console-section-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 14px;
+  }
+  .console-panel,
+  .console-focus,
+  .console-section,
+  .console-metric,
+  .console-callout {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, rgba(18, 23, 34, 0.98), rgba(15, 19, 26, 0.98));
+    box-shadow: var(--shadow);
+  }
+  .console-panel,
+  .console-focus,
+  .console-section,
+  .console-callout {
+    padding: 18px;
+  }
+  .console-kicker {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .console-copy {
+    color: var(--text-soft);
+    margin-bottom: 14px;
+  }
+  .console-metric-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    margin-top: 14px;
+  }
+  .console-metric {
+    padding: 14px;
+  }
+  .console-metric .label {
+    display: block;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+  .console-metric strong {
+    display: block;
+    color: var(--text);
+    font-size: 1.35rem;
+    font-weight: 620;
+    letter-spacing: -0.02em;
+  }
+  .console-metric span {
+    display: block;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  .console-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(49, 60, 77, 0.72);
+  }
+  .console-row:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+  .console-row strong {
+    display: block;
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 3px;
+  }
+  .console-row small,
+  .console-row span {
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  .console-tag {
+    white-space: nowrap;
+    height: fit-content;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.03);
+    color: var(--text-soft);
+    font-size: 12px;
+  }
+  .console-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .console-action {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.05);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  .console-form[data-console-form-variant="property_search"] {
+    gap: 16px;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-field:has([name="location_query"]),
+  .console-form[data-console-form-variant="property_search"] .console-field:has([name="keywords"]),
+  .console-form[data-console-form-variant="property_search"] .console-field:has(.console-choice-grid) {
+    grid-column: 1 / -1;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-choice-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    max-height: 360px;
+    overflow: auto;
+    padding-right: 4px;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-choice {
+    min-height: 84px;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-callout {
+    background: linear-gradient(180deg, rgba(214, 166, 63, 0.12), rgba(255,255,255,0.03));
+    border-color: rgba(214, 166, 63, 0.22);
+  }
+  .console-form[data-console-form-variant="property_search"] .console-action-row {
+    justify-content: space-between;
+    align-items: center;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-action-row .console-action {
+    padding: 10px 14px;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-plan-card {
+    gap: 10px;
+  }
+  .property-shortlist-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .property-shortlist-card {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+    padding: 14px;
+    display: grid;
+    gap: 10px;
+  }
+  .property-shortlist-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .property-shortlist-head strong {
+    display: block;
+    font-size: 14px;
+    color: var(--text);
+  }
+  .property-shortlist-meta,
+  .property-shortlist-copy {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .property-shortlist-reasons {
+    display: grid;
+    gap: 6px;
+  }
+  .property-shortlist-reasons ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-soft);
+    font-size: 12px;
+  }
+  .property-shortlist-reasons li + li {
+    margin-top: 3px;
+  }
+  .property-feedback-row,
+  .property-feedback-reasons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .property-feedback-chip {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.05);
+    color: var(--text-soft);
+    font: inherit;
+    font-size: 12px;
+    padding: 7px 10px;
+    cursor: pointer;
+  }
+  .property-feedback-chip.active {
+    border-color: rgba(214, 166, 63, 0.45);
+    background: rgba(214, 166, 63, 0.12);
+    color: var(--text);
+  }
+  .property-feedback-note {
+    width: 100%;
+    min-height: 70px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    padding: 10px 12px;
+    font: inherit;
+    resize: vertical;
+  }
+  .property-feedback-status {
+    min-height: 18px;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .console-focus {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+  }
+  .console-form {
+    display: grid;
+    gap: 12px;
+    margin-top: 8px;
+  }
+  .console-field-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .console-field {
+    display: grid;
+    gap: 6px;
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .console-field span {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .console-form input,
+  .console-form textarea,
+  .console-form select {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    padding: 10px 12px;
+    font: inherit;
+  }
+  .console-form textarea {
+    min-height: 120px;
+    resize: vertical;
+  }
+  .console-callout {
+    color: var(--text-soft);
+    font-size: 14px;
+  }
+  .console-choice-grid {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .console-choice {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.03);
+  }
+  .console-choice input {
+    width: auto;
+    margin-top: 2px;
+  }
+  .console-choice-label {
+    display: block;
+    color: var(--text);
+    font-size: 13px;
+  }
+  .console-choice-detail {
+    display: block;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-top: 2px;
+  }
+  .console-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .console-progress {
+    display: grid;
+    gap: 12px;
+    margin-top: 10px;
+  }
+  .console-progress-track {
+    width: 100%;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.08);
+    overflow: hidden;
+  }
+  .console-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #d6a63f, #f0cf7a);
+    transition: width 160ms ease;
+  }
+  .console-run-meta,
+  .console-run-events,
+  .console-run-sources {
+    display: grid;
+    gap: 8px;
+  }
+  .console-run-status {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .console-run-note {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .console-inline-status {
+    min-height: 18px;
+    color: var(--text-soft);
+    font-size: 12px;
+  }
+  .console-inline-error {
+    min-height: 18px;
+    color: #f0b7b7;
+    font-size: 12px;
+  }
+  .console-billing-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+  .console-plan-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.03);
+    padding: 12px;
+    display: grid;
+    gap: 8px;
+  }
+  .console-plan-card.current {
+    border-color: rgba(214, 166, 63, 0.36);
+    background: rgba(214, 166, 63, 0.08);
+  }
+  .console-plan-card ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .console-plan-card li + li {
+    margin-top: 4px;
+  }
+  .console-plan-kicker {
+    color: var(--text-dim);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  @media (max-width: 1080px) {
+    .console-stage,
+    .console-support-grid,
+    .console-section-grid {
+      grid-template-columns: 1fr;
+    }
+    .console-field-grid {
+      grid-template-columns: 1fr;
+    }
+    .console-choice-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 720px) {
+    .console-panel,
+    .console-focus,
+    .console-section,
+    .console-callout {
+      padding: 14px;
+    }
+    .console-metric-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .console-row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .console-row-actions {
+      width: 100%;
+      justify-content: flex-start;
+    }
+    .console-tag {
+      white-space: normal;
+    }
+    .console-form[data-console-form-variant="property_search"] .console-field-grid {
+      grid-template-columns: 1fr;
+    }
+    .console-form[data-console-form-variant="property_search"] .console-choice-grid {
+      grid-template-columns: 1fr;
+      max-height: none;
+      overflow: visible;
+    }
+    .console-form[data-console-form-variant="property_search"] .console-action-row {
+      position: sticky;
+      bottom: 0;
+      z-index: 2;
+      padding-top: 10px;
+      background: linear-gradient(180deg, rgba(15, 19, 26, 0), rgba(15, 19, 26, 0.96) 28%);
+    }
+    .console-form[data-console-form-variant="property_search"] .console-action-row .console-action {
+      flex: 1 1 0;
+      text-align: center;
+    }
+    .console-form[data-console-form-variant="property_search"] .console-progress-track {
+      height: 12px;
+    }
+    .console-form[data-console-form-variant="property_search"] input,
+    .console-form[data-console-form-variant="property_search"] select,
+    .console-form[data-console-form-variant="property_search"] textarea {
+      padding: 12px;
+    }
+    .property-shortlist-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+{% set c0 = cards[0] if cards|length > 0 else None %}
+{% set c1 = cards[1] if cards|length > 1 else None %}
+{% set c2 = cards[2] if cards|length > 2 else None %}
+{% set c3 = cards[3] if cards|length > 3 else None %}
+{% set extra_cards = cards[2:] if cards|length > 2 else [] %}
+
+{% macro rows(items, tag='Open', helper='Keep the next action clear and easy to review.') -%}
+<div class="console-list">
+  {% for item in items %}
+  {% if item is mapping %}
+  {% set title = item.get('title') or item.get('label') or 'Open item' %}
+  {% set detail = item.get('detail') or helper %}
+  {% set row_tag = item.get('tag') or tag %}
+  {% set href = item.get('href') or '' %}
+  {% set action_href = item.get('action_href') or '' %}
+  {% set action_label = item.get('action_label') or '' %}
+  {% set action_value = item.get('action_value') or '' %}
+  {% set action_method = (item.get('action_method') or 'post')|lower %}
+  {% set return_to = item.get('return_to') or '' %}
+  {% set secondary_action_href = item.get('secondary_action_href') or '' %}
+  {% set secondary_action_label = item.get('secondary_action_label') or '' %}
+  {% set secondary_action_value = item.get('secondary_action_value') or '' %}
+  {% set secondary_action_method = (item.get('secondary_action_method') or 'post')|lower %}
+  {% set secondary_return_to = item.get('secondary_return_to') or '' %}
+  {% set tertiary_action_href = item.get('tertiary_action_href') or '' %}
+  {% set tertiary_action_label = item.get('tertiary_action_label') or '' %}
+  {% set tertiary_action_value = item.get('tertiary_action_value') or '' %}
+  {% set tertiary_action_method = (item.get('tertiary_action_method') or 'post')|lower %}
+  {% set tertiary_return_to = item.get('tertiary_return_to') or '' %}
+  {% set quaternary_action_href = item.get('quaternary_action_href') or '' %}
+  {% set quaternary_action_label = item.get('quaternary_action_label') or '' %}
+  {% set quaternary_action_value = item.get('quaternary_action_value') or '' %}
+  {% set quaternary_action_method = (item.get('quaternary_action_method') or 'post')|lower %}
+  {% set quaternary_return_to = item.get('quaternary_return_to') or '' %}
+  {% else %}
+  {% set title = item %}
+  {% set detail = helper %}
+  {% set row_tag = tag %}
+  {% set href = '' %}
+  {% set action_href = '' %}
+  {% set action_label = '' %}
+  {% set action_value = '' %}
+  {% set action_method = 'post' %}
+  {% set return_to = '' %}
+  {% set secondary_action_href = '' %}
+  {% set secondary_action_label = '' %}
+  {% set secondary_action_value = '' %}
+  {% set secondary_action_method = 'post' %}
+  {% set secondary_return_to = '' %}
+  {% set tertiary_action_href = '' %}
+  {% set tertiary_action_label = '' %}
+  {% set tertiary_action_value = '' %}
+  {% set tertiary_action_method = 'post' %}
+  {% set tertiary_return_to = '' %}
+  {% set quaternary_action_href = '' %}
+  {% set quaternary_action_label = '' %}
+  {% set quaternary_action_value = '' %}
+  {% set quaternary_action_method = 'post' %}
+  {% set quaternary_return_to = '' %}
+  {% endif %}
+  <div class="console-row">
+    <div>
+      {% if href %}
+      <strong><a href="{{ href }}" style="color: inherit; text-decoration: none;">{{ title }}</a></strong>
+      {% else %}
+      <strong>{{ title }}</strong>
+      {% endif %}
+      <small>{{ detail }}</small>
+    </div>
+    <div class="console-row-actions">
+      {% if action_href %}
+      {% if action_method == 'get' %}
+      <a class="console-action" href="{{ action_href }}">{{ action_label }}</a>
+      {% else %}
+      <form method="post" action="{{ action_href }}">
+        {% if action_value %}<input type="hidden" name="action" value="{{ action_value }}">{% endif %}
+        {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
+        <button class="console-action" type="submit">{{ action_label }}</button>
+      </form>
+      {% endif %}
+      {% endif %}
+      {% if secondary_action_href %}
+      {% if secondary_action_method == 'get' %}
+      <a class="console-action" href="{{ secondary_action_href }}">{{ secondary_action_label }}</a>
+      {% else %}
+      <form method="post" action="{{ secondary_action_href }}">
+        {% if secondary_action_value %}<input type="hidden" name="action" value="{{ secondary_action_value }}">{% endif %}
+        {% if secondary_return_to %}<input type="hidden" name="return_to" value="{{ secondary_return_to }}">{% endif %}
+        <button class="console-action" type="submit">{{ secondary_action_label }}</button>
+      </form>
+      {% endif %}
+      {% endif %}
+      {% if tertiary_action_href %}
+      {% if tertiary_action_method == 'get' %}
+      <a class="console-action" href="{{ tertiary_action_href }}">{{ tertiary_action_label }}</a>
+      {% else %}
+      <form method="post" action="{{ tertiary_action_href }}">
+        {% if tertiary_action_value %}<input type="hidden" name="action" value="{{ tertiary_action_value }}">{% endif %}
+        {% if tertiary_return_to %}<input type="hidden" name="return_to" value="{{ tertiary_return_to }}">{% endif %}
+        <button class="console-action" type="submit">{{ tertiary_action_label }}</button>
+      </form>
+      {% endif %}
+      {% endif %}
+      {% if quaternary_action_href %}
+      {% if quaternary_action_method == 'get' %}
+      <a class="console-action" href="{{ quaternary_action_href }}">{{ quaternary_action_label }}</a>
+      {% else %}
+      <form method="post" action="{{ quaternary_action_href }}">
+        {% if quaternary_action_value %}<input type="hidden" name="action" value="{{ quaternary_action_value }}">{% endif %}
+        {% if quaternary_return_to %}<input type="hidden" name="return_to" value="{{ quaternary_return_to }}">{% endif %}
+        <button class="console-action" type="submit">{{ quaternary_action_label }}</button>
+      </form>
+      {% endif %}
+      {% endif %}
+      <div class="console-tag">{{ row_tag }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+{% if current_nav == 'today' %}
+<section class="console-stage">
+  <section class="console-panel">
+    <div class="console-kicker">Today</div>
+    <h2>{{ c0.title if c0 else console_title }}</h2>
+    <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
+    {% if stats %}
+    <div class="console-metric-grid">
+      {% for stat in stats %}
+      <div class="console-metric">
+        <span class="label">{{ stat.label }}</span>
+        <strong>{{ stat.value }}</strong>
+        <span>Visible in the current workspace view.</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if c0 and c0['items'] %}
+    <div style="margin-top: 16px;">{{ rows(c0['items'], 'Now', 'This is part of the current operating day, not a background note.') }}</div>
+    {% endif %}
+  </section>
+  <aside class="console-focus">
+    <div>
+      <div class="console-kicker">Next to clear</div>
+      <h2>{{ c1.title if c1 else 'Work the queue.' }}</h2>
+      <p class="console-copy">{{ c1.body if c1 and c1.body else 'Keep the draft, review, and commitment lane easy to clear.' }}</p>
+    </div>
+    {% if c1 and c1['items'] %}
+      {{ rows(c1['items'], 'Review', 'Prepared as an explicit next step rather than another hidden reminder.') }}
+    {% endif %}
+    <div class="console-callout">{{ console_summary }}</div>
+  </aside>
+</section>
+{% elif current_nav == 'queue' %}
+<section class="console-stage">
+  <section class="console-panel">
+    <div class="console-kicker">Queue</div>
+    <h2>{{ c0.title if c0 else console_title }}</h2>
+    <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
+    {% if c0 and c0['items'] %}
+      {{ rows(c0['items'], 'Review', 'These are the items moving next instead of being rediscovered later.') }}
+    {% endif %}
+  </section>
+  <aside class="console-focus">
+    <div>
+      <div class="console-kicker">What can move now</div>
+      <h2>{{ c1.title if c1 else 'Ready drafts and reviewable work' }}</h2>
+      <p class="console-copy">{{ c1.body if c1 and c1.body else 'Keep the next draft, decision, or captured item easy to clear.' }}</p>
+    </div>
+    {% if c1 and c1['items'] %}
+      {{ rows(c1['items'], 'Ready', 'This work is staged to move, not to sit in another hidden backlog.') }}
+    {% endif %}
+    <div class="console-callout">
+      <div class="console-kicker">Capture from note</div>
+      <form class="console-form" method="post" action="/app/actions/commitments/extract">
+        <label class="console-field">
+          <span>Note or thread snippet</span>
+          <textarea id="extract_source_text" name="source_text" placeholder="Paste the note, thread, or meeting takeaway to turn into a commitment." required></textarea>
+        </label>
+        <div class="console-field-grid">
+          <label class="console-field">
+            <span>Counterparty</span>
+            <input id="extract_counterparty" name="counterparty" placeholder="Sofia N.">
+          </label>
+          <label class="console-field">
+            <span>Due at</span>
+            <input id="extract_due_at" name="due_at" placeholder="YYYY-MM-DDTHH:MM:SS+00:00">
+          </label>
+        </div>
+        <div class="console-field-grid">
+          <label class="console-field">
+            <span>Kind</span>
+            <select id="extract_kind" name="kind">
+              <option value="commitment" selected>Commitment</option>
+              <option value="follow_up">Commitment</option>
+            </select>
+          </label>
+          <label class="console-field">
+            <span>Stakeholder ID (optional)</span>
+            <input id="extract_stakeholder_id" name="stakeholder_id" placeholder="Link directly to a known stakeholder">
+          </label>
+        </div>
+        <input type="hidden" name="return_to" value="/app/queue">
+        <button class="console-action" type="submit">Capture item</button>
+      </form>
+    </div>
+    <div class="console-callout">
+      <div class="console-kicker">Create a commitment</div>
+      <form class="console-form" method="post" action="/app/actions/commitments/create">
+        <label class="console-field">
+          <span>Title</span>
+          <input id="create_followup_title" name="title" placeholder="Confirm board dinner date" required>
+        </label>
+        <label class="console-field">
+          <span>Context</span>
+          <textarea id="create_followup_details" name="details" placeholder="Why this commitment matters and what the next move is."></textarea>
+        </label>
+        <div class="console-field-grid">
+          <label class="console-field">
+            <span>Counterparty</span>
+            <input id="create_followup_counterparty" name="counterparty" placeholder="Sofia N.">
+          </label>
+          <label class="console-field">
+            <span>Due at</span>
+            <input id="create_followup_due_at" name="due_at" placeholder="YYYY-MM-DDTHH:MM:SS+00:00">
+          </label>
+        </div>
+        <div class="console-field-grid">
+          <label class="console-field">
+            <span>Kind</span>
+            <select id="create_followup_kind" name="kind">
+              <option value="follow_up" selected>Commitment</option>
+              <option value="commitment">Commitment</option>
+            </select>
+          </label>
+          <label class="console-field">
+            <span>Stakeholder ID (optional)</span>
+            <input id="create_followup_stakeholder_id" name="stakeholder_id" placeholder="Link directly to a known stakeholder">
+          </label>
+        </div>
+        <input type="hidden" name="channel_hint" value="email">
+        <input type="hidden" name="return_to" value="/app/commitments">
+        <button class="console-action" type="submit">Create commitment</button>
+      </form>
+    </div>
+  </aside>
+</section>
+{% elif current_nav == 'commitments' %}
+<section class="console-stage">
+  <section class="console-panel">
+    <div class="console-kicker">Commitments</div>
+    <h2>{{ c0.title if c0 else console_title }}</h2>
+    <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
+    {% if c0 and c0['items'] %}
+      {{ rows(c0['items'], 'Due', 'Every row is tied to a real promise, deadline, or unanswered thread.') }}
+    {% endif %}
+  </section>
+  <aside class="console-focus">
+    <div>
+      <div class="console-kicker">What keeps it honest</div>
+      <h2>{{ c1.title if c1 else 'Commitments stay attached to the work' }}</h2>
+      <p class="console-copy">{{ c1.body if c1 and c1.body else 'Commitment work stays connected to the right people, threads, and urgency.' }}</p>
+    </div>
+    {% if c1 and c1['items'] %}
+      {{ rows(c1['items'], 'Context', 'This is why these items are still in the queue.') }}
+    {% endif %}
+    <div class="console-callout">
+      <div class="console-kicker">Create a commitment</div>
+      <form class="console-form" method="post" action="/app/actions/commitments/create">
+        <label class="console-field">
+          <span>Title</span>
+          <input id="create_followup_title" name="title" placeholder="Confirm board dinner date" required>
+        </label>
+        <label class="console-field">
+          <span>Context</span>
+          <textarea id="create_followup_details" name="details" placeholder="Why this commitment matters and what the next move is."></textarea>
+        </label>
+        <div class="console-field-grid">
+          <label class="console-field">
+            <span>Counterparty</span>
+            <input id="create_followup_counterparty" name="counterparty" placeholder="Sofia N.">
+          </label>
+          <label class="console-field">
+            <span>Due at</span>
+            <input id="create_followup_due_at" name="due_at" placeholder="YYYY-MM-DDTHH:MM:SS+00:00">
+          </label>
+        </div>
+        <div class="console-field-grid">
+          <label class="console-field">
+            <span>Kind</span>
+            <select id="create_followup_kind" name="kind">
+              <option value="follow_up" selected>Commitment</option>
+              <option value="commitment">Commitment</option>
+            </select>
+          </label>
+          <label class="console-field">
+            <span>Stakeholder ID (optional)</span>
+            <input id="create_followup_stakeholder_id" name="stakeholder_id" placeholder="Link directly to a known stakeholder">
+          </label>
+        </div>
+        <input type="hidden" name="channel_hint" value="email">
+        <input type="hidden" name="return_to" value="/app/commitments">
+        <button class="console-action" type="submit">Create commitment</button>
+      </form>
+    </div>
+  </aside>
+</section>
+{% elif current_nav == 'people' %}
+<section class="console-support-grid">
+  <section class="console-panel">
+    <div class="console-kicker">People</div>
+    <h2>{{ c0.title if c0 else console_title }}</h2>
+    <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
+    {% if c0 and c0['items'] %}
+      {{ rows(c0['items'], 'Theme', 'Recurring themes stay visible without exposing internal storage language.') }}
+    {% endif %}
+  </section>
+  <section class="console-panel">
+    <div class="console-kicker">Relationship detail</div>
+    <h2>{{ c1.title if c1 else 'Open loops around those people' }}</h2>
+    <p class="console-copy">{{ c1.body if c1 and c1.body else 'A useful people graph leads into open loops, current drafts, and the next decision waiting on that relationship.' }}</p>
+    {% if c1 and c1['items'] %}
+      {{ rows(c1['items'], 'Loop', 'These are the commitments, decisions, and drafts shaping the relationship.') }}
+    {% endif %}
+  </section>
+</section>
+{% elif current_nav == 'evidence' %}
+<section class="console-support-grid">
+  <section class="console-panel">
+    <div class="console-kicker">Evidence</div>
+    <h2>{{ c0.title if c0 else console_title }}</h2>
+    <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
+    {% if c0 and c0['items'] %}
+      {{ rows(c0['items'], 'Evidence', 'These are the refs and signals currently shaping the workspace view.') }}
+    {% endif %}
+  </section>
+  <section class="console-panel">
+    <div class="console-kicker">Evidence trail</div>
+    <h2>{{ c1.title if c1 else 'Topics around those people' }}</h2>
+    <p class="console-copy">{{ c1.body if c1 and c1.body else 'People and topics stay connected so commitment work makes sense on sight.' }}</p>
+    {% if c1 and c1['items'] %}
+      {{ rows(c1['items'], 'Topic', 'This is the context that keeps the evidence attached to real office work.') }}
+    {% endif %}
+  </section>
+</section>
+{% else %}
+<section class="console-stage">
+  <section class="console-panel">
+    <div class="console-kicker">{{ console_title }}</div>
+    <h2>{{ c0.title if c0 else console_title }}</h2>
+    <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
+    {% if c0 and c0['items'] %}
+      {{ rows(c0['items'], 'Open') }}
+    {% endif %}
+  </section>
+  <aside class="console-focus">
+    <div>
+      <div class="console-kicker">Supporting lane</div>
+      <h2>{{ c1.title if c1 else 'Current supporting work' }}</h2>
+      <p class="console-copy">{{ c1.body if c1 and c1.body else 'Use the side lane for work that supports the main page instead of repeating the same dashboard structure everywhere.' }}</p>
+    </div>
+    {% if console_form and console_form.fields %}
+    <div class="console-callout">
+      <div class="console-kicker">{{ console_form.get('eyebrow') or 'Search' }}</div>
+      {% if console_form.get('title') %}<h2>{{ console_form.get('title') }}</h2>{% endif %}
+      {% if console_form.get('copy') %}<p class="console-copy">{{ console_form.get('copy') }}</p>{% endif %}
+      <form
+        class="console-form"
+        method="{{ console_form.get('method') or 'get' }}"
+        action="{{ console_form.get('action') or request.url.path }}"
+        {% if console_form.get('variant') %}data-console-form-variant="{{ console_form.get('variant') }}"{% endif %}
+        {% if console_form.get('meta') %}data-console-form-meta='{{ console_form.get("meta")|tojson }}'{% endif %}
+      >
+        <div class="console-field-grid">
+          {% for field in console_form.get('fields') or [] %}
+          <label class="console-field">
+            <span>{{ field.label }}</span>
+            {% if field.type == 'number' %}
+            <input
+              type="number"
+              name="{{ field.name }}"
+              value="{{ field.value or '' }}"
+              {% if field.min %}min="{{ field.min }}"{% endif %}
+              {% if field.max %}max="{{ field.max }}"{% endif %}
+            >
+            {% elif field.type == 'select' %}
+            <select name="{{ field.name }}">
+              {% for option in field.options or [] %}
+              <option value="{{ option.value }}" {% if (field.value or '') == (option.value or '') %}selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+            {% elif field.type == 'checkbox' %}
+            <input
+              type="checkbox"
+              name="{{ field.name }}"
+              value="{{ field.value or 'true' }}"
+              {% if field.checked %}checked{% endif %}
+            >
+            {% elif field.type == 'checkbox_group' %}
+            <div class="console-choice-grid">
+              {% for option in field.options or [] %}
+              {% set option_value = option.get('value') or '' %}
+              <label class="console-choice">
+                <input
+                  type="checkbox"
+                  name="{{ field.name }}"
+                  value="{{ option_value }}"
+                  {% if option_value in (field.get('values') or []) %}checked{% endif %}
+                >
+                <span>
+                  <span class="console-choice-label">{{ option.get('label') }}</span>
+                  {% if option.get('detail') or option.get('description') %}
+                  <span class="console-choice-detail">{{ option.get('detail') or option.get('description') }}</span>
+                  {% endif %}
+                </span>
+              </label>
+              {% endfor %}
+            </div>
+            {% else %}
+            <input
+              type="{{ field.type or 'text' }}"
+              name="{{ field.name }}"
+              value="{{ field.value or '' }}"
+              {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}
+            >
+            {% endif %}
+          </label>
+          {% endfor %}
+        </div>
+        {% if console_form.get('variant') == 'property_search' %}
+        {% set property_meta = console_form.get('meta') or {} %}
+        {% set commercial = property_meta.get('commercial') or {} %}
+        {% set plan_catalog = commercial.get('plan_catalog') or [] %}
+        {% if request.query_params.get('billing') %}
+        <div class="console-callout">
+          {% if request.query_params.get('billing') == 'success' %}
+          Payment captured. The {{ request.query_params.get('plan') or 'paid' }} plan is now active.
+          {% elif request.query_params.get('billing') == 'cancelled' %}
+          Payment was cancelled. The property workspace stays on the current plan.
+          {% endif %}
+        </div>
+        {% endif %}
+        <section class="console-plan-card current">
+          <div class="console-plan-kicker">Current property plan</div>
+          <strong>{{ commercial.get('current_plan_label') or 'Free' }}</strong>
+          <small class="console-run-note">
+            {{ commercial.get('research_depth') or 'shallow' }} research
+            {% if commercial.get('active_until') %} | active until {{ commercial.get('active_until') }}{% endif %}
+          </small>
+          <small class="console-run-note">
+            {{ commercial.get('max_platforms') or 1 }} platform{{ '' if (commercial.get('max_platforms') or 1) == 1 else 's' }}
+            | up to {{ commercial.get('max_results_per_source') or 2 }} results per source
+          </small>
+          <div class="console-inline-status" data-property-billing-status></div>
+          <div class="console-inline-error" data-property-billing-error></div>
+        </section>
+        {% if plan_catalog %}
+        <div class="console-billing-grid">
+          {% for plan in plan_catalog %}
+          <section class="console-plan-card{% if plan.get('is_current') %} current{% endif %}">
+            <div class="console-plan-kicker">{{ plan.get('display_name') }}</div>
+            <strong>{{ plan.get('checkout_label') }}</strong>
+            <ul>
+              {% for feature in plan.get('features') or [] %}
+              <li>{{ feature }}</li>
+              {% endfor %}
+            </ul>
+            {% if property_meta.get('paypal_checkout_enabled') and plan.get('plan_key') != 'free' and not plan.get('is_current') %}
+            <button class="console-action" type="button" data-property-upgrade="{{ plan.get('plan_key') }}">{{ plan.get('display_name') }} checkout</button>
+            {% endif %}
+          </section>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <div class="console-inline-status" data-property-inline-status></div>
+        <div class="console-inline-error" data-property-inline-error></div>
+        <div class="console-action-row">
+          <button class="console-action" type="button" data-property-save>Save defaults</button>
+          <button class="console-action" type="button" data-property-start>{{ console_form.get('submit_label') or 'Start search' }}</button>
+        </div>
+        <section class="console-progress" data-property-run hidden>
+          <div class="console-run-meta">
+            <div class="console-run-status" data-property-run-status>Queued</div>
+            <div class="console-run-note" data-property-run-message></div>
+            <div class="console-progress-track">
+              <div class="console-progress-fill" data-property-run-progress></div>
+            </div>
+            <div class="console-run-note" data-property-run-summary></div>
+          </div>
+          <div class="console-run-sources" data-property-run-sources></div>
+          <div class="console-run-events" data-property-run-events></div>
+        </section>
+        {% set shortlist_candidates = property_meta.get('shortlist_candidates') or [] %}
+        {% if shortlist_candidates %}
+        <section class="property-shortlist-grid" data-property-shortlist-grid>
+          {% for candidate in shortlist_candidates %}
+          <article
+            class="property-shortlist-card"
+            data-property-card
+            data-property-payload='{{ candidate|tojson|safe }}'
+            data-feedback-person-id='{{ property_meta.get("feedback_person_id") or "self" }}'
+          >
+            <div class="property-shortlist-head">
+              <div>
+                <strong>{{ candidate.get('title') }}</strong>
+                <div class="property-shortlist-meta" data-property-fit-summary>{{ candidate.get('source_label') }} | {{ candidate.get('fit_summary') or candidate.get('detail') }}</div>
+              </div>
+              <span class="console-tag" data-property-tag>{{ candidate.get('tag') or 'Candidate' }}</span>
+            </div>
+            {% if candidate.get('detail') %}
+            <div class="property-shortlist-copy">{{ candidate.get('detail') }}</div>
+            {% endif %}
+            <div class="property-shortlist-reasons">
+              {% if candidate.get('match_reasons') %}
+              <ul>
+                {% for reason in candidate.get('match_reasons') or [] %}
+                <li>{{ reason }}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+              {% if candidate.get('mismatch_reasons') %}
+              <ul>
+                {% for reason in candidate.get('mismatch_reasons') or [] %}
+                <li>{{ reason }}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+            </div>
+            <div class="console-row-actions">
+              {% if candidate.get('review_url') %}
+              <a class="console-action" href="{{ candidate.get('review_url') }}">Review packet</a>
+              {% endif %}
+              {% if candidate.get('tour_url') %}
+              <a class="console-action" href="{{ candidate.get('tour_url') }}">Open 360</a>
+              {% endif %}
+              {% if candidate.get('property_url') %}
+              <a class="console-action" href="{{ candidate.get('property_url') }}">Source</a>
+              {% endif %}
+            </div>
+            <div class="property-feedback-row">
+              <button class="property-feedback-chip" type="button" data-feedback-reaction="like">Like</button>
+              <button class="property-feedback-chip" type="button" data-feedback-reaction="maybe">Maybe</button>
+              <button class="property-feedback-chip" type="button" data-feedback-reaction="dislike">Dislike</button>
+              <button class="property-feedback-chip" type="button" data-feedback-reaction="hide">Hide</button>
+            </div>
+            <div class="property-feedback-reasons" data-feedback-reasons></div>
+            <textarea class="property-feedback-note" rows="3" placeholder="What exactly worked or failed?" data-feedback-note></textarea>
+            <div class="console-row-actions">
+              <button class="console-action" type="button" data-feedback-save>Save feedback</button>
+            </div>
+            <div class="property-feedback-status" data-feedback-status></div>
+          </article>
+          {% endfor %}
+        </section>
+        {% endif %}
+        {% else %}
+        <button class="console-action" type="submit">{{ console_form.get('submit_label') or 'Save' }}</button>
+        {% endif %}
+      </form>
+    </div>
+    {% endif %}
+    {% if c1 and c1['items'] %}
+      {{ rows(c1['items'], 'Review', 'Secondary work stays easy to clear.') }}
+    {% endif %}
+  </aside>
+</section>
+{% endif %}
+
+{% if extra_cards %}
+<section class="console-section-grid">
+  {% for card in extra_cards if card %}
+  {% set is_property_learning_card = current_nav == 'properties' and (card.eyebrow or '') == 'Learning loop' %}
+  <section class="console-section"{% if is_property_learning_card %} data-property-learning-card{% endif %}>
+    <div class="console-kicker">{{ card.eyebrow if card.eyebrow else 'Workspace' }}</div>
+    <h2>{{ card.title }}</h2>
+    {% if card.body %}<p class="console-copy">{{ card.body }}</p>{% endif %}
+    {% if card['items'] %}
+      {% if is_property_learning_card %}<div data-property-learning-list>{% endif %}
+      {{ rows(card['items'], 'Open', 'Presented as part of the same daily loop.') }}
+      {% if is_property_learning_card %}</div>{% endif %}
+    {% endif %}
+  </section>
+  {% endfor %}
+</section>
+{% endif %}
+
+<script>
+(() => {
+  const forms = [...document.querySelectorAll('[data-console-form-variant="property_search"]')];
+  if (!forms.length) return;
+
+  const terminalStates = new Set(['processed', 'failed', 'noop', 'cancelled']);
+
+  const escapeHtml = (value) => String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+
+  const fieldValue = (form, name) => {
+    const node = form.querySelector(`[name="${name}"]`);
+    return node ? String(node.value || '').trim() : '';
+  };
+
+  const integerValue = (form, name) => {
+    const raw = fieldValue(form, name);
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+
+  const selectedPlatformsForForm = (form) => [...form.querySelectorAll('input[name="selected_platforms"]:checked')]
+    .map((node) => String(node.value || '').trim())
+    .filter(Boolean);
+
+  const renderPlatformOptions = (form, options, selectedValues) => {
+    const inputs = [...form.querySelectorAll('input[name="selected_platforms"]')];
+    const grid = inputs[0]?.closest('.console-choice-grid');
+    if (!grid) return;
+    const nextSelected = new Set((selectedValues || []).filter(Boolean));
+    grid.innerHTML = (Array.isArray(options) ? options : []).map((option) => {
+      const value = String(option.value || '').trim();
+      const label = String(option.label || value || 'Platform').trim();
+      const detail = String(option.detail || option.description || '').trim();
+      return `
+        <label class="console-choice">
+          <input type="checkbox" name="selected_platforms" value="${value}" ${nextSelected.has(value) ? 'checked' : ''}>
+          <span>
+            <span class="console-choice-label">${label}</span>
+            ${detail ? `<span class="console-choice-detail">${detail}</span>` : ''}
+          </span>
+        </label>`;
+    }).join('');
+  };
+
+  const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
+  const propertyFeedbackSaveEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback`;
+
+  const titleCase = (value) => String(value || '')
+    .replaceAll('_', ' ')
+    .trim()
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+
+  const propertyFitScoreLabel = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return '';
+    const score = numeric <= 1 ? Math.round(numeric * 100) : Math.round(numeric);
+    return `${score}/100`;
+  };
+
+  const learningSummaryRows = (summary) => {
+    const likes = Array.isArray(summary?.likes) ? summary.likes.slice(0, 4) : [];
+    const dislikes = Array.isArray(summary?.dislikes) ? summary.dislikes.slice(0, 4) : [];
+    const hardRules = Array.isArray(summary?.hard_rules) ? summary.hard_rules.slice(0, 3) : [];
+    const recentFeedback = Array.isArray(summary?.recent_feedback) ? summary.recent_feedback.slice(0, 4) : [];
+    const rows = [];
+    for (const entry of likes) {
+      const text = String(entry || '').trim();
+      if (text) rows.push({ title: text, detail: 'Learned positive preference from explicit filters or listing feedback.', tag: 'Learnt' });
+    }
+    for (const entry of dislikes) {
+      const text = String(entry || '').trim();
+      if (text) rows.push({ title: text, detail: 'Negative preference that should suppress future shortlist candidates.', tag: 'Avoid' });
+    }
+    for (const entry of hardRules) {
+      const text = String(entry || '').trim();
+      if (text) rows.push({ title: text, detail: 'Hard rule that should fail or demote mismatching listings.', tag: 'Rule' });
+    }
+    if (rows.length) return rows;
+    for (const entry of recentFeedback) {
+      const reasons = Array.isArray(entry?.reasons) ? entry.reasons.slice(0, 3).map((item) => String(item || '').trim()).filter(Boolean).join(', ') : '';
+      const note = String(entry?.note || '').trim();
+      const recordedAt = String(entry?.recorded_at || '').trim().slice(0, 10);
+      const detail = [reasons, note, recordedAt].filter(Boolean).join(' | ') || 'Structured feedback recorded.';
+      rows.push({
+        title: titleCase(entry?.reaction || 'feedback'),
+        detail,
+        tag: 'Feedback',
+      });
+    }
+    if (rows.length) return rows;
+    return [{
+      title: 'No learned preferences yet',
+      detail: 'Use the hosted review packets to record feedback. The learned likes, dislikes, and hard rules will surface here.',
+      tag: 'Waiting',
+    }];
+  };
+
+  const renderConsoleRows = (items) => {
+    const rows = Array.isArray(items) ? items : [];
+    return `<div class="console-list">${rows.map((item) => `
+      <div class="console-row">
+        <div>
+          <strong>${escapeHtml(item.title || item.label || 'Open item')}</strong>
+          <small>${escapeHtml(item.detail || 'Presented as part of the same daily loop.')}</small>
+        </div>
+        <div class="console-row-actions">
+          <div class="console-tag">${escapeHtml(item.tag || 'Open')}</div>
+        </div>
+      </div>`).join('')}</div>`;
+  };
+
+  const refreshLearningSummary = (form, learningSummary) => {
+    const stage = form.closest('.console-stage')?.parentElement || document;
+    const listNode = stage.querySelector('[data-property-learning-list]');
+    if (!listNode) return;
+    listNode.innerHTML = renderConsoleRows(learningSummaryRows(learningSummary || {}));
+  };
+
+  const applyUpdatedAssessment = (card, assessment) => {
+    if (!card || !assessment || typeof assessment !== 'object') return;
+    const tagNode = card.querySelector('[data-property-tag]');
+    const metaNode = card.querySelector('[data-property-fit-summary]');
+    const scoreLabel = propertyFitScoreLabel(assessment.fit_score);
+    const recommendation = titleCase(assessment.recommendation || assessment.predicted_reaction || 'candidate');
+    const matchReasons = Array.isArray(assessment.match_reasons_json) ? assessment.match_reasons_json : [];
+    const mismatchReasons = Array.isArray(assessment.mismatch_reasons_json) ? assessment.mismatch_reasons_json : [];
+    const primaryReason = String(matchReasons[0] || mismatchReasons[0] || '').trim();
+    if (tagNode && recommendation) {
+      tagNode.textContent = recommendation;
+    }
+    if (metaNode) {
+      const sourceLabel = String((metaNode.textContent || '').split('|')[0] || '').trim();
+      const parts = [];
+      if (sourceLabel) parts.push(sourceLabel);
+      if (scoreLabel) parts.push(`Personal fit ${scoreLabel}`);
+      if (recommendation) parts.push(recommendation);
+      if (primaryReason) parts.push(primaryReason);
+      metaNode.textContent = parts.join(' | ');
+    }
+  };
+
+  const collectPayload = (form) => {
+    const selectedPlatforms = selectedPlatformsForForm(form);
+    const parsedMaxResults = integerValue(form, 'max_results_per_source');
+    return {
+      selected_platforms: selectedPlatforms,
+      property_preferences: {
+        selected_platforms: selectedPlatforms,
+        country_code: fieldValue(form, 'country_code') || 'AT',
+        language_code: fieldValue(form, 'language_code') || 'en',
+        listing_mode: fieldValue(form, 'listing_mode') || 'rent',
+        property_type: fieldValue(form, 'property_type') || 'any',
+        location_query: fieldValue(form, 'location_query'),
+        keywords: fieldValue(form, 'keywords'),
+        preference_person_id: fieldValue(form, 'preference_person_id') || 'self',
+        max_price_eur: integerValue(form, 'max_price_eur'),
+        min_rooms: integerValue(form, 'min_rooms'),
+        min_area_m2: integerValue(form, 'min_area_m2'),
+        max_results_per_source: parsedMaxResults,
+      },
+      force_refresh: form.querySelector('input[name="force_refresh"]')?.checked || false,
+      max_results_per_source: parsedMaxResults,
+    };
+  };
+
+  const renderRun = (form, payload) => {
+    const panel = form.querySelector('[data-property-run]');
+    const statusNode = form.querySelector('[data-property-run-status]');
+    const messageNode = form.querySelector('[data-property-run-message]');
+    const progressNode = form.querySelector('[data-property-run-progress]');
+    const summaryNode = form.querySelector('[data-property-run-summary]');
+    const sourceNode = form.querySelector('[data-property-run-sources]');
+    const eventsNode = form.querySelector('[data-property-run-events]');
+    if (!panel || !statusNode || !messageNode || !progressNode || !summaryNode || !sourceNode || !eventsNode) return;
+
+    if (!payload || !Object.keys(payload).length) {
+      panel.hidden = true;
+      sourceNode.innerHTML = '';
+      eventsNode.innerHTML = '';
+      return;
+    }
+
+    panel.hidden = false;
+    const summary = payload.summary || {};
+    const progress = Math.max(0, Math.min(100, Number(payload.progress || 0)));
+    statusNode.textContent = `Status: ${String(payload.status || 'queued').replaceAll('_', ' ')}`;
+    messageNode.textContent = String(payload.message || 'Queued for execution.');
+    progressNode.style.width = `${progress}%`;
+    summaryNode.textContent = `${progress}% complete | ${Number(summary.sources_total || 0)} sources | ${Number(summary.listing_total || 0)} listings | ${Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0)} hosted tours`;
+
+    const sources = Array.isArray(summary.sources) ? summary.sources : [];
+    sourceNode.innerHTML = sources.slice(0, 6).map((source) => {
+      const label = String(source.source_label || source.source_url || 'Source');
+      const detail = [
+        `${Number(source.listing_total || 0)} listings`,
+        `${Number(source.high_fit_total || 0)} high-fit`,
+        `${Number(source.tour_created_total || 0)} new tours`,
+        `${Number(source.notified_total || 0)} client alerts`,
+        Number(source.email_notified_total || 0) > 0 ? `${Number(source.email_notified_total || 0)} email` : '',
+      ].filter(Boolean).join(' | ');
+      return `<div class="console-row"><div><strong>${label}</strong><small>${detail}</small></div><span class="console-tag">Scanned</span></div>`;
+    }).join('');
+
+    const events = Array.isArray(payload.events) ? payload.events : [];
+    eventsNode.innerHTML = events.slice(-5).reverse().map((event) => {
+      const step = String(event.step || 'update').replaceAll('_', ' ');
+      const detail = String(event.message || '').trim() || 'No detail';
+      const tag = String(event.status || 'queued').replaceAll('_', ' ');
+      return `<div class="console-row"><div><strong>${step}</strong><small>${detail}</small></div><span class="console-tag">${tag}</span></div>`;
+    }).join('');
+  };
+
+  const savePreferences = async (form, meta, payload) => {
+    const statusNode = form.querySelector('[data-property-inline-status]');
+    const errorNode = form.querySelector('[data-property-inline-error]');
+    if (statusNode) statusNode.textContent = 'Saving defaults…';
+    if (errorNode) errorNode.textContent = '';
+    const response = await fetch(String(meta.preferences_endpoint || ''), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload.property_preferences),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(String(body.detail || 'Could not save property search defaults.'));
+    }
+    if (statusNode) statusNode.textContent = 'Defaults saved.';
+    return body;
+  };
+
+  const startCheckout = async (form, meta, planKey) => {
+    const statusNode = form.querySelector('[data-property-billing-status]');
+    const errorNode = form.querySelector('[data-property-billing-error]');
+    if (statusNode) statusNode.textContent = 'Opening PayPal checkout…';
+    if (errorNode) errorNode.textContent = '';
+    const response = await fetch(String(meta.paypal_order_endpoint || ''), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ plan_key: planKey }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(String(body.detail || 'Could not start PayPal checkout.'));
+    }
+    if (statusNode) statusNode.textContent = 'Redirecting to PayPal…';
+    const approveUrl = String(body.approve_url || '').trim();
+    if (!approveUrl) {
+      throw new Error('PayPal approval URL missing.');
+    }
+    window.location.href = approveUrl;
+  };
+
+  const pollRun = async (form, statusUrl) => {
+    if (!statusUrl) return;
+    while (true) {
+      const response = await fetch(statusUrl, { headers: { accept: 'application/json' } });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(body.detail || 'Could not load property search status.'));
+      }
+      renderRun(form, body);
+      if (terminalStates.has(String(body.status || '').trim())) {
+        return body;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+    }
+  };
+
+  for (const form of forms) {
+    const metaRaw = String(form.getAttribute('data-console-form-meta') || '').trim();
+    let meta = {};
+    try {
+      meta = metaRaw ? JSON.parse(metaRaw) : {};
+    } catch (_error) {
+      meta = {};
+    }
+    const countryField = form.querySelector('select[name="country_code"]');
+    if (countryField) {
+      countryField.addEventListener('change', () => {
+        const catalog = meta.platform_catalog_by_country || {};
+        const defaultLanguageByCountry = meta.default_language_by_country || {};
+        const selectedCountry = String(countryField.value || '').trim();
+        const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
+        const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, 4);
+        const languageField = form.querySelector('select[name="language_code"]');
+        const nextLanguage = String(defaultLanguageByCountry[selectedCountry] || '').trim();
+        renderPlatformOptions(form, options, defaultSelection);
+        if (languageField && nextLanguage) {
+          languageField.value = nextLanguage;
+        }
+      });
+    }
+    renderRun(form, meta.initial_run || {});
+
+    form.querySelector('[data-property-save]')?.addEventListener('click', async () => {
+      const payload = collectPayload(form);
+      try {
+        await savePreferences(form, meta, payload);
+      } catch (error) {
+        const errorNode = form.querySelector('[data-property-inline-error]');
+        const statusNode = form.querySelector('[data-property-inline-status]');
+        if (statusNode) statusNode.textContent = '';
+        if (errorNode) errorNode.textContent = error instanceof Error ? error.message : 'Could not save property search defaults.';
+      }
+    });
+
+    form.querySelector('[data-property-start]')?.addEventListener('click', async () => {
+      const statusNode = form.querySelector('[data-property-inline-status]');
+      const errorNode = form.querySelector('[data-property-inline-error]');
+      const payload = collectPayload(form);
+      try {
+        await savePreferences(form, meta, payload);
+        if (statusNode) statusNode.textContent = 'Starting crawl…';
+        if (errorNode) errorNode.textContent = '';
+        const response = await fetch(String(meta.start_endpoint || ''), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(String(body.detail || 'Could not start property search.'));
+        }
+        renderRun(form, body);
+        if (statusNode) statusNode.textContent = 'Crawl running…';
+        const finalBody = await pollRun(form, String(body.status_url || ''));
+        if (statusNode) statusNode.textContent = terminalStates.has(String(finalBody.status || '').trim())
+          ? 'Crawl finished.'
+          : 'Crawl updated.';
+        if (finalBody && finalBody.run_id) {
+          const url = new URL(window.location.href);
+          url.searchParams.set('run_id', String(finalBody.run_id));
+          window.history.replaceState({}, '', url.toString());
+        }
+      } catch (error) {
+        if (statusNode) statusNode.textContent = '';
+        if (errorNode) errorNode.textContent = error instanceof Error ? error.message : 'Could not start property search.';
+      }
+    });
+
+    for (const button of [...form.querySelectorAll('[data-property-upgrade]')]) {
+      button.addEventListener('click', async () => {
+        const planKey = String(button.getAttribute('data-property-upgrade') || '').trim();
+        if (!planKey) return;
+        try {
+          await startCheckout(form, meta, planKey);
+        } catch (error) {
+          const errorNode = form.querySelector('[data-property-billing-error]');
+          const statusNode = form.querySelector('[data-property-billing-status]');
+          if (statusNode) statusNode.textContent = '';
+          if (errorNode) errorNode.textContent = error instanceof Error ? error.message : 'Could not start PayPal checkout.';
+        }
+      });
+    }
+
+    for (const card of [...form.querySelectorAll('[data-property-card]')]) {
+      let payload = {};
+      try {
+        payload = JSON.parse(String(card.getAttribute('data-property-payload') || '{}'));
+      } catch (_error) {
+        payload = {};
+      }
+      const personId = String(card.getAttribute('data-feedback-person-id') || meta.feedback_person_id || 'self').trim() || 'self';
+      const reasonsNode = card.querySelector('[data-feedback-reasons]');
+      const statusNode = card.querySelector('[data-feedback-status]');
+      const noteNode = card.querySelector('[data-feedback-note]');
+      const reactionButtons = [...card.querySelectorAll('[data-feedback-reaction]')];
+      const saveButton = card.querySelector('[data-feedback-save]');
+      let selectedReaction = '';
+      const selectedReasonKeys = new Set();
+
+      const renderReasonChips = (suggestions) => {
+        if (!reasonsNode) return;
+        const rows = []
+          .concat(Array.isArray(suggestions?.positive) ? suggestions.positive : [])
+          .concat(Array.isArray(suggestions?.negative) ? suggestions.negative : []);
+        reasonsNode.innerHTML = rows.map((row) => {
+          const key = String(row.key || '').trim();
+          const label = String(row.label || key || 'Reason').trim();
+          return `<button class="property-feedback-chip" type="button" data-feedback-reason="${key}">${label}</button>`;
+        }).join('');
+        for (const chip of [...reasonsNode.querySelectorAll('[data-feedback-reason]')]) {
+          chip.addEventListener('click', () => {
+            const key = String(chip.getAttribute('data-feedback-reason') || '').trim();
+            if (!key) return;
+            if (selectedReasonKeys.has(key)) {
+              selectedReasonKeys.delete(key);
+              chip.classList.remove('active');
+            } else {
+              selectedReasonKeys.add(key);
+              chip.classList.add('active');
+            }
+          });
+        }
+      };
+
+      const loadSuggestions = async () => {
+        if (!reasonsNode) return;
+        try {
+          const response = await fetch(propertyFeedbackReasonsEndpoint(personId), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              property_facts: payload.property_facts || {},
+              assessment: payload.assessment || {},
+            }),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(String(body.detail || 'Could not load feedback suggestions.'));
+          renderReasonChips(body);
+        } catch (_error) {
+          reasonsNode.innerHTML = '';
+        }
+      };
+
+      for (const button of reactionButtons) {
+        button.addEventListener('click', () => {
+          selectedReaction = String(button.getAttribute('data-feedback-reaction') || '').trim();
+          for (const candidateButton of reactionButtons) {
+            candidateButton.classList.toggle('active', candidateButton === button);
+          }
+        });
+      }
+
+      saveButton?.addEventListener('click', async () => {
+        if (!statusNode) return;
+        if (!selectedReaction) {
+          statusNode.textContent = 'Choose a reaction first.';
+          return;
+        }
+        statusNode.textContent = 'Saving feedback…';
+        try {
+          const response = await fetch(propertyFeedbackSaveEndpoint(personId), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              property_slug: '',
+              property_url: String(payload.property_url || '').trim(),
+              property_title: String(payload.title || '').trim(),
+              property_facts: payload.property_facts || {},
+              reaction: selectedReaction,
+              reason_keys: [...selectedReasonKeys],
+              note: noteNode ? String(noteNode.value || '').trim() : '',
+            }),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(String(body.detail || 'Could not save feedback.'));
+          refreshLearningSummary(form, body.learning_summary || {});
+          applyUpdatedAssessment(card, body.updated_assessment || {});
+          statusNode.textContent = 'Saved. Learning loop updated.';
+        } catch (error) {
+          statusNode.textContent = error instanceof Error ? error.message : 'Could not save feedback.';
+        }
+      });
+
+      loadSuggestions();
+    }
+  }
+})();
+</script>
+{% endblock %}

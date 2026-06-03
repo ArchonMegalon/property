@@ -1,11 +1,69 @@
-.DS_Store
+# Local environment and secrets
 .env
 .env.*
-.venv/
-node_modules/
-dist/
-build/
-.pytest_cache/
+!.env.example
+!.env.local.example
+*.pem
+*.key
+*.ovpn
+
+# Python cache/artifacts
 __pycache__/
-coverage/
+*.py[cod]
+.venv/
+
+# Local runtime data
+attachments/
+logs/
+daemon-gogcli-config/
+data-*/
+*.log
+config/*.local.yml
+config/onemin_api_keys.local.json
+config/onemin_slot_owners.local.json
 artifacts/
+_completion/
+ea/.venv-openvoice/
+ea/.models/
+ea/.micromamba/
+ea/.piper/
+ea/third_party/
+memorial_data/
+
+# Editor/OS noise
+.DS_Store
+.idea/
+.vscode/
+.codex/
+
+# Agent-local memory and work queue
+.codex/memories/
+.codex/work_queue/
+TASKS_WORK_LOG.md
+TASKS_ARCHIVE.md
+
+# Generated audit noise
+feedback/*audit-task-*.md
+feedback/*github-checks-pr.md
+feedback/*github-review-pr.md
+
+# Local smoke/test scratch
+.smoke_tmp/
+api_rewrite_artifact_details.json
+combined_sort_seed.json
+multi_priority_filter_seed.json
+output.json
+priority_summary.json
+priority_summary_seed.json
+priority_summary_seed_references.json
+task_complete.json
+work_summary.json
+
+# Local design/archive drops
+executive_assistant_quiet_dark_pack.zip
+ASSISTANT_PUBLIC_FACE_IMPLEMENTATION_RFC.md
+HANDOFF_NEXT_SESSION.md
+decision_brief.md
+
+# Local runtime proxy pool secrets
+state/fastestvpn-proxy-pool/

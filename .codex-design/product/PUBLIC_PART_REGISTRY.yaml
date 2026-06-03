@@ -1,0 +1,132 @@
+product: chummer
+version: 1
+purpose: Public-safe summaries for Chummer6 part pages.
+parts:
+  - id: design
+    title: Design
+    public_tagline: The long-range product map and decision filter.
+    you_touch_this_when: "You want the bigger picture: what is already real, what is still coming, or where to click next after the front page."
+    why_you_care: It keeps the big story straight so the main pages, future ideas, and release notes do not contradict each other.
+    what_you_notice:
+      - clearer labels about what is real now, what is preview, and what is still future-facing
+      - a stable big-picture explanation before you dive into code or implementation detail
+      - one place that keeps the main pages and future ideas aligned
+    public_noteworthy_limits:
+      - you should not need this first for normal use
+      - it is the map, not the running software
+    current_truth: Design currently drives the public story, the roadmap pages, and the line between simple reader-facing pages and deeper technical material.
+    go_deeper_links:
+      - ../NOW/current-status.md
+      - ../WHERE_TO_GO_DEEPER.md
+  - id: core
+    title: Core
+    public_tagline: The deterministic rules engine.
+    you_touch_this_when: A number looks wrong, a modifier needs explaining, or you want proof instead of vibe-based tool behavior.
+    why_you_care: This is where Chummer earns trust. If the math cannot be reproduced and explained here, the rest of the product becomes expensive theater.
+    what_you_notice:
+      - reproducible rules outcomes
+      - readable receipts for why a pool or result changed
+      - a cleaner split between rules math and the extra features layered around it
+    public_noteworthy_limits:
+      - this is not the online account or update side
+      - this is not the table-side play view by itself
+    current_truth: Core already anchors the rules engine, and the current work is about keeping it strict enough that explain, play, and sync features can rely on it.
+    go_deeper_links:
+      - ../WHAT_CHUMMER6_IS.md
+      - ../WHERE_TO_GO_DEEPER.md
+  - id: ui
+    title: UI
+    public_tagline: The detailed character-building and inspection view.
+    you_touch_this_when: You want the deeper build view, comparison tools, or the place where you can inspect why a result changed.
+    why_you_care: This is where Chummer stops feeling opaque and starts feeling readable.
+    what_you_notice:
+      - larger build and review views
+      - clearer build inspectors and comparison flows
+      - a stronger distinction between deep prep and live table use
+    public_noteworthy_limits:
+      - this is not the player-first table view
+      - some workbench polish is still catching up to the cleaner split
+    current_truth: UI already handles the heavy build view, and current cleanup work is about keeping that power without letting it turn into the table-side or hosted experience.
+    go_deeper_links:
+      - ../START_HERE.md
+      - ../WHERE_TO_GO_DEEPER.md
+  - id: mobile
+    title: Mobile
+    public_tagline: The table-side companion you feel during play.
+    you_touch_this_when: You care about actual play, reconnecting across devices, or surviving a bad signal without losing the session.
+    why_you_care: This is the jump from prep software to software that can stay useful while a real session is happening.
+    what_you_notice:
+      - stronger local-first and offline-ready behavior
+      - session continuity instead of fragile single-device assumptions
+      - a table-facing companion that is separate from the heavy workbench view
+    public_noteworthy_limits:
+      - this is still the next major boundary to finish cleanly
+      - the session stack is still deepening around cache, replay, and recovery polish
+    current_truth: Mobile is where the live-session promise becomes real, and the current work is about event logs, cache, replay, and sync rather than cosmetic flash.
+    go_deeper_links:
+      - ../NOW/public-surfaces.md
+      - ../WHERE_TO_GO_DEEPER.md
+  - id: hub
+    title: Hub
+    public_tagline: The online side that keeps sign-in, coordination, and community features boring.
+    you_touch_this_when: You sign in, sync across devices, follow what is coming next, or use participation and recognition features.
+    why_you_care: It keeps accounts, shared coordination, and community features from turning into manual glue work.
+    what_you_notice:
+      - sign-in and account pages
+      - public landing, home, and participation entry points
+      - shared coordination, release status, and recognition views that make sense without learning the plumbing behind them
+    public_noteworthy_limits:
+      - it is not the rules engine
+      - some deeper support and admin screens are still being simplified
+    current_truth: Hub already powers sign-in, landing and home views, participation, and community features, and it is still getting simpler behind the scenes.
+    go_deeper_links:
+      - ../NOW/current-status.md
+      - ../WHERE_TO_GO_DEEPER.md
+  - id: ui-kit
+    title: UI Kit
+    public_tagline: The shared visual vocabulary.
+    you_touch_this_when: You notice the product feeling more coherent instead of looking like unrelated tools wearing matching coats by accident.
+    why_you_care: Shared visual primitives keep the split from feeling like several products pretending to be one.
+    what_you_notice:
+      - more consistent chrome, badges, banners, and dense-data presentation
+      - fewer one-off UI reinventions from page to page
+      - stronger accessibility and a reusable component system
+    public_noteworthy_limits:
+      - it is shared design infrastructure, not a standalone app
+      - it only counts when the other heads visibly get smaller because it exists
+    current_truth: UI Kit is real enough to matter, and the next proof is whether the rest of the product can use it instead of rebuilding the same visual pieces over and over.
+    go_deeper_links:
+      - ../NOW/current-status.md
+      - ../WHERE_TO_GO_DEEPER.md
+  - id: hub-registry
+    title: Hub Registry
+    public_tagline: The release shelf, install record, and compatibility record.
+    you_touch_this_when: You care about what exists, what can be installed, what is published, or whether a release file can be trusted and reused.
+    why_you_care: Without this, release files turn into a warehouse full of unlabeled boxes and compatibility folklore.
+    what_you_notice:
+      - cleaner release metadata and publication status
+      - a more believable path from preview outputs to shareable or installable files
+      - compatibility and moderation signals that can stay on the record
+    public_noteworthy_limits:
+      - this is not the media studio
+      - this is not the rules engine
+    current_truth: Hub Registry is the growing record for published releases and compatibility, and it becomes more visible as the public release story gets richer.
+    go_deeper_links:
+      - ../NOW/public-surfaces.md
+      - ../WHERE_TO_GO_DEEPER.md
+  - id: media-factory
+    title: Media Factory
+    public_tagline: The dedicated media studio.
+    you_touch_this_when: You care about finished images, teaser media, dossiers, narrated packets, or other polished outputs that still need clear proof of where the material came from.
+    why_you_care: This is how the product can look finished without letting style quietly rewrite the facts.
+    what_you_notice:
+      - cleaner asset generation and preview flows
+      - a stronger line between content rendering and product meaning
+      - a path toward richer teaser and release media without forcing every product area to become its own studio
+    public_noteworthy_limits:
+      - this is not the decision-maker for what a session means
+      - it should stay focused on media production even when the outputs get more ambitious
+    current_truth: Media Factory is where polished media gets produced and curated, and the current work is about making richer outputs possible without blurring where the material came from or who owns it.
+    go_deeper_links:
+      - ../NOW/public-surfaces.md
+      - ../WHERE_TO_GO_DEEPER.md

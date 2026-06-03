@@ -1,0 +1,602 @@
+product: chummer
+surface: chummer.run
+version: 1
+cards:
+  - id: product_story
+    bucket: start_here
+    title: Build
+    summary: Create and advance a runner inside the explainable Shadowrun campaign OS.
+    href: /downloads
+    badge: Workflow
+    audience: public
+    image_family: solo_operator
+    asset_slot: capability_build_runner
+    action_label: Open downloads
+    proof_note: "Proof: a real preview build exists now, not just a story about one."
+    pain: Clean dossiers, visible tradeoffs, and no hidden modifier stack.
+    payoff: Deterministic totals stay readable before you ever take the character to the table.
+  - id: see_whats_real
+    bucket: start_here
+    title: Explain
+    summary: See exactly why the number changed and what the table should trust.
+    href: /now#real-rules-truth
+    badge: Workflow
+    audience: public
+    image_family: simulation_bench
+    asset_slot: capability_check_rules
+    action_label: Inspect a real proof trail
+    proof_note: "Proof: modifier trail, source trace, and repeatable output stay visible together."
+    pain: Follow receipts, source traces, and modifier trails instead of arguing from vibes.
+    payoff: The answer stays inspectable when somebody asks where the number came from.
+  - id: get_the_poc
+    bucket: start_here
+    title: Campaign
+    summary: Keep the session, campaign ledger, and next-session state coherent when devices or networks drift.
+    href: /now#real-mobile-prep
+    badge: Workflow
+    audience: public
+    image_family: streetfront
+    action_label: See continuity in preview
+    proof_note: "Proof: continuity survives device drift without hiding the current product limits."
+    pain: Carry the same dossier, ledger, and session state across devices without losing trust.
+    payoff: Receipt-backed continuity keeps the table moving even when the network does not cooperate.
+  - id: publish_grounded_artifacts
+    bucket: start_here
+    title: Exchange
+    summary: Move dossiers, recaps, packets, and support proof across tools without severing provenance.
+    href: /artifacts
+    badge: Workflow
+    audience: public
+    image_family: prop_cluster
+    asset_slot: lane_creator
+    action_label: See portable outputs
+    proof_note: "Proof: exchange and publication are now governed by manifests, previews, and provenance rules instead of copy-paste folklore."
+    pain: Export, support, and creator handoff usually lose context right when you need trust the most.
+    payoff: Portable outputs stay tied to manifests, compatibility, and receipts.
+  - id: improve_the_product
+    bucket: start_here
+    title: Improve
+    summary: Report pain, follow closure, and see whether the product is actually getting better.
+    href: /help
+    badge: Workflow
+    audience: public
+    image_family: archive_stair
+    action_label: Open support and feedback
+    proof_note: "Proof: support, feedback, and release truth are meant to close the loop back to users rather than disappear into a private inbox."
+    pain: Reporting a problem is useless if the product cannot route, close, and explain the outcome honestly.
+    payoff: Improvement becomes a visible loop instead of a one-way complaint box.
+  - id: deterministic_truth
+    bucket: why_trust_it
+    title: Deterministic rules truth
+    summary: No fuzzy math. Core-owned receipts stay attached to the answer.
+    href: /what-is-chummer
+    badge: Trust
+    audience: public
+    image_family: simulation_bench
+    microproof: Deterministic engine|Repeatable totals|Clean audit trail
+    pain: Engine-backed modifiers
+    payoff: Repeatable totals and clean audits
+  - id: receipts_and_provenance
+    bucket: why_trust_it
+    title: Receipts and provenance
+    summary: Every answer stays tied to visible receipts and provenance.
+    href: /now
+    badge: Proof
+    audience: public
+    image_family: dossier_desk
+    microproof: Modifier trail|Source trace|Visible evidence
+    pain: Modifier trail and source trace
+    payoff: Visible evidence instead of table arguments
+  - id: local_first_continuity
+    bucket: why_trust_it
+    title: Local-first session continuity
+    summary: The table should not panic just because the network does.
+    href: /what-is-chummer
+    badge: Continuity
+    audience: public
+    image_family: streetfront
+    microproof: Durable state|Offline posture|Clean recovery
+    pain: Durable state across devices
+    payoff: Recover the session without guessing
+  - id: lane_player
+    bucket: choose_your_lane
+    title: Player
+    summary: Build a clean dossier and understand every number.
+    href: /downloads
+    badge: Available now
+    audience: public
+    image_family: solo_operator
+    asset_slot: lane_player
+    action_label: Start with the preview build
+  - id: lane_gm
+    bucket: choose_your_lane
+    title: GM
+    summary: Run from a reliable campaign ledger, recover state, and return to the right next-session context.
+    href: /now#real-mobile-prep
+    badge: Mixed
+    audience: public
+    image_family: archive_stair
+    asset_slot: lane_gm
+    action_label: See GM-ready continuity
+  - id: lane_creator
+    bucket: choose_your_lane
+    title: Creator
+    summary: Publish primers, briefing reels, and artifact bundles with provenance.
+    href: /artifacts
+    badge: Preview lane
+    audience: public
+    image_family: prop_cluster
+    asset_slot: lane_creator
+    action_label: See creator outputs
+  - id: real_rules_truth
+    bucket: whats_real_now
+    title: Deterministic rules truth
+    summary: The explanation trail is already visible enough to inspect a real result instead of trusting a black box.
+    href: /now#real-rules-truth
+    badge: Live now
+    audience: public
+    image_family: simulation_bench
+    action_label: Inspect the proof trail
+  - id: real_public_guide
+    bucket: supporting_reads
+    title: Product guide and roadmap
+    summary: The deeper guide explains the current shape of the product and where the broader platform is still maturing.
+    href: /what-is-chummer#public-guide
+    badge: Guide
+    audience: public
+    image_family: archive_stair
+    cta_kind: route
+    render_mode: external_explainer
+    fallback_route: https://github.com/ArchonMegalon/Chummer6
+    fallback_label: Read the full guide
+    external_ok: true
+  - id: real_mobile_prep
+    bucket: whats_real_now
+    title: Local-first prep and session continuity
+    summary: Session posture already assumes devices drift, and continuity is designed to survive it.
+    href: /now#real-mobile-prep
+    badge: Inspectable
+    audience: public
+    image_family: streetfront
+    action_label: See continuity in preview
+  - id: real_mobile_projection
+    bucket: whats_real_now
+    title: Mobile projection
+    summary: Inspect the mobile and PWA projection lane without treating it as a replacement for desktop rules truth.
+    href: /mobile
+    badge: Preview lane
+    audience: public
+    image_family: streetfront
+    action_label: Open mobile projection
+  - id: real_package_browser
+    bucket: whats_real_now
+    title: Package browser
+    summary: Browse public package routes and generated proof bundles without severing first-party Chummer provenance.
+    href: /packages
+    badge: Live now
+    audience: public
+    image_family: prop_cluster
+    action_label: Browse packages
+  - id: real_release_shelf
+    bucket: whats_real_now
+    title: Preview releases, channels, and notes
+    summary: Preview releases, update channels, notes, and integrity details stay together.
+    href: /downloads#recommended-download
+    badge: Live now
+    audience: public
+    image_family: facility_exterior
+    action_label: Open the installer shelf
+  - id: horizon_nexus_pan
+    bucket: coming_next
+    title: NEXUS-PAN
+    summary: Shared state survives device churn without the table losing trust.
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/nexus-pan.md
+    badge: Preparing
+    audience: public
+    image_family: streetfront
+    detail_route: /roadmap/nexus-pan
+    render_mode: external_explainer
+    action_label: Compare with current continuity proof
+    detail_primary_href: /now#real-mobile-prep
+    detail_primary_label: Compare with current continuity proof
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/nexus-pan.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: My devices drift and the table loses confidence.
+    payoff: Shared state survives device churn without the GM rebuilding the run from memory.
+  - id: horizon_alice
+    bucket: coming_next
+    title: ALICE
+    summary: Builders get grounded what-if analysis without trusting fuzzy assistants.
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/alice.md
+    badge: Research
+    audience: public
+    image_family: simulation_bench
+    detail_route: /roadmap/alice
+    render_mode: external_explainer
+    action_label: Compare with the live proof trail
+    detail_primary_href: /now#real-rules-truth
+    detail_primary_label: Compare with the live proof trail
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/alice.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: We only discover weak builds after they explode in public.
+    payoff: Compare grounded tradeoffs with receipts instead of guesswork.
+  - id: horizon_knowledge_fabric
+    bucket: coming_next
+    title: KNOWLEDGE FABRIC
+    summary: Ask a rules question and get a grounded answer with citations and receipts.
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
+    badge: Research
+    audience: public
+    image_family: archive_stair
+    detail_route: /roadmap/knowledge-fabric
+    render_mode: external_explainer
+    action_label: Compare with the live proof trail
+    detail_primary_href: /now#real-rules-truth
+    detail_primary_label: Compare with the live proof trail
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: Rules answers are expensive, repetitive, and still easy to hallucinate.
+    payoff: Derived projections stay grounded instead of becoming assistant folklore.
+  - id: horizon_karma_forge
+    bucket: coming_next
+    title: KARMA FORGE
+    summary: Governed rules evolution without unreadable fork chaos.
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/karma-forge.md
+    badge: Research
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /roadmap/karma-forge
+    render_mode: external_explainer
+    action_label: Start KARMA FORGE discovery
+    detail_primary_href: /participate/karma-forge
+    detail_primary_label: Start KARMA FORGE discovery
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/karma-forge.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: I want house rules without forking trust.
+    payoff: Rule-pack changes carry approvals, compatibility, and rollback posture.
+  - id: horizon_jackpoint
+    bucket: coming_next
+    title: JACKPOINT
+    summary: Dossiers, recaps, and briefings that feel finished without severing provenance.
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/jackpoint.md
+    badge: Preview lane
+    audience: public
+    image_family: dossier_desk
+    detail_route: /roadmap/jackpoint
+    render_mode: external_explainer
+    action_label: See the related artifact preview
+    detail_primary_href: /artifacts/dossier-brief
+    detail_primary_label: See the related artifact preview
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/jackpoint.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: I want mission packets that do not feel like a copy-paste graveyard.
+    payoff: Grounded artifacts can feel polished without becoming fictional truth.
+    proof_note: "Proof: JACKPOINT already points at first-party dossier and mission-brief artifact previews instead of reading like an empty teaser."
+    microproof: Dossier preview|Mission-brief lane|First-party detail page
+  - id: horizon_runsite
+    bucket: coming_next
+    title: RUNSITE
+    summary: Walk the job before the team walks into it.
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runsite.md
+    badge: Preview lane
+    audience: public
+    image_family: facility_exterior
+    detail_route: /roadmap/runsite
+    render_mode: external_explainer
+    action_label: See the related artifact preview
+    detail_primary_href: /artifacts/runsite-pack
+    detail_primary_label: See the related artifact preview
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runsite.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: Spatial prep is tedious and scattered.
+    payoff: The venue becomes a visible, inspectable run surface.
+    proof_note: "Proof: RUNSITE already has a named horizon, a first-party detail page, and a concrete user payoff instead of a vague teaser."
+    microproof: Named horizon|First-party detail|Inspectable venue prep
+  - id: horizon_runbook_press
+    bucket: coming_next
+    title: RUNBOOK PRESS
+    summary: Bring new players in without the two-hour lecture.
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runbook-press.md
+    badge: Preview lane
+    audience: public
+    image_family: prop_cluster
+    detail_route: /roadmap/runbook-press
+    render_mode: external_explainer
+    action_label: See the related artifact preview
+    detail_primary_href: /artifacts/campaign-primer
+    detail_primary_label: See the related artifact preview
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runbook-press.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: Table onboarding still depends on heroic patience.
+    payoff: Grounded primers become first-class artifacts instead of random PDFs.
+    proof_note: "Proof: RUNBOOK PRESS already points at first-party primer packet and primer-video previews instead of only future-facing copy."
+    microproof: Primer packet|Primer-video lane|First-party detail page
+  - id: horizon_community_hub
+    bucket: coming_next
+    title: COMMUNITY HUB
+    summary: Find a run, see the rules, get scheduled cleanly, and let the world remember the outcome.
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/community-hub.md
+    badge: Research
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /roadmap/community-hub
+    render_mode: external_explainer
+    action_label: Read the network horizon
+    detail_primary_href: /roadmap/black-ledger
+    detail_primary_label: See the world-state foundation
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/community-hub.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: Finding a table still means juggling community rules, approvals, chats, calendars, and follow-up by hand.
+    payoff: Chummer becomes the structured layer above community chats, calendars, and play surfaces instead of another disconnected app.
+  - id: horizon_black_ledger
+    bucket: coming_next
+    title: BLACK LEDGER
+    summary: Keep city pressure, faction motion, and mission-market drift visible between runs.
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/black-ledger.md
+    badge: Research
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /roadmap/black-ledger
+    render_mode: external_explainer
+    action_label: See the related artifact preview
+    detail_primary_href: /artifacts/replay-after-action
+    detail_primary_label: See the related artifact preview
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/black-ledger.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: World pressure vanishes when campaigns cannot project consequences beyond the last scene.
+    payoff: Consequence, faction posture, and mission pressure remain inspectable instead of turning into GM-only folklore.
+  - id: horizon_ghostwire
+    bucket: coming_next
+    title: GHOSTWIRE
+    summary: Replay and after-action truth that survives memory drift.
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
+    badge: Research
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /roadmap/ghostwire
+    render_mode: external_explainer
+    action_label: See the related artifact preview
+    detail_primary_href: /artifacts/replay-after-action
+    detail_primary_label: See the related artifact preview
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: People remember the drama and forget the sequence.
+    payoff: After-action review can point at the event trail instead of table folklore.
+  - id: horizon_local_co_processor
+    bucket: coming_next
+    title: LOCAL CO-PROCESSOR
+    summary: Optional local acceleration without turning the product into a black box.
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
+    badge: Research
+    audience: public
+    image_family: solo_operator
+    detail_route: /roadmap/local-co-processor
+    render_mode: external_explainer
+    action_label: Open the horizon page
+    detail_primary_href: /downloads
+    detail_primary_label: Install the current preview
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: Some heavy local workflows still need more muscle.
+    payoff: Local acceleration stays optional and bounded instead of becoming a mystery dependency.
+  - id: artifact_preview_build
+    bucket: featured_artifacts
+    title: Current preview build
+    summary: The installer shelf, release channel, and integrity trail are live right now.
+    href: /downloads
+    badge: Available today
+    audience: public
+    image_family: facility_exterior
+    asset_slot: release_current_build
+    detail_route: /artifacts/current-preview-build
+    action_label: Inspect the preview build
+    detail_primary_href: /downloads
+    detail_primary_label: Open downloads
+    pain: Early-access products stop feeling real when the current build is vague or hard to verify.
+    payoff: One visible build, one truthful channel label, and one clean install path make the preview feel dependable instead of improvised.
+    proof_note: "Proof: the current preview has a real installer shelf, explicit release posture, and a first-party download path."
+    microproof: Installer shelf|Preview channel|Account-aware handoff
+  - id: artifact_mac_release_pipeline
+    bucket: featured_artifacts
+    title: Mac release pipeline
+    summary: A Mac release session can clone the release repos, build the desktop artifact, sign and notarize it, publish it to chummer.run, and verify the live shelf from one public runbook.
+    href: /artifacts/mac-release-pipeline
+    badge: Available today
+    audience: public
+    image_family: facility_exterior
+    asset_slot: release_current_build
+    detail_route: /artifacts/mac-release-pipeline
+    action_label: Open the Mac release runbook
+    detail_primary_href: /downloads/release-upload/bootstrap.sh
+    detail_primary_label: Open the Mac bootstrap script
+    fallback_route: /artifacts/mac-release-pipeline
+    fallback_label: Read the full runbook
+    pain: Mac release work falls apart when cloning, signing, notarization, publication, and live verification live in separate tribal steps.
+    payoff: One truthful bootstrap turns a Mac release session into a repeatable public-release lane instead of a manual operator ritual.
+    proof_note: "Paste `bash <(curl -fsSL https://chummer.run/downloads/release-upload/bootstrap.sh)` into the Mac shell, then let the bootstrap build, sign, notarize, publish, and verify the release with the current supported chummer.run topology."
+    microproof: Clone and pin refs|Codesign and notarize|Publish and verify live shelf
+  - id: artifact_rules_receipt
+    bucket: featured_artifacts
+    title: Explanation receipt trail
+    summary: The proof shelf already shows how Chummer explains a result instead of hiding the path.
+    href: /now#real-rules-truth
+    badge: Available today
+    audience: public
+    image_family: simulation_bench
+    asset_slot: capability_check_rules
+    detail_route: /artifacts/explanation-receipt-trail
+    action_label: Inspect the receipt trail
+    detail_primary_href: /now#real-rules-truth
+    detail_primary_label: Inspect the proof trail
+  - id: artifact_runsite_pack
+    bucket: featured_artifacts
+    title: Runsite pack
+    summary: Walk the job before the team walks into it.
+    href: /roadmap/runsite
+    badge: Preview
+    audience: public
+    image_family: facility_exterior
+    detail_route: /artifacts/runsite-pack
+    action_label: Inspect the runsite pack
+    detail_primary_href: /roadmap/runsite
+    detail_primary_label: See related roadmap item
+  - id: artifact_dossier_brief
+    bucket: featured_artifacts
+    title: Dossier brief
+    summary: Turn notes into a credible mission packet.
+    href: /roadmap/jackpoint
+    badge: Preview
+    audience: public
+    image_family: dossier_desk
+    detail_route: /artifacts/dossier-brief
+    action_label: Inspect the dossier brief
+    detail_primary_href: /roadmap/jackpoint
+    detail_primary_label: See related roadmap item
+  - id: artifact_campaign_primer
+    bucket: featured_artifacts
+    title: Campaign primer
+    summary: Bring new players in without the two-hour lecture.
+    href: /roadmap/runbook-press
+    badge: Preview
+    audience: public
+    image_family: prop_cluster
+    detail_route: /artifacts/campaign-primer
+    action_label: Inspect the campaign primer
+    detail_primary_href: /roadmap/runbook-press
+    detail_primary_label: See related roadmap item
+  - id: artifact_campaign_primer_video
+    bucket: featured_artifacts
+    title: Campaign primer video
+    summary: Pair the written primer with a short multilingual walkthrough that gets players oriented fast.
+    href: /roadmap/runbook-press
+    badge: Preview
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /artifacts/campaign-primer-video
+    action_label: Inspect the primer-video lane
+    detail_primary_href: /roadmap/runbook-press
+    detail_primary_label: See related roadmap item
+  - id: artifact_mission_brief_video
+    bucket: featured_artifacts
+    title: Mission briefing video
+    summary: Turn approved run packets into a short host-led briefing instead of relying on a cold PDF alone.
+    href: /roadmap/jackpoint
+    badge: Preview
+    audience: public
+    image_family: dossier_desk
+    detail_route: /artifacts/mission-brief-video
+    action_label: Inspect the mission-brief lane
+    detail_primary_href: /roadmap/jackpoint
+    detail_primary_label: See related roadmap item
+  - id: artifact_after_action
+    bucket: featured_artifacts
+    title: Replay and after-action
+    summary: See what happened, not just what people remember.
+    href: /roadmap/ghostwire
+    badge: Preview
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /artifacts/replay-after-action
+    action_label: Inspect the after-action preview
+    detail_primary_href: /roadmap/ghostwire
+    detail_primary_label: See related roadmap item
+  - id: public_feedback_board
+    # provider alias: productlift_feedback
+    bucket: participate
+    title: Public feedback board
+    summary: Suggest features, vote on public ideas, and keep support/private data out of the public board.
+    href: /feedback
+    badge: Public
+    audience: public
+    image_family: archive_stair
+    action_label: Open feedback board
+    proof_note: "Projection only: the public feedback board collects demand, while Chummer-owned design, support, release, and closeout evidence remain authoritative."
+  - id: public_roadmap_projection
+    # provider alias: productlift_roadmap
+    bucket: supporting_reads
+    title: Public roadmap projection
+    summary: See selected public direction without mistaking votes or roadmap cards for implementation priority.
+    href: /roadmap
+    badge: Projection
+    audience: public
+    image_family: boulevard_of_futures
+    action_label: View public roadmap
+    proof_note: "Projection only: planned and shipped statuses require Chummer-owned design, milestone, release, or closeout evidence."
+  - id: public_requested_changelog
+    # provider alias: productlift_changelog
+    bucket: supporting_reads
+    title: User-requested changelog
+    summary: Follow shipped updates and voter closeouts that are backed by release, guide, Hub route, or artifact proof.
+    href: /changelog
+    badge: Closeout
+    audience: public
+    image_family: dossier_desk
+    action_label: View changelog
+    proof_note: "Closeout proof is Chummer-owned before voter notifications are sent."
+  - id: participate_feedback
+    bucket: participate
+    title: Report a problem
+    summary: Use the public support path when you want to flag a bug, confusing copy, or a concrete improvement.
+    href: /contact#support-intake
+    badge: Public
+    audience: public
+    image_family: archive_stair
+    action_label: Open support intake
+  - id: participate_future
+    bucket: participate
+    title: Start KARMA FORGE discovery
+    summary: Turn house-rule pain into governed discovery packets with first-party prompts, receipts, and product review routing.
+    href: /participate/karma-forge
+    badge: Public
+    audience: public
+    image_family: boulevard_of_futures
+    guest_href: /participate/karma-forge
+    registered_href: /participate/karma-forge
+    action_label: Start KARMA FORGE discovery
+  - id: participate_booster
+    bucket: participate
+    title: Guided contribution
+    summary: Open the signed-in contribution flow when you want to lend focused, review-safe help.
+    href: /account/participation
+    badge: Registered
+    audience: public
+    image_family: solo_operator
+    cta_kind: explainer
+    guest_href: /auth/google/start?next=%2Faccount%2Fparticipation
+    registered_href: /account/participation
+    action_label: Open guided contribution
+  - id: participate_beta
+    bucket: participate
+    title: Join the beta waitlist
+    summary: Raise your hand for follow-up previews and future gated surfaces.
+    href: /account/settings
+    badge: Registered soon
+    audience: public
+    image_family: dossier_desk
+    cta_kind: signup
+    guest_href: /signup?next=/account/settings
+    registered_href: /account/settings
+    action_label: Join beta waitlist
+  - id: release_latest
+    bucket: release_shelf
+    title: Current preview build
+    summary: Current published installers, release notes, and integrity details in one shelf.
+    href: /downloads
+    badge: Preview
+    audience: public
+    image_family: facility_exterior
+    render_mode: external_explainer
+    fallback_route: https://chummer.run/downloads/
+    fallback_label: Open chummer.run downloads
+    external_ok: true

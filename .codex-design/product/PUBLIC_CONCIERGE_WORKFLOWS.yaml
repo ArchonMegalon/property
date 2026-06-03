@@ -1,0 +1,285 @@
+product: chummer
+surface: concierge
+version: 1
+purpose: >-
+  Machine-readable registry for bounded public concierge, trust-widget, booking,
+  intake, and testimonial workflows that sit in front of first-party Chummer
+  paths.
+
+defaults:
+  owner: chummer6-hub
+  render_owner: chummer6-media-factory
+  registry_owner: chummer6-hub-registry
+  widget_lane: FacePop
+  booking_lane: Lunacal
+  intake_lane: Deftform
+  long_form_video_lane: vidBoard
+  packet_lane: MarkupGo
+  preview_lane: PeekShot
+  survey_lane: MetaSurvey
+  approval_lane:
+    - hub_owned_approval_ui
+    - ApproveThis
+  public_only_widget_surfaces:
+    - downloads
+    - now_page
+    - public_help_entry
+    - public_release_page
+    - public_artifact_page
+    - creator_landing_page
+    - tokenized_invite_page_without_private_truth
+  hard_forbidden_surfaces:
+    - desktop_client
+    - mobile_client
+    - signed_in_home
+    - campaign_workspace
+    - support_case_timeline
+    - updater_surface
+    - claim_code_entry
+    - admin_operator_surface
+  required_controls:
+    - kill_switch
+    - first_party_fallback
+    - posture_copy_review
+    - recovery_link_set
+    - telemetry_event_logging
+    - locale_review
+    - accessibility_review
+  posture_taxonomy:
+    fixed: first_party_route_or_status_truth
+    preview: optional_public_widget_or_explainer_overlay
+    fallback: visible_secondary_or_manual_path_that_remains_user_usable
+    recovery: first_party_help_relinking_or_human_escalation_path_without_secrets
+  forbidden_claims:
+    - widget_claims_issue_is_fixed
+    - widget_claims_fallback_is_primary
+    - widget_collects_claim_codes_or_auth_secrets
+    - widget_hides_first_party_recovery
+  receipt_fields:
+    - concierge_flow_id
+    - entry_surface
+    - posture_label
+    - route_choice
+    - locale
+    - provider_receipt
+    - correlation_id
+
+flows:
+  - id: downloads_concierge
+    audience: public
+    entry_surface: downloads
+    widget_goal: guide_install_choice_or_help
+    branches:
+      - id: download_now
+        target: first_party_downloads
+      - id: platform_help
+        target: platform_guide_or_release_explainer
+      - id: setup_help
+        target: deftform_setup_preintake
+      - id: human_setup_call
+        target: lunacal_setup_clinic
+    proof_anchors:
+      - public_release_truth
+      - locale
+      - fallback_link_set
+    posture:
+      widget_surface_posture: preview
+      fixed_route_target: first_party_downloads
+      fallback_route_targets:
+        - public_downloads_page
+        - platform_guide_or_release_explainer
+      recovery_route_targets:
+        - public_install_help_article
+        - deftform_setup_preintake
+        - lunacal_setup_clinic
+      copy_requirements:
+        - recommended_download_must_stay_first_party
+        - fallback_assets_must_be_labeled_fallback_or_manual
+        - recovery_paths_must_not_claim_fix_completion
+
+  - id: campaign_invite_concierge
+    audience: invited_player_or_gm
+    entry_surface: tokenized_invite_page_without_private_truth
+    widget_goal: orient_new_campaign_member
+    branches:
+      - id: watch_primer
+        target: campaign_primer_video
+      - id: open_primer_packet
+        target: campaign_primer_packet
+      - id: ask_questions
+        target: deftform_campaign_question_form
+      - id: session_zero_call
+        target: lunacal_session_zero_booking
+    proof_anchors:
+      - approved_campaign_primer_pack
+      - invite_policy
+      - locale
+      - private_truth_not_exposed
+    posture:
+      widget_surface_posture: preview
+      fixed_route_target: first_party_invite_or_join_page
+      fallback_route_targets:
+        - campaign_primer_packet
+        - first_party_invite_help_article
+      recovery_route_targets:
+        - deftform_campaign_question_form
+        - lunacal_session_zero_booking
+      copy_requirements:
+        - invite_truth_must_stay_first_party
+        - private_or_authenticated_campaign_truth_must_not_surface_here
+        - recovery_copy_must_route_to_help_not_private_case_state
+
+  - id: creator_consult_concierge
+    audience: public_or_creator
+    entry_surface: creator_page
+    widget_goal: route_creators_to_the_right_next_step
+    branches:
+      - id: how_publishing_works
+        target: creator_explainer_video_or_packet
+      - id: book_consult
+        target: lunacal_creator_consult
+      - id: submit_interest
+        target: deftform_creator_interest
+      - id: open_creator_packet
+        target: creator_packet
+    proof_anchors:
+      - creator_publish_policy
+      - locale
+      - fallback_link_set
+    posture:
+      widget_surface_posture: preview
+      fixed_route_target: creator_page
+      fallback_route_targets:
+        - creator_packet
+        - creator_explainer_video_or_packet
+      recovery_route_targets:
+        - deftform_creator_interest
+        - lunacal_creator_consult
+      copy_requirements:
+        - creator_publication_truth_must_stay_first_party
+        - consult_booking_must_not_be_the_only_help_path
+        - fallback_copy_must_not_read_like_release_authority
+
+  - id: release_concierge
+    audience: public_or_pre_auth_help_entry
+    entry_surface: now_or_release_or_public_help_page
+    widget_goal: explain_changes_and_offer_safe_help_paths
+    branches:
+      - id: watch_whats_new
+        target: public_release_explainer
+      - id: read_notes
+        target: release_notes_page
+      - id: update_help
+        target: deftform_update_help_preintake
+      - id: book_help
+        target: lunacal_setup_clinic
+    proof_anchors:
+      - release_channel_truth
+      - locale
+      - fallback_link_set
+    posture:
+      widget_surface_posture: preview
+      fixed_route_target: release_notes_page
+      fallback_route_targets:
+        - public_release_page
+        - public_help_article
+      recovery_route_targets:
+        - deftform_update_help_preintake
+        - lunacal_setup_clinic
+        - public_install_recovery_article
+      copy_requirements:
+        - fixed_release_truth_must_match_channel_and_build_posture
+        - fallback_head_or_manual_update_paths_must_be_labeled_fallback
+        - recovery_copy_must_not_imply_fix_shipped_for_this_user
+
+  - id: support_entry_concierge
+    audience: public_or_pre_auth_help_entry
+    entry_surface: public_help_entry
+    widget_goal: route_public_feedback_private_support_install_continuity_or_human_help
+    branches:
+      - id: public_feedback
+        target: public_feedback_entry
+      - id: private_support
+        target: public_support_intake
+      - id: install_continuity
+        target: first_party_downloads_or_signed_in_access
+      - id: human_help
+        target: human_support_handoff
+    proof_anchors:
+      - public_signal_boundary
+      - private_support_boundary
+      - install_recovery_boundary
+      - fallback_link_set
+    posture:
+      widget_surface_posture: preview
+      fixed_route_target: public_support_entry
+      fallback_route_targets:
+        - public_feedback_entry
+        - public_downloads_page
+        - public_help_article
+      recovery_route_targets:
+        - public_support_intake
+        - human_support_handoff
+      copy_requirements:
+        - public_feedback_must_not_collect_private_logs_or_account_secrets
+        - private_support_must_remain_first_party
+        - human_handoff_must_not_replace_support_truth
+
+  - id: testimonial_capture
+    audience: opted_in_user
+    entry_surface: post_success_link
+    widget_goal: capture_social_proof_for_later_moderation
+    branches:
+      - id: video_review
+        target: facepop_video_response
+      - id: audio_review
+        target: facepop_audio_response
+      - id: quick_rating
+        target: metasurvey_usefulness
+    proof_anchors:
+      - consent_state
+      - moderation_receipt
+      - retention_policy
+      - kill_switch
+      - publication_ref_if_approved
+    posture:
+      widget_surface_posture: preview
+      fixed_route_target: first_party_testimonial_policy_page
+      fallback_route_targets:
+        - metasurvey_usefulness
+        - public_contact_path
+      recovery_route_targets:
+        - first_party_opt_out_or_privacy_page
+        - public_support_entry
+      copy_requirements:
+        - publication_requires_moderation
+        - fallback_copy_must_keep_non_video_paths_visible
+        - recovery_copy_must_name_opt_out_and_privacy_paths
+
+  - id: runsite_host_choice
+    audience: player_or_gm
+    entry_surface: runsite_page
+    widget_goal: choose_orientation_mode
+    branches:
+      - id: host_clip
+        target: runsite_orientation_video
+      - id: route_first
+        target: runsite_route_overlay
+      - id: explore
+        target: runsite_tour
+    proof_anchors:
+      - approved_runsite_pack
+      - locale
+    posture:
+      widget_surface_posture: preview
+      fixed_route_target: runsite_page
+      fallback_route_targets:
+        - runsite_route_overlay
+        - runsite_tour
+      recovery_route_targets:
+        - public_runsite_help_article
+        - public_support_entry
+      copy_requirements:
+        - route_and_tour_truth_must_stay_first_party
+        - preview_clip_must_not_outrank_route_or_tour_truth
+        - recovery_copy_must_route_to_help_when_orientation_is_insufficient

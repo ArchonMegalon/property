@@ -1,0 +1,148 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  .pricing-hero,
+  .pricing-summary,
+  .tier-card,
+  .comparison-card,
+  .pricing-row {
+    padding: 18px;
+  }
+  .pricing-strip,
+  .tier-grid,
+  .comparison-grid,
+  .pricing-table {
+    display: grid;
+    gap: 14px;
+  }
+  .pricing-strip,
+  .tier-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .comparison-grid,
+  .pricing-table {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pricing-summary,
+  .tier-card,
+  .comparison-card,
+  .pricing-row {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+  }
+  .tier-price {
+    color: var(--accent);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .pricing-row strong {
+    display: block;
+    margin-bottom: 6px;
+  }
+  @media (max-width: 1080px) {
+    .pricing-strip,
+    .tier-grid,
+    .comparison-grid,
+    .pricing-table {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="section panel pricing-hero">
+  <div class="kicker">Pricing</div>
+  <h1>Choose the plan that matches the workload, the review needs, and the number of people sharing the workspace.</h1>
+  <p class="lead">Plans scale with the office shape: one person proving value, a shared executive-plus-operator loop, or a managed office rollout with tighter controls.</p>
+</section>
+
+<section class="section pricing-strip">
+  <section class="pricing-summary">
+    <strong>Start with a real pilot</strong>
+    Prove the morning memo, the draft queue, and the commitment loop with one real workflow before expanding the workspace.
+  </section>
+  <section class="pricing-summary">
+    <strong>Move up when the queue becomes shared</strong>
+    Upgrade when more than one person needs the same queue, approvals, and office control surface.
+  </section>
+  <section class="pricing-summary">
+    <strong>Pay for control when the work gets heavier</strong>
+    Larger plans buy broader operator coverage, longer audit retention, and a more formal support posture around executive work.
+  </section>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="kicker">Plans</div>
+      <h2>Pick the lane that matches the real workflow</h2>
+    </div>
+    <p>Choose the plan by operator coverage, channel scope, audit depth, and how formal the rollout needs to be.</p>
+  </div>
+  <div class="tier-grid">
+    {% for tier in pricing_tiers %}
+    <section class="tier-card">
+      <div class="tier-price">{{ tier.price }}</div>
+      <h2>{{ tier.title }}</h2>
+      <p class="copy">{{ tier.body }}</p>
+      {% if tier.facts %}
+      <ul class="muted-list">
+        {% for fact in tier.facts %}
+        <li>{{ fact }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      <div class="cta-row"><a class="btn {% if loop.first %}primary{% else %}ghost{% endif %}" href="/get-started">{% if loop.first %}Start here{% else %}Talk to us{% endif %}</a></div>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section pricing-table">
+  <section class="pricing-row">
+    <strong>Typical plan differences</strong>
+    <ul class="muted-list">
+      <li>Number of people using the same workspace</li>
+      <li>Included operator seats and shared review posture</li>
+      <li>Google-only versus messaging-enabled coverage</li>
+      <li>Audit retention and office-control depth</li>
+      <li>Billing portal posture and renewal ownership</li>
+      <li>Support tier and rollout involvement</li>
+    </ul>
+  </section>
+  <section class="pricing-row">
+    <strong>Typical office path</strong>
+    <ul class="muted-list">
+      <li>Start with one person and one useful morning-memo loop</li>
+      <li>Add one operator when shared review becomes daily work</li>
+      <li>Move into messaging coverage when Google-first proof is no longer enough</li>
+      <li>Upgrade again when the office needs deeper audit posture and priority support</li>
+      <li>Keep the operator center proportional to the actual operating model</li>
+    </ul>
+  </section>
+</section>
+
+<section class="section comparison-grid">
+  <section class="comparison-card">
+    <strong>Pilot usually includes</strong>
+    <ul class="muted-list">
+      <li>One active workspace</li>
+      <li>One included operator seat</li>
+      <li>Google-first onboarding</li>
+      <li>Morning memo, queue, and commitment loop</li>
+      <li>Guided pilot conversion after first value</li>
+    </ul>
+  </section>
+  <section class="comparison-card">
+    <strong>Core and Executive Ops usually add</strong>
+    <ul class="muted-list">
+      <li>More included operator seats</li>
+      <li>Broader channel coverage</li>
+      <li>Deeper audit and office-control visibility</li>
+      <li>Closer support around rollout, review posture, and renewal</li>
+    </ul>
+  </section>
+</section>
+{% endblock %}

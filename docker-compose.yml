@@ -1,0 +1,259 @@
+services:
+  ea-openvoice:
+    build:
+      context: ./ea
+      dockerfile: Dockerfile.openvoice
+    image: ea-openvoice:latest
+    container_name: ea-openvoice
+    restart: unless-stopped
+    mem_limit: 8g
+    mem_reservation: 2g
+    environment:
+      - EA_ROLE=openvoice
+      - OPENVOICE_PORT=8093
+      - OPENVOICE_BASE_TTS=piper
+      - OPENVOICE_HOST=0.0.0.0
+      - OPENVOICE_DATA_DIR=/data/openvoice
+      - OPENVOICE_CHECKPOINT_ROOT=/models/openvoice
+      - OPENVOICE_SOURCE_DIR=/app/third_party/OpenVoice
+      - PIPER_BIN=/opt/piper/piper
+      - PIPER_MODEL_PATH=/models/piper/de_DE-thorsten-high.onnx
+      - PIPER_MODEL_PATH_ALT=/models/piper/de_DE-thorsten-medium.onnx
+      - PIPER_DEFAULT_VARIANT=high
+      - PIPER_ALT_VARIANT=balanced
+      - OPENVOICE_MAX_CLONE_FILES=4
+      - OPENVOICE_MAX_UPLOAD_BYTES=20971520
+      - OPENVOICE_MAX_TOTAL_UPLOAD_BYTES=50331648
+      - OPENVOICE_MAX_TTS_TEXT_LEN=3000
+      - TZ=Europe/Vienna
+    ports:
+      - "127.0.0.1:${OPENVOICE_HOST_PORT:-8093}:8093"
+    volumes:
+      - ./ea/.piper:/opt/piper:ro
+      - ./ea/third_party/OpenVoice:/app/third_party/OpenVoice:ro
+      - ./ea/.models/openvoice:/models/openvoice:ro
+      - ./ea/.models/piper:/models/piper:ro
+      - ea_openvoice_data:/data/openvoice
+
+  ea-teable-relay:
+    build:
+      context: .
+      dockerfile: ea/Dockerfile
+    image: ea-teable-relay:latest
+    container_name: ea-teable-relay
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TEABLE_RELAY_LISTEN_HOST=${TEABLE_RELAY_LISTEN_HOST:-172.17.0.1}
+      - TZ=Europe/Vienna
+    network_mode: host
+    command:
+      - python3
+      - /app/scripts/teable_host_proxy.py
+      - --listen-host
+      - ${TEABLE_RELAY_LISTEN_HOST:-172.17.0.1}
+      - --listen-port
+      - "18787"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -fsS --connect-timeout 2 --max-time 10 http://${TEABLE_RELAY_LISTEN_HOST:-172.17.0.1}:18787/healthz >/dev/null
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  ea-api:
+    build:
+      context: .
+      dockerfile: ea/Dockerfile
+    image: ea-runtime:latest
+    container_name: ea-api
+    restart: unless-stopped
+    mem_limit: 4g
+    mem_reservation: 1g
+    env_file:
+      - .env
+    environment:
+      - EA_ROLE=api
+      - EA_PORT=8090
+      - EA_API_TOKEN=${EA_API_TOKEN:-}
+      - EA_ALLOW_LOOPBACK_NO_AUTH=${EA_ALLOW_LOOPBACK_NO_AUTH:-0}
+      - EA_ARTIFACTS_DIR=/data/artifacts
+      - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
+      - EA_ONEDRIVE_ATTACHMENT_ROOT=/data/onedrive_attachments
+      - EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS=${EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS:-1}
+      - HOME=/home/ea
+      - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
+      - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
+      - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
+      - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
+      - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
+      - EA_ENABLE_PUBLIC_MEMORIALS=${EA_ENABLE_PUBLIC_MEMORIALS:-1}
+      - EA_PUBLIC_MEMORIAL_DIR=${EA_PUBLIC_MEMORIAL_DIR:-/data/memorial_data/public_memorials}
+      - EA_PRIVATE_MEMORIAL_PROFILE_DIR=${EA_PRIVATE_MEMORIAL_PROFILE_DIR:-/data/memorial_data/private_memorial_profiles}
+      - OPENVOICE_BASE_URL=${OPENVOICE_BASE_URL:-http://ea-openvoice:8093}
+      - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
+      - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
+      - TEABLE_TABLE_SYNC_CONFIG_JSON=${TEABLE_TABLE_SYNC_CONFIG_JSON:-}
+      - TZ=Europe/Vienna
+    ports:
+      - "${EA_HOST_PORT:-8090}:8090"
+    volumes:
+      - ./config:/config:ro
+      - ./config:/app/config:ro
+      - /mnt/onedrive/Attachments:/data/onedrive_attachments
+      - /mnt/pcloud/EA:/mnt/pcloud/EA
+      - ./memorial_data:/data/memorial_data:ro
+      - ea_artifacts:/data/artifacts
+      - ea_public_tours:/data/public_property_tours
+      - ea_provider_ledger:/data/provider-ledger
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      ea-openvoice:
+        condition: service_healthy
+      ea-teable-relay:
+        condition: service_healthy
+      ea-db:
+        condition: service_healthy
+
+  ea-responses-proxy:
+    image: ea-runtime:latest
+    container_name: ea-responses-proxy
+    restart: unless-stopped
+    mem_limit: 2g
+    mem_reservation: 512m
+    env_file:
+      - .env
+    environment:
+      - EA_ROLE=api
+      - EA_RESPONSES_PROXY_PORT=8091
+      - HOME=/home/ea
+      - PYTHONPATH=/app
+      - TZ=Europe/Vienna
+    ports:
+      - "${EA_RESPONSES_PROXY_HOST_PORT:-8092}:8091"
+    volumes:
+      - ./config:/config:ro
+      - ./config:/app/config:ro
+      - /mnt/onedrive/Attachments:/data/onedrive_attachments
+      - /mnt/pcloud/EA:/mnt/pcloud/EA
+      - ea_artifacts:/data/artifacts
+      - ea_public_tours:/data/public_property_tours
+      - ea_provider_ledger:/data/provider-ledger
+    command:
+      - python
+      - /app/scripts/ea_responses_proxy.py
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8091/health/ready >/dev/null
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      ea-db:
+        condition: service_healthy
+
+  ea-worker:
+    build:
+      context: .
+      dockerfile: ea/Dockerfile
+    image: ea-runtime:latest
+    container_name: ea-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - EA_ROLE=worker
+      - EA_ARTIFACTS_DIR=/data/artifacts
+      - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
+      - EA_ONEDRIVE_ATTACHMENT_ROOT=/data/onedrive_attachments
+      - EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS=${EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS:-1}
+      - HOME=/home/ea
+      - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
+      - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
+      - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
+      - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
+      - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
+      - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
+      - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
+      - TEABLE_TABLE_SYNC_CONFIG_JSON=${TEABLE_TABLE_SYNC_CONFIG_JSON:-}
+      - TZ=Europe/Vienna
+    volumes:
+      - ./config:/config:ro
+      - ./config:/app/config:ro
+      - /mnt/onedrive/Attachments:/data/onedrive_attachments
+      - /mnt/pcloud/EA:/mnt/pcloud/EA
+      - ea_artifacts:/data/artifacts
+      - ea_public_tours:/data/public_property_tours
+      - ea_provider_ledger:/data/provider-ledger
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      ea-teable-relay:
+        condition: service_healthy
+      ea-db:
+        condition: service_healthy
+
+  ea-scheduler:
+    build:
+      context: .
+      dockerfile: ea/Dockerfile
+    image: ea-runtime:latest
+    container_name: ea-scheduler
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - EA_ROLE=scheduler
+      - EA_ARTIFACTS_DIR=/data/artifacts
+      - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
+      - EA_ONEDRIVE_ATTACHMENT_ROOT=/data/onedrive_attachments
+      - EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS=${EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS:-1}
+      - HOME=/home/ea
+      - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
+      - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
+      - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
+      - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
+      - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
+      - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
+      - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
+      - TEABLE_TABLE_SYNC_CONFIG_JSON=${TEABLE_TABLE_SYNC_CONFIG_JSON:-}
+      - TZ=Europe/Vienna
+    volumes:
+      - ./config:/config:ro
+      - ./config:/app/config:ro
+      - /mnt/onedrive/Attachments:/data/onedrive_attachments
+      - /mnt/pcloud/EA:/mnt/pcloud/EA
+      - ea_artifacts:/data/artifacts
+      - ea_provider_ledger:/data/provider-ledger
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      ea-teable-relay:
+        condition: service_healthy
+      ea-db:
+        condition: service_healthy
+
+  ea-db:
+    image: postgres:16-alpine
+    container_name: ea-db
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ea_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ea_artifacts: {}
+  ea_openvoice_data: {}
+  ea_pgdata: {}
+  ea_public_tours: {}
+  ea_provider_ledger: {}

@@ -1,0 +1,140 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  .trust-hero,
+  .trust-card,
+  .workspace-posture,
+  .trust-answer,
+  .trust-fact {
+    padding: 18px;
+  }
+  .trust-grid,
+  .trust-answer-grid,
+  .workspace-grid,
+  .trust-fact-grid {
+    display: grid;
+    gap: 14px;
+  }
+  .trust-grid,
+  .trust-answer-grid,
+  .trust-fact-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .workspace-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .trust-card,
+  .workspace-posture,
+  .trust-answer,
+  .trust-fact {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+  }
+  .trust-card strong,
+  .workspace-posture strong,
+  .trust-answer strong,
+  .trust-fact strong {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
+  @media (max-width: 1080px) {
+    .trust-grid,
+    .trust-answer-grid,
+    .workspace-grid,
+    .trust-fact-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="section panel trust-hero">
+  <div class="kicker">Security</div>
+  <h1>See what Executive Assistant can do before you let it act.</h1>
+  <p class="lead">Review stays visible, permissions stay explicit, and workspace history stays attached to the office. The goal is dependable work, not hidden automation.</p>
+</section>
+
+<section class="section trust-answer-grid">
+  <section class="trust-answer">
+    <strong>Can the assistant send or change things without me?</strong>
+    Drafting and recommendations can be enabled early. Sensitive actions can stay reviewable so the user is still in control.
+  </section>
+  <section class="trust-answer">
+    <strong>Does it imply broader access than it really has?</strong>
+    No. Each channel has a visible support contract so the product does not promise read, write, import, or sync behavior it cannot actually deliver.
+  </section>
+  <section class="trust-answer">
+    <strong>Does useful context disappear after each session?</strong>
+    No. The workspace can keep people, commitments, and recurring themes so the assistant improves over time instead of starting from zero every day.
+  </section>
+</section>
+
+<section class="section trust-fact-grid">
+  <section class="trust-fact">
+    <strong>Reviewable actions</strong>
+    Approvals and draft review help the product stay safe in real executive work.
+  </section>
+  <section class="trust-fact">
+    <strong>Explicit channel behavior</strong>
+    Connection pages explain what is live, what is guided, and what still stays manual.
+  </section>
+  <section class="trust-fact">
+    <strong>Durable workspace memory</strong>
+    Context stays attached to the right workspace instead of floating around in isolated prompts.
+  </section>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="kicker">Trust model</div>
+      <h2>What buyers usually want to confirm</h2>
+    </div>
+    <p>Most teams want three answers quickly: what EA can see, what it can prepare, and where human review still stays in the loop.</p>
+  </div>
+  <div class="trust-grid">
+    {% for card in trust_cards %}
+    <section class="trust-card">
+      <strong>{{ card.title }}</strong>
+      <p class="copy">{{ card.body }}</p>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="kicker">Current workspace</div>
+      <h2>Saved review and storage settings</h2>
+    </div>
+    <p>Operational detail matters during rollout, but most buyers want the working safety model first.</p>
+  </div>
+  <div class="workspace-grid">
+    <section class="workspace-posture">
+      <strong>Where context is stored</strong>
+      <ul class="muted-list">
+        <li>{{ status.storage_posture.source_of_truth or 'EA Postgres' }} is the durable source when durable storage is configured.</li>
+        <li>{{ status.storage_posture.projection_note or 'Operational projections are mirrors, not the only source of truth.' }}</li>
+        <li>{{ status.storage_posture.attachment_note or 'Large files and exports belong in object storage when the deployment supports it.' }}</li>
+      </ul>
+    </section>
+    <section class="workspace-posture">
+      {% set morning_memo = (status.delivery_preferences or {}).get('morning_memo', {}) %}
+      <strong>Saved review defaults</strong>
+      <ul class="muted-list">
+        <li>Retention: {{ privacy.retention_mode or 'not set' }}</li>
+        <li>Metadata-only channels: {{ privacy.metadata_only_channels|join(', ') if privacy.metadata_only_channels else 'none' }}</li>
+        <li>Drafts allowed: {{ 'true' if privacy.allow_drafts else 'false' }}</li>
+        <li>Action suggestions: {{ 'true' if privacy.allow_action_suggestions else 'false' }}</li>
+        <li>Automatic briefs: {{ 'true' if privacy.allow_auto_briefs else 'false' }}</li>
+        {% if privacy.allow_auto_briefs %}
+        <li>Morning memo schedule: {{ morning_memo.get('cadence', 'daily_morning') }} at {{ morning_memo.get('delivery_time_local', '08:00') }} {{ morning_memo.get('timezone', status.workspace.timezone or 'UTC') }}</li>
+        <li>Morning memo target: {{ morning_memo.get('resolved_recipient_email', 'waiting for recipient') }}</li>
+        {% endif %}
+      </ul>
+    </section>
+  </div>
+</section>
+{% endblock %}

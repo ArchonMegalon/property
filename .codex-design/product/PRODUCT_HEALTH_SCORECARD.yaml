@@ -1,0 +1,157 @@
+product: chummer
+version: 1
+last_reviewed: 2026-04-01
+purpose: Weekly whole-product pulse for the Product Governor and release-control loop.
+
+cadence:
+  review: weekly
+  snapshot_owner: product_governor
+  publication: internal_canon_first
+
+scorecards:
+  - id: golden_journey_health
+    owner: product_governor
+    question: Do the main campaign-OS journeys still feel real, safe, and evidenced across install, play, publication, and closure?
+    metrics:
+      - name: blocked_golden_journey_count
+        target: 0
+        source: Design JOURNEY_GATES.generated.json
+      - name: warning_golden_journey_count
+        target: explained_only
+        source: Design JOURNEY_GATES.generated.json plus governor decision notes
+
+  - id: release_health
+    owner: product_governor
+    question: Are promoted and previewed surfaces healthy enough to keep trust?
+    metrics:
+      - name: promoted_regressions_open
+        target: 0
+        source: blocker publication plus support and crash packets
+      - name: release_health_state
+        target: green_or_explained
+        source: weekly pulse
+
+  - id: flagship_readiness
+    owner: product_governor
+    question: Do the surfaces a paying user touches feel deliberately crafted, coherent, and premium rather than merely complete?
+    metrics:
+      - name: flagship_acceptance_surfaces_failing
+        target: 0
+        source: FLAGSHIP_RELEASE_ACCEPTANCE.yaml plus release and journey proof packets
+      - name: primary_path_ambiguities_open
+        target: 0
+        source: release audits, journey audits, and public-surface audits
+
+  - id: rule_environment_trust
+    owner: product_governor
+    question: Can users tell which rule environment produced this result, and can they recover safely when package state drifts?
+    metrics:
+      - name: package_activation_without_receipt_guidance
+        target: 0
+        source: build/explain/import audits plus workbench and restore signoff evidence
+      - name: missing_or_incompatible_package_without_next_safe_action
+        target: 0
+        source: restore, import, and claimed-device recovery audits
+
+  - id: edition_authorship_and_import_confidence
+    owner: chummer6-core
+    question: Do SR4, SR5, SR6, and legacy imports still read as authored and trustworthy?
+    metrics:
+      - name: untriaged_edition_parity_divergences
+        target: 0
+        source: oracle import tests plus rules parity receipts
+      - name: lossy_import_paths_without_receipt_guidance
+        target: 0
+        source: migration audits, importer receipts, and help copy review
+
+  - id: support_and_feedback_closure
+    owner: chummer6-hub
+    question: Are user-reported problems being closed honestly?
+    metrics:
+      - name: median_first_human_or_grounded_response_hours
+        target: "<=72h"
+        source: Hub case and packet timestamps plus FEEDBACK_LOOP_RELEASE_GATE.yaml
+      - name: fix_available_notifications_sent_from_release_truth
+        target: 100%
+        source: Hub case status events plus registry channel truth plus FEEDBACK_LOOP_RELEASE_GATE.yaml
+      - name: staged_feedback_progress_emails_with_sent_receipt
+        target: 100%
+        source: FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml plus EA delivery receipts plus FEEDBACK_LOOP_RELEASE_GATE.yaml
+      - name: audited_decision_emails_with_reason_eta_and_award
+        target: 100%
+        source: FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml plus Hub case status events plus FEEDBACK_LOOP_RELEASE_GATE.yaml
+
+  - id: campaign_middle_health
+    owner: chummer6-hub
+    question: Does the runner, crew, and campaign middle stay coherent across build, play, recap, and return?
+    metrics:
+      - name: living_dossier_linkage_gaps
+        target: 0
+        source: campaign/dossier audits plus replay-safe continuity verification
+      - name: replay_safe_campaign_recovery_failures
+        target: 0
+        source: continuity verification and recovery drills
+
+  - id: blocker_pressure
+    owner: chummer6-design
+    question: Is the roadmap still steering real work rather than lagging it?
+    metrics:
+      - name: oldest_open_blocker_days
+        target: "<=14 unless explicitly frozen"
+        source: GROUP_BLOCKERS.md
+      - name: blocker_repeats_without_synthesis
+        target: 0
+        source: clustered packet review
+
+  - id: design_drift
+    owner: chummer6-design
+    question: Are repos and public surfaces still compiling from canon?
+    metrics:
+      - name: cross_repo_design_drift_count
+        target: 0
+        source: mirror audits, public-surface audits, and petitions
+      - name: missing_canon_dependency_count
+        target: 0
+        source: verifier and audit findings
+
+  - id: public_promise_drift
+    owner: product_governor
+    question: Does the public story still match the real product and release posture?
+    metrics:
+      - name: public_promises_without_canon_backing
+        target: 0
+        source: landing, guide, README, and progress audits
+      - name: public_eta_override_without_history_context
+        target: explained_only
+        source: progress report publication
+
+  - id: control_loop_integrity
+    owner: product_governor
+    question: Is the support and signal loop producing owned actions and honest closure?
+    metrics:
+      - name: accepted_packets_without_named_owner
+        target: 0
+        source: packet review plus FEEDBACK_LOOP_RELEASE_GATE.yaml
+      - name: closure_claims_without_channel_or_status_change
+        target: 0
+        source: Hub case closure review plus release truth plus FEEDBACK_LOOP_RELEASE_GATE.yaml
+
+weekly_snapshot:
+  required_fields:
+    - as_of
+    - release_health
+    - flagship_readiness
+    - rule_environment_trust
+    - journey_gate_health
+    - edition_authorship_and_import_confidence
+    - top_support_or_feedback_clusters
+    - oldest_blocker_days
+    - design_drift_count
+    - public_promise_drift_count
+    - governor_decisions
+    - next_checkpoint_question
+
+rules:
+  - This scorecard is an operating pulse, not a release-gate replacement.
+  - Scorecard regressions may force reroute, freeze, or canon patch decisions even when repo-local tests are green.
+  - Weekly snapshots must prefer bounded reasons and next actions over long narrative diaries.

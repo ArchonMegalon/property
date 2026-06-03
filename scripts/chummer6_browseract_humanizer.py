@@ -1,0 +1,986 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from chummer6_runtime_config import load_local_env, load_runtime_overrides, resolve_env_value
+
+EA_ROOT = Path(__file__).resolve().parents[1]
+ENV_FILE = EA_ROOT / ".env"
+API_BASE = "https://api.browseract.com/v2/workflow"
+RUNTIME_DIR = Path("/docker/fleet/state/browseract_bootstrap/runtime")
+
+LOCAL_ENV = load_local_env()
+POLICY_ENV = load_runtime_overrides()
+
+
+def env_value(name: str) -> str:
+    return resolve_env_value(name, LOCAL_ENV, POLICY_ENV)
+
+
+def browseract_key() -> str:
+    for key_name in (
+        "BROWSERACT_API_KEY",
+        "BROWSERACT_API_KEY_FALLBACK_1",
+        "BROWSERACT_API_KEY_FALLBACK_2",
+        "BROWSERACT_API_KEY_FALLBACK_3",
+    ):
+        value = env_value(key_name)
+        if value:
+            return value
+    return ""
+
+
+def api_request(method: str, path: str, *, payload: dict[str, object] | None = None, query: dict[str, str] | None = None) -> dict[str, object]:
+    key = browseract_key()
+    if not key:
+        raise RuntimeError("browseract:not_configured")
+    url = API_BASE.rstrip("/") + path
+    if query:
+        url += "?" + urllib.parse.urlencode(query)
+    data = None
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "User-Agent": "EA-Chummer6-BrowserActHumanizer/1.0",
+    }
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            body = response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"browseract:http_{exc.code}:{body[:240]}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"browseract:urlerror:{exc.reason}") from exc
+    try:
+        loaded = json.loads(body)
+    except Exception as exc:
+        raise RuntimeError(f"browseract:non_json:{body[:240]}") from exc
+    return loaded if isinstance(loaded, dict) else {"data": loaded}
+
+
+def list_workflows() -> list[dict[str, object]]:
+    body = api_request("GET", "/list-workflows")
+    for key in ("workflows", "data", "items", "rows"):
+        value = body.get(key)
+        if isinstance(value, list):
+            return [entry for entry in value if isinstance(entry, dict)]
+    if isinstance(body, dict):
+        return [body]
+    return []
+
+
+def workflow_fields(entry: dict[str, object]) -> tuple[str, str]:
+    workflow_id = str(
+        entry.get("workflow_id")
+        or entry.get("id")
+        or entry.get("_id")
+        or entry.get("workflowId")
+        or ""
+    ).strip()
+    name = str(entry.get("name") or entry.get("title") or entry.get("workflow_name") or "").strip()
+    return workflow_id, name
+
+
+def default_workflow_queries() -> list[str]:
+    return [
+        "chummer6 undetectable humanizer",
+        "undetectable_humanizer_live",
+        "undetectable_humanizer",
+        "undetectable humanizer",
+    ]
+
+
+def resolve_workflow() -> tuple[str, str]:
+    explicit = env_value("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID")
+    if explicit:
+        return explicit, "explicit"
+    query = env_value("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_QUERY")
+    queries = ([query] if query else []) + [value for value in default_workflow_queries() if value and value != query]
+    workflows = list_workflows()
+    for needle in queries:
+        lowered = str(needle or "").strip().lower()
+        if not lowered:
+            continue
+        for entry in workflows:
+            workflow_id, name = workflow_fields(entry)
+            haystack = " ".join(
+                str(entry.get(field) or "")
+                for field in ("name", "title", "description", "slug", "workflow_name")
+            ).lower()
+            if workflow_id and lowered in haystack:
+                return workflow_id, name or lowered
+    raise RuntimeError("browseract:humanizer_workflow_not_found")
+
+
+def probe_text() -> str:
+    return (
+        "In the ever-evolving landscape of Shadowrun play, Chummer6 represents a comprehensive and potentially "
+        "transformative solution for users who are seeking a more transparent, more efficient, and more future-ready "
+        "experience for character management, rules support, and session preparation. By combining local-first "
+        "continuity, deterministic rules truth, and a growing ecosystem of tools, Chummer6 aims to empower players "
+        "and game masters with a uniquely reliable foundation that can support both current table needs and emerging "
+        "creative workflows."
+    )
+
+
+def run_task(*, workflow_id: str, text: str, target: str) -> dict[str, object]:
+    payloads = [
+        {"workflow_id": workflow_id, "input_parameters": [{"name": "text", "value": text}, {"name": "target", "value": target}]},
+        {"workflow_id": workflow_id, "input_parameters": [{"name": "prompt", "value": text}, {"name": "target", "value": target}]},
+        {"workflow_id": workflow_id, "input_parameters": [{"key": "text", "value": text}, {"key": "target", "value": target}]},
+        {"workflow_id": workflow_id, "input_parameters": [{"text": text, "target": target}]},
+    ]
+    last_error = "browseract:run_task_failed"
+    for payload in payloads:
+        try:
+            return api_request("POST", "/run-task", payload=payload)
+        except RuntimeError as exc:
+            last_error = str(exc)
+            continue
+    raise RuntimeError(last_error)
+
+
+def _task_id(body: dict[str, object]) -> str:
+    for key in ("task_id", "id", "_id"):
+        value = str(body.get(key) or "").strip()
+        if value:
+            return value
+    data = body.get("data")
+    if isinstance(data, dict):
+        for key in ("task_id", "id", "_id"):
+            value = str(data.get(key) or "").strip()
+            if value:
+                return value
+    raise RuntimeError("browseract:missing_task_id")
+
+
+def _task_status(body: dict[str, object]) -> str:
+    for key in ("status", "task_status", "state"):
+        value = str(body.get(key) or "").strip()
+        if value:
+            return value.lower()
+    data = body.get("data")
+    if isinstance(data, dict):
+        for key in ("status", "task_status", "state"):
+            value = str(data.get(key) or "").strip()
+            if value:
+                return value.lower()
+    return ""
+
+
+def _task_steps(body: dict[str, object]) -> list[dict[str, object]]:
+    steps = body.get("steps")
+    if isinstance(steps, list):
+        return [entry for entry in steps if isinstance(entry, dict)]
+    data = body.get("data")
+    if isinstance(data, dict):
+        nested = data.get("steps")
+        if isinstance(nested, list):
+            return [entry for entry in nested if isinstance(entry, dict)]
+    return []
+
+
+def _task_step_goals(body: dict[str, object]) -> list[str]:
+    goals: list[str] = []
+    for step in _task_steps(body):
+        goal = str(step.get("step_goal") or "").strip()
+        if goal:
+            goals.append(goal)
+    return goals
+
+
+def min_words() -> int:
+    raw = env_value("CHUMMER6_BROWSERACT_HUMANIZER_MIN_WORDS") or env_value("CHUMMER6_TEXT_HUMANIZER_MIN_WORDS") or "50"
+    try:
+        return max(1, int(raw))
+    except Exception:
+        return 50
+
+
+def humanizer_timeout_seconds() -> int:
+    raw = env_value("CHUMMER6_BROWSERACT_HUMANIZER_TIMEOUT_SECONDS") or env_value("CHUMMER6_TEXT_HUMANIZER_TIMEOUT_SECONDS") or "90"
+    try:
+        return max(30, int(raw))
+    except Exception:
+        return 90
+
+
+def auto_repair_enabled() -> bool:
+    raw = env_value("CHUMMER6_BROWSERACT_HUMANIZER_AUTO_REPAIR")
+    if not raw:
+        return True
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def word_count(text: str) -> int:
+    return len(re.findall(r"[A-Za-z0-9][A-Za-z0-9'\\-]*", str(text or "")))
+
+
+def _slugify(value: str) -> str:
+    lowered = re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower())
+    lowered = re.sub(r"_+", "_", lowered).strip("_")
+    return lowered or "workflow"
+
+
+def _runtime_workflow_stem() -> str:
+    explicit = env_value("CHUMMER6_BROWSERACT_HUMANIZER_RUNTIME_WORKFLOW")
+    if explicit:
+        return _slugify(explicit)
+    workflow_id = env_value("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID")
+    if workflow_id:
+        return _slugify(workflow_id)
+    query = env_value("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_QUERY") or "undetectable_humanizer_live"
+    if "humanizer" in query.lower():
+        return _slugify(query)
+    return "undetectable_humanizer_live"
+
+
+def _candidate_spec_paths() -> list[Path]:
+    explicit = env_value("CHUMMER6_BROWSERACT_HUMANIZER_SPEC_PATH")
+    candidates: list[Path] = []
+    if explicit:
+        candidates.append(Path(explicit).expanduser())
+    stem = _runtime_workflow_stem()
+    candidates.extend(
+        [
+            RUNTIME_DIR / f"{stem}.workflow.json",
+            RUNTIME_DIR / "undetectable_humanizer_live.workflow.json",
+            RUNTIME_DIR / "undetectable_humanizer_v4.workflow.json",
+        ]
+    )
+    discovered = sorted(RUNTIME_DIR.glob("*humanizer*.workflow.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for path in discovered:
+        if path not in candidates:
+            candidates.append(path)
+    return [path for path in candidates if path.exists()]
+
+
+def _load_current_spec() -> tuple[dict[str, object], Path | None]:
+    for path in _candidate_spec_paths():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(loaded, dict):
+            return dict(loaded), path
+    return {}, None
+
+
+def _repair_goals_from_message(message: str) -> list[str]:
+    parts = [part.strip() for part in str(message or "").split("|") if part.strip()]
+    return parts[:4]
+
+
+def _ea_orchestrator():
+    app_root = str(EA_ROOT / "ea")
+    if app_root not in sys.path:
+        sys.path.insert(0, app_root)
+    scripts_root = str(EA_ROOT / "scripts")
+    if scripts_root not in sys.path:
+        sys.path.insert(0, scripts_root)
+    from app.container import build_container
+    from bootstrap_browseract_workflow_repair_skill import apply_skill_payload, build_skill_payload
+
+    container = build_container()
+    apply_skill_payload(container.skills, build_skill_payload())
+    return container.orchestrator
+
+
+def _persist_repair_packet(packet: dict[str, object], *, workflow_name: str) -> tuple[Path, Path]:
+    slug = _slugify(workflow_name)
+    workflow_spec = dict(packet.get("workflow_spec") or {})
+    packet_path = RUNTIME_DIR / f"{slug}.repair.packet.json"
+    spec_path = RUNTIME_DIR / f"{slug}.repair.workflow.json"
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    packet_path.write_text(json.dumps(packet, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    spec_path.write_text(json.dumps(workflow_spec, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    return packet_path, spec_path
+
+
+def _emit_builder_packet(spec_path: Path) -> Path | None:
+    try:
+        import browseract_architect as architect
+    except Exception:
+        return None
+    try:
+        spec = architect.normalize_spec(architect.load_spec(spec_path))
+        packet = architect.builder_packet(spec)
+    except Exception:
+        return None
+    output_path = spec_path.with_name(spec_path.name.replace(".workflow.json", ".builder.packet.json"))
+    output_path.write_text(json.dumps(packet, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    return output_path
+
+
+def request_workflow_repair(*, workflow_name: str, purpose: str, tool_url: str, failure_summary: str, failure_goals: list[str], current_spec: dict[str, object], login_url: str = "public") -> dict[str, object]:
+    app_root = str(EA_ROOT / "ea")
+    if app_root not in sys.path:
+        sys.path.insert(0, app_root)
+    from app.domain.models import TaskExecutionRequest
+
+    artifact = _ea_orchestrator().execute_task_artifact(
+        TaskExecutionRequest(
+            skill_key="browseract_workflow_repair_manager",
+            principal_id="ea-browseract-humanizer",
+            goal="Repair a failing BrowserAct workflow spec after a runtime execution failure.",
+            input_json={
+                "workflow_name": workflow_name,
+                "purpose": purpose,
+                "login_url": login_url,
+                "tool_url": tool_url,
+                "failure_summary": failure_summary,
+                "failing_step_goals": failure_goals,
+                "current_workflow_spec_json": current_spec,
+                "output_dir": str(RUNTIME_DIR),
+            },
+        )
+    )
+    structured = dict(getattr(artifact, "structured_output_json", {}) or {})
+    if not structured:
+        raise RuntimeError("browseract:repair_empty_artifact")
+    packet = dict(structured.get("workflow_spec") and structured or structured.get("result") or structured)
+    if "workflow_spec" not in packet:
+        raise RuntimeError("browseract:repair_missing_workflow_spec")
+    packet_path, spec_path = _persist_repair_packet(packet, workflow_name=workflow_name)
+    builder_path = _emit_builder_packet(spec_path)
+    print(f"browseract_repair_packet={packet_path}", file=sys.stderr)
+    print(f"browseract_repair_spec={spec_path}", file=sys.stderr)
+    if builder_path is not None:
+        print(f"browseract_repair_builder={builder_path}", file=sys.stderr)
+    return packet
+
+
+def maybe_request_workflow_repair(*, failure_summary: str, failure_goals: list[str] | None = None) -> None:
+    if not auto_repair_enabled():
+        return
+    current_spec, spec_path = _load_current_spec()
+    workflow_name = str((current_spec.get("workflow_name") if isinstance(current_spec, dict) else "") or _runtime_workflow_stem()).strip() or _runtime_workflow_stem()
+    purpose = str((current_spec.get("description") if isinstance(current_spec, dict) else "") or "Repair the Undetectable AI BrowserAct humanizer workflow for Chummer6 copy blocks.").strip()
+    tool_url = ""
+    if isinstance(current_spec, dict):
+        nodes = current_spec.get("nodes")
+        if isinstance(nodes, list):
+            for node in nodes:
+                if isinstance(node, dict) and isinstance(node.get("config"), dict):
+                    candidate = str((node.get("config") or {}).get("url") or "").strip()
+                    if candidate:
+                        tool_url = candidate
+                        break
+    if not tool_url:
+        tool_url = "https://undetectable.ai/ai-humanizer"
+    goals = list(failure_goals or [])
+    if not goals:
+        goals = _repair_goals_from_message(failure_summary)
+    try:
+        request_workflow_repair(
+            workflow_name=workflow_name,
+            purpose=purpose,
+            tool_url=tool_url,
+            login_url="public",
+            failure_summary=failure_summary,
+            failure_goals=goals,
+            current_spec=current_spec,
+        )
+        if spec_path is not None:
+            print(f"browseract_repair_source={spec_path}", file=sys.stderr)
+    except Exception as exc:
+        print(f"browseract_repair_failed={str(exc)[:240]}", file=sys.stderr)
+
+
+def wait_for_task(task_id: str, *, timeout_seconds: int = 20) -> dict[str, object]:
+    deadline = time.time() + max(30, int(timeout_seconds))
+    last_status = ""
+    while time.time() < deadline:
+        status_body = api_request("GET", "/get-task-status", query={"task_id": task_id})
+        status = _task_status(status_body)
+        if status:
+            last_status = status
+        if status in {"done", "completed", "success", "succeeded", "finished"}:
+            return api_request("GET", "/get-task", query={"task_id": task_id})
+        finished_at = str(status_body.get("finished_at") or "").strip()
+        if not finished_at:
+            data = status_body.get("data")
+            if isinstance(data, dict):
+                finished_at = str(data.get("finished_at") or "").strip()
+        if finished_at and status not in {"running", "queued", "processing", "in_progress"}:
+            return api_request("GET", "/get-task", query={"task_id": task_id})
+        if status in {"failed", "error", "cancelled", "canceled"}:
+            detail = json.dumps(status_body, ensure_ascii=True)[:400]
+            raise RuntimeError(f"browseract:task_failed:{detail}")
+        time.sleep(5)
+    full = api_request("GET", "/get-task", query={"task_id": task_id})
+    goals = " | ".join(_task_step_goals(full)[:3]).strip()
+    detail = f":{goals}" if goals else ""
+    raise RuntimeError(f"browseract:task_timeout:{last_status or 'unknown'}{detail}")
+
+
+def _collect_strings(value: object) -> list[str]:
+    found: list[str] = []
+    if isinstance(value, str):
+        normalized = str(value or "").strip()
+        if normalized:
+            found.append(normalized)
+        return found
+    if isinstance(value, dict):
+        for nested in value.values():
+            found.extend(_collect_strings(nested))
+        return found
+    if isinstance(value, (list, tuple, set)):
+        for nested in value:
+            found.extend(_collect_strings(nested))
+    return found
+
+
+WORD_COUNT_LINE_RE = re.compile(r"^\d+\s*Words?$", re.IGNORECASE)
+HUMANIZER_MARKDOWN_TERMINATORS = (
+    "[Switch to Undetectable]",
+    "Changed words / phrases",
+    "WARNING:",
+    "Copy Output",
+    "Humanize Again",
+    "How UD AI Turns AI-Generated Content into Humanized Content",
+    "### ",
+)
+
+
+def _clean_markdown_line(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _is_original_markdown_line(line: str, original_text: str) -> bool:
+    candidate = _clean_markdown_line(line).lstrip("×").strip()
+    if not candidate:
+        return False
+    if _normalized_text(candidate) == _normalized_text(original_text):
+        return True
+    overlap, ratio = _token_overlap_score(original_text, candidate)
+    return overlap >= max(4, min(10, len(_token_set(original_text)) - 1)) and ratio >= 0.85
+
+
+def _is_markdown_terminator(line: str) -> bool:
+    normalized = _clean_markdown_line(line)
+    if not normalized:
+        return False
+    if WORD_COUNT_LINE_RE.fullmatch(normalized):
+        return True
+    return any(normalized.startswith(prefix) for prefix in HUMANIZER_MARKDOWN_TERMINATORS)
+
+
+def _collect_markdown_humanized_candidates(markdown: str, original_text: str) -> list[str]:
+    if not markdown.strip() or not original_text.strip():
+        return []
+    lines = [_clean_markdown_line(line) for line in str(markdown).splitlines()]
+    lines = [line for line in lines if line]
+    candidates: list[str] = []
+    index = 0
+    while index < len(lines):
+        if not _is_original_markdown_line(lines[index], original_text):
+            index += 1
+            continue
+        start = index + 1
+        while start < len(lines) and _is_original_markdown_line(lines[start], original_text):
+            start += 1
+        if start < len(lines) and WORD_COUNT_LINE_RE.fullmatch(lines[start]):
+            start += 1
+        captured: list[str] = []
+        while start < len(lines):
+            line = lines[start]
+            if _is_markdown_terminator(line):
+                break
+            if line.startswith("!["):
+                start += 1
+                continue
+            captured.append(line)
+            start += 1
+        candidate = re.sub(r"\s+", " ", " ".join(captured)).strip()
+        if candidate:
+            candidates.append(candidate)
+        index = max(start, index + 1)
+    return candidates
+
+
+def _collect_humanized_candidates(body: dict[str, object], original_text: str) -> list[str]:
+    candidates: list[str] = []
+    output = body.get("output")
+    if isinstance(output, dict):
+        raw = output.get("string")
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict):
+                parsed = [parsed]
+            if isinstance(parsed, list):
+                for item in parsed:
+                    if isinstance(item, dict):
+                        for field in (
+                            "humanized_text",
+                            "rewritten_text",
+                            "result",
+                            "output",
+                            "output_text",
+                            "text",
+                        ):
+                            value = str(item.get(field) or "").strip()
+                            if value:
+                                candidates.append(value)
+                        for field in ("content", "markdown", "page_markdown", "page_content"):
+                            markdown = str(item.get(field) or "").strip()
+                            if markdown:
+                                candidates.extend(_collect_markdown_humanized_candidates(markdown, original_text))
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in candidates:
+        key = re.sub(r"\s+", " ", value).strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(value)
+    return deduped
+
+
+def _collect_humanizer_rows(body: dict[str, object]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    output = body.get("output")
+    if not isinstance(output, dict):
+        return rows
+    raw = output.get("string")
+    if not isinstance(raw, str) or not raw.strip():
+        return rows
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return rows
+    if isinstance(parsed, dict):
+        parsed = [parsed]
+    if not isinstance(parsed, list):
+        return rows
+    for entry in parsed:
+        if not isinstance(entry, dict):
+            continue
+        original = str(
+            entry.get("original_text")
+            or entry.get("input_text")
+            or entry.get("source_text")
+            or entry.get("input")
+            or entry.get("source")
+            or ""
+        ).strip()
+        humanized = str(
+            entry.get("humanized_text")
+            or entry.get("rewritten_text")
+            or entry.get("result")
+            or entry.get("output")
+            or entry.get("output_text")
+            or ""
+        ).strip()
+        if original or humanized:
+            rows.append({"original_text": original, "humanized_text": humanized})
+    return rows
+
+
+def _token_set(text: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9\-']{2,}", text.lower())
+        if len(token) >= 5
+        and token
+        not in {
+            "about",
+            "above",
+            "after",
+            "again",
+            "among",
+            "being",
+            "below",
+            "could",
+            "first",
+            "found",
+            "from",
+            "helps",
+            "into",
+            "their",
+            "there",
+            "these",
+            "thing",
+            "think",
+            "those",
+            "under",
+            "understand",
+            "using",
+            "where",
+            "which",
+            "while",
+            "would",
+            "your",
+        }
+    }
+
+
+def _token_overlap_score(left: str, right: str) -> tuple[int, float]:
+    left_tokens = _token_set(left)
+    right_tokens = _token_set(right)
+    if not left_tokens or not right_tokens:
+        return 0, 0.0
+    overlap = len(left_tokens & right_tokens)
+    ratio = overlap / max(1, len(left_tokens))
+    return overlap, ratio
+
+
+def _normalized_text(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip().lower()
+
+
+SPACING_REPAIR_WORDS = {
+    "a",
+    "about",
+    "after",
+    "all",
+    "also",
+    "an",
+    "and",
+    "are",
+    "around",
+    "as",
+    "at",
+    "attached",
+    "be",
+    "because",
+    "before",
+    "black",
+    "box",
+    "but",
+    "by",
+    "calculated",
+    "can",
+    "campaign",
+    "characters",
+    "copy",
+    "designed",
+    "do",
+    "does",
+    "don't",
+    "everything",
+    "for",
+    "forward",
+    "from",
+    "gamemasters",
+    "gms",
+    "great",
+    "have",
+    "helpful",
+    "helps",
+    "how",
+    "i",
+    "if",
+    "in",
+    "into",
+    "is",
+    "it",
+    "it's",
+    "keep",
+    "keeps",
+    "local",
+    "look",
+    "math",
+    "more",
+    "moving",
+    "mysterious",
+    "not",
+    "of",
+    "on",
+    "open",
+    "or",
+    "organized",
+    "out",
+    "players",
+    "plus",
+    "prepare",
+    "provides",
+    "really",
+    "receipts",
+    "references",
+    "relying",
+    "result",
+    "results",
+    "rules",
+    "see",
+    "sessions",
+    "shadowrun",
+    "so",
+    "some",
+    "stays",
+    "that",
+    "the",
+    "their",
+    "them",
+    "there",
+    "they",
+    "they're",
+    "this",
+    "to",
+    "tool",
+    "track",
+    "transparent",
+    "trustworthy",
+    "trying",
+    "understand",
+    "up",
+    "useful",
+    "way",
+    "we",
+    "where",
+    "which",
+    "while",
+    "with",
+    "workflow",
+    "worry",
+    "would",
+    "what",
+    "what's",
+    "workspace",
+    "you",
+    "you're",
+    "your",
+}
+SPACING_REPAIR_SHORT_WORDS = {
+    "a",
+    "i",
+    "an",
+    "as",
+    "at",
+    "be",
+    "by",
+    "do",
+    "if",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "so",
+    "to",
+    "up",
+    "we",
+}
+SPACING_REPAIR_TOKEN_RE = re.compile(r"\b[A-Za-z][A-Za-z']*[A-Za-z]\b")
+
+
+def _is_noise_candidate(value: str) -> bool:
+    lowered = str(value or "").lower()
+    if len(value) <= 40 or "http" in lowered or lowered.startswith("task_"):
+        return True
+    return any(token in lowered for token in ("workflow_id", "workflow_name", "browseract_task_id"))
+
+
+def _spacing_repair_lexicon(original_text: str) -> set[str]:
+    lexicon = set(SPACING_REPAIR_WORDS)
+    for token in re.findall(r"[A-Za-z][A-Za-z']+", str(original_text or "").lower()):
+        lexicon.add(token)
+    return lexicon
+
+
+def _split_spacing_artifact_token(token: str, lexicon: set[str]) -> str:
+    lowered = token.lower()
+    if lowered in lexicon:
+        return token
+    length = len(token)
+    best: list[tuple[int, list[str]] | None] = [None] * (length + 1)
+    best[length] = (0, [])
+    for index in range(length - 1, -1, -1):
+        winner: tuple[int, list[str]] | None = None
+        for next_index in range(index + 1, min(length, index + 24) + 1):
+            piece = lowered[index:next_index]
+            if piece not in lexicon:
+                continue
+            if len(piece) == 1 and piece not in {"a", "i"}:
+                continue
+            if len(piece) == 2 and piece not in SPACING_REPAIR_SHORT_WORDS:
+                continue
+            remainder = best[next_index]
+            if remainder is None:
+                continue
+            score = (len(piece) * len(piece)) - 2 + remainder[0]
+            parts = [token[index:next_index], *remainder[1]]
+            if winner is None or score > winner[0]:
+                winner = (score, parts)
+        best[index] = winner
+    resolved = best[0]
+    if resolved is None or len(resolved[1]) <= 1:
+        return token
+    threshold = 1 if length <= 4 else length + 2
+    if resolved[0] < threshold:
+        return token
+    return " ".join(resolved[1])
+
+
+def _repair_spacing_artifacts(text: str, original_text: str) -> str:
+    repaired = str(text or "").strip()
+    if not repaired:
+        return repaired
+    repaired = re.sub(r"(?<=[,;:!?])(?=[A-Za-z0-9])", " ", repaired)
+    repaired = re.sub(r'([A-Za-z0-9]["”])(?=[A-Za-z])', r"\1 ", repaired)
+    repaired = re.sub(r"\s+", " ", repaired).strip()
+    lexicon = _spacing_repair_lexicon(original_text)
+    repaired = SPACING_REPAIR_TOKEN_RE.sub(lambda match: _split_spacing_artifact_token(match.group(0), lexicon), repaired)
+    return re.sub(r"\s+", " ", repaired).strip()
+
+
+def extract_humanized_text(body: dict[str, object], original_text: str) -> str:
+    rows = _collect_humanizer_rows(body)
+    candidates = _collect_humanized_candidates(body, original_text)
+    original_tokens = _token_set(original_text)
+    normalized_original = _normalized_text(original_text)
+    if rows:
+        scored_rows: list[tuple[int, float, int, float, str]] = []
+        for row in rows:
+            source = str(row.get("original_text") or "").strip()
+            value = str(row.get("humanized_text") or "").strip()
+            if _normalized_text(value) == normalized_original:
+                continue
+            if _is_noise_candidate(value):
+                continue
+            source_overlap, source_ratio = _token_overlap_score(original_text, source)
+            candidate_overlap = len(_token_set(value) & original_tokens)
+            candidate_ratio = candidate_overlap / max(1, len(original_tokens))
+            scored_rows.append((source_overlap, source_ratio, candidate_overlap, candidate_ratio, value))
+        if scored_rows:
+            scored_rows.sort(reverse=True)
+            best_source_overlap, best_source_ratio, best_candidate_overlap, best_candidate_ratio, best_value = scored_rows[0]
+            if best_source_overlap < 3 or best_source_ratio < 0.35:
+                raise RuntimeError("browseract:input_binding_mismatch")
+            if best_candidate_overlap < 2 or best_candidate_ratio < 0.12:
+                raise RuntimeError("browseract:humanizer_output_mismatch")
+            return _repair_spacing_artifacts(best_value, original_text)
+    scored: list[tuple[int, int, str]] = []
+    for value in candidates:
+        if _normalized_text(value) == normalized_original:
+            continue
+        if _is_noise_candidate(value):
+            continue
+        overlap = len(_token_set(value) & original_tokens)
+        scored.append((overlap, len(value), value))
+    if scored:
+        scored.sort(reverse=True)
+        best_overlap, _best_len, best_value = scored[0]
+        if best_overlap >= 2:
+            return _repair_spacing_artifacts(best_value, original_text)
+        raise RuntimeError("browseract:humanizer_output_mismatch")
+    raise RuntimeError("browseract:no_humanized_text")
+
+
+def cmd_list_workflows() -> int:
+    rows = []
+    for entry in list_workflows():
+        workflow_id, name = workflow_fields(entry)
+        rows.append({"workflow_id": workflow_id, "name": name})
+    print(json.dumps({"workflows": rows}, indent=2, ensure_ascii=True))
+    return 0
+
+
+def cmd_check() -> int:
+    workflow_id, name = resolve_workflow()
+    try:
+        task = run_task(workflow_id=workflow_id, text=probe_text(), target="guide:probe:intro")
+        task_id = _task_id(task)
+        body = wait_for_task(task_id, timeout_seconds=humanizer_timeout_seconds())
+        humanized = extract_humanized_text(body, probe_text())
+        print(
+            json.dumps(
+                {
+                    "status": "ready",
+                    "workflow_id": workflow_id,
+                    "workflow_name": name,
+                    "task_id": task_id,
+                    "sample_words": word_count(humanized),
+                },
+                ensure_ascii=True,
+            )
+        )
+        return 0
+    except Exception as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "unhealthy",
+                    "workflow_id": workflow_id,
+                    "workflow_name": name,
+                    "error": str(exc),
+                },
+                ensure_ascii=True,
+            )
+        )
+        return 1
+
+
+def cmd_humanize(text: str, target: str) -> int:
+    if word_count(text) < min_words():
+        raise RuntimeError(f"browseract:below_min_words:{word_count(text)}<{min_words()}")
+    workflow_id, _name = resolve_workflow()
+    try:
+        task = run_task(workflow_id=workflow_id, text=text, target=target)
+        task_id = _task_id(task)
+        print(f"browseract_task_id={task_id}", file=sys.stderr)
+        body = wait_for_task(task_id, timeout_seconds=humanizer_timeout_seconds())
+    except RuntimeError as exc:
+        maybe_request_workflow_repair(failure_summary=str(exc))
+        raise
+    goals = _task_step_goals(body)
+    if any('Input "/text' in goal or "Input '/text" in goal for goal in goals):
+        maybe_request_workflow_repair(
+            failure_summary="browseract:literal_input_binding:/text",
+            failure_goals=goals,
+        )
+        raise RuntimeError("browseract:literal_input_binding:/text")
+    if len(goals) <= 2:
+        detail = f"browseract:incomplete_workflow:{' | '.join(goals) or 'no_steps'}"
+        maybe_request_workflow_repair(failure_summary=detail, failure_goals=goals)
+        raise RuntimeError(detail)
+    try:
+        humanized = extract_humanized_text(body, text)
+    except RuntimeError as exc:
+        maybe_request_workflow_repair(failure_summary=str(exc), failure_goals=goals)
+        raise
+    print(humanized)
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="BrowserAct Undetectable Humanizer helper for Chummer6.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("list-workflows")
+    sub.add_parser("check")
+    humanize = sub.add_parser("humanize")
+    humanize.add_argument("--text", required=True)
+    humanize.add_argument("--target", default="")
+    args = parser.parse_args()
+    if args.command == "list-workflows":
+        return cmd_list_workflows()
+    if args.command == "check":
+        return cmd_check()
+    if args.command == "humanize":
+        return cmd_humanize(args.text, args.target)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

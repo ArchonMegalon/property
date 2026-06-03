@@ -1,0 +1,2 @@
+ALTER TABLE human_tasks
+ADD COLUMN IF NOT EXISTS assignment_source TEXT NOT NULL DEFAULT '';

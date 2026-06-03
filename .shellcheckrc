@@ -1,0 +1,8 @@
+# Allow sourced files that may be environment-dependent in local setups.
+external-sources=true
+
+# Keep lint output focused on actionable findings.
+severity=style
+
+# Permit common dynamic source patterns in ops scripts.
+disable=SC1091

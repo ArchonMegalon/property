@@ -1,80 +1,59 @@
 # PropertyQuarry
 
-PropertyQuarry is a dedicated property discovery product built out of the Executive Assistant property-search lane.
+PropertyQuarry is a standalone property discovery product: cross-platform search, ranking, research packets, hosted review pages, feedback learning, and paid research tiers.
 
-It is aimed at renters and buyers who want:
+This repository now contains the runnable product runtime that had previously lived inside the broader EA codebase. The goal of this repo is not a docs mirror. It is the source of truth for the PropertyQuarry app, tests, deployment scripts, and branded public surfaces.
 
-- cross-platform property discovery
-- profile-based ranking
-- deeper AI research on shortlisted listings
-- hosted property review pages
-- optional alerts and agent-assisted follow-up
+## What is in this repo
 
-## Initial product stance
+- public product surface for `propertyquarry.com`
+- onboarding, sign-in, and authenticated property workspace
+- property search runs across supported providers and countries
+- shortlist ranking, hosted review packets, and 360 tour links
+- feedback learning loop and preference profile updates
+- PayPal plan upgrades and Emailit-based client notifications
+- Docker runtime, smoke scripts, and property-facing tests
 
-- consumer-first
-- English-language product shell
-- multilingual property brief defaults
-- multi-country provider selection
-- market-aware budget posture by country and currency
-- freemium onboarding
-- paid research and agent tiers
-- shared backend heritage with EA during the extraction phase
+## Product entrypoints
 
-## Core promise
+- landing page: `/`
+- onboarding: `/register`
+- sign-in: `/sign-in`
+- property desk: `/app/properties`
 
-Find properties that fit the person, not just the filter.
+The repo defaults to the PropertyQuarry brand even on non-production hostnames.
 
-PropertyQuarry should turn fragmented listings into:
+## Run it
 
-- ranked matches
-- personalized fit reasoning
-- researched property packets
-- hosted review pages
-- optional 360/tour enrichment when available
+```bash
+cp .env.example .env
+# fill in the runtime credentials you actually use
+bash scripts/deploy.sh
+```
 
-Current market layer targets:
+Then open:
 
-- Austria
-- Germany
-- Switzerland
-- United Kingdom
-- Spain
-- Italy
-- France
-- Netherlands
-- United States
+- `http://localhost:8090/`
+- `http://localhost:8090/register`
+- `http://localhost:8090/app/properties`
 
-## Planned surfaces
+## Key docs
 
-- public landing
-- public pricing
-- onboarding
-- authenticated search workspace
-- property review pages
-- alerts and saved searches
-- paid upgrade flow
+- product brief: [docs/PRODUCT_BRIEF.md](/docker/property/docs/PRODUCT_BRIEF.md)
+- architecture: [docs/ARCHITECTURE.md](/docker/property/docs/ARCHITECTURE.md)
+- brand: [docs/BRAND.md](/docker/property/docs/BRAND.md)
+- pricing: [docs/PRICING.md](/docker/property/docs/PRICING.md)
+- domain rollout: [docs/DOMAIN_ROLLOUT.md](/docker/property/docs/DOMAIN_ROLLOUT.md)
+- runbook: [RUNBOOK.md](/docker/property/RUNBOOK.md)
 
-## Repository structure
+## Migration status
 
-- [docs/PRODUCT_BRIEF.md](docs/PRODUCT_BRIEF.md)
-- [docs/BRAND.md](docs/BRAND.md)
-- [docs/PRICING.md](docs/PRICING.md)
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- [docs/ROADMAP.md](docs/ROADMAP.md)
-- [docs/DOMAIN_ROLLOUT.md](docs/DOMAIN_ROLLOUT.md)
+This repo now includes:
 
-## Extraction principle
+- `ea/` application runtime
+- `scripts/` operator and deploy scripts
+- `tests/` runtime and product contract coverage
+- `docker-compose*.yml` deployment stack
+- config, provider templates, and VPN overlay support
 
-The product should be extracted as a dedicated frontend and commercial shell first, while reusing the proven EA property-search backend until the domain model and revenue loop are stable.
-
-## Local environment
-
-Use [.env.example](.env.example) as the local starting point for:
-
-- `PROPERTYQUARRY_PUBLIC_BASE_URL`
-- `PAYFUNNELS_API_KEY`
-- `PAYFUNNELS_WEBHOOK_SECRET`
-- `PAYPAL_CLIENT_ID`
-- `PAYPAL_SECRET`
-- `PAYPAL_ACCOUNT_EMAIL`
+The active migration principle is simple: new PropertyQuarry work lands here first. The old EA repo is no longer the intended home for this product surface.

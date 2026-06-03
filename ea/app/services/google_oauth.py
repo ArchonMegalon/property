@@ -1,0 +1,2701 @@
+from __future__ import annotations
+
+import base64
+import hashlib
+import html
+import hmac
+import json
+import os
+import re
+import secrets
+import subprocess
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from email import policy
+from email.message import EmailMessage
+from email.parser import BytesParser
+from email.utils import parseaddr
+from typing import TYPE_CHECKING, Any
+
+from app.domain.models import ConnectorBinding, ProviderBindingRecord
+
+if TYPE_CHECKING:
+    from app.container import AppContainer
+
+GOOGLE_PROVIDER_KEY = "google_gmail"
+GOOGLE_CONNECTOR_NAME = "google_workspace"
+GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo"
+
+GOOGLE_SCOPE_IDENTITY = (
+    "openid",
+    "email",
+    "profile",
+)
+GOOGLE_SCOPE_SEND = "https://www.googleapis.com/auth/gmail.send"
+GOOGLE_SCOPE_METADATA = "https://www.googleapis.com/auth/gmail.metadata"
+GOOGLE_SCOPE_GMAIL_MODIFY = "https://www.googleapis.com/auth/gmail.modify"
+GOOGLE_SCOPE_CALENDAR = "https://www.googleapis.com/auth/calendar"
+GOOGLE_SCOPE_CALENDAR_READONLY = "https://www.googleapis.com/auth/calendar.readonly"
+GOOGLE_SCOPE_KEEP = "https://www.googleapis.com/auth/keep"
+GOOGLE_SCOPE_CONTACTS_READONLY = "https://www.googleapis.com/auth/contacts.readonly"
+GOOGLE_SCOPE_DRIVE_METADATA_READONLY = "https://www.googleapis.com/auth/drive.metadata.readonly"
+GOOGLE_SCOPE_PHOTOS_PICKER = "https://www.googleapis.com/auth/photospicker.mediaitems.readonly"
+
+GOOGLE_SCOPE_SEND_ONLY = GOOGLE_SCOPE_IDENTITY + (
+    GOOGLE_SCOPE_SEND,
+)
+
+GOOGLE_SCOPE_VERIFY = GOOGLE_SCOPE_IDENTITY + (
+    GOOGLE_SCOPE_SEND,
+    GOOGLE_SCOPE_METADATA,
+)
+
+GOOGLE_SCOPE_KEEP_ONLY = GOOGLE_SCOPE_IDENTITY + (
+    GOOGLE_SCOPE_KEEP,
+)
+
+GOOGLE_SCOPE_CORE = GOOGLE_SCOPE_IDENTITY + (
+    GOOGLE_SCOPE_SEND,
+    GOOGLE_SCOPE_METADATA,
+    GOOGLE_SCOPE_CALENDAR_READONLY,
+    GOOGLE_SCOPE_CONTACTS_READONLY,
+)
+
+GOOGLE_SCOPE_FULL_WORKSPACE = GOOGLE_SCOPE_IDENTITY + (
+    GOOGLE_SCOPE_SEND,
+    GOOGLE_SCOPE_GMAIL_MODIFY,
+    GOOGLE_SCOPE_CALENDAR,
+    GOOGLE_SCOPE_CONTACTS_READONLY,
+    GOOGLE_SCOPE_DRIVE_METADATA_READONLY,
+)
+
+GOOGLE_SCOPE_PHOTOS = GOOGLE_SCOPE_IDENTITY + (
+    GOOGLE_SCOPE_PHOTOS_PICKER,
+)
+
+GOOGLE_SCOPE_CORE_AND_PHOTOS = GOOGLE_SCOPE_CORE + (
+    GOOGLE_SCOPE_PHOTOS_PICKER,
+)
+
+GOOGLE_SCOPE_FULL_WORKSPACE_AND_PHOTOS = GOOGLE_SCOPE_FULL_WORKSPACE + (
+    GOOGLE_SCOPE_PHOTOS_PICKER,
+)
+
+SCOPE_BUNDLES: dict[str, tuple[str, ...]] = {
+    "send": GOOGLE_SCOPE_SEND_ONLY,
+    "verify": GOOGLE_SCOPE_VERIFY,
+    "keep": GOOGLE_SCOPE_KEEP_ONLY,
+    "core": GOOGLE_SCOPE_CORE,
+    "photos": GOOGLE_SCOPE_PHOTOS,
+    "core_photos": GOOGLE_SCOPE_CORE_AND_PHOTOS,
+    "full_workspace": GOOGLE_SCOPE_FULL_WORKSPACE,
+    "full_workspace_photos": GOOGLE_SCOPE_FULL_WORKSPACE_AND_PHOTOS,
+    "all": GOOGLE_SCOPE_FULL_WORKSPACE,
+}
+
+SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
+    "send": {
+        "label": "Send only",
+        "summary": "Sign in and send mail from the connected Gmail account.",
+        "capabilities": (
+            "Sign in with Google identity",
+            "Send draft and operator-approved mail",
+        ),
+        "limitations": (
+            "No mailbox verification",
+            "No calendar context",
+            "No contact enrichment",
+        ),
+    },
+    "verify": {
+        "label": "Advanced Gmail verify",
+        "summary": "Add mailbox metadata verification without expanding into calendar or contacts.",
+        "capabilities": (
+            "Send mail",
+            "Verify delivery using Gmail metadata",
+        ),
+        "limitations": (
+            "No calendar context",
+            "No contacts context",
+            "No inbox modification",
+        ),
+    },
+    "keep": {
+        "label": "Google Keep",
+        "summary": "Authorize EA to create Google Keep notes and checklists for assistant-triggered actions.",
+        "capabilities": (
+            "Google Keep note creation",
+            "Google Keep checklist creation",
+        ),
+        "limitations": (
+            "No Gmail access",
+            "No calendar access",
+            "No Drive file index context",
+        ),
+    },
+    "core": {
+        "label": "Google Core",
+        "summary": "The practical default: Gmail send/verify plus calendar and contacts read context.",
+        "capabilities": (
+            "Send mail",
+            "Mailbox verification",
+            "Calendar read context",
+            "Contacts read context",
+        ),
+        "limitations": (
+            "No inbox mutation",
+            "No Drive file index context",
+        ),
+    },
+    "photos": {
+        "label": "Google Photos Picker",
+        "summary": "Authorize EA to create photo-picking sessions and read the photos you explicitly select from Google Photos.",
+        "capabilities": (
+            "Create Google Photos picker sessions",
+            "Read selected photos and videos from a picker session",
+        ),
+        "limitations": (
+            "Does not grant whole-library background access",
+            "Only selected items are shared with EA",
+        ),
+    },
+    "core_photos": {
+        "label": "Google Core + Photos Picker",
+        "summary": "Google Core plus the Google Photos Picker lane for explicit photo selection.",
+        "capabilities": (
+            "Send mail",
+            "Mailbox verification",
+            "Calendar read context",
+            "Contacts read context",
+            "Google Photos picker sessions",
+        ),
+        "limitations": (
+            "No inbox mutation",
+            "Only selected Google Photos items are shared",
+        ),
+    },
+    "full_workspace": {
+        "label": "Google Full Workspace",
+        "summary": "Broader assistant context: inbox actions plus richer calendar and Drive index context.",
+        "capabilities": (
+            "Inbox understanding and modification",
+            "Richer calendar actions",
+            "Drive file index context",
+        ),
+        "limitations": (
+            "Still not a promise that every Google surface is integrated today",
+        ),
+    },
+    "full_workspace_photos": {
+        "label": "Google Full Workspace + Photos Picker",
+        "summary": "Full Workspace plus Google Photos Picker access for explicitly selected photos and videos.",
+        "capabilities": (
+            "Inbox understanding and modification",
+            "Richer calendar actions",
+            "Drive file index context",
+            "Google Photos picker sessions",
+        ),
+        "limitations": (
+            "Still not a promise that every Google surface is integrated today",
+            "Only selected Google Photos items are shared",
+        ),
+    },
+    "all": {
+        "label": "Google Full Workspace",
+        "summary": "Alias for the full workspace bundle.",
+        "capabilities": (
+            "Inbox understanding and modification",
+            "Richer calendar actions",
+            "Drive file index context",
+        ),
+        "limitations": (
+            "Still not a promise that every Google surface is integrated today",
+        ),
+    },
+}
+_GMAIL_SIGNAL_SCAN_MULTIPLIER = 20
+_GMAIL_SIGNAL_SCAN_MIN_RESULTS = 500
+_GMAIL_SIGNAL_SCAN_MAX_RESULTS = 500
+_GMAIL_SIGNAL_PAGE_SIZE = 100
+
+
+def google_scope_bundle_details(bundle: str | None) -> dict[str, object]:
+    normalized = normalize_scope_bundle(bundle)
+    metadata = dict(SCOPE_BUNDLE_METADATA.get(normalized) or {})
+    metadata["bundle"] = normalized
+    metadata["scopes"] = list(SCOPE_BUNDLES[normalized])
+    return metadata
+
+
+def _primary_google_binding_id(principal_id: str) -> str:
+    return f"{str(principal_id or '').strip()}:{GOOGLE_PROVIDER_KEY}"
+
+
+def _google_account_binding_id(principal_id: str, google_subject: str) -> str:
+    return f"{_primary_google_binding_id(principal_id)}:acct:{str(google_subject or '').strip()}"
+
+
+def _google_binding_identity(metadata: dict[str, Any], *, binding_id: str = "") -> str:
+    return (
+        str(metadata.get("google_subject") or "").strip()
+        or str(metadata.get("google_email") or "").strip().lower()
+        or str(binding_id or "").strip()
+    )
+
+
+def _google_binding_matches_account(
+    binding: ProviderBindingRecord | None,
+    *,
+    google_subject: str,
+    google_email: str,
+) -> bool:
+    if binding is None:
+        return False
+    metadata = dict(binding.auth_metadata_json or {})
+    return _google_binding_identity(metadata, binding_id=binding.binding_id) == (
+        str(google_subject or "").strip() or str(google_email or "").strip().lower()
+    )
+
+
+def _google_connector_lookup_keys(*, google_email: str, google_hosted_domain: str) -> tuple[str, ...]:
+    values: list[str] = []
+    for raw in (google_email, google_hosted_domain):
+        normalized = str(raw or "").strip().lower()
+        if normalized and normalized not in values:
+            values.append(normalized)
+    return tuple(values)
+
+
+def _google_binding_principal_ids(principal_id: str) -> tuple[str, ...]:
+    ordered: list[str] = []
+    for raw in (
+        principal_id,
+        os.environ.get("EA_GOOGLE_DEFAULT_PRINCIPAL_ID", ""),
+        os.environ.get("EA_DEFAULT_PRINCIPAL_ID", ""),
+        "local-user",
+    ):
+        normalized = str(raw or "").strip()
+        if normalized and normalized not in ordered:
+            ordered.append(normalized)
+    return tuple(ordered)
+
+
+def _list_google_binding_records(*, container: AppContainer, principal_id: str) -> list[ProviderBindingRecord]:
+    primary: list[ProviderBindingRecord] = []
+    others: list[ProviderBindingRecord] = []
+    for binding_principal_id in _google_binding_principal_ids(principal_id):
+        primary_binding_id = _primary_google_binding_id(binding_principal_id)
+        for row in container.provider_registry.list_persisted_binding_records(principal_id=binding_principal_id, limit=100):
+            if row.provider_key != GOOGLE_PROVIDER_KEY:
+                continue
+            if row.binding_id == primary_binding_id:
+                primary.append(row)
+            else:
+                others.append(row)
+    primary.sort(key=lambda row: (str(row.updated_at or ""), row.binding_id), reverse=True)
+    others.sort(key=lambda row: (str(row.updated_at or ""), row.binding_id), reverse=True)
+    seen: set[str] = set()
+    unique: list[ProviderBindingRecord] = []
+    for row in [*primary, *others]:
+        identity = _google_binding_identity(dict(row.auth_metadata_json or {}), binding_id=row.binding_id)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(row)
+    return unique
+
+
+@dataclass(frozen=True)
+class GoogleOAuthConfig:
+    client_id: str
+    client_secret: str
+    redirect_uri: str
+    state_secret: str
+    provider_secret_key: str
+
+
+@dataclass(frozen=True)
+class GoogleOAuthStartPacket:
+    principal_id: str
+    scope_bundle: str
+    requested_scopes: tuple[str, ...]
+    state: str
+    auth_url: str
+    redirect_uri: str
+
+
+@dataclass(frozen=True)
+class GoogleOAuthAccount:
+    binding: ProviderBindingRecord
+    connector_binding: ConnectorBinding | None
+    google_email: str
+    google_subject: str
+    google_hosted_domain: str
+    granted_scopes: tuple[str, ...]
+    consent_stage: str
+    workspace_mode: str
+    token_status: str
+    last_refresh_at: str
+    reauth_required_reason: str
+
+
+@dataclass(frozen=True)
+class GoogleGmailSmokeResult:
+    binding: ProviderBindingRecord
+    sender_email: str
+    recipient_email: str
+    rfc822_message_id: str
+    gmail_message_id: str
+    sent_at: str
+
+
+@dataclass(frozen=True)
+class GoogleGmailSendResult:
+    binding: ProviderBindingRecord
+    sender_email: str
+    recipient_email: str
+    subject: str
+    rfc822_message_id: str
+    gmail_message_id: str
+    sent_at: str
+
+
+@dataclass(frozen=True)
+class GoogleCalendarCreateResult:
+    binding: ProviderBindingRecord
+    event_id: str
+    html_link: str
+    summary: str
+    start_at: str
+    end_at: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class GoogleKeepNoteCreateResult:
+    binding: ProviderBindingRecord
+    note_name: str
+    title: str
+    text_content: str
+    list_item_texts: tuple[str, ...]
+    created_at: str
+
+
+@dataclass(frozen=True)
+class GoogleWorkspaceSignal:
+    signal_type: str
+    channel: str
+    title: str
+    summary: str
+    text: str
+    source_ref: str
+    external_id: str
+    counterparty: str
+    due_at: str | None
+    payload: dict[str, Any]
+    attachments: tuple["GoogleWorkspaceAttachment", ...] = ()
+
+
+@dataclass(frozen=True)
+class GoogleWorkspaceAttachment:
+    attachment_id: str
+    filename: str
+    mime_type: str
+    part_id: str
+    size_bytes: int
+    content_bytes: bytes = field(default=b"", repr=False)
+
+
+@dataclass(frozen=True)
+class GoogleWorkspaceSignalSync:
+    account_email: str
+    granted_scopes: tuple[str, ...]
+    signals: tuple[GoogleWorkspaceSignal, ...]
+    account_emails: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class GooglePhotosPickerSession:
+    account_email: str
+    binding_id: str
+    granted_scopes: tuple[str, ...]
+    session_id: str
+    picker_uri: str
+    poll_interval: str
+    timeout_in: str
+    media_items_set: bool
+
+
+@dataclass(frozen=True)
+class GooglePhotosSignalSync:
+    account_email: str
+    binding_id: str
+    session_id: str
+    granted_scopes: tuple[str, ...]
+    signals: tuple[GoogleWorkspaceSignal, ...]
+    media_items_set: bool
+    account_emails: tuple[str, ...] = ()
+
+
+def load_google_oauth_config() -> GoogleOAuthConfig:
+    client_id = str(os.environ.get("EA_GOOGLE_OAUTH_CLIENT_ID") or "").strip()
+    client_secret = str(os.environ.get("EA_GOOGLE_OAUTH_CLIENT_SECRET") or "").strip()
+    redirect_uri = str(os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
+    state_secret = str(os.environ.get("EA_GOOGLE_OAUTH_STATE_SECRET") or "").strip()
+    provider_secret_key = str(os.environ.get("EA_PROVIDER_SECRET_KEY") or "").strip()
+    if not client_id:
+        raise RuntimeError("google_oauth_client_id_missing")
+    if not client_secret:
+        raise RuntimeError("google_oauth_client_secret_missing")
+    if not redirect_uri:
+        raise RuntimeError("google_oauth_redirect_uri_missing")
+    if not state_secret:
+        raise RuntimeError("google_oauth_state_secret_missing")
+    if not provider_secret_key:
+        raise RuntimeError("google_oauth_provider_secret_key_missing")
+    return GoogleOAuthConfig(
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+        state_secret=state_secret,
+        provider_secret_key=provider_secret_key,
+    )
+
+
+def normalize_scope_bundle(raw: str | None) -> str:
+    bundle = str(raw or "send").strip().lower() or "send"
+    if bundle not in SCOPE_BUNDLES:
+        raise RuntimeError("google_oauth_scope_bundle_invalid")
+    return bundle
+
+
+def build_google_oauth_start(
+    *,
+    principal_id: str,
+    scope_bundle: str,
+    redirect_uri_override: str | None = None,
+    return_to: str | None = None,
+    browser_source: str | None = None,
+) -> GoogleOAuthStartPacket:
+    config = load_google_oauth_config()
+    normalized_bundle = normalize_scope_bundle(scope_bundle)
+    requested_scopes = SCOPE_BUNDLES[normalized_bundle]
+    redirect_uri = str(redirect_uri_override or config.redirect_uri).strip() or config.redirect_uri
+    state_payload: dict[str, Any] = {
+        "principal_id": principal_id,
+        "scope_bundle": normalized_bundle,
+        "redirect_uri": redirect_uri,
+        "nonce": secrets.token_urlsafe(12),
+        "issued_at": int(time.time()),
+    }
+    normalized_return_to = str(return_to or "").strip()
+    if normalized_return_to:
+        state_payload["return_to"] = normalized_return_to
+    normalized_browser_source = str(browser_source or "").strip()
+    if normalized_browser_source:
+        state_payload["browser_source"] = normalized_browser_source
+    state = _encode_signed_state(state_payload, secret=config.state_secret)
+    query = urllib.parse.urlencode(
+        {
+            "response_type": "code",
+            "client_id": config.client_id,
+            "redirect_uri": redirect_uri,
+            "scope": " ".join(requested_scopes),
+            "access_type": "offline",
+            "include_granted_scopes": "false",
+            "prompt": "consent",
+            "state": state,
+        }
+    )
+    return GoogleOAuthStartPacket(
+        principal_id=principal_id,
+        scope_bundle=normalized_bundle,
+        requested_scopes=requested_scopes,
+        state=state,
+        auth_url=f"{GOOGLE_AUTH_ENDPOINT}?{query}",
+        redirect_uri=redirect_uri,
+    )
+
+
+def read_google_oauth_state(state: str) -> dict[str, Any]:
+    config = load_google_oauth_config()
+    return _decode_signed_state(state, secret=config.state_secret)
+
+
+def complete_google_oauth_callback(
+    *,
+    container: AppContainer,
+    code: str,
+    state: str,
+) -> GoogleOAuthAccount:
+    config = load_google_oauth_config()
+    state_payload = _decode_signed_state(state, secret=config.state_secret)
+    principal_id = str(state_payload.get("principal_id") or "").strip()
+    if not principal_id:
+        raise RuntimeError("google_oauth_principal_missing")
+    scope_bundle = normalize_scope_bundle(str(state_payload.get("scope_bundle") or "send"))
+    redirect_uri = str(state_payload.get("redirect_uri") or config.redirect_uri).strip() or config.redirect_uri
+    token_payload = _exchange_google_code_for_tokens(
+        code=code,
+        client_id=config.client_id,
+        client_secret=config.client_secret,
+        redirect_uri=redirect_uri,
+    )
+    userinfo = _fetch_google_userinfo(str(token_payload.get("access_token") or "").strip())
+    google_subject = str(userinfo.get("sub") or "").strip()
+    google_email = str(userinfo.get("email") or "").strip().lower()
+    if not google_subject or not google_email:
+        raise RuntimeError("google_oauth_userinfo_incomplete")
+
+    granted_scopes = tuple(
+        sorted(
+            {
+                scope.strip()
+                for scope in str(token_payload.get("scope") or "").split(" ")
+                if scope.strip()
+            }
+        )
+    ) or SCOPE_BUNDLES[scope_bundle]
+    consent_stage = "verify" if GOOGLE_SCOPE_METADATA in granted_scopes else "send"
+    refresh_token = str(token_payload.get("refresh_token") or "").strip()
+    primary_binding_id = _primary_google_binding_id(principal_id)
+    existing_primary = container.provider_registry.get_persisted_binding_record(
+        binding_id=primary_binding_id,
+        principal_id=principal_id,
+    )
+    primary_matches_current = _google_binding_matches_account(
+        existing_primary,
+        google_subject=google_subject,
+        google_email=google_email,
+    )
+    target_binding_id = (
+        primary_binding_id
+        if existing_primary is None or primary_matches_current
+        else _google_account_binding_id(principal_id, google_subject)
+    )
+    existing_target = container.provider_registry.get_persisted_binding_record(
+        binding_id=target_binding_id,
+        principal_id=principal_id,
+    )
+    existing_metadata = dict(existing_target.auth_metadata_json or {}) if existing_target is not None else {}
+    if refresh_token:
+        encrypted_refresh = _encrypt_secret(refresh_token, key=config.provider_secret_key)
+    else:
+        encrypted_refresh = str(existing_metadata.get("refresh_token_ref") or "").strip()
+    expires_in = _safe_int(token_payload.get("expires_in"), default=0)
+    access_token_expires_at = ""
+    if expires_in > 0:
+        access_token_expires_at = _utc_iso_after_seconds(expires_in)
+    auth_metadata_json = {
+        "google_subject": google_subject,
+        "google_email": google_email,
+        "google_hosted_domain": str(userinfo.get("hd") or "").strip(),
+        "granted_scopes": list(granted_scopes),
+        "refresh_token_ref": encrypted_refresh,
+        "access_token_expires_at": access_token_expires_at,
+        "token_status": "active",
+        "consent_stage": consent_stage,
+        "workspace_mode": "user_oauth",
+        "last_successful_api_call_at": _utc_iso_now(),
+        "last_refresh_at": _utc_iso_now(),
+        "reauth_required_reason": "",
+    }
+    scope_json = {
+        "bundle": scope_bundle,
+        "scopes": list(granted_scopes),
+    }
+    probe_details_json = {
+        "google_email": google_email,
+        "google_subject": google_subject,
+        "consent_stage": consent_stage,
+        "workspace_mode": "user_oauth",
+    }
+    binding = container.provider_registry.upsert_binding_record(
+        binding_id=target_binding_id,
+        principal_id=principal_id,
+        provider_key=GOOGLE_PROVIDER_KEY,
+        status="enabled",
+        priority=80,
+        scope_json=scope_json,
+        auth_metadata_json=auth_metadata_json,
+        probe_state="ready",
+        probe_details_json=probe_details_json,
+    )
+    connector_binding = container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name=GOOGLE_CONNECTOR_NAME,
+        external_account_ref=google_email,
+        scope_json={"scopes": list(granted_scopes), "bundle": scope_bundle},
+        auth_metadata_json={
+            "google_email": google_email,
+            "google_subject": google_subject,
+            "google_hosted_domain": str(userinfo.get("hd") or "").strip(),
+            "workspace_mode": "user_oauth",
+            "granted_scopes": list(granted_scopes),
+            "consent_stage": consent_stage,
+            "refresh_token_ref": encrypted_refresh,
+            "access_token_expires_at": access_token_expires_at,
+            "token_status": "active",
+            "last_successful_api_call_at": auth_metadata_json["last_successful_api_call_at"],
+            "last_refresh_at": auth_metadata_json["last_refresh_at"],
+            "reauth_required_reason": "",
+        },
+        status="enabled",
+    )
+    return GoogleOAuthAccount(
+        binding=binding,
+        connector_binding=connector_binding,
+        google_email=google_email,
+        google_subject=google_subject,
+        google_hosted_domain=str(userinfo.get("hd") or "").strip(),
+        granted_scopes=granted_scopes,
+        consent_stage=consent_stage,
+        workspace_mode="user_oauth",
+        token_status="active",
+        last_refresh_at=auth_metadata_json["last_refresh_at"],
+        reauth_required_reason="",
+    )
+
+
+def upgrade_google_oauth_scope(
+    *,
+    principal_id: str,
+    scope_bundle: str,
+) -> GoogleOAuthStartPacket:
+    return build_google_oauth_start(principal_id=principal_id, scope_bundle=scope_bundle)
+
+
+def promote_google_account(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    binding_id: str,
+) -> GoogleOAuthAccount:
+    target_binding_id = str(binding_id or "").strip()
+    if not target_binding_id:
+        raise RuntimeError("google_oauth_binding_not_found")
+    primary_binding_id = _primary_google_binding_id(principal_id)
+    target = container.provider_registry.get_persisted_binding_record(
+        binding_id=target_binding_id,
+        principal_id=principal_id,
+    )
+    if target is None or target.provider_key != GOOGLE_PROVIDER_KEY:
+        raise RuntimeError("google_oauth_binding_not_found")
+    if target.binding_id == primary_binding_id:
+        for account in list_google_accounts(container=container, principal_id=principal_id):
+            if account.binding.binding_id == target.binding_id:
+                return account
+        raise RuntimeError("google_oauth_binding_not_found")
+
+    current_primary = container.provider_registry.get_persisted_binding_record(
+        binding_id=primary_binding_id,
+        principal_id=principal_id,
+    )
+    target_metadata = dict(target.auth_metadata_json or {})
+    target_scope = dict(target.scope_json or {})
+    target_probe = dict(target.probe_details_json or {})
+    promoted = container.provider_registry.upsert_binding_record(
+        binding_id=primary_binding_id,
+        principal_id=principal_id,
+        provider_key=GOOGLE_PROVIDER_KEY,
+        status=target.status,
+        priority=target.priority,
+        probe_state=target.probe_state,
+        probe_details_json=target_probe,
+        scope_json=target_scope,
+        auth_metadata_json=target_metadata,
+    )
+    if current_primary is not None and not _google_binding_matches_account(
+        current_primary,
+        google_subject=str(target_metadata.get("google_subject") or "").strip(),
+        google_email=str(target_metadata.get("google_email") or "").strip().lower(),
+    ):
+        primary_metadata = dict(current_primary.auth_metadata_json or {})
+        demoted_binding_id = _google_account_binding_id(
+            principal_id,
+            str(primary_metadata.get("google_subject") or "").strip() or str(primary_metadata.get("google_email") or "").strip().lower(),
+        )
+        container.provider_registry.upsert_binding_record(
+            binding_id=demoted_binding_id,
+            principal_id=principal_id,
+            provider_key=GOOGLE_PROVIDER_KEY,
+            status=current_primary.status,
+            priority=current_primary.priority,
+            probe_state=current_primary.probe_state,
+            probe_details_json=dict(current_primary.probe_details_json or {}),
+            scope_json=dict(current_primary.scope_json or {}),
+            auth_metadata_json=primary_metadata,
+        )
+    container.provider_registry.delete_persisted_binding_record(
+        binding_id=target.binding_id,
+        principal_id=principal_id,
+    )
+    for account in list_google_accounts(container=container, principal_id=principal_id):
+        if account.binding.binding_id == promoted.binding_id:
+            return account
+    raise RuntimeError("google_oauth_binding_not_found")
+
+
+def disconnect_google_account(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    binding_id: str = "",
+) -> ProviderBindingRecord:
+    resolved_binding_id = str(binding_id or "").strip() or _primary_google_binding_id(principal_id)
+    binding = container.provider_registry.get_persisted_binding_record(
+        binding_id=resolved_binding_id,
+        principal_id=principal_id,
+    )
+    if binding is None:
+        raise RuntimeError("google_oauth_binding_not_found")
+    auth_metadata_json = dict(binding.auth_metadata_json or {})
+    auth_metadata_json["token_status"] = "revoked"
+    auth_metadata_json["reauth_required_reason"] = "disconnected_by_operator"
+    auth_metadata_json["refresh_token_ref"] = ""
+    updated = container.provider_registry.upsert_binding_record(
+        binding_id=binding.binding_id,
+        principal_id=principal_id,
+        provider_key=GOOGLE_PROVIDER_KEY,
+        status="disabled",
+        priority=binding.priority,
+        probe_state="revoked",
+        probe_details_json=dict(binding.probe_details_json or {}),
+        scope_json=dict(binding.scope_json or {}),
+        auth_metadata_json=auth_metadata_json,
+    )
+    return updated
+
+
+def run_google_gmail_smoke_test(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    recipient_email: str | None = None,
+    binding_id: str = "",
+) -> GoogleGmailSmokeResult:
+    binding, metadata, token_payload, access_token, sender_email = _load_google_send_context(
+        container=container,
+        principal_id=principal_id,
+        binding_id=binding_id,
+    )
+    to_email = str(recipient_email or sender_email).strip().lower() or sender_email
+    rfc822_message_id = f"<ea-smoke-{secrets.token_hex(8)}@ea.local>"
+    raw_message = _build_gmail_smoke_message(
+        sender_email=sender_email,
+        recipient_email=to_email,
+        message_id=rfc822_message_id,
+    )
+    gmail_message_id = _gmail_send_message(access_token=access_token, raw_message=raw_message)
+    updated_metadata = dict(metadata)
+    updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
+    updated_metadata["last_refresh_at"] = _utc_iso_now()
+    updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
+    updated_metadata["token_status"] = "active"
+    updated = container.provider_registry.upsert_binding_record(
+        binding_id=binding.binding_id,
+        principal_id=principal_id,
+        provider_key=GOOGLE_PROVIDER_KEY,
+        status=binding.status,
+        priority=binding.priority,
+        probe_state="ready",
+        probe_details_json=dict(binding.probe_details_json or {}),
+        scope_json=dict(binding.scope_json or {}),
+        auth_metadata_json=updated_metadata,
+    )
+    return GoogleGmailSmokeResult(
+        binding=updated,
+        sender_email=sender_email,
+        recipient_email=to_email,
+        rfc822_message_id=rfc822_message_id,
+        gmail_message_id=gmail_message_id,
+        sent_at=updated_metadata["last_successful_api_call_at"],
+    )
+
+
+def send_google_gmail_message(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    recipient_email: str,
+    subject: str,
+    body_text: str,
+    thread_id: str | None = None,
+    message_id: str | None = None,
+    reply_to_message_id: str | None = None,
+    references: str | None = None,
+    binding_id: str = "",
+) -> GoogleGmailSendResult:
+    binding, metadata, token_payload, access_token, sender_email = _load_google_send_context(
+        container=container,
+        principal_id=principal_id,
+        binding_id=binding_id,
+    )
+    to_email = str(recipient_email or "").strip().lower()
+    if not to_email:
+        raise RuntimeError("google_gmail_recipient_missing")
+    normalized_subject = str(subject or "").strip() or "EA follow-up"
+    normalized_body = str(body_text or "").strip()
+    if not normalized_body:
+        raise RuntimeError("google_gmail_body_missing")
+    rfc822_message_id = str(message_id or "").strip() or f"<ea-draft-{secrets.token_hex(8)}@ea.local>"
+    normalized_reply_to = str(reply_to_message_id or "").strip()
+    normalized_references = str(references or "").strip()
+    if normalized_reply_to and normalized_reply_to not in normalized_references.split():
+        normalized_references = " ".join(part for part in (normalized_references, normalized_reply_to) if part)
+    raw_message = _build_gmail_message(
+        sender_email=sender_email,
+        recipient_email=to_email,
+        subject=normalized_subject,
+        body_text=normalized_body,
+        message_id=rfc822_message_id,
+        extra_headers={
+            "In-Reply-To": normalized_reply_to,
+            "References": normalized_references,
+        },
+    )
+    gmail_message_id = _gmail_send_message(
+        access_token=access_token,
+        raw_message=raw_message,
+        thread_id=str(thread_id or "").strip() or None,
+    )
+    updated_metadata = dict(metadata)
+    updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
+    updated_metadata["last_refresh_at"] = _utc_iso_now()
+    updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
+    updated_metadata["token_status"] = "active"
+    updated = container.provider_registry.upsert_binding_record(
+        binding_id=binding.binding_id,
+        principal_id=principal_id,
+        provider_key=GOOGLE_PROVIDER_KEY,
+        status=binding.status,
+        priority=binding.priority,
+        probe_state="ready",
+        probe_details_json=dict(binding.probe_details_json or {}),
+        scope_json=dict(binding.scope_json or {}),
+        auth_metadata_json=updated_metadata,
+    )
+    return GoogleGmailSendResult(
+        binding=updated,
+        sender_email=sender_email,
+        recipient_email=to_email,
+        subject=normalized_subject,
+        rfc822_message_id=rfc822_message_id,
+        gmail_message_id=gmail_message_id,
+        sent_at=updated_metadata["last_successful_api_call_at"],
+    )
+
+
+def list_google_accounts(*, container: AppContainer, principal_id: str) -> list[GoogleOAuthAccount]:
+    connector_by_ref: dict[str, ConnectorBinding] = {}
+    for binding_principal_id in _google_binding_principal_ids(principal_id):
+        for connector in container.tool_runtime.list_connector_bindings(principal_id=binding_principal_id, limit=100):
+            if connector.connector_name == GOOGLE_CONNECTOR_NAME:
+                metadata = dict(connector.auth_metadata_json or {})
+                for key in (
+                    str(connector.external_account_ref or "").strip().lower(),
+                    str(metadata.get("google_email") or "").strip().lower(),
+                    str(metadata.get("google_hosted_domain") or "").strip().lower(),
+                ):
+                    if key:
+                        connector_by_ref[key] = connector
+    accounts: list[GoogleOAuthAccount] = []
+    for binding in _list_google_binding_records(container=container, principal_id=principal_id):
+        metadata = dict(binding.auth_metadata_json or {})
+        google_email = str(metadata.get("google_email") or "").strip().lower()
+        google_hosted_domain = str(metadata.get("google_hosted_domain") or "").strip()
+        connector = None
+        for key in _google_connector_lookup_keys(google_email=google_email, google_hosted_domain=google_hosted_domain):
+            connector = connector_by_ref.get(key)
+            if connector is not None:
+                break
+        accounts.append(
+            GoogleOAuthAccount(
+                binding=binding,
+                connector_binding=connector,
+                google_email=google_email,
+                google_subject=str(metadata.get("google_subject") or "").strip(),
+                google_hosted_domain=google_hosted_domain,
+                granted_scopes=tuple(
+                    sorted(str(scope or "").strip() for scope in (metadata.get("granted_scopes") or []) if str(scope or "").strip())
+                ),
+                consent_stage=str(metadata.get("consent_stage") or "").strip() or "send",
+                workspace_mode=str(metadata.get("workspace_mode") or "").strip() or "user_oauth",
+                token_status=str(metadata.get("token_status") or "").strip() or "unknown",
+                last_refresh_at=str(metadata.get("last_refresh_at") or "").strip(),
+                reauth_required_reason=str(metadata.get("reauth_required_reason") or "").strip(),
+            )
+        )
+    return accounts
+
+
+def list_recent_workspace_signals(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    email_limit: int = 5,
+    calendar_limit: int = 5,
+    account_email_filter: str = "",
+    gmail_query: str = "",
+    seen_source_refs: set[str] | None = None,
+    seen_external_ids: set[str] | None = None,
+) -> GoogleWorkspaceSignalSync:
+    config = load_google_oauth_config()
+    normalized_account_email_filter = str(account_email_filter or "").strip().lower()
+    bindings = [
+        row
+        for row in _list_google_binding_records(container=container, principal_id=principal_id)
+        if str(row.status or "").strip().lower() == "enabled"
+    ]
+    if not bindings:
+        raise RuntimeError("google_oauth_binding_not_found")
+    granted_scope_union: set[str] = set()
+    signals: list[GoogleWorkspaceSignal] = []
+    account_emails: list[str] = []
+    normalized_email_limit = max(int(email_limit), 0)
+    normalized_calendar_limit = max(int(calendar_limit), 0)
+    first_error = ""
+    for binding in bindings:
+        metadata = dict(binding.auth_metadata_json or {})
+        account_email = str(metadata.get("google_email") or "").strip().lower()
+        if normalized_account_email_filter and account_email != normalized_account_email_filter:
+            continue
+        granted_scopes = tuple(
+            sorted(str(scope or "").strip() for scope in (metadata.get("granted_scopes") or []) if str(scope or "").strip())
+        )
+        granted_scope_set = set(granted_scopes)
+        refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
+        if not refresh_token_ref:
+            first_error = first_error or "google_gmail_refresh_token_missing"
+            continue
+        refresh_token = _decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
+        try:
+            token_payload = _refresh_google_access_token(
+                refresh_token=refresh_token,
+                client_id=config.client_id,
+                client_secret=config.client_secret,
+            )
+        except Exception as exc:
+            reason = _google_refresh_error_reason(exc)
+            binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
+            _mark_google_binding_reauth_required(
+                container=container,
+                binding=binding,
+                principal_id=binding_principal_id,
+                reason=reason,
+            )
+            first_error = first_error or reason
+            continue
+        access_token = str(token_payload.get("access_token") or "").strip()
+        if not access_token:
+            first_error = first_error or "google_oauth_access_token_missing"
+            continue
+        if account_email and account_email not in account_emails:
+            account_emails.append(account_email)
+        granted_scope_union.update(granted_scope_set)
+        prior_signal_count = len(signals)
+        if normalized_email_limit > 0 and (
+            GOOGLE_SCOPE_METADATA in granted_scope_set or GOOGLE_SCOPE_GMAIL_MODIFY in granted_scope_set
+        ):
+            signals.extend(
+                _list_recent_gmail_signals(
+                    access_token=access_token,
+                    max_results=normalized_email_limit,
+                    include_message_body=GOOGLE_SCOPE_GMAIL_MODIFY in granted_scope_set,
+                    account_email=account_email,
+                    gmail_query=gmail_query,
+                    seen_source_refs=seen_source_refs,
+                    seen_external_ids=seen_external_ids,
+                )
+            )
+        if normalized_calendar_limit > 0 and (
+            GOOGLE_SCOPE_CALENDAR_READONLY in granted_scope_set or GOOGLE_SCOPE_CALENDAR in granted_scope_set
+        ):
+            signals.extend(
+                _list_recent_calendar_signals(
+                    access_token=access_token,
+                    max_results=normalized_calendar_limit,
+                    account_email=account_email,
+                )
+            )
+        updated_metadata = dict(metadata)
+        updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
+        updated_metadata["last_refresh_at"] = _utc_iso_now()
+        if len(signals) > prior_signal_count:
+            updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
+        updated_metadata["token_status"] = "active"
+        binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
+        container.provider_registry.upsert_binding_record(
+            binding_id=binding.binding_id,
+            principal_id=binding_principal_id,
+            provider_key=GOOGLE_PROVIDER_KEY,
+            status=binding.status,
+            priority=binding.priority,
+            probe_state="ready",
+            probe_details_json=dict(binding.probe_details_json or {}),
+            scope_json=dict(binding.scope_json or {}),
+            auth_metadata_json=updated_metadata,
+        )
+    if normalized_account_email_filter and not account_emails:
+        if first_error:
+            raise RuntimeError(first_error)
+        raise RuntimeError("google_oauth_account_not_found")
+    if not account_emails and first_error:
+        raise RuntimeError(first_error)
+    return GoogleWorkspaceSignalSync(
+        account_email=account_emails[0] if account_emails else "",
+        account_emails=tuple(account_emails),
+        granted_scopes=tuple(sorted(granted_scope_union)),
+        signals=tuple(signals),
+    )
+
+
+def create_google_photos_picker_session(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    binding_id: str = "",
+    account_email_filter: str = "",
+    max_item_count: int = 50,
+) -> GooglePhotosPickerSession:
+    binding, access_token, granted_scopes, account_email = _resolve_google_binding_access_token(
+        container=container,
+        principal_id=principal_id,
+        binding_id=binding_id,
+        account_email_filter=account_email_filter,
+        required_scope=GOOGLE_SCOPE_PHOTOS_PICKER,
+    )
+    bounded_max_item_count = max(1, min(int(max_item_count or 50), 2000))
+    payload = _google_photos_picker_request(
+        access_token=access_token,
+        path="/v1/sessions",
+        method="POST",
+        payload={"pickingConfig": {"maxItemCount": str(bounded_max_item_count)}},
+    )
+    session_id = str(payload.get("id") or "").strip()
+    if not session_id:
+        raise RuntimeError("google_photos_picker_session_missing_id")
+    polling = dict(payload.get("pollingConfig") or {}) if isinstance(payload.get("pollingConfig"), dict) else {}
+    return GooglePhotosPickerSession(
+        account_email=account_email,
+        binding_id=str(binding.binding_id or "").strip(),
+        granted_scopes=granted_scopes,
+        session_id=session_id,
+        picker_uri=str(payload.get("pickerUri") or "").strip(),
+        poll_interval=str(polling.get("pollInterval") or "").strip(),
+        timeout_in=str(polling.get("timeoutIn") or "").strip(),
+        media_items_set=bool(payload.get("mediaItemsSet")),
+    )
+
+
+def get_google_photos_picker_session(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    session_id: str,
+    binding_id: str = "",
+    account_email_filter: str = "",
+) -> GooglePhotosPickerSession:
+    normalized_session_id = str(session_id or "").strip()
+    if not normalized_session_id:
+        raise RuntimeError("google_photos_picker_session_id_missing")
+    binding, access_token, granted_scopes, account_email = _resolve_google_binding_access_token(
+        container=container,
+        principal_id=principal_id,
+        binding_id=binding_id,
+        account_email_filter=account_email_filter,
+        required_scope=GOOGLE_SCOPE_PHOTOS_PICKER,
+    )
+    payload = _google_photos_picker_request(
+        access_token=access_token,
+        path=f"/v1/sessions/{urllib.parse.quote(normalized_session_id, safe='')}",
+        method="GET",
+    )
+    polling = dict(payload.get("pollingConfig") or {}) if isinstance(payload.get("pollingConfig"), dict) else {}
+    return GooglePhotosPickerSession(
+        account_email=account_email,
+        binding_id=str(binding.binding_id or "").strip(),
+        granted_scopes=granted_scopes,
+        session_id=normalized_session_id,
+        picker_uri=str(payload.get("pickerUri") or "").strip(),
+        poll_interval=str(polling.get("pollInterval") or "").strip(),
+        timeout_in=str(polling.get("timeoutIn") or "").strip(),
+        media_items_set=bool(payload.get("mediaItemsSet")),
+    )
+
+
+def sync_google_photos_picker_session(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    session_id: str,
+    binding_id: str = "",
+    account_email_filter: str = "",
+    max_items: int = 50,
+) -> GooglePhotosSignalSync:
+    session = get_google_photos_picker_session(
+        container=container,
+        principal_id=principal_id,
+        session_id=session_id,
+        binding_id=binding_id,
+        account_email_filter=account_email_filter,
+    )
+    binding, access_token, granted_scopes, account_email = _resolve_google_binding_access_token(
+        container=container,
+        principal_id=principal_id,
+        binding_id=session.binding_id,
+        account_email_filter=session.account_email,
+        required_scope=GOOGLE_SCOPE_PHOTOS_PICKER,
+    )
+    if not session.media_items_set:
+        return GooglePhotosSignalSync(
+            account_email=account_email,
+            account_emails=(account_email,) if account_email else (),
+            binding_id=str(binding.binding_id or "").strip(),
+            session_id=session.session_id,
+            granted_scopes=granted_scopes,
+            signals=(),
+            media_items_set=False,
+        )
+    bounded_max_items = max(1, min(int(max_items or 50), 500))
+    rows = _google_photos_picker_media_items(
+        access_token=access_token,
+        session_id=session.session_id,
+        max_items=bounded_max_items,
+        account_email=account_email,
+    )
+    return GooglePhotosSignalSync(
+        account_email=account_email,
+        account_emails=(account_email,) if account_email else (),
+        binding_id=str(binding.binding_id or "").strip(),
+        session_id=session.session_id,
+        granted_scopes=granted_scopes,
+        signals=tuple(rows),
+        media_items_set=True,
+    )
+
+
+def delete_google_photos_picker_session(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    session_id: str,
+    binding_id: str = "",
+    account_email_filter: str = "",
+) -> None:
+    normalized_session_id = str(session_id or "").strip()
+    if not normalized_session_id:
+        raise RuntimeError("google_photos_picker_session_id_missing")
+    _, access_token, _, _ = _resolve_google_binding_access_token(
+        container=container,
+        principal_id=principal_id,
+        binding_id=binding_id,
+        account_email_filter=account_email_filter,
+        required_scope=GOOGLE_SCOPE_PHOTOS_PICKER,
+    )
+    _google_photos_picker_request(
+        access_token=access_token,
+        path=f"/v1/sessions/{urllib.parse.quote(normalized_session_id, safe='')}",
+        method="DELETE",
+    )
+
+
+def _exchange_google_code_for_tokens(*, code: str, client_id: str, client_secret: str, redirect_uri: str) -> dict[str, Any]:
+    payload = urllib.parse.urlencode(
+        {
+            "code": code,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        GOOGLE_TOKEN_ENDPOINT,
+        data=payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _resolve_google_binding_access_token(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    binding_id: str = "",
+    account_email_filter: str = "",
+    required_scope: str = "",
+) -> tuple[ProviderBindingRecord, str, tuple[str, ...], str]:
+    config = load_google_oauth_config()
+    normalized_binding_id = str(binding_id or "").strip()
+    normalized_account_email_filter = str(account_email_filter or "").strip().lower()
+    bindings = [
+        row
+        for row in _list_google_binding_records(container=container, principal_id=principal_id)
+        if str(row.status or "").strip().lower() == "enabled"
+    ]
+    if normalized_binding_id:
+        bindings = [row for row in bindings if str(row.binding_id or "").strip() == normalized_binding_id]
+    if not bindings:
+        raise RuntimeError("google_oauth_binding_not_found")
+    first_error = ""
+    scope_missing = False
+    for binding in bindings:
+        metadata = dict(binding.auth_metadata_json or {})
+        account_email = str(metadata.get("google_email") or "").strip().lower()
+        if normalized_account_email_filter and account_email != normalized_account_email_filter:
+            continue
+        granted_scopes = tuple(
+            sorted(str(scope or "").strip() for scope in (metadata.get("granted_scopes") or []) if str(scope or "").strip())
+        )
+        if required_scope and required_scope not in set(granted_scopes):
+            scope_missing = True
+            continue
+        refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
+        if not refresh_token_ref:
+            first_error = first_error or "google_gmail_refresh_token_missing"
+            continue
+        refresh_token = _decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
+        try:
+            token_payload = _refresh_google_access_token(
+                refresh_token=refresh_token,
+                client_id=config.client_id,
+                client_secret=config.client_secret,
+            )
+        except Exception as exc:
+            reason = _google_refresh_error_reason(exc)
+            binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
+            _mark_google_binding_reauth_required(
+                container=container,
+                binding=binding,
+                principal_id=binding_principal_id,
+                reason=reason,
+            )
+            first_error = first_error or reason
+            continue
+        access_token = str(token_payload.get("access_token") or "").strip()
+        if not access_token:
+            first_error = first_error or "google_oauth_access_token_missing"
+            continue
+        updated_metadata = dict(metadata)
+        updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
+        updated_metadata["last_refresh_at"] = _utc_iso_now()
+        updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
+        updated_metadata["token_status"] = "active"
+        binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
+        container.provider_registry.upsert_binding_record(
+            binding_id=binding.binding_id,
+            principal_id=binding_principal_id,
+            provider_key=GOOGLE_PROVIDER_KEY,
+            status=binding.status,
+            priority=binding.priority,
+            probe_state="ready",
+            probe_details_json=dict(binding.probe_details_json or {}),
+            scope_json=dict(binding.scope_json or {}),
+            auth_metadata_json=updated_metadata,
+        )
+        return binding, access_token, granted_scopes, account_email
+    if normalized_account_email_filter and not any(
+        str(dict(row.auth_metadata_json or {}).get("google_email") or "").strip().lower() == normalized_account_email_filter
+        for row in _list_google_binding_records(container=container, principal_id=principal_id)
+    ):
+        raise RuntimeError("google_oauth_account_not_found")
+    if required_scope and scope_missing:
+        raise RuntimeError("google_photos_scope_missing")
+    if first_error:
+        raise RuntimeError(first_error)
+    raise RuntimeError("google_oauth_binding_not_found")
+
+
+def _google_photos_picker_request(
+    *,
+    access_token: str,
+    path: str,
+    method: str,
+    payload: dict[str, object] | None = None,
+    query: dict[str, object] | None = None,
+) -> dict[str, Any]:
+    normalized_query = {
+        str(key): str(value)
+        for key, value in dict(query or {}).items()
+        if str(key or "").strip() and str(value or "").strip()
+    }
+    suffix = f"?{urllib.parse.urlencode(normalized_query)}" if normalized_query else ""
+    request = urllib.request.Request(
+        f"https://photospicker.googleapis.com{str(path or '').strip()}{suffix}",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+        data=None if payload is None else json.dumps(payload).encode("utf-8"),
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            body = response.read().decode("utf-8", errors="replace").strip()
+            if not body:
+                return {}
+            return json.loads(body)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace").strip()
+        if exc.code == 401:
+            raise RuntimeError("google_photos_unauthorized") from exc
+        if exc.code == 403:
+            lowered_detail = detail.lower()
+            if "service_disabled" in lowered_detail or "google photos picker api has not been used" in lowered_detail:
+                activation_url = ""
+                try:
+                    payload = json.loads(detail)
+                    links = (
+                        payload.get("error", {})
+                        .get("details", [{}])[-1]
+                        .get("links", [])
+                    )
+                    if isinstance(links, list):
+                        for item in links:
+                            if not isinstance(item, dict):
+                                continue
+                            candidate = str(item.get("url") or "").strip()
+                            if candidate:
+                                activation_url = candidate
+                                break
+                except Exception:
+                    activation_url = ""
+                suffix = f":{activation_url}" if activation_url else ""
+                raise RuntimeError(f"google_photos_service_disabled{suffix}") from exc
+            raise RuntimeError("google_photos_forbidden") from exc
+        if exc.code == 404:
+            raise RuntimeError("google_photos_picker_session_not_found") from exc
+        if exc.code == 412:
+            raise RuntimeError("google_photos_account_inactive") from exc
+        if exc.code == 429:
+            raise RuntimeError("google_photos_rate_limited") from exc
+        compact = detail[:240] if detail else f"http_{exc.code}"
+        raise RuntimeError(f"google_photos_http_{exc.code}:{compact}") from exc
+
+
+def _google_photos_picker_media_items(
+    *,
+    access_token: str,
+    session_id: str,
+    max_items: int,
+    account_email: str = "",
+) -> list[GoogleWorkspaceSignal]:
+    rows: list[GoogleWorkspaceSignal] = []
+    next_page_token = ""
+    remaining = max_items
+    while remaining > 0:
+        page_size = min(remaining, 100)
+        query: dict[str, object] = {
+            "sessionId": session_id,
+            "pageSize": str(page_size),
+        }
+        if next_page_token:
+            query["pageToken"] = next_page_token
+        payload = _google_photos_picker_request(
+            access_token=access_token,
+            path="/v1/mediaItems",
+            method="GET",
+            query=query,
+        )
+        items = list(payload.get("mediaItems") or []) if isinstance(payload.get("mediaItems"), list) else []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            signal = _google_photos_media_item_signal(
+                item=item,
+                session_id=session_id,
+                account_email=account_email,
+            )
+            if signal is not None:
+                rows.append(signal)
+                remaining -= 1
+                if remaining <= 0:
+                    break
+        next_page_token = str(payload.get("nextPageToken") or "").strip()
+        if not next_page_token or not items or remaining <= 0:
+            break
+    return rows
+
+
+def _google_photos_image_url(base_url: str, *, width: int, height: int) -> str:
+    normalized_base = str(base_url or "").strip()
+    if not normalized_base:
+        return ""
+    bounded_width = max(64, min(int(width or 1600), 4096))
+    bounded_height = max(64, min(int(height or 1600), 4096))
+    return f"{normalized_base}=w{bounded_width}-h{bounded_height}"
+
+
+def _google_photos_media_item_signal(
+    *,
+    item: dict[str, Any],
+    session_id: str,
+    account_email: str,
+) -> GoogleWorkspaceSignal | None:
+    item_id = str(item.get("id") or "").strip()
+    if not item_id:
+        return None
+    item_type = str(item.get("type") or "").strip().lower() or "photo"
+    media_file = dict(item.get("mediaFile") or {}) if isinstance(item.get("mediaFile"), dict) else {}
+    media_metadata = dict(media_file.get("mediaFileMetadata") or {}) if isinstance(media_file.get("mediaFileMetadata"), dict) else {}
+    photo_metadata = dict(media_metadata.get("photoMetadata") or {}) if isinstance(media_metadata.get("photoMetadata"), dict) else {}
+    video_metadata = dict(media_metadata.get("videoMetadata") or {}) if isinstance(media_metadata.get("videoMetadata"), dict) else {}
+    width = _safe_int(media_metadata.get("width"), default=0)
+    height = _safe_int(media_metadata.get("height"), default=0)
+    filename = str(media_file.get("filename") or "").strip() or f"Google Photos item {item_id}"
+    mime_type = str(media_file.get("mimeType") or "").strip().lower()
+    base_url = str(media_file.get("baseUrl") or "").strip()
+    preview_url = _google_photos_image_url(base_url, width=max(width, 1600) or 1600, height=max(height, 1600) or 1600)
+    create_time = str(item.get("createTime") or "").strip()
+    title = filename
+    summary_parts = [item_type.upper()]
+    if width > 0 and height > 0:
+        summary_parts.append(f"{width}x{height}")
+    camera_make = str(media_metadata.get("cameraMake") or "").strip()
+    camera_model = str(media_metadata.get("cameraModel") or "").strip()
+    if camera_make or camera_model:
+        summary_parts.append(" ".join(part for part in (camera_make, camera_model) if part).strip())
+    summary = " · ".join(part for part in summary_parts if part)
+    text_parts = [
+        f"Google Photos {item_type} selected by {account_email or 'connected account'}.",
+        filename,
+        summary,
+    ]
+    payload: dict[str, Any] = {
+        "account_email": account_email,
+        "google_photos_session_id": session_id,
+        "google_photos_media_item_id": item_id,
+        "media_type": item_type,
+        "mime_type": mime_type,
+        "filename": filename,
+        "create_time": create_time,
+        "width": width,
+        "height": height,
+        "camera_make": camera_make,
+        "camera_model": camera_model,
+        "base_url": base_url,
+        "preview_url": preview_url,
+        "photo_metadata": photo_metadata,
+        "video_metadata": video_metadata,
+        "suppress_candidate_staging": True,
+    }
+    return GoogleWorkspaceSignal(
+        signal_type="photo_library_item",
+        channel="google_photos",
+        title=title,
+        summary=summary,
+        text=" ".join(part for part in text_parts if part).strip(),
+        source_ref=f"google-photo:{account_email}:{item_id}" if account_email else f"google-photo:{item_id}",
+        external_id=f"google-photo:{account_email}:{item_id}" if account_email else f"google-photo:{item_id}",
+        counterparty=account_email,
+        due_at=None,
+        payload=payload,
+    )
+
+
+def _list_recent_gmail_signals(
+    *,
+    access_token: str,
+    max_results: int,
+    include_message_body: bool = False,
+    account_email: str = "",
+    gmail_query: str = "",
+    seen_source_refs: set[str] | None = None,
+    seen_external_ids: set[str] | None = None,
+) -> list[GoogleWorkspaceSignal]:
+    if max_results <= 0:
+        return []
+    payloads = _gmail_messages_payload_pages(
+        access_token=access_token,
+        max_results=max_results,
+        gmail_query=gmail_query,
+    )
+    rows: list[GoogleWorkspaceSignal] = []
+    normalized_account_email = str(account_email or "").strip().lower()
+    normalized_seen_source_refs = {str(value or "").strip() for value in (seen_source_refs or set()) if str(value or "").strip()}
+    normalized_seen_external_ids = {str(value or "").strip() for value in (seen_external_ids or set()) if str(value or "").strip()}
+    for payload in payloads:
+        for item in list(payload.get("messages") or []):
+            message_id = str(item.get("id") or "").strip()
+            if not message_id:
+                continue
+            predicted_thread_id = str(item.get("threadId") or message_id).strip()
+            predicted_source_ref = (
+                f"gmail-thread:{normalized_account_email}:{predicted_thread_id}"
+                if normalized_account_email
+                else f"gmail-thread:{predicted_thread_id}"
+            )
+            predicted_external_id = (
+                f"gmail-message:{normalized_account_email}:{message_id}"
+                if normalized_account_email
+                else f"gmail-message:{message_id}"
+            )
+            if predicted_source_ref in normalized_seen_source_refs or predicted_external_id in normalized_seen_external_ids:
+                continue
+            try:
+                details = _gmail_message_details(
+                    access_token=access_token,
+                    message_id=message_id,
+                    include_message_body=include_message_body,
+                )
+            except urllib.error.HTTPError as exc:
+                if exc.code == 403:
+                    continue
+                raise
+            thread_id = str(details.get("threadId") or item.get("threadId") or message_id).strip()
+            headers = {
+                str(row.get("name") or "").strip().lower(): str(row.get("value") or "").strip()
+                for row in list((details.get("payload") or {}).get("headers") or [])
+                if isinstance(row, dict)
+            }
+            subject = headers.get("subject") or "Inbox activity"
+            from_raw = headers.get("from") or ""
+            sender_name, sender_email = parseaddr(from_raw)
+            counterparty = (sender_name or sender_email).strip()
+            snippet = str(details.get("snippet") or "").strip()
+            body_text = _gmail_message_body_text(
+                details,
+                access_token=access_token,
+                message_id=message_id,
+            )
+            metadata_fallback = bool(details.get("_metadata_fallback_due_to_forbidden"))
+            body_source = "gmail_full" if body_text else "snippet"
+            if include_message_body and not body_text and not metadata_fallback:
+                body_text = _gmail_message_body_text_from_raw(
+                    access_token=access_token,
+                    message_id=message_id,
+                )
+                if body_text:
+                    body_source = "gmail_raw"
+            body_excerpt = body_text[: _gmail_body_excerpt_max_chars()]
+            attachments = (
+                _gmail_pdf_attachments(
+                    access_token=access_token,
+                    message_id=message_id,
+                    details=details,
+                )
+                if include_message_body
+                else ()
+            )
+            summary = body_excerpt[:280] or snippet or f"Recent mail from {counterparty or 'a contact'}."
+            text = " ".join(part for part in (subject, body_excerpt or snippet) if part).strip() or subject
+            source_ref = f"gmail-thread:{normalized_account_email}:{thread_id}" if normalized_account_email else f"gmail-thread:{thread_id}"
+            external_id = (
+                f"gmail-message:{normalized_account_email}:{message_id}"
+                if normalized_account_email
+                else f"gmail-message:{message_id}"
+            )
+            rows.append(
+                GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title=subject[:160],
+                    summary=summary[:280],
+                    text=text[:1000],
+                    source_ref=source_ref,
+                    external_id=external_id,
+                    counterparty=counterparty[:120],
+                    due_at=None,
+                    payload={
+                        "thread_id": thread_id,
+                        "message_id": message_id,
+                        "rfc822_message_id": headers.get("message-id") or "",
+                        "in_reply_to": headers.get("in-reply-to") or "",
+                        "references": headers.get("references") or headers.get("message-id") or "",
+                        "received_at": headers.get("date") or "",
+                        "from_email": sender_email.strip().lower(),
+                        "from_name": sender_name.strip(),
+                        "list_unsubscribe": headers.get("list-unsubscribe") or "",
+                        "auto_submitted": headers.get("auto-submitted") or "",
+                        "precedence": headers.get("precedence") or "",
+                        "labels": list(details.get("labelIds") or []),
+                        "snippet": snippet,
+                        "body_text_excerpt": body_excerpt,
+                        "body_source": body_source if body_excerpt else "snippet",
+                        "body_available": bool(body_excerpt),
+                        "account_email": normalized_account_email,
+                        "attachments": [
+                            {
+                                "attachment_id": row.attachment_id,
+                                "filename": row.filename,
+                                "mime_type": row.mime_type,
+                                "part_id": row.part_id,
+                                "size_bytes": row.size_bytes,
+                            }
+                            for row in attachments
+                        ],
+                    },
+                    attachments=attachments,
+                )
+            )
+            if len(rows) >= max_results:
+                return rows
+    return rows
+
+
+def _gmail_messages_payload_pages(
+    *,
+    access_token: str,
+    max_results: int,
+    gmail_query: str = "",
+) -> tuple[dict[str, Any], ...]:
+    if max_results <= 0:
+        return ()
+    scan_goal = min(
+        max(
+            max(int(max_results), 1) * _GMAIL_SIGNAL_SCAN_MULTIPLIER,
+            _GMAIL_SIGNAL_SCAN_MIN_RESULTS,
+        ),
+        _GMAIL_SIGNAL_SCAN_MAX_RESULTS,
+    )
+    page_size = min(max(scan_goal, int(max_results)), _GMAIL_SIGNAL_PAGE_SIZE)
+    try:
+        return _gmail_messages_payload_pages_request(
+            access_token=access_token,
+            max_results=page_size,
+            scan_goal=scan_goal,
+            apply_recent_filter=True,
+            gmail_query=gmail_query,
+        )
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        normalized_gmail_query = str(gmail_query or "").strip()
+        if exc.code == 403 and normalized_gmail_query:
+            return _gmail_messages_payload_pages_request(
+                access_token=access_token,
+                max_results=page_size,
+                scan_goal=scan_goal,
+                apply_recent_filter=False,
+                gmail_query="",
+            )
+        if exc.code == 403 and "Metadata scope does not support 'q' parameter" in body:
+            if str(gmail_query or "").strip():
+                raise
+            return _gmail_messages_payload_pages_request(
+                access_token=access_token,
+                max_results=page_size,
+                scan_goal=scan_goal,
+                apply_recent_filter=False,
+                gmail_query="",
+            )
+        raise
+
+
+def _gmail_messages_payload_pages_request(
+    *,
+    access_token: str,
+    max_results: int,
+    scan_goal: int,
+    apply_recent_filter: bool,
+    gmail_query: str,
+) -> tuple[dict[str, Any], ...]:
+    rows: list[dict[str, Any]] = []
+    page_token = ""
+    scanned = 0
+    while scanned < max(int(scan_goal), 1):
+        payload = _gmail_messages_payload(
+            access_token=access_token,
+            max_results=max_results,
+            apply_recent_filter=apply_recent_filter,
+            gmail_query=gmail_query,
+            page_token=page_token,
+        )
+        rows.append(payload)
+        messages = list(payload.get("messages") or [])
+        scanned += len(messages)
+        page_token = str(payload.get("nextPageToken") or "").strip()
+        if not page_token or not messages:
+            break
+    return tuple(rows)
+
+
+def _gmail_messages_payload(
+    *,
+    access_token: str,
+    max_results: int,
+    apply_recent_filter: bool = True,
+    gmail_query: str = "",
+    page_token: str = "",
+) -> dict[str, Any]:
+    return _gmail_messages_payload_request(
+        access_token=access_token,
+        max_results=max_results,
+        apply_recent_filter=apply_recent_filter,
+        gmail_query=gmail_query,
+        page_token=page_token,
+    )
+
+
+def _gmail_messages_payload_request(
+    *,
+    access_token: str,
+    max_results: int,
+    apply_recent_filter: bool,
+    gmail_query: str,
+    page_token: str = "",
+) -> dict[str, Any]:
+    query_items: list[tuple[str, str]] = [("maxResults", str(max_results)), ("labelIds", "INBOX")]
+    query_terms: list[str] = []
+    if apply_recent_filter:
+        query_terms.append("newer_than:7d")
+    normalized_gmail_query = str(gmail_query or "").strip()
+    if normalized_gmail_query:
+        query_terms.append(normalized_gmail_query)
+    if query_terms:
+        query_items.append(("q", " ".join(query_terms)))
+    normalized_page_token = str(page_token or "").strip()
+    if normalized_page_token:
+        query_items.append(("pageToken", normalized_page_token))
+    query = urllib.parse.urlencode(query_items)
+    request = urllib.request.Request(
+        f"https://gmail.googleapis.com/gmail/v1/users/me/messages?{query}",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _gmail_message_details(*, access_token: str, message_id: str, include_message_body: bool) -> dict[str, Any]:
+    query_items: list[tuple[str, str]] = [("format", "full" if include_message_body else "metadata")]
+    if not include_message_body:
+        query_items.extend(
+            [
+                ("metadataHeaders", "Subject"),
+                ("metadataHeaders", "From"),
+                ("metadataHeaders", "Date"),
+                ("metadataHeaders", "Message-ID"),
+                ("metadataHeaders", "In-Reply-To"),
+                ("metadataHeaders", "References"),
+                ("metadataHeaders", "List-Unsubscribe"),
+                ("metadataHeaders", "Auto-Submitted"),
+                ("metadataHeaders", "Precedence"),
+            ]
+        )
+    query = urllib.parse.urlencode(query_items)
+    request = urllib.request.Request(
+        f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{urllib.parse.quote(message_id)}?{query}",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 403 and include_message_body:
+            fallback = _gmail_message_details(
+                access_token=access_token,
+                message_id=message_id,
+                include_message_body=False,
+            )
+            fallback["_metadata_fallback_due_to_forbidden"] = True
+            return fallback
+        raise
+
+
+def _gmail_message_raw(*, access_token: str, message_id: str) -> dict[str, Any]:
+    request = urllib.request.Request(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/"
+        f"{urllib.parse.quote(message_id)}?format=raw",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _gmail_pdf_attachments(
+    *,
+    access_token: str,
+    message_id: str,
+    details: dict[str, Any],
+) -> tuple[GoogleWorkspaceAttachment, ...]:
+    payload = details.get("payload")
+    if not isinstance(payload, dict):
+        return ()
+    parts: list[dict[str, Any]] = []
+    _collect_gmail_pdf_parts(payload, parts=parts)
+    max_bytes = _gmail_attachment_max_bytes()
+    rows: list[GoogleWorkspaceAttachment] = []
+    for item in parts:
+        filename = str(item.get("filename") or "").strip() or "attachment.pdf"
+        mime_type = str(item.get("mimeType") or "").strip() or "application/pdf"
+        part_id = str(item.get("partId") or "").strip()
+        body = dict(item.get("body") or {}) if isinstance(item.get("body"), dict) else {}
+        attachment_id = str(body.get("attachmentId") or "").strip()
+        content_bytes = _decode_gmail_body_bytes(body.get("data"))
+        if not content_bytes and attachment_id:
+            try:
+                content_bytes = _gmail_attachment_bytes(
+                    access_token=access_token,
+                    message_id=message_id,
+                    attachment_id=attachment_id,
+                )
+            except urllib.error.HTTPError:
+                content_bytes = b""
+        if max_bytes > 0 and len(content_bytes) > max_bytes:
+            content_bytes = b""
+        size_bytes = _safe_int(body.get("size"), default=len(content_bytes))
+        rows.append(
+            GoogleWorkspaceAttachment(
+                attachment_id=attachment_id or f"{message_id}:{part_id or filename}",
+                filename=filename,
+                mime_type=mime_type,
+                part_id=part_id,
+                size_bytes=max(size_bytes, len(content_bytes)),
+                content_bytes=content_bytes,
+            )
+        )
+    return tuple(rows)
+
+
+def _collect_gmail_pdf_parts(payload: dict[str, Any], *, parts: list[dict[str, Any]]) -> None:
+    mime_type = str(payload.get("mimeType") or "").strip().lower()
+    filename = str(payload.get("filename") or "").strip()
+    if mime_type == "application/pdf" or filename.lower().endswith(".pdf"):
+        parts.append(payload)
+    for item in list(payload.get("parts") or []):
+        if isinstance(item, dict):
+            _collect_gmail_pdf_parts(item, parts=parts)
+
+
+def _gmail_attachment_bytes(*, access_token: str, message_id: str, attachment_id: str) -> bytes:
+    normalized_message_id = str(message_id or "").strip()
+    normalized_attachment_id = str(attachment_id or "").strip()
+    if not normalized_message_id or not normalized_attachment_id:
+        return b""
+    request = urllib.request.Request(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/"
+        f"{urllib.parse.quote(normalized_message_id)}/attachments/{urllib.parse.quote(normalized_attachment_id)}",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    return _decode_gmail_body_bytes(payload.get("data"))
+
+
+def _decode_gmail_body_bytes(value: object) -> bytes:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return b""
+    padding = "=" * (-len(normalized) % 4)
+    try:
+        return base64.urlsafe_b64decode(f"{normalized}{padding}".encode("ascii"))
+    except Exception:
+        return b""
+
+
+def _gmail_attachment_max_bytes() -> int:
+    try:
+        return max(int(str(os.getenv("EA_GMAIL_PDF_ATTACHMENT_MAX_BYTES") or "26214400").strip()), 0)
+    except Exception:
+        return 26214400
+
+
+def _gmail_message_body_text(
+    details: dict[str, Any],
+    *,
+    access_token: str = "",
+    message_id: str = "",
+) -> str:
+    payload = details.get("payload")
+    if not isinstance(payload, dict):
+        return ""
+    plain_parts: list[str] = []
+    html_parts: list[str] = []
+    _collect_gmail_body_text(
+        payload,
+        plain_parts=plain_parts,
+        html_parts=html_parts,
+        access_token=access_token,
+        message_id=message_id,
+    )
+    if plain_parts:
+        return _normalize_gmail_body_text("\n".join(part for part in plain_parts if part))
+    if html_parts:
+        return _normalize_gmail_body_text("\n".join(part for part in html_parts if part))
+    return ""
+
+
+def _gmail_message_body_text_from_raw(*, access_token: str, message_id: str) -> str:
+    try:
+        payload = _gmail_message_raw(access_token=access_token, message_id=message_id)
+    except urllib.error.HTTPError:
+        return ""
+    raw_bytes = _decode_gmail_body_bytes(payload.get("raw"))
+    if not raw_bytes:
+        return ""
+    try:
+        message = BytesParser(policy=policy.default).parsebytes(raw_bytes)
+    except Exception:
+        return ""
+    plain_parts: list[str] = []
+    html_parts: list[str] = []
+    for part in message.walk():
+        if part.is_multipart():
+            continue
+        mime_type = str(part.get_content_type() or "").strip().lower()
+        if mime_type not in {"text/plain", "text/html"}:
+            continue
+        try:
+            content = part.get_content()
+        except Exception:
+            try:
+                charset = part.get_content_charset() or "utf-8"
+                content = part.get_payload(decode=True).decode(charset, errors="replace")
+            except Exception:
+                continue
+        normalized = str(content or "")
+        if not normalized.strip():
+            continue
+        if mime_type == "text/plain":
+            plain_parts.append(normalized)
+        else:
+            html_parts.append(_html_to_text(normalized))
+    if plain_parts:
+        return _normalize_gmail_body_text("\n".join(part for part in plain_parts if part))
+    if html_parts:
+        return _normalize_gmail_body_text("\n".join(part for part in html_parts if part))
+    return ""
+
+
+def _collect_gmail_body_text(
+    payload: dict[str, Any],
+    *,
+    plain_parts: list[str],
+    html_parts: list[str],
+    access_token: str = "",
+    message_id: str = "",
+) -> None:
+    mime_type = str(payload.get("mimeType") or "").strip().lower()
+    body = payload.get("body")
+    if isinstance(body, dict):
+        decoded = _decode_gmail_body_data(body.get("data"))
+        if not decoded:
+            attachment_id = str(body.get("attachmentId") or "").strip()
+            if attachment_id and str(access_token or "").strip() and str(message_id or "").strip():
+                try:
+                    content_bytes = _gmail_attachment_bytes(
+                        access_token=access_token,
+                        message_id=message_id,
+                        attachment_id=attachment_id,
+                    )
+                except urllib.error.HTTPError:
+                    content_bytes = b""
+                if content_bytes and len(content_bytes) <= _gmail_text_part_max_bytes():
+                    decoded = content_bytes.decode("utf-8", "replace")
+        if decoded:
+            if mime_type == "text/plain":
+                plain_parts.append(decoded)
+            elif mime_type == "text/html":
+                html_parts.append(_html_to_text(decoded))
+    for item in list(payload.get("parts") or []):
+        if isinstance(item, dict):
+            _collect_gmail_body_text(
+                item,
+                plain_parts=plain_parts,
+                html_parts=html_parts,
+                access_token=access_token,
+                message_id=message_id,
+            )
+
+
+def _gmail_text_part_max_bytes() -> int:
+    try:
+        return max(int(str(os.getenv("EA_GMAIL_TEXT_PART_MAX_BYTES") or "1048576").strip()), 0)
+    except Exception:
+        return 1048576
+
+
+def _gmail_body_excerpt_max_chars() -> int:
+    try:
+        return max(int(str(os.getenv("EA_GMAIL_BODY_EXCERPT_MAX_CHARS") or "12000").strip()), 1000)
+    except Exception:
+        return 12000
+
+
+def _decode_gmail_body_data(value: object) -> str:
+    raw = _decode_gmail_body_bytes(value)
+    if not raw:
+        return ""
+    return raw.decode("utf-8", errors="replace")
+
+
+def _html_to_text(value: str) -> str:
+    def _anchor_repl(match: re.Match[str]) -> str:
+        href = html.unescape(str(match.group("href") or "").strip())
+        anchor_html = str(match.group("body") or "")
+        anchor_text = re.sub(r"<[^>]+>", " ", anchor_html)
+        anchor_text = html.unescape(anchor_text)
+        anchor_text = re.sub(r"\s+", " ", anchor_text).strip()
+        if href and href not in anchor_text:
+            return " ".join(part for part in (anchor_text, href) if part)
+        return anchor_text
+
+    normalized = re.sub(
+        r'(?is)<a\b[^>]*href=["\']?(?P<href>[^"\'\s>]+)[^>]*>(?P<body>.*?)</a>',
+        _anchor_repl,
+        value,
+    )
+    normalized = re.sub(r"(?i)<br\s*/?>", "\n", normalized)
+    normalized = re.sub(r"(?i)</(p|div|li|tr|table|h[1-6])>", "\n", normalized)
+    normalized = re.sub(r"<[^>]+>", " ", normalized)
+    return html.unescape(normalized)
+
+
+def _normalize_gmail_body_text(value: str) -> str:
+    lines = [re.sub(r"\s+", " ", line).strip() for line in str(value or "").splitlines()]
+    return "\n".join(line for line in lines if line).strip()
+
+
+def _list_recent_calendar_signals(*, access_token: str, max_results: int, account_email: str = "") -> list[GoogleWorkspaceSignal]:
+    if max_results <= 0:
+        return []
+    now = datetime.now(timezone.utc)
+    query = urllib.parse.urlencode(
+        {
+            "maxResults": str(max_results),
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "timeMin": now.isoformat().replace("+00:00", "Z"),
+            "timeMax": (now + timedelta(days=7)).isoformat().replace("+00:00", "Z"),
+        }
+    )
+    request = urllib.request.Request(
+        f"https://www.googleapis.com/calendar/v3/calendars/primary/events?{query}",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    rows: list[GoogleWorkspaceSignal] = []
+    normalized_account_email = str(account_email or "").strip().lower()
+    for item in list(payload.get("items") or []):
+        if str(item.get("status") or "").strip().lower() == "cancelled":
+            continue
+        event_id = str(item.get("id") or "").strip()
+        if not event_id:
+            continue
+        title = str(item.get("summary") or "").strip() or "Upcoming meeting"
+        start = dict(item.get("start") or {})
+        end = dict(item.get("end") or {})
+        start_at = str(start.get("dateTime") or start.get("date") or "").strip()
+        attendees = [
+            {
+                "label": str(row.get("displayName") or row.get("email") or "").strip(),
+                "email": str(row.get("email") or "").strip().lower(),
+            }
+            for row in list(item.get("attendees") or [])
+            if isinstance(row, dict) and str(row.get("displayName") or row.get("email") or "").strip()
+        ]
+        attendee_labels = [row["label"] for row in attendees if row["label"]]
+        non_self_attendees = [
+            row["label"]
+            for row in attendees
+            if row["label"] and (not normalized_account_email or row["email"] != normalized_account_email)
+        ]
+        visible_attendees = non_self_attendees if normalized_account_email else attendee_labels
+        organizer_email = str((item.get("organizer") or {}).get("email") or "").strip().lower()
+        organizer = str((item.get("organizer") or {}).get("displayName") or organizer_email).strip()
+        counterparty = next(
+            (name for name in non_self_attendees if name),
+            organizer if organizer and (not normalized_account_email or organizer_email != normalized_account_email) else "",
+        )
+        description = str(item.get("description") or "").strip()
+        summary_parts = [title]
+        if start_at:
+            summary_parts.append(f"Starts {start_at}")
+        if str(item.get("location") or "").strip():
+            summary_parts.append(f"Location {str(item.get('location') or '').strip()}")
+        summary = ". ".join(summary_parts)
+        text_parts = [title]
+        if visible_attendees:
+            text_parts.append(f"Attendees: {', '.join(visible_attendees[:4])}")
+        if description:
+            text_parts.append(description)
+        rows.append(
+            GoogleWorkspaceSignal(
+                signal_type="calendar_note",
+                channel="calendar",
+                title=title[:160],
+                summary=summary[:280],
+                text=" ".join(part for part in text_parts if part).strip()[:1000] or title,
+                source_ref=(
+                    f"calendar-event:{normalized_account_email}:{event_id}"
+                    if normalized_account_email
+                    else f"calendar-event:{event_id}"
+                ),
+                external_id=(
+                    f"calendar-event:{normalized_account_email}:{event_id}"
+                    if normalized_account_email
+                    else f"calendar-event:{event_id}"
+                ),
+                counterparty=counterparty[:120],
+                due_at=start_at or None,
+                payload={
+                    "event_id": event_id,
+                    "location": str(item.get("location") or "").strip(),
+                    "start_at": start_at,
+                    "end_at": str(end.get("dateTime") or end.get("date") or "").strip(),
+                    "attendees": attendee_labels,
+                    "organizer": organizer,
+                    "account_email": normalized_account_email,
+                    "description": description,
+                    "html_link": str(item.get("htmlLink") or "").strip(),
+                },
+            )
+        )
+    return rows
+
+
+def _refresh_google_access_token(*, refresh_token: str, client_id: str, client_secret: str) -> dict[str, Any]:
+    payload = urllib.parse.urlencode(
+        {
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "grant_type": "refresh_token",
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        GOOGLE_TOKEN_ENDPOINT,
+        data=payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _gmail_send_message(*, access_token: str, raw_message: str, thread_id: str | None = None) -> str:
+    payload = {"raw": raw_message}
+    normalized_thread_id = str(thread_id or "").strip()
+    if normalized_thread_id:
+        payload["threadId"] = normalized_thread_id
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    message_id = str(payload.get("id") or "").strip()
+    if not message_id:
+        raise RuntimeError("google_gmail_send_missing_message_id")
+    return message_id
+
+
+def _google_refresh_error_reason(exc: Exception) -> str:
+    detail_parts = [str(exc or "").strip()]
+    reader = getattr(exc, "read", None)
+    if callable(reader):
+        try:
+            payload = reader()
+        except Exception:
+            payload = b""
+        decoded = payload.decode("utf-8", "replace").strip() if isinstance(payload, bytes) else str(payload or "").strip()
+        if decoded:
+            detail_parts.append(decoded)
+    combined = " ".join(part for part in detail_parts if part).strip().lower()
+    if "invalid_grant" in combined:
+        return "google_oauth_invalid_grant"
+    if "invalid_client" in combined:
+        return "google_oauth_invalid_client"
+    return "google_oauth_refresh_failed"
+
+
+def _mark_google_binding_reauth_required(
+    *,
+    container: AppContainer,
+    binding: ProviderBindingRecord,
+    principal_id: str,
+    reason: str,
+) -> ProviderBindingRecord:
+    metadata = dict(binding.auth_metadata_json or {})
+    metadata["token_status"] = "reauth_required"
+    metadata["reauth_required_reason"] = str(reason or "google_oauth_refresh_failed").strip() or "google_oauth_refresh_failed"
+    metadata["access_token_expires_at"] = ""
+    return container.provider_registry.upsert_binding_record(
+        binding_id=binding.binding_id,
+        principal_id=principal_id,
+        provider_key=GOOGLE_PROVIDER_KEY,
+        status=binding.status,
+        priority=binding.priority,
+        probe_state="degraded",
+        probe_details_json=dict(binding.probe_details_json or {}),
+        scope_json=dict(binding.scope_json or {}),
+        auth_metadata_json=metadata,
+    )
+
+
+def _fetch_google_userinfo(access_token: str) -> dict[str, Any]:
+    if not access_token:
+        raise RuntimeError("google_oauth_access_token_missing")
+    request = urllib.request.Request(
+        GOOGLE_USERINFO_ENDPOINT,
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _encode_signed_state(payload: dict[str, Any], *, secret: str) -> str:
+    body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    body_b64 = _b64url_encode(body)
+    signature = hmac.new(secret.encode("utf-8"), body_b64.encode("ascii"), hashlib.sha256).digest()
+    return f"{body_b64}.{_b64url_encode(signature)}"
+
+
+def _decode_signed_state(state: str, *, secret: str) -> dict[str, Any]:
+    raw = str(state or "").strip()
+    if "." not in raw:
+        raise RuntimeError("google_oauth_state_invalid")
+    body_b64, signature_b64 = raw.split(".", 1)
+    expected = hmac.new(secret.encode("utf-8"), body_b64.encode("ascii"), hashlib.sha256).digest()
+    provided = _b64url_decode(signature_b64)
+    if not hmac.compare_digest(expected, provided):
+        raise RuntimeError("google_oauth_state_signature_invalid")
+    payload = json.loads(_b64url_decode(body_b64).decode("utf-8"))
+    issued_at = _safe_int(payload.get("issued_at"), default=0)
+    max_age_seconds = max(_safe_int(os.environ.get("EA_GOOGLE_OAUTH_STATE_MAX_AGE_SECONDS"), default=3600), 300)
+    if issued_at <= 0 or time.time() - issued_at > max_age_seconds:
+        raise RuntimeError("google_oauth_state_expired")
+    return payload
+
+
+def _encrypt_secret(value: str, *, key: str) -> str:
+    if not value:
+        return ""
+    env = dict(os.environ)
+    env["EA_GOOGLE_OAUTH_ENCRYPTION_KEY"] = key
+    proc = subprocess.run(
+        [
+            "openssl",
+            "enc",
+            "-aes-256-cbc",
+            "-pbkdf2",
+            "-a",
+            "-A",
+            "-salt",
+            "-pass",
+            "env:EA_GOOGLE_OAUTH_ENCRYPTION_KEY",
+        ],
+        input=value.encode("utf-8"),
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"google_oauth_encrypt_failed:{proc.stderr.decode('utf-8', errors='ignore').strip()}")
+    return proc.stdout.decode("utf-8").strip()
+
+
+def _decrypt_secret(value: str, *, key: str) -> str:
+    env = dict(os.environ)
+    env["EA_GOOGLE_OAUTH_ENCRYPTION_KEY"] = key
+    proc = subprocess.run(
+        [
+            "openssl",
+            "enc",
+            "-aes-256-cbc",
+            "-pbkdf2",
+            "-a",
+            "-A",
+            "-d",
+            "-salt",
+            "-pass",
+            "env:EA_GOOGLE_OAUTH_ENCRYPTION_KEY",
+        ],
+        input=value.encode("utf-8"),
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"google_oauth_decrypt_failed:{proc.stderr.decode('utf-8', errors='ignore').strip()}")
+    return proc.stdout.decode("utf-8").strip()
+
+
+def _safe_int(value: Any, *, default: int) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def _utc_iso_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _utc_iso_after_seconds(seconds: int) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + max(0, int(seconds))))
+
+
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(raw: str) -> bytes:
+    padding = "=" * ((4 - len(raw) % 4) % 4)
+    return base64.urlsafe_b64decode(raw + padding)
+
+
+def _build_gmail_smoke_message(*, sender_email: str, recipient_email: str, message_id: str) -> str:
+    return _build_gmail_message(
+        sender_email=sender_email,
+        recipient_email=recipient_email,
+        subject="EA Gmail smoke test",
+        body_text="This is an EA Gmail smoke test. If you received it, the send-only OAuth path is working.",
+        message_id=message_id,
+        extra_headers={"X-EA-Smoke-Test": "google-gmail-send"},
+    )
+
+
+def _build_gmail_message(
+    *,
+    sender_email: str,
+    recipient_email: str,
+    subject: str,
+    body_text: str,
+    message_id: str,
+    extra_headers: dict[str, str] | None = None,
+) -> str:
+    message = EmailMessage()
+    message["From"] = sender_email
+    message["To"] = recipient_email
+    message["Subject"] = subject
+    message["Message-ID"] = message_id
+    for key, value in dict(extra_headers or {}).items():
+        normalized_key = str(key or "").strip()
+        normalized_value = str(value or "").strip()
+        if normalized_key and normalized_value:
+            message[normalized_key] = normalized_value
+    message.set_content(body_text)
+    return base64.urlsafe_b64encode(message.as_bytes()).decode("ascii").rstrip("=")
+
+
+def _load_google_send_context(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    binding_id: str = "",
+) -> tuple[ProviderBindingRecord, dict[str, Any], dict[str, Any], str, str]:
+    config = load_google_oauth_config()
+    resolved_binding_id = str(binding_id or "").strip()
+    binding = None
+    for binding_principal_id in _google_binding_principal_ids(principal_id):
+        candidate_binding_id = resolved_binding_id or _primary_google_binding_id(binding_principal_id)
+        binding = container.provider_registry.get_persisted_binding_record(
+            binding_id=candidate_binding_id,
+            principal_id=binding_principal_id,
+        )
+        if binding is not None:
+            break
+    if binding is None:
+        raise RuntimeError("google_oauth_binding_not_found")
+    metadata = dict(binding.auth_metadata_json or {})
+    granted_scopes = {
+        str(scope or "").strip()
+        for scope in (metadata.get("granted_scopes") or [])
+        if str(scope or "").strip()
+    }
+    if GOOGLE_SCOPE_SEND not in granted_scopes:
+        raise RuntimeError("google_gmail_send_scope_missing")
+    refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
+    if not refresh_token_ref:
+        raise RuntimeError("google_gmail_refresh_token_missing")
+    refresh_token = _decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
+    try:
+        token_payload = _refresh_google_access_token(
+            refresh_token=refresh_token,
+            client_id=config.client_id,
+            client_secret=config.client_secret,
+        )
+    except Exception as exc:
+        binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
+        _mark_google_binding_reauth_required(
+            container=container,
+            binding=binding,
+            principal_id=binding_principal_id,
+            reason=_google_refresh_error_reason(exc),
+        )
+        raise
+    access_token = str(token_payload.get("access_token") or "").strip()
+    if not access_token:
+        raise RuntimeError("google_gmail_access_token_missing")
+    sender_email = str(metadata.get("google_email") or "").strip().lower()
+    if not sender_email:
+        raise RuntimeError("google_gmail_sender_missing")
+    return binding, metadata, token_payload, access_token, sender_email
+
+
+def _load_google_calendar_context(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    binding_id: str = "",
+) -> tuple[ProviderBindingRecord, dict[str, Any], dict[str, Any], str]:
+    config = load_google_oauth_config()
+    resolved_binding_id = str(binding_id or "").strip()
+    binding = None
+    for binding_principal_id in _google_binding_principal_ids(principal_id):
+        candidate_binding_id = resolved_binding_id or _primary_google_binding_id(binding_principal_id)
+        binding = container.provider_registry.get_persisted_binding_record(
+            binding_id=candidate_binding_id,
+            principal_id=binding_principal_id,
+        )
+        if binding is not None:
+            break
+    if binding is None:
+        raise RuntimeError("google_oauth_binding_not_found")
+    metadata = dict(binding.auth_metadata_json or {})
+    granted_scopes = {
+        str(scope or "").strip()
+        for scope in (metadata.get("granted_scopes") or [])
+        if str(scope or "").strip()
+    }
+    if GOOGLE_SCOPE_CALENDAR not in granted_scopes:
+        raise RuntimeError("google_calendar_write_scope_missing")
+    refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
+    if not refresh_token_ref:
+        raise RuntimeError("google_calendar_refresh_token_missing")
+    refresh_token = _decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
+    try:
+        token_payload = _refresh_google_access_token(
+            refresh_token=refresh_token,
+            client_id=config.client_id,
+            client_secret=config.client_secret,
+        )
+    except Exception as exc:
+        binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
+        _mark_google_binding_reauth_required(
+            container=container,
+            binding=binding,
+            principal_id=binding_principal_id,
+            reason=_google_refresh_error_reason(exc),
+        )
+        raise
+    access_token = str(token_payload.get("access_token") or "").strip()
+    if not access_token:
+        raise RuntimeError("google_calendar_access_token_missing")
+    return binding, metadata, token_payload, access_token
+
+
+def _load_google_keep_context(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    binding_id: str = "",
+) -> tuple[ProviderBindingRecord, dict[str, Any], dict[str, Any], str]:
+    config = load_google_oauth_config()
+    resolved_binding_id = str(binding_id or "").strip()
+    binding = None
+    for binding_principal_id in _google_binding_principal_ids(principal_id):
+        candidate_binding_id = resolved_binding_id or _primary_google_binding_id(binding_principal_id)
+        binding = container.provider_registry.get_persisted_binding_record(
+            binding_id=candidate_binding_id,
+            principal_id=binding_principal_id,
+        )
+        if binding is not None:
+            break
+    if binding is None:
+        raise RuntimeError("google_oauth_binding_not_found")
+    metadata = dict(binding.auth_metadata_json or {})
+    granted_scopes = {
+        str(scope or "").strip()
+        for scope in (metadata.get("granted_scopes") or [])
+        if str(scope or "").strip()
+    }
+    if GOOGLE_SCOPE_KEEP not in granted_scopes:
+        raise RuntimeError("google_keep_scope_missing")
+    refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
+    if not refresh_token_ref:
+        raise RuntimeError("google_keep_refresh_token_missing")
+    refresh_token = _decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
+    try:
+        token_payload = _refresh_google_access_token(
+            refresh_token=refresh_token,
+            client_id=config.client_id,
+            client_secret=config.client_secret,
+        )
+    except Exception as exc:
+        binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
+        _mark_google_binding_reauth_required(
+            container=container,
+            binding=binding,
+            principal_id=binding_principal_id,
+            reason=_google_refresh_error_reason(exc),
+        )
+        raise
+    access_token = str(token_payload.get("access_token") or "").strip()
+    if not access_token:
+        raise RuntimeError("google_keep_access_token_missing")
+    return binding, metadata, token_payload, access_token
+
+
+def create_google_calendar_event(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    summary: str,
+    start_at: str,
+    end_at: str,
+    description: str = "",
+    location: str = "",
+    binding_id: str = "",
+) -> GoogleCalendarCreateResult:
+    binding, metadata, token_payload, access_token = _load_google_calendar_context(
+        container=container,
+        principal_id=principal_id,
+        binding_id=binding_id,
+    )
+    normalized_summary = str(summary or "").strip() or "EA event"
+    normalized_start = str(start_at or "").strip()
+    normalized_end = str(end_at or "").strip()
+    if not normalized_start:
+        raise RuntimeError("google_calendar_start_missing")
+    if not normalized_end:
+        raise RuntimeError("google_calendar_end_missing")
+    payload = {
+        "summary": normalized_summary,
+        "description": str(description or "").strip(),
+        "location": str(location or "").strip(),
+        "start": {"dateTime": normalized_start},
+        "end": {"dateTime": normalized_end},
+    }
+    request = urllib.request.Request(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        response_payload = json.loads(response.read().decode("utf-8"))
+    event_id = str(response_payload.get("id") or "").strip()
+    if not event_id:
+        raise RuntimeError("google_calendar_event_id_missing")
+    updated_metadata = dict(metadata)
+    updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
+    updated_metadata["last_refresh_at"] = _utc_iso_now()
+    updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
+    updated_metadata["token_status"] = "active"
+    updated = container.provider_registry.upsert_binding_record(
+        binding_id=binding.binding_id,
+        principal_id=principal_id,
+        provider_key=GOOGLE_PROVIDER_KEY,
+        status=binding.status,
+        priority=binding.priority,
+        probe_state="ready",
+        probe_details_json=dict(binding.probe_details_json or {}),
+        scope_json=dict(binding.scope_json or {}),
+        auth_metadata_json=updated_metadata,
+    )
+    return GoogleCalendarCreateResult(
+        binding=updated,
+        event_id=event_id,
+        html_link=str(response_payload.get("htmlLink") or "").strip(),
+        summary=normalized_summary,
+        start_at=normalized_start,
+        end_at=normalized_end,
+        created_at=updated_metadata["last_successful_api_call_at"],
+    )
+
+
+def create_google_keep_note(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    title: str,
+    text_content: str = "",
+    list_item_texts: tuple[str, ...] = (),
+    binding_id: str = "",
+) -> GoogleKeepNoteCreateResult:
+    binding, metadata, token_payload, access_token = _load_google_keep_context(
+        container=container,
+        principal_id=principal_id,
+        binding_id=binding_id,
+    )
+    normalized_title = str(title or "").strip() or "EA note"
+    normalized_text = str(text_content or "").strip()
+    normalized_items = tuple(
+        str(item or "").strip()
+        for item in list_item_texts
+        if str(item or "").strip()
+    )
+    body: dict[str, Any] = {"title": normalized_title}
+    if normalized_items:
+        body["body"] = {
+            "list": {
+                "listItems": [
+                    {
+                        "text": {"textContent": item},
+                        "checked": False,
+                    }
+                    for item in normalized_items
+                ]
+            }
+        }
+    else:
+        body["body"] = {
+            "text": {
+                "textContent": normalized_text,
+            }
+        }
+    request = urllib.request.Request(
+        "https://keep.googleapis.com/v1/notes",
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        response_payload = json.loads(response.read().decode("utf-8"))
+    note_name = str(response_payload.get("name") or "").strip()
+    if not note_name:
+        raise RuntimeError("google_keep_note_name_missing")
+    updated_metadata = dict(metadata)
+    updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
+    updated_metadata["last_refresh_at"] = _utc_iso_now()
+    updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
+    updated_metadata["token_status"] = "active"
+    updated = container.provider_registry.upsert_binding_record(
+        binding_id=binding.binding_id,
+        principal_id=principal_id,
+        provider_key=GOOGLE_PROVIDER_KEY,
+        status=binding.status,
+        priority=binding.priority,
+        probe_state="ready",
+        probe_details_json=dict(binding.probe_details_json or {}),
+        scope_json=dict(binding.scope_json or {}),
+        auth_metadata_json=updated_metadata,
+    )
+    return GoogleKeepNoteCreateResult(
+        binding=updated,
+        note_name=note_name,
+        title=normalized_title,
+        text_content=normalized_text,
+        list_item_texts=normalized_items,
+        created_at=updated_metadata["last_successful_api_call_at"],
+    )

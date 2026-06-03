@@ -1,0 +1,88 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  .channel-grid,
+  .channel-support-grid,
+  .channel-proof-grid {
+    display: grid;
+    gap: 14px;
+  }
+  .channel-grid,
+  .channel-support-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .channel-proof-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 14px;
+  }
+  .channel-card,
+  .channel-support-card,
+  .channel-proof-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+    padding: 18px;
+  }
+  .channel-card .pill {
+    margin-bottom: 12px;
+  }
+  @media (max-width: 1080px) {
+    .channel-grid,
+    .channel-support-grid,
+    .channel-proof-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="section channel-grid">
+  <section class="channel-card">
+    <div class="kicker">{{ channel_eyebrow }}</div>
+    <h1>{{ channel_title }}</h1>
+    <div class="pill {{ 'good' if channel.status == 'connected' else 'warn' if channel.status else 'muted' }}">{{ channel.status|replace('_', ' ') if channel.status else 'not selected' }}</div>
+    <p class="lead">{{ channel.detail or 'No channel detail yet.' }}</p>
+    <ul class="muted-list">
+      {% for item in detail_points %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+  </section>
+  <section class="channel-card">
+    <div class="kicker">What to expect</div>
+    <h2>What this connection is for</h2>
+    <ul class="muted-list">
+      {% for item in body_points %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+  </section>
+</section>
+
+<section class="section channel-proof-grid">
+  <section class="channel-proof-card">
+    <strong>Best use</strong>
+    Connect this when it genuinely changes the morning memo, the draft queue, or the commitment lane.
+  </section>
+  <section class="channel-proof-card">
+    <strong>Trust rule</strong>
+    The page says clearly what is live, what is guided, and what still stays manual.
+  </section>
+  <section class="channel-proof-card">
+    <strong>Good next step</strong>
+    Save the connection only if it improves the real daily loop instead of adding channel sprawl.
+  </section>
+</section>
+
+<section class="section channel-support-grid">
+  <section class="channel-support-card">
+    <div class="kicker">Capabilities</div>
+    <h2>What the assistant can do here</h2>
+    <ul class="muted-list">
+      {% for item in channel.capabilities or [] %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+  </section>
+  <section class="channel-support-card">
+    <div class="kicker">Limits</div>
+    <h2>What still stays manual or partial</h2>
+    <ul class="muted-list">
+      {% for item in channel.limitations or [] %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+  </section>
+</section>
+{% endblock %}

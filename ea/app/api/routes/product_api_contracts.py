@@ -1,0 +1,1753 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from pydantic import BaseModel, Field
+
+from app.domain.models import ExecutionEvent
+from app.product.models import BriefItem, CommitmentCandidate, CommitmentItem, DeadlineItem, DecisionItem, DecisionQueueItem, DraftCandidate, EvidenceItem, EvidenceRef, HandoffNote, HistoryEntry, PersonDetail, PersonProfile, RuleItem, ThreadItem
+
+
+class EvidenceRefOut(BaseModel):
+    ref_id: str
+    label: str
+    href: str = ""
+    source_type: str = ""
+    note: str = ""
+
+
+class BriefItemOut(BaseModel):
+    id: str
+    workspace_id: str
+    kind: str
+    title: str
+    summary: str
+    score: float
+    why_now: str
+    evidence_refs: list[EvidenceRefOut]
+    related_people: list[str]
+    related_commitment_ids: list[str]
+    recommended_action: str
+    status: str
+    confidence: float = 0.0
+    object_ref: str = ""
+    profile_followup_refs: list[str] = Field(default_factory=list)
+    evidence_count: int = 0
+
+
+class DecisionQueueItemOut(BaseModel):
+    id: str
+    queue_kind: str
+    title: str
+    summary: str
+    priority: str
+    rank_score: float = 0.0
+    deadline: str | None = None
+    owner_role: str = ""
+    requires_principal: bool = False
+    evidence_refs: list[EvidenceRefOut]
+    profile_followup_refs: list[str] = Field(default_factory=list)
+    resolution_state: str
+
+
+class DecisionItemOut(BaseModel):
+    id: str
+    title: str
+    summary: str
+    priority: str
+    owner_role: str
+    due_at: str | None = None
+    status: str
+    decision_type: str = ""
+    recommendation: str = ""
+    next_action: str = ""
+    rationale: str = ""
+    options: list[str]
+    evidence_refs: list[EvidenceRefOut]
+    related_commitment_ids: list[str]
+    linked_thread_ids: list[str]
+    related_people: list[str]
+    impact_summary: str = ""
+    sla_status: str = ""
+    resolution_reason: str = ""
+
+
+class DeadlineOut(BaseModel):
+    id: str
+    title: str
+    summary: str
+    priority: str
+    start_at: str | None = None
+    end_at: str | None = None
+    status: str
+
+
+class CommitmentOut(BaseModel):
+    id: str
+    source_type: str
+    source_ref: str
+    statement: str
+    owner: str
+    counterparty: str
+    due_at: str | None = None
+    status: str
+    last_activity_at: str | None = None
+    risk_level: str
+    proof_refs: list[EvidenceRefOut]
+    confidence: float = 0.5
+    channel_hint: str = ""
+    resolution_code: str = ""
+    resolution_reason: str = ""
+    duplicate_of_ref: str = ""
+    merged_into_ref: str = ""
+    merged_from_refs: list[str] = []
+
+
+class CommitmentCandidateOut(BaseModel):
+    candidate_id: str = ""
+    title: str
+    details: str
+    source_text: str
+    confidence: float
+    suggested_due_at: str | None = None
+    counterparty: str = ""
+    channel_hint: str = ""
+    source_ref: str = ""
+    signal_type: str = ""
+    status: str = "pending"
+    kind: str = "commitment"
+    stakeholder_id: str = ""
+    duplicate_of_ref: str = ""
+    merge_strategy: str = "create"
+
+
+class DraftCandidateOut(BaseModel):
+    id: str
+    thread_ref: str
+    recipient_summary: str
+    intent: str
+    draft_text: str
+    tone: str
+    requires_approval: bool
+    approval_status: str
+    provenance_refs: list[EvidenceRefOut]
+    send_channel: str
+
+
+class PersonProfileOut(BaseModel):
+    id: str
+    display_name: str
+    role_or_company: str
+    importance_score: int
+    relationship_temperature: str
+    open_loops_count: int
+    latest_touchpoint_at: str | None = None
+    preferred_tone: str
+    themes: list[str]
+    risks: list[str]
+
+
+class HandoffNoteOut(BaseModel):
+    id: str
+    queue_item_ref: str
+    summary: str
+    owner: str
+    due_time: str | None = None
+    escalation_status: str
+    status: str
+    task_type: str = ""
+    resolution: str = ""
+    draft_ref: str = ""
+    recipient_email: str = ""
+    subject: str = ""
+    delivery_reason: str = ""
+    property_url: str = ""
+    listing_id: str = ""
+    variant_key: str = ""
+    blocked_reason: str = ""
+    tour_url: str = ""
+    vendor_tour_url: str = ""
+    editor_url: str = ""
+    connector_binding_id: str = ""
+    source_ref: str = ""
+    external_id: str = ""
+    evidence_refs: list[EvidenceRefOut]
+
+
+class HandoffAssignmentHistoryOut(BaseModel):
+    event_id: str
+    human_task_id: str
+    event_name: str
+    assignment_state: str
+    assigned_operator_id: str
+    assignment_source: str
+    assigned_at: str | None = None
+    assigned_by_actor_id: str
+    resolution: str
+    created_at: str
+
+
+class HistoryEntryOut(BaseModel):
+    event_type: str
+    created_at: str | None = None
+    source_id: str = ""
+    actor: str = ""
+    detail: str = ""
+
+
+class PersonDetailOut(BaseModel):
+    profile: PersonProfileOut
+    commitments: list[CommitmentOut]
+    drafts: list[DraftCandidateOut]
+    threads: list[ThreadItemOut]
+    queue_items: list[DecisionQueueItemOut]
+    handoffs: list[HandoffNoteOut]
+    evidence_refs: list[EvidenceRefOut]
+    history: list[HistoryEntryOut]
+
+
+class ThreadItemOut(BaseModel):
+    id: str
+    title: str
+    channel: str
+    status: str
+    last_activity_at: str | None = None
+    summary: str
+    counterparties: list[str]
+    draft_ids: list[str]
+    related_commitment_ids: list[str]
+    related_decision_ids: list[str]
+    evidence_refs: list[EvidenceRefOut]
+
+
+class EvidenceItemOut(BaseModel):
+    id: str
+    label: str
+    source_type: str
+    summary: str
+    href: str = ""
+    related_object_refs: list[str]
+
+
+class RuleItemOut(BaseModel):
+    id: str
+    label: str
+    scope: str
+    status: str
+    summary: str
+    current_value: str
+    impact: str
+    requires_approval: bool = False
+    simulated_effect: str = ""
+
+
+class OfficeEventOut(BaseModel):
+    observation_id: str
+    channel: str
+    event_type: str
+    created_at: str
+    source_id: str = ""
+    external_id: str = ""
+    summary: str = ""
+    object_refs: list[str] = Field(default_factory=list)
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
+class GroundingActionOut(BaseModel):
+    label: str
+    href: str = ""
+    method: str = "get"
+
+
+class GroundingSourceOut(BaseModel):
+    label: str
+    path: str = ""
+    as_of: str = ""
+
+
+class GroundingPackOut(BaseModel):
+    id: str
+    title: str
+    summary: str
+    bullets: list[str] = Field(default_factory=list)
+    actions: list[GroundingActionOut] = Field(default_factory=list)
+    sources: list[GroundingSourceOut] = Field(default_factory=list)
+
+
+class WorkspaceDiagnosticsOut(BaseModel):
+    workspace: dict[str, object]
+    selected_channels: list[str]
+    plan: dict[str, object]
+    billing: dict[str, object]
+    entitlements: dict[str, object]
+    commercial: dict[str, object]
+    readiness: dict[str, object]
+    operators: dict[str, object]
+    providers: dict[str, object]
+    queue_health: dict[str, object]
+    product_control: dict[str, object] = Field(default_factory=dict)
+    support_verification: dict[str, object] = Field(default_factory=dict)
+    usage: dict[str, int]
+    analytics: dict[str, object]
+
+
+class WorkspacePlanDetailOut(BaseModel):
+    workspace: dict[str, object]
+    selected_channels: list[str]
+    plan: dict[str, object]
+    billing: dict[str, object]
+    entitlements: dict[str, object]
+    commercial: dict[str, object]
+    operators: dict[str, object]
+
+
+class WorkspaceUsageDetailOut(BaseModel):
+    workspace: dict[str, object]
+    selected_channels: list[str]
+    usage: dict[str, int]
+    analytics: dict[str, object]
+    readiness: dict[str, object]
+    operators: dict[str, object]
+
+
+class WorkspaceOutcomesOut(BaseModel):
+    generated_at: str
+    time_to_first_value_seconds: int | None = None
+    first_value_event: str = ""
+    memo_open_rate: float = 0.0
+    approval_coverage_rate: float = 0.0
+    approval_action_rate: float = 0.0
+    delivery_followup_closeout_count: int = 0
+    delivery_followup_blocked_count: int = 0
+    delivery_followup_resolution_rate: float | None = None
+    delivery_followup_blocked_rate: float | None = None
+    commitment_close_rate: float = 0.0
+    correction_rate: float = 0.0
+    churn_risk: str = "watch"
+    success_summary: str = ""
+    memo_loop: dict[str, object] = Field(default_factory=dict)
+    office_loop_proof: dict[str, object] = Field(default_factory=dict)
+    counts: dict[str, int] = Field(default_factory=dict)
+
+
+class WorkspaceTrustOut(BaseModel):
+    generated_at: str
+    health_score: int = 0
+    workspace_summary: str = ""
+    readiness: dict[str, str] = Field(default_factory=dict)
+    provider_posture: dict[str, object] = Field(default_factory=dict)
+    reliability: dict[str, str] = Field(default_factory=dict)
+    audit_retention: str = "standard"
+    evidence_count: int = 0
+    rule_count: int = 0
+    recent_events: list[OfficeEventOut] = Field(default_factory=list)
+    public_help_grounding: GroundingPackOut | None = None
+
+
+class WorkspaceSupportBundleOut(BaseModel):
+    workspace: dict[str, object]
+    selected_channels: list[str]
+    plan: dict[str, object]
+    billing: dict[str, object]
+    entitlements: dict[str, object]
+    commercial: dict[str, object]
+    readiness: dict[str, object]
+    product_control: dict[str, object] = Field(default_factory=dict)
+    support_verification: dict[str, object] = Field(default_factory=dict)
+    usage: dict[str, object]
+    analytics: dict[str, object]
+    approvals: dict[str, object]
+    human_tasks: list[dict[str, object]]
+    providers: dict[str, object]
+    queue_health: dict[str, object]
+    assignment_suggestions: list[dict[str, object]]
+    pending_delivery: list[dict[str, object]]
+    recent_events: list[OfficeEventOut] = Field(default_factory=list)
+    support_assistant_grounding: GroundingPackOut | None = None
+
+
+class OperatorCenterLaneOut(BaseModel):
+    key: str
+    label: str
+    state: str = "clear"
+    count: int = 0
+    detail: str = ""
+    href: str = ""
+
+
+class OperatorCenterActionOut(BaseModel):
+    label: str
+    detail: str = ""
+    href: str = ""
+    action_href: str = ""
+    action_label: str = ""
+    action_value: str = ""
+    action_method: str = ""
+    return_to: str = ""
+    secondary_action_href: str = ""
+    secondary_action_label: str = ""
+    secondary_action_value: str = ""
+    secondary_action_method: str = ""
+    secondary_return_to: str = ""
+    tertiary_action_href: str = ""
+    tertiary_action_label: str = ""
+    tertiary_action_value: str = ""
+    tertiary_action_method: str = ""
+    tertiary_return_to: str = ""
+    quaternary_action_href: str = ""
+    quaternary_action_label: str = ""
+    quaternary_action_value: str = ""
+    quaternary_action_method: str = ""
+    quaternary_return_to: str = ""
+
+
+class OperatorCenterOut(BaseModel):
+    generated_at: str
+    workspace: dict[str, object]
+    operators: dict[str, object]
+    queue_health: dict[str, object]
+    providers: dict[str, object]
+    readiness: dict[str, object]
+    delivery: dict[str, object]
+    access: dict[str, object]
+    sync: dict[str, object]
+    usage: dict[str, int]
+    lanes: list[OperatorCenterLaneOut] = Field(default_factory=list)
+    next_actions: list[OperatorCenterActionOut] = Field(default_factory=list)
+    recent_runtime: list[dict[str, object]] = Field(default_factory=list)
+    snapshot: dict[str, int] = Field(default_factory=dict)
+    operator_memo_grounding: GroundingPackOut | None = None
+
+
+class WorkspaceInvitationOut(BaseModel):
+    invitation_id: str
+    email: str
+    role: str = "operator"
+    display_name: str = ""
+    note: str = ""
+    status: str = "pending"
+    invited_by: str = ""
+    invited_at: str = ""
+    expires_at: str = ""
+    accepted_at: str = ""
+    accepted_by: str = ""
+    revoked_at: str = ""
+    invite_url: str = ""
+    invite_token: str = ""
+    operator_id: str = ""
+    access_token: str = ""
+    access_url: str = ""
+    access_expires_at: str = ""
+    email_delivery_status: str = ""
+    email_delivery_error: str = ""
+    email_message_id: str = ""
+    email_provider: str = ""
+
+
+class WorkspaceInvitationResponse(BaseModel):
+    generated_at: str
+    items: list[WorkspaceInvitationOut]
+    total: int
+
+
+class ChannelLoopItemOut(BaseModel):
+    title: str
+    detail: str
+    tag: str
+    href: str = ""
+    object_ref: str = ""
+    profile_followup_refs: list[str] = Field(default_factory=list)
+    recommended_action: str = ""
+    action_href: str = ""
+    action_label: str = ""
+    action_method: str = "get"
+    secondary_action_href: str = ""
+    secondary_action_label: str = ""
+    secondary_action_method: str = "get"
+    tertiary_action_href: str = ""
+    tertiary_action_label: str = ""
+    tertiary_action_method: str = "get"
+    quaternary_action_href: str = ""
+    quaternary_action_label: str = ""
+    quaternary_action_method: str = "get"
+
+
+class ChannelDigestOut(BaseModel):
+    key: str
+    headline: str
+    summary: str
+    preview_text: str
+    items: list[ChannelLoopItemOut]
+    stats: dict[str, int]
+
+
+class ChannelLoopOut(BaseModel):
+    headline: str
+    summary: str
+    items: list[ChannelLoopItemOut]
+    stats: dict[str, int]
+    digests: list[ChannelDigestOut] = []
+
+
+class BriefResponse(BaseModel):
+    generated_at: str
+    items: list[BriefItemOut]
+    total: int
+
+
+class QueueResponse(BaseModel):
+    generated_at: str
+    items: list[DecisionQueueItemOut]
+    total: int
+
+
+class DecisionResponse(BaseModel):
+    generated_at: str
+    items: list[DecisionItemOut]
+    total: int
+
+
+class DeadlineResponse(BaseModel):
+    generated_at: str
+    items: list[DeadlineOut]
+    total: int
+
+
+class ThreadResponse(BaseModel):
+    generated_at: str
+    items: list[ThreadItemOut]
+    total: int
+
+
+class EvidenceResponse(BaseModel):
+    generated_at: str
+    items: list[EvidenceItemOut]
+    total: int
+
+
+class RuleResponse(BaseModel):
+    generated_at: str
+    items: list[RuleItemOut]
+    total: int
+
+
+class OfficeEventResponse(BaseModel):
+    generated_at: str
+    items: list[OfficeEventOut]
+    total: int
+
+
+class SearchResultOut(BaseModel):
+    id: str
+    kind: str
+    title: str
+    summary: str = ""
+    href: str = ""
+    score: float = 0.0
+    secondary_label: str = ""
+    related_object_refs: list[str] = Field(default_factory=list)
+    action_href: str = ""
+    action_label: str = ""
+    action_method: str = ""
+    action_value: str = ""
+
+
+class SearchResponse(BaseModel):
+    generated_at: str
+    items: list[SearchResultOut]
+    total: int
+
+
+class WebhookOut(BaseModel):
+    webhook_id: str
+    label: str
+    target_url: str
+    status: str = "active"
+    event_types: list[str] = Field(default_factory=list)
+    created_at: str = ""
+    last_delivery_at: str = ""
+    delivery_count: int = 0
+
+
+class WebhookDeliveryOut(BaseModel):
+    delivery_id: str
+    webhook_id: str
+    label: str = ""
+    target_url: str = ""
+    matched_event_type: str = ""
+    delivery_kind: str = "event"
+    status: str = "queued"
+    created_at: str = ""
+    source_id: str = ""
+    summary: str = ""
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
+class WebhookResponse(BaseModel):
+    generated_at: str
+    items: list[WebhookOut]
+    total: int
+
+
+class WebhookDeliveryResponse(BaseModel):
+    generated_at: str
+    items: list[WebhookDeliveryOut]
+    total: int
+
+
+class WorkspaceInvitationCreateIn(BaseModel):
+    email: str = Field(min_length=3)
+    role: str = "operator"
+    display_name: str = ""
+    note: str = ""
+    expires_in_days: int = 14
+
+
+class WorkspaceInvitationAcceptIn(BaseModel):
+    token: str = Field(min_length=8)
+    display_name: str = ""
+    operator_id: str = ""
+
+
+class WorkspaceAccessSessionCreateIn(BaseModel):
+    email: str = Field(min_length=3)
+    role: str = "principal"
+    display_name: str = ""
+    operator_id: str = ""
+    expires_in_hours: int = 72
+
+
+class WorkspaceAccessSessionOut(BaseModel):
+    session_id: str
+    principal_id: str
+    email: str = ""
+    role: str = "principal"
+    display_name: str = ""
+    operator_id: str = ""
+    source_kind: str = ""
+    issued_at: str = ""
+    status: str = "active"
+    revoked_at: str = ""
+    revoked_by: str = ""
+    expires_at: str = ""
+    access_token: str = ""
+    access_url: str = ""
+    default_target: str = "/app/today"
+
+
+class WorkspaceAccessSessionResponse(BaseModel):
+    generated_at: str
+    items: list[WorkspaceAccessSessionOut]
+    total: int
+
+
+class ChannelDigestDeliveryCreateIn(BaseModel):
+    recipient_email: str = Field(min_length=3)
+    role: str = "principal"
+    display_name: str = ""
+    operator_id: str = ""
+    delivery_channel: str = "email"
+    expires_in_hours: int = 72
+
+
+class ChannelDigestDeliveryOut(BaseModel):
+    delivery_id: str
+    digest_key: str
+    principal_id: str
+    recipient_email: str
+    role: str = "principal"
+    display_name: str = ""
+    operator_id: str = ""
+    delivery_channel: str = "email"
+    expires_at: str = ""
+    delivery_token: str = ""
+    delivery_url: str = ""
+    open_url: str = ""
+    access_session_id: str = ""
+    access_token: str = ""
+    access_url: str = ""
+    default_target: str = "/app/today"
+    headline: str = ""
+    preview_text: str = ""
+    plain_text: str = ""
+    email_delivery_status: str = ""
+    email_delivery_error: str = ""
+    email_message_id: str = ""
+    email_provider: str = ""
+    telegram_delivery_status: str = ""
+    telegram_delivery_error: str = ""
+    telegram_message_ids: list[str] = Field(default_factory=list)
+    telegram_chat_ref: str = ""
+
+
+class DraftApproveIn(BaseModel):
+    reason: str = "Approved from product draft queue."
+
+
+class QueueResolveIn(BaseModel):
+    action: str = Field(min_length=1)
+    reason: str = ""
+    reason_code: str = ""
+    due_at: str | None = None
+
+
+class CommitmentCreateIn(BaseModel):
+    title: str = Field(min_length=1)
+    details: str = ""
+    due_at: str | None = None
+    priority: str = "medium"
+    counterparty: str = ""
+    owner: str = "office"
+    kind: str = "commitment"
+    stakeholder_id: str = ""
+    channel_hint: str = "email"
+
+
+class CommitmentExtractIn(BaseModel):
+    text: str = Field(min_length=1)
+    counterparty: str = ""
+    due_at: str | None = None
+
+
+class CommitmentCandidateStageIn(BaseModel):
+    text: str = Field(min_length=1)
+    counterparty: str = ""
+    due_at: str | None = None
+    kind: str = "commitment"
+    stakeholder_id: str = ""
+
+
+class CommitmentCandidateReviewIn(BaseModel):
+    reviewer: str = Field(min_length=1)
+    title: str = ""
+    details: str = ""
+    due_at: str | None = None
+    counterparty: str = ""
+    kind: str = ""
+    stakeholder_id: str = ""
+
+
+class HandoffAssignIn(BaseModel):
+    operator_id: str = Field(min_length=1)
+
+
+class HandoffCompleteIn(BaseModel):
+    operator_id: str = Field(min_length=1)
+    resolution: str = "completed"
+
+
+class WorkspaceMorningMemoSettingsIn(BaseModel):
+    workspace_name: str = ""
+    language: str = "en"
+    timezone: str = "Europe/Vienna"
+    enabled: bool = False
+    cadence: str = "daily_morning"
+    recipient_email: str = ""
+    delivery_time_local: str = "08:00"
+    quiet_hours_start: str = "20:00"
+    quiet_hours_end: str = "07:00"
+
+
+class PersonCorrectionIn(BaseModel):
+    preferred_tone: str = ""
+    add_theme: str = ""
+    remove_theme: str = ""
+    add_risk: str = ""
+    remove_risk: str = ""
+
+
+class PreferenceProfileUpsertIn(BaseModel):
+    display_name: str | None = None
+    profile_scope: str | None = None
+    consent_mode: str | None = None
+    learning_enabled: bool | None = None
+    high_stakes_domains_enabled: bool | None = None
+
+
+class PreferenceNodeUpsertIn(BaseModel):
+    domain: str = Field(min_length=1)
+    category: str = Field(min_length=1)
+    key: str = Field(min_length=1)
+    value_json: object
+    strength: str = "medium"
+    confidence: float = 0.5
+    source_mode: str = "explicit"
+    status: str = "active"
+    decay_policy: str = "reinforce_only"
+
+
+class PreferenceEvidenceEventIn(BaseModel):
+    domain: str = Field(min_length=1)
+    event_type: str = Field(min_length=1)
+    object_type: str = Field(min_length=1)
+    object_id: str = Field(min_length=1)
+    source_ref: str = ""
+    raw_signal_json: dict[str, object] = Field(default_factory=dict)
+    interpreted_signal_json: dict[str, object] = Field(default_factory=dict)
+    signal_strength: float = 0.5
+    reversible: bool = True
+
+
+class PreferenceCorrectionApplyIn(BaseModel):
+    domain: str = Field(min_length=1)
+    category: str = Field(min_length=1)
+    key: str = Field(min_length=1)
+    value_json: object
+    strength: str = "high"
+    reason: str = ""
+
+
+class PreferenceDecisionAssessmentIn(BaseModel):
+    domain: str = Field(min_length=1)
+    object_type: str = Field(min_length=1)
+    object_id: str = Field(min_length=1)
+    object_payload: dict[str, object] = Field(default_factory=dict)
+
+
+class PropertyFeedbackSuggestionRequestIn(BaseModel):
+    property_facts: dict[str, object] = Field(default_factory=dict)
+    assessment: dict[str, object] = Field(default_factory=dict)
+
+
+class PropertyFeedbackRecordIn(BaseModel):
+    property_slug: str = ""
+    property_url: str = ""
+    property_title: str = ""
+    property_facts: dict[str, object] = Field(default_factory=dict)
+    reaction: str = Field(min_length=1)
+    reason_keys: list[str] = Field(default_factory=list)
+    note: str = ""
+    actor: str = ""
+
+
+class PreferenceProfileSummaryOut(BaseModel):
+    person_id: str
+    principal_id: str
+    display_name: str
+    profile_scope: str
+    consent_mode: str
+    learning_enabled: bool
+    high_stakes_domains_enabled: bool
+    created_at: str
+    updated_at: str
+
+
+class PreferenceNodeOut(BaseModel):
+    node_id: str
+    principal_id: str
+    person_id: str
+    domain: str
+    category: str
+    key: str
+    value_json: object
+    strength: str
+    confidence: float
+    source_mode: str
+    status: str
+    decay_policy: str
+    last_confirmed_at: str = ""
+    last_observed_at: str = ""
+    created_at: str
+    updated_at: str
+
+
+class PreferenceEvidenceEventOut(BaseModel):
+    event_id: str
+    principal_id: str
+    person_id: str
+    domain: str
+    event_type: str
+    object_type: str
+    object_id: str
+    source_ref: str = ""
+    raw_signal_json: dict[str, object] = Field(default_factory=dict)
+    interpreted_signal_json: dict[str, object] = Field(default_factory=dict)
+    signal_strength: float
+    reversible: bool
+    recorded_at: str
+
+
+class PreferenceDecisionAssessmentOut(BaseModel):
+    assessment_id: str = ""
+    principal_id: str = ""
+    person_id: str = ""
+    domain: str
+    object_type: str
+    object_id: str
+    fit_score: float
+    confidence: float
+    predicted_reaction: str
+    recommendation: str
+    match_reasons_json: list[str] = Field(default_factory=list)
+    mismatch_reasons_json: list[str] = Field(default_factory=list)
+    unknowns_json: list[str] = Field(default_factory=list)
+    blocking_constraints_json: list[str] = Field(default_factory=list)
+    assessment_json: dict[str, object] = Field(default_factory=dict)
+    generated_at: str = ""
+
+
+class PreferenceCorrectionOut(BaseModel):
+    correction_id: str
+    principal_id: str
+    person_id: str
+    target_type: str
+    target_id: str
+    old_value_json: object
+    new_value_json: object
+    reason: str = ""
+    corrected_by: str = ""
+    corrected_at: str
+
+
+class PreferenceEvidenceApplyOut(BaseModel):
+    event: PreferenceEvidenceEventOut
+    applied_nodes: list[PreferenceNodeOut] = Field(default_factory=list)
+
+
+class PreferenceCorrectionApplyOut(BaseModel):
+    node: PreferenceNodeOut
+    correction: PreferenceCorrectionOut
+
+
+class PreferenceProfileBundleOut(BaseModel):
+    profile: PreferenceProfileSummaryOut
+    preference_nodes: list[PreferenceNodeOut] = Field(default_factory=list)
+    recent_evidence_events: list[PreferenceEvidenceEventOut] = Field(default_factory=list)
+    recent_decision_assessments: list[PreferenceDecisionAssessmentOut] = Field(default_factory=list)
+    recent_corrections: list[PreferenceCorrectionOut] = Field(default_factory=list)
+
+
+class PropertyFeedbackSuggestionOut(BaseModel):
+    key: str
+    label: str
+    tone: str = ""
+    explanation: str = ""
+
+
+class PropertyFeedbackSuggestionSetOut(BaseModel):
+    negative: list[PropertyFeedbackSuggestionOut] = Field(default_factory=list)
+    positive: list[PropertyFeedbackSuggestionOut] = Field(default_factory=list)
+
+
+class PreferenceLearningFeedbackEventOut(BaseModel):
+    event_type: str = ""
+    recorded_at: str = ""
+    reaction: str = ""
+    reasons: list[str] = Field(default_factory=list)
+    note: str = ""
+    object_id: str = ""
+
+
+class PreferenceLearningSummaryOut(BaseModel):
+    likes: list[str] = Field(default_factory=list)
+    dislikes: list[str] = Field(default_factory=list)
+    hard_rules: list[str] = Field(default_factory=list)
+    recent_feedback: list[PreferenceLearningFeedbackEventOut] = Field(default_factory=list)
+
+
+class PropertyFeedbackRecordOut(BaseModel):
+    status: str
+    reaction: str
+    reason_keys: list[str] = Field(default_factory=list)
+    evidence: PreferenceEvidenceApplyOut
+    updated_assessment: PreferenceDecisionAssessmentOut
+    learning_summary: PreferenceLearningSummaryOut
+    preference_snapshot: PreferenceProfileBundleOut
+
+
+class RuleSimulateIn(BaseModel):
+    proposed_value: str = Field(min_length=1)
+
+
+class OfficeSignalIn(BaseModel):
+    signal_type: str = Field(min_length=1)
+    channel: str = "office_api"
+    title: str = ""
+    summary: str = ""
+    text: str = ""
+    source_ref: str = ""
+    external_id: str = ""
+    counterparty: str = ""
+    stakeholder_id: str = ""
+    due_at: str | None = None
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
+class OfficeSignalResultOut(BaseModel):
+    observation_id: str
+    channel: str
+    event_type: str
+    source_id: str = ""
+    external_id: str = ""
+    created_at: str
+    staged_candidates: list[CommitmentCandidateOut] = Field(default_factory=list)
+    staged_drafts: list[DraftCandidateOut] = Field(default_factory=list)
+    staged_count: int = 0
+    draft_count: int = 0
+    deduplicated: bool = False
+    ooda_loop: dict[str, object] = Field(default_factory=dict)
+    attachment_imports: list[dict[str, object]] = Field(default_factory=list)
+
+
+class WillhabenPropertyTourIn(BaseModel):
+    property_url: str = Field(min_length=1)
+    recipient_email: str = ""
+    variant_key: str = "layout_first"
+    binding_id: str = ""
+    source_ref: str = ""
+    external_id: str = ""
+    auto_deliver: bool = True
+
+
+class WillhabenPropertyTourOut(BaseModel):
+    generated_at: str
+    status: str
+    property_url: str
+    title: str = ""
+    listing_id: str = ""
+    variant_key: str = ""
+    artifact_id: str = ""
+    execution_session_id: str = ""
+    connector_binding_id: str = ""
+    tour_url: str = ""
+    vendor_tour_url: str = ""
+    editor_url: str = ""
+    delivery_email: str = ""
+    delivery_status: str = ""
+    telegram_delivery_status: str = ""
+    telegram_delivery_error: str = ""
+    telegram_message_ids: list[str] = Field(default_factory=list)
+    telegram_chat_ref: str = ""
+    telegram_video_delivery_status: str = ""
+    telegram_video_delivery_error: str = ""
+    telegram_video_message_ids: list[str] = Field(default_factory=list)
+    telegram_video_url: str = ""
+    telegram_video_followup_ref: str = ""
+    blocked_reason: str = ""
+    human_task_id: str = ""
+    source_ref: str = ""
+    external_id: str = ""
+    tour_media_mode: str = ""
+    personal_fit_assessment: dict[str, object] = Field(default_factory=dict)
+
+
+class SignalIngestEndpointCreateIn(BaseModel):
+    label: str = "Pocket signal ingest"
+    signal_type: str = "saved_link"
+    counterparty: str = "Pocket"
+
+
+class SignalIngestEndpointOut(BaseModel):
+    endpoint_id: str
+    label: str
+    channel: str = "pocket"
+    signal_type: str = "saved_link"
+    counterparty: str = ""
+    created_at: str = ""
+    upload_url: str
+    ingest_token: str = ""
+
+
+class PocketSignalImportIn(BaseModel):
+    path: str = Field(min_length=1)
+    counterparty: str = "Pocket"
+
+
+class PocketSignalImportOut(BaseModel):
+    generated_at: str
+    source_path: str
+    source_formats: list[str] = Field(default_factory=list)
+    items: list[OfficeSignalResultOut] = Field(default_factory=list)
+    total: int = 0
+    synced_total: int = 0
+    deduplicated_total: int = 0
+    suppressed_total: int = 0
+    parsed_entry_total: int = 0
+
+
+class GoogleLocationHistoryImportIn(BaseModel):
+    path: str = Field(min_length=1)
+
+
+class GoogleLocationHistoryImportOut(BaseModel):
+    generated_at: str
+    source_path: str
+    source_formats: list[str] = Field(default_factory=list)
+    imported_total: int = 0
+    deduplicated_total: int = 0
+    matched_recording_total: int = 0
+    unmatched_recording_total: int = 0
+    indexed_recording_total: int = 0
+    updated_metadata_total: int = 0
+
+
+class GoogleLocationHistoryConnectStartOut(BaseModel):
+    provider_key: str
+    principal_id: str
+    requested_scopes: list[str] = Field(default_factory=list)
+    auth_url: str
+    state: str
+
+
+class GoogleLocationHistoryConnectCallbackOut(BaseModel):
+    provider_key: str
+    principal_id: str
+    binding_id: str
+    google_email: str = ""
+    google_subject: str = ""
+    granted_scopes: list[str] = Field(default_factory=list)
+    token_status: str = ""
+
+
+class GoogleLocationHistorySyncOut(BaseModel):
+    generated_at: str
+    provider_key: str
+    google_email: str = ""
+    state: str = ""
+    archive_job_id: str = ""
+    imported_total: int = 0
+    matched_recording_total: int = 0
+    unmatched_recording_total: int = 0
+    indexed_recording_total: int = 0
+    updated_metadata_total: int = 0
+
+
+class NoneverbiaSignalImportIn(BaseModel):
+    path: str = Field(min_length=1)
+    counterparty: str = "Noneverbia"
+
+
+class NoneverbiaSignalImportOut(BaseModel):
+    generated_at: str
+    source_path: str
+    source_formats: list[str] = Field(default_factory=list)
+    items: list[OfficeSignalResultOut] = Field(default_factory=list)
+    total: int = 0
+    synced_total: int = 0
+    deduplicated_total: int = 0
+    suppressed_total: int = 0
+    parsed_entry_total: int = 0
+    preference_evidence_total: int = 0
+    preference_evidence_applied_total: int = 0
+
+
+class PocketSignalSyncOut(BaseModel):
+    generated_at: str
+    mode: str = "incremental"
+    items: list[OfficeSignalResultOut] = Field(default_factory=list)
+    total: int = 0
+    synced_total: int = 0
+    deduplicated_total: int = 0
+    suppressed_total: int = 0
+    failed_total: int = 0
+    recording_total: int = 0
+    staging_suppressed_total: int = 0
+    archived_total: int = 0
+    archive_dismissed_total: int = 0
+    archive_failed_total: int = 0
+    teable_index_status: str = ""
+    teable_index_blocked_reason: str = ""
+    teable_index_row_total: int = 0
+    teable_index_sync_attempted: bool = False
+    preference_evidence_total: int = 0
+    preference_evidence_applied_total: int = 0
+    assistant_trigger_total: int = 0
+    assistant_trigger_executed_total: int = 0
+    assistant_trigger_blocked_total: int = 0
+    cursor_used: bool = True
+    cursor_persisted: bool = True
+    cursor_updated_at: str = ""
+    cursor_recording_id: str = ""
+    cursor_advanced: bool = False
+    scan_truncated: bool = False
+    location_matched_total: int = 0
+    location_unmatched_total: int = 0
+
+
+class PocketSignalCursorResetIn(BaseModel):
+    reason: str = ""
+
+
+class PocketSignalCursorResetOut(BaseModel):
+    generated_at: str
+    reset_at: str = ""
+    reason: str = ""
+    cursor_updated_at: str = ""
+    cursor_recording_id: str = ""
+    cursor_cleared: bool = True
+
+
+class PocketRecordingDetailOut(BaseModel):
+    recording_id: str
+    title: str = ""
+    state: str = ""
+    duration: float | None = None
+    language: str = ""
+    recording_at: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+    tags: list[str] = Field(default_factory=list)
+    transcript_text: str = ""
+    transcript_segment_count: int = 0
+    transcript_metadata: dict[str, object] = Field(default_factory=dict)
+    summary_markdown: str = ""
+    summary_id: str = ""
+    audio_download_url: str = ""
+    audio_expires_at: str = ""
+    audio_expires_in: int | None = None
+    transcript_quality_status: str = ""
+    transcript_quality_score: float = 0.0
+    transcript_quality_reasons: list[str] = Field(default_factory=list)
+    retranscription_attempted: bool = False
+    retranscription_status: str = ""
+    preference_evidence_recorded: bool = False
+    preference_evidence_applied_total: int = 0
+    archive_path: str = ""
+    archive_sha256: str = ""
+    location_match_status: str = ""
+    location_match_reason: str = ""
+    location_name: str = ""
+    location_address: str = ""
+    location_latitude: float | None = None
+    location_longitude: float | None = None
+    location_start_at: str = ""
+    location_end_at: str = ""
+    location_source: str = ""
+    location_confidence: float = 0.0
+
+
+class PocketRecordingSearchItemOut(BaseModel):
+    recording_id: str
+    title: str = ""
+    recording_at: str = ""
+    archive_status: str = ""
+    archive_path: str = ""
+    archive_sha256: str = ""
+    summary_markdown: str = ""
+    transcript_excerpt: str = ""
+    topic_keywords_csv: str = ""
+    location_match_status: str = ""
+    location_match_reason: str = ""
+    location_name: str = ""
+    location_address: str = ""
+    location_latitude: float | None = None
+    location_longitude: float | None = None
+    location_start_at: str = ""
+    location_end_at: str = ""
+    location_source: str = ""
+    location_confidence: float = 0.0
+    match_score: float = 0.0
+
+
+class PocketRecordingSearchOut(BaseModel):
+    generated_at: str
+    query: str = ""
+    before: str = ""
+    after: str = ""
+    total: int = 0
+    items: list[PocketRecordingSearchItemOut] = Field(default_factory=list)
+
+
+class PocketRecordingTelegramDeliveryOut(BaseModel):
+    recording_id: str
+    title: str = ""
+    telegram_delivery_status: str = ""
+    telegram_delivery_error: str = ""
+    telegram_message_ids: list[str] = Field(default_factory=list)
+    telegram_chat_ref: str = ""
+    audio_download_url: str = ""
+    audio_expires_at: str = ""
+    audio_ref: str = ""
+    audio_enhancement: dict[str, object] = Field(default_factory=dict)
+
+
+class PocketRecordingAudioEnhanceOut(BaseModel):
+    recording_id: str
+    title: str = ""
+    enhancement_status: str = ""
+    original_audio_path: str = ""
+    original_audio_sha256: str = ""
+    enhanced_audio_path: str = ""
+    enhanced_audio_sha256: str = ""
+    enhanced_metadata_path: str = ""
+    filters_applied: list[str] = Field(default_factory=list)
+    voice_profile_status: str = ""
+    voice_profile_reason: str = ""
+
+
+class PocketRecordingQueryTelegramDeliveryOut(PocketRecordingTelegramDeliveryOut):
+    query: str = ""
+    before: str = ""
+    after: str = ""
+    matched_total: int = 0
+    location_name: str = ""
+    location_address: str = ""
+    location_match_status: str = ""
+    location_confidence: float = 0.0
+
+
+class OneDriveDocumentQueryTelegramDeliveryOut(BaseModel):
+    query: str = ""
+    matched_total: int = 0
+    filename: str = ""
+    document_path: str = ""
+    document_download_url: str = ""
+    answerly_data_item_id: str = ""
+    telegram_delivery_status: str = ""
+    telegram_delivery_error: str = ""
+    telegram_message_ids: list[str] = Field(default_factory=list)
+    telegram_chat_ref: str = ""
+
+
+class GoogleSignalSyncOut(BaseModel):
+    generated_at: str
+    account_email: str = ""
+    account_emails: list[str] = Field(default_factory=list)
+    granted_scopes: list[str] = Field(default_factory=list)
+    items: list[OfficeSignalResultOut] = Field(default_factory=list)
+    total: int = 0
+    synced_total: int = 0
+    deduplicated_total: int = 0
+    suppressed_total: int = 0
+
+
+class PropertyScoutSourceOut(BaseModel):
+    source_url: str = ""
+    source_label: str = ""
+    preference_person_id: str = "self"
+    listing_total: int = 0
+    review_created_total: int = 0
+    review_existing_total: int = 0
+    notified_total: int = 0
+    email_notified_total: int = 0
+    tour_created_total: int = 0
+    tour_existing_total: int = 0
+    high_fit_total: int = 0
+    watch_notified_total: int = 0
+    top_fit_score: float = 0.0
+    top_candidates: list[dict[str, object]] = Field(default_factory=list)
+    error: str = ""
+
+
+class PropertyScoutSyncOut(BaseModel):
+    generated_at: str
+    status: str = "noop"
+    sources_total: int = 0
+    listing_total: int = 0
+    review_created_total: int = 0
+    review_existing_total: int = 0
+    notified_total: int = 0
+    email_notified_total: int = 0
+    tour_created_total: int = 0
+    tour_existing_total: int = 0
+    high_fit_total: int = 0
+    failed_total: int = 0
+    sources: list[PropertyScoutSourceOut] = Field(default_factory=list)
+
+
+class PropertySearchRunStartIn(BaseModel):
+    selected_platforms: list[str] = Field(default_factory=list)
+    property_preferences: dict[str, object] = Field(default_factory=dict)
+    force_refresh: bool = False
+    max_results_per_source: int | None = None
+
+
+class PropertySearchRunStatusOut(BaseModel):
+    generated_at: str
+    run_id: str = ""
+    principal_id: str = ""
+    status: str = "queued"
+    status_url: str = ""
+    selected_platforms: list[str] = Field(default_factory=list)
+    progress: int = 0
+    current_step: str = ""
+    message: str = ""
+    stages_total: int = 0
+    steps_completed: int = 0
+    summary: dict[str, object] = Field(default_factory=dict)
+    events: list[dict[str, object]] = Field(default_factory=list)
+
+
+class PropertySearchRunStartOut(PropertySearchRunStatusOut):
+    pass
+
+
+class PropertyBillingCheckoutCreateIn(BaseModel):
+    plan_key: str = Field(min_length=1, max_length=40)
+
+
+class PropertyBillingCheckoutOut(BaseModel):
+    generated_at: str
+    plan_key: str
+    order_id: str
+    approve_url: str
+    status: str = ""
+    amount_eur: str = ""
+
+
+class PropertyBillingCaptureIn(BaseModel):
+    order_id: str = Field(min_length=1, max_length=80)
+    plan_key: str = Field(min_length=1, max_length=40)
+
+
+class PropertyBillingCaptureOut(BaseModel):
+    generated_at: str
+    order_id: str
+    plan_key: str
+    capture_id: str = ""
+    payment_status: str = ""
+    payer_email: str = ""
+    amount_eur: str = ""
+    active_until: str = ""
+    current_plan_key: str = "free"
+
+
+class GooglePhotosPickerSessionIn(BaseModel):
+    account_email: str = ""
+    binding_id: str = ""
+    max_item_count: int = Field(default=50, ge=1, le=2000)
+    autoclose: bool = True
+
+
+class GooglePhotosPickerSessionOut(BaseModel):
+    generated_at: str
+    status: str = "ready_for_selection"
+    account_email: str = ""
+    binding_id: str = ""
+    granted_scopes: list[str] = Field(default_factory=list)
+    session_id: str = ""
+    picker_uri: str = ""
+    poll_interval: str = ""
+    timeout_in: str = ""
+    media_items_set: bool = False
+
+
+class GooglePhotosSignalSyncIn(BaseModel):
+    session_id: str = Field(min_length=1)
+    account_email: str = ""
+    binding_id: str = ""
+    max_items: int = Field(default=50, ge=1, le=500)
+    delete_session: bool = False
+
+
+class GooglePhotosSignalSyncOut(BaseModel):
+    generated_at: str
+    account_email: str = ""
+    account_emails: list[str] = Field(default_factory=list)
+    binding_id: str = ""
+    session_id: str = ""
+    granted_scopes: list[str] = Field(default_factory=list)
+    media_items_set: bool = False
+    items: list[OfficeSignalResultOut] = Field(default_factory=list)
+    total: int = 0
+    selected_total: int = 0
+    synced_total: int = 0
+    deduplicated_total: int = 0
+    suppressed_total: int = 0
+    analyzed_total: int = 0
+    suggestion_total: int = 0
+    top_suggestions: list[str] = Field(default_factory=list)
+
+
+class GoogleSignalSyncStatusOut(BaseModel):
+    generated_at: str
+    connected: bool = False
+    account_email: str = ""
+    account_emails: list[str] = Field(default_factory=list)
+    token_status: str = "missing"
+    last_refresh_at: str = ""
+    reauth_required_reason: str = ""
+    sync_completed: int = 0
+    office_signal_ingested: int = 0
+    last_completed_at: str = ""
+    last_synced_total: int = 0
+    last_deduplicated_total: int = 0
+    last_suppressed_total: int = 0
+    last_gmail_total: int = 0
+    last_calendar_total: int = 0
+    age_seconds: int | None = None
+    freshness_state: str = "watch"
+    account_sync_accounts: list[dict[str, object]] = Field(default_factory=list)
+    pending_commitment_candidates: int = 0
+    covered_signal_candidates: int = 0
+    last_account_change_at: str = ""
+    last_account_change_state: str = ""
+    last_account_change_binding_id: str = ""
+    last_account_change_email: str = ""
+    account_change_accounts: list[dict[str, object]] = Field(default_factory=list)
+
+
+class WebhookRegisterIn(BaseModel):
+    label: str = Field(min_length=1)
+    target_url: str = Field(min_length=1)
+    event_types: list[str] = Field(default_factory=list)
+    status: str = "active"
+
+
+class WebhookTestResultOut(BaseModel):
+    webhook: WebhookOut
+    delivery: WebhookDeliveryOut
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def evidence_out(values: tuple[EvidenceRef, ...]) -> list[EvidenceRefOut]:
+    return [EvidenceRefOut(**value.__dict__) for value in values]
+
+
+def brief_out(value: BriefItem) -> BriefItemOut:
+    return BriefItemOut(
+        id=value.id,
+        workspace_id=value.workspace_id,
+        kind=value.kind,
+        title=value.title,
+        summary=value.summary,
+        score=value.score,
+        why_now=value.why_now,
+        evidence_refs=evidence_out(value.evidence_refs),
+        related_people=list(value.related_people),
+        related_commitment_ids=list(value.related_commitment_ids),
+        recommended_action=value.recommended_action,
+        status=value.status,
+        confidence=value.confidence,
+        object_ref=value.object_ref,
+        profile_followup_refs=list(value.profile_followup_refs),
+        evidence_count=value.evidence_count,
+    )
+
+
+def queue_out(value: DecisionQueueItem) -> DecisionQueueItemOut:
+    return DecisionQueueItemOut(
+        id=value.id,
+        queue_kind=value.queue_kind,
+        title=value.title,
+        summary=value.summary,
+        priority=value.priority,
+        rank_score=value.rank_score,
+        deadline=value.deadline,
+        owner_role=value.owner_role,
+        requires_principal=value.requires_principal,
+        evidence_refs=evidence_out(value.evidence_refs),
+        profile_followup_refs=list(value.profile_followup_refs),
+        resolution_state=value.resolution_state,
+    )
+
+
+def decision_out(value: DecisionItem) -> DecisionItemOut:
+    return DecisionItemOut(
+        id=value.id,
+        title=value.title,
+        summary=value.summary,
+        priority=value.priority,
+        owner_role=value.owner_role,
+        due_at=value.due_at,
+        status=value.status,
+        decision_type=value.decision_type,
+        recommendation=value.recommendation,
+        next_action=value.next_action,
+        rationale=value.rationale,
+        options=list(value.options),
+        evidence_refs=evidence_out(value.evidence_refs),
+        related_commitment_ids=list(value.related_commitment_ids),
+        linked_thread_ids=list(value.linked_thread_ids),
+        related_people=list(value.related_people),
+        impact_summary=value.impact_summary,
+        sla_status=value.sla_status,
+        resolution_reason=value.resolution_reason,
+    )
+
+
+def deadline_out(value: DeadlineItem) -> DeadlineOut:
+    return DeadlineOut(
+        id=value.id,
+        title=value.title,
+        summary=value.summary,
+        priority=value.priority,
+        start_at=value.start_at,
+        end_at=value.end_at,
+        status=value.status,
+    )
+
+
+def commitment_out(value: CommitmentItem) -> CommitmentOut:
+    return CommitmentOut(
+        id=value.id,
+        source_type=value.source_type,
+        source_ref=value.source_ref,
+        statement=value.statement,
+        owner=value.owner,
+        counterparty=value.counterparty,
+        due_at=value.due_at,
+        status=value.status,
+        last_activity_at=value.last_activity_at,
+        risk_level=value.risk_level,
+        proof_refs=evidence_out(value.proof_refs),
+        confidence=value.confidence,
+        channel_hint=value.channel_hint,
+        resolution_code=value.resolution_code,
+        resolution_reason=value.resolution_reason,
+        duplicate_of_ref=value.duplicate_of_ref,
+        merged_into_ref=value.merged_into_ref,
+        merged_from_refs=list(value.merged_from_refs),
+    )
+
+
+def commitment_candidate_out(value: CommitmentCandidate) -> CommitmentCandidateOut:
+    return CommitmentCandidateOut(
+        candidate_id=value.candidate_id,
+        title=value.title,
+        details=value.details,
+        source_text=value.source_text,
+        confidence=value.confidence,
+        suggested_due_at=value.suggested_due_at,
+        counterparty=value.counterparty,
+        channel_hint=value.channel_hint,
+        source_ref=value.source_ref,
+        signal_type=value.signal_type,
+        status=value.status,
+        kind=value.kind,
+        stakeholder_id=value.stakeholder_id,
+        duplicate_of_ref=value.duplicate_of_ref,
+        merge_strategy=value.merge_strategy,
+    )
+
+
+def draft_out(value: DraftCandidate) -> DraftCandidateOut:
+    return DraftCandidateOut(
+        id=value.id,
+        thread_ref=value.thread_ref,
+        recipient_summary=value.recipient_summary,
+        intent=value.intent,
+        draft_text=value.draft_text,
+        tone=value.tone,
+        requires_approval=value.requires_approval,
+        approval_status=value.approval_status,
+        provenance_refs=evidence_out(value.provenance_refs),
+        send_channel=value.send_channel,
+    )
+
+
+def person_out(value: PersonProfile) -> PersonProfileOut:
+    return PersonProfileOut(
+        id=value.id,
+        display_name=value.display_name,
+        role_or_company=value.role_or_company,
+        importance_score=value.importance_score,
+        relationship_temperature=value.relationship_temperature,
+        open_loops_count=value.open_loops_count,
+        latest_touchpoint_at=value.latest_touchpoint_at,
+        preferred_tone=value.preferred_tone,
+        themes=list(value.themes),
+        risks=list(value.risks),
+    )
+
+
+def handoff_out(value: HandoffNote) -> HandoffNoteOut:
+    return HandoffNoteOut(
+        id=value.id,
+        queue_item_ref=value.queue_item_ref,
+        summary=value.summary,
+        owner=value.owner,
+        due_time=value.due_time,
+        escalation_status=value.escalation_status,
+        status=value.status,
+        task_type=value.task_type,
+        resolution=value.resolution,
+        draft_ref=value.draft_ref,
+        recipient_email=value.recipient_email,
+        subject=value.subject,
+        delivery_reason=value.delivery_reason,
+        property_url=value.property_url,
+        listing_id=value.listing_id,
+        variant_key=value.variant_key,
+        blocked_reason=value.blocked_reason,
+        tour_url=value.tour_url,
+        vendor_tour_url=value.vendor_tour_url,
+        editor_url=value.editor_url,
+        connector_binding_id=value.connector_binding_id,
+        source_ref=value.source_ref,
+        external_id=value.external_id,
+        evidence_refs=evidence_out(value.evidence_refs),
+    )
+
+
+def handoff_assignment_history_out(event: ExecutionEvent) -> HandoffAssignmentHistoryOut:
+    payload = dict(event.payload or {})
+    return HandoffAssignmentHistoryOut(
+        event_id=event.event_id,
+        human_task_id=str(payload.get("human_task_id") or ""),
+        event_name=event.name,
+        assignment_state=str(payload.get("assignment_state") or ""),
+        assigned_operator_id=str(payload.get("assigned_operator_id") or payload.get("operator_id") or ""),
+        assignment_source=str(payload.get("assignment_source") or ""),
+        assigned_at=str(payload.get("assigned_at") or "") or None,
+        assigned_by_actor_id=str(payload.get("assigned_by_actor_id") or ""),
+        resolution=str(payload.get("resolution") or ""),
+        created_at=event.created_at,
+    )
+
+
+def thread_out(value: ThreadItem) -> ThreadItemOut:
+    return ThreadItemOut(
+        id=value.id,
+        title=value.title,
+        channel=value.channel,
+        status=value.status,
+        last_activity_at=value.last_activity_at,
+        summary=value.summary,
+        counterparties=list(value.counterparties),
+        draft_ids=list(value.draft_ids),
+        related_commitment_ids=list(value.related_commitment_ids),
+        related_decision_ids=list(value.related_decision_ids),
+        evidence_refs=evidence_out(value.evidence_refs),
+    )
+
+
+def evidence_item_out(value: EvidenceItem) -> EvidenceItemOut:
+    return EvidenceItemOut(
+        id=value.id,
+        label=value.label,
+        source_type=value.source_type,
+        summary=value.summary,
+        href=value.href,
+        related_object_refs=list(value.related_object_refs),
+    )
+
+
+def rule_out(value: RuleItem) -> RuleItemOut:
+    return RuleItemOut(
+        id=value.id,
+        label=value.label,
+        scope=value.scope,
+        status=value.status,
+        summary=value.summary,
+        current_value=value.current_value,
+        impact=value.impact,
+        requires_approval=value.requires_approval,
+        simulated_effect=value.simulated_effect,
+    )
+
+
+def history_out(value: HistoryEntry) -> HistoryEntryOut:
+    return HistoryEntryOut(
+        event_type=value.event_type,
+        created_at=value.created_at,
+        source_id=value.source_id,
+        actor=value.actor,
+        detail=value.detail,
+    )
+
+
+def person_detail_out(value: PersonDetail) -> PersonDetailOut:
+    return PersonDetailOut(
+        profile=person_out(value.profile),
+        commitments=[commitment_out(item) for item in value.commitments],
+        drafts=[draft_out(item) for item in value.drafts],
+        threads=[thread_out(item) for item in value.threads],
+        queue_items=[queue_out(item) for item in value.queue_items],
+        handoffs=[handoff_out(item) for item in value.handoffs],
+        evidence_refs=evidence_out(value.evidence_refs),
+        history=[history_out(item) for item in value.history],
+    )

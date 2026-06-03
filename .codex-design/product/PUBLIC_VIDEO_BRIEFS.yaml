@@ -1,0 +1,273 @@
+product: chummer
+surface: video
+version: 1
+purpose: >-
+  Machine-readable brief and safety contract for public, campaign, support,
+  and creator-facing video artifacts rendered through Chummer-owned workflows.
+global_rules:
+  downstream_only: true
+  canonical_truth_owner: chummer_owned_manifests_and_stores
+  preview_required: true
+  captions_required: true
+  no_provider_names_in_output: true
+  no_vendor_watermarks_on_promoted_assets: true
+  localized_review_required: true
+  exact_trust_text_must_be_reviewed: true
+  approval_before_publication: true
+  allowed_avatar_postures:
+    - branded_presenter
+    - neutral_presenter
+    - faceless
+  forbidden_postures:
+    - fake_player_or_gm_without_explicit_consent
+    - live_surveillance_companion
+    - player_scoring_video
+    - moderation_truth_video
+  shipping_locales:
+    - en-US
+    - de-DE
+    - fr-FR
+    - ja-JP
+    - pt-BR
+    - zh-CN
+video_families:
+  - id: public_release_explainer
+    audience: public
+    duration_seconds_target: 60
+    duration_seconds_max: 120
+    preferred_lane: vidBoard
+    avatar_posture: branded_presenter
+    sibling_artifacts:
+      - release_notes_page
+      - release_preview_card
+    approval_level: public_release
+    source_modes:
+      - approved_release_summary
+      - registry_backed_release_metadata
+    forbidden_modes:
+      - raw_provider_generated_facts
+      - unpublished_fix_claims
+  - id: support_closure_video
+    audience: signed_in_user
+    duration_seconds_target: 45
+    duration_seconds_max: 90
+    preferred_lane: vidBoard
+    avatar_posture: neutral_presenter
+    sibling_artifacts:
+      - support_case_update
+      - help_article_or_fix_note
+    approval_level: support_resolution
+    source_modes:
+      - approved_support_resolution_summary
+      - release_channel_confirmation
+    forbidden_modes:
+      - fixed_before_release_reached_channel
+      - unsupported_workaround_claims
+  - id: build_explain_companion_video
+    audience: signed_in_user
+    audience_variants:
+      - compare_review
+      - import_followthrough
+      - blocker_followthrough
+    duration_seconds_target: 45
+    duration_seconds_max: 120
+    preferred_lane: vidBoard
+    avatar_posture: faceless
+    locale_fallback_chain:
+      - requested_locale
+      - packet_default_locale
+      - en-US
+    launch_surfaces:
+      - build_lab_compare
+      - import_receipt_panel
+      - blocker_panel
+      - desktop_explain_companion
+    sibling_artifacts:
+      - approved_explain_packet
+      - receipt_anchor_sheet
+      - preview_card
+      - localized_text_fallback
+    required_receipt_fields:
+      - packet_revision_id
+      - rule_environment_digest
+      - anchor_scope_ids
+      - approval_record_scope
+    approval_level: build_explain_publication
+    claim_truth_order:
+      - inspectable_engine_packet
+      - receipt_anchor_scope
+      - approval_record
+      - rendered_companion
+    approval_scope_axes:
+      - artifact_family
+      - packet_revision
+      - locale
+      - audience_posture
+    source_modes:
+      - approved_build_lab_explain_packet
+      - approved_import_receipt_summary
+      - approved_blocker_receipt_summary
+    forbidden_modes:
+      - unanchored_summary_claims
+      - legality_without_receipt_anchor
+      - recommendation_without_packet_scope
+      - approval_without_exact_packet_revision
+      - revision_or_rule_environment_mismatch
+    fallback_when_unverified:
+      - approved_explain_packet
+      - receipt_anchor_sheet
+      - localized_text_fallback
+  - id: campaign_primer_video
+    audience: player_or_gm
+    audience_variants:
+      - campaign_joiner
+      - player_safe
+      - gm_safe
+    spoiler_class: primer_safe
+    duration_seconds_target: 90
+    duration_seconds_max: 180
+    preferred_lane: vidBoard
+    avatar_posture: neutral_presenter
+    locale_fallback_chain:
+      - requested_locale
+      - campaign_default_locale
+      - en-US
+    launch_surfaces:
+      - campaign_home
+      - claimed_desktop
+      - mobile_campaign_home
+    sibling_artifacts:
+      - campaign_primer_packet
+      - preview_card
+      - localized_text_fallback
+    approval_level: campaign_publish
+    source_modes:
+      - approved_campaign_primer_pack
+      - approved_campaign_summary
+  - id: mission_brief_video
+    audience: player_or_gm
+    audience_variants:
+      - player_safe
+      - observer_safe
+      - gm_only
+    spoiler_class: player_safe_by_default
+    duration_seconds_target: 60
+    duration_seconds_max: 120
+    preferred_lane: vidBoard
+    avatar_posture: neutral_presenter
+    locale_fallback_chain:
+      - requested_locale
+      - campaign_default_locale
+      - en-US
+    launch_surfaces:
+      - campaign_home
+      - claimed_desktop
+      - mobile_campaign_home
+    sibling_artifacts:
+      - mission_packet
+      - preview_card
+      - localized_text_fallback
+    approval_level: campaign_publish
+    source_modes:
+      - approved_mission_brief_packet
+      - approved_run_summary
+    forbidden_modes:
+      - hidden_spoilers_not_marked_for_audience
+      - gm_only_material_on_player_safe_surface
+  - id: runsite_orientation_video
+    audience: player_or_gm
+    audience_variants:
+      - player_safe_orientation
+      - gm_route_review
+    duration_seconds_target: 45
+    duration_seconds_max: 90
+    preferred_lane: vidBoard
+    avatar_posture: faceless
+    locale_fallback_chain:
+      - requested_locale
+      - runsite_pack_default_locale
+      - en-US
+    launch_surfaces:
+      - runsite_page
+      - campaign_home
+      - mobile_campaign_home
+    sibling_artifacts:
+      - runsite_pack
+      - route_preview
+      - runsite_tour
+    approval_level: campaign_publish
+    source_modes:
+      - approved_runsite_pack
+      - approved_route_summary
+    claim_truth_order:
+      - approved_runsite_pack
+      - approved_route_summary
+      - inspectable_route_or_tour_sibling
+      - rendered_orientation_clip
+    required_receipt_fields:
+      - runsite_pack_id
+      - route_summary_id
+      - inspectable_route_ref
+      - inspectable_pack_ref
+    fallback_when_unverified:
+      - runsite_route_overlay
+      - runsite_tour
+      - approved_runsite_pack
+    forbidden_modes:
+      - clip_as_only_route_surface
+      - tactical_callouts_without_anchor
+      - host_claims_live_state
+      - route_or_tour_hidden
+  - id: creator_promo_video
+    audience: public_or_creator_followers
+    duration_seconds_target: 45
+    duration_seconds_max: 90
+    preferred_lane: vidBoard
+    avatar_posture: branded_presenter
+    sibling_artifacts:
+      - preview_card
+      - artifact_page
+    approval_level: publication
+    source_modes:
+      - approved_artifact_manifest
+      - approved_promo_script
+  - id: player_safe_recap_video
+    audience: campaign_members
+    duration_seconds_target: 60
+    duration_seconds_max: 120
+    preferred_lane: vidBoard
+    avatar_posture: faceless
+    sibling_artifacts:
+      - player_safe_recap_packet
+      - preview_card
+    approval_level: campaign_private
+    source_modes:
+      - approved_player_safe_recap_script
+      - approved_structural_digest
+    forbidden_modes:
+      - blame_language
+      - player_ranking
+      - moderation_claims
+      - live_session_stream
+  - id: gm_private_debrief_video
+    audience: gm_only
+    duration_seconds_target: 90
+    duration_seconds_max: 180
+    preferred_lane: vidBoard
+    avatar_posture: faceless
+    sibling_artifacts:
+      - gm_debrief_packet
+    approval_level: private_operator_or_gm
+    source_modes:
+      - approved_gm_debrief_script
+      - approved_coaching_packet
+render_companions:
+  preview_lane: PeekShot
+  document_lane: MarkupGo
+  narration_lane: Soundmadeseen
+  motion_support_lane: Mootion
+  route_support_lane: AvoMap
+  explorable_support_lane: Crezlo_Tours
+  transcript_structure_lane: hedy.ai
+  coaching_lane: Nonverbia
+  candidate_dubbing_lane: Unmixr_AI

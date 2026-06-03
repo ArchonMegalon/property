@@ -1,0 +1,12 @@
+places:
+  - id: "sample_store"
+    name: "Sample Store"
+    lat: 0.0
+    lon: 0.0
+    radius_m: 300
+    suggestions:
+      - key: "grocery_run"
+        notify_tenant: "demo"
+        message: "You are near a grocery store."
+        match_shopping_keywords: ["milk", "bread", "eggs"]
+        cooldown_minutes: 180
