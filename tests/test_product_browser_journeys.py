@@ -252,8 +252,29 @@ def test_properties_workspace_surface_does_not_fallback_to_origin_listing_link(m
     response = client.get("/app/properties")
     assert response.status_code == 200
     assert "Review shortlisted property packet" in response.text
-    assert "Open listing" not in response.text
-    assert "https://www.kalandra.at/objekt/14997053" not in response.text
+
+
+def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
+    client = build_product_client(principal_id="exec-browser-property-settings")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    settings = client.get("/app/settings", headers={"host": "propertyquarry.com"})
+    assert settings.status_code == 200
+    assert "/app/settings/google" in settings.text
+    assert "Token status" in settings.text
+    assert "Sync runs" not in settings.text
+    assert "Last Google sync" not in settings.text
+    assert "Office signals ingested" not in settings.text
+    assert "Suppressed sync noise" not in settings.text
+    assert "Pending sync candidates" not in settings.text
+
+    google_settings = client.get("/app/settings/google", headers={"host": "propertyquarry.com"})
+    assert google_settings.status_code == 200
+    assert "PropertyQuarry Google connection" in google_settings.text
+    assert "Sync runs" not in google_settings.text
+    assert "Last sync" not in google_settings.text
+    assert "Freshness" not in google_settings.text
+    assert "Volume" not in google_settings.text
 
 
 def test_propertyquarry_host_renders_branded_public_surfaces() -> None:

@@ -283,6 +283,15 @@ def settings_plan_detail(
     selected_channels = [str(value) for value in (diagnostics.get("selected_channels") or []) if str(value).strip()]
     feature_flags = [str(value).replace("_", " ") for value in (entitlements.get("feature_flags") or []) if str(value).strip()]
     warnings = [str(value) for value in (commercial.get("warnings") or []) if str(value).strip()]
+    object_meta = [
+        {"label": "Connected", "value": "Yes" if connected_account_total else "No"},
+        {"label": "Connected inboxes", "value": str(connected_account_total)},
+        {"label": "Active inboxes", "value": str(active_account_total)},
+        {"label": "Primary inbox", "value": primary_email or "Not connected"},
+        {"label": "Token status", "value": str(sync.get("token_status") or "missing").replace("_", " ")},
+    ]
+    if not is_property_brand:
+        object_meta.append({"label": "Sync runs", "value": str(sync.get("sync_completed") or 0)})
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -987,6 +996,7 @@ def settings_google_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    is_property_brand = request_brand(request)["key"] == "propertyquarry"
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -1129,27 +1139,37 @@ def settings_google_detail(
             last_manual_sync_detail = "Completed · no recent Gmail or Calendar signals were staged"
     else:
         last_manual_sync_detail = "Not recorded"
+    object_meta = [
+        {"label": "Connected", "value": "Yes" if connected_account_total else "No"},
+        {"label": "Connected inboxes", "value": str(connected_account_total)},
+        {"label": "Active inboxes", "value": str(active_account_total)},
+        {"label": "Primary inbox", "value": primary_email or "Not connected"},
+        {"label": "Token status", "value": str(sync.get("token_status") or "missing").replace("_", " ")},
+    ]
+    if not is_property_brand:
+        object_meta.append({"label": "Sync runs", "value": str(sync.get("sync_completed") or 0)})
     return _render_console_object_detail(
         request=request,
         context=context,
         workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
         page_title="PropertyQuarry Google connection",
         current_nav="settings",
-        console_title="Google sync",
-        console_summary="Google signal sync is visible in product language: primary sender, additional inboxes, freshness, staged work, and whether the office needs reauth before the next loop.",
-        object_kind="Sync posture",
+        console_title="Google connection",
+        console_summary=(
+            "Google should stay narrowly scoped on PropertyQuarry: sign-in, the connected account, token health, and whether reauth is needed."
+            if is_property_brand
+            else "Google signal sync is visible in product language: primary sender, additional inboxes, freshness, staged work, and whether the office needs reauth before the next loop."
+        ),
+        object_kind="Connection posture" if is_property_brand else "Sync posture",
         object_title=primary_email or "Google not connected",
         object_summary=sync_summary,
-        object_meta=[
-            {"label": "Connected", "value": "Yes" if connected_account_total else "No"},
-            {"label": "Connected inboxes", "value": str(connected_account_total)},
-            {"label": "Active inboxes", "value": str(active_account_total)},
-            {"label": "Primary inbox", "value": primary_email or "Not connected"},
-            {"label": "Token status", "value": str(sync.get("token_status") or "missing").replace("_", " ")},
-            {"label": "Sync runs", "value": str(sync.get("sync_completed") or 0)},
-        ],
+        object_meta=object_meta,
         object_sidebar_title="What this view answers",
-        object_sidebar_copy="This view shows which inbox is primary, what additional Google inboxes are attached to the same workspace, when the last sync completed, and whether the office needs reauth before the next loop.",
+        object_sidebar_copy=(
+            "This view shows which Google account is primary, what additional inboxes are attached, and whether the connection needs reauth."
+            if is_property_brand
+            else "This view shows which inbox is primary, what additional Google inboxes are attached to the same workspace, when the last sync completed, and whether the office needs reauth before the next loop."
+        ),
         object_sidebar_rows=[
             _object_detail_row(
                 "Connected inboxes",
@@ -1160,9 +1180,11 @@ def settings_google_detail(
                 action_method="get",
             ),
             _object_detail_row("Primary inbox", primary_email or "Not connected", "Google"),
-            _object_detail_row("Last sync", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
-            _object_detail_row("Pending commitment candidates", str(sync.get("pending_commitment_candidates") or 0), "Queue"),
-            _object_detail_row("Candidates covered by drafts", str(sync.get("covered_signal_candidates") or 0), "Queue"),
+            *([] if is_property_brand else [
+                _object_detail_row("Last sync", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
+                _object_detail_row("Pending commitment candidates", str(sync.get("pending_commitment_candidates") or 0), "Queue"),
+                _object_detail_row("Candidates covered by drafts", str(sync.get("covered_signal_candidates") or 0), "Queue"),
+            ]),
             _object_detail_row("Reauth reason", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
             _object_detail_row("Last send verification", verify_detail, "Verify"),
             _object_detail_row(
@@ -1182,7 +1204,7 @@ def settings_google_detail(
         object_sections=[
             {
                 "eyebrow": "Connection",
-                "title": "Google binding and token posture",
+                "title": "Google binding and token posture" if not is_property_brand else "Google identity and account posture",
                 "items": [
                     _object_detail_row("Connected", "Yes" if connected_account_total else "No", "Google"),
                     _object_detail_row("Primary inbox", primary_email or "Not connected", "Google"),
@@ -1229,30 +1251,32 @@ def settings_google_detail(
                     )
                 ],
             },
-            {
-                "eyebrow": "Freshness",
-                "title": "Latest sync run and queued commitment work",
-                "items": [
-                    _object_detail_row("Freshness", str(sync.get("freshness_state") or "watch").replace("_", " "), "Sync"),
-                    _object_detail_row("Last completed", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
-                    _object_detail_row("Age seconds", str(sync.get("age_seconds") if sync.get("age_seconds") is not None else "n/a"), "Sync"),
-                    _object_detail_row("Pending commitment candidates", str(sync.get("pending_commitment_candidates") or 0), "Queue"),
-                    _object_detail_row("Candidates covered by drafts", str(sync.get("covered_signal_candidates") or 0), "Queue"),
-                    _object_detail_row("Office signals ingested", str(sync.get("office_signal_ingested") or 0), "Signals"),
-                ],
-            },
-            {
-                "eyebrow": "Volume",
-                "title": "What the latest sync actually pulled in",
-                "items": [
-                    _object_detail_row("Sync runs", str(sync.get("sync_completed") or 0), "Sync"),
-                    _object_detail_row("Last synced total", str(sync.get("last_synced_total") or 0), "Signals"),
-                    _object_detail_row("Last deduplicated total", str(sync.get("last_deduplicated_total") or 0), "Signals"),
-                    _object_detail_row("Last suppressed total", str(sync.get("last_suppressed_total") or 0), "Signals"),
-                    _object_detail_row("Gmail signals", str(sync.get("last_gmail_total") or 0), "Gmail"),
-                    _object_detail_row("Calendar signals", str(sync.get("last_calendar_total") or 0), "Calendar"),
-                ],
-            },
+            *([] if is_property_brand else [
+                {
+                    "eyebrow": "Freshness",
+                    "title": "Latest sync run and queued commitment work",
+                    "items": [
+                        _object_detail_row("Freshness", str(sync.get("freshness_state") or "watch").replace("_", " "), "Sync"),
+                        _object_detail_row("Last completed", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
+                        _object_detail_row("Age seconds", str(sync.get("age_seconds") if sync.get("age_seconds") is not None else "n/a"), "Sync"),
+                        _object_detail_row("Pending commitment candidates", str(sync.get("pending_commitment_candidates") or 0), "Queue"),
+                        _object_detail_row("Candidates covered by drafts", str(sync.get("covered_signal_candidates") or 0), "Queue"),
+                        _object_detail_row("Office signals ingested", str(sync.get("office_signal_ingested") or 0), "Signals"),
+                    ],
+                },
+                {
+                    "eyebrow": "Volume",
+                    "title": "What the latest sync actually pulled in",
+                    "items": [
+                        _object_detail_row("Sync runs", str(sync.get("sync_completed") or 0), "Sync"),
+                        _object_detail_row("Last synced total", str(sync.get("last_synced_total") or 0), "Signals"),
+                        _object_detail_row("Last deduplicated total", str(sync.get("last_deduplicated_total") or 0), "Signals"),
+                        _object_detail_row("Last suppressed total", str(sync.get("last_suppressed_total") or 0), "Signals"),
+                        _object_detail_row("Gmail signals", str(sync.get("last_gmail_total") or 0), "Gmail"),
+                        _object_detail_row("Calendar signals", str(sync.get("last_calendar_total") or 0), "Calendar"),
+                    ],
+                },
+            ]),
         ],
     )
 
