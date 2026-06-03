@@ -33,7 +33,7 @@ def _propertyquarry_brand() -> dict[str, str]:
         "create_label": "Create account",
         "sign_in_label": "Sign in",
         "workspace_label": "Property research workspace",
-        "repo_url": "https://github.com/ArchonMegalon/propertyquarry",
+        "repo_url": "https://github.com/ArchonMegalon/property",
     }
 
 

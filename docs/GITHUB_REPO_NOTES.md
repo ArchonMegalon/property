@@ -1,11 +1,11 @@
 # GitHub Repo Notes
 
-Suggested GitHub repository name:
+Current public GitHub repository:
 
-- `propertyquarry`
+- `property`
 
-Reason:
+Why it is named this way:
 
-- matches the chosen product brand
-- cleaner than a generic `property` repo name
-- easier to reason about when the EA codebase still exists separately
+- the public GitHub namespace now uses the simpler repository path
+- the product brand remains `PropertyQuarry`
+- the deployed domain remains `propertyquarry.com`
