@@ -384,6 +384,111 @@ def test_registration_email_payload_stays_english_and_uses_propertyquarry_sender
     assert receipt.message_id == "emailit-live-1"
 
 
+def test_registration_email_falls_back_to_verified_sender_when_domain_is_not_verified(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "property@propertyquarry.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "PropertyQuarry")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM_FALLBACK", "concierge@chummer.run")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME_FALLBACK", "PropertyQuarry")
+
+    from app.services import registration_email as service
+
+    observed_payloads: list[dict[str, object]] = []
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "emailit-live-fallback-1"}).encode("utf-8")
+
+    class _DomainNotVerified(service.urllib.error.HTTPError):
+        def __init__(self):
+            super().__init__(
+                url=service.EMAILIT_API_BASE,
+                code=422,
+                msg="Unprocessable Entity",
+                hdrs=None,
+                fp=None,
+            )
+
+        def read(self) -> bytes:
+            return b'{"error":"Domain not verified"}'
+
+    call_count = {"value": 0}
+
+    def _fake_urlopen(request, timeout=0):
+        observed_payloads.append(json.loads(request.data.decode("utf-8")))
+        call_count["value"] += 1
+        if call_count["value"] == 1:
+            raise _DomainNotVerified()
+        return _Response()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", _fake_urlopen)
+
+    receipt = service.send_registration_email(
+        recipient_email="tibor.girschele@gmail.com",
+        verification_code="654321",
+        magic_link_url="https://propertyquarry.com/register?token=test&code=654321",
+        expires_at=2_000_000_000,
+    )
+
+    assert call_count["value"] == 2
+    assert observed_payloads[0]["from"] == "PropertyQuarry <property@propertyquarry.com>"
+    assert observed_payloads[1]["from"] == "PropertyQuarry <concierge@chummer.run>"
+    assert observed_payloads[1]["meta"]["sender_fallback_used"] is True
+    assert observed_payloads[1]["meta"]["preferred_sender_email"] == "property@propertyquarry.com"
+    assert observed_payloads[1]["meta"]["fallback_sender_email"] == "concierge@chummer.run"
+    assert receipt.message_id == "emailit-live-fallback-1"
+
+
+def test_registration_email_can_force_verified_sender_without_primary_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FORCE_FALLBACK", "1")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "property@propertyquarry.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "PropertyQuarry")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM_FALLBACK", "concierge@chummer.run")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME_FALLBACK", "PropertyQuarry")
+
+    from app.services import registration_email as service
+
+    observed_payloads: list[dict[str, object]] = []
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "emailit-live-forced-fallback-1"}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):
+        observed_payloads.append(json.loads(request.data.decode("utf-8")))
+        return _Response()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", _fake_urlopen)
+
+    receipt = service.send_registration_email(
+        recipient_email="tibor.girschele@gmail.com",
+        verification_code="654321",
+        magic_link_url="https://propertyquarry.com/register?token=test&code=654321",
+        expires_at=2_000_000_000,
+    )
+
+    assert len(observed_payloads) == 1
+    assert observed_payloads[0]["from"] == "PropertyQuarry <concierge@chummer.run>"
+    assert receipt.message_id == "emailit-live-forced-fallback-1"
+
+
 def test_channel_digest_email_payload_uses_compact_preview(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "kleinhirn@girschele.com")
