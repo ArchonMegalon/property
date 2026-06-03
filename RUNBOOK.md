@@ -823,3 +823,5 @@ PropertyQuarry operator scripts default to the inherited compose service keys (`
 - `PROPERTYQUARRY_WORKER_SERVICE`
 - `PROPERTYQUARRY_SCHEDULER_SERVICE`
 - `PROPERTYQUARRY_DB_SERVICE`
+
+That same alias layer is honored by `scripts/support_bundle.sh`, so support exports follow the standalone compose service mapping too.

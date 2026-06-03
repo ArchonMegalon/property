@@ -58,6 +58,15 @@ Operator scripts can be pointed at non-default compose service names with:
 - `PROPERTYQUARRY_SCHEDULER_SERVICE`
 - `PROPERTYQUARRY_DB_SERVICE`
 
+This alias layer also applies to support exports such as `bash scripts/support_bundle.sh`.
+
+Support export baseline:
+
+- `SUPPORT_INCLUDE_DB_VOLUME=0 bash scripts/support_bundle.sh`
+- support bundles can include `ea-db mount/volume attribution`
+- expected runtime volume remains `ea_pgdata`
+- expected container mount remains `/var/lib/postgresql/data`
+
 ## DB operator lane
 
 Runtime DB visibility and retention helpers remain part of the standalone release surface:

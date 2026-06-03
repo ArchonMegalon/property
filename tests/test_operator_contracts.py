@@ -562,6 +562,24 @@ def test_db_operator_scripts_support_propertyquarry_service_aliases() -> None:
     assert '"${DC[@]}" up -d "${DB_SERVICE}"' in db_size
 
 
+def test_support_bundle_supports_propertyquarry_service_aliases() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    support_bundle = (ROOT / "scripts/support_bundle.sh").read_text(encoding="utf-8")
+
+    assert "scripts/support_bundle.sh" in readme
+    assert "scripts/support_bundle.sh" in runbook
+    assert "PROPERTYQUARRY_API_SERVICE" in readme
+    assert "PROPERTYQUARRY_DB_SERVICE" in readme
+    assert "PROPERTYQUARRY_API_SERVICE" in runbook
+    assert "PROPERTYQUARRY_DB_SERVICE" in runbook
+    assert 'API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"' in support_bundle
+    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in support_bundle
+    assert '"${DC[@]}" logs --tail "${TAIL_LINES}" "${API_SERVICE}"' in support_bundle
+    assert '"${DC[@]}" logs --tail "${TAIL_LINES}" "${DB_SERVICE}"' in support_bundle
+    assert 'DB_CONTAINER="${EA_DB_CONTAINER:-${DB_SERVICE}}"' in support_bundle
+
+
 def test_db_visibility_and_retention_docs_and_scripts_are_pinned() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
