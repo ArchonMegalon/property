@@ -687,6 +687,26 @@ def test_payfunnels_bootstrap_script_help_and_wiring() -> None:
     assert "bootstrap_payfunnels_propertyquarry.py" in readme
 
 
+def test_emailit_bootstrap_script_help_and_wiring() -> None:
+    result = subprocess.run(
+        ["python3", "scripts/bootstrap_emailit_propertyquarry.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    smoke_help = (ROOT / "scripts/smoke_help.sh").read_text(encoding="utf-8")
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "Prepare and inspect the PropertyQuarry Emailit sending domain." in result.stdout
+    assert "scripts/bootstrap_emailit_propertyquarry.py" in smoke_help
+    assert "scripts/bootstrap_emailit_propertyquarry.py" in makefile
+    assert "scripts/bootstrap_emailit_propertyquarry.py" in runbook
+    assert "bootstrap_emailit_propertyquarry.py" in readme
+
+
 def test_postgres_contract_and_fastestvpn_helpers_support_standalone_paths() -> None:
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")

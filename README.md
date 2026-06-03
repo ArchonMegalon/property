@@ -13,6 +13,7 @@ This repository now contains the runnable product runtime that had previously li
 - feedback learning loop and preference profile updates
 - PayPal plan upgrades and Emailit-based client notifications
 - PayFunnels bootstrap helper: `python3 scripts/bootstrap_payfunnels_propertyquarry.py --help`
+- Emailit bootstrap helper: `python3 scripts/bootstrap_emailit_propertyquarry.py --help`
 - Docker runtime, smoke scripts, and property-facing tests
 
 Emailit requires the sender domain to be verified before `property@propertyquarry.com` can deliver successfully.

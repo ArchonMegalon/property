@@ -292,6 +292,7 @@ def test_smoke_help_has_help_contract_and_operator_help_wiring() -> None:
         "scripts/verify_ltd_critical_entries.py",
         "scripts/verify_ltd_flagship_subset.py",
         "scripts/bootstrap_payfunnels_propertyquarry.py",
+        "scripts/bootstrap_emailit_propertyquarry.py",
     ):
         assert rel in makefile
         assert rel in smoke_help
