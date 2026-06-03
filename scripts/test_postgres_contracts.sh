@@ -3,6 +3,7 @@ set -euo pipefail
 
 EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${EA_ROOT}"
+DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'EOF'
@@ -13,7 +14,7 @@ Boot an isolated Postgres test database, apply kernel migrations, and run the
 Postgres-backed repository contract tests from the host Python environment.
 
 Environment:
-  EA_DB_CONTAINER           Postgres container name (default: ea-db)
+  EA_DB_CONTAINER           Postgres container name (default: compose DB service container)
   POSTGRES_USER             Postgres user (default: postgres; falls back to .env or env template)
   POSTGRES_PASSWORD         Postgres password (falls back to .env or env template)
   EA_TEST_POSTGRES_DB       Isolated test database name (default: ea_test_contracts)
@@ -55,7 +56,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-DB_CONTAINER="${EA_DB_CONTAINER:-ea-db}"
+DB_CONTAINER="${EA_DB_CONTAINER:-${DB_SERVICE}}"
 DB_USER="${POSTGRES_USER:-}"
 if [[ -z "${DB_USER}" && -n "${env_file}" ]]; then
   DB_USER="$(grep -E '^POSTGRES_USER=' "${env_file}" | tail -n1 | cut -d= -f2- || true)"
@@ -82,7 +83,7 @@ if [[ -z "${DB_PASSWORD}" ]]; then
 fi
 
 echo "== postgres contract tests =="
-"${DC[@]}" up -d ea-db >/dev/null
+"${DC[@]}" up -d "${DB_SERVICE}" >/dev/null
 
 wait_for_postgres_sql() {
   local attempts="${1:-90}"

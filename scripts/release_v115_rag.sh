@@ -6,9 +6,9 @@ EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 usage() {
   cat <<'EOF'
 Usage:
-  /docker/EA/scripts/release_v115_rag.sh prune_meta
-  /docker/EA/scripts/release_v115_rag.sh prune_pycache
-  /docker/EA/scripts/release_v115_rag.sh clean_rewrite_baseline
+  /docker/property/scripts/release_v115_rag.sh prune_meta
+  /docker/property/scripts/release_v115_rag.sh prune_pycache
+  /docker/property/scripts/release_v115_rag.sh clean_rewrite_baseline
 
 This is a controlled maintenance wrapper used for rewrite-baseline cleanup.
 EOF

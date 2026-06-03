@@ -667,6 +667,35 @@ def test_postgres_contract_script_help_and_wiring() -> None:
     assert "tests/test_tool_execution.py" in script
 
 
+def test_postgres_contract_and_fastestvpn_helpers_support_standalone_paths() -> None:
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    postgres_script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
+    fastestvpn_script = (ROOT / "scripts/ensure_fastestvpn_proxy_pool.sh").read_text(encoding="utf-8")
+    release_script = (ROOT / "scripts/release_v115_rag.sh").read_text(encoding="utf-8")
+
+    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in postgres_script
+    assert 'DB_CONTAINER="${EA_DB_CONTAINER:-${DB_SERVICE}}"' in postgres_script
+    assert '"${DC[@]}" up -d "${DB_SERVICE}"' in postgres_script
+    assert "compose DB service container" in postgres_script
+
+    assert "PROPERTYQUARRY_PROXY_POOL_NETWORK" in fastestvpn_script
+    assert "PROPERTYQUARRY_FASTESTVPN_PROXY_IMAGE" in fastestvpn_script
+    assert 'root = Path("/docker/property/vpn/fastestvpn")' in fastestvpn_script
+    assert "/docker/EA/vpn/fastestvpn" not in fastestvpn_script
+
+    assert "/docker/property/scripts/release_v115_rag.sh prune_meta" in release_script
+    assert "/docker/property/scripts/release_v115_rag.sh prune_pycache" in release_script
+    assert "/docker/property/scripts/release_v115_rag.sh clean_rewrite_baseline" in release_script
+
+    assert "/docker/property/docker-compose.fastestvpn.yml" in runbook
+    assert "/docker/property/vpn/fastestvpn/README.md" in runbook
+    assert "/docker/property/scripts/bootstrap_fastestvpn_configs.sh" in runbook
+    assert "/docker/property/scripts/rotate_fastestvpn_proxy.sh" in runbook
+    assert "/docker/property/LTDs.md" in runbook
+    assert "/docker/property/SKILLS.md" in runbook
+
+
 def test_postgres_smoke_exports_openapi_dependency_examples() -> None:
     smoke = (ROOT / "scripts/smoke_postgres.sh").read_text(encoding="utf-8")
 
