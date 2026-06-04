@@ -5,12 +5,12 @@ import re
 from app.api.routes import landing as landing_routes
 from app.product.models import HandoffNote
 from app.product.service import ProductService
-from tests.product_test_helpers import build_product_client, start_workspace
+from tests.product_test_helpers import build_property_client, start_workspace
 
 
 def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch) -> None:
     principal_id = "pq-redesign-browser"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
     monkeypatch.setenv("PAYPAL_CLIENT_ID", "paypal-client")
     monkeypatch.setenv("PAYPAL_SECRET", "paypal-secret")
@@ -223,7 +223,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
 
 def test_propertyquarry_workspace_supports_all_of_vienna_toggle() -> None:
     principal_id = "pq-vienna-scope"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Vienna Scope Office")
 
     stored = client.post(
@@ -249,7 +249,7 @@ def test_propertyquarry_workspace_supports_all_of_vienna_toggle() -> None:
 
 def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(monkeypatch) -> None:
     principal_id = "pq-packet-fact-enrichment"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Packet Enrichment")
 
     stored = client.post(
@@ -343,7 +343,7 @@ def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(mo
 
 def test_propertyquarry_workspace_search_surface_keeps_internal_review_link(monkeypatch) -> None:
     principal_id = "pq-redesign-no-fallback"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
 
     def _fake_handoffs(self, *, principal_id: str, limit: int = 20, operator_id: str = "", status: str | None = "pending"):
@@ -372,7 +372,7 @@ def test_propertyquarry_workspace_search_surface_keeps_internal_review_link(monk
 
 def test_propertyquarry_research_packet_shows_auction_investment_context_when_benchmark_is_pending(monkeypatch) -> None:
     principal_id = "pq-redesign-auction-investment"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
     stored = client.post(
         "/v1/onboarding/property-search/preferences",
@@ -456,7 +456,7 @@ def test_propertyquarry_research_packet_shows_auction_investment_context_when_be
 
 def test_propertyquarry_research_packet_shows_cooperative_investment_context_when_benchmark_is_pending(monkeypatch) -> None:
     principal_id = "pq-redesign-coop-investment"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
     stored = client.post(
         "/v1/onboarding/property-search/preferences",
@@ -540,7 +540,7 @@ def test_propertyquarry_research_packet_shows_cooperative_investment_context_whe
 
 
 def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
-    client = build_product_client(principal_id="pq-redesign-settings")
+    client = build_property_client(principal_id="pq-redesign-settings")
     start_workspace(client, mode="personal", workspace_name="Property Office")
 
     settings = client.get("/app/settings", headers={"host": "propertyquarry.com"})
