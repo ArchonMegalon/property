@@ -15,9 +15,14 @@ from app.services.property_market_catalog import (
 
 def test_provider_options_are_filtered_by_country() -> None:
     germany = provider_options(country_code="DE")
+    austria = provider_options(country_code="AT")
+    sweden = provider_options(country_code="SE")
 
     assert any(row["value"] == "immoscout_de" for row in germany)
     assert any(row["value"] == "immowelt" for row in germany)
+    assert any(row["value"] == "zvg_de" for row in germany)
+    assert any(row["value"] == "justiz_edikte_at" for row in austria)
+    assert any(row["value"] == "kronofogden_auktionstorget_se" for row in sweden)
     assert all("Germany" in str(row.get("description") or "") for row in germany)
 
 
@@ -29,6 +34,8 @@ def test_normalize_property_search_preferences_defaults_country_and_language() -
     assert payload["language_code"] == "de"
     assert payload["listing_mode"] == "rent"
     assert payload["property_type"] == "any"
+    assert payload["alert_frequency"] == "daily"
+    assert payload["alert_channels"] == ["telegram"]
 
 
 def test_generated_source_specs_use_country_platform_defaults() -> None:
@@ -51,6 +58,39 @@ def test_generated_source_specs_use_country_platform_defaults() -> None:
     assert specs[0]["listing_mode"] == "buy"
     assert "Berlin" in str(specs[0]["label"])
     assert "berlin" in str(specs[0]["url"]).lower()
+
+
+def test_generated_source_specs_support_distressed_sale_platforms() -> None:
+    sweden_specs = generated_source_specs(
+        preferences={
+            "country_code": "SE",
+            "language_code": "sv",
+            "listing_mode": "buy",
+            "location_query": "Stockholm",
+            "keywords": "auction repossessed",
+        },
+        selected_platforms=("kronofogden_auktionstorget_se", "treasury_real_property_us"),
+        principal_id="exec-property-auctions",
+        default_person_id="self",
+        max_results=3,
+    )
+    us_specs = generated_source_specs(
+        preferences={
+            "country_code": "US",
+            "language_code": "en",
+            "listing_mode": "buy",
+            "location_query": "Florida",
+        },
+        selected_platforms=("treasury_real_property_us",),
+        principal_id="exec-property-auctions-us",
+        default_person_id="self",
+        max_results=3,
+    )
+
+    assert any(str(row["platform"]) == "kronofogden_auktionstorget_se" for row in sweden_specs)
+    assert any("kronofogden" in str(row["url"]).lower() for row in sweden_specs)
+    assert any(str(row["platform"]) == "treasury_real_property_us" for row in us_specs)
+    assert any("treasury.gov" in str(row["url"]).lower() for row in us_specs)
 
 
 def test_market_labels_are_human_readable() -> None:
@@ -166,3 +206,25 @@ def test_generated_source_specs_cover_new_country_bundles() -> None:
     assert "daft.ie/property-for-rent/dublin" in str(ireland_specs[0]["url"]).lower()
     assert "domain.com.au" in str(australia_specs[0]["url"]).lower()
     assert "suburb=Sydney" in str(australia_specs[0]["url"])
+
+
+def test_generated_source_specs_split_multi_area_queries_into_dedicated_sources() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "1200 Vienna, 1020 Vienna, 1090",
+            "keywords": "lift family",
+        },
+        selected_platforms=("willhaben",),
+        principal_id="exec-property-at",
+        default_person_id="self",
+        max_results=2,
+    )
+
+    assert len(specs) == 3
+    assert all(row["platform"] == "willhaben" for row in specs)
+    assert [row["location_query"] for row in specs] == ["1200 Vienna", "1020 Vienna", "1090"]
+    assert "q=1200+Vienna+lift+family" in str(specs[0]["url"])
+    assert "q=1020+Vienna+lift+family" in str(specs[1]["url"])
