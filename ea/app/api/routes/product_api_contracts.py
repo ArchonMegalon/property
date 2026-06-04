@@ -1368,6 +1368,11 @@ class PropertySearchRunStatusOut(BaseModel):
     steps_completed: int = 0
     summary: dict[str, object] = Field(default_factory=dict)
     events: list[dict[str, object]] = Field(default_factory=list)
+    bootstrap_required: bool = False
+    bootstrap_country_code: str = ""
+    bootstrap_country_label: str = ""
+    bootstrap_eta_hours: int = 0
+    bootstrap_handoff_ref: str = ""
 
 
 class PropertySearchRunStartOut(PropertySearchRunStatusOut):
