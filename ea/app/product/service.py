@@ -1084,6 +1084,56 @@ def _property_scout_rank_score(
     return max(0.0, min(100.0, heuristic))
 
 
+def _property_search_location_hints(preferences: dict[str, object] | None) -> tuple[str, ...]:
+    raw_value = str(dict(preferences or {}).get("location_query") or "").strip()
+    if not raw_value:
+        return ()
+    values = [str(item or "").strip() for item in raw_value.split(",")]
+    return tuple(value for value in values if value)
+
+
+def _property_candidate_matches_requested_location(
+    *,
+    location_hints: tuple[str, ...],
+    property_url: str,
+    title: str = "",
+    summary: str = "",
+    property_facts: dict[str, object] | None = None,
+) -> bool:
+    hints = tuple(str(item or "").strip() for item in location_hints if str(item or "").strip())
+    if not hints:
+        return True
+    facts = dict(property_facts or {})
+    address_lines = tuple(str(item or "").strip() for item in list(facts.get("address_lines") or []) if str(item or "").strip())
+    haystack_parts = [
+        str(property_url or "").strip(),
+        str(title or "").strip(),
+        str(summary or "").strip(),
+        str(facts.get("district") or "").strip(),
+        str(facts.get("postal_name") or "").strip(),
+        str(facts.get("location") or "").strip(),
+        str(facts.get("street_address") or "").strip(),
+        str(facts.get("exact_address") or "").strip(),
+        *address_lines,
+    ]
+    raw_text = " ".join(part for part in haystack_parts if part).lower()
+    normalized_text = re.sub(r"[^a-z0-9äöüß]+", "", raw_text)
+
+    for hint in hints:
+        lowered_hint = str(hint or "").strip().lower()
+        if not lowered_hint:
+            continue
+        if lowered_hint in raw_text:
+            return True
+        normalized_hint = re.sub(r"[^a-z0-9äöüß]+", "", lowered_hint)
+        if normalized_hint and normalized_hint in normalized_text:
+            return True
+        hint_tokens = tuple(token for token in _google_location_query_tokens(lowered_hint) if token not in {"vienna", "wien", "austria", "osterreich", "österreich"})
+        if hint_tokens and all(token in raw_text or token in normalized_text for token in hint_tokens):
+            return True
+    return False
+
+
 def _is_invalid_property_scout_task_url(property_url: str, *, source_ref: str = "") -> bool:
     normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
     normalized_source_ref = str(source_ref or "").strip()
@@ -13324,6 +13374,7 @@ class ProductService:
             or os.getenv("EA_PROPERTY_SCOUT_DEFAULT_PERSON_ID")
             or "self"
         ).strip() or "self"
+        location_hints = _property_search_location_hints(request_preferences)
 
         specs = [
             dict(spec)
@@ -13461,14 +13512,25 @@ class ProductService:
                         "summary": compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240),
                         "property_facts": dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
                         "assessment": {},
-                        "fit_score": _property_scout_rank_score(
-                            property_url=property_url,
-                            assessment=None,
-                            preview=preview,
-                            ordinal=ordinal,
-                        ),
+                        "fit_score": 0.0,
                         "ordinal": ordinal,
+                        "location_match": _property_candidate_matches_requested_location(
+                            location_hints=location_hints,
+                            property_url=property_url,
+                            title=str(preview.get("title") or property_url).strip(),
+                            summary=str(preview.get("summary") or "").strip(),
+                            property_facts=dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
+                        ),
                     }
+                )
+                preliminary_rows[-1]["fit_score"] = max(
+                    0.0,
+                    _property_scout_rank_score(
+                        property_url=property_url,
+                        assessment=None,
+                        preview=preview,
+                        ordinal=ordinal,
+                    ) - (25.0 if location_hints and not bool(preliminary_rows[-1].get("location_match")) else 0.0)
                 )
                 if ordinal == 1 or ordinal == len(listing_urls) or ordinal % 3 == 0:
                     _report(
@@ -13520,13 +13582,24 @@ class ProductService:
                         "summary": compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240),
                         "property_facts": dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
                         "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
-                        "fit_score": _property_scout_rank_score(
+                        "fit_score": 0.0,
+                        "location_match": _property_candidate_matches_requested_location(
+                            location_hints=location_hints,
                             property_url=property_url,
-                            assessment=assessment,
-                            preview=preview,
-                            ordinal=int(row.get("ordinal") or ordinal),
+                            title=str(preview.get("title") or property_url).strip(),
+                            summary=str(preview.get("summary") or "").strip(),
+                            property_facts=dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
                         ),
                     }
+                )
+                ranked_rows[-1]["fit_score"] = max(
+                    0.0,
+                    _property_scout_rank_score(
+                        property_url=property_url,
+                        assessment=assessment,
+                        preview=preview,
+                        ordinal=int(row.get("ordinal") or ordinal),
+                    ) - (30.0 if location_hints and not bool(ranked_rows[-1].get("location_match")) else 0.0)
                 )
                 if ordinal == 1 or ordinal == analysis_limit or ordinal % 2 == 0:
                     _report(
@@ -13537,6 +13610,10 @@ class ProductService:
                     )
 
             ranked_rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
+            if location_hints:
+                matching_rows = [row for row in ranked_rows if bool(row.get("location_match"))]
+                if matching_rows:
+                    ranked_rows = matching_rows
             ranked_rows = ranked_rows[:max_results]
             _report(
                 step="source_shortlist",
