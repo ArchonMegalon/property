@@ -28,6 +28,10 @@ def build_product_client(*, principal_id: str = "exec-product-api") -> TestClien
     return client
 
 
+def build_property_client(*, principal_id: str = "exec-product-api") -> TestClient:
+    return build_product_client(principal_id=principal_id)
+
+
 def build_operator_product_client(*, principal_id: str = "exec-product-api", operator_id: str = "operator-office") -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
