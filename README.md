@@ -104,6 +104,7 @@ Use the product-only release bundle when validating the standalone PropertyQuarr
 - product brief: [docs/PRODUCT_BRIEF.md](/docker/property/docs/PRODUCT_BRIEF.md)
 - architecture: [docs/ARCHITECTURE.md](/docker/property/docs/ARCHITECTURE.md)
 - greenfield redesign plan: [docs/GREENFIELD_REDESIGN_PLAN.md](/docker/property/docs/GREENFIELD_REDESIGN_PLAN.md)
+- decision workbench implementation guide: [docs/PROPERTY_DECISION_WORKBENCH_GUIDE.md](/docker/property/docs/PROPERTY_DECISION_WORKBENCH_GUIDE.md)
 - brand: [docs/BRAND.md](/docker/property/docs/BRAND.md)
 - pricing: [docs/PRICING.md](/docker/property/docs/PRICING.md)
 - domain rollout: [docs/DOMAIN_ROLLOUT.md](/docker/property/docs/DOMAIN_ROLLOUT.md)
