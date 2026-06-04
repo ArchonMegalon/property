@@ -163,6 +163,20 @@ else
     FAILURE_LOG_SERVICES+=(ea-fastestvpn-proxy ea-fastestvpn-proxy-ie ea-fastestvpn-proxy-nl)
   fi
   build_and_recreate_services "${RUNTIME_BUILD_SERVICES[@]}"
+  if [[ "${CLOUDFLARED_OVERLAY_ENABLED}" == "1" ]]; then
+    echo "Refreshing Cloudflare tunnel after API recreate"
+    compose up -d --no-build --no-deps --force-recreate ea-cloudflared
+    for _ in $(seq 1 30); do
+      if service_container_ready ea-cloudflared; then
+        break
+      fi
+      sleep 1
+    done
+    if ! service_container_ready ea-cloudflared; then
+      echo "Cloudflare tunnel failed to restart cleanly during deploy" >&2
+      exit 1
+    fi
+  fi
 fi
 
 if [[ "${bootstrap_db}" == "1" ]]; then
@@ -203,6 +217,21 @@ for _ in $(seq 1 60); do
     python3 "${APP_ROOT}/scripts/materialize_weekly_product_pulse.py" >/dev/null
     if [[ "${run_runtime_hard_exit_gates}" != "0" ]]; then
       bash "${APP_ROOT}/scripts/runtime_hard_exit_gates.sh"
+    fi
+    if [[ "${CLOUDFLARED_OVERLAY_ENABLED}" == "1" ]]; then
+      public_smoke_urls="${PROPERTYQUARRY_CLOUDFLARED_PUBLIC_SMOKE_URLS:-${EA_CLOUDFLARED_PUBLIC_SMOKE_URLS:-https://propertyquarry.com/sign-in}}"
+      for public_url in ${public_smoke_urls}; do
+        for _public in $(seq 1 20); do
+          if curl -fsS --max-time 10 "${public_url}" >/dev/null 2>&1; then
+            break
+          fi
+          sleep 2
+        done
+        if ! curl -fsS --max-time 10 "${public_url}" >/dev/null 2>&1; then
+          echo "Cloudflare public smoke failed: ${public_url}" >&2
+          exit 1
+        fi
+      done
     fi
     echo "PropertyQuarry runtime healthy at http://localhost:${HOST_PORT} with ${TOPOLOGY_SERVICES[*]}"
     exit 0
