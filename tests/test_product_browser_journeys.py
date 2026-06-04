@@ -229,6 +229,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Review only the few properties that deserve attention now." in shortlist.text
     assert "Altbau near U6" in shortlist.text
     assert "Review packet" in shortlist.text
+    assert "Hosted review" in shortlist.text
     assert "Open 360" in shortlist.text
     assert "data-feedback-save" in shortlist.text
 
@@ -237,6 +238,13 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Inspect the evidence before you open the raw listing." in research.text
     assert "Hosted 3D page for Auhofstrasse shortlist" in research.text
     assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in research.text
+    assert "/app/research/f0f77942b07c4f19?run_id=run-42" in research.text
+
+    packet = client.get("/app/research/f0f77942b07c4f19", params={"run_id": "run-42"}, headers=property_headers)
+    assert packet.status_code == 200
+    assert "Internal property dossier with fit reasoning" in packet.text
+    assert "Hosted review" in packet.text
+    assert "Original listing" in packet.text
 
     profile = client.get("/app/profile", params={"run_id": "run-42"}, headers=property_headers)
     assert profile.status_code == 200
@@ -291,6 +299,9 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Identity and return access" in settings.text
     assert "Google sign-in" in settings.text
     assert "Current search brief state" in settings.text
+    assert "Operating posture" in settings.text
+    assert "Open pricing" in settings.text
+    assert "Open security" in settings.text
     assert "Sync runs" not in settings.text
     assert "Last Google sync" not in settings.text
     assert "Office signals ingested" not in settings.text
@@ -1724,8 +1735,9 @@ def test_browser_google_settings_page_and_run_now_action_work() -> None:
 
     sync_page = client.get("/app/settings/google")
     assert sync_page.status_code == 200
-    assert "Google sync" in sync_page.text
-    assert "Latest sync run and queued commitment work" in sync_page.text
+    assert "PropertyQuarry Google connection" in sync_page.text
+    assert "No connected inboxes" in sync_page.text
+    assert "Connect inbox" in sync_page.text
 
     triggered = client.get("/app/actions/signals/google/sync?return_to=https://evil.example/phish", follow_redirects=False)
     assert triggered.status_code == 303
