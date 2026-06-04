@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 import urllib.parse
 
+from app.api.routes import landing as landing_routes
 from app.product.models import HandoffNote
 from app.product.service import ProductService
 from app.services.google_oauth import read_google_oauth_state
@@ -104,6 +106,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
             "property_type": "apartment",
             "location_query": "Berlin",
             "keywords": "lift family balcony",
+            "investment_research_mode": "auto",
             "selected_platforms": ["immoscout_de", "immowelt"],
             "preference_person_id": "elisabeth",
             "max_results_per_source": 4,
@@ -111,6 +114,23 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     )
     assert stored.status_code == 200, stored.text
 
+    top_candidate = {
+        "title": "Altbau near U6",
+        "property_url": "https://www.immobilienscout24.de/expose/altbau-u6",
+        "fit_summary": "Personal fit 92/100 · shortlist · Lift and transit fit.",
+        "recommendation": "shortlist",
+        "review_url": "https://myexternalbrain.com/app/handoffs/human_task:review-1",
+        "tour_url": "https://myexternalbrain.com/tours/altbau-u6",
+        "match_reasons": ["Lift and transit fit."],
+        "mismatch_reasons": [],
+        "property_facts": {
+            "price_eur": 420000.0,
+            "price_display": "EUR 420,000",
+            "area_m2": 78,
+            "address": "Berlin Altbau quarter",
+            "postal_name": "Berlin",
+        },
+    }
     def _fake_run_status(self, *, principal_id: str, run_id: str):
         assert principal_id == "exec-browser-properties"
         assert run_id == "run-42"
@@ -139,21 +159,10 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
                         "tour_created_total": 1,
                         "notified_total": 1,
                         "top_fit_score": 0.92,
-                        "top_candidates": [
-                            {
-                                "title": "Altbau near U6",
-                                "property_url": "https://www.immobilienscout24.de/expose/altbau-u6",
-                                "fit_summary": "Personal fit 92/100 · shortlist · Lift and transit fit.",
-                                "recommendation": "shortlist",
-                                "review_url": "https://myexternalbrain.com/app/handoffs/human_task:review-1",
-                                "tour_url": "https://myexternalbrain.com/tours/altbau-u6",
-                                "match_reasons": ["Lift and transit fit."],
-                                "mismatch_reasons": [],
-                            }
-                        ],
-                    }
-                ],
-            },
+                            "top_candidates": [top_candidate],
+                        }
+                    ],
+                },
             "events": [
                 {"step": "sources_resolved", "message": "Resolved 2 source(s) for scanning.", "status": "in_progress"},
                 {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
@@ -177,8 +186,54 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
             ),
         )
 
+    def _fake_investment_snapshot(
+        *,
+        property_url: str,
+        country_code: str,
+        location_query: str,
+        selected_platforms_csv: str,
+        current_price_eur: float,
+        current_area_sqm: float,
+        research_level: str,
+    ):
+        assert property_url == "https://www.immobilienscout24.de/expose/altbau-u6"
+        assert country_code == "DE"
+        assert research_level in {"preview", "full"}
+        return {
+            "current_price_eur": current_price_eur,
+            "current_area_sqm": current_area_sqm,
+            "current_price_per_sqm_eur": 5384.62,
+            "buy_sample_count": 5,
+            "rent_sample_count": 4,
+            "market_buy_per_sqm_eur": 5600.0,
+            "market_buy_delta_pct": -3.8,
+            "market_rent_per_sqm_eur": 18.75,
+            "expected_monthly_rent_eur": 1462.5,
+            "expected_annual_rent_eur": 17550.0,
+            "gross_yield_pct": 4.18,
+            "payback_years": 23.9,
+            "buy_samples": [
+                {
+                    "source_label": "ImmoScout24 Germany",
+                    "amount_eur": 445000.0,
+                    "area_sqm": 79.0,
+                    "per_sqm_eur": 5632.91,
+                }
+            ],
+            "rent_samples": [
+                {
+                    "source_label": "Immowelt",
+                    "amount_eur": 1490.0,
+                    "area_sqm": 80.0,
+                    "per_sqm_eur": 18.63,
+                }
+            ],
+        }
+
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
     monkeypatch.setattr(ProductService, "list_handoffs", _fake_handoffs)
+    monkeypatch.setattr(landing_routes, "_property_investment_research_access_level", lambda *args, **kwargs: "full")
+    monkeypatch.setattr(landing_routes, "_property_investment_research_snapshot", _fake_investment_snapshot)
 
     property_headers = {"host": "propertyquarry.com"}
     response = client.get("/app/properties", params={"run_id": "run-42"}, headers=property_headers)
@@ -204,6 +259,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Germany" in response.text
     assert "Buy" in response.text
     assert "Apartment" in response.text
+    assert "Investment research" in response.text
     assert "Lower Austria" in response.text
     assert "lift family balcony" in response.text
     assert "ImmoScout24 Germany" in response.text
@@ -238,13 +294,17 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Inspect the evidence before you open the raw listing." in research.text
     assert "Hosted 3D page for Auhofstrasse shortlist" in research.text
     assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in research.text
-    assert "/app/research/f0f77942b07c4f19?run_id=run-42" in research.text
+    packet_match = re.search(r'href="(/app/research/[^"?]+)\?run_id=run-42"', research.text)
+    assert packet_match is not None
 
-    packet = client.get("/app/research/f0f77942b07c4f19", params={"run_id": "run-42"}, headers=property_headers)
+    packet = client.get(packet_match.group(1), params={"run_id": "run-42", "investment": 1}, headers=property_headers)
     assert packet.status_code == 200
     assert "Internal property dossier with fit reasoning" in packet.text
     assert "Hosted review" in packet.text
     assert "Original listing" in packet.text
+    assert "Investment research" in packet.text
+    assert "Gross yield" in packet.text
+    assert "Expected monthly rent" in packet.text
 
     profile = client.get("/app/profile", params={"run_id": "run-42"}, headers=property_headers)
     assert profile.status_code == 200
