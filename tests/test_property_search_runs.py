@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 import time
 import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
+
+import pytest
 
 import app.product.service as product_service
 from app.product.service import ProductService
@@ -989,3 +992,31 @@ def test_reconcile_property_search_results_delivery_completes_unsent_ready_run(m
     assert summary["emailed"] >= 1
     assert observed["principal_id"] == "exec-property-search-reconcile"
     assert observed["run_id"] == run_id
+
+
+def test_property_search_run_postgres_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
+    db_url = str(os.environ.get("EA_TEST_PROPERTY_DATABASE_URL") or "").strip()
+    if not db_url:
+        pytest.skip("EA_TEST_PROPERTY_DATABASE_URL is not set")
+    monkeypatch.setenv("DATABASE_URL", db_url)
+    monkeypatch.setattr(product_service, "_PROPERTY_SEARCH_RUN_SCHEMA_READY", False)
+    run_id = f"run-postgres-round-trip-{uuid.uuid4().hex}"
+    state = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id="exec-property-postgres-round-trip",
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "Vienna"},
+        force_refresh=False,
+    )
+    state["status"] = "processed"
+    state["progress"] = 100
+
+    product_service._store_property_search_run_record(state)
+    loaded = product_service._load_property_search_run_record(run_id=run_id)
+    listed = product_service._list_property_search_run_records(limit=5, statuses=("processed",))
+
+    assert loaded is not None
+    assert loaded["run_id"] == run_id
+    assert loaded["principal_id"] == "exec-property-postgres-round-trip"
+    assert loaded["property_search_preferences"]["country_code"] == "AT"
+    assert any(row.get("run_id") == run_id for row in listed)

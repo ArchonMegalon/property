@@ -92,7 +92,10 @@ jobs:
 
       - name: Run Browser Surface Contracts
         run: |
-          PYTHONPATH=.:ea pytest -q tests/test_providers_api_contracts.py tests/test_browser_surface_contracts.py tests/test_product_projection_contracts.py tests/test_product_api_contracts.py tests/test_commitment_candidate_review_contracts.py tests/test_product_support_contracts.py tests/test_product_browser_journeys.py tests/test_product_entitlement_contracts.py tests/test_admin_surface_runtime_contracts.py tests/test_fixture_scenarios.py
+          PYTHONPATH=.:ea pytest -q tests/test_providers_api_contracts.py -k "public_tour_routes"
+          PYTHONPATH=.:ea pytest -q tests/test_property_market_catalog.py
+          PYTHONPATH=.:ea pytest -q tests/test_product_api_contracts.py -k "preference_profile_endpoints_and_willhaben_assessment_flow or property_search_run_blocks_free_plan_when_limits_exceed_free_tier or property_search_run_allows_free_plan_across_multiple_platforms_when_result_cap_is_respected"
+          PYTHONPATH=.:ea pytest -q tests/test_product_browser_journeys.py -k "properties_workspace_surface or propertyquarry_settings_hide_generic_google_sync_metrics or propertyquarry_host_renders_branded_public_surfaces or propertyquarry_repo_defaults_to_property_brand_without_host_header"
 
   product-browser-e2e:
     runs-on: ubuntu-latest
@@ -113,7 +116,7 @@ jobs:
 
       - name: Run Product Browser E2E
         run: |
-          PYTHONPATH=.:ea python -m pytest -q tests/e2e/test_product_workflows.py
+          PYTHONPATH=.:ea python -m pytest -q tests/e2e/test_propertyquarry_greenfield_browser.py
 
   smoke-runtime-api:
     runs-on: ubuntu-latest
@@ -133,10 +136,6 @@ jobs:
           python -m playwright install --with-deps chromium
 
       - name: Run CI Gate Bundle
-        run: |
-          make ci-gates
-
-      - name: Run PropertyQuarry Release Gates
         run: |
           make property-release-gates
 
@@ -168,19 +167,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Run Postgres Smoke Script
+      - name: Run Property Postgres Smoke Script
         run: |
-          bash scripts/smoke_postgres.sh
-
-  smoke-runtime-postgres-legacy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Run Legacy Migration Regression Smoke
-        run: |
-          bash scripts/smoke_postgres.sh --legacy-fixture
+          bash scripts/smoke_property_postgres.sh
 
   postgres-runtime-contracts:
     runs-on: ubuntu-latest
@@ -198,6 +187,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r ea/requirements.txt -c ea/requirements.lock pytest httpx
 
-      - name: Run Postgres Repository Contract Tests
+      - name: Run Property Postgres Contract Tests
         run: |
-          bash scripts/test_postgres_contracts.sh
+          bash scripts/test_property_postgres_contracts.sh

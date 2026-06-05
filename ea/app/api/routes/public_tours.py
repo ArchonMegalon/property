@@ -581,7 +581,8 @@ def _reverse_geocode(lat: float, lon: float) -> dict[str, object]:
     )
     request = urllib.request.Request(url, headers={"User-Agent": "EA/1.0"})
     try:
-        with urllib.request.urlopen(request, timeout=6.0) as response:
+        # Fixed OpenStreetMap reverse-geocode endpoint for map context.
+        with urllib.request.urlopen(request, timeout=6.0) as response:  # nosec B310
             payload = json.loads(response.read().decode("utf-8", errors="ignore"))
     except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
         return {}
@@ -610,7 +611,8 @@ out center tags;
         headers={"User-Agent": "EA/1.0"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=15.0) as response:
+        # Fixed Overpass API endpoint for nearby POI context.
+        with urllib.request.urlopen(request, timeout=15.0) as response:  # nosec B310
             payload = json.loads(response.read().decode("utf-8", errors="ignore"))
     except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
         return {}
@@ -674,7 +676,8 @@ def _fetch_listing_research(url: str) -> dict[str, object]:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=4.0) as response:
+        # Listing URL fetch is guarded by host allowlist and public-IP checks above.
+        with urllib.request.urlopen(request, timeout=4.0) as response:  # nosec B310
             raw_html = response.read().decode("utf-8", errors="ignore")
     except (urllib.error.URLError, TimeoutError, ValueError):
         return {}
@@ -898,21 +901,21 @@ def _enforce_public_tour_feedback_memory_rate_limit(*, key: str, now: float) -> 
 def _prune_public_tour_feedback_file_rate_limit(rate_dir: Path, *, now: float) -> None:
     try:
         files = sorted(rate_dir.glob("*.json"), key=lambda item: item.stat().st_mtime)
-    except Exception:
+    except OSError:
         return
     stale_before = now - (_PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_WINDOW_SECONDS * 4)
     for path in files:
         try:
             if path.stat().st_mtime < stale_before:
                 path.unlink(missing_ok=True)
-        except Exception:
+        except OSError:
             continue
     if len(files) <= _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX_KEYS:
         return
     for path in files[: max(0, len(files) - _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX_KEYS)]:
         try:
             path.unlink(missing_ok=True)
-        except Exception:
+        except OSError:
             continue
 
 
@@ -1256,7 +1259,7 @@ def _shortlist_tour_manifest_index(root: str) -> tuple[dict[str, object], ...]:
             continue
         try:
             payload = json.loads(payload_path.read_text(encoding="utf-8"))
-        except Exception:
+        except (OSError, ValueError, json.JSONDecodeError):
             continue
         if isinstance(payload, dict):
             rows.append(dict(payload))
