@@ -34,7 +34,8 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_repo_isolation.py
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_fliplink_packet_privacy.py \
   tests/test_property_packet_publications.py \
-  tests/test_fliplink_webhook_contracts.py
+  tests/test_fliplink_webhook_contracts.py \
+  tests/test_property_missing_facts_ooda.py
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_propertyquarry_workspace_redesign.py \
   tests/e2e/test_propertyquarry_greenfield_browser.py
