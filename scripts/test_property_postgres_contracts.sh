@@ -56,16 +56,23 @@ set_env_value "DATABASE_URL" ""
 echo "== property-postgres-contracts: boot db =="
 "${DC[@]}" up -d propertyquarry-db
 
+db_ready=0
 for _ in $(seq 1 90); do
-  if docker exec propertyquarry-db pg_isready -U postgres >/dev/null 2>&1; then
+  if docker exec propertyquarry-db pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
+    db_ready=1
     break
   fi
   sleep 1
 done
+if [[ "${db_ready}" != "1" ]]; then
+  echo "propertyquarry-db did not become ready" >&2
+  docker logs propertyquarry-db >&2 || true
+  exit 3
+fi
 
-docker exec -i propertyquarry-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
+docker exec -i propertyquarry-db psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres \
   -c "DROP DATABASE IF EXISTS \"${TEST_DB}\";" >/dev/null
-docker exec -i propertyquarry-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
+docker exec -i propertyquarry-db psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres \
   -c "CREATE DATABASE \"${TEST_DB}\";" >/dev/null
 
 db_host="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' propertyquarry-db 2>/dev/null | tr -d '[:space:]')"
