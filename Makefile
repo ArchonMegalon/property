@@ -1,4 +1,4 @@
-.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-api-tibor smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-all test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help provider-readiness overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets verify-generated-release-artifacts-clean ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy hard-exit-gates runtime-hard-exit-gates property-release-gates ltd-release-gates verify-release-assets verify-flagship-release-readiness verify-pocket-audio-archive verify-ltd-critical-entries verify-ltd-flagship-subset verify-design-mirror-bundle verify-design-full-mirror-parity repair-design-mirror-bundle docs-verify all-local
+.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-api-tibor smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-all test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help provider-readiness overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets verify-generated-release-artifacts-clean ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy hard-exit-gates runtime-hard-exit-gates property-release-gates property-security-posture ltd-release-gates verify-release-assets verify-flagship-release-readiness verify-pocket-audio-archive verify-ltd-critical-entries verify-ltd-flagship-subset verify-design-mirror-bundle verify-design-full-mirror-parity repair-design-mirror-bundle docs-verify all-local
 
 PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 TEST_API_PYTEST_IGNORE ?= --ignore-glob=tests/test_chummer*.py --ignore-glob=tests/test_next90*.py --ignore=tests/test_design_mirror_bundle_contracts.py
@@ -168,6 +168,9 @@ runtime-hard-exit-gates:
 property-release-gates:
 	bash scripts/property_release_gates.sh
 
+property-security-posture:
+	$(PYTHON_BIN) scripts/check_property_security_posture.py
+
 ltd-release-gates:
 	$(MAKE) verify-ltd-critical-entries
 	$(MAKE) verify-ltd-flagship-subset
@@ -199,5 +202,6 @@ repair-design-mirror-bundle:
 	bash scripts/repair_design_mirror_bundle.sh
 
 docs-verify: verify-release-assets
+	$(PYTHON_BIN) scripts/check_docs_links.py
 
 all-local: ci-local verify-release-assets verify-flagship-release-readiness verify-generated-release-artifacts-clean

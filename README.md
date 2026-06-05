@@ -35,6 +35,15 @@ cp .env.example .env
 bash scripts/deploy.sh
 ```
 
+For a property-only runtime without inherited assistant side services, use the hardened compose file:
+
+```bash
+docker compose -f docker-compose.property.yml up -d --build
+```
+
+That topology starts only `propertyquarry-api`, `propertyquarry-worker`, `propertyquarry-scheduler`, and `propertyquarry-db`.
+It builds `ea/Dockerfile.property`, which omits Docker CLI tooling and runs the app process as the non-root `ea` user.
+
 Then open:
 
 - `http://localhost:8090/`
@@ -51,9 +60,9 @@ PropertyQuarry keeps the inherited runtime-mode contract because deploy and smok
 
 Runtime and environment details live in:
 
-- [ENVIRONMENT_MATRIX.md](/docker/property/ENVIRONMENT_MATRIX.md)
-- [HTTP_EXAMPLES.http](/docker/property/HTTP_EXAMPLES.http)
-- [RELEASE_CHECKLIST.md](/docker/property/RELEASE_CHECKLIST.md)
+- [ENVIRONMENT_MATRIX.md](ENVIRONMENT_MATRIX.md)
+- [HTTP_EXAMPLES.http](HTTP_EXAMPLES.http)
+- [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
 
 Operator scripts can be pointed at non-default compose service names with:
 
@@ -101,14 +110,14 @@ Use the product-only release bundle when validating the standalone PropertyQuarr
 
 ## Key docs
 
-- product brief: [docs/PRODUCT_BRIEF.md](/docker/property/docs/PRODUCT_BRIEF.md)
-- architecture: [docs/ARCHITECTURE.md](/docker/property/docs/ARCHITECTURE.md)
-- greenfield redesign plan: [docs/GREENFIELD_REDESIGN_PLAN.md](/docker/property/docs/GREENFIELD_REDESIGN_PLAN.md)
-- decision workbench implementation guide: [docs/PROPERTY_DECISION_WORKBENCH_GUIDE.md](/docker/property/docs/PROPERTY_DECISION_WORKBENCH_GUIDE.md)
-- brand: [docs/BRAND.md](/docker/property/docs/BRAND.md)
-- pricing: [docs/PRICING.md](/docker/property/docs/PRICING.md)
-- domain rollout: [docs/DOMAIN_ROLLOUT.md](/docker/property/docs/DOMAIN_ROLLOUT.md)
-- runbook: [RUNBOOK.md](/docker/property/RUNBOOK.md)
+- product brief: [docs/PRODUCT_BRIEF.md](docs/PRODUCT_BRIEF.md)
+- architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- greenfield redesign plan: [docs/GREENFIELD_REDESIGN_PLAN.md](docs/GREENFIELD_REDESIGN_PLAN.md)
+- decision workbench implementation guide: [docs/PROPERTY_DECISION_WORKBENCH_GUIDE.md](docs/PROPERTY_DECISION_WORKBENCH_GUIDE.md)
+- brand: [docs/BRAND.md](docs/BRAND.md)
+- pricing: [docs/PRICING.md](docs/PRICING.md)
+- domain rollout: [docs/DOMAIN_ROLLOUT.md](docs/DOMAIN_ROLLOUT.md)
+- runbook: [RUNBOOK.md](RUNBOOK.md)
 
 ## Migration status
 
