@@ -40,6 +40,18 @@ def main() -> int:
         failures.append(".env.example still references property@propertyquery.com")
     if re.search(r"^EA_REGISTRATION_EMAIL_FROM_FALLBACK=.+", env_example, flags=re.MULTILINE):
         failures.append(".env.example should not advertise a non-PropertyQuarry fallback sender")
+    for env_name in ("EA_API_TOKEN", "EA_SIGNING_SECRET", "EA_CF_ACCESS_TEAM_DOMAIN", "EA_CF_ACCESS_AUD"):
+        if not re.search(rf"^{re.escape(env_name)}=", env_example, flags=re.MULTILINE):
+            failures.append(f".env.example must list prod auth/signing placeholder {env_name}")
+    expected_service_aliases = {
+        "PROPERTYQUARRY_API_SERVICE": "propertyquarry-api",
+        "PROPERTYQUARRY_WORKER_SERVICE": "propertyquarry-worker",
+        "PROPERTYQUARRY_SCHEDULER_SERVICE": "propertyquarry-scheduler",
+        "PROPERTYQUARRY_DB_SERVICE": "propertyquarry-db",
+    }
+    for env_name, expected_value in expected_service_aliases.items():
+        if not re.search(rf"^{re.escape(env_name)}={re.escape(expected_value)}$", env_example, flags=re.MULTILINE):
+            failures.append(f".env.example must default {env_name}={expected_value}")
 
     compose = _read("docker-compose.property.yml")
     forbidden_compose_tokens = (
@@ -66,6 +78,8 @@ def main() -> int:
         failures.append("docker-compose.property.yml must default EA_RUNTIME_MODE to prod")
     if 'PROPERTYQUARRY_SCHEDULER_PROFILE: "${PROPERTYQUARRY_SCHEDULER_PROFILE:-property_only}"' not in compose:
         failures.append("docker-compose.property.yml must default the scheduler to property_only")
+    if 'PROPERTYQUARRY_WORKER_PROFILE: "${PROPERTYQUARRY_WORKER_PROFILE:-property_only}"' not in compose:
+        failures.append("docker-compose.property.yml must default the worker to property_only")
 
     dockerfile = _read("ea/Dockerfile.property")
     if not re.search(r"^FROM\s+\S+@sha256:[0-9a-f]{64}\s*$", dockerfile, flags=re.MULTILINE):
@@ -86,6 +100,12 @@ def main() -> int:
         failures.append("public tour feedback must not directly mutate owner learning profiles")
     if "request_property_tour_detail_refresh(" in public_tours:
         failures.append("public tour request-details must not queue owner work from public links")
+    if 'request.headers.get("x-forwarded-for")' in public_tours and "PROPERTYQUARRY_TRUST_X_FORWARDED_FOR" not in public_tours:
+        failures.append("public tour feedback must not trust x-forwarded-for without explicit opt-in")
+    if 'except Exception:\n        pass' in public_tours:
+        failures.append("public tour feedback must not silently swallow persistence failures")
+    if '"status": "not_captured"' not in public_tours:
+        failures.append("public tour feedback must report persistence failures honestly")
 
     requirements = _read("ea/requirements.txt")
     lock_text = _read("ea/requirements.lock")

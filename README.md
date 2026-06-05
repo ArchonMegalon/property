@@ -110,10 +110,13 @@ Use the product-only release bundle when validating the standalone PropertyQuarr
 - `make property-release-gates`
 - `bash scripts/property_release_gates.sh`
 
+This bundle includes docs links, runtime security posture, repo-isolation checks, browser contracts, and property run/catalog contracts.
+
 ## Key docs
 
 - product brief: [docs/PRODUCT_BRIEF.md](docs/PRODUCT_BRIEF.md)
 - architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- repo isolation: [docs/REPO_ISOLATION.md](docs/REPO_ISOLATION.md)
 - greenfield redesign plan: [docs/GREENFIELD_REDESIGN_PLAN.md](docs/GREENFIELD_REDESIGN_PLAN.md)
 - decision workbench implementation guide: [docs/PROPERTY_DECISION_WORKBENCH_GUIDE.md](docs/PROPERTY_DECISION_WORKBENCH_GUIDE.md)
 - brand: [docs/BRAND.md](docs/BRAND.md)

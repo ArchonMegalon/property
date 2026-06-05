@@ -44,6 +44,7 @@ services:
     environment:
       EA_ROLE: worker
       EA_RUNTIME_MODE: "${EA_RUNTIME_MODE:-prod}"
+      PROPERTYQUARRY_WORKER_PROFILE: "${PROPERTYQUARRY_WORKER_PROFILE:-property_only}"
       EA_ARTIFACTS_DIR: /data/artifacts
       EA_PUBLIC_TOUR_DIR: /data/public_property_tours
       EA_RESPONSES_PROVIDER_LEDGER_DIR: /data/provider-ledger

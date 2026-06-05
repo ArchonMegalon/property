@@ -29,6 +29,7 @@ fi
 cd "${EA_ROOT}"
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_docs_links.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_security_posture.py
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_repo_isolation.py
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_propertyquarry_workspace_redesign.py \
   tests/e2e/test_propertyquarry_greenfield_browser.py
