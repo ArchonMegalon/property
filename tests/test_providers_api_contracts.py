@@ -4106,7 +4106,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     privacy = owner.get("/security")
     assert privacy.status_code == 200
     _assert_no_product_drift(privacy.text)
-    assert "See what Executive Assistant can do before you let it act." in privacy.text
+    assert "See what PropertyQuarry can do before you let it act." in privacy.text
 
     for path in ("/product", "/integrations", "/pricing", "/docs"):
         page = owner.get(path)
@@ -4256,6 +4256,40 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     assert "cf-email:browser@gmail.com" not in callback.text
     assert 'href="/get-started"' in callback.text
     assert "No Gmail or Calendar sync was requested for this workspace." in callback.text
+
+
+def test_browser_google_callback_redirects_back_to_setup_when_state_expired(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+
+    owner = _client(principal_id="exec-browser-expired")
+    started = owner.post(
+        "/google/connect",
+        data={"scope_bundle": "identity"},
+        follow_redirects=False,
+    )
+    assert started.status_code == 303
+    parsed = urllib.parse.urlparse(started.headers["location"])
+    query = urllib.parse.parse_qs(parsed.query)
+    state = query["state"][0]
+
+    from app.services import google_oauth as google_service
+
+    payload = google_service.read_google_oauth_state_unchecked(state)
+    issued_at = int(payload["issued_at"])
+    monkeypatch.setattr(google_service.time, "time", lambda: issued_at + 21601)
+
+    callback = owner.get(
+        "/google/callback",
+        params={"code": "expired-code", "state": state},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 303
+    assert callback.headers["location"].startswith("/get-started?")
+    assert "google_error=google_oauth_state_expired" in callback.headers["location"]
 
 
 def test_browser_google_callback_renders_error_page_for_google_error_params(monkeypatch: pytest.MonkeyPatch) -> None:
