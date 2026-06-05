@@ -107,8 +107,8 @@ def main() -> int:
         failures.append("public tour feedback must report persistence failures honestly")
     if "_redacted_public_tour_payload(payload, expose_asset_relpaths=False)" not in public_tours:
         failures.append("public tour JSON must use the redacted public payload builder")
-    if "_PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS" not in public_tours or "safe_relpath not in _public_tour_allowed_asset_paths(payload)" not in public_tours:
-        failures.append("public tour file serving must use an asset allowlist with denied sidecar extensions")
+    if "_PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS" not in public_tours or "_public_tour_manifest(payload)" not in public_tours or "safe_relpath not in manifest" not in public_tours:
+        failures.append("public tour file serving must use a manifest-backed asset allowlist with denied sidecar extensions")
     if "_public_tour_listing_research_url_allowed(normalized)" not in public_tours:
         failures.append("public render-time listing research must pass through the provider-host URL guard")
     if "_PUBLIC_TOUR_EXACT_LOCATION_FACT_KEYS" not in public_tours or "_redacted_public_tour_facts" not in public_tours:
