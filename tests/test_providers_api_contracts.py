@@ -7037,6 +7037,11 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
                     "total_rent_eur": 897,
                     "availability": "ab sofort",
                     "address_lines": ["1200 Wien"],
+                    "exact_address": "Kahlenberger Strasse 1, 1190 Wien",
+                    "street_address": "Kahlenberger Strasse 1",
+                    "map_lat": 48.25,
+                    "map_lng": 16.35,
+                    "postal_name": "1190 Wien",
                     "teaser_attributes": ["Kahlenbergblick"],
                     "public_preference_snapshot": {
                         "profile": {"principal_id": "exec-public-tour"},
@@ -7085,8 +7090,10 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert payload.status_code == 200
     payload_body = payload.json()
     assert payload_body["slug"] == slug
+    assert payload_body["tour_privacy_mode"] == "anonymous_public"
     assert payload_body["scenes"][0]["image_url"] == f"/tours/files/{slug}/scene-01.jpg"
     assert payload_body["facts"]["personal_fit_assessment"]["fit_score"] == 81
+    assert payload_body["facts"]["postal_name"] == "1190 Wien"
     serialized_payload = json.dumps(payload_body, sort_keys=True)
     for private_marker in (
         "principal_id",
@@ -7097,6 +7104,12 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
         "public_preference_snapshot",
         "preference_nodes",
         "debug-token",
+        "Kahlenberger Strasse",
+        "map_lat",
+        "map_lng",
+        "address_lines",
+        "exact_address",
+        "street_address",
     ):
         assert private_marker not in serialized_payload
 
@@ -7108,6 +7121,42 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert client.get(f"/tours/files/{slug}/raw-payload.json").status_code == 404
     assert client.get(f"/tours/files/{slug}/debug.log").status_code == 404
     assert client.get(f"/tours/files/{slug}/notes.txt").status_code == 404
+
+
+def test_public_tour_routes_drop_untrusted_external_scene_media(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "external-image-only-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "External Image Only",
+                "display_title": "External Image Only",
+                "facts": {"area_sqm": 58},
+                "scenes": [
+                    {
+                        "name": "Remote image",
+                        "role": "photo",
+                        "image_url": "https://untrusted.invalid/scene.jpg",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour")
+    payload = client.get(f"/tours/{slug}.json")
+
+    assert payload.status_code == 200
+    assert payload.json()["scenes"] == []
 
 
 def test_public_tour_routes_render_pdf_floorplan_scenes(
@@ -7138,6 +7187,7 @@ def test_public_tour_routes_render_pdf_floorplan_scenes(
                         "role": "floorplan",
                         "asset_relpath": "floorplan-01.pdf",
                         "mime_type": "application/pdf",
+                        "privacy_class": "floorplan_pdf_public",
                     }
                 ],
             },
@@ -7159,6 +7209,45 @@ def test_public_tour_routes_render_pdf_floorplan_scenes(
     asset = client.get(f"/tours/files/{slug}/floorplan-01.pdf")
     assert asset.status_code == 200
     assert asset.headers["content-type"].startswith("application/pdf")
+
+
+def test_public_tour_routes_deny_pdf_without_floorplan_public_privacy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "private-pdf-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "valuation.pdf").write_bytes(b"%PDF-1.7 private valuation")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Private PDF Tour",
+                "display_title": "Private PDF Tour",
+                "facts": {"area_sqm": 126.5, "has_floorplan": True},
+                "scenes": [
+                    {
+                        "name": "Valuation PDF",
+                        "role": "floorplan",
+                        "asset_relpath": "valuation.pdf",
+                        "mime_type": "application/pdf",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour")
+    payload = client.get(f"/tours/{slug}.json")
+
+    assert payload.status_code == 200
+    assert payload.json()["scenes"] == []
+    assert client.get(f"/tours/files/{slug}/valuation.pdf").status_code == 404
 
 
 def test_public_results_no_longer_shadow_tour_routes(
@@ -8309,11 +8398,11 @@ def test_public_tour_routes_use_listing_research_to_fill_decision_brief(
     assert "The building has only 8 residential units, which should keep internal traffic lower." in page.text
     assert "Availability is listed as Sofort." in page.text
     assert "Immersive 360 tour is available." not in page.text
-    assert "Hameaustraße 34" in page.text
+    assert "Hameaustraße 34" not in page.text
     assert "Supermarket" in page.text
     assert "Pharmacy" in page.text
     assert "Underground" in page.text
-    assert "Source research already filled: address, lift, floor plan, availability (Sofort), supermarket distance, pharmacy distance, playground distance, underground distance." in page.text
+    assert "Source research already filled: lift, floor plan, availability (Sofort), supermarket distance, pharmacy distance, playground distance, underground distance." in page.text
 
 
 def test_public_tour_routes_refuse_generated_fallback_tours(

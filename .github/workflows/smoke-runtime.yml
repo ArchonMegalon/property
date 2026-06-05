@@ -62,6 +62,12 @@ jobs:
         run: |
           semgrep scan --config p/security-audit --error ea/app/api/routes/public_tours.py ea/app/api/routes/product_api_contracts.py ea/app/api/app.py
 
+      - name: Run Broader Security Triage
+        continue-on-error: true
+        run: |
+          bandit -q -r ea/app || true
+          semgrep scan --config p/security-audit ea/app || true
+
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
