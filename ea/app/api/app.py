@@ -29,6 +29,7 @@ def _include_public_routes(
     landing_objects_router: APIRouter,
     landing_workspace_router: APIRouter,
     landing_router: APIRouter,
+    fliplink_public_router: APIRouter,
     health_router: APIRouter,
     register_router: APIRouter,
 ) -> None:
@@ -39,6 +40,7 @@ def _include_public_routes(
     app.include_router(landing_objects_router)
     app.include_router(landing_workspace_router)
     app.include_router(landing_router)
+    app.include_router(fliplink_public_router)
     if settings.public_results_enabled:
         from app.api.routes.public_results import router as public_results_router
 
@@ -65,6 +67,7 @@ def _include_authenticated_routes(
     product_api_delivery_router: APIRouter,
     product_api_workspace_router: APIRouter,
     product_api_router: APIRouter,
+    fliplink_authenticated_router: APIRouter,
     runtime_router: APIRouter,
 ) -> None:
     app.include_router(onboarding_router, dependencies=auth_dependency)
@@ -73,6 +76,7 @@ def _include_authenticated_routes(
     app.include_router(product_api_delivery_router, dependencies=auth_dependency)
     app.include_router(product_api_workspace_router, dependencies=auth_dependency)
     app.include_router(product_api_router, dependencies=auth_dependency)
+    app.include_router(fliplink_authenticated_router, dependencies=auth_dependency)
     app.include_router(runtime_router, dependencies=auth_dependency)
 
 
@@ -124,6 +128,8 @@ def create_app() -> FastAPI:
     from app.api.routes.connectors import router as connectors_router
     from app.api.routes.delivery import router as delivery_router
     from app.api.routes.evidence import router as evidence_router
+    from app.api.routes.fliplink_integration import authenticated_router as fliplink_authenticated_router
+    from app.api.routes.fliplink_integration import public_router as fliplink_public_router
     from app.api.routes.google_oauth import router as google_oauth_router
     from app.api.routes.health import router as health_router
     from app.api.routes.images import router as images_router
@@ -166,6 +172,7 @@ def create_app() -> FastAPI:
         landing_objects_router=landing_objects_router,
         landing_workspace_router=landing_workspace_router,
         landing_router=landing_router,
+        fliplink_public_router=fliplink_public_router,
         health_router=health_router,
         register_router=register_router,
     )
@@ -179,6 +186,7 @@ def create_app() -> FastAPI:
         product_api_delivery_router=product_api_delivery_router,
         product_api_workspace_router=product_api_workspace_router,
         product_api_router=product_api_router,
+        fliplink_authenticated_router=fliplink_authenticated_router,
         runtime_router=runtime_router,
     )
     if s.legacy_runtime_surfaces_enabled:

@@ -18,6 +18,7 @@ Usage:
 
 Runs the focused PropertyQuarry release bundle:
   - property workspace redesign browser contracts
+  - FlipLink packet privacy, publication, and webhook contracts
   - property workspace real-browser greenfield checks
   - property search run contracts
   - property market catalog contracts
@@ -30,6 +31,10 @@ cd "${EA_ROOT}"
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_docs_links.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_security_posture.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_repo_isolation.py
+PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
+  tests/test_fliplink_packet_privacy.py \
+  tests/test_property_packet_publications.py \
+  tests/test_fliplink_webhook_contracts.py
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_propertyquarry_workspace_redesign.py \
   tests/e2e/test_propertyquarry_greenfield_browser.py
