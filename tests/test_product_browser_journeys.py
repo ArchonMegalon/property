@@ -336,6 +336,18 @@ def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:
     assert 'data-range-selectable-max="45"' in response.text
     assert 'data-range-visual-max="80"' in response.text
     assert 'data-range-value-for="min_match_score"' in response.text
+    assert 'data-range-control="max_price_eur"' in response.text
+    assert 'data-range-control="min_rooms"' in response.text
+    assert 'data-range-control="min_area_m2"' in response.text
+    assert 'data-range-control="max_results_per_source"' in response.text
+    assert 'data-range-format="currency_eur"' in response.text
+    assert 'data-range-format="rooms"' in response.text
+    assert 'data-range-format="area_m2"' in response.text
+    assert 'data-range-format="count"' in response.text
+    assert 'data-range-empty-label="Any budget"' in response.text
+    assert 'data-range-preset="listing_mode_price"' in response.text
+    assert "Max budget" in response.text
+    assert "Min area" in response.text
     assert "Plan cap 45" in response.text
     assert "Agent unlocks 80" in response.text
     assert "Minimum personal fit score" in response.text
