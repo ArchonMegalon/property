@@ -31,18 +31,20 @@ The repo defaults to the PropertyQuarry brand even on non-production hostnames.
 
 ```bash
 cp .env.example .env
-# fill in the runtime credentials you actually use
-bash scripts/deploy.sh
-```
-
-For a property-only runtime without inherited assistant side services, use the hardened compose file:
-
-```bash
+# fill in the runtime credentials you actually use, including POSTGRES_PASSWORD
 docker compose -f docker-compose.property.yml up -d --build
 ```
 
 That topology starts only `propertyquarry-api`, `propertyquarry-worker`, `propertyquarry-scheduler`, and `propertyquarry-db`.
 It builds `ea/Dockerfile.property`, which omits Docker CLI tooling and runs the app process as the non-root `ea` user.
+
+`docker-compose.property.yml` defaults `EA_RUNTIME_MODE=prod`, requires `POSTGRES_PASSWORD`, disables public result/tour side surfaces by default, and runs the scheduler with `PROPERTYQUARRY_SCHEDULER_PROFILE=property_only`.
+
+The inherited EA mega-stack deploy script remains in the repo for migration and compatibility work. Do not use it for the standalone public PropertyQuarry runtime unless you explicitly need legacy assistant services:
+
+```bash
+PROPERTYQUARRY_USE_LEGACY_STACK=1 bash scripts/deploy.sh
+```
 
 Then open:
 

@@ -51,6 +51,19 @@ EOF
   esac
 done
 
+if [[ "${PROPERTYQUARRY_USE_LEGACY_STACK:-0}" != "1" ]]; then
+  cat >&2 <<'EOF'
+Refusing to deploy the inherited EA mega-stack from the standalone PropertyQuarry repo.
+
+Use the hardened property-only runtime instead:
+  docker compose -f docker-compose.property.yml up -d --build
+
+If you intentionally need the legacy assistant topology for migration work, rerun with:
+  PROPERTYQUARRY_USE_LEGACY_STACK=1 bash scripts/deploy.sh
+EOF
+  exit 2
+fi
+
 echo "== PropertyQuarry deploy: ${APP_ROOT} (project=${COMPOSE_PROJECT_NAME}) =="
 
 if [[ ! -f "${APP_ROOT}/.env" ]]; then

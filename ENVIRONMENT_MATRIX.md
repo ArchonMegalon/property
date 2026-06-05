@@ -53,6 +53,8 @@
 - Prefer `EA_STORAGE_BACKEND`; use `EA_LEDGER_BACKEND` only for temporary compatibility with older env files.
 - Set `EA_RUNTIME_MODE=prod` for production-like boots so missing/unavailable Postgres fails fast instead of degrading to memory.
 - For production/staging, use `EA_STORAGE_BACKEND=postgres` instead of `auto`.
+- Use `docker-compose.property.yml` or `make deploy` for standalone PropertyQuarry deployments; it defaults to `EA_RUNTIME_MODE=prod`, requires `POSTGRES_PASSWORD`, and runs the scheduler with `PROPERTYQUARRY_SCHEDULER_PROFILE=property_only`.
+- Keep `scripts/deploy.sh` behind `PROPERTYQUARRY_USE_LEGACY_STACK=1`; it exists only for deliberate inherited EA-stack migration/debug work.
 - Use `auto` only where memory fallback is acceptable.
 - Run `scripts/db_status.sh` after bootstrap to verify kernel table presence.
 - `EA_RUNTIME_MODE=prod` requires `EA_SIGNING_SECRET`; outside prod, omitting it falls back to a process-local ephemeral secret.

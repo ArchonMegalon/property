@@ -133,7 +133,8 @@ Auth:
 
 Runtime mode:
 - Set `EA_RUNTIME_MODE=prod` for durable environments; the app will fail fast instead of falling back from `EA_STORAGE_BACKEND=auto` or `memory` to in-process storage.
-- For the durable runtime profile, run `bash scripts/deploy.sh`.
+- For the standalone durable PropertyQuarry profile, set `POSTGRES_PASSWORD` and run `docker compose -f docker-compose.property.yml up -d --build`.
+- Use `PROPERTYQUARRY_USE_LEGACY_STACK=1 bash scripts/deploy.sh` only for migration work that intentionally needs inherited EA services.
 
 Policy notes:
 - Rewrite policy denies empty input, oversized input, and disallowed tool usage.
@@ -243,7 +244,7 @@ Use `--help` (or `-h`) on key scripts to print usage contracts quickly:
 
 | Script | Help Command | Purpose |
 |---|---|---|
-| `scripts/deploy.sh` | `bash scripts/deploy.sh --help` | Deploy runtime (standard or memory-only) |
+| `scripts/deploy.sh` | `bash scripts/deploy.sh --help` | Legacy inherited EA deploy wrapper; property deploys use `make deploy` |
 | `scripts/db_bootstrap.sh` | `bash scripts/db_bootstrap.sh --help` | Apply kernel DB migrations |
 | `scripts/db_status.sh` | `bash scripts/db_status.sh --help` | Check kernel table presence/counts |
 | `scripts/db_size.sh` | `bash scripts/db_size.sh --help` | Inspect table/index/total DB size footprint |
@@ -338,26 +339,28 @@ Release ops linkage: `RELEASE_CHECKLIST.md` includes `make ci-gates` and `make c
 ## 1) Start Services
 
 ```bash
-bash scripts/deploy.sh
-# or
 make deploy
+# or
+docker compose -f docker-compose.property.yml up -d --build
 ```
+
+Set `POSTGRES_PASSWORD`, `EA_SIGNING_SECRET`, and either `EA_API_TOKEN` or Cloudflare Access before starting a production-like PropertyQuarry stack. The standalone property compose file defaults `EA_RUNTIME_MODE=prod`, disables inherited public side surfaces, and uses the property-only scheduler profile.
 
 Memory-only local mode (API without DB dependency):
 
 ```bash
-EA_MEMORY_ONLY=1 bash scripts/deploy.sh
-# or
 make deploy-memory
 ```
+
+`make deploy-memory` intentionally opts into the inherited legacy deploy wrapper for local migration/debugging only.
 
 With schema bootstrap in one step:
 
 ```bash
-EA_BOOTSTRAP_DB=1 bash scripts/deploy.sh
-# or
 make deploy-bootstrap
 ```
+
+`make deploy-bootstrap` is also a legacy-stack helper. For the standalone property compose path, run migrations explicitly once the database is reachable.
 
 ## 2) Apply Kernel Migrations Manually
 

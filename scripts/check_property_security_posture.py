@@ -58,14 +58,34 @@ def main() -> int:
     for service_name in ("propertyquarry-api", "propertyquarry-worker", "propertyquarry-scheduler", "propertyquarry-db"):
         if service_name not in compose:
             failures.append(f"docker-compose.property.yml missing {service_name}")
+    if "POSTGRES_HOST_AUTH_METHOD" in compose or ":-trust" in compose:
+        failures.append("docker-compose.property.yml must not default Postgres to trust auth")
+    if 'POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?' not in compose:
+        failures.append("docker-compose.property.yml must require POSTGRES_PASSWORD")
+    if 'EA_RUNTIME_MODE: "${EA_RUNTIME_MODE:-prod}"' not in compose:
+        failures.append("docker-compose.property.yml must default EA_RUNTIME_MODE to prod")
+    if 'PROPERTYQUARRY_SCHEDULER_PROFILE: "${PROPERTYQUARRY_SCHEDULER_PROFILE:-property_only}"' not in compose:
+        failures.append("docker-compose.property.yml must default the scheduler to property_only")
 
     dockerfile = _read("ea/Dockerfile.property")
+    if not re.search(r"^FROM\s+\S+@sha256:[0-9a-f]{64}\s*$", dockerfile, flags=re.MULTILINE):
+        failures.append("ea/Dockerfile.property must pin its base image by digest")
     if " docker.io" in dockerfile or "docker-compose" in dockerfile or "docker-29." in dockerfile:
         failures.append("ea/Dockerfile.property must not install Docker tooling")
     if not re.search(r"^USER\s+ea\s*$", dockerfile, flags=re.MULTILINE):
         failures.append("ea/Dockerfile.property must run as USER ea")
     if "requirements.lock" not in dockerfile or "-c requirements.lock" not in dockerfile:
         failures.append("ea/Dockerfile.property must install with requirements.lock constraints")
+    if not re.search(r"image:\s+\S+@sha256:[0-9a-f]{64}", compose):
+        failures.append("docker-compose.property.yml must pin sidecar images by digest")
+
+    public_tours = _read("ea/app/api/routes/public_tours.py")
+    if "tour-action-tokens" in public_tours or "tourActionTokens" in public_tours:
+        failures.append("public tours must not emit bearer-style action tokens into HTML")
+    if "record_property_feedback(" in public_tours:
+        failures.append("public tour feedback must not directly mutate owner learning profiles")
+    if "request_property_tour_detail_refresh(" in public_tours:
+        failures.append("public tour request-details must not queue owner work from public links")
 
     requirements = _read("ea/requirements.txt")
     lock_text = _read("ea/requirements.lock")
