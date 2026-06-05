@@ -96,9 +96,8 @@ def _public_app_base_url(request: Request) -> str:
     forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
     effective_host = forwarded or request_host
     if effective_host in {"propertyquarry.com", "www.propertyquarry.com"}:
-        if forwarded:
-            return f"{forwarded_proto}://{forwarded}"
-        return str(request.base_url).rstrip("/")
+        host = forwarded or request_host
+        return f"https://{host}"
     explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
     if explicit:
         return explicit
