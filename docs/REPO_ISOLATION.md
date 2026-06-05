@@ -2,7 +2,7 @@
 
 PropertyQuarry is the standalone product runtime. The active release surface is intentionally narrow:
 
-- `ea/` application runtime used by the property API, worker, and scheduler
+- `ea/` application runtime used by the property API and scheduler
 - `docker-compose.property.yml`
 - `ea/Dockerfile.property`
 - `config/`, `docs/`, `scripts/`, and `tests/` that are property-facing

@@ -35,10 +35,11 @@ cp .env.example .env
 docker compose -f docker-compose.property.yml up -d --build
 ```
 
-That topology starts only `propertyquarry-api`, `propertyquarry-worker`, `propertyquarry-scheduler`, and `propertyquarry-db`.
+That topology starts only `propertyquarry-api`, `propertyquarry-scheduler`, and `propertyquarry-db`.
 It builds `ea/Dockerfile.property`, which omits Docker CLI tooling and runs the app process as the non-root `ea` user.
 
 `docker-compose.property.yml` defaults `EA_RUNTIME_MODE=prod`, requires `POSTGRES_PASSWORD`, disables public result/tour side surfaces by default, and runs the scheduler with `PROPERTYQUARRY_SCHEDULER_PROFILE=property_only`.
+The inherited generic worker is intentionally not part of the default topology until a dedicated PropertyQuarry job lane exists.
 
 The inherited EA mega-stack deploy script remains in the repo for migration and compatibility work. Do not use it for the standalone public PropertyQuarry runtime unless you explicitly need legacy assistant services:
 
@@ -69,7 +70,6 @@ Runtime and environment details live in:
 Operator scripts can be pointed at non-default compose service names with:
 
 - `PROPERTYQUARRY_API_SERVICE`
-- `PROPERTYQUARRY_WORKER_SERVICE`
 - `PROPERTYQUARRY_SCHEDULER_SERVICE`
 - `PROPERTYQUARRY_DB_SERVICE`
 

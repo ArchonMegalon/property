@@ -18,7 +18,7 @@ TEST_API_PYTEST_DESELECT ?= \
 	--deselect=tests/test_responses_api_contracts.py::test_local_fleet_runtime_helpers_cover_output_token_and_command_selection
 
 deploy:
-	docker compose -f docker-compose.property.yml up -d --build
+	docker compose -f docker-compose.property.yml up -d --build --remove-orphans
 
 deploy-legacy-ea-stack:
 	PROPERTYQUARRY_USE_LEGACY_STACK=1 bash scripts/deploy.sh

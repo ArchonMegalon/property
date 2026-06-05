@@ -31,6 +31,49 @@ jobs:
           PYTHONPATH=ea python scripts/check_property_security_posture.py
           PYTHONPATH=ea python scripts/check_property_repo_isolation.py
 
+  security-static:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Python Security Tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pip-audit bandit semgrep
+
+      - name: Run pip-audit
+        run: |
+          pip-audit -r ea/requirements.lock
+
+      - name: Run Bandit
+        run: |
+          bandit -q ea/app/api/routes/public_tours.py ea/app/api/routes/product_api_contracts.py ea/app/api/app.py
+
+      - name: Run Semgrep Security Audit
+        run: |
+          semgrep scan --config p/security-audit --error ea/app/api/routes/public_tours.py ea/app/api/routes/product_api_contracts.py ea/app/api/app.py
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ea/Dockerfile.property
+          failure-threshold: error
+          ignore: DL3008
+
   browser-surface-contracts:
     runs-on: ubuntu-latest
     steps:

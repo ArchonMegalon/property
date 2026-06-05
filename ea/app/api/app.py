@@ -145,7 +145,6 @@ def create_app() -> FastAPI:
     from app.api.routes.product_api import router as product_api_router
     from app.api.routes.product_api_delivery import router as product_api_delivery_router
     from app.api.routes.product_api_workspace import router as product_api_workspace_router
-    from app.api.routes.responses import router as responses_router
     from app.api.routes.rewrite import router as rewrite_router
     from app.api.routes.runtime import router as runtime_router
     from app.api.routes.skills import router as skills_router
@@ -155,7 +154,8 @@ def create_app() -> FastAPI:
     app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
-    app.router.on_startup.append(_prewarm_provider_health_cache)
+    if s.legacy_runtime_surfaces_enabled:
+        app.router.on_startup.append(_prewarm_provider_health_cache)
     _include_public_routes(
         app,
         settings=s,
@@ -182,6 +182,8 @@ def create_app() -> FastAPI:
         runtime_router=runtime_router,
     )
     if s.legacy_runtime_surfaces_enabled:
+        from app.api.routes.responses import router as responses_router
+
         _include_legacy_authenticated_routes(
             app,
             auth_dependency=auth_dependency,

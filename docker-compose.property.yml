@@ -35,34 +35,6 @@ services:
       propertyquarry-db:
         condition: service_healthy
 
-  propertyquarry-worker:
-    image: propertyquarry-runtime:latest
-    container_name: propertyquarry-worker
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      EA_ROLE: worker
-      EA_RUNTIME_MODE: "${EA_RUNTIME_MODE:-prod}"
-      PROPERTYQUARRY_WORKER_PROFILE: "${PROPERTYQUARRY_WORKER_PROFILE:-property_only}"
-      EA_ARTIFACTS_DIR: /data/artifacts
-      EA_PUBLIC_TOUR_DIR: /data/public_property_tours
-      EA_RESPONSES_PROVIDER_LEDGER_DIR: /data/provider-ledger
-      DATABASE_URL: "${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for property compose}@propertyquarry-db:5432/postgres}"
-      HOME: /home/ea
-      TZ: Europe/Vienna
-    volumes:
-      - ./config:/config:ro
-      - ./config:/app/config:ro
-      - propertyquarry_artifacts:/data/artifacts
-      - propertyquarry_public_tours:/data/public_property_tours
-      - propertyquarry_provider_ledger:/data/provider-ledger
-    depends_on:
-      propertyquarry-db:
-        condition: service_healthy
-      propertyquarry-api:
-        condition: service_started
-
   propertyquarry-scheduler:
     image: propertyquarry-runtime:latest
     container_name: propertyquarry-scheduler
