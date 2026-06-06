@@ -32,6 +32,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_docs_links.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_security_posture.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_repo_isolation.py
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
+  tests/test_property_deploy_operator_contracts.py \
   tests/test_fliplink_packet_privacy.py \
   tests/test_property_packet_publications.py \
   tests/test_fliplink_webhook_contracts.py \

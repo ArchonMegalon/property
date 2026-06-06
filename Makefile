@@ -18,7 +18,7 @@ TEST_API_PYTEST_DESELECT ?= \
 	--deselect=tests/test_responses_api_contracts.py::test_local_fleet_runtime_helpers_cover_output_token_and_command_selection
 
 deploy:
-	docker compose -f docker-compose.property.yml up -d --build --remove-orphans
+	PROPERTYQUARRY_COMPOSE_FILE=docker-compose.property.yml bash scripts/deploy_propertyquarry.sh
 
 deploy-legacy-ea-stack:
 	PROPERTYQUARRY_USE_LEGACY_STACK=1 bash scripts/deploy.sh
@@ -104,7 +104,7 @@ provider-readiness:
 	$(PYTHON_BIN) scripts/chummer6_provider_readiness.py
 
 operator-help:
-	@for s in scripts/deploy.sh scripts/db_bootstrap.sh scripts/db_status.sh scripts/db_size.sh scripts/db_retention.sh scripts/smoke_api.sh scripts/smoke_help.sh scripts/smoke_postgres.sh scripts/test_postgres_contracts.sh scripts/hard_exit_gates.sh scripts/runtime_hard_exit_gates.sh scripts/property_release_gates.sh scripts/verify_ltd_critical_entries.py scripts/verify_ltd_flagship_subset.py scripts/list_endpoints.sh scripts/version_info.sh scripts/export_openapi.sh scripts/diff_openapi.sh scripts/prune_openapi.sh scripts/operator_summary.sh scripts/support_bundle.sh scripts/archive_tasks.sh scripts/bootstrap_payfunnels_propertyquarry.py scripts/bootstrap_emailit_propertyquarry.py scripts/verify_release_assets.sh scripts/chummer6_overlay_vision_readiness.py; do \
+	@for s in scripts/deploy_propertyquarry.sh scripts/deploy.sh scripts/db_bootstrap.sh scripts/db_status.sh scripts/db_size.sh scripts/db_retention.sh scripts/smoke_api.sh scripts/smoke_help.sh scripts/smoke_postgres.sh scripts/test_postgres_contracts.sh scripts/hard_exit_gates.sh scripts/runtime_hard_exit_gates.sh scripts/property_release_gates.sh scripts/verify_ltd_critical_entries.py scripts/verify_ltd_flagship_subset.py scripts/list_endpoints.sh scripts/version_info.sh scripts/export_openapi.sh scripts/diff_openapi.sh scripts/prune_openapi.sh scripts/operator_summary.sh scripts/support_bundle.sh scripts/archive_tasks.sh scripts/bootstrap_payfunnels_propertyquarry.py scripts/bootstrap_emailit_propertyquarry.py scripts/verify_release_assets.sh scripts/chummer6_overlay_vision_readiness.py; do \
 	  echo "===== $$s --help ====="; \
 	  case "$$s" in \
 	    *.py) $(PYTHON_BIN) $$s --help ;; \

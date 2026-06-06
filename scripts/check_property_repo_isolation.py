@@ -28,6 +28,7 @@ DOCKER_CONTEXT_EXCLUSIONS = (
 RUNTIME_RELEASE_FILES = (
     "docker-compose.property.yml",
     "ea/Dockerfile.property",
+    "scripts/deploy_propertyquarry.sh",
     "scripts/property_release_gates.sh",
 )
 
