@@ -171,6 +171,7 @@ def test_property_scout_listing_url_cache_reuses_provider_result_lists(monkeypat
         product_service._PROPERTY_SOURCE_LISTING_CACHE.clear()
         product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
         product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_BACKEND", "memory")
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS", "60")
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_PATH", "")
     fetch_calls: list[str] = []
@@ -220,6 +221,7 @@ def test_property_scout_listing_url_cache_persists_provider_result_lists(monkeyp
         product_service._PROPERTY_SOURCE_LISTING_CACHE.clear()
         product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
         product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_BACKEND", "file")
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_PATH", str(cache_path))
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS", "60")
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_STALE_MAX_SECONDS", "3600")
@@ -301,6 +303,7 @@ def test_property_scout_listing_url_cache_merges_existing_persistent_entries(mon
         product_service._PROPERTY_SOURCE_LISTING_CACHE.clear()
         product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
         product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_BACKEND", "file")
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_PATH", str(cache_path))
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS", "60")
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_STALE_MAX_SECONDS", "3600")
@@ -325,6 +328,7 @@ def test_property_scout_listing_url_cache_quarantines_corrupt_persistent_snapsho
         product_service._PROPERTY_SOURCE_LISTING_CACHE.clear()
         product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
         product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_BACKEND", "file")
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_PATH", str(cache_path))
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS", "60")
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_STALE_MAX_SECONDS", "3600")
@@ -368,6 +372,7 @@ def test_property_scout_listing_url_cache_rejects_overstale_persistent_fallback(
         product_service._PROPERTY_SOURCE_LISTING_CACHE.clear()
         product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
         product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_BACKEND", "file")
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_PATH", str(cache_path))
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS", "1")
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_STALE_MAX_SECONDS", "60")
@@ -1447,3 +1452,40 @@ def test_property_search_run_postgres_round_trip(monkeypatch: pytest.MonkeyPatch
     assert loaded["principal_id"] == "exec-property-postgres-round-trip"
     assert loaded["property_search_preferences"]["country_code"] == "AT"
     assert any(row.get("run_id") == run_id for row in listed)
+
+
+def test_property_source_listing_cache_postgres_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
+    db_url = str(os.environ.get("EA_TEST_PROPERTY_DATABASE_URL") or "").strip()
+    if not db_url:
+        pytest.skip("EA_TEST_PROPERTY_DATABASE_URL is not set")
+    monkeypatch.setenv("DATABASE_URL", db_url)
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_BACKEND", "postgres")
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS", "60")
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_STALE_MAX_SECONDS", "3600")
+    monkeypatch.setattr(product_service, "_PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY", False)
+    cache_key = f"willhaben:postgres-round-trip:{uuid.uuid4().hex}"
+    listing_urls = (
+        "https://www.willhaben.at/iad/object?adId=postgres-cache-1",
+        "https://www.willhaben.at/iad/object?adId=postgres-cache-2",
+    )
+    with product_service._PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+        product_service._PROPERTY_SOURCE_LISTING_CACHE.clear()
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+
+    stored = product_service._property_source_listing_cache_put(
+        cache_key,
+        source_url="https://www.willhaben.at/iad/immobilien/mietwohnungen?ESTATE_SIZE%2FLIVING_AREA_FROM=85",
+        listing_urls=listing_urls,
+        source_spec={"provider_filter_pushdown": {"cache_key": cache_key, "min_area_m2": 85}},
+    )
+    with product_service._PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+        product_service._PROPERTY_SOURCE_LISTING_CACHE.clear()
+
+    cached_urls, cached_state = product_service._property_source_listing_cache_get(cache_key)
+
+    assert stored["persistence"] == "postgres"
+    assert cached_urls == listing_urls
+    assert cached_state["status"] == "hit"
+    assert cached_state["persistence"] == "postgres"
+    assert cached_state["listing_total"] == 2

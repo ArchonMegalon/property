@@ -386,6 +386,84 @@ Fields:
 - `recurring_alerts_enabled`
 - `agentic_research_enabled`
 
+### 6.7 ProviderQueryPlan
+
+Provider search must be planned before crawling. A query plan is the normalized contract between the user's brief and provider-specific URLs.
+
+Fields:
+
+- `provider_key`
+- `country_code`
+- `listing_mode`
+- `location_targets`
+- `min_area_m2`
+- `min_rooms`
+- `max_price`
+- `property_type`
+- `provider_filter_pushdown`
+- `provider_cache_key`
+- `source_urls`
+
+Rules:
+
+- push broad filters into provider URLs whenever the provider supports them
+- keep provider-specific parameter names inside provider adapters
+- store the generated `provider_cache_key` with each source so equivalent searches reuse provider result lists
+- never scan the whole provider catalog when a supported coarse filter can be pushed down
+
+### 6.8 SharedProviderListingCache
+
+Provider listing pages are shared infrastructure, not per-user scratch data. The greenfield design uses a shared cache keyed by provider and pushed-down filters.
+
+Fields:
+
+- `cache_key`
+- `source_url`
+- `listing_urls`
+- `provider_filter_pushdown`
+- `stored_at_epoch`
+- `ttl_seconds`
+- `stale_max_seconds`
+- `backend`
+
+Backends:
+
+- `memory` for unit tests and throwaway local runs
+- `file` for single-node fallback
+- `postgres` for production and multi-replica deployment
+- `auto` to prefer Postgres when durable storage is configured
+
+Rules:
+
+- fresh hits return immediately
+- stale hits may be used only as fallback when provider revalidation fails
+- listings are rechecked briefly before being shown or packetized
+- cached provider result lists can be reused across users, but user-specific ranking, packet privacy, and feedback learning remain principal-scoped
+
+### 6.9 ReusablePropertyArtifact
+
+Tours, packets, PDF receipts, and public-safe media manifests are reusable artifacts. A search run should reference existing artifacts when the canonical listing URL or provider external ID matches.
+
+Fields:
+
+- `artifact_id`
+- `canonical_listing_url`
+- `provider_key`
+- `external_listing_id`
+- `artifact_type`
+- `artifact_ref`
+- `source_hash`
+- `privacy_scope`
+- `created_at`
+- `last_verified_at`
+
+Rules:
+
+- reuse completed review packets and tours where the listing identity matches
+- verify that the source listing still exists before reuse
+- never reuse owner-private or paid-customer artifacts across principals
+- regenerate only when source hash, privacy mode, or packet renderer contract changes
+
 ## 7. API Shape
 
 The greenfield API should use property nouns.

@@ -320,6 +320,8 @@ _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_VERSION = 1
 _PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES = 256
 _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
 _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+_PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_LOCK = threading.Lock()
+_PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY = False
 _PROPERTY_TOUR_PREBUILD_LIMIT = 5
 _PROPERTY_SEARCH_RESULTS_NOTIFY_TIMEOUT_SECONDS = 6 * 60 * 60
 _PROPERTY_SEARCH_RESULTS_NOTIFY_POLL_SECONDS = 20.0
@@ -1182,6 +1184,25 @@ def _property_source_listing_cache_path() -> Path | None:
     return Path(raw_value).expanduser()
 
 
+def _property_source_listing_cache_backend() -> str:
+    raw_value = os.getenv("EA_PROPERTY_SOURCE_LISTING_CACHE_BACKEND")
+    storage_backend = str(os.getenv("EA_STORAGE_BACKEND") or "").strip().lower()
+    configured = str(raw_value or "").strip().lower()
+    if configured not in {"", "auto", "memory", "file", "postgres"}:
+        configured = "auto"
+    if configured in {"memory", "file", "postgres"}:
+        return configured
+    if raw_value is None and storage_backend == "postgres" and _property_search_run_database_url():
+        return "postgres"
+    if configured == "auto" and _property_search_run_database_url():
+        return "postgres"
+    if raw_value is None and _property_source_listing_cache_path() is not None:
+        return "file"
+    if _property_source_listing_cache_path() is not None:
+        return "file"
+    return "memory"
+
+
 def _property_source_listing_cache_key(*, source_url: str, source_spec: dict[str, object] | None = None) -> str:
     spec = dict(source_spec or {})
     configured = str(spec.get("provider_cache_key") or "").strip()
@@ -1192,6 +1213,66 @@ def _property_source_listing_cache_key(*, source_url: str, source_spec: dict[str
     if pushdown_key:
         return pushdown_key[:240]
     return ""
+
+
+def _property_source_listing_cache_normalize_row(raw_key: object, raw_row: object, *, now: float | None = None) -> dict[str, object]:
+    cache_key = str(raw_key or "").strip()[:240]
+    if not cache_key or not isinstance(raw_row, dict):
+        return {}
+    try:
+        stored_at = float(raw_row.get("stored_at_epoch") or 0.0)
+    except Exception:
+        stored_at = 0.0
+    effective_now = float(now or time.time())
+    urls = [str(value or "").strip() for value in list(raw_row.get("listing_urls") or []) if str(value or "").strip()]
+    if not urls:
+        return {}
+    return {
+        "cache_key": cache_key,
+        "source_url": urllib.parse.urldefrag(str(raw_row.get("source_url") or "").strip())[0],
+        "listing_urls": urls[:250],
+        "stored_at_epoch": stored_at or effective_now,
+        "provider_filter_pushdown": dict(raw_row.get("provider_filter_pushdown") or {})
+        if isinstance(raw_row.get("provider_filter_pushdown"), dict)
+        else {},
+    }
+
+
+def _property_source_listing_cache_row_state(
+    *,
+    cache_key: str,
+    row: dict[str, object],
+    allow_stale: bool,
+    persistence: str,
+) -> tuple[tuple[str, ...], dict[str, object]]:
+    now = time.time()
+    ttl = _property_source_listing_cache_ttl_seconds()
+    stale_max = _property_source_listing_cache_stale_max_seconds()
+    try:
+        stored_at = float(row.get("stored_at_epoch") or 0.0)
+    except Exception:
+        stored_at = 0.0
+    age_seconds = max(0.0, now - stored_at)
+    if not allow_stale and (ttl <= 0 or age_seconds > float(ttl)):
+        return (), {}
+    if allow_stale and (
+        ttl <= 0
+        or (age_seconds > float(ttl) and stale_max <= 0)
+        or (stale_max > 0 and age_seconds > float(stale_max))
+    ):
+        return (), {}
+    urls = tuple(str(value or "").strip() for value in list(row.get("listing_urls") or []) if str(value or "").strip())
+    if not urls:
+        return (), {}
+    state = {
+        "status": "stale_fallback" if ttl > 0 and age_seconds > float(ttl) else "hit",
+        "cache_key": cache_key,
+        "age_seconds": round(age_seconds, 2),
+        "listing_total": len(urls),
+        "persistence": persistence,
+        "revalidation": "candidate_preview",
+    }
+    return urls, state
 
 
 def _property_source_listing_cache_prune_locked() -> None:
@@ -1272,6 +1353,148 @@ def _property_source_listing_cache_quarantine_corrupt_file(path: Path, *, reason
     except Exception:
         return ""
     return f"{quarantine_path}:{reason}"
+
+
+def _ensure_property_source_listing_cache_schema() -> bool:
+    global _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY
+    if _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY:
+        return True
+    if not _property_search_run_database_url():
+        return False
+    with _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_LOCK:
+        if _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY:
+            return True
+        try:
+            with _property_search_run_connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS property_source_listing_cache (
+                            cache_key TEXT PRIMARY KEY,
+                            source_url TEXT NOT NULL DEFAULT '',
+                            listing_urls JSONB NOT NULL DEFAULT '[]'::jsonb,
+                            provider_filter_pushdown JSONB NOT NULL DEFAULT '{}'::jsonb,
+                            stored_at_epoch DOUBLE PRECISION NOT NULL,
+                            stored_at TIMESTAMPTZ NOT NULL,
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                    cur.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_property_source_listing_cache_stored_at
+                        ON property_source_listing_cache(stored_at_epoch DESC)
+                        """
+                    )
+        except Exception:
+            return False
+        _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY = True
+        return True
+
+
+def _property_source_listing_cache_prune_postgres() -> None:
+    if not _ensure_property_source_listing_cache_schema():
+        return
+    retention_seconds = max(
+        _property_source_listing_cache_ttl_seconds(),
+        _property_source_listing_cache_stale_max_seconds(),
+    )
+    try:
+        with _property_search_run_connect() as conn:
+            with conn.cursor() as cur:
+                if retention_seconds > 0:
+                    cur.execute(
+                        "DELETE FROM property_source_listing_cache WHERE stored_at_epoch < %s",
+                        (time.time() - float(retention_seconds),),
+                    )
+                cur.execute(
+                    """
+                    DELETE FROM property_source_listing_cache
+                    WHERE cache_key IN (
+                        SELECT cache_key
+                        FROM property_source_listing_cache
+                        ORDER BY stored_at_epoch DESC
+                        OFFSET %s
+                    )
+                    """,
+                    (_PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES,),
+                )
+    except Exception:
+        return
+
+
+def _property_source_listing_cache_get_postgres(cache_key: str) -> dict[str, object]:
+    normalized_key = str(cache_key or "").strip()[:240]
+    if not normalized_key or not _ensure_property_source_listing_cache_schema():
+        return {}
+    try:
+        with _property_search_run_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT cache_key, source_url, listing_urls, provider_filter_pushdown, stored_at_epoch
+                    FROM property_source_listing_cache
+                    WHERE cache_key = %s
+                    """,
+                    (normalized_key,),
+                )
+                row = cur.fetchone()
+    except Exception:
+        return {}
+    if not row:
+        return {}
+    return _property_source_listing_cache_normalize_row(
+        row[0],
+        {
+            "source_url": row[1],
+            "listing_urls": row[2],
+            "provider_filter_pushdown": row[3],
+            "stored_at_epoch": row[4],
+        },
+    )
+
+
+def _property_source_listing_cache_put_postgres(row: dict[str, object]) -> bool:
+    normalized = _property_source_listing_cache_normalize_row(row.get("cache_key"), row)
+    if not normalized or not _ensure_property_source_listing_cache_schema():
+        return False
+    from psycopg.types.json import Json
+
+    try:
+        with _property_search_run_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO property_source_listing_cache (
+                        cache_key,
+                        source_url,
+                        listing_urls,
+                        provider_filter_pushdown,
+                        stored_at_epoch,
+                        stored_at,
+                        updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+                    ON CONFLICT (cache_key) DO UPDATE
+                    SET source_url = EXCLUDED.source_url,
+                        listing_urls = EXCLUDED.listing_urls,
+                        provider_filter_pushdown = EXCLUDED.provider_filter_pushdown,
+                        stored_at_epoch = EXCLUDED.stored_at_epoch,
+                        stored_at = EXCLUDED.stored_at,
+                        updated_at = EXCLUDED.updated_at
+                    """,
+                    (
+                        normalized["cache_key"],
+                        normalized["source_url"],
+                        Json(list(normalized.get("listing_urls") or [])),
+                        Json(dict(normalized.get("provider_filter_pushdown") or {})),
+                        float(normalized.get("stored_at_epoch") or time.time()),
+                    ),
+                )
+        _property_source_listing_cache_prune_postgres()
+        return True
+    except Exception:
+        return False
 
 
 def _property_source_listing_cache_persist_snapshot(snapshot: dict[str, dict[str, object]]) -> None:
@@ -1453,39 +1676,30 @@ def _property_source_listing_cache_get(cache_key: str, *, allow_stale: bool = Fa
     normalized_key = str(cache_key or "").strip()
     if not normalized_key:
         return (), {}
-    _property_source_listing_cache_load()
-    now = time.time()
-    ttl = _property_source_listing_cache_ttl_seconds()
-    stale_max = _property_source_listing_cache_stale_max_seconds()
+    backend = _property_source_listing_cache_backend()
+    if backend == "postgres":
+        postgres_row = _property_source_listing_cache_get_postgres(normalized_key)
+        if postgres_row:
+            with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+                _PROPERTY_SOURCE_LISTING_CACHE[normalized_key] = postgres_row
+            return _property_source_listing_cache_row_state(
+                cache_key=normalized_key,
+                row=postgres_row,
+                allow_stale=allow_stale,
+                persistence="postgres",
+            )
+    if backend == "file":
+        _property_source_listing_cache_load()
     with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
         row = dict(_PROPERTY_SOURCE_LISTING_CACHE.get(normalized_key) or {})
     if not row:
         return (), {}
-    try:
-        stored_at = float(row.get("stored_at_epoch") or 0.0)
-    except Exception:
-        stored_at = 0.0
-    age_seconds = max(0.0, now - stored_at)
-    if not allow_stale and (ttl <= 0 or age_seconds > float(ttl)):
-        return (), {}
-    if allow_stale and (
-        ttl <= 0
-        or (age_seconds > float(ttl) and stale_max <= 0)
-        or (stale_max > 0 and age_seconds > float(stale_max))
-    ):
-        return (), {}
-    urls = tuple(str(value or "").strip() for value in list(row.get("listing_urls") or []) if str(value or "").strip())
-    if not urls:
-        return (), {}
-    state = {
-        "status": "stale_fallback" if ttl > 0 and age_seconds > float(ttl) else "hit",
-        "cache_key": normalized_key,
-        "age_seconds": round(age_seconds, 2),
-        "listing_total": len(urls),
-        "persistence": "file" if _property_source_listing_cache_path() is not None else "memory",
-        "revalidation": "candidate_preview",
-    }
-    return urls, state
+    return _property_source_listing_cache_row_state(
+        cache_key=normalized_key,
+        row=row,
+        allow_stale=allow_stale,
+        persistence=backend if backend in {"file", "memory"} else "memory",
+    )
 
 
 def _property_source_listing_cache_put(
@@ -1514,12 +1728,17 @@ def _property_source_listing_cache_put(
         _PROPERTY_SOURCE_LISTING_CACHE[normalized_key] = row
         _property_source_listing_cache_prune_locked()
         snapshot = _property_source_listing_cache_snapshot_locked()
-    _property_source_listing_cache_persist_snapshot(snapshot)
+    backend = _property_source_listing_cache_backend()
+    persisted_backend = backend
+    if backend == "file":
+        _property_source_listing_cache_persist_snapshot(snapshot)
+    elif backend == "postgres":
+        persisted_backend = "postgres" if _property_source_listing_cache_put_postgres(row) else "memory"
     return {
         "status": "stored",
         "cache_key": normalized_key,
         "listing_total": len(urls),
-        "persistence": "file" if _property_source_listing_cache_path() is not None else "memory",
+        "persistence": persisted_backend,
         "ttl_seconds": _property_source_listing_cache_ttl_seconds(),
     }
 
