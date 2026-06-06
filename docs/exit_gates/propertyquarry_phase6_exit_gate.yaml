@@ -1,0 +1,59 @@
+phase: 6
+name: monetization_and_optimization
+objective: >
+  Prove that PropertyQuarry turns LTD-backed commercial and analytics capability
+  into contextual user value rather than detached billing or raw metrics.
+status_values:
+  - pass
+  - fail
+  - watch
+  - blocked
+required_test_modules:
+  contract:
+    - tests/test_propertyquarry_offer_and_optimization_contracts.py
+    - tests/test_product_api_contracts.py
+  browser:
+    - tests/e2e/test_propertyquarry_commercial_optimization_browser.py
+    - tests/e2e/test_propertyquarry_phase_regression_browser.py
+  gate:
+    - tests/test_propertyquarry_phase6_exit_gate.py
+required_contract_coverage:
+  - can_list_contextual_offers
+  - can_start_checkout_for_valid_offer
+  - can_generate_packet_optimization_recommendations
+  - can_acknowledge_or_resolve_recommendation
+  - recommendations_are_scoped_to_correct_packet_or_workspace_context
+required_browser_workflows:
+  - name: contextual_offer_visibility
+    checks:
+      - user or operator can open workspace
+      - premium next-step offer appears only in valid context
+      - checkout path can be opened
+  - name: optimization_recommendation_visibility
+    checks:
+      - packet dashboard shows optimization recommendation
+      - recommendation can be acknowledged or acted on
+      - UI updates accordingly
+required_persistence_assertions:
+  - offer state survives reload
+  - optimization recommendations survive reload
+  - acknowledged recommendations do not reappear incorrectly
+required_ui_affordances:
+  - Premium next step or offer block
+  - Checkout entry point
+  - Optimization recommendation block
+  - Acknowledge or act affordance
+fail_closed_conditions:
+  - commercial offers are detached from real user intent
+  - optimization appears only as raw metrics with no action
+  - paid prompts surface in invalid contexts
+exit_criteria:
+  - all required test modules pass
+  - all required browser workflows pass
+  - all persistence assertions pass
+  - all required UI affordances are present
+  - no fail_closed_conditions are true
+evidence_artifacts:
+  - workspace screenshot with contextual commercial offer
+  - packet dashboard screenshot with optimization recommendation
+  - test output proving commercial and browser suites passed

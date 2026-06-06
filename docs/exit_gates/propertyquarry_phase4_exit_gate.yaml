@@ -1,0 +1,63 @@
+phase: 4
+name: publishing_workflow
+objective: >
+  Prove that publishing is a first-class PropertyQuarry workflow with audience
+  variants, republish lifecycle, and share-journey state.
+status_values:
+  - pass
+  - fail
+  - watch
+  - blocked
+required_test_modules:
+  contract:
+    - tests/test_property_packet_variant_contracts.py
+    - tests/test_fliplink_webhook_contracts.py
+  browser:
+    - tests/e2e/test_propertyquarry_packet_publishing_browser.py
+    - tests/e2e/test_propertyquarry_phase_regression_browser.py
+  gate:
+    - tests/test_propertyquarry_phase4_exit_gate.py
+required_contract_coverage:
+  - can_create_family_variant
+  - can_create_agent_variant
+  - republish_preserves_publication_lineage
+  - variant_engagement_can_differ_by_audience
+  - share_journey_state_transitions_are_correct
+required_browser_workflows:
+  - name: create_audience_variant
+    checks:
+      - operator can create family variant
+      - operator can create agent variant
+      - variant entries appear in packet dashboard
+  - name: republish_revised_packet
+    checks:
+      - operator can republish revised packet
+      - republished state is visible
+      - lineage or revision relationship is visible
+  - name: share_journey_visibility
+    checks:
+      - share journey shows draft/published/opened/followup states
+      - packet follow-up state updates after engagement
+required_persistence_assertions:
+  - variant relationship survives reload
+  - republish state survives reload
+  - share journey survives reload
+required_ui_affordances:
+  - Create family variant
+  - Create agent variant
+  - Republish revised packet
+  - Share journey timeline or state block
+fail_closed_conditions:
+  - variants exist internally but not in UI
+  - republish breaks or loses lineage
+  - share lifecycle state is not visible
+exit_criteria:
+  - all required test modules pass
+  - all required browser workflows pass
+  - all persistence assertions pass
+  - all required UI affordances are present
+  - no fail_closed_conditions are true
+evidence_artifacts:
+  - packet dashboard screenshot with variants
+  - republish workflow screenshot
+  - test output proving variant and browser suites passed

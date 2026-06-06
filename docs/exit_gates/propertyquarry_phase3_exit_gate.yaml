@@ -1,0 +1,63 @@
+phase: 3
+name: trust_artifacts
+objective: >
+  Prove that PropertyQuarry can explain shortlist choices and changes to users
+  through generated artifacts that are visible, attached, and persistent.
+status_values:
+  - pass
+  - fail
+  - watch
+  - blocked
+required_test_modules:
+  contract:
+    - tests/test_property_summary_artifacts.py
+    - tests/test_product_api_contracts.py
+  browser:
+    - tests/e2e/test_propertyquarry_summary_artifacts_browser.py
+    - tests/e2e/test_propertyquarry_phase_regression_browser.py
+  gate:
+    - tests/test_propertyquarry_phase3_exit_gate.py
+required_contract_coverage:
+  - can_generate_why_shortlisted_artifact
+  - can_generate_tradeoff_summary_artifact
+  - can_generate_what_changed_artifact
+  - artifact_can_be_fetched_by_id
+  - artifact_can_be_attached_to_packet
+  - weak_data_yields_safe_fallback_artifact
+required_browser_workflows:
+  - name: generate_summary_from_workbench
+    checks:
+      - operator can open workbench
+      - operator can trigger summary generation
+      - artifact appears in UI
+  - name: attach_artifact_to_packet
+    checks:
+      - generated artifact can be attached to packet
+      - packet dashboard renders attached artifact
+  - name: inspect_what_changed
+    checks:
+      - user can see what changed since prior review
+      - explanation is readable in rendered surface
+required_persistence_assertions:
+  - generated artifact survives reload
+  - packet attachment survives reload
+  - attached artifact still renders after reload
+required_ui_affordances:
+  - Generate explanation
+  - Generate what changed
+  - Attached summaries section
+  - Readable explanation render
+fail_closed_conditions:
+  - artifacts generate but are not rendered in product UI
+  - artifacts are API-only and not operator-visible
+  - what_changed is not grounded in actual property differences
+exit_criteria:
+  - all required test modules pass
+  - all required browser workflows pass
+  - all persistence assertions pass
+  - all required UI affordances are present
+  - no fail_closed_conditions are true
+evidence_artifacts:
+  - workbench screenshot showing generated artifact
+  - packet dashboard screenshot with attached artifact
+  - test output proving artifact and browser suites passed

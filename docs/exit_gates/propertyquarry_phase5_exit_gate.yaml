@@ -1,0 +1,65 @@
+phase: 5
+name: crm_timeline_spine
+objective: >
+  Prove that PropertyQuarry can represent stakeholder and property interaction
+  history as one readable timeline with explicit open loops and ownership.
+status_values:
+  - pass
+  - fail
+  - watch
+  - blocked
+required_test_modules:
+  contract:
+    - tests/test_propertyquarry_timeline_contracts.py
+    - tests/test_product_api_contracts.py
+  browser:
+    - tests/e2e/test_propertyquarry_timeline_browser.py
+    - tests/e2e/test_propertyquarry_phase_regression_browser.py
+  gate:
+    - tests/test_propertyquarry_phase5_exit_gate.py
+required_contract_coverage:
+  - stakeholder_timeline_includes_packet_feedback_followup_events
+  - property_timeline_merges_multiple_stakeholders
+  - followup_assignment_updates_timeline
+  - followup_resolution_updates_timeline
+  - open_loop_summary_is_stable
+required_browser_workflows:
+  - name: inspect_stakeholder_timeline
+    checks:
+      - operator can open stakeholder detail
+      - reaction history is visible
+      - recurring concerns are visible
+  - name: inspect_property_timeline
+    checks:
+      - operator can open property workbench
+      - merged timeline is visible
+  - name: assign_and_resolve_followup
+    checks:
+      - operator can assign follow-up owner
+      - operator can resolve follow-up
+      - timeline reflects both actions
+required_persistence_assertions:
+  - stakeholder timeline survives reload
+  - property timeline survives reload
+  - follow-up ownership survives reload
+  - follow-up resolution survives reload
+required_ui_affordances:
+  - Stakeholder timeline
+  - Property timeline
+  - Open loops section
+  - Follow-up owner assignment
+  - Follow-up resolution state
+fail_closed_conditions:
+  - timeline is just raw event dump and not readable
+  - follow-up ownership is hidden or missing
+  - stakeholder/property memory remains fragmented across surfaces
+exit_criteria:
+  - all required test modules pass
+  - all required browser workflows pass
+  - all persistence assertions pass
+  - all required UI affordances are present
+  - no fail_closed_conditions are true
+evidence_artifacts:
+  - stakeholder timeline screenshot
+  - property timeline screenshot
+  - test output proving timeline and browser suites passed

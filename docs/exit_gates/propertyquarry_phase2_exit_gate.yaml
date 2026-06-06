@@ -1,0 +1,68 @@
+phase: 2
+name: structured_feedback_spine
+objective: >
+  Prove that viewer and stakeholder reactions become structured decision input
+  inside PropertyQuarry rather than loose comments or hidden event traces.
+status_values:
+  - pass
+  - fail
+  - watch
+  - blocked
+required_test_modules:
+  contract:
+    - tests/test_property_feedback_spine_contracts.py
+    - tests/test_product_api_contracts.py
+  browser:
+    - tests/e2e/test_propertyquarry_feedback_browser.py
+    - tests/e2e/test_propertyquarry_phase_regression_browser.py
+  gate:
+    - tests/test_propertyquarry_phase2_exit_gate.py
+required_contract_coverage:
+  - can_store_categorized_feedback_entry
+  - feedback_entry_can_link_to_stakeholder
+  - feedback_can_be_filtered_by_property
+  - feedback_can_be_filtered_by_stakeholder
+  - property_feedback_summary_returns_counts
+  - property_feedback_summary_returns_open_questions
+  - objection_clustering_groups_similar_feedback
+  - dealbreaker_counts_are_stable
+required_browser_workflows:
+  - name: record_structured_feedback_from_packet_context
+    checks:
+      - operator can open packet feedback surface
+      - operator can submit categorized feedback
+      - feedback row becomes visible immediately
+  - name: workbench_surfaces_top_objections
+    checks:
+      - operator can open decision workbench
+      - objection summary is visible
+      - dealbreakers are visually distinct
+  - name: stakeholder_linked_feedback_visible
+    checks:
+      - stakeholder-specific feedback can be inspected
+      - workbench or packet UI shows stakeholder identity or label
+required_persistence_assertions:
+  - structured feedback survives reload
+  - objection summaries survive reload
+  - stakeholder-linked feedback survives reload
+required_ui_affordances:
+  - Feedback table
+  - Feedback category labels
+  - Dealbreaker visual state
+  - Top objections section
+  - Open questions count or section
+fail_closed_conditions:
+  - structured feedback exists only in API but not in UI
+  - objections are not summarized for decision use
+  - stakeholder linkage is missing or unstable
+  - dealbreakers do not affect visible decision context
+exit_criteria:
+  - all required test modules pass
+  - all required browser workflows pass
+  - all persistence assertions pass
+  - all required UI affordances are present
+  - no fail_closed_conditions are true
+evidence_artifacts:
+  - packet feedback table screenshot
+  - decision workbench screenshot with objections
+  - test output proving feedback and browser suites passed

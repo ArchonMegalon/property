@@ -1,0 +1,70 @@
+phase: 1
+name: packet_engagement_loop
+objective: >
+  Prove that PropertyQuarry packets are no longer static exports and now support
+  sharing, engagement tracking, persistence, and visible next-step guidance.
+status_values:
+  - pass
+  - fail
+  - watch
+  - blocked
+required_test_modules:
+  contract:
+    - tests/test_property_packet_engagement_contracts.py
+    - tests/test_fliplink_webhook_contracts.py
+  browser:
+    - tests/e2e/test_propertyquarry_packet_engagement_browser.py
+    - tests/e2e/test_propertyquarry_phase_regression_browser.py
+  gate:
+    - tests/test_propertyquarry_phase1_exit_gate.py
+required_contract_coverage:
+  - can_create_packet_share_for_existing_publication
+  - can_store_multiple_recipients_under_share
+  - can_record_open_event
+  - can_record_feedback_event
+  - engagement_snapshot_returns_open_response_inactive_counts
+  - engagement_snapshot_returns_next_best_action
+  - archived_publication_rejects_new_share
+  - webhook_or_manual_event_ingest_maps_to_engagement_snapshot
+required_browser_workflows:
+  - name: share_packet_from_packet_dashboard
+    checks:
+      - operator can open packet dashboard
+      - operator can create share with at least one named recipient
+      - recipient row becomes visible after submit
+  - name: packet_engagement_visible_after_event
+    checks:
+      - open or response event can be ingested
+      - packet dashboard shows updated open count
+      - packet dashboard shows updated response count or state
+      - next_best_action becomes visible
+  - name: workspace_surfaces_packet_followup_state
+    checks:
+      - shortlist or research card shows packet follow-up state
+      - user can navigate from workspace to packet follow-up context
+required_persistence_assertions:
+  - share still exists after page reload
+  - recipient rows still exist after page reload
+  - engagement counts survive reload
+  - next_best_action survives reload
+required_ui_affordances:
+  - Share packet
+  - Recipients section
+  - Engagement metrics section
+  - Next best action
+  - Track follow-up entry point from workspace
+fail_closed_conditions:
+  - packets can be shared but engagement is not visible in UI
+  - engagement can be logged but does not change next_best_action
+  - share data disappears after reload
+  - workspace does not surface follow-up state
+exit_criteria:
+  - all required test modules pass
+  - all required browser workflows pass
+  - all persistence assertions pass
+  - all required UI affordances are present
+  - no fail_closed_conditions are true
+evidence_artifacts:
+  - packet dashboard screenshot with recipients and metrics
+  - workspace screenshot showing packet follow-up state
+  - test output proving contract and browser suites passed
