@@ -169,7 +169,10 @@ def test_property_search_type_filter_blocks_garage_for_residential_searches() ->
 def test_property_scout_listing_url_cache_reuses_provider_result_lists(monkeypatch) -> None:
     with product_service._PROPERTY_SOURCE_LISTING_CACHE_LOCK:
         product_service._PROPERTY_SOURCE_LISTING_CACHE.clear()
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS", "60")
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_PATH", "")
     fetch_calls: list[str] = []
 
     def _fake_fetch_html(url: str, *, timeout_seconds: float = 60.0) -> str:
@@ -209,6 +212,141 @@ def test_property_scout_listing_url_cache_reuses_provider_result_lists(monkeypat
     assert refreshed_cache["status"] == "refresh"
     assert first_urls == second_urls == refreshed_urls
     assert len(fetch_calls) == 2
+
+
+def test_property_scout_listing_url_cache_persists_provider_result_lists(monkeypatch, tmp_path) -> None:
+    cache_path = tmp_path / "provider-listings.json"
+    with product_service._PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+        product_service._PROPERTY_SOURCE_LISTING_CACHE.clear()
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_PATH", str(cache_path))
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS", "60")
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_STALE_MAX_SECONDS", "3600")
+    fetch_calls: list[str] = []
+
+    def _fake_fetch_html(url: str, *, timeout_seconds: float = 60.0) -> str:
+        fetch_calls.append(url)
+        return "<html>provider source</html>"
+
+    def _fake_extract_listing_urls(*, source_url: str, html: str) -> tuple[str, ...]:
+        return (
+            "https://www.willhaben.at/iad/object?adId=persist-1",
+            "https://www.willhaben.at/iad/object?adId=persist-2",
+        )
+
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", _fake_fetch_html)
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", _fake_extract_listing_urls)
+    source_spec = {
+        "platform": "willhaben",
+        "provider_cache_key": "willhaben:persistent-cache-key",
+        "provider_filter_pushdown": {"cache_key": "willhaben:persistent-cache-key"},
+    }
+
+    first_urls, first_cache = product_service._property_scout_listing_urls_for_source(
+        source_url="https://www.willhaben.at/iad/immobilien/mietwohnungen?ESTATE_SIZE%2FLIVING_AREA_FROM=90",
+        source_spec=source_spec,
+    )
+    assert first_cache["status"] == "miss"
+    assert first_cache["persistence"] == "file"
+    assert cache_path.exists()
+
+    with product_service._PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+        product_service._PROPERTY_SOURCE_LISTING_CACHE.clear()
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+
+    def _blocked_fetch_html(url: str, *, timeout_seconds: float = 60.0) -> str:
+        raise AssertionError("persistent provider-list cache should satisfy this request")
+
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", _blocked_fetch_html)
+    second_urls, second_cache = product_service._property_scout_listing_urls_for_source(
+        source_url="https://www.willhaben.at/iad/immobilien/mietwohnungen?ESTATE_SIZE%2FLIVING_AREA_FROM=90",
+        source_spec=source_spec,
+    )
+
+    persisted = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert persisted["version"] == "property_source_listing_cache_v1"
+    assert "willhaben:persistent-cache-key" in persisted["entries"]
+    assert second_cache["status"] == "hit"
+    assert second_cache["persistence"] == "file"
+    assert second_urls == first_urls
+    assert len(fetch_calls) == 1
+
+
+def test_property_scout_listing_url_cache_merges_existing_persistent_entries(monkeypatch, tmp_path) -> None:
+    cache_path = tmp_path / "provider-listings.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "version": "property_source_listing_cache_v1",
+                "entries": {
+                    "willhaben:other-worker-key": {
+                        "cache_key": "willhaben:other-worker-key",
+                        "source_url": "https://www.willhaben.at/iad/immobilien/mietwohnungen?q=other",
+                        "listing_urls": ["https://www.willhaben.at/iad/object?adId=other-1"],
+                        "stored_at_epoch": time.time(),
+                        "provider_filter_pushdown": {"cache_key": "willhaben:other-worker-key"},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    with product_service._PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+        product_service._PROPERTY_SOURCE_LISTING_CACHE.clear()
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_PATH", str(cache_path))
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS", "60")
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_STALE_MAX_SECONDS", "3600")
+
+    product_service._property_source_listing_cache_put(
+        "willhaben:this-worker-key",
+        source_url="https://www.willhaben.at/iad/immobilien/mietwohnungen?q=this",
+        listing_urls=("https://www.willhaben.at/iad/object?adId=this-1",),
+        source_spec={"provider_filter_pushdown": {"cache_key": "willhaben:this-worker-key"}},
+    )
+
+    persisted = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert "willhaben:other-worker-key" in persisted["entries"]
+    assert "willhaben:this-worker-key" in persisted["entries"]
+
+
+def test_property_scout_listing_url_cache_rejects_overstale_persistent_fallback(monkeypatch, tmp_path) -> None:
+    cache_path = tmp_path / "provider-listings.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "version": "property_source_listing_cache_v1",
+                "entries": {
+                    "willhaben:old-cache-key": {
+                        "cache_key": "willhaben:old-cache-key",
+                        "source_url": "https://www.willhaben.at/iad/immobilien/mietwohnungen",
+                        "listing_urls": ["https://www.willhaben.at/iad/object?adId=old-1"],
+                        "stored_at_epoch": time.time() - 3600,
+                        "provider_filter_pushdown": {"cache_key": "willhaben:old-cache-key"},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    with product_service._PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+        product_service._PROPERTY_SOURCE_LISTING_CACHE.clear()
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_PATH", str(cache_path))
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS", "1")
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_STALE_MAX_SECONDS", "60")
+
+    cached_urls, cached_state = product_service._property_source_listing_cache_get(
+        "willhaben:old-cache-key",
+        allow_stale=True,
+    )
+
+    assert cached_urls == ()
+    assert cached_state == {}
 
 
 def test_hosted_property_tour_bundle_reuses_existing_manifest(monkeypatch, tmp_path) -> None:
