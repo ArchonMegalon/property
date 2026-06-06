@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import os
+import urllib.parse
 from dataclasses import dataclass
 
 from app.domain.models import now_utc_iso
@@ -43,6 +45,8 @@ EXACT_ADDRESS_KEYS = {
 
 FLOORPLAN_REF_KEYS = {"floorplan_refs", "floorplans", "floorplan_urls", "floorplan_url", "floorplan_pdf_url"}
 PHOTO_REF_KEYS = {"photo_refs", "photos", "image_urls", "images", "photo_urls", "primary_image_url"}
+DEFAULT_MEDIA_ALLOWED_HOSTS = ("propertyquarry.com", "*.propertyquarry.com")
+SENSITIVE_MEDIA_QUERY_MARKERS = ("token=", "secret=", "session=", "cookie=", "signature=", "signed=")
 
 BASE_PUBLIC_FACT_KEYS = {
     "rooms",
@@ -194,18 +198,46 @@ def _list_text(value: object, limit: int = 12) -> list[str]:
     return [str(item or "").strip() for item in value[:limit] if str(item or "").strip()]
 
 
-def _public_media_refs(source: dict[str, object], keys: set[str], *, limit: int = 16) -> list[str]:
+def _media_allowed_hosts() -> set[str]:
+    raw = str(os.getenv("FLIPLINK_PACKET_MEDIA_ALLOWED_HOSTS") or "").strip()
+    values = raw.split(",") if raw else list(DEFAULT_MEDIA_ALLOWED_HOSTS)
+    return {str(item or "").strip().lower().rstrip(".") for item in values if str(item or "").strip()}
+
+
+def _media_host_allowed(host: str, allowed_hosts: set[str]) -> bool:
+    normalized = str(host or "").strip().lower().rstrip(".")
+    if not normalized:
+        return False
+    for allowed in allowed_hosts:
+        if normalized == allowed:
+            return True
+        if allowed.startswith("*.") and normalized.endswith("." + allowed[2:]):
+            return True
+    return False
+
+
+def _public_media_refs(source: dict[str, object], keys: set[str], *, removed: list[str], limit: int = 16) -> list[str]:
     refs: list[str] = []
+    allowed_hosts = _media_allowed_hosts()
     for key in keys:
         raw = source.get(key)
         values = raw if isinstance(raw, list) else ([raw] if raw else [])
-        for value in values:
+        for index, value in enumerate(values):
             if isinstance(value, dict):
                 value = value.get("url") or value.get("href") or value.get("src")
             text = str(value or "").strip()
-            if not text or not text.lower().startswith("https://"):
+            if not text:
                 continue
-            if any(marker in text.lower() for marker in ("token=", "secret=", "session=", "cookie=")):
+            parsed = urllib.parse.urlparse(text)
+            if parsed.scheme.lower() != "https" or not parsed.hostname:
+                removed.append(f"{key}[{index}].non_https_media_ref")
+                continue
+            lowered = text.lower()
+            if any(marker in lowered for marker in SENSITIVE_MEDIA_QUERY_MARKERS):
+                removed.append(f"{key}[{index}].sensitive_media_query")
+                continue
+            if not _media_host_allowed(parsed.hostname, allowed_hosts):
+                removed.append(f"{key}[{index}].host_not_allowed:{str(parsed.hostname or '').lower()}")
                 continue
             refs.append(text[:1000])
             if len(refs) >= limit:
@@ -246,13 +278,13 @@ def redact_property_packet(
         "facts": redacted_facts,
     }
     if include_floorplan:
-        floorplans = _public_media_refs(source, FLOORPLAN_REF_KEYS, limit=8)
+        floorplans = _public_media_refs(source, FLOORPLAN_REF_KEYS, removed=removed, limit=8)
         if floorplans:
             payload["floorplan_refs"] = floorplans
     else:
         removed.extend(sorted(key for key in FLOORPLAN_REF_KEYS if key in source))
     if include_photos:
-        photos = _public_media_refs(source, PHOTO_REF_KEYS, limit=20)
+        photos = _public_media_refs(source, PHOTO_REF_KEYS, removed=removed, limit=20)
         if photos:
             payload["photo_refs"] = photos
     else:
@@ -272,6 +304,7 @@ def redact_property_packet(
         ],
         "removed_fields": sorted(set(item for item in removed if item)),
         "allowed_fact_keys": sorted(_fact_allowlist_for(privacy_mode, include_exact_address=include_exact_address)),
+        "media_allowed_hosts": sorted(_media_allowed_hosts()),
         "include_floorplan": bool(include_floorplan),
         "include_photos": bool(include_photos),
         "generated_at": now_utc_iso(),

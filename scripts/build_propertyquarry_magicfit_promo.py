@@ -12,20 +12,31 @@ from pathlib import Path
 from typing import Any
 
 
+def safe_variant(value: object) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]+", "-", str(value or "").strip()).strip("-_")[:48]
+
+
 ROOT = Path(os.environ.get("PROPERTYQUARRY_ROOT") or Path(__file__).resolve().parents[1]).resolve()
 EA_ROOT = Path(os.environ.get("PROPERTYQUARRY_EA_ROOT") or "/docker/EA").resolve()
 OUT = Path(
     os.environ.get("PROPERTYQUARRY_PROMO_OUT_DIR")
     or ROOT / "_completion" / "propertyquarry_magicfit_promo_20260606"
 ).resolve()
-CLIPS = OUT / "magicfit_clips"
-FINAL = OUT / "PropertyQuarry_Hero_87s_16x9_4K_DE.mp4"
-TELEGRAM_FINAL = OUT / "PropertyQuarry_Hero_87s_16x9_Telegram_720p_DE.mp4"
-SILENT = OUT / "PropertyQuarry_Hero_87s_16x9_4K_DE.silent.mp4"
-AUDIO = OUT / "PropertyQuarry_Hero_87s_16x9_4K_DE.aac"
-SRT = OUT / "PropertyQuarry_Hero_87s_16x9_4K_DE.srt"
-RECEIPT = OUT / "PROPERTYQUARRY_MAGICFIT_PROMO.generated.json"
-TELEGRAM_RECEIPT = OUT / "PROPERTYQUARRY_MAGICFIT_PROMO.telegram.receipt.json"
+VARIANT = safe_variant(os.environ.get("PROPERTYQUARRY_PROMO_VARIANT", ""))
+VARIANT_TAG = f"_{VARIANT}" if VARIANT else ""
+CLIPS = Path(os.environ.get("PROPERTYQUARRY_MAGICFIT_CLIPS_DIR") or OUT / "magicfit_clips").resolve()
+FINAL = OUT / f"PropertyQuarry_Hero_87s_16x9_4K_DE{VARIANT_TAG}.mp4"
+TELEGRAM_FINAL = OUT / f"PropertyQuarry_Hero_87s_16x9_Telegram_720p_DE{VARIANT_TAG}.mp4"
+SILENT = Path(
+    os.environ.get("PROPERTYQUARRY_PROMO_SILENT_VIDEO")
+    or OUT / f"PropertyQuarry_Hero_87s_16x9_4K_DE{VARIANT_TAG}.silent.mp4"
+).resolve()
+VOICE_AUDIO = OUT / f"PropertyQuarry_Hero_87s_16x9_4K_DE{VARIANT_TAG}.voice.aac"
+SOUNDTRACK = OUT / f"PropertyQuarry_Hero_87s_16x9_4K_DE{VARIANT_TAG}.soundtrack.wav"
+AUDIO = OUT / f"PropertyQuarry_Hero_87s_16x9_4K_DE{VARIANT_TAG}.aac"
+SRT = OUT / f"PropertyQuarry_Hero_87s_16x9_4K_DE{VARIANT_TAG}.srt"
+RECEIPT = OUT / f"PROPERTYQUARRY_MAGICFIT_PROMO{VARIANT_TAG}.generated.json"
+TELEGRAM_RECEIPT = OUT / f"PROPERTYQUARRY_MAGICFIT_PROMO{VARIANT_TAG}.telegram.receipt.json"
 PACKET = Path(
     os.environ.get("PROPERTYQUARRY_PROMO_PACKET")
     or ROOT / "docs" / "PROPERTYQUARRY_PROMO_VIDEO_PACKET.json"
@@ -39,6 +50,7 @@ TELEGRAM_RECEIPT_ROOT = Path(
     or "/docker/chummercomplete/_completion/telegram_promo_delivery"
 ).resolve()
 UNMIXR_API_URL = "https://unmixr.com/api/v1/short-tts/"
+UNMIXR_SMOOTHER_DE_VOICE_ID = "9827708d-c40a-48a4-b8a3-7b878f3e4185"
 TARGET_SECONDS = 87.0
 TRANSITION_SECONDS = 0.45
 FPS = 24
@@ -54,6 +66,27 @@ MAGICFIT_TIMELINE = [
     ("09_cta", 7.0),
 ]
 
+SMOOTHER_SALES_VOICEOVER_LINES = [
+    "[00:00.8] Zu viele Wohnungen sind nicht das Problem.",
+    "[00:03.2] Das Problem ist der Moment, in dem alles gut aussieht - und du trotzdem nicht weisst, ob es stimmt.",
+    "[00:08.5] Genau hier beginnt PropertyQuarry.",
+    "[00:11.0] Nicht mit noch mehr Tabs. Sondern mit Klarheit, die verkauft, was wirklich zaehlt: eine bessere Entscheidung.",
+    "[00:16.0] Du sagst, was dir wichtig ist: Lage, Grundriss, Heizung, Lift, Aussenflaeche, Risiko.",
+    "[00:23.8] PropertyQuarry baut daraus einen Search Brief, der den Markt fuer dich denkt.",
+    "[00:29.2] Schwache Treffer fallen raus. Fehlende Grundrisse werden sichtbar. Offene Fragen bleiben nicht versteckt.",
+    "[00:36.4] Aus jedem Listing wird ein Dossier.",
+    "[00:39.8] Mit Fit Score, Confidence, Empfehlung, Risiken und den Fragen, die du vor der Besichtigung stellen solltest.",
+    "[00:48.2] Eine Tour zeigt dir den Raum.",
+    "[00:51.0] PropertyQuarry zeigt dir den Tradeoff.",
+    "[00:54.0] Was stark ist. Was fehlt. Und was dich spaeter teuer ueberraschen koennte.",
+    "[01:00.2] Dann wird aus dem Dossier ein teilbares Packet.",
+    "[01:03.7] Fuer Familie, Partner, Agenten - und fuer Feedback, das endlich strukturiert zurueckkommt.",
+    "[01:10.2] So gehst du nicht nervoes in die Besichtigung.",
+    "[01:13.8] Du gehst vorbereitet hinein. Mit besseren Fragen. Mit weniger Druck. Mit mehr Kontrolle.",
+    "[01:20.0] Stop browsing. Start deciding.",
+    "[01:23.0] PropertyQuarry.",
+    "[01:24.8] The decision layer for your next home.",
+]
 
 def load_env(path: Path) -> None:
     if not path.is_file():
@@ -117,33 +150,44 @@ def parse_voice_line(raw: str) -> tuple[float, str]:
 
 def unmixr_config() -> dict[str, str]:
     api_key = os.environ.get("UNMIXR_API_KEY", "").strip()
-    voice_id = os.environ.get("UNMIXR_VOICE_ID", "").strip()
+    voice_id = os.environ.get("PROPERTYQUARRY_UNMIXR_VOICE_ID", "").strip()
+    if not voice_id and VARIANT:
+        voice_id = UNMIXR_SMOOTHER_DE_VOICE_ID
+    voice_id = voice_id or os.environ.get("UNMIXR_VOICE_ID", "").strip()
     if not api_key or not voice_id:
         raise RuntimeError("unmixr_not_configured")
-    return {
+    config = {
         "api_key": api_key,
         "voice_id": voice_id,
         "language": os.environ.get("PROPERTYQUARRY_UNMIXR_LANGUAGE", "de-DE").strip() or "de-DE",
-        "speaking_rate": os.environ.get("PROPERTYQUARRY_UNMIXR_SPEAKING_RATE", "medium").strip() or "medium",
-        "speaking_pitch": os.environ.get("PROPERTYQUARRY_UNMIXR_SPEAKING_PITCH", "low").strip() or "low",
-        "speaking_volume": os.environ.get("PROPERTYQUARRY_UNMIXR_SPEAKING_VOLUME", "medium").strip() or "medium",
+        "speaking_rate": os.environ.get("PROPERTYQUARRY_UNMIXR_SPEAKING_RATE", "+8%" if VARIANT else "medium").strip() or "medium",
+        "speaking_pitch": os.environ.get("PROPERTYQUARRY_UNMIXR_SPEAKING_PITCH", "medium" if VARIANT else "low").strip() or "low",
+        "speaking_volume": os.environ.get("PROPERTYQUARRY_UNMIXR_SPEAKING_VOLUME", "loud" if VARIANT else "medium").strip() or "medium",
     }
+    intensity = os.environ.get("PROPERTYQUARRY_UNMIXR_INTENSITY", "28" if VARIANT else "").strip()
+    if intensity:
+        try:
+            config["intensity"] = str(max(0, min(100, int(intensity))))
+        except ValueError as exc:
+            raise RuntimeError("invalid_propertyquarry_unmixr_intensity") from exc
+    return config
 
 
 def render_unmixr_tts(text: str, output: Path) -> bool:
     config = unmixr_config()
-    payload = json.dumps(
-        {
-            "text": text,
-            "voice_id": config["voice_id"],
-            "language": config["language"],
-            "speaking_rate": config["speaking_rate"],
-            "speaking_pitch": config["speaking_pitch"],
-            "speaking_volume": config["speaking_volume"],
-            "output_type": output.suffix.lstrip(".") or "mp3",
-            "response_type": "url",
-        }
-    ).encode("utf-8")
+    request_payload = {
+        "text": text,
+        "voice_id": config["voice_id"],
+        "language": config["language"],
+        "speaking_rate": config["speaking_rate"],
+        "speaking_pitch": config["speaking_pitch"],
+        "speaking_volume": config["speaking_volume"],
+        "output_type": output.suffix.lstrip(".") or "mp3",
+        "response_type": "url",
+    }
+    if config.get("intensity"):
+        request_payload["intensity"] = int(config["intensity"])
+    payload = json.dumps(request_payload).encode("utf-8")
     request = urllib.request.Request(
         UNMIXR_API_URL,
         data=payload,
@@ -269,7 +313,7 @@ def build_silent_video(scene_paths: list[Path], requested_durations: list[float]
 
 
 def build_audio(lines: list[str]) -> list[dict[str, Any]]:
-    audio_dir = OUT / "audio"
+    audio_dir = OUT / f"audio{VARIANT_TAG}"
     audio_dir.mkdir(parents=True, exist_ok=True)
     parsed = [parse_voice_line(line) for line in lines]
     clips: list[dict[str, Any]] = []
@@ -306,9 +350,102 @@ def build_audio(lines: list[str]) -> list[dict[str, Any]]:
         "aac",
         "-b:a",
         "192k",
-        str(AUDIO),
+        str(VOICE_AUDIO if VARIANT else AUDIO),
     )
     return clips
+
+
+def build_soundtrack() -> None:
+    if not VARIANT:
+        return
+    sfx_times = [7.0, 15.0, 25.0, 36.0, 48.0, 60.0, 70.0, 80.0]
+    hit_times = [15.5, 25.5, 36.5, 60.5, 70.5, 80.6]
+    inputs = [
+        "-f",
+        "lavfi",
+        "-i",
+        f"sine=frequency=55:sample_rate=48000:duration={TARGET_SECONDS}",
+        "-f",
+        "lavfi",
+        "-i",
+        f"sine=frequency=110:sample_rate=48000:duration={TARGET_SECONDS}",
+        "-f",
+        "lavfi",
+        "-i",
+        f"sine=frequency=220:sample_rate=48000:duration={TARGET_SECONDS}",
+        "-f",
+        "lavfi",
+        "-i",
+        f"anoisesrc=color=pink:sample_rate=48000:duration={TARGET_SECONDS}",
+    ]
+    filters = [
+        "[0:a]volume=0.035,lowpass=f=180,afade=t=in:st=0:d=1.2[a0]",
+        "[1:a]volume=0.024,lowpass=f=360,afade=t=in:st=0:d=2.0[a1]",
+        "[2:a]volume=0.012,highpass=f=120,afade=t=in:st=0:d=2.8[a2]",
+        "[3:a]volume=0.010,lowpass=f=1200,highpass=f=180,tremolo=f=2.2:d=0.35[noise]",
+    ]
+    labels = ["[a0]", "[a1]", "[a2]", "[noise]"]
+    input_index = 4
+    for effect_index, start in enumerate(sfx_times):
+        inputs.extend(["-f", "lavfi", "-i", "anoisesrc=color=white:sample_rate=48000:duration=0.55"])
+        delay = int(round(start * 1000))
+        filters.append(
+            f"[{input_index}:a]volume=0.020,highpass=f=900,lowpass=f=4200,"
+            f"afade=t=in:st=0:d=0.05,afade=t=out:st=0.34:d=0.21,"
+            f"adelay={delay}|{delay}[sfx{effect_index}]"
+        )
+        labels.append(f"[sfx{effect_index}]")
+        input_index += 1
+    for hit_index, start in enumerate(hit_times):
+        inputs.extend(["-f", "lavfi", "-i", "sine=frequency=1320:sample_rate=48000:duration=0.10"])
+        delay = int(round(start * 1000))
+        filters.append(
+            f"[{input_index}:a]volume=0.030,highpass=f=500,"
+            f"afade=t=out:st=0.03:d=0.07,adelay={delay}|{delay}[hit{hit_index}]"
+        )
+        labels.append(f"[hit{hit_index}]")
+        input_index += 1
+    filters.append(
+        f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0,"
+        f"afade=t=out:st={TARGET_SECONDS - 2.2:.3f}:d=2.2,alimiter=limit=0.65[out]"
+    )
+    run(
+        "ffmpeg",
+        "-y",
+        *inputs,
+        "-filter_complex",
+        ";".join(filters),
+        "-map",
+        "[out]",
+        "-c:a",
+        "pcm_s16le",
+        str(SOUNDTRACK),
+    )
+
+
+def mix_voice_with_soundtrack() -> None:
+    if not VARIANT:
+        return
+    run(
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(VOICE_AUDIO),
+        "-i",
+        str(SOUNDTRACK),
+        "-filter_complex",
+        f"[0:a]volume=1.08,aformat=channel_layouts=stereo[voice];"
+        f"[1:a]volume=0.70,aformat=channel_layouts=stereo[bed];"
+        f"[voice][bed]amix=inputs=2:weights='1.0 0.55':normalize=0,"
+        f"atrim=0:{TARGET_SECONDS:.3f},alimiter=limit=0.92[outa]",
+        "-map",
+        "[outa]",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        str(AUDIO),
+    )
 
 
 def mux() -> None:
@@ -357,16 +494,22 @@ def build_telegram_video() -> None:
 def send_telegram() -> dict[str, Any]:
     if not TELEGRAM_HELPER.is_file():
         raise RuntimeError(f"telegram_helper_missing:{TELEGRAM_HELPER}")
+    receipt_name = f"propertyquarry_magicfit_promo{VARIANT_TAG}.telegram.receipt.json"
+    caption = (
+        "PropertyQuarry hero trailer V2. MagicFit scene render with smoother premium Unmixr narration, earlier voice entry, and music/SFX mix."
+        if VARIANT
+        else "PropertyQuarry hero trailer. MagicFit scene render with premium Unmixr narration. Telegram delivery encode; 4K master retained locally."
+    )
     run(
         "python3",
         str(TELEGRAM_HELPER),
         str(TELEGRAM_FINAL),
         "--caption",
-        "PropertyQuarry hero trailer. MagicFit scene render with premium Unmixr narration. Telegram delivery encode; 4K master retained locally.",
+        caption,
         "--receipt-name",
-        "propertyquarry_magicfit_promo.telegram.receipt.json",
+        receipt_name,
     )
-    receipt_path = TELEGRAM_RECEIPT_ROOT / "propertyquarry_magicfit_promo.telegram.receipt.json"
+    receipt_path = TELEGRAM_RECEIPT_ROOT / receipt_name
     if not receipt_path.is_file():
         raise RuntimeError(f"telegram_receipt_missing:{receipt_path}")
     return json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -385,8 +528,17 @@ def main() -> int:
     if missing_sidecars:
         raise SystemExit("missing_magicfit_receipts:\n" + "\n".join(missing_sidecars))
     OUT.mkdir(parents=True, exist_ok=True)
-    build_silent_video(scene_paths, [duration for _scene_id, duration in MAGICFIT_TIMELINE])
-    clips = build_audio(list(packet.get("voiceover_lines") or []))
+    if not SILENT.is_file():
+        build_silent_video(scene_paths, [duration for _scene_id, duration in MAGICFIT_TIMELINE])
+    voiceover_lines = (
+        SMOOTHER_SALES_VOICEOVER_LINES
+        if VARIANT in {"v2", "smoother_sales_v2", "audio_v2"}
+        else list(packet.get("voiceover_lines") or [])
+    )
+    clips = build_audio(voiceover_lines)
+    if VARIANT:
+        build_soundtrack()
+        mix_voice_with_soundtrack()
     mux()
     build_telegram_video()
     telegram_receipt = send_telegram()
@@ -395,6 +547,7 @@ def main() -> int:
         "generated_at_utc": utc_now(),
         "status": "published",
         "render_mode": "magicfit_per_scene_with_unmixr_narration",
+        "audio_variant": VARIANT or "original",
         "provider_claim": "MagicFit",
         "magicfit_claim_allowed": True,
         "source_scene_count": len(scene_paths),
@@ -402,14 +555,19 @@ def main() -> int:
         "video_path": str(FINAL),
         "telegram_video_path": str(TELEGRAM_FINAL),
         "silent_video_path": str(SILENT),
+        "voice_audio_path": str(VOICE_AUDIO if VARIANT else AUDIO),
+        "soundtrack_path": str(SOUNDTRACK) if VARIANT else "",
         "audio_path": str(AUDIO),
         "subtitle_path": str(SRT),
         "duration_seconds": duration(FINAL),
-        "voice_id": os.environ.get("UNMIXR_VOICE_ID", "").strip(),
+        "voice_id": unmixr_config()["voice_id"],
+        "voice_name": "Seraphina (Express)" if VARIANT else "",
+        "voice_language": unmixr_config()["language"],
+        "voice_style_request": "smoother, warmer, more emotional, lightly excited sales narration" if VARIANT else "",
         "voice_clip_count": len(clips),
         "magicfit_scene_receipts": [str(path) for path in sidecar_paths],
         "magicfit_video_output_urls": [str(receipt.get("video_output_url") or "") for receipt in scene_receipts],
-        "telegram_receipt_path": str(TELEGRAM_RECEIPT_ROOT / "propertyquarry_magicfit_promo.telegram.receipt.json"),
+        "telegram_receipt_path": str(TELEGRAM_RECEIPT_ROOT / f"propertyquarry_magicfit_promo{VARIANT_TAG}.telegram.receipt.json"),
         "telegram_message_ids": list(telegram_receipt.get("message_ids") or []),
     }
     RECEIPT.write_text(json.dumps(receipt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

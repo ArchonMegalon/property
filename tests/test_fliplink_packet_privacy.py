@@ -85,6 +85,42 @@ def test_fliplink_packet_media_flags_remove_floorplans_and_photos() -> None:
     assert redacted.receipt["include_photos"] is False
 
 
+def test_fliplink_packet_media_refs_are_host_allowlisted(monkeypatch) -> None:
+    source = {
+        **_source_payload(),
+        "floorplan_refs": [
+            "https://packets.propertyquarry.com/assets/floorplan.pdf",
+            "https://tracker.example/floorplan.pdf",
+            "http://packets.propertyquarry.com/plain-http.pdf",
+        ],
+        "photo_refs": [
+            "https://view.propertyquarry.com/assets/photo.jpg",
+            "https://cdn.example/photo.jpg?token=secret",
+        ],
+    }
+
+    redacted = redact_property_packet(
+        source=source,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        include_exact_address=False,
+    )
+
+    assert redacted.payload["floorplan_refs"] == ["https://packets.propertyquarry.com/assets/floorplan.pdf"]
+    assert redacted.payload["photo_refs"] == ["https://view.propertyquarry.com/assets/photo.jpg"]
+    removed = "\n".join(redacted.receipt["removed_fields"])
+    assert "host_not_allowed:tracker.example" in removed
+    assert "non_https_media_ref" in removed
+    assert "sensitive_media_query" in removed
+    assert "*.propertyquarry.com" in redacted.receipt["media_allowed_hosts"]
+
+    monkeypatch.setenv("FLIPLINK_PACKET_MEDIA_ALLOWED_HOSTS", "cdn.example")
+    custom = redact_property_packet(
+        source={"photo_refs": ["https://cdn.example/photo.jpg"], "title": "Custom CDN"},
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+    )
+    assert custom.payload["photo_refs"] == ["https://cdn.example/photo.jpg"]
+
+
 def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     rendered = render_property_packet_pdf(
         artifact_root=tmp_path,
@@ -102,4 +138,8 @@ def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     assert hashlib.sha256(pdf_bytes).hexdigest() == rendered["pdf_sha256"]
     assert rendered["receipt"]["pdf_sha256"] == rendered["pdf_sha256"]
     assert rendered["receipt"]["source_pdf_size_bytes"] == len(pdf_bytes)
-    assert rendered["receipt"]["renderer_version"] == "v3_visual_packet_pdf"
+    assert rendered["receipt"]["renderer_version"] == "v4_visual_packet_pdf"
+    assert rendered["receipt"]["renderer_kind"] == "branded_visual_pdf"
+    assert "section_cards" in rendered["receipt"]["visual_elements"]
+    assert b"PropertyQuarry" in pdf_bytes
+    assert b" re f" in pdf_bytes

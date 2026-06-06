@@ -43,3 +43,8 @@ def test_propertyquarry_magicfit_materializers_are_path_configurable() -> None:
     assert "PROPERTYQUARRY_PROMO_PACKET" in build_script
     assert "PROPERTYQUARRY_PROMO_TELEGRAM_HELPER" in build_script
     assert "telegram_helper_missing" in build_script
+    assert "PROPERTYQUARRY_PROMO_VARIANT" in build_script
+    assert "VARIANT = safe_variant" in build_script
+    assert "PROPERTYQUARRY_PROMO_SILENT_VIDEO" in build_script
+    assert "PROPERTYQUARRY_UNMIXR_VOICE_ID" in build_script
+    assert "invalid_propertyquarry_unmixr_intensity" in build_script
