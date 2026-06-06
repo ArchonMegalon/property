@@ -77,3 +77,13 @@ def test_readme_documents_hardened_deploy_and_port_override() -> None:
     assert "POSTGRES_PASSWORD" in readme
     assert "EA_SIGNING_SECRET" in readme
     assert "EA_API_TOKEN or Cloudflare Access" in readme
+
+
+def test_property_dockerfile_allowlists_runtime_scripts() -> None:
+    dockerfile = _read("ea/Dockerfile.property")
+
+    assert "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" in dockerfile
+    assert "for script in /tmp/src/scripts/*" not in dockerfile
+    assert 'for script in "$APP_SRC"/scripts/*' not in dockerfile
+    assert 'cp "$script" /app/scripts/' not in dockerfile
+    assert "build_propertyquarry_magicfit_promo.py" not in dockerfile

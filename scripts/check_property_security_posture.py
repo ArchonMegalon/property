@@ -89,6 +89,10 @@ def main() -> int:
         failures.append("ea/Dockerfile.property must run as USER ea")
     if "requirements.lock" not in dockerfile or "-c requirements.lock" not in dockerfile:
         failures.append("ea/Dockerfile.property must install with requirements.lock constraints")
+    if "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" not in dockerfile:
+        failures.append("ea/Dockerfile.property must explicitly copy the Willhaben packet helper")
+    if "for script in /tmp/src/scripts/*" in dockerfile or 'cp "$script" /app/scripts/' in dockerfile:
+        failures.append("ea/Dockerfile.property must not bulk-copy scripts into the runtime image")
     if not re.search(r"image:\s+\S+@sha256:[0-9a-f]{64}", compose):
         failures.append("docker-compose.property.yml must pin sidecar images by digest")
 

@@ -42,9 +42,19 @@ def test_propertyquarry_magicfit_materializers_are_path_configurable() -> None:
     assert "PROPERTYQUARRY_MAGICFIT_CLIPS_DIR" in render_script
     assert "PROPERTYQUARRY_PROMO_PACKET" in build_script
     assert "PROPERTYQUARRY_PROMO_TELEGRAM_HELPER" in build_script
+    assert "telegram_helper_required:PROPERTYQUARRY_PROMO_TELEGRAM_HELPER" in build_script
     assert "telegram_helper_missing" in build_script
     assert "PROPERTYQUARRY_PROMO_VARIANT" in build_script
     assert "VARIANT = safe_variant" in build_script
     assert "PROPERTYQUARRY_PROMO_SILENT_VIDEO" in build_script
     assert "PROPERTYQUARRY_UNMIXR_VOICE_ID" in build_script
     assert "invalid_propertyquarry_unmixr_intensity" in build_script
+    assert "/docker/chummercomplete" not in build_script
+    assert "chummer.run-services" not in build_script
+    assert "_completion/telegram_promo_delivery" not in build_script
+
+
+def test_propertyquarry_release_gates_include_magicfit_promo_contract() -> None:
+    release_gate = (ROOT / "scripts" / "property_release_gates.sh").read_text(encoding="utf-8")
+
+    assert "tests/test_propertyquarry_magicfit_promo_contract.py" in release_gate

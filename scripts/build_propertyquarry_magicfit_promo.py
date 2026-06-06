@@ -41,14 +41,6 @@ PACKET = Path(
     os.environ.get("PROPERTYQUARRY_PROMO_PACKET")
     or ROOT / "docs" / "PROPERTYQUARRY_PROMO_VIDEO_PACKET.json"
 ).resolve()
-TELEGRAM_HELPER = Path(
-    os.environ.get("PROPERTYQUARRY_PROMO_TELEGRAM_HELPER")
-    or "/docker/chummercomplete/chummer.run-services/scripts/send_promo_video_telegram_via_ea.py"
-).resolve()
-TELEGRAM_RECEIPT_ROOT = Path(
-    os.environ.get("PROPERTYQUARRY_PROMO_TELEGRAM_RECEIPT_ROOT")
-    or "/docker/chummercomplete/_completion/telegram_promo_delivery"
-).resolve()
 UNMIXR_API_URL = "https://unmixr.com/api/v1/short-tts/"
 UNMIXR_SMOOTHER_DE_VOICE_ID = "9827708d-c40a-48a4-b8a3-7b878f3e4185"
 TARGET_SECONDS = 87.0
@@ -491,9 +483,24 @@ def build_telegram_video() -> None:
     )
 
 
+def telegram_helper_path() -> Path:
+    raw = os.environ.get("PROPERTYQUARRY_PROMO_TELEGRAM_HELPER", "").strip()
+    if not raw:
+        raise RuntimeError("telegram_helper_required:PROPERTYQUARRY_PROMO_TELEGRAM_HELPER")
+    return Path(raw).expanduser().resolve()
+
+
+def telegram_receipt_root() -> Path:
+    raw = os.environ.get("PROPERTYQUARRY_PROMO_TELEGRAM_RECEIPT_ROOT", "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return (OUT / "telegram_delivery_receipts").resolve()
+
+
 def send_telegram() -> dict[str, Any]:
-    if not TELEGRAM_HELPER.is_file():
-        raise RuntimeError(f"telegram_helper_missing:{TELEGRAM_HELPER}")
+    telegram_helper = telegram_helper_path()
+    if not telegram_helper.is_file():
+        raise RuntimeError(f"telegram_helper_missing:{telegram_helper}")
     receipt_name = f"propertyquarry_magicfit_promo{VARIANT_TAG}.telegram.receipt.json"
     caption = (
         "PropertyQuarry hero trailer V2. MagicFit scene render with smoother premium Unmixr narration, earlier voice entry, and music/SFX mix."
@@ -502,14 +509,15 @@ def send_telegram() -> dict[str, Any]:
     )
     run(
         "python3",
-        str(TELEGRAM_HELPER),
+        str(telegram_helper),
         str(TELEGRAM_FINAL),
         "--caption",
         caption,
         "--receipt-name",
         receipt_name,
     )
-    receipt_path = TELEGRAM_RECEIPT_ROOT / receipt_name
+    receipt_root = telegram_receipt_root()
+    receipt_path = receipt_root / receipt_name
     if not receipt_path.is_file():
         raise RuntimeError(f"telegram_receipt_missing:{receipt_path}")
     return json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -567,7 +575,7 @@ def main() -> int:
         "voice_clip_count": len(clips),
         "magicfit_scene_receipts": [str(path) for path in sidecar_paths],
         "magicfit_video_output_urls": [str(receipt.get("video_output_url") or "") for receipt in scene_receipts],
-        "telegram_receipt_path": str(TELEGRAM_RECEIPT_ROOT / f"propertyquarry_magicfit_promo{VARIANT_TAG}.telegram.receipt.json"),
+        "telegram_receipt_path": str(telegram_receipt_root() / f"propertyquarry_magicfit_promo{VARIANT_TAG}.telegram.receipt.json"),
         "telegram_message_ids": list(telegram_receipt.get("message_ids") or []),
     }
     RECEIPT.write_text(json.dumps(receipt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
