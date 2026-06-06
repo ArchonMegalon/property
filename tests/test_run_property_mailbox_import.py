@@ -91,3 +91,26 @@ def test_mailbox_import_script_escapes_json_and_fallback_query(tmp_path: Path) -
         "account_email": ["alice+ops&qa@example.com"],
         "email_limit": ["50"],
     }
+
+
+def test_mailbox_import_script_requires_person_id() -> None:
+    env = os.environ.copy()
+    env.update(
+        {
+            "EA_BASE_URL": "http://127.0.0.1:1",
+            "ACCOUNT_EMAIL": "user@example.com",
+        }
+    )
+    env.pop("PERSON_ID", None)
+
+    completed = subprocess.run(
+        ["bash", str(SCRIPT)],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    assert "PERSON_ID is required." in completed.stderr

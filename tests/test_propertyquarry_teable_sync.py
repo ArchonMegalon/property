@@ -175,6 +175,14 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert records["propertyquarry_review_artifacts"][0]["review_reused"] is True
     assert records["propertyquarry_review_artifacts"][0]["review_task_status"] == "returned"
     assert records["propertyquarry_review_artifacts"][0]["tour_status"] == "existing"
+    artifact_json = records["propertyquarry_review_artifacts"][0]["artifact_json"]
+    artifact_dump = json.dumps(artifact_json)
+    assert "exact_address" not in artifact_dump
+    assert "lat" not in artifact_dump
+    assert "lng" not in artifact_dump
+    assert "cookie_state" not in artifact_dump
+    assert "internal_debug" not in artifact_dump
+    assert "oauth_token" not in artifact_dump
     assert records["propertyquarry_research_tasks"][0]["field_key"] == "rooms"
 
 

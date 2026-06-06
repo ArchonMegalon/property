@@ -3,7 +3,7 @@ set -euo pipefail
 
 EA_BASE_URL="${EA_BASE_URL:-http://127.0.0.1:8090}"
 EA_API_TOKEN="${EA_API_TOKEN:-}"
-PERSON_ID="${PERSON_ID:-elisabeth}"
+PERSON_ID="${PERSON_ID:-}"
 PRINCIPAL_ID="${PRINCIPAL_ID:-$PERSON_ID}"
 ACCOUNT_EMAIL="${ACCOUNT_EMAIL:-}"
 CONSENT_NOTE="${CONSENT_NOTE:-Explicitly approved import of housing-related Gmail threads.}"
@@ -17,13 +17,14 @@ fi
 usage() {
   cat <<'EOF'
 Usage:
-  ACCOUNT_EMAIL=elisabeth.girschele@gmail.com \
+  ACCOUNT_EMAIL=user@example.com \
+  PERSON_ID=self \
   EA_API_TOKEN=... \
   /docker/property/scripts/run_property_mailbox_import.sh
 
 Optional env vars:
   EA_BASE_URL     Default: http://127.0.0.1:8090
-  PERSON_ID       Default: elisabeth
+  PERSON_ID       Required target person id, for example self or household_member
   PRINCIPAL_ID    Default: PERSON_ID
   CONSENT_NOTE    Default: Explicitly approved import of housing-related Gmail threads.
   EMAIL_LIMIT     Default: 80
@@ -37,6 +38,12 @@ EOF
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   usage
   exit 0
+fi
+
+if [[ -z "$PERSON_ID" ]]; then
+  echo "PERSON_ID is required." >&2
+  usage >&2
+  exit 1
 fi
 
 if [[ -z "$ACCOUNT_EMAIL" ]]; then

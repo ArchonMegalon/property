@@ -11602,7 +11602,7 @@ class ProductService:
         }
 
     def _propertyquarry_teable_auto_sync_enabled(self) -> bool:
-        raw = str(os.environ.get("PROPERTYQUARRY_TEABLE_AUTO_SYNC") or "1").strip().lower()
+        raw = str(os.environ.get("PROPERTYQUARRY_TEABLE_AUTO_SYNC") or "0").strip().lower()
         return raw not in {"0", "false", "no", "off", "disabled"}
 
     def _best_effort_propertyquarry_teable_sync(

@@ -73,48 +73,20 @@ def test_operator_summary_lists_ltd_release_gates() -> None:
 def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys() -> None:
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    env_codexea_example = (ROOT / ".env.codexea.example").read_text(encoding="utf-8")
     env_local_example = (ROOT / ".env.local.example").read_text(encoding="utf-8")
 
     assert ".env" in gitignore
     assert ".env.*" in gitignore
-    assert "BROWSERACT_API_KEY" in env_example
-    assert "BROWSERACT_API_KEY_FALLBACK_1" in env_example
-    assert "BROWSERACT_API_KEY_FALLBACK_2" in env_example
-    assert "BROWSERACT_API_KEY_FALLBACK_3" in env_example
     assert "BROWSERACT_API_KEY" in env_local_example
     assert "BROWSERACT_API_KEY_FALLBACK_1" in env_local_example
     assert "BROWSERACT_API_KEY_FALLBACK_2" in env_local_example
     assert "BROWSERACT_API_KEY_FALLBACK_3" in env_local_example
-    assert "BROWSERACT_CHATPLAYGROUND_URL" in env_example
     assert "BROWSERACT_CHATPLAYGROUND_URL" in env_local_example
-    assert "BROWSERACT_CHATPLAYGROUND_AUDIT_WORKFLOW_ID" in env_example
-    assert "BROWSERACT_CHATPLAYGROUND_AUDIT_WORKFLOW_QUERY" in env_example
-    assert "BROWSERACT_CHATPLAYGROUND_AUDIT_RESULT_PATH" in env_example
-    assert "BROWSERACT_CHATPLAYGROUND_AUDIT_TIMEOUT_SECONDS" in env_example
     assert "BROWSERACT_CHATPLAYGROUND_AUDIT_WORKFLOW_ID" in env_local_example
     assert "BROWSERACT_CHATPLAYGROUND_AUDIT_WORKFLOW_QUERY" in env_local_example
     assert "BROWSERACT_CHATPLAYGROUND_AUDIT_RESULT_PATH" in env_local_example
     assert "BROWSERACT_CHATPLAYGROUND_AUDIT_TIMEOUT_SECONDS" in env_local_example
-    assert "ONEMIN_AI_API_KEY" in env_example
-    assert "ONEMIN_AI_API_KEY_FALLBACK_1" in env_example
-    assert "ONEMIN_AI_API_KEY_FALLBACK_2" in env_example
-    assert "ONEMIN_AI_API_KEY_FALLBACK_3" in env_example
-    assert "ONEMIN_AI_API_KEY_FALLBACK_4" in env_example
-    assert "ONEMIN_AI_API_KEY_FALLBACK_5" in env_example
-    assert "ONEMIN_AI_API_KEY_FALLBACK_6" in env_example
-    assert "ONEMIN_AI_API_KEY_FALLBACK_7" in env_example
-    assert "ONEMIN_AI_API_KEY_FALLBACK_8" in env_example
-    assert "ONEMIN_AI_API_KEY_FALLBACK_9" in env_example
-    assert "ONEMIN_AI_API_KEY_FALLBACK_10" in env_example
-    assert "EA_RESPONSES_MAGICX_HEALTH_CHECK" in env_example
-    assert "EA_RESPONSES_MAGICX_HEALTH_INTERVAL_SECONDS" in env_example
-    assert "EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS" in env_example
-    assert "EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY" in env_example
-    assert "EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY" in env_example
-    assert "EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS" in env_example
-    assert "EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH" in env_example
-    assert "EA_RESPONSES_ONEMIN_PROBE_MODEL" in env_example
-    assert "EA_RESPONSES_ONEMIN_PROBE_TIMEOUT_SECONDS" in env_example
     assert "ONEMIN_AI_API_KEY" in env_local_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_1" in env_local_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_2" in env_local_example
@@ -135,6 +107,11 @@ def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys
     assert "EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH" in env_local_example
     assert "EA_RESPONSES_ONEMIN_PROBE_MODEL" in env_local_example
     assert "EA_RESPONSES_ONEMIN_PROBE_TIMEOUT_SECONDS" in env_local_example
+    assert "CODEXEA_DEFAULT_BASE_URL" not in env_example
+    assert "EA_RESPONSES_ONEMIN_CODE_MODELS" not in env_example
+    assert "CODEXEA_DEFAULT_BASE_URL" in env_codexea_example
+    assert "EA_RESPONSES_ONEMIN_CODE_MODELS" in env_codexea_example
+    assert "EA_RESPONSES_ONEMIN_REVIEW_MODELS" in env_codexea_example
     assert (ROOT / "scripts/resolve_onemin_ai_key.sh").exists()
     assert (ROOT / "scripts/resolve_browseract_key.sh").exists()
 
@@ -186,6 +163,7 @@ def test_makefile_prefers_repo_python_for_local_api_tests() -> None:
 
 def test_env_templates_use_only_valid_dotenv_lines() -> None:
     _assert_valid_dotenv_template(ROOT / ".env.example")
+    _assert_valid_dotenv_template(ROOT / ".env.codexea.example")
     _assert_valid_dotenv_template(ROOT / ".env.local.example")
 
 

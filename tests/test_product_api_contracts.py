@@ -5921,6 +5921,20 @@ def test_preference_profile_mailbox_import_requires_explicit_consent() -> None:
     assert response.status_code == 422
 
 
+def test_preference_profile_mailbox_import_requires_consent_note() -> None:
+    client = build_product_client(principal_id="pref-mailbox-import-note")
+    response = client.post(
+        "/app/api/people/elisabeth/preference-profile/mailbox-import",
+        json={
+            "account_email": "elisabeth.girschele@gmail.com",
+            "consent_confirmed": True,
+            "consent_note": "   ",
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "mailbox_import_consent_note_required"
+
+
 def test_preference_profile_node_api_rejects_unsupported_or_malformed_nodes() -> None:
     client = build_product_client(principal_id="pref-node-api-validation")
     created = client.post(

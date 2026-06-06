@@ -697,6 +697,8 @@ def import_preference_profile_mailbox_history(
 ) -> PreferenceMailboxImportOut:
     if not body.consent_confirmed:
         raise HTTPException(status_code=422, detail="mailbox_import_consent_required")
+    if not body.consent_note.strip():
+        raise HTTPException(status_code=422, detail="mailbox_import_consent_note_required")
     service = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
     try:

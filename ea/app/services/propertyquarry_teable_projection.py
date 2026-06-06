@@ -270,6 +270,22 @@ def _safe_teable_facts(payload: dict[str, Any] | None) -> dict[str, Any]:
     return result
 
 
+def _safe_review_artifact(candidate: dict[str, Any] | None, *, safe_facts: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(candidate or {})
+    return {
+        "property_url": _text(payload.get("property_url"), limit=1000),
+        "listing_id": _text(payload.get("listing_id"), limit=200),
+        "title": _text(payload.get("title"), limit=240),
+        "fit_score": _number(payload.get("fit_score")),
+        "recommendation": _text(payload.get("recommendation"), limit=160),
+        "review_status": _text(payload.get("review_status"), limit=80),
+        "review_task_status": _text(payload.get("review_task_status"), limit=80),
+        "review_reused": bool(payload.get("review_reused")),
+        "tour_status": _text(payload.get("tour_status"), limit=80),
+        "facts_json": dict(safe_facts),
+    }
+
+
 def _safe_source_summary(source: dict[str, Any] | None, *, source_label: str, platform: str, source_url: str) -> dict[str, Any]:
     payload = dict(source or {})
     return {
@@ -639,7 +655,7 @@ def build_propertyquarry_teable_projection_records(
                     "fit_score": _number(candidate.get("fit_score")),
                     "recommendation": _text(candidate.get("recommendation"), limit=160),
                     "preference_person_id": _text(candidate.get("preference_person_id") or preference_person_id, limit=120),
-                    "artifact_json": candidate,
+                    "artifact_json": _safe_review_artifact(candidate, safe_facts=safe_facts),
                     "last_projected_at": projected_at,
                 }
         for task in list(run.get("research_tasks") or summary.get("research_tasks") or []):
