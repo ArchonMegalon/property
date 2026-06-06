@@ -13751,7 +13751,9 @@ def test_product_diagnostics_include_value_events() -> None:
     assert "memo_loop" in outcomes_body
     assert outcomes_body["office_loop_proof"]["state"] in {"clear", "watch", "critical"}
 
-    bundle = client.get("/app/api/diagnostics/export")
+    bundle = build_operator_product_client(principal_id=principal_id, operator_id="operator-office").get(
+        "/app/api/diagnostics/export"
+    )
     assert bundle.status_code == 200
     body = bundle.json()
     assert body["workspace"]["mode"] == "personal"
