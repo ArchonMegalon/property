@@ -13960,21 +13960,30 @@ class ProductService:
         normalized_source = str(source_ref or "").strip()
         normalized_external = str(external_id or "").strip()
         normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
-        if not normalized_source and not normalized_external:
+        if not normalized_source and not normalized_external and not normalized_property_url:
             return None
-        for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=200):
+        matched_historical: HumanTask | None = None
+        for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status=None, limit=500):
             if str(getattr(row, "task_type", "") or "").strip() != "property_alert_review":
                 continue
             input_json = dict(getattr(row, "input_json", {}) or {})
+            matched = False
             existing_property_url = urllib.parse.urldefrag(str(input_json.get("property_url") or "").strip())[0]
             if normalized_property_url and existing_property_url and existing_property_url == normalized_property_url:
                 if not normalized_source or str(input_json.get("source_ref") or "").strip() == normalized_source:
-                    return row
+                    matched = True
             if normalized_source and str(input_json.get("source_ref") or "").strip() == normalized_source:
-                return row
+                matched = True
             if normalized_external and str(input_json.get("external_id") or "").strip() == normalized_external:
+                matched = True
+            if not matched:
+                continue
+            task_status = str(getattr(row, "status", "") or "").strip().lower()
+            if task_status in {"pending", "claimed"}:
                 return row
-        return None
+            if task_status in {"returned", "completed"} and matched_historical is None:
+                matched_historical = row
+        return matched_historical
 
     def _open_property_alert_review(
         self,
@@ -14043,6 +14052,8 @@ class ProductService:
                 "willhaben_fit_score": float(existing_input.get("willhaben_fit_score") or 0.0),
                 "personal_fit_rank": str(existing_input.get("personal_fit_rank") or "").strip(),
                 "tour_url": normalized_tour_url or str(existing_input.get("tour_url") or "").strip(),
+                "review_task_status": str(getattr(existing, "status", "") or "").strip(),
+                "review_reused": True,
             }
             review_url = self._property_alert_review_access_url(
                 principal_id=principal_id,
@@ -14050,6 +14061,19 @@ class ProductService:
             )
             if review_url:
                 payload["editor_url"] = review_url
+            review_task_status = str(getattr(existing, "status", "") or "").strip().lower()
+            if review_task_status in {"returned", "completed"}:
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_alert_review_reused",
+                    payload={
+                        **payload,
+                        "title": str(title or "").strip(),
+                        "actor": str(actor or "").strip() or "property_scout",
+                    },
+                    source_id=str(source_ref or external_id or existing.human_task_id).strip(),
+                    dedupe_key=f"{principal_id}|{source_ref or external_id or existing.human_task_id}|property-alert-review-reused",
+                )
             return payload
         session_id = self._start_product_review_session(
             principal_id=principal_id,

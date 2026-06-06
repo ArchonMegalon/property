@@ -397,6 +397,83 @@ def test_hosted_property_tour_bundle_reuses_existing_manifest(monkeypatch, tmp_p
     assert str(payload["hosted_url"]).endswith(f"/{slug}")
 
 
+def test_property_alert_review_reuses_returned_review_packet() -> None:
+    principal_id = "exec-property-review-packet-reuse"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Review Reuse Office")
+    seed_product_state(client, principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    property_url = "https://www.willhaben.at/iad/object?adId=reuse-returned-1"
+
+    first = service._open_property_alert_review(
+        principal_id=principal_id,
+        title="Reusable returned review flat",
+        summary="A completed review packet should remain reusable.",
+        source_ref="property-scout:reuse-returned-1",
+        external_id=property_url,
+        counterparty="Willhaben",
+        account_email="",
+        property_url=property_url,
+        actor="test",
+        notify_telegram=False,
+        personal_fit_assessment={"fit_score": 76.0, "recommendation": "shortlist"},
+        preference_person_id="self",
+        tour_url="https://propertyquarry.com/tours/reuse-returned-1",
+    )
+    task_id = str(first["human_task_id"]).split(":", 1)[1]
+    returned = client.app.state.container.orchestrator.return_human_task(
+        task_id,
+        principal_id=principal_id,
+        operator_id="operator-office",
+        resolution="reviewed",
+        returned_payload_json={"resolution": "reviewed"},
+        provenance_json={"source": "test"},
+    )
+    assert returned is not None
+    assert returned.status == "returned"
+
+    second = service._open_property_alert_review(
+        principal_id=principal_id,
+        title="Reusable returned review flat",
+        summary="Same listing in a later search.",
+        source_ref="property-scout:reuse-returned-1",
+        external_id=property_url,
+        counterparty="Willhaben",
+        account_email="",
+        property_url=property_url,
+        actor="test",
+        notify_telegram=False,
+        personal_fit_assessment={"fit_score": 78.0, "recommendation": "shortlist"},
+        preference_person_id="self",
+        tour_url="https://propertyquarry.com/tours/reuse-returned-1-refresh",
+    )
+
+    all_reviews = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_alert_review"
+    ]
+    assert second["status"] == "existing"
+    assert second["human_task_id"] == first["human_task_id"]
+    assert second["review_task_status"] == "returned"
+    assert second["review_reused"] is True
+    assert second["tour_url"] == "https://propertyquarry.com/tours/reuse-returned-1-refresh"
+    assert len(all_reviews) == 1
+    events = client.get("/app/api/events", params={"channel": "product", "event_type": "property_alert_review_reused"})
+    assert events.status_code == 200
+    reused_events = [
+        item
+        for item in events.json()["items"]
+        if item["payload"]["human_task_id"] == first["human_task_id"]
+    ]
+    assert reused_events
+    assert reused_events[0]["payload"]["review_task_status"] == "returned"
+
+
 def test_property_search_run_status_reconstructs_missing_status_url() -> None:
     principal_id = "exec-property-search-missing-status-url"
     client = build_property_client(principal_id=principal_id)
