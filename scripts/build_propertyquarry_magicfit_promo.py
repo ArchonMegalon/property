@@ -12,8 +12,12 @@ from pathlib import Path
 from typing import Any
 
 
-ROOT = Path("/docker/property")
-OUT = ROOT / "_completion" / "propertyquarry_magicfit_promo_20260606"
+ROOT = Path(os.environ.get("PROPERTYQUARRY_ROOT") or Path(__file__).resolve().parents[1]).resolve()
+EA_ROOT = Path(os.environ.get("PROPERTYQUARRY_EA_ROOT") or "/docker/EA").resolve()
+OUT = Path(
+    os.environ.get("PROPERTYQUARRY_PROMO_OUT_DIR")
+    or ROOT / "_completion" / "propertyquarry_magicfit_promo_20260606"
+).resolve()
 CLIPS = OUT / "magicfit_clips"
 FINAL = OUT / "PropertyQuarry_Hero_87s_16x9_4K_DE.mp4"
 TELEGRAM_FINAL = OUT / "PropertyQuarry_Hero_87s_16x9_Telegram_720p_DE.mp4"
@@ -22,7 +26,18 @@ AUDIO = OUT / "PropertyQuarry_Hero_87s_16x9_4K_DE.aac"
 SRT = OUT / "PropertyQuarry_Hero_87s_16x9_4K_DE.srt"
 RECEIPT = OUT / "PROPERTYQUARRY_MAGICFIT_PROMO.generated.json"
 TELEGRAM_RECEIPT = OUT / "PROPERTYQUARRY_MAGICFIT_PROMO.telegram.receipt.json"
-PACKET = ROOT / "docs" / "PROPERTYQUARRY_PROMO_VIDEO_PACKET.json"
+PACKET = Path(
+    os.environ.get("PROPERTYQUARRY_PROMO_PACKET")
+    or ROOT / "docs" / "PROPERTYQUARRY_PROMO_VIDEO_PACKET.json"
+).resolve()
+TELEGRAM_HELPER = Path(
+    os.environ.get("PROPERTYQUARRY_PROMO_TELEGRAM_HELPER")
+    or "/docker/chummercomplete/chummer.run-services/scripts/send_promo_video_telegram_via_ea.py"
+).resolve()
+TELEGRAM_RECEIPT_ROOT = Path(
+    os.environ.get("PROPERTYQUARRY_PROMO_TELEGRAM_RECEIPT_ROOT")
+    or "/docker/chummercomplete/_completion/telegram_promo_delivery"
+).resolve()
 UNMIXR_API_URL = "https://unmixr.com/api/v1/short-tts/"
 TARGET_SECONDS = 87.0
 TRANSITION_SECONDS = 0.45
@@ -340,21 +355,26 @@ def build_telegram_video() -> None:
 
 
 def send_telegram() -> dict[str, Any]:
+    if not TELEGRAM_HELPER.is_file():
+        raise RuntimeError(f"telegram_helper_missing:{TELEGRAM_HELPER}")
     run(
         "python3",
-        "/docker/chummercomplete/chummer.run-services/scripts/send_promo_video_telegram_via_ea.py",
+        str(TELEGRAM_HELPER),
         str(TELEGRAM_FINAL),
         "--caption",
         "PropertyQuarry hero trailer. MagicFit scene render with premium Unmixr narration. Telegram delivery encode; 4K master retained locally.",
         "--receipt-name",
         "propertyquarry_magicfit_promo.telegram.receipt.json",
     )
-    return json.loads((Path("/docker/chummercomplete/_completion/telegram_promo_delivery") / "propertyquarry_magicfit_promo.telegram.receipt.json").read_text(encoding="utf-8"))
+    receipt_path = TELEGRAM_RECEIPT_ROOT / "propertyquarry_magicfit_promo.telegram.receipt.json"
+    if not receipt_path.is_file():
+        raise RuntimeError(f"telegram_receipt_missing:{receipt_path}")
+    return json.loads(receipt_path.read_text(encoding="utf-8"))
 
 
 def main() -> int:
     load_env(ROOT / ".env")
-    load_env(Path("/docker/EA/.env"))
+    load_env(EA_ROOT / ".env")
     packet = json.loads(PACKET.read_text(encoding="utf-8"))
     scene_paths = [CLIPS / f"{scene_id}.mp4" for scene_id, _duration in MAGICFIT_TIMELINE]
     sidecar_paths = [CLIPS / f"{scene_id}.magicfit.json" for scene_id, _duration in MAGICFIT_TIMELINE]
@@ -389,7 +409,7 @@ def main() -> int:
         "voice_clip_count": len(clips),
         "magicfit_scene_receipts": [str(path) for path in sidecar_paths],
         "magicfit_video_output_urls": [str(receipt.get("video_output_url") or "") for receipt in scene_receipts],
-        "telegram_receipt_path": str(Path("/docker/chummercomplete/_completion/telegram_promo_delivery") / "propertyquarry_magicfit_promo.telegram.receipt.json"),
+        "telegram_receipt_path": str(TELEGRAM_RECEIPT_ROOT / "propertyquarry_magicfit_promo.telegram.receipt.json"),
         "telegram_message_ids": list(telegram_receipt.get("message_ids") or []),
     }
     RECEIPT.write_text(json.dumps(receipt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

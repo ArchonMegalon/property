@@ -3,10 +3,15 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
-const OUT_DIR = '/docker/property/_completion/propertyquarry_magicfit_promo_20260606/magicfit_clips';
+const ROOT = path.resolve(process.env.PROPERTYQUARRY_ROOT || path.resolve(__dirname, '..'));
+const EA_ROOT = path.resolve(process.env.PROPERTYQUARRY_EA_ROOT || '/docker/EA');
+const OUT_DIR = path.resolve(
+  process.env.PROPERTYQUARRY_MAGICFIT_CLIPS_DIR ||
+  path.join(ROOT, '_completion', 'propertyquarry_magicfit_promo_20260606', 'magicfit_clips')
+);
 const ENV_FILES = [
-  '/docker/property/.env',
-  '/docker/EA/.env',
+  path.join(ROOT, '.env'),
+  path.join(EA_ROOT, '.env'),
 ];
 
 function loadEnv(file) {
