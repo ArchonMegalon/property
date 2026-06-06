@@ -1963,7 +1963,7 @@
       row.querySelectorAll('button, input').forEach((node) => { node.disabled = true; });
       if (message) message.textContent = 'Saving...';
       try {
-        const response = await fetch(`/app/api/signals/property/search/run/${encodeURIComponent(runId)}/research-tasks/${encodeURIComponent(taskId)}`, {
+        const response = await fetch(`/app/api/property/search-runs/${encodeURIComponent(runId)}/research-tasks/${encodeURIComponent(taskId)}`, {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'content-type': 'application/json', accept: 'application/json' },

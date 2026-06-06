@@ -604,7 +604,7 @@ def _property_console_context(
         "learning_summary": learning_summary,
         "preference_bundle": preference_bundle,
         "preference_person_id": preference_person_id,
-        "start_endpoint": "/app/api/signals/property/search/run",
+        "start_endpoint": "/app/api/property/search-runs",
         "preferences_endpoint": "/v1/onboarding/property-search/preferences",
         "commercial": commercial,
         "billing_checkout_provider": ("payfunnels" if payfunnels_plus else ("paypal" if paypal_enabled else "")),

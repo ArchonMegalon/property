@@ -777,6 +777,100 @@ def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(m
     assert observed["property_search_preferences"]["require_floorplan"] is True
 
 
+def test_property_search_run_greenfield_api_wraps_legacy_signal_contract(monkeypatch) -> None:
+    principal_id = "exec-property-search-run-greenfield-api"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Run Greenfield API")
+
+    def _fake_sync_direct_property_scout(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...] = (),
+        property_search_preferences: dict[str, object] | None = None,
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+        progress_callback: callable | None = None,
+    ) -> dict[str, object]:
+        if callable(progress_callback):
+            progress_callback(
+                step="sources_resolved",
+                message="Resolved sources for greenfield API.",
+                status="in_progress",
+                steps_delta=1,
+                summary_updates={"sources_total": 1},
+            )
+        return {
+            "generated_at": product_service._now_iso(),
+            "status": "processed",
+            "sources_total": 1,
+            "listing_total": 0,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "email_notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [],
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    started = client.post(
+        "/app/api/property/search-runs",
+        json={
+            "selected_platforms": ["willhaben"],
+            "property_preferences": {"country_code": "AT", "min_area_m2": 80},
+            "max_results_per_source": 2,
+        },
+    )
+    assert started.status_code == 200, started.text
+    body = started.json()
+    run_id = body["run_id"]
+    assert body["status_url"] == f"/app/api/property/search-runs/{run_id}"
+
+    latest: dict[str, object] = {}
+    for _ in range(120):
+        status = client.get(f"/app/api/property/search-runs/{run_id}")
+        assert status.status_code == 200, status.text
+        latest = status.json()
+        if latest["status"] == "processed":
+            break
+        time.sleep(0.02)
+    assert latest["status"] == "processed"
+    assert latest["status_url"] == f"/app/api/property/search-runs/{run_id}"
+
+    events = client.get(f"/app/api/property/search-runs/{run_id}/events")
+    assert events.status_code == 200, events.text
+    events_body = events.json()
+    assert events_body["run_id"] == run_id
+    assert events_body["status_url"] == f"/app/api/property/search-runs/{run_id}"
+    assert any(item["step"] == "sources_resolved" for item in events_body["events"])
+
+    legacy_status = client.get(f"/app/api/signals/property/search/run/{run_id}")
+    assert legacy_status.status_code == 200, legacy_status.text
+    assert legacy_status.json()["status_url"] == f"/app/api/signals/property/search/run/{run_id}"
+
+
+def test_property_provider_greenfield_api_returns_country_scoped_catalog() -> None:
+    client = build_property_client(principal_id="exec-property-provider-greenfield-api")
+
+    at_response = client.get("/app/api/property/providers", params={"country": "AT"})
+    uk_response = client.get("/app/api/property/providers", params={"country": "UK"})
+
+    assert at_response.status_code == 200, at_response.text
+    assert uk_response.status_code == 200, uk_response.text
+    at_body = at_response.json()
+    uk_body = uk_response.json()
+    assert at_body["country_code"] == "AT"
+    assert any(row["value"] == "willhaben" for row in at_body["providers"])
+    assert all("Willhaben" not in row["label"] for row in uk_body["providers"])
+    assert any(row["value"] == "rightmove" for row in uk_body["providers"])
+
+
 def test_property_search_run_rejects_invalid_platform_and_enforces_run_principal_scope(monkeypatch) -> None:
     principal_id = "exec-property-search-run-scope"
     client = build_property_client(principal_id=principal_id)

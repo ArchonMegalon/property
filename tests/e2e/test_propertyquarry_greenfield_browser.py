@@ -558,7 +558,7 @@ def test_propertyquarry_start_failure_explains_backend_reason(
     page: Page = context.new_page()
     try:
         page.route(
-            "**/app/api/signals/property/search/run",
+            "**/app/api/property/search-runs",
             lambda route: route.fulfill(
                 status=409,
                 content_type="application/json",
@@ -641,7 +641,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         )
         page.locator('input[name="require_floorplan"]').check()
 
-        with page.expect_response("**/app/api/signals/property/search/run") as start_response:
+        with page.expect_response("**/app/api/property/search-runs") as start_response:
             page.locator("[data-property-start]").click()
         response = start_response.value
         assert response.ok

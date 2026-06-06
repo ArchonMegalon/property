@@ -76,6 +76,12 @@ from app.services.property_billing import (
     property_plan_spec,
     verify_payfunnels_webhook_signature,
 )
+from app.services.property_market_catalog import (
+    country_label as property_country_label,
+    default_platforms_for_country as property_default_platforms_for_country,
+    normalize_country_code as property_normalize_country_code,
+    provider_options as property_provider_options,
+)
 
 router = APIRouter(prefix="/app/api", tags=["product"])
 
@@ -151,6 +157,95 @@ def _save_property_preferences(
         principal_id=principal_id,
         property_search_preferences_json=property_preferences,
     )
+
+
+def _property_search_status_url(run_id: object, *, canonical: bool) -> str:
+    normalized_run_id = str(run_id or "").strip()
+    if not normalized_run_id:
+        return ""
+    if canonical:
+        return f"/app/api/property/search-runs/{normalized_run_id}"
+    return f"/app/api/signals/property/search/run/{normalized_run_id}"
+
+
+def _property_search_payload_with_status_url(payload: dict[str, object], *, canonical: bool) -> dict[str, object]:
+    copied = dict(payload or {})
+    run_id = str(copied.get("run_id") or "").strip()
+    if not run_id:
+        return copied
+    if canonical or not str(copied.get("status_url") or "").strip():
+        copied["status_url"] = _property_search_status_url(run_id, canonical=canonical)
+    return copied
+
+
+def _start_property_search_run_payload(
+    *,
+    body: PropertySearchRunStartIn,
+    container: AppContainer,
+    context: RequestContext,
+) -> dict[str, object]:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "property_search").strip()
+    merged_preferences = _property_preferences(container, principal_id=context.principal_id)
+    merged_preferences.update(dict(body.property_preferences))
+    enforce_property_plan_limits(
+        property_preferences=merged_preferences,
+        selected_platforms=tuple(body.selected_platforms),
+        max_results_per_source=body.max_results_per_source,
+    )
+    return service.start_property_search_run(
+        principal_id=context.principal_id,
+        actor=actor,
+        selected_platforms=tuple(body.selected_platforms),
+        property_search_preferences=dict(body.property_preferences),
+        force_refresh=bool(body.force_refresh),
+        max_results_per_source=body.max_results_per_source,
+    )
+
+
+def _property_search_run_status_payload(
+    *,
+    run_id: str,
+    container: AppContainer,
+    context: RequestContext,
+) -> dict[str, object]:
+    service = build_product_service(container)
+    payload = service.get_property_search_run_status(
+        principal_id=context.principal_id,
+        run_id=run_id,
+    )
+    if not payload:
+        raise HTTPException(status_code=404, detail="property_search_run_not_found")
+    return dict(payload)
+
+
+def _update_property_search_research_task_payload(
+    *,
+    run_id: str,
+    task_id: str,
+    body: PropertySearchResearchTaskUpdateIn,
+    container: AppContainer,
+    context: RequestContext,
+) -> dict[str, object]:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "property_research").strip()
+    try:
+        payload = service.update_property_search_research_task(
+            principal_id=context.principal_id,
+            run_id=run_id,
+            task_id=task_id,
+            action=body.action,
+            value=body.value,
+            note=body.note,
+            actor=actor,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not payload:
+        raise HTTPException(status_code=404, detail="property_search_run_not_found")
+    return dict(payload)
 
 
 def _property_billing_return_path(plan_key: str) -> str:
@@ -697,31 +792,51 @@ def start_property_search_run(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> PropertySearchRunStartOut:
-    service = build_product_service(container)
-    actor = str(context.operator_id or context.access_email or context.principal_id or "property_search").strip()
     try:
-        merged_preferences = _property_preferences(container, principal_id=context.principal_id)
-        merged_preferences.update(dict(body.property_preferences))
-        enforce_property_plan_limits(
-            property_preferences=merged_preferences,
-            selected_platforms=tuple(body.selected_platforms),
-            max_results_per_source=body.max_results_per_source,
-        )
-        payload = service.start_property_search_run(
-            principal_id=context.principal_id,
-            actor=actor,
-            selected_platforms=tuple(body.selected_platforms),
-            property_search_preferences=dict(body.property_preferences),
-            force_refresh=bool(body.force_refresh),
-            max_results_per_source=body.max_results_per_source,
+        payload = _start_property_search_run_payload(
+            body=body,
+            container=container,
+            context=context,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if not str(payload.get("status_url") or "").strip() and str(payload.get("run_id") or "").strip():
-        payload["status_url"] = f"/app/api/signals/property/search/run/{payload.get('run_id')}"
-    return PropertySearchRunStartOut(**payload)
+    return PropertySearchRunStartOut(**_property_search_payload_with_status_url(dict(payload), canonical=False))
+
+
+@router.post("/property/search-runs", response_model=PropertySearchRunStartOut)
+def start_property_search_run_v2(
+    body: PropertySearchRunStartIn,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertySearchRunStartOut:
+    try:
+        payload = _start_property_search_run_payload(
+            body=body,
+            container=container,
+            context=context,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return PropertySearchRunStartOut(**_property_search_payload_with_status_url(dict(payload), canonical=True))
+
+
+@router.get("/property/providers", response_model=dict[str, object])
+def get_property_providers(
+    country: str = Query(default="AT", min_length=1, max_length=12),
+) -> dict[str, object]:
+    country_code = property_normalize_country_code(country)
+    return {
+        "generated_at": now_iso(),
+        "country_code": country_code,
+        "country_label": property_country_label(country_code),
+        "default_platforms": list(property_default_platforms_for_country(country_code)),
+        "providers": [dict(row) for row in property_provider_options(country_code=country_code)],
+    }
 
 
 @router.post("/signals/property/billing/paypal/order", response_model=PropertyBillingCheckoutOut)
@@ -1038,14 +1153,46 @@ def property_search_run_status(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> PropertySearchRunStatusOut:
-    service = build_product_service(container)
-    payload = service.get_property_search_run_status(
-        principal_id=context.principal_id,
+    payload = _property_search_run_status_payload(
         run_id=run_id,
+        container=container,
+        context=context,
     )
-    if not payload:
-        raise HTTPException(status_code=404, detail="property_search_run_not_found")
-    return PropertySearchRunStatusOut(**payload)
+    return PropertySearchRunStatusOut(**_property_search_payload_with_status_url(payload, canonical=False))
+
+
+@router.get("/property/search-runs/{run_id}", response_model=PropertySearchRunStatusOut)
+def property_search_run_status_v2(
+    run_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertySearchRunStatusOut:
+    payload = _property_search_run_status_payload(
+        run_id=run_id,
+        container=container,
+        context=context,
+    )
+    return PropertySearchRunStatusOut(**_property_search_payload_with_status_url(payload, canonical=True))
+
+
+@router.get("/property/search-runs/{run_id}/events", response_model=dict[str, object])
+def property_search_run_events_v2(
+    run_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    payload = _property_search_run_status_payload(
+        run_id=run_id,
+        container=container,
+        context=context,
+    )
+    return {
+        "generated_at": now_iso(),
+        "run_id": str(payload.get("run_id") or run_id).strip(),
+        "status": str(payload.get("status") or "").strip(),
+        "status_url": _property_search_status_url(payload.get("run_id") or run_id, canonical=True),
+        "events": [dict(item) for item in list(payload.get("events") or []) if isinstance(item, dict)],
+    }
 
 
 @router.post("/signals/property/search/run/{run_id}/research-tasks/{task_id:path}", response_model=PropertySearchRunStatusOut)
@@ -1056,25 +1203,32 @@ def update_property_search_research_task(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> PropertySearchRunStatusOut:
-    service = build_product_service(container)
-    actor = str(context.operator_id or context.access_email or context.principal_id or "property_research").strip()
-    try:
-        payload = service.update_property_search_research_task(
-            principal_id=context.principal_id,
-            run_id=run_id,
-            task_id=task_id,
-            action=body.action,
-            value=body.value,
-            note=body.note,
-            actor=actor,
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if not payload:
-        raise HTTPException(status_code=404, detail="property_search_run_not_found")
-    return PropertySearchRunStatusOut(**payload)
+    payload = _update_property_search_research_task_payload(
+        run_id=run_id,
+        task_id=task_id,
+        body=body,
+        container=container,
+        context=context,
+    )
+    return PropertySearchRunStatusOut(**_property_search_payload_with_status_url(payload, canonical=False))
+
+
+@router.post("/property/search-runs/{run_id}/research-tasks/{task_id:path}", response_model=PropertySearchRunStatusOut)
+def update_property_search_research_task_v2(
+    run_id: str,
+    task_id: str,
+    body: PropertySearchResearchTaskUpdateIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertySearchRunStatusOut:
+    payload = _update_property_search_research_task_payload(
+        run_id=run_id,
+        task_id=task_id,
+        body=body,
+        container=container,
+        context=context,
+    )
+    return PropertySearchRunStatusOut(**_property_search_payload_with_status_url(payload, canonical=True))
 
 
 @router.post("/signals/google/photos/session", response_model=GooglePhotosPickerSessionOut)
