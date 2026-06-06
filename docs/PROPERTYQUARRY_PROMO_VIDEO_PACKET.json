@@ -1,0 +1,126 @@
+{
+  "title": "Stop Browsing. Start Deciding.",
+  "result_title": "PropertyQuarry Hero Trailer 87s DE",
+  "product": "PropertyQuarry",
+  "language": "de-AT",
+  "audience": "Urban renters and buyers in Vienna who need decision clarity instead of more listings.",
+  "hook_line": "Wohnungssuche ist nicht das Problem. Die richtige Entscheidung ist das Problem.",
+  "closing_line": "PropertyQuarry. The decision layer for your next home.",
+  "cta": "PropertyQuarry. Stop browsing. Start deciding. propertyquarry.com",
+  "aspect_ratio": "16:9",
+  "platform_target": "Hero landing page trailer",
+  "visual_style": "Cinematic SaaS, intelligence dossier, warm real estate, Vienna evening, premium European decision war room, clean and investigative, no generic AI sparkle",
+  "camera_style": "Begins with subtle handheld macro stress, then settles into stable push-ins and calm slider movement once PropertyQuarry takes control",
+  "voiceover_style": "German, calm, premium, precise, lightly dramatic, 135-145 words per minute",
+  "music_mood": "Muted pulse at the start, tactical rhythmic middle, warm resolved ending",
+  "caption_mode": "German captions, subtle, bottom center",
+  "shot_pacing": "Fast but legible opening, controlled analytical middle, slow confident ending",
+  "timeout_seconds": 900,
+  "script_text": "Create an 87-second German hero trailer for PropertyQuarry. The film opens in a warm Vienna apartment at night. Mara sits at a desk surrounded by browser tabs, a vibrating phone, a printed floorplan, and scattered notes. The problem is not too few listings. The problem is decision overload. Jonas asks: Und... ist die gut? Mara answers: Sie sieht gut aus. Aber ich weiss nicht, was fehlt. That emotional line is the pivot for the whole film. PropertyQuarry then enters as the decision layer. Show a calm Search Brief flow for Austria, Vienna, rent mode, floorplan required, gas heating avoided, lift and outdoor space preferred, feedback preferences enabled. Move into a market scan that reviews 124 listings, filters out no-floorplan candidates and low-fit candidates, and narrows the market to a shortlist and three decision packets. Visualize the market as structured floating cards in a dark warm space, not sci-fi holograms. Transform a listing into a Property Review Packet with fit score, confidence, recommendation, OODA rows, risk register, and missing fact research tasks. Bring the story back to Mara's desk, now more ordered, with the same room and same objects. Show a bright 360 apartment tour, then freeze it and layer good signals, missing confirmations, and pre-viewing questions. Make the point: Eine Tour zeigt den Raum. PropertyQuarry zeigt den Tradeoff. Convert the dossier into a family review packet with a shareable link, QR code posture, and feedback loop that turns external concern into prepared action. Show Jonas reviewing the packet on a phone and saying: Okay. Das ist viel klarer. Then show Mara sending a calm agent message asking for operating cost history, heating source, and lease duration. End in the same room with only three shortlist decisions visible on the screen. On-screen framing should move from Before: 124 listings to After: 3 decisions. Use warm premium real-estate imagery, investigative clarity, and a clean product-trailer feel. No deformed readable UI text should be generated in-scene. Leave monitor surfaces clean for post-composited overlays. The emotional arc is uncertainty to clarity to prepared action to calm confidence.",
+  "scenes": [
+    {
+      "id": "scene-1-chaos",
+      "label": "Chaos am Tisch",
+      "timecode": "00:00-00:07",
+      "visual_prompt": "Focused woman in her early 30s scrolling property listings on a laptop at night, warm apartment lighting, Vienna city lights, blurred browser tabs, vibrating phone, floorplan printout, sticky notes, premium documentary style",
+      "overlay_text": [
+        "124 listings.",
+        "38 open questions."
+      ]
+    },
+    {
+      "id": "scene-2-question",
+      "label": "Die Frage, die niemand beantworten kann",
+      "timecode": "00:07-00:15",
+      "visual_prompt": "Warm evening apartment interior, woman at laptop, partner enters gently and points to screen, intimate realistic dialogue, tired but thoughtful mood"
+    },
+    {
+      "id": "scene-3-brief",
+      "label": "Der Brief entsteht",
+      "timecode": "00:15-00:25",
+      "visual_prompt": "Close-up laptop interaction showing a clean structured property search workflow with blank UI areas for later overlays, stable camera, premium SaaS product film"
+    },
+    {
+      "id": "scene-4-scan",
+      "label": "Der Markt wird abgebaut",
+      "timecode": "00:25-00:36",
+      "visual_prompt": "Abstract premium visualization of listing cards floating in a warm dark space, cards sorting into columns, floorplan thumbnails, map fragments, risk chips, green and gold accents, restrained intelligence dashboard aesthetic"
+    },
+    {
+      "id": "scene-5-dossier",
+      "label": "Das Listing wird zum Dossier",
+      "timecode": "00:36-00:48",
+      "visual_prompt": "Cinematic desk scene with laptop showing a clean review packet surface for later overlay, printed floorplan neatly aligned, same woman reviewing a structured property dossier in warmer calmer light"
+    },
+    {
+      "id": "scene-6-tour",
+      "label": "Die Tour ist nicht die Entscheidung",
+      "timecode": "00:48-01:00",
+      "visual_prompt": "Beautiful bright modern apartment interior, smooth 360-tour style camera movement through a living room, warm wood floor, natural daylight, realistic high-end real estate viewing"
+    },
+    {
+      "id": "scene-7-packet",
+      "label": "Das Packet wird teilbar",
+      "timecode": "01:00-01:10",
+      "visual_prompt": "Close-up of smartphone in partner's hand displaying a clean document or flipbook viewer area left blank for overlay, warm apartment light, family review moment"
+    },
+    {
+      "id": "scene-8-agent",
+      "label": "Bessere Fragen vor der Besichtigung",
+      "timecode": "01:10-01:20",
+      "visual_prompt": "Woman recording a calm professional voice message at a tidy laptop workspace with floorplan and notebook arranged neatly, confident prepared tone, cinematic close-up"
+    },
+    {
+      "id": "scene-9-cta",
+      "label": "Klarheit / CTA",
+      "timecode": "01:20-01:27",
+      "visual_prompt": "Warm calm final workspace, laptop showing a clean dashboard area for overlay, only a few organized property cards visible but unreadable, woman and partner relaxed in background, premium product trailer ending"
+    }
+  ],
+  "voiceover_lines": [
+    "[00:04.8] Wohnungssuche ist nicht schwer, weil es zu wenige Angebote gibt.",
+    "[00:08.5] Sie ist schwer, weil jedes Angebot neue Fragen oeffnet.",
+    "[00:13.0] Das Listing verkauft. Die Entscheidung prueft.",
+    "[00:15.5] PropertyQuarry beginnt nicht mit mehr Ergebnissen.",
+    "[00:18.5] Es beginnt mit dem, was fuer deine Entscheidung wirklich zaehlt.",
+    "[00:25.5] Es scannt Quellen, filtert schwache Treffer und prueft, was andere uebersehen.",
+    "[00:31.5] Jedes Listing wird nicht nur gefunden.",
+    "[00:34.2] Es wird verstanden.",
+    "[00:36.5] Aus einer Anzeige wird ein Dossier.",
+    "[00:39.8] Fehlende Fakten verschwinden nicht im Kleingedruckten.",
+    "[00:42.5] Sie werden zu Forschungsauftraegen.",
+    "[00:48.5] Eine Tour zeigt den Raum.",
+    "[00:51.5] PropertyQuarry zeigt den Tradeoff.",
+    "[00:54.5] Was passt. Was fehlt. Was vor der Besichtigung geklaert werden muss.",
+    "[01:00.5] Und aus dem Dossier wird ein Packet.",
+    "[01:03.5] Redigiert. Teilbar. Fuer Familie, Agenten oder Reports.",
+    "[01:08.5] Feedback kommt zurueck - aber Lernen bleibt unter deiner Kontrolle.",
+    "[01:10.5] Vor der Besichtigung geht PropertyQuarry noch einen Schritt weiter.",
+    "[01:18.3] Nicht mehr nur suchen. Vorbereitet entscheiden.",
+    "[01:23.0] PropertyQuarry.",
+    "[01:24.4] The decision layer for your next home."
+  ],
+  "dialogue_lines": [
+    "Jonas: Und... ist die gut?",
+    "Mara: Sie sieht gut aus. Aber ich weiss nicht, was fehlt.",
+    "Mara: Jetzt weiss ich, was wir fragen muessen.",
+    "Jonas: Okay. Das ist viel klarer.",
+    "Mara: Koennten Sie uns bitte die Betriebskostenhistorie, die Heizungsart und die genaue Befristung bestaetigen?",
+    "Agent: Ja, ich schicke Ihnen die Unterlagen vor dem Termin."
+  ],
+  "render_strategy": {
+    "provider_target": "magicfit_only",
+    "fail_closed_fallback": "none",
+    "ui_overlay_policy": "post-composite crisp UI only after MagicFit scene rendering",
+    "continuity_priority": [
+      "same Mara look",
+      "same desk and room",
+      "same emotional arc",
+      "same product message"
+    ],
+    "policy": [
+      "Do not use storyboard cards, SVG motion cards, deterministic slide renders, or non-MagicFit fallback video generation for this promo lane.",
+      "If MagicFit is unavailable, stop and report the blocker instead of producing an alternate render path."
+    ]
+  }
+}
