@@ -205,10 +205,13 @@ def test_paid_market_report_redaction_is_market_level_only(tmp_path: Path) -> No
     pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
     assert b"Market scope" in pdf_bytes
     assert b"Pricing signals" in pdf_bytes
+    assert b"Media appendix" not in pdf_bytes
     assert b"Viewing checklist" not in pdf_bytes
     assert b"Exact Street 12" not in pdf_bytes
     assert b"private-owner-home" not in pdf_bytes
     assert b"Owner loves this exact flat" not in pdf_bytes
+    assert "media_appendix" not in rendered["receipt"]["visual_elements"]
+    assert rendered["receipt"]["media_link_count"] == 0
     assert rendered["redacted_payload"] == redacted.payload
 
 
@@ -232,5 +235,11 @@ def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     assert rendered["receipt"]["renderer_version"] == "v4_visual_packet_pdf"
     assert rendered["receipt"]["renderer_kind"] == "branded_visual_pdf"
     assert "section_cards" in rendered["receipt"]["visual_elements"]
+    assert "media_appendix" in rendered["receipt"]["visual_elements"]
+    assert rendered["receipt"]["media_link_count"] == 2
+    assert rendered["receipt"]["media_appendix_refs"] == {"floorplans": 1, "photos": 1}
     assert b"PropertyQuarry" in pdf_bytes
+    assert b"Media appendix" in pdf_bytes
+    assert b"https://packets.propertyquarry.com/assets/floorplan.pdf" in pdf_bytes
+    assert b"https://packets.propertyquarry.com/assets/photo.jpg" in pdf_bytes
     assert b" re f" in pdf_bytes

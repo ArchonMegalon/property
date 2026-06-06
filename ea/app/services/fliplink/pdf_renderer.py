@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import urllib.parse
 from pathlib import Path
 from textwrap import wrap
 
@@ -16,6 +17,7 @@ PAGE_WIDTH = 612
 PAGE_HEIGHT = 842
 MARGIN_X = 44
 CARD_WIDTH = PAGE_WIDTH - (MARGIN_X * 2)
+MAX_MEDIA_REF_CHARS = 180
 Color = tuple[float, float, float]
 
 
@@ -179,6 +181,31 @@ def _media_counts(payload: dict[str, object]) -> dict[str, int]:
     return {"floorplans": len(floorplans), "photos": len(photos)}
 
 
+def _media_refs(payload: dict[str, object]) -> dict[str, list[str]]:
+    floorplans = payload.get("floorplan_refs") if isinstance(payload.get("floorplan_refs"), list) else []
+    photos = payload.get("photo_refs") if isinstance(payload.get("photo_refs"), list) else []
+    return {
+        "floorplans": [str(item).strip() for item in floorplans if str(item).strip()],
+        "photos": [str(item).strip() for item in photos if str(item).strip()],
+    }
+
+
+def _media_ref_display(value: str) -> str:
+    parsed = urllib.parse.urlparse(value)
+    display = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path or "/", "", parsed.query, ""))
+    display = display or value
+    if len(display) <= MAX_MEDIA_REF_CHARS:
+        return display
+    return f"{display[: MAX_MEDIA_REF_CHARS - 3]}..."
+
+
+def _wrap_media_ref(value: str, width: int = 74) -> list[str]:
+    text = " ".join(value.split()).strip()
+    if not text:
+        return []
+    return wrap(text, width=width, break_long_words=True, break_on_hyphens=False) or [text]
+
+
 def _packet_sections(
     *,
     payload: dict[str, object],
@@ -335,6 +362,7 @@ def _visual_pdf(
     fliplink_format: FlipLinkFormat,
     summary: str,
     media_counts: dict[str, int],
+    media_refs: dict[str, list[str]],
     sections: list[dict[str, object]],
 ) -> bytes:
     pages: list[list[str]] = []
@@ -425,6 +453,50 @@ def _visual_pdf(
             item_y = _draw_wrapped(ops, item, x=MARGIN_X + 20, y=item_y, width_chars=76, size=9.5, leading=12)
         y -= card_height + 16
     pages.append(ops)
+
+    appendix_items = [
+        ("Floorplan", "floorplans", (0.15, 0.38, 0.30)),
+        ("Photo", "photos", (0.19, 0.36, 0.53)),
+    ]
+    if any(media_refs.get(key) for _, key, _ in appendix_items):
+        page_number += 1
+        ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
+        y = 786
+        _draw_text(ops, "Media appendix", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
+        y = _draw_wrapped(
+            ops,
+            "Public-safe media links only. The PDF renderer did not fetch, embed, or proxy remote files.",
+            x=MARGIN_X,
+            y=y - 24,
+            width_chars=80,
+            size=9.5,
+            leading=12,
+            fill=(0.36, 0.37, 0.36),
+        )
+        y -= 18
+        for label, key, accent in appendix_items:
+            for index, ref in enumerate(media_refs.get(key) or [], start=1):
+                display_ref = _media_ref_display(ref)
+                ref_lines = _wrap_media_ref(display_ref)
+                card_height = max(70, 44 + len(ref_lines) * 11)
+                if y - card_height < 64:
+                    pages.append(ops)
+                    page_number += 1
+                    ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
+                    y = 786
+                    _draw_text(ops, "Media appendix", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
+                    _draw_text(ops, "continued", x=MARGIN_X + 151, y=y + 1, size=9.5, fill=(0.43, 0.38, 0.29))
+                    y -= 38
+                _draw_rect(ops, MARGIN_X, y - card_height, CARD_WIDTH, card_height, fill=(1.0, 0.995, 0.97))
+                _draw_rect(ops, MARGIN_X, y - card_height, 6, card_height, fill=accent)
+                _draw_text(ops, f"{label} {index}", x=MARGIN_X + 18, y=y - 21, size=12, font="F2", fill=(0.12, 0.14, 0.13))
+                _draw_text(ops, "redacted public ref", x=MARGIN_X + 110, y=y - 20, size=8.5, fill=(0.43, 0.38, 0.29))
+                ref_y = y - 43
+                for line in ref_lines:
+                    _draw_text(ops, line, x=MARGIN_X + 20, y=ref_y, size=8.7, fill=(0.17, 0.18, 0.18))
+                    ref_y -= 11
+                y -= card_height + 14
+        pages.append(ops)
     return _build_pdf(pages)
 
 
@@ -452,6 +524,8 @@ def render_property_packet_pdf(
     title = str(redaction.payload.get("title") or source.get("title") or "PropertyQuarry packet").strip() or "PropertyQuarry packet"
     recommended_title = f"{title} - {packet_kind.value.replace('_', ' ').title()}"
     sections = _packet_sections(payload=redaction.payload, packet_kind=packet_kind)
+    media_refs = _media_refs(redaction.payload)
+    media_link_count = sum(len(items) for items in media_refs.values())
     pdf_bytes = _visual_pdf(
         title=title,
         recommended_title=recommended_title,
@@ -460,6 +534,7 @@ def render_property_packet_pdf(
         fliplink_format=fliplink_format,
         summary=str(redaction.payload.get("fit_summary") or redaction.payload.get("recommendation") or ""),
         media_counts=_media_counts(redaction.payload),
+        media_refs=media_refs,
         sections=sections,
     )
     pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
@@ -469,11 +544,16 @@ def render_property_packet_pdf(
     pdf_path = target_dir / f"{_safe_token(publication_id)}.pdf"
     receipt_path = target_dir / f"{_safe_token(publication_id)}.receipt.json"
     pdf_path.write_bytes(pdf_bytes)
+    visual_elements = ["cover", "metric_cards", "section_cards", "privacy_footer"]
+    if media_link_count:
+        visual_elements.insert(3, "media_appendix")
     receipt = {
         **redaction.receipt,
         "renderer_version": PDF_RENDERER_VERSION,
         "renderer_kind": "branded_visual_pdf",
-        "visual_elements": ["cover", "metric_cards", "section_cards", "privacy_footer"],
+        "visual_elements": visual_elements,
+        "media_link_count": media_link_count,
+        "media_appendix_refs": {key: len(items) for key, items in media_refs.items()},
         "pdf_sha256": pdf_sha256,
         "source_pdf_size_bytes": len(pdf_bytes),
         "source_pdf_artifact_ref": str(pdf_path),
