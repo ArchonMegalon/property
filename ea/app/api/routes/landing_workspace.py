@@ -6,7 +6,7 @@ import urllib.parse
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.api.dependencies import RequestContext, get_container, get_request_context
+from app.api.dependencies import RequestContext, get_container, get_request_context, require_operator_context
 from app.api.routes.landing import (
     _console_shell_context,
     _form_value,
@@ -478,6 +478,7 @@ def settings_support_detail(
     request: Request,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
+    _operator_guard: None = Depends(require_operator_context),
 ) -> HTMLResponse:
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})

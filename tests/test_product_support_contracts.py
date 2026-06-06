@@ -14,6 +14,7 @@ def test_support_surfaces_require_operator_context() -> None:
     client = build_product_client(principal_id="exec-support-principal")
     start_workspace(client, mode="personal", workspace_name="Founder Office")
 
+    assert client.get("/app/settings/support").status_code == 403
     assert client.get("/app/api/support").status_code == 403
     assert client.get("/app/api/diagnostics/export").status_code == 403
     assert client.post("/app/api/support/fix-verification/request").status_code == 403
