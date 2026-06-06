@@ -267,7 +267,11 @@ def test_property_scout_listing_url_cache_persists_provider_result_lists(monkeyp
 
     persisted = json.loads(cache_path.read_text(encoding="utf-8"))
     assert persisted["version"] == "property_source_listing_cache_v1"
+    assert persisted["schema_version"] == 1
+    assert persisted["entry_count"] == 1
+    assert persisted["lock_strategy"] == "fcntl"
     assert "willhaben:persistent-cache-key" in persisted["entries"]
+    assert cache_path.with_name(f"{cache_path.name}.lock").exists()
     assert second_cache["status"] == "hit"
     assert second_cache["persistence"] == "file"
     assert second_urls == first_urls
@@ -311,6 +315,34 @@ def test_property_scout_listing_url_cache_merges_existing_persistent_entries(mon
     persisted = json.loads(cache_path.read_text(encoding="utf-8"))
     assert "willhaben:other-worker-key" in persisted["entries"]
     assert "willhaben:this-worker-key" in persisted["entries"]
+    assert persisted["entry_count"] == 2
+
+
+def test_property_scout_listing_url_cache_quarantines_corrupt_persistent_snapshot(monkeypatch, tmp_path) -> None:
+    cache_path = tmp_path / "provider-listings.json"
+    cache_path.write_text("{not valid json", encoding="utf-8")
+    with product_service._PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+        product_service._PROPERTY_SOURCE_LISTING_CACHE.clear()
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_PATH", str(cache_path))
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS", "60")
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_STALE_MAX_SECONDS", "3600")
+
+    product_service._property_source_listing_cache_put(
+        "willhaben:recovered-cache-key",
+        source_url="https://www.willhaben.at/iad/immobilien/mietwohnungen?q=recovered",
+        listing_urls=("https://www.willhaben.at/iad/object?adId=recovered-1",),
+        source_spec={"provider_filter_pushdown": {"cache_key": "willhaben:recovered-cache-key"}},
+    )
+
+    persisted = json.loads(cache_path.read_text(encoding="utf-8"))
+    corrupt_files = sorted(tmp_path.glob("provider-listings.json.corrupt-*.json"))
+    assert corrupt_files
+    assert persisted["version"] == "property_source_listing_cache_v1"
+    assert persisted["schema_version"] == 1
+    assert persisted["lock_strategy"] == "fcntl"
+    assert "willhaben:recovered-cache-key" in persisted["entries"]
 
 
 def test_property_scout_listing_url_cache_rejects_overstale_persistent_fallback(monkeypatch, tmp_path) -> None:

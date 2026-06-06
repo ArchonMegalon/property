@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import csv
+import fcntl
 import hashlib
 import hmac
 import html
@@ -313,6 +315,8 @@ _PROPERTY_SEARCH_RUN_SCHEMA_LOCK = threading.Lock()
 _PROPERTY_SEARCH_RUN_SCHEMA_READY = False
 _PROPERTY_SOURCE_LISTING_CACHE_LOCK = threading.Lock()
 _PROPERTY_SOURCE_LISTING_CACHE: dict[str, dict[str, object]] = {}
+_PROPERTY_SOURCE_LISTING_CACHE_VERSION = "property_source_listing_cache_v1"
+_PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_VERSION = 1
 _PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES = 256
 _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
 _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
@@ -1237,7 +1241,41 @@ def _property_source_listing_cache_snapshot_locked() -> dict[str, dict[str, obje
     )
 
 
+@contextlib.contextmanager
+def _property_source_listing_cache_file_lock(path: Path):
+    lock_path = path.with_name(f"{path.name}.lock")
+    handle = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = lock_path.open("a+", encoding="utf-8")
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        if handle is not None:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+            try:
+                handle.close()
+            except Exception:
+                pass
+
+
+def _property_source_listing_cache_quarantine_corrupt_file(path: Path, *, reason: str) -> str:
+    if not path.exists():
+        return ""
+    suffix = f"corrupt-{int(time.time())}-{uuid4().hex[:12]}"
+    quarantine_path = path.with_name(f"{path.name}.{suffix}.json")
+    try:
+        path.replace(quarantine_path)
+    except Exception:
+        return ""
+    return f"{quarantine_path}:{reason}"
+
+
 def _property_source_listing_cache_persist_snapshot(snapshot: dict[str, dict[str, object]]) -> None:
+    global _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME, _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH
     path = _property_source_listing_cache_path()
     if path is None:
         return
@@ -1246,64 +1284,79 @@ def _property_source_listing_cache_persist_snapshot(snapshot: dict[str, dict[str
         _property_source_listing_cache_ttl_seconds(),
         _property_source_listing_cache_stale_max_seconds(),
     )
-    merged_snapshot = dict(snapshot)
     try:
-        existing_payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except Exception:
-        existing_payload = {}
-    existing_entries = existing_payload.get("entries") if isinstance(existing_payload, dict) else {}
-    if isinstance(existing_entries, dict):
-        for raw_key, raw_row in existing_entries.items():
-            cache_key = str(raw_key or "").strip()[:240]
-            if not cache_key or not isinstance(raw_row, dict):
-                continue
+        with _property_source_listing_cache_file_lock(path):
+            merged_snapshot = dict(snapshot)
             try:
-                stored_at = float(raw_row.get("stored_at_epoch") or 0.0)
+                existing_payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
             except Exception:
-                stored_at = 0.0
-            if retention_seconds > 0 and stored_at > 0.0 and now - stored_at > float(retention_seconds):
-                continue
-            urls = [str(value or "").strip() for value in list(raw_row.get("listing_urls") or []) if str(value or "").strip()]
-            if not urls:
-                continue
-            existing_row = dict(merged_snapshot.get(cache_key) or {})
-            try:
-                existing_stored_at = float(existing_row.get("stored_at_epoch") or 0.0)
-            except Exception:
-                existing_stored_at = 0.0
-            if existing_row and existing_stored_at >= stored_at:
-                continue
-            merged_snapshot[cache_key] = {
-                "cache_key": cache_key,
-                "source_url": urllib.parse.urldefrag(str(raw_row.get("source_url") or "").strip())[0],
-                "listing_urls": urls[:250],
-                "stored_at_epoch": stored_at or now,
-                "provider_filter_pushdown": dict(raw_row.get("provider_filter_pushdown") or {})
-                if isinstance(raw_row.get("provider_filter_pushdown"), dict)
-                else {},
+                _property_source_listing_cache_quarantine_corrupt_file(path, reason="persist_existing_json_invalid")
+                existing_payload = {}
+            existing_entries = existing_payload.get("entries") if isinstance(existing_payload, dict) else {}
+            if isinstance(existing_entries, dict):
+                for raw_key, raw_row in existing_entries.items():
+                    cache_key = str(raw_key or "").strip()[:240]
+                    if not cache_key or not isinstance(raw_row, dict):
+                        continue
+                    try:
+                        stored_at = float(raw_row.get("stored_at_epoch") or 0.0)
+                    except Exception:
+                        stored_at = 0.0
+                    if retention_seconds > 0 and stored_at > 0.0 and now - stored_at > float(retention_seconds):
+                        continue
+                    urls = [str(value or "").strip() for value in list(raw_row.get("listing_urls") or []) if str(value or "").strip()]
+                    if not urls:
+                        continue
+                    existing_row = dict(merged_snapshot.get(cache_key) or {})
+                    try:
+                        existing_stored_at = float(existing_row.get("stored_at_epoch") or 0.0)
+                    except Exception:
+                        existing_stored_at = 0.0
+                    if existing_row and existing_stored_at >= stored_at:
+                        continue
+                    merged_snapshot[cache_key] = {
+                        "cache_key": cache_key,
+                        "source_url": urllib.parse.urldefrag(str(raw_row.get("source_url") or "").strip())[0],
+                        "listing_urls": urls[:250],
+                        "stored_at_epoch": stored_at or now,
+                        "provider_filter_pushdown": dict(raw_row.get("provider_filter_pushdown") or {})
+                        if isinstance(raw_row.get("provider_filter_pushdown"), dict)
+                        else {},
+                    }
+            merged_snapshot = dict(
+                sorted(
+                    merged_snapshot.items(),
+                    key=lambda item: float(item[1].get("stored_at_epoch") or 0.0),
+                    reverse=True,
+                )[:_PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES]
+            )
+            payload = {
+                "version": _PROPERTY_SOURCE_LISTING_CACHE_VERSION,
+                "schema_version": _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_VERSION,
+                "stored_at": _now_iso(),
+                "stored_at_epoch": now,
+                "entry_count": len(merged_snapshot),
+                "max_entries": _PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES,
+                "lock_strategy": "fcntl",
+                "entries": merged_snapshot,
             }
-    merged_snapshot = dict(
-        sorted(
-            merged_snapshot.items(),
-            key=lambda item: float(item[1].get("stored_at_epoch") or 0.0),
-            reverse=True,
-        )[:_PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES]
-    )
-    payload = {
-        "version": "property_source_listing_cache_v1",
-        "stored_at": _now_iso(),
-        "entries": merged_snapshot,
-    }
-    temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path.write_text(json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n", encoding="utf-8")
-        temp_path.replace(path)
+            temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+            try:
+                temp_path.write_text(json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n", encoding="utf-8")
+                temp_path.replace(path)
+                with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+                    _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = str(path)
+                    try:
+                        _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = float(path.stat().st_mtime)
+                    except Exception:
+                        _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+            finally:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
     except Exception:
-        try:
-            temp_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+        return
 
 
 def _property_source_listing_cache_load() -> None:
@@ -1320,16 +1373,33 @@ def _property_source_listing_cache_load() -> None:
             and _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME == path_mtime
         ):
             return
-        _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
-        _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = path_mtime
     if path is None or path_mtime <= 0.0:
+        with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = path_mtime
         return
     try:
-        parsed = json.loads(path.read_text(encoding="utf-8"))
+        with _property_source_listing_cache_file_lock(path):
+            parsed = json.loads(path.read_text(encoding="utf-8"))
+            try:
+                loaded_mtime = float(path.stat().st_mtime)
+            except Exception:
+                loaded_mtime = path_mtime
     except Exception:
+        try:
+            with _property_source_listing_cache_file_lock(path):
+                _property_source_listing_cache_quarantine_corrupt_file(path, reason="load_json_invalid")
+        except Exception:
+            pass
+        with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
         return
     entries = parsed.get("entries") if isinstance(parsed, dict) else {}
     if not isinstance(entries, dict):
+        with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = loaded_mtime
         return
     loaded_rows: dict[str, dict[str, object]] = {}
     now = time.time()
@@ -1360,6 +1430,9 @@ def _property_source_listing_cache_load() -> None:
             else {},
         }
     if not loaded_rows:
+        with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = loaded_mtime
         return
     with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
         for key, row in loaded_rows.items():
@@ -1372,6 +1445,8 @@ def _property_source_listing_cache_load() -> None:
                 continue
             _PROPERTY_SOURCE_LISTING_CACHE[key] = row
         _property_source_listing_cache_prune_locked()
+        _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
+        _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = loaded_mtime
 
 
 def _property_source_listing_cache_get(cache_key: str, *, allow_stale: bool = False) -> tuple[tuple[str, ...], dict[str, object]]:
