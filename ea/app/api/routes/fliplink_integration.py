@@ -417,7 +417,7 @@ def download_property_packet_pdf(
     row = service.get_publication(publication_id=publication_id, principal_id=context.principal_id)
     if row is None:
         raise HTTPException(status_code=404, detail="property_packet_publication_not_found")
-    artifact_root = Path(str(container.settings.storage.artifacts_dir or "/tmp/ea_artifacts")).resolve()
+    artifact_root = Path(str(container.settings.storage.artifacts_dir)).resolve()
     pdf_path = Path(str(row.get("source_pdf_artifact_ref") or "")).resolve()
     if (pdf_path != artifact_root and artifact_root not in pdf_path.parents) or not pdf_path.is_file():
         raise HTTPException(status_code=404, detail="property_packet_pdf_not_found")

@@ -763,6 +763,6 @@ def _review_target_payload(target: dict[str, object]) -> dict[str, object]:
 
 
 def build_fliplink_packet_service(container: AppContainer) -> FlipLinkPacketService:
-    artifact_root = Path(str(container.settings.storage.artifacts_dir or "/tmp/ea_artifacts")).resolve()
+    artifact_root = Path(str(container.settings.storage.artifacts_dir)).resolve()
     repo = build_property_packet_publication_repository(container.settings)
     return FlipLinkPacketService(repo=repo, artifact_root=artifact_root)
