@@ -63,7 +63,28 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
                     "research_task_total": 1,
                     "sources": [
                         {
+                            "source_url": "https://www.willhaben.at/iad/immobilien/mietwohnungen?ESTATE_SIZE%2FLIVING_AREA_FROM=80",
                             "source_label": "Willhaben | Austria | Rent",
+                            "preference_person_id": "self",
+                            "provider_filter_pushdown": {
+                                "version": "property_provider_filter_pushdown_v1",
+                                "cache_key": "willhaben:rent:1020:min80",
+                                "applied": {
+                                    "min_area_m2": 80,
+                                    "max_price_eur": 2200,
+                                    "min_rooms": 3,
+                                },
+                            },
+                            "provider_cache": {
+                                "status": "hit",
+                                "cache_key": "willhaben:rent:1020:min80",
+                            },
+                            "raw_listing_total": 25,
+                            "scanned_listing_total": 8,
+                            "listing_total": 1,
+                            "filtered_area_total": 17,
+                            "filtered_low_fit_total": 2,
+                            "top_fit_score": 82.5,
                             "top_candidates": [
                                 {
                                     "property_url": "https://www.willhaben.at/iad/object?adId=123",
@@ -111,6 +132,11 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert records["propertyquarry_subscriptions"][0]["current_plan_key"] == "plus"
     assert records["propertyquarry_preferences"][0]["min_area_m2"] == 80
     assert records["propertyquarry_search_runs"][0]["run_id"] == "run-1"
+    assert records["propertyquarry_provider_sources"][0]["platform"] == "willhaben"
+    assert records["propertyquarry_provider_sources"][0]["provider_cache_status"] == "hit"
+    assert records["propertyquarry_provider_sources"][0]["provider_cache_key"] == "willhaben:rent:1020:min80"
+    assert records["propertyquarry_provider_sources"][0]["min_area_m2"] == 80
+    assert records["propertyquarry_provider_sources"][0]["filtered_area_total"] == 17
     assert records["propertyquarry_properties"][0]["area_sqm"] == 91
     assert records["propertyquarry_property_evaluations"][0]["fit_score"] == 82.5
     assert records["propertyquarry_research_tasks"][0]["field_key"] == "rooms"
@@ -206,4 +232,5 @@ def test_propertyquarry_teable_bootstrap_preview_has_all_property_tables() -> No
     assert payload["status"] == "preview"
     assert set(payload["mapping_preview"]) == set(PROPERTYQUARRY_TEABLE_TABLE_NAMES)
     assert "propertyquarry_users" in payload["tables"]
+    assert "propertyquarry_provider_sources" in payload["tables"]
     assert payload["tables"]["propertyquarry_properties"][0]["name"] == "projection_id"

@@ -12,6 +12,7 @@ PROPERTYQUARRY_TEABLE_TABLE_NAMES = (
     "propertyquarry_subscriptions",
     "propertyquarry_preferences",
     "propertyquarry_search_runs",
+    "propertyquarry_provider_sources",
     "propertyquarry_properties",
     "propertyquarry_property_evaluations",
     "propertyquarry_research_tasks",
@@ -109,6 +110,37 @@ PROPERTYQUARRY_TEABLE_TABLE_FIELDS: dict[str, list[dict[str, object]]] = {
         {"name": "research_task_total", "type": "number"},
         {"name": "open_research_task_total", "type": "number"},
         {"name": "summary_json", "type": "longText"},
+        {"name": "last_projected_at", "type": "singleLineText"},
+    ],
+    "propertyquarry_provider_sources": [
+        {"name": "projection_id", "type": "singleLineText", "notNull": True, "unique": True},
+        {"name": "tenant_key", "type": "singleLineText"},
+        {"name": "principal_id", "type": "singleLineText"},
+        {"name": "run_id", "type": "singleLineText"},
+        {"name": "source_ref", "type": "singleLineText"},
+        {"name": "source_label", "type": "singleLineText"},
+        {"name": "source_url", "type": "longText"},
+        {"name": "platform", "type": "singleLineText"},
+        {"name": "preference_person_id", "type": "singleLineText"},
+        {"name": "provider_cache_key", "type": "singleLineText"},
+        {"name": "provider_cache_status", "type": "singleLineText"},
+        {"name": "provider_cache_stale", "type": "checkbox"},
+        {"name": "raw_listing_total", "type": "number"},
+        {"name": "scanned_listing_total", "type": "number"},
+        {"name": "listing_total", "type": "number"},
+        {"name": "duplicate_listing_total", "type": "number"},
+        {"name": "filtered_area_total", "type": "number"},
+        {"name": "filtered_low_fit_total", "type": "number"},
+        {"name": "filtered_floorplan_total", "type": "number"},
+        {"name": "high_fit_total", "type": "number"},
+        {"name": "top_fit_score", "type": "number"},
+        {"name": "scan_truncated", "type": "checkbox"},
+        {"name": "min_area_m2", "type": "number"},
+        {"name": "max_price_eur", "type": "number"},
+        {"name": "min_rooms", "type": "number"},
+        {"name": "provider_filter_pushdown_json", "type": "longText"},
+        {"name": "provider_cache_json", "type": "longText"},
+        {"name": "source_json", "type": "longText"},
         {"name": "last_projected_at", "type": "singleLineText"},
     ],
     "propertyquarry_properties": [
@@ -247,6 +279,15 @@ def _candidate_rows_from_run(run: dict[str, object]) -> list[dict[str, object]]:
     return rows
 
 
+def _source_rows_from_run(run: dict[str, object]) -> list[dict[str, object]]:
+    summary = dict(run.get("summary") or {})
+    rows: list[dict[str, object]] = []
+    for source in list(summary.get("sources") or []):
+        if isinstance(source, dict):
+            rows.append(dict(source))
+    return rows
+
+
 def build_propertyquarry_teable_projection_records(
     *,
     principal_id: str,
@@ -283,6 +324,7 @@ def build_propertyquarry_teable_projection_records(
     subscriptions: dict[str, dict[str, object]] = {}
     preference_rows: dict[str, dict[str, object]] = {}
     search_run_rows: dict[str, dict[str, object]] = {}
+    provider_source_rows: dict[str, dict[str, object]] = {}
     property_rows: dict[str, dict[str, object]] = {}
     evaluation_rows: dict[str, dict[str, object]] = {}
     research_task_rows: dict[str, dict[str, object]] = {}
@@ -383,6 +425,61 @@ def build_propertyquarry_teable_projection_records(
             "summary_json": summary,
             "last_projected_at": projected_at,
         }
+        for source_index, source in enumerate(_source_rows_from_run(run), start=1):
+            source_url = _text(source.get("source_url"), limit=1000)
+            source_label = _text(source.get("source_label"), limit=200)
+            source_ref = _stable_ref(source_url or f"{run_id}:{source_label}:{source_index}", prefix="source")
+            provider_filter_pushdown = (
+                dict(source.get("provider_filter_pushdown") or {})
+                if isinstance(source.get("provider_filter_pushdown"), dict)
+                else {}
+            )
+            provider_cache = dict(source.get("provider_cache") or {}) if isinstance(source.get("provider_cache"), dict) else {}
+            applied_pushdown = (
+                dict(provider_filter_pushdown.get("applied") or {})
+                if isinstance(provider_filter_pushdown.get("applied"), dict)
+                else {}
+            )
+            cache_key = _text(
+                source.get("provider_cache_key")
+                or provider_cache.get("cache_key")
+                or provider_filter_pushdown.get("cache_key"),
+                limit=240,
+            )
+            platform = _text(source.get("platform"), limit=120)
+            if not platform and ":" in cache_key:
+                platform = _text(cache_key.split(":", 1)[0], limit=120)
+            provider_source_rows[f"provider_source:{run_id}:{source_ref}"] = {
+                "projection_id": f"provider_source:{run_id}:{source_ref}",
+                "tenant_key": normalized_tenant,
+                "principal_id": run_principal,
+                "run_id": run_id,
+                "source_ref": source_ref,
+                "source_label": source_label,
+                "source_url": source_url,
+                "platform": platform,
+                "preference_person_id": _text(source.get("preference_person_id") or preference_person_id, limit=120),
+                "provider_cache_key": cache_key,
+                "provider_cache_status": _text(provider_cache.get("status"), limit=80),
+                "provider_cache_stale": bool(provider_cache.get("stale") or provider_cache.get("status") == "stale_fallback"),
+                "raw_listing_total": _number(source.get("raw_listing_total")),
+                "scanned_listing_total": _number(source.get("scanned_listing_total")),
+                "listing_total": _number(source.get("listing_total")),
+                "duplicate_listing_total": _number(source.get("duplicate_listing_total")),
+                "filtered_area_total": _number(source.get("filtered_area_total")),
+                "filtered_low_fit_total": _number(source.get("filtered_low_fit_total")),
+                "filtered_floorplan_total": _number(source.get("filtered_floorplan_total")),
+                "high_fit_total": _number(source.get("high_fit_total")),
+                "top_fit_score": _number(source.get("top_fit_score")),
+                "scan_truncated": bool(source.get("scan_truncated")),
+                "min_area_m2": _number(source.get("min_area_m2") or applied_pushdown.get("min_area_m2")),
+                "max_price_eur": _number(applied_pushdown.get("max_price_eur")),
+                "min_rooms": _number(applied_pushdown.get("min_rooms")),
+                "provider_filter_pushdown_json": provider_filter_pushdown,
+                "provider_cache_json": provider_cache,
+                "source_json": source,
+                "last_projected_at": projected_at,
+            }
         for candidate in _candidate_rows_from_run(run):
             property_url = _text(candidate.get("property_url"), limit=1000)
             if not property_url:
@@ -461,6 +558,7 @@ def build_propertyquarry_teable_projection_records(
         "propertyquarry_subscriptions": _table_rows(subscriptions),
         "propertyquarry_preferences": _table_rows(preference_rows),
         "propertyquarry_search_runs": _table_rows(search_run_rows),
+        "propertyquarry_provider_sources": _table_rows(provider_source_rows),
         "propertyquarry_properties": _table_rows(property_rows),
         "propertyquarry_property_evaluations": _table_rows(evaluation_rows),
         "propertyquarry_research_tasks": _table_rows(research_task_rows),
