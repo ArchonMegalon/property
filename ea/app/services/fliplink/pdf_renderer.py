@@ -42,6 +42,12 @@ def _text_items(value: object, *, limit: int = 10) -> list[str]:
     return [str(item or "").strip() for item in value[:limit] if str(item or "").strip()]
 
 
+def _joined(value: object) -> str:
+    if isinstance(value, list):
+        return ", ".join(str(item or "").strip() for item in value if str(item or "").strip())
+    return str(value or "").strip()
+
+
 def _num(value: float) -> str:
     return f"{value:.2f}".rstrip("0").rstrip(".")
 
@@ -181,8 +187,67 @@ def _packet_sections(
     facts = dict(payload.get("facts") or {}) if isinstance(payload.get("facts"), dict) else {}
 
     def row(label: str, value: object) -> str:
-        text = str(value or "").strip()
+        text = _joined(value)
         return f"{label}: {text}" if text else ""
+
+    if packet_kind == PropertyPacketKind.PAID_MARKET_REPORT:
+        market_scope = payload.get("market_scope") or facts.get("market_scope") or facts.get("market_scope_label")
+        coverage = [
+            row("Market scope", market_scope),
+            row("Freshness date", facts.get("freshness_date")),
+            row("Coverage window", facts.get("coverage_window")),
+            row("Listing count", facts.get("listing_count") or facts.get("sample_size")),
+        ]
+        pricing = [
+            row("Median buy per sqm", facts.get("median_price_per_sqm_eur") or facts.get("market_buy_per_sqm_eur")),
+            row("Median rent per sqm", facts.get("median_rent_per_sqm_eur") or facts.get("market_rent_per_sqm_eur")),
+            row("Median price", facts.get("median_price_eur")),
+            row("Median rent", facts.get("median_rent_eur")),
+            row("Gross yield", facts.get("gross_yield_pct")),
+            row("Payback years", facts.get("payback_years")),
+        ]
+        methodology = [
+            row("Data sources", facts.get("data_sources")),
+            row("Data coverage", facts.get("data_coverage") or facts.get("source_coverage")),
+            row("Methodology", facts.get("methodology") or "provider scan, market aggregation, and owner-safe redaction"),
+        ]
+        market_observations = _text_items(payload.get("market_observations"), limit=8)
+        examples = _text_items(payload.get("market_examples"), limit=8) or _text_items(facts.get("market_examples"), limit=8)
+        exclusions = [
+            *_text_items(payload.get("unknowns"), limit=6),
+            row("Exclusions", facts.get("exclusions")),
+            row("Accuracy notes", facts.get("accuracy_notes")),
+            row("Disclaimer", facts.get("legal_disclaimer")),
+        ]
+        return [
+            _section("Market scope", [item for item in coverage if item] or ["Market scope was not supplied."], accent=(0.15, 0.38, 0.30)),
+            _section("Pricing signals", [item for item in pricing if item] or ["No pricing signal was supplied."], accent=(0.74, 0.55, 0.18)),
+            _section(
+                "Source coverage",
+                [item for item in methodology if item] or ["Only redacted market-level source coverage is included."],
+                accent=(0.19, 0.36, 0.53),
+            ),
+            _section(
+                "Market observations",
+                market_observations or examples or ["No comparable example summary was included."],
+                accent=(0.17, 0.45, 0.37),
+            ),
+            _section(
+                "Exclusions and accuracy",
+                [item for item in exclusions if item] or ["This is not a valuation, legal opinion, or offer recommendation."],
+                accent=(0.62, 0.29, 0.26),
+            ),
+            _section(
+                "Source, provenance, and privacy",
+                [
+                    "Source: redacted market evidence only.",
+                    "No owner preference snapshot, exact address, property URL, floorplan, or photo reference is included.",
+                    "PropertyQuarry remains the source of truth for ranking, methodology, and audit state.",
+                    f"Renderer fallback available: {PDF_RENDERER_FALLBACK_VERSION}",
+                ],
+                accent=(0.30, 0.31, 0.30),
+            ),
+        ]
 
     core_facts = [
         row("Purchase price", facts.get("purchase_price_eur") or facts.get("price_eur") or facts.get("price_display")),
@@ -379,6 +444,7 @@ def render_property_packet_pdf(
     redaction = redact_property_packet(
         source=source,
         privacy_mode=privacy_mode,
+        packet_kind=packet_kind,
         include_exact_address=include_exact_address,
         include_floorplan=include_floorplan,
         include_photos=include_photos,

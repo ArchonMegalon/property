@@ -6,10 +6,10 @@ import urllib.parse
 from dataclasses import dataclass
 
 from app.domain.models import now_utc_iso
-from app.services.fliplink.models import PacketPrivacyMode
+from app.services.fliplink.models import PacketPrivacyMode, PropertyPacketKind
 
 
-REDACTION_POLICY_VERSION = "property_packet_v1"
+REDACTION_POLICY_VERSION = "property_packet_v2"
 
 PRIVATE_KEY_MARKERS = {
     "principal",
@@ -75,6 +75,36 @@ BASE_PUBLIC_FACT_KEYS = {
     "heating_type",
     "parking_monthly_eur",
     "availability",
+}
+
+PAID_MARKET_REPORT_FACT_KEYS = {
+    "market_scope",
+    "market_scope_label",
+    "district",
+    "city",
+    "country",
+    "freshness_date",
+    "coverage_window",
+    "data_coverage",
+    "source_coverage",
+    "data_sources",
+    "methodology",
+    "listing_count",
+    "sample_size",
+    "market_buy_per_sqm_eur",
+    "market_rent_per_sqm_eur",
+    "median_price_eur",
+    "median_rent_eur",
+    "median_price_per_sqm_eur",
+    "median_rent_per_sqm_eur",
+    "price_per_sqm_range_eur",
+    "rent_per_sqm_range_eur",
+    "gross_yield_pct",
+    "payback_years",
+    "market_examples",
+    "exclusions",
+    "accuracy_notes",
+    "legal_disclaimer",
 }
 
 PUBLIC_FACT_ALLOWLIST_BY_MODE: dict[PacketPrivacyMode, set[str]] = {
@@ -160,7 +190,19 @@ def _redact_value(value: object, *, removed: list[str], path: str) -> object:
     return copy.deepcopy(value)
 
 
-def _fact_allowlist_for(privacy_mode: PacketPrivacyMode, *, include_exact_address: bool) -> set[str]:
+def _is_paid_market_report(packet_kind: object) -> bool:
+    raw = packet_kind.value if isinstance(packet_kind, PropertyPacketKind) else str(packet_kind or "").strip().lower()
+    return raw == PropertyPacketKind.PAID_MARKET_REPORT.value
+
+
+def _fact_allowlist_for(
+    privacy_mode: PacketPrivacyMode,
+    *,
+    include_exact_address: bool,
+    packet_kind: object = None,
+) -> set[str]:
+    if _is_paid_market_report(packet_kind):
+        return set(PAID_MARKET_REPORT_FACT_KEYS)
     allowed = set(PUBLIC_FACT_ALLOWLIST_BY_MODE.get(privacy_mode) or set())
     if include_exact_address and privacy_mode in {PacketPrivacyMode.AGENT_SHARE, PacketPrivacyMode.FAMILY_REVIEW, PacketPrivacyMode.OWNER_PRIVATE}:
         allowed.update(EXACT_ADDRESS_KEYS)
@@ -174,9 +216,10 @@ def _redact_facts(
     *,
     privacy_mode: PacketPrivacyMode,
     include_exact_address: bool,
+    packet_kind: object = None,
     removed: list[str],
 ) -> dict[str, object]:
-    allowed = _fact_allowlist_for(privacy_mode, include_exact_address=include_exact_address)
+    allowed = _fact_allowlist_for(privacy_mode, include_exact_address=include_exact_address, packet_kind=packet_kind)
     out: dict[str, object] = {}
     for key, value in facts.items():
         normalized_key = str(key or "").strip()
@@ -196,6 +239,19 @@ def _list_text(value: object, limit: int = 12) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item or "").strip() for item in value[:limit] if str(item or "").strip()]
+
+
+def _text(value: object, *, limit: int = 240) -> str:
+    return " ".join(str(value or "").split()).strip()[:limit]
+
+
+def _market_scope_label(source: dict[str, object], facts: dict[str, object]) -> str:
+    for key in ("market_scope", "market_scope_label", "report_scope", "district", "city", "country"):
+        value = _text(source.get(key) or facts.get(key), limit=180)
+        if value:
+            return value
+    parts = [_text(facts.get(key), limit=80) for key in ("district", "city", "country")]
+    return ", ".join(part for part in parts if part)
 
 
 def _media_allowed_hosts() -> set[str]:
@@ -249,11 +305,13 @@ def redact_property_packet(
     *,
     source: dict[str, object],
     privacy_mode: PacketPrivacyMode,
+    packet_kind: object = None,
     include_exact_address: bool = False,
     include_floorplan: bool = True,
     include_photos: bool = True,
 ) -> RedactionResult:
     removed: list[str] = []
+    paid_market_report = _is_paid_market_report(packet_kind)
     for key in source:
         if _key_private(key):
             removed.append(str(key or "").strip())
@@ -262,32 +320,79 @@ def redact_property_packet(
         facts,
         privacy_mode=privacy_mode,
         include_exact_address=include_exact_address,
+        packet_kind=packet_kind,
         removed=removed,
     )
-    payload = {
-        "title": str(source.get("title") or source.get("property_title") or "PropertyQuarry packet").strip(),
-        "property_ref": str(source.get("property_ref") or "").strip(),
-        "property_url": str(source.get("property_url") or source.get("source_url") or "").strip(),
-        "source_label": str(source.get("source_label") or "PropertyQuarry").strip(),
-        "fit_summary": str(source.get("fit_summary") or source.get("summary") or "").strip(),
-        "recommendation": str(source.get("recommendation") or "").strip(),
-        "match_reasons": _list_text(source.get("match_reasons")),
-        "mismatch_reasons": _list_text(source.get("mismatch_reasons")),
-        "unknowns": _list_text(source.get("unknowns") or source.get("open_questions")),
-        "viewing_questions": _list_text(source.get("viewing_questions") or source.get("questions")),
-        "facts": redacted_facts,
-    }
-    if include_floorplan:
+    if paid_market_report:
+        market_scope = _market_scope_label(source, {**facts, **redacted_facts})
+        market_title = _text(source.get("market_report_title") or source.get("report_title"), limit=240)
+        if not market_title:
+            market_title = f"{market_scope} market report" if market_scope else "PropertyQuarry market report"
+        payload = {
+            "title": market_title,
+            "market_scope": market_scope,
+            "source_label": "PropertyQuarry market research",
+            "fit_summary": _text(
+                source.get("market_summary")
+                or source.get("report_summary")
+                or "Market-level report generated from redacted PropertyQuarry research.",
+                limit=900,
+            ),
+            "recommendation": _text(source.get("market_recommendation") or "", limit=500),
+            "market_observations": _list_text(
+                source.get("market_observations")
+                or source.get("market_highlights")
+                or source.get("market_reasons"),
+                limit=12,
+            ),
+            "market_examples": _list_text(source.get("market_examples") or redacted_facts.get("market_examples"), limit=10),
+            "mismatch_reasons": _list_text(source.get("market_risks") or source.get("market_caveats"), limit=8),
+            "unknowns": _list_text(source.get("market_exclusions") or source.get("exclusions") or source.get("accuracy_notes"), limit=8),
+            "facts": redacted_facts,
+        }
+        for key in (
+            "title",
+            "property_title",
+            "property_ref",
+            "property_url",
+            "source_url",
+            "fit_summary",
+            "summary",
+            "recommendation",
+            "match_reasons",
+            "viewing_questions",
+            "questions",
+        ):
+            if key in source:
+                removed.append(key)
+        for key in sorted(FLOORPLAN_REF_KEYS | PHOTO_REF_KEYS):
+            if key in source:
+                removed.append(f"{key}.paid_market_report_omitted")
+    else:
+        payload = {
+            "title": str(source.get("title") or source.get("property_title") or "PropertyQuarry packet").strip(),
+            "property_ref": str(source.get("property_ref") or "").strip(),
+            "property_url": str(source.get("property_url") or source.get("source_url") or "").strip(),
+            "source_label": str(source.get("source_label") or "PropertyQuarry").strip(),
+            "fit_summary": str(source.get("fit_summary") or source.get("summary") or "").strip(),
+            "recommendation": str(source.get("recommendation") or "").strip(),
+            "match_reasons": _list_text(source.get("match_reasons")),
+            "mismatch_reasons": _list_text(source.get("mismatch_reasons")),
+            "unknowns": _list_text(source.get("unknowns") or source.get("open_questions")),
+            "viewing_questions": _list_text(source.get("viewing_questions") or source.get("questions")),
+            "facts": redacted_facts,
+        }
+    if include_floorplan and not paid_market_report:
         floorplans = _public_media_refs(source, FLOORPLAN_REF_KEYS, removed=removed, limit=8)
         if floorplans:
             payload["floorplan_refs"] = floorplans
-    else:
+    elif not paid_market_report:
         removed.extend(sorted(key for key in FLOORPLAN_REF_KEYS if key in source))
-    if include_photos:
+    if include_photos and not paid_market_report:
         photos = _public_media_refs(source, PHOTO_REF_KEYS, removed=removed, limit=20)
         if photos:
             payload["photo_refs"] = photos
-    else:
+    elif not paid_market_report:
         removed.extend(sorted(key for key in PHOTO_REF_KEYS if key in source))
     if privacy_mode == PacketPrivacyMode.ANONYMOUS_PUBLIC:
         payload.pop("fit_summary", None)
@@ -295,21 +400,31 @@ def redact_property_packet(
     payload = _redact_value(payload, removed=removed, path="")
     if not isinstance(payload, dict):
         payload = {}
+    paid_source_refs = [str(source.get("search_run_id") or "").strip()] if paid_market_report else []
     receipt = {
         "redaction_policy_version": REDACTION_POLICY_VERSION,
+        "packet_kind": PropertyPacketKind.PAID_MARKET_REPORT.value if paid_market_report else "",
         "privacy_mode": privacy_mode.value,
-        "source_refs": [
+        "source_refs": [item for item in paid_source_refs if item] if paid_market_report else [
             str(source.get("property_ref") or "").strip(),
             str(source.get("search_run_id") or "").strip(),
         ],
         "removed_fields": sorted(set(item for item in removed if item)),
-        "allowed_fact_keys": sorted(_fact_allowlist_for(privacy_mode, include_exact_address=include_exact_address)),
+        "allowed_fact_keys": sorted(
+            _fact_allowlist_for(privacy_mode, include_exact_address=include_exact_address, packet_kind=packet_kind)
+        ),
         "media_allowed_hosts": sorted(_media_allowed_hosts()),
         "include_floorplan": bool(include_floorplan),
         "include_photos": bool(include_photos),
+        "paid_market_report_market_level_only": bool(paid_market_report),
         "generated_at": now_utc_iso(),
     }
-    assert_redacted_packet_safe(payload=payload, privacy_mode=privacy_mode, include_exact_address=include_exact_address)
+    assert_redacted_packet_safe(
+        payload=payload,
+        privacy_mode=privacy_mode,
+        include_exact_address=include_exact_address,
+        packet_kind=packet_kind,
+    )
     return RedactionResult(payload=payload, receipt=receipt)
 
 
@@ -333,6 +448,7 @@ def assert_redacted_packet_safe(
     payload: dict[str, object],
     privacy_mode: PacketPrivacyMode,
     include_exact_address: bool = False,
+    packet_kind: object = None,
 ) -> None:
     forbidden = _walk_forbidden(payload)
     facts = dict(payload.get("facts") or {}) if isinstance(payload.get("facts"), dict) else {}
@@ -340,5 +456,10 @@ def assert_redacted_packet_safe(
         for key in EXACT_ADDRESS_KEYS:
             if key in facts and privacy_mode != PacketPrivacyMode.OWNER_PRIVATE:
                 forbidden.append(f"facts.{key}")
+    if _is_paid_market_report(packet_kind):
+        for key in ("property_ref", "property_url", "floorplan_refs", "photo_refs", "viewing_questions"):
+            value = payload.get(key)
+            if value:
+                forbidden.append(key)
     if forbidden:
         raise ValueError("fliplink_packet_redaction_failed:" + ",".join(sorted(set(forbidden))[:20]))

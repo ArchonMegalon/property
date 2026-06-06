@@ -121,6 +121,97 @@ def test_fliplink_packet_media_refs_are_host_allowlisted(monkeypatch) -> None:
     assert custom.payload["photo_refs"] == ["https://cdn.example/photo.jpg"]
 
 
+def test_paid_market_report_redaction_is_market_level_only(tmp_path: Path) -> None:
+    source = {
+        "title": "Exact Street 12 investment flat",
+        "market_report_title": "1020 Vienna buy-to-let market report",
+        "property_ref": "listing:private-owner-home",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/private-owner-home",
+        "source_url": "https://www.willhaben.at/iad/immobilien/d/private-owner-home",
+        "fit_summary": "Owner loves this exact flat because it is near school.",
+        "summary": "Private owner-specific summary.",
+        "match_reasons": ["Owner preference snapshot says this exact listing is a match."],
+        "viewing_questions": ["Ask why the owner is selling."],
+        "floorplan_refs": ["https://packets.propertyquarry.com/private/floorplan.pdf"],
+        "photo_refs": ["https://packets.propertyquarry.com/private/photo.jpg"],
+        "market_scope": "1020 Vienna",
+        "market_summary": "District-level pricing and rent signal for 1020 Vienna.",
+        "market_observations": ["Median asking prices are above adjacent districts."],
+        "market_examples": ["Comparable two-bedroom segment, 70-90 m2, renovated stock."],
+        "market_exclusions": ["No individual owner notes or private listing URLs."],
+        "property_facts": {
+            "street_address": "Exact Street 12",
+            "map_lat": 48.2,
+            "map_lng": 16.3,
+            "rooms": 3,
+            "area_m2": 82,
+            "purchase_price_eur": 520000,
+            "market_scope": "1020 Vienna",
+            "freshness_date": "2026-06-06",
+            "listing_count": 42,
+            "median_price_per_sqm_eur": "EUR 6,400",
+            "median_rent_per_sqm_eur": "EUR 18",
+            "methodology": "Provider scan and redacted comparable aggregation.",
+            "data_sources": ["Willhaben", "PropertyQuarry cache"],
+            "legal_disclaimer": "Informational market report, not a valuation.",
+        },
+    }
+
+    redacted = redact_property_packet(
+        source=source,
+        privacy_mode=PacketPrivacyMode.PAID_CUSTOMER,
+        packet_kind=PropertyPacketKind.PAID_MARKET_REPORT,
+        include_exact_address=True,
+    )
+
+    payload_text = str(redacted.payload)
+    assert redacted.payload["title"] == "1020 Vienna buy-to-let market report"
+    assert redacted.payload["market_scope"] == "1020 Vienna"
+    assert "property_ref" not in redacted.payload
+    assert "property_url" not in redacted.payload
+    assert "floorplan_refs" not in redacted.payload
+    assert "photo_refs" not in redacted.payload
+    assert "viewing_questions" not in redacted.payload
+    assert "Exact Street 12" not in payload_text
+    assert "private-owner-home" not in payload_text
+    assert "Owner loves this exact flat" not in payload_text
+    facts = redacted.payload["facts"]
+    assert facts["market_scope"] == "1020 Vienna"
+    assert facts["listing_count"] == 42
+    assert facts["median_price_per_sqm_eur"] == "EUR 6,400"
+    assert "purchase_price_eur" not in facts
+    assert "rooms" not in facts
+    assert "area_m2" not in facts
+    assert "street_address" not in facts
+    assert "map_lat" not in facts
+    removed = "\n".join(redacted.receipt["removed_fields"])
+    assert "property_url" in removed
+    assert "property_ref" in removed
+    assert "floorplan_refs.paid_market_report_omitted" in removed
+    assert "facts.purchase_price_eur" in removed
+    assert redacted.receipt["paid_market_report_market_level_only"] is True
+    assert redacted.receipt["source_refs"] == []
+
+    rendered = render_property_packet_pdf(
+        artifact_root=tmp_path,
+        publication_id="pub_paid_market",
+        principal_id="owner-1",
+        source=source,
+        packet_kind=PropertyPacketKind.PAID_MARKET_REPORT,
+        privacy_mode=PacketPrivacyMode.PAID_CUSTOMER,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        include_exact_address=True,
+    )
+    pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
+    assert b"Market scope" in pdf_bytes
+    assert b"Pricing signals" in pdf_bytes
+    assert b"Viewing checklist" not in pdf_bytes
+    assert b"Exact Street 12" not in pdf_bytes
+    assert b"private-owner-home" not in pdf_bytes
+    assert b"Owner loves this exact flat" not in pdf_bytes
+    assert rendered["redacted_payload"] == redacted.payload
+
+
 def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     rendered = render_property_packet_pdf(
         artifact_root=tmp_path,
