@@ -191,6 +191,30 @@ def test_fliplink_browseract_publish_request_is_guarded_and_audited(monkeypatch,
     assert queued.status_code == 200, queued.text
     assert queued.json()["status"] == "queued_operator_assist"
     assert queued.json()["task_name"] == "browseract.fliplink_publish_property_packet"
+    assert queued.json()["human_task_id"]
+    assert queued.json()["queue_item_ref"] == f"human_task:{queued.json()['human_task_id']}"
+    assert queued.json()["completion_endpoint"] == f"/app/api/properties/packets/{publication_id}/fliplink/browseract-complete"
+    task_listing = client.get("/v1/human/tasks", params={"limit": 20})
+    assert task_listing.status_code == 200, task_listing.text
+    matching_tasks = [
+        item for item in task_listing.json()
+        if item["task_type"] == "fliplink_browseract_publish"
+        and item["input_json"]["publication_id"] == publication_id
+    ]
+    assert len(matching_tasks) == 1
+    task = matching_tasks[0]
+    assert task["input_json"]["pdf_artifact_ref"]
+    assert task["input_json"]["source_pdf_sha256"]
+    assert task["input_json"]["completion_endpoint"] == queued.json()["completion_endpoint"]
+    assert task["quality_rubric_json"]["must_not_upload_unredacted_source_payload"] is True
+
+    duplicate = client.post(
+        f"/app/api/properties/packets/{publication_id}/fliplink/browseract-publish",
+        json={"lead_capture_enabled": True, "password_required": False},
+    )
+    assert duplicate.status_code == 200, duplicate.text
+    assert duplicate.json()["human_task_id"] == queued.json()["human_task_id"]
+    assert duplicate.json()["deduplicated"] is True
     events = client.get(f"/app/api/properties/packets/{publication_id}")
     assert events.status_code == 200
     assert any(event["event_type"] == "fliplink_browser_publish_requested" for event in events.json()["events"])
@@ -206,8 +230,33 @@ def test_fliplink_browseract_publish_request_is_guarded_and_audited(monkeypatch,
     )
     assert completed.status_code == 200, completed.text
     assert completed.json()["publication"]["status"] == "published"
+    task_listing_after = client.get("/v1/human/tasks", params={"status": "returned", "limit": 20})
+    assert task_listing_after.status_code == 200, task_listing_after.text
+    returned_tasks = [
+        item for item in task_listing_after.json()
+        if item["task_type"] == "fliplink_browseract_publish"
+        and item["input_json"]["publication_id"] == publication_id
+    ]
+    assert len(returned_tasks) == 1
+    assert returned_tasks[0]["resolution"] == "published"
+    assert returned_tasks[0]["returned_payload_json"]["fliplink_url"] == "https://packets.propertyquarry.com/p/browseract-family"
     events_after = client.get(f"/app/api/properties/packets/{publication_id}")
     assert any(event["event_type"] == "fliplink_browser_publish_completed" for event in events_after.json()["events"])
+    assert any(event["event_type"] == "fliplink_browser_publish_task_closed" for event in events_after.json()["events"])
+
+    republish = client.post(
+        f"/app/api/properties/packets/{publication_id}/fliplink/browseract-publish",
+        json={"lead_capture_enabled": True, "password_required": False},
+    )
+    assert republish.status_code == 200, republish.text
+    assert republish.json()["status"] == "published_existing"
+    all_tasks = client.get("/v1/human/tasks", params={"limit": 50})
+    browseract_tasks = [
+        item for item in all_tasks.json()
+        if item["task_type"] == "fliplink_browseract_publish"
+        and item["input_json"]["publication_id"] == publication_id
+    ]
+    assert len(browseract_tasks) == 1
 
 
 def test_fliplink_packet_capacity_blocks_new_renders_until_archive(monkeypatch, tmp_path: Path) -> None:

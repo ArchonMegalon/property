@@ -6,7 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.container import AppContainer
-from app.domain.models import now_utc_iso
+from app.domain.models import HumanTask, IntentSpecV3, now_utc_iso
 from app.repositories.property_packet_publications import (
     PropertyPacketPublicationRepository,
     build_property_packet_publication_repository,
@@ -36,9 +36,11 @@ class FlipLinkPacketService:
         *,
         repo: PropertyPacketPublicationRepository,
         artifact_root: Path,
+        orchestrator: object | None = None,
     ) -> None:
         self._repo = repo
         self._artifact_root = artifact_root
+        self._orchestrator = orchestrator
 
     def capacity_status(self, *, principal_id: str) -> dict[str, object]:
         settings = fliplink_settings_from_env()
@@ -316,6 +318,30 @@ class FlipLinkPacketService:
                 },
             }
         )
+        closed_task = self._close_browseract_publish_task(
+            principal_id=principal_id,
+            publication_id=publication_id,
+            fliplink_url=validated_url,
+            screenshot_proof_ref=screenshot_proof_ref,
+            actor=actor,
+        )
+        if closed_task is not None:
+            self._repo.record_event(
+                {
+                    "publication_id": publication_id,
+                    "principal_id": principal_id,
+                    "event_type": "fliplink_browser_publish_task_closed",
+                    "actor": actor,
+                    "payload_json": {
+                        "human_task_id": str(getattr(closed_task, "human_task_id", "") or ""),
+                        "queue_item_ref": f"human_task:{str(getattr(closed_task, 'human_task_id', '') or '')}",
+                        "task_status": str(getattr(closed_task, "status", "") or ""),
+                        "resolution": str(getattr(closed_task, "resolution", "") or ""),
+                        "fliplink_url": validated_url,
+                        "screenshot_proof_ref": str(screenshot_proof_ref or "").strip()[:500],
+                    },
+                }
+            )
         return updated
 
     def archive_publication(
@@ -368,7 +394,33 @@ class FlipLinkPacketService:
             raise KeyError("property_packet_publication_not_found")
         if str(publication.get("status") or "") == "archived":
             raise ValueError("fliplink_publication_archived")
+        existing_fliplink_url = str(publication.get("fliplink_url") or "").strip()
+        if str(publication.get("status") or "").strip() == "published" and existing_fliplink_url:
+            event = self._repo.record_event(
+                {
+                    "publication_id": publication_id,
+                    "principal_id": principal_id,
+                    "event_type": "fliplink_browser_publish_request_skipped_existing",
+                    "actor": actor,
+                    "payload_json": {
+                        "fliplink_url": existing_fliplink_url,
+                        "reason": "already_published",
+                    },
+                }
+            )
+            return {
+                "status": "published_existing",
+                "provider": "fliplink",
+                "publication_id": publication_id,
+                "fliplink_url": existing_fliplink_url,
+                "event_id": str(event.get("event_id") or ""),
+            }
         summary = dict(publication.get("packet_summary_json") or {})
+        completion_endpoint = f"/app/api/properties/packets/{publication_id}/fliplink/browseract-complete"
+        existing_task = self._existing_browseract_publish_task(
+            principal_id=principal_id,
+            publication_id=publication_id,
+        )
         result = browseract_fliplink_publish_requested(
             {
                 "publication_id": publication_id,
@@ -383,8 +435,27 @@ class FlipLinkPacketService:
                 "custom_domain": str(summary.get("recommended_custom_domain") or fliplink_settings_from_env().custom_domain),
                 "lead_capture_enabled": bool(lead_capture_enabled),
                 "password_required": bool(password_required),
+                "completion_endpoint": completion_endpoint,
             }
         )
+        human_task_payload: dict[str, object] = {}
+        if existing_task is None:
+            created_task = self._create_browseract_publish_task(
+                principal_id=principal_id,
+                publication=publication,
+                request_payload=dict(result),
+                lead_capture_enabled=bool(lead_capture_enabled),
+                password_required=bool(password_required),
+                actor=actor,
+                completion_endpoint=completion_endpoint,
+            )
+            if created_task is not None:
+                human_task_payload = self._browseract_publish_task_payload(created_task)
+        else:
+            human_task_payload = {
+                **self._browseract_publish_task_payload(existing_task),
+                "deduplicated": True,
+            }
         event = self._repo.record_event(
             {
                 "publication_id": publication_id,
@@ -393,6 +464,8 @@ class FlipLinkPacketService:
                 "actor": actor,
                 "payload_json": {
                     **dict(result),
+                    **human_task_payload,
+                    "completion_endpoint": completion_endpoint,
                     "lead_capture_enabled": bool(lead_capture_enabled),
                     "password_required": bool(password_required),
                 },
@@ -401,14 +474,234 @@ class FlipLinkPacketService:
         self._repo.update_publication(
             publication_id=publication_id,
             updates={
-                "status": "publish_requested",
+                "status": "queued_operator_assist" if human_task_payload else "publish_requested",
             },
         )
         return {
             **dict(result),
+            **human_task_payload,
             "publication_id": publication_id,
+            "completion_endpoint": completion_endpoint,
             "event_id": str(event.get("event_id") or ""),
         }
+
+    def _browseract_publish_tasks(self, *, principal_id: str, publication_id: str) -> list[HumanTask]:
+        orchestrator = self._orchestrator
+        if orchestrator is None or not hasattr(orchestrator, "list_human_tasks"):
+            return []
+        rows = orchestrator.list_human_tasks(principal_id=principal_id, status=None, limit=500)  # type: ignore[attr-defined]
+        matched: list[HumanTask] = []
+        for row in rows:
+            if str(getattr(row, "task_type", "") or "").strip() != "fliplink_browseract_publish":
+                continue
+            input_json = dict(getattr(row, "input_json", {}) or {})
+            if str(input_json.get("publication_id") or "").strip() == str(publication_id or "").strip():
+                matched.append(row)
+        return matched
+
+    def _existing_browseract_publish_task(self, *, principal_id: str, publication_id: str) -> HumanTask | None:
+        for row in self._browseract_publish_tasks(principal_id=principal_id, publication_id=publication_id):
+            if str(getattr(row, "status", "") or "").strip().lower() in {"pending", "claimed"}:
+                return row
+        return None
+
+    def _browseract_publish_task_payload(self, task: HumanTask) -> dict[str, object]:
+        task_id = str(getattr(task, "human_task_id", "") or "").strip()
+        if not task_id:
+            return {}
+        return {
+            "human_task_id": task_id,
+            "queue_item_ref": f"human_task:{task_id}",
+            "browseract_task_status": str(getattr(task, "status", "") or ""),
+            "browseract_task_assignment_state": str(getattr(task, "assignment_state", "") or ""),
+        }
+
+    def _start_browseract_publish_session(
+        self,
+        *,
+        principal_id: str,
+        publication_id: str,
+        title: str,
+        actor: str,
+    ) -> str:
+        orchestrator = self._orchestrator
+        if orchestrator is None or not hasattr(orchestrator, "_ledger"):
+            return ""
+        ledger = getattr(orchestrator, "_ledger")
+        session = ledger.start_session(
+            IntentSpecV3(
+                principal_id=principal_id,
+                goal=f"Publish PropertyQuarry packet {publication_id} to FlipLink",
+                task_type="fliplink_browseract_publish",
+                deliverable_type="fliplink_publication",
+                risk_class="medium",
+                approval_class="operator",
+                budget_class="standard",
+            )
+        )
+        ledger.append_event(
+            session.session_id,
+            "fliplink_browseract_publish_session_started",
+            {
+                "publication_id": publication_id,
+                "title": title,
+                "actor": str(actor or "").strip() or "browser",
+                "started_at": now_utc_iso(),
+            },
+        )
+        return str(session.session_id or "")
+
+    def _create_browseract_publish_task(
+        self,
+        *,
+        principal_id: str,
+        publication: dict[str, object],
+        request_payload: dict[str, object],
+        lead_capture_enabled: bool,
+        password_required: bool,
+        actor: str,
+        completion_endpoint: str,
+    ) -> HumanTask | None:
+        orchestrator = self._orchestrator
+        if orchestrator is None or not hasattr(orchestrator, "create_human_task"):
+            return None
+        publication_id = str(publication.get("publication_id") or "").strip()
+        summary = dict(publication.get("packet_summary_json") or {})
+        title = str(publication.get("recommended_title") or summary.get("title") or publication_id).strip()
+        session_id = self._start_browseract_publish_session(
+            principal_id=principal_id,
+            publication_id=publication_id,
+            title=title,
+            actor=actor,
+        )
+        if not session_id:
+            return None
+        input_json = {
+            "publication_id": publication_id,
+            "principal_id": principal_id,
+            "property_ref": str(publication.get("property_ref") or ""),
+            "search_run_id": str(publication.get("search_run_id") or ""),
+            "packet_kind": str(publication.get("packet_kind") or ""),
+            "privacy_mode": str(publication.get("privacy_mode") or ""),
+            "fliplink_format": str(publication.get("fliplink_format") or ""),
+            "recommended_title": title,
+            "recommended_folder": str(summary.get("recommended_folder") or _folder_for(normalize_packet_kind(publication.get("packet_kind")))),
+            "custom_domain": str(summary.get("recommended_custom_domain") or fliplink_settings_from_env().custom_domain),
+            "pdf_artifact_ref": str(publication.get("source_pdf_artifact_ref") or ""),
+            "receipt_artifact_ref": str(publication.get("receipt_artifact_ref") or ""),
+            "source_pdf_sha256": str(publication.get("source_pdf_sha256") or ""),
+            "source_pdf_size_bytes": int(publication.get("source_pdf_size_bytes") or 0),
+            "redaction_policy_version": str(publication.get("redaction_policy_version") or ""),
+            "lead_capture_enabled": bool(lead_capture_enabled),
+            "password_required": bool(password_required),
+            "completion_endpoint": completion_endpoint,
+            "task_name": str(request_payload.get("task_name") or "browseract.fliplink_publish_property_packet"),
+            "provider": str(request_payload.get("provider") or "fliplink"),
+        }
+        return orchestrator.create_human_task(  # type: ignore[attr-defined]
+            session_id=session_id,
+            principal_id=principal_id,
+            task_type="fliplink_browseract_publish",
+            role_required="operator",
+            brief=f"Publish '{title}' to FlipLink and return the created URL.",
+            authority_required="operator",
+            why_human=(
+                "FlipLink publishing uses BrowserAct/operator credentials and must preserve "
+                "the already redacted PDF, chosen permanent format, password flag, and custom domain policy."
+            ),
+            quality_rubric_json={
+                "must_use_pdf_artifact_ref": str(publication.get("source_pdf_artifact_ref") or ""),
+                "must_verify_pdf_sha256": str(publication.get("source_pdf_sha256") or ""),
+                "must_call_completion_endpoint": completion_endpoint,
+                "must_capture_screenshot_proof_ref": True,
+                "must_not_upload_unredacted_source_payload": True,
+            },
+            input_json=input_json,
+            desired_output_json={
+                "resolution": "published",
+                "fliplink_url": "",
+                "embed_code": "",
+                "qr_url": "",
+                "screenshot_proof_ref": "",
+                "completion_endpoint": completion_endpoint,
+            },
+            priority="high",
+        )
+
+    def _close_browseract_publish_task(
+        self,
+        *,
+        principal_id: str,
+        publication_id: str,
+        fliplink_url: str,
+        screenshot_proof_ref: str,
+        actor: str,
+    ) -> HumanTask | None:
+        orchestrator = self._orchestrator
+        if orchestrator is None or not hasattr(orchestrator, "return_human_task"):
+            return None
+        task = self._existing_browseract_publish_task(principal_id=principal_id, publication_id=publication_id)
+        if task is None:
+            return None
+        task_id = str(getattr(task, "human_task_id", "") or "").strip()
+        if not task_id:
+            return None
+        operator_id = str(actor or "").strip() or "browseract"
+        returned = orchestrator.return_human_task(  # type: ignore[attr-defined]
+            human_task_id=task_id,
+            principal_id=principal_id,
+            operator_id=operator_id,
+            resolution="published",
+            returned_payload_json={
+                "publication_id": publication_id,
+                "fliplink_url": fliplink_url,
+                "screenshot_proof_ref": str(screenshot_proof_ref or "").strip()[:500],
+                "completion_source": "fliplink_browseract_complete",
+            },
+            provenance_json={
+                "source": "fliplink_browseract_complete",
+                "actor": operator_id,
+            },
+        )
+        if returned is not None:
+            return returned
+        human_tasks = getattr(orchestrator, "_human_tasks", None)
+        ledger = getattr(orchestrator, "_ledger", None)
+        if human_tasks is None or not hasattr(human_tasks, "return_task"):
+            return None
+        returned = human_tasks.return_task(
+            task_id,
+            operator_id=operator_id,
+            resolution="published",
+            returned_payload_json={
+                "publication_id": publication_id,
+                "fliplink_url": fliplink_url,
+                "screenshot_proof_ref": str(screenshot_proof_ref or "").strip()[:500],
+                "completion_source": "fliplink_browseract_complete",
+            },
+            provenance_json={
+                "source": "fliplink_browseract_complete",
+                "actor": operator_id,
+                "operator_profile_bypass": True,
+            },
+        )
+        if returned is not None and ledger is not None and hasattr(ledger, "append_event"):
+            ledger.append_event(
+                returned.session_id,
+                "human_task_returned",
+                {
+                    "human_task_id": returned.human_task_id,
+                    "operator_id": operator_id,
+                    "assigned_operator_id": str(getattr(returned, "assigned_operator_id", "") or ""),
+                    "resolution": returned.resolution,
+                    "assignment_state": returned.assignment_state,
+                    "assignment_source": "browseract_completion",
+                    "assigned_at": returned.assigned_at or "",
+                    "assigned_by_actor_id": operator_id,
+                    "step_id": returned.step_id or "",
+                },
+            )
+        return returned
 
     def record_analytics_snapshot(
         self,
@@ -765,4 +1058,4 @@ def _review_target_payload(target: dict[str, object]) -> dict[str, object]:
 def build_fliplink_packet_service(container: AppContainer) -> FlipLinkPacketService:
     artifact_root = Path(str(container.settings.storage.artifacts_dir)).resolve()
     repo = build_property_packet_publication_repository(container.settings)
-    return FlipLinkPacketService(repo=repo, artifact_root=artifact_root)
+    return FlipLinkPacketService(repo=repo, artifact_root=artifact_root, orchestrator=container.orchestrator)
