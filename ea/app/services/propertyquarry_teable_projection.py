@@ -15,6 +15,7 @@ PROPERTYQUARRY_TEABLE_TABLE_NAMES = (
     "propertyquarry_provider_sources",
     "propertyquarry_properties",
     "propertyquarry_property_evaluations",
+    "propertyquarry_review_artifacts",
     "propertyquarry_research_tasks",
 )
 
@@ -182,6 +183,31 @@ PROPERTYQUARRY_TEABLE_TABLE_FIELDS: dict[str, list[dict[str, object]]] = {
         {"name": "facts_json", "type": "longText"},
         {"name": "last_projected_at", "type": "singleLineText"},
     ],
+    "propertyquarry_review_artifacts": [
+        {"name": "projection_id", "type": "singleLineText", "notNull": True, "unique": True},
+        {"name": "tenant_key", "type": "singleLineText"},
+        {"name": "principal_id", "type": "singleLineText"},
+        {"name": "run_id", "type": "singleLineText"},
+        {"name": "property_ref", "type": "singleLineText"},
+        {"name": "property_url", "type": "longText"},
+        {"name": "source_ref", "type": "singleLineText"},
+        {"name": "source_label", "type": "singleLineText"},
+        {"name": "review_url", "type": "longText"},
+        {"name": "review_status", "type": "singleLineText"},
+        {"name": "review_task_id", "type": "singleLineText"},
+        {"name": "review_task_status", "type": "singleLineText"},
+        {"name": "review_reused", "type": "checkbox"},
+        {"name": "queue_item_ref", "type": "singleLineText"},
+        {"name": "recommended_task_key", "type": "singleLineText"},
+        {"name": "tour_url", "type": "longText"},
+        {"name": "tour_status", "type": "singleLineText"},
+        {"name": "tour_blocked_reason", "type": "singleLineText"},
+        {"name": "fit_score", "type": "number"},
+        {"name": "recommendation", "type": "singleLineText"},
+        {"name": "preference_person_id", "type": "singleLineText"},
+        {"name": "artifact_json", "type": "longText"},
+        {"name": "last_projected_at", "type": "singleLineText"},
+    ],
     "propertyquarry_research_tasks": [
         {"name": "projection_id", "type": "singleLineText", "notNull": True, "unique": True},
         {"name": "tenant_key", "type": "singleLineText"},
@@ -327,6 +353,7 @@ def build_propertyquarry_teable_projection_records(
     provider_source_rows: dict[str, dict[str, object]] = {}
     property_rows: dict[str, dict[str, object]] = {}
     evaluation_rows: dict[str, dict[str, object]] = {}
+    review_artifact_rows: dict[str, dict[str, object]] = {}
     research_task_rows: dict[str, dict[str, object]] = {}
 
     if normalized_principal:
@@ -526,6 +553,39 @@ def build_propertyquarry_teable_projection_records(
                 "facts_json": facts,
                 "last_projected_at": projected_at,
             }
+            review_url = _text(candidate.get("review_url"), limit=1000)
+            tour_url = _text(candidate.get("tour_url"), limit=1000)
+            review_task_id = _text(candidate.get("review_task_id") or candidate.get("human_task_id"), limit=240)
+            if review_url or tour_url or review_task_id:
+                review_status = _text(candidate.get("review_status"), limit=80)
+                if not review_status and review_url:
+                    review_status = "ready"
+                review_artifact_id = f"review_artifact:{run_principal}:{run_id}:{property_ref}"
+                review_artifact_rows[review_artifact_id] = {
+                    "projection_id": review_artifact_id,
+                    "tenant_key": normalized_tenant,
+                    "principal_id": run_principal,
+                    "run_id": run_id,
+                    "property_ref": property_ref,
+                    "property_url": property_url,
+                    "source_ref": _text(candidate.get("source_ref"), limit=240),
+                    "source_label": _text(candidate.get("source_label"), limit=200),
+                    "review_url": review_url,
+                    "review_status": review_status,
+                    "review_task_id": review_task_id,
+                    "review_task_status": _text(candidate.get("review_task_status"), limit=80),
+                    "review_reused": bool(candidate.get("review_reused")),
+                    "queue_item_ref": _text(candidate.get("queue_item_ref"), limit=240),
+                    "recommended_task_key": _text(candidate.get("recommended_task_key"), limit=240),
+                    "tour_url": tour_url,
+                    "tour_status": _text(candidate.get("tour_status"), limit=80),
+                    "tour_blocked_reason": _text(candidate.get("blocked_reason") or candidate.get("tour_blocked_reason"), limit=240),
+                    "fit_score": _number(candidate.get("fit_score")),
+                    "recommendation": _text(candidate.get("recommendation"), limit=160),
+                    "preference_person_id": _text(candidate.get("preference_person_id") or preference_person_id, limit=120),
+                    "artifact_json": candidate,
+                    "last_projected_at": projected_at,
+                }
         for task in list(run.get("research_tasks") or summary.get("research_tasks") or []):
             if not isinstance(task, dict):
                 continue
@@ -561,6 +621,7 @@ def build_propertyquarry_teable_projection_records(
         "propertyquarry_provider_sources": _table_rows(provider_source_rows),
         "propertyquarry_properties": _table_rows(property_rows),
         "propertyquarry_property_evaluations": _table_rows(evaluation_rows),
+        "propertyquarry_review_artifacts": _table_rows(review_artifact_rows),
         "propertyquarry_research_tasks": _table_rows(research_task_rows),
     }
 

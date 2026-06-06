@@ -92,7 +92,15 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
                                     "title": "Helle Wohnung",
                                     "fit_score": 82.5,
                                     "recommendation": "strong_fit",
+                                    "review_url": "https://propertyquarry.com/workspace-access/review-123",
+                                    "review_status": "existing",
+                                    "review_task_id": "human_task:review-123",
+                                    "review_task_status": "returned",
+                                    "review_reused": True,
+                                    "queue_item_ref": "human_task:review-123",
+                                    "recommended_task_key": "crezlo_tours.create_property_tour",
                                     "tour_url": "https://propertyquarry.com/tours/123",
+                                    "tour_status": "existing",
                                     "property_facts": {
                                         "area_sqm": 91,
                                         "rooms": 3,
@@ -139,6 +147,9 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert records["propertyquarry_provider_sources"][0]["filtered_area_total"] == 17
     assert records["propertyquarry_properties"][0]["area_sqm"] == 91
     assert records["propertyquarry_property_evaluations"][0]["fit_score"] == 82.5
+    assert records["propertyquarry_review_artifacts"][0]["review_reused"] is True
+    assert records["propertyquarry_review_artifacts"][0]["review_task_status"] == "returned"
+    assert records["propertyquarry_review_artifacts"][0]["tour_status"] == "existing"
     assert records["propertyquarry_research_tasks"][0]["field_key"] == "rooms"
 
 
@@ -233,4 +244,5 @@ def test_propertyquarry_teable_bootstrap_preview_has_all_property_tables() -> No
     assert set(payload["mapping_preview"]) == set(PROPERTYQUARRY_TEABLE_TABLE_NAMES)
     assert "propertyquarry_users" in payload["tables"]
     assert "propertyquarry_provider_sources" in payload["tables"]
+    assert "propertyquarry_review_artifacts" in payload["tables"]
     assert payload["tables"]["propertyquarry_properties"][0]["name"] == "projection_id"
