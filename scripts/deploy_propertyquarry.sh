@@ -17,10 +17,14 @@ Deploys the standalone PropertyQuarry runtime with operator preflight checks:
   - rejects EA_ALLOW_LOOPBACK_NO_AUTH=1 in prod
   - checks EA_HOST_PORT for obvious conflicts before rebuilding
   - starts docker-compose.property.yml and waits for API, scheduler, and DB health
+  - supports isolated blue/green deploys via configurable Compose project/container names
   - probes /health, /health/ready, /version, the landing page, and /app/properties auth
 
 Environment:
   PROPERTYQUARRY_COMPOSE_FILE     Compose file path, default docker-compose.property.yml.
+  PROPERTYQUARRY_COMPOSE_PROJECT_NAME
+                                   Optional Compose project name override.
+  PROPERTYQUARRY_*_CONTAINER_NAME Optional container names for isolated deploys.
   EA_HOST_PORT                    Host port for the API, default 8090.
   PROPERTYQUARRY_DEPLOY_BASE_URL  Probe URL, default http://localhost:${EA_HOST_PORT}.
 EOF
@@ -146,10 +150,21 @@ if ! [[ "${host_port}" =~ ^[0-9]+$ ]] || (( host_port < 1 || host_port > 65535 )
   exit 2
 fi
 
+compose_project_name="$(effective_env_value PROPERTYQUARRY_COMPOSE_PROJECT_NAME)"
+compose_project_name="${compose_project_name:-$(effective_env_value COMPOSE_PROJECT_NAME)}"
+
 if docker compose version >/dev/null 2>&1; then
-  DC=(docker compose -f "${COMPOSE_FILE}")
+  DC=(docker compose)
+  if [[ -n "${compose_project_name}" ]]; then
+    DC+=(-p "${compose_project_name}")
+  fi
+  DC+=(-f "${COMPOSE_FILE}")
 elif command -v docker-compose >/dev/null 2>&1; then
-  DC=(docker-compose -f "${COMPOSE_FILE}")
+  DC=(docker-compose)
+  if [[ -n "${compose_project_name}" ]]; then
+    DC+=(-p "${compose_project_name}")
+  fi
+  DC+=(-f "${COMPOSE_FILE}")
 else
   echo "Docker Compose is required: install docker compose or docker-compose." >&2
   exit 2
@@ -161,6 +176,12 @@ db_service="${PROPERTYQUARRY_DB_SERVICE:-$(effective_env_value PROPERTYQUARRY_DB
 api_service="${api_service:-propertyquarry-api}"
 scheduler_service="${scheduler_service:-propertyquarry-scheduler}"
 db_service="${db_service:-propertyquarry-db}"
+api_container_name="${PROPERTYQUARRY_API_CONTAINER_NAME:-$(effective_env_value PROPERTYQUARRY_API_CONTAINER_NAME)}"
+scheduler_container_name="${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-$(effective_env_value PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME)}"
+db_container_name="${PROPERTYQUARRY_DB_CONTAINER_NAME:-$(effective_env_value PROPERTYQUARRY_DB_CONTAINER_NAME)}"
+api_container_name="${api_container_name:-propertyquarry-api}"
+scheduler_container_name="${scheduler_container_name:-propertyquarry-scheduler}"
+db_container_name="${db_container_name:-propertyquarry-db}"
 
 port_owners="$(
   docker ps --format '{{.Names}}\t{{.Ports}}' 2>/dev/null \
@@ -171,7 +192,7 @@ if [[ -n "${port_owners}" ]]; then
   allowed_owner=0
   while IFS= read -r owner; do
     [[ -z "${owner}" ]] && continue
-    if [[ "${owner}" == "${api_service}" || "${owner}" == "propertyquarry-api" ]]; then
+    if [[ "${owner}" == "${api_service}" || "${owner}" == "${api_container_name}" || "${owner}" == "propertyquarry-api" ]]; then
       allowed_owner=1
     else
       echo "EA_HOST_PORT=${host_port} is already published by container ${owner}." >&2
@@ -195,9 +216,13 @@ fi
 
 container_id_for_service() {
   local service="$1"
+  local container_name="$2"
   local cid=""
   cid="$("${DC[@]}" ps -q "${service}" 2>/dev/null || true)"
   if [[ -z "${cid}" ]]; then
+    cid="$(docker ps -q --filter "name=^/${container_name}$" 2>/dev/null | head -n 1 || true)"
+  fi
+  if [[ -z "${cid}" && "${container_name}" != "${service}" ]]; then
     cid="$(docker ps -q --filter "name=^/${service}$" 2>/dev/null | head -n 1 || true)"
   fi
   printf '%s' "${cid}"
@@ -216,11 +241,12 @@ print_service_logs() {
 
 wait_for_service_ready() {
   local service="$1"
+  local container_name="$2"
   local deadline=$((SECONDS + 180))
   local last_state=""
   while (( SECONDS < deadline )); do
     local cid
-    cid="$(container_id_for_service "${service}")"
+    cid="$(container_id_for_service "${service}" "${container_name}")"
     if [[ -n "${cid}" ]]; then
       last_state="$(container_state_line "${cid}")"
       local status="${last_state%%|*}"
@@ -241,9 +267,9 @@ wait_for_service_ready() {
   exit 1
 }
 
-wait_for_service_ready "${db_service}"
-wait_for_service_ready "${api_service}"
-wait_for_service_ready "${scheduler_service}"
+wait_for_service_ready "${db_service}" "${db_container_name}"
+wait_for_service_ready "${api_service}" "${api_container_name}"
+wait_for_service_ready "${scheduler_service}" "${scheduler_container_name}"
 
 base_url="$(effective_env_value PROPERTYQUARRY_DEPLOY_BASE_URL)"
 base_url="${base_url:-http://localhost:${host_port}}"

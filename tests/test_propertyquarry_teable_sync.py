@@ -46,6 +46,10 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
                     "status": "active",
                     "active_until": "2999-01-01T00:00:00+00:00",
                     "plan_source": "payfunnels",
+                    "payer_email": "billing@example.com",
+                    "billing_email": "owner@example.com",
+                    "internal_notes": "do-not-project",
+                    "session_token": "secret-session-token",
                 },
             },
         },
@@ -106,6 +110,12 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
                                         "rooms": 3,
                                         "total_rent_eur": 1850,
                                         "postal_name": "1020 Wien",
+                                        "exact_address": "Praterstrasse 1",
+                                        "lat": 48.21,
+                                        "lng": 16.39,
+                                        "cookie_state": "abc",
+                                        "internal_debug": "diagnostic",
+                                        "oauth_token": "sensitive",
                                     },
                                     "assessment": {"recommendation": "strong_fit"},
                                 }
@@ -138,6 +148,10 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert records["propertyquarry_tenants"][0]["tenant_key"] == "propertyquarry"
     assert records["propertyquarry_users"][0]["principal_id"] == "pq-user-1"
     assert records["propertyquarry_subscriptions"][0]["current_plan_key"] == "plus"
+    assert "payer_email" not in records["propertyquarry_subscriptions"][0]["commercial_json"]
+    assert "billing_email" not in records["propertyquarry_subscriptions"][0]["commercial_json"]
+    assert "internal_notes" not in records["propertyquarry_subscriptions"][0]["commercial_json"]
+    assert "session_token" not in records["propertyquarry_subscriptions"][0]["commercial_json"]
     assert records["propertyquarry_preferences"][0]["min_area_m2"] == 80
     assert records["propertyquarry_search_runs"][0]["run_id"] == "run-1"
     assert records["propertyquarry_provider_sources"][0]["platform"] == "willhaben"
@@ -145,8 +159,19 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert records["propertyquarry_provider_sources"][0]["provider_cache_key"] == "willhaben:rent:1020:min80"
     assert records["propertyquarry_provider_sources"][0]["min_area_m2"] == 80
     assert records["propertyquarry_provider_sources"][0]["filtered_area_total"] == 17
+    assert "top_candidates" not in records["propertyquarry_provider_sources"][0]["source_json"]
+    assert records["propertyquarry_provider_sources"][0]["source_json"]["source_url"].startswith("https://www.willhaben.at/")
     assert records["propertyquarry_properties"][0]["area_sqm"] == 91
+    assert "exact_address" not in records["propertyquarry_properties"][0]["facts_json"]
+    assert "lat" not in records["propertyquarry_properties"][0]["facts_json"]
+    assert "lng" not in records["propertyquarry_properties"][0]["facts_json"]
+    assert "cookie_state" not in records["propertyquarry_properties"][0]["facts_json"]
+    assert "internal_debug" not in records["propertyquarry_properties"][0]["facts_json"]
+    assert "oauth_token" not in records["propertyquarry_properties"][0]["facts_json"]
     assert records["propertyquarry_property_evaluations"][0]["fit_score"] == 82.5
+    assert "exact_address" not in records["propertyquarry_property_evaluations"][0]["facts_json"]
+    assert "lat" not in records["propertyquarry_property_evaluations"][0]["facts_json"]
+    assert "lng" not in records["propertyquarry_property_evaluations"][0]["facts_json"]
     assert records["propertyquarry_review_artifacts"][0]["review_reused"] is True
     assert records["propertyquarry_review_artifacts"][0]["review_task_status"] == "returned"
     assert records["propertyquarry_review_artifacts"][0]["tour_status"] == "existing"

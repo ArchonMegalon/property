@@ -31,7 +31,12 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "EA_CF_ACCESS_AUD",
         "EA_ALLOW_LOOPBACK_NO_AUTH",
         "EA_HOST_PORT",
-        "docker compose -f",
+        "PROPERTYQUARRY_COMPOSE_PROJECT_NAME",
+        "PROPERTYQUARRY_API_CONTAINER_NAME",
+        "PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME",
+        "PROPERTYQUARRY_DB_CONTAINER_NAME",
+        "docker compose",
+        "DC+=(-f",
         "docker-compose.property.yml",
         "propertyquarry-api",
         "propertyquarry-scheduler",
@@ -74,6 +79,8 @@ def test_readme_documents_hardened_deploy_and_port_override() -> None:
     assert "make deploy" in readme
     assert "scripts/deploy_propertyquarry.sh" in readme
     assert "EA_HOST_PORT=8097 make deploy" in readme
+    assert "PROPERTYQUARRY_COMPOSE_PROJECT_NAME=propertyquarry-next" in readme
+    assert "PROPERTYQUARRY_API_CONTAINER_NAME=propertyquarry-api-next" in readme
     assert "POSTGRES_PASSWORD" in readme
     assert "EA_SIGNING_SECRET" in readme
     assert "EA_API_TOKEN or Cloudflare Access" in readme
@@ -87,3 +94,11 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert 'for script in "$APP_SRC"/scripts/*' not in dockerfile
     assert 'cp "$script" /app/scripts/' not in dockerfile
     assert "build_propertyquarry_magicfit_promo.py" not in dockerfile
+
+
+def test_property_compose_container_names_are_recoverable() -> None:
+    compose = _read("docker-compose.property.yml")
+
+    assert 'container_name: "${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"' in compose
+    assert 'container_name: "${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-propertyquarry-scheduler}"' in compose
+    assert 'container_name: "${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-db}"' in compose

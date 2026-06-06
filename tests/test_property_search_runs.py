@@ -1061,6 +1061,8 @@ def test_property_search_run_sends_results_ready_email_when_processed(monkeypatc
     assert urllib.parse.quote(f"/app/properties?run_id={run_id}", safe="/") in str(sent[0]["results_url"])
     assert sent[0]["top_properties"][0]["title"] == "Best floorplan flat"
     assert sent[0]["top_properties"][0]["review_url"].startswith("https://propertyquarry.com/workspace-access/")
+    assert str(sent[0]["top_properties"][0]["review_url"]).endswith("return_to=%2Fapp%2Fhandoffs%2Fhuman_task%3Areview-1")
+    assert "return_to=%2Ftours%2Fbest-floorplan-flat" in str(sent[0]["top_properties"][0]["tour_url"])
 
 
 def test_property_search_results_ready_email_waits_for_tour_completion(monkeypatch) -> None:

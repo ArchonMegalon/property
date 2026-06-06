@@ -819,6 +819,19 @@ def send_property_search_results_ready_email(
     sender_name: str = "",
 ) -> RegistrationEmailReceipt:
     property_rows = [dict(item) for item in list(top_properties or []) if isinstance(item, dict)]
+    best_row = property_rows[0] if property_rows else {}
+    best_title = str(best_row.get("title") or "No ranked property yet").strip() or "No ranked property yet"
+    best_fit_summary = str(best_row.get("fit_summary") or "").strip()
+    best_facts = " | ".join(
+        part
+        for part in (
+            str(best_row.get("price_label") or "").strip(),
+            str(best_row.get("area_label") or "").strip(),
+            str(best_row.get("rooms_label") or "").strip(),
+            str(best_row.get("location_label") or "").strip(),
+        )
+        if part
+    )
     body = [
         "Hello,",
         "",
@@ -828,28 +841,138 @@ def send_property_search_results_ready_email(
         f"Hosted tours ready: {max(int(hosted_tour_total), 0)}",
     ]
     if property_rows:
+        body.extend(
+            [
+                "",
+                "Research summary:",
+                f"- Best current match: {best_title}",
+                f"- Assessment: {best_fit_summary or 'A ranked shortlist is ready for review.'}",
+                f"- Key facts: {best_facts or 'Open the packet for the structured facts.'}",
+            ]
+        )
+    if property_rows:
         body.extend(["", "Best matches:"])
         for index, row in enumerate(property_rows[:5], start=1):
             title = str(row.get("title") or "Property match").strip() or "Property match"
             source = str(row.get("source_label") or "").strip()
             fit_summary = str(row.get("fit_summary") or "").strip()
+            price_label = str(row.get("price_label") or "").strip()
+            area_label = str(row.get("area_label") or "").strip()
+            rooms_label = str(row.get("rooms_label") or "").strip()
+            location_label = str(row.get("location_label") or "").strip()
             review_url = str(row.get("review_url") or "").strip()
+            tour_url = str(row.get("tour_url") or "").strip()
+            property_url = str(row.get("property_url") or "").strip()
             tour_status = str(row.get("tour_status") or "").strip().replace("_", " ") or (
-                "ready" if str(row.get("tour_url") or "").strip() else "pending"
+                "ready" if tour_url else "pending"
             )
             body.append(f"{index}. {title}")
             details = [part for part in (fit_summary, source, f"360: {tour_status}") if part]
             if details:
                 body.append(f"   {' | '.join(details)}")
+            facts_line = " | ".join(part for part in (price_label, area_label, rooms_label, location_label) if part)
+            if facts_line:
+                body.append(f"   Facts: {facts_line}")
             if review_url:
-                body.append(f"   Review packet: {review_url}")
+                body.append(f"   Open review packet: {review_url}")
+            elif property_url:
+                body.append(f"   Open property: {property_url}")
+            if tour_url:
+                body.append(f"   Open 360 view: {tour_url}")
     if str(results_url or "").strip():
-        body.extend(["", f"Open the results page: {results_url}"])
-    html_body = _property_search_results_ready_html(
-        results_url=str(results_url or "").strip(),
-        result_total=result_total,
-        hosted_tour_total=hosted_tour_total,
-        property_rows=property_rows,
+        body.extend(["", f"Open the full search desk: {results_url}"])
+    cards = []
+    for row in property_rows[:5]:
+        title = html.escape(str(row.get("title") or "Property match").strip() or "Property match")
+        fit_summary = html.escape(str(row.get("fit_summary") or "").strip() or "Ranked and ready for review.")
+        source = html.escape(str(row.get("source_label") or "").strip())
+        facts_line = " | ".join(
+            html.escape(part)
+            for part in (
+                str(row.get("price_label") or "").strip(),
+                str(row.get("area_label") or "").strip(),
+                str(row.get("rooms_label") or "").strip(),
+                str(row.get("location_label") or "").strip(),
+            )
+            if part
+        )
+        review_url = html.escape(str(row.get("review_url") or "").strip())
+        tour_url = html.escape(str(row.get("tour_url") or "").strip())
+        property_url = html.escape(str(row.get("property_url") or "").strip())
+        actions = []
+        if review_url:
+            actions.append(
+                f'<a href="{review_url}" style="display:inline-block;padding:10px 14px;border-radius:999px;background:#bd8b2f;color:#1f1d19;text-decoration:none;font-weight:700;">Open review packet</a>'
+            )
+        if tour_url:
+            actions.append(
+                f'<a href="{tour_url}" style="display:inline-block;padding:10px 14px;border-radius:999px;border:1px solid #d7c7ad;color:#1f1d19;text-decoration:none;font-weight:700;">Open 360</a>'
+            )
+        elif property_url:
+            actions.append(
+                f'<a href="{property_url}" style="display:inline-block;padding:10px 14px;border-radius:999px;border:1px solid #d7c7ad;color:#1f1d19;text-decoration:none;font-weight:700;">Open source</a>'
+            )
+        cards.append(
+            """
+            <tr>
+              <td style="padding:0 0 16px 0;">
+                <div style="border:1px solid #ded6c8;border-radius:16px;background:#fffdf8;padding:18px;">
+                  <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#7d7468;margin-bottom:8px;">%s</div>
+                  <div style="font-size:18px;line-height:1.3;font-weight:700;color:#242321;margin-bottom:8px;">%s</div>
+                  <div style="font-size:14px;line-height:1.55;color:#51493f;margin-bottom:8px;">%s</div>
+                  %s
+                  <div style="padding-top:14px;">%s</div>
+                </div>
+              </td>
+            </tr>
+            """
+            % (
+                source or "PropertyQuarry shortlist",
+                title,
+                fit_summary,
+                f'<div style="font-size:13px;line-height:1.5;color:#7d7468;margin-bottom:12px;">{facts_line}</div>' if facts_line else "",
+                "&nbsp;".join(actions),
+            )
+        )
+    html_body = (
+        f"""
+        <div style="margin:0;padding:24px;background:#f6f3ee;font-family:Arial,sans-serif;color:#242321;">
+          <div style="max-width:760px;margin:0 auto;background:#fffdf8;border:1px solid #ded6c8;border-radius:24px;overflow:hidden;">
+            <div style="padding:28px 28px 20px;background:linear-gradient(135deg,#fff7ea 0%,#f6f3ee 100%);border-bottom:1px solid #e7dece;">
+              <div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;">PropertyQuarry research brief</div>
+              <h1 style="margin:10px 0 12px 0;font-size:28px;line-height:1.2;color:#242321;">Your search is ready</h1>
+              <p style="margin:0 0 16px 0;font-size:15px;line-height:1.65;color:#51493f;">
+                We ranked <strong>{max(int(result_total), 0)}</strong> result(s) and prepared
+                <strong>{max(int(hosted_tour_total), 0)}</strong> hosted tour view(s).
+              </p>
+              <div style="border:1px solid #e1d1b4;border-radius:18px;background:#fffdf8;padding:16px;">
+                <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#7d7468;margin-bottom:6px;">Current read</div>
+                <div style="font-size:18px;line-height:1.35;font-weight:700;color:#242321;margin-bottom:8px;">{html.escape(best_title)}</div>
+                <div style="font-size:14px;line-height:1.6;color:#51493f;">{html.escape(best_fit_summary or 'A ranked shortlist is ready for review.')}</div>
+                {f'<div style="font-size:13px;line-height:1.5;color:#7d7468;margin-top:10px;">{html.escape(best_facts)}</div>' if best_facts else ''}
+              </div>
+              <div style="padding-top:18px;">
+                <a href="{html.escape(str(results_url or '').strip())}" style="display:inline-block;padding:12px 16px;border-radius:999px;background:#276b53;color:#fffdf8;text-decoration:none;font-weight:700;">Open full search desk</a>
+              </div>
+            </div>
+            <div style="padding:24px 28px 12px;">
+              <div style="font-size:13px;line-height:1.6;color:#51493f;margin-bottom:18px;">
+                The links below open directly. If the workspace session is not active yet, PropertyQuarry will establish access first and then continue to the correct property.
+              </div>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                {''.join(cards)}
+              </table>
+            </div>
+          </div>
+        </div>
+        """
+        if str(results_url or "").strip()
+        else _property_search_results_ready_html(
+            results_url=str(results_url or "").strip(),
+            result_total=result_total,
+            hosted_tour_total=hosted_tour_total,
+            property_rows=property_rows,
+        )
     )
     return _send_emailit_email(
         recipient_email=recipient_email,

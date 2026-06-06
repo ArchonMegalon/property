@@ -97,6 +97,7 @@ def test_blank_requested_model_uses_easy_lane_candidates(monkeypatch: pytest.Mon
 def test_onemin_nano_model_is_not_treated_as_code_capable() -> None:
     assert upstream._onemin_model_supports_code("gpt-4.1-nano") is False
     assert upstream._onemin_model_supports_code("deepseek-chat") is True
+    assert upstream._onemin_model_supports_code("gpt-oss-120b") is True
 
 
 def test_onemin_account_login_credentials_reads_team_hints_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -292,7 +293,7 @@ def test_default_public_model_stays_onemin_only_when_the_primary_backend_fails(m
         upstream.generate_text(prompt="fallback please", requested_model=upstream.DEFAULT_PUBLIC_MODEL)
 
 
-def test_fast_public_model_candidates_prefer_gemini_then_magicx_without_onemin(
+def test_fast_public_model_candidates_prefer_onemin_claude_then_gemini_and_magicx(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
@@ -304,17 +305,18 @@ def test_fast_public_model_candidates_prefer_gemini_then_magicx_without_onemin(
     ]
 
     assert candidates == [
-        ("gemini_vortex", "gemini-2.5-flash"),
-        ("magixai", "mx-best"),
-        ("magixai", "x-ai/grok-code-fast-1"),
-        ("magixai", "mistralai/codestral-2508"),
-        ("magixai", "inception/mercury-coder"),
+        ("onemin", "anthropic/claude-4-sonnet"),
         ("onemin", "deepseek-chat"),
         ("onemin", "gpt-4.1-nano"),
         ("onemin", "gpt-4.1"),
         ("onemin", "gpt-4o"),
         ("onemin", "gpt-5"),
         ("onemin", "gpt-5.4"),
+        ("gemini_vortex", "gemini-2.5-flash"),
+        ("magixai", "mx-best"),
+        ("magixai", "x-ai/grok-code-fast-1"),
+        ("magixai", "mistralai/codestral-2508"),
+        ("magixai", "inception/mercury-coder"),
     ]
 
 
@@ -389,12 +391,13 @@ def test_hard_public_model_candidates_downshift_when_live_slot_budget_cannot_cov
     assert candidates[:6] == [
         ("onemin", "deepseek-chat"),
         ("onemin", "gpt-4.1-nano"),
+        ("onemin", "gpt-oss-120b"),
         ("onemin", "gpt-5.4"),
         ("onemin", "gpt-5"),
         ("onemin", "gpt-4o"),
-        ("gemini_vortex", "gemini-2.5-flash"),
     ]
     assert ("magixai", "claude-sonnet-4.5") in candidates
+    assert ("gemini_vortex", "gemini-2.5-flash") in candidates
 
 
 def test_hard_public_model_candidates_keep_premium_order_when_live_slot_budget_supports_hard_tier(
@@ -430,14 +433,15 @@ def test_hard_public_model_candidates_keep_premium_order_when_live_slot_budget_s
     ]
 
     assert candidates[:6] == [
+        ("onemin", "gpt-oss-120b"),
         ("onemin", "gpt-5.4"),
         ("onemin", "gpt-5"),
         ("onemin", "gpt-4o"),
         ("onemin", "deepseek-chat"),
         ("onemin", "gpt-4.1-nano"),
-        ("gemini_vortex", "gemini-2.5-flash"),
     ]
     assert ("magixai", "claude-sonnet-4.5") in candidates
+    assert ("gemini_vortex", "gemini-2.5-flash") in candidates
 
 
 def test_repair_gemini_public_model_prefers_gemini_then_cheap_fallbacks(
@@ -453,10 +457,18 @@ def test_repair_gemini_public_model_prefers_gemini_then_cheap_fallbacks(
 
     assert candidates[:3] == [
         ("gemini_vortex", "gemini-repair"),
-        ("magixai", "mx-best"),
-        ("magixai", "x-ai/grok-code-fast-1"),
+        ("onemin", "anthropic/claude-4-sonnet"),
+        ("onemin", "deepseek-chat"),
     ]
-    assert ("onemin", "gpt-5.4") in candidates
+    assert ("magixai", "mx-best") in candidates
+
+
+def test_hard_model_defaults_start_with_gpt_oss_120b(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_HARD_MODELS", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_CODE_MODELS", raising=False)
+
+    assert upstream._onemin_hard_models()[0] == "gpt-oss-120b"
+    assert upstream._onemin_code_models()[0] == "gpt-oss-120b"
 
 
 def test_hard_lane_code_defaults_are_safe_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1102,7 +1114,7 @@ def test_review_light_public_model_prefers_onemin_with_gemini_and_chatplayground
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
-    monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", "deepseek-chat,gpt-4.1-nano")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", "anthropic/claude-4-sonnet,deepseek-chat,gpt-4.1-nano")
     monkeypatch.setenv("EA_RESPONSES_REVIEW_LIGHT_CHATPLAYGROUND_MODELS", "gpt-4.1,gpt-5")
     monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
     monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
@@ -1113,12 +1125,19 @@ def test_review_light_public_model_prefers_onemin_with_gemini_and_chatplayground
     ]
 
     assert candidates == [
+        ("onemin", "anthropic/claude-4-sonnet"),
         ("onemin", "deepseek-chat"),
         ("onemin", "gpt-4.1-nano"),
         ("onemin", "gpt-4.1"),
         ("gemini_vortex", "gemini-2.5-flash"),
         ("chatplayground", "gpt-4.1"),
     ]
+
+
+def test_review_model_defaults_start_with_claude_sonnet(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", raising=False)
+
+    assert upstream._onemin_review_models()[0] == "anthropic/claude-4-sonnet"
 
 
 def test_provider_prefixed_request_uses_explicit_model(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1213,6 +1232,7 @@ def test_audit_model_candidates_prefer_onemin_with_chatplayground_fallback(
     ]
     assert candidates == [
         ("onemin", "deepseek-chat"),
+        ("onemin", "anthropic/claude-4-sonnet"),
         ("onemin", "gpt-4.1-nano"),
         ("onemin", "gpt-4.1"),
         ("gemini_vortex", "gemini-2.5-flash"),

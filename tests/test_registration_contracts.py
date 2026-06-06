@@ -128,11 +128,12 @@ def test_sign_in_email_link_reissues_workspace_access_for_existing_email(
     )
 
     assert response.status_code == 303
-    assert "link_status=sent" in response.headers["location"]
-    assert "link_count=1" in response.headers["location"]
+    assert "link_status=submitted" in response.headers["location"]
+    assert "link_count=" not in response.headers["location"]
     followup = client.get(response.headers["location"])
     assert followup.status_code == 200
-    assert "Secure access links sent." in followup.text
+    assert "Check your inbox." in followup.text
+    assert "If founder@example.com already has workspace access" in followup.text
     assert "founder@example.com" in followup.text
     assert observed["recipient_email"] == "founder@example.com"
     assert observed["workspace_name"] == "Founder Office"
@@ -152,10 +153,11 @@ def test_sign_in_email_link_reports_missing_workspace_match(
     )
 
     assert response.status_code == 303
-    assert "link_status=not_found" in response.headers["location"]
+    assert "link_status=submitted" in response.headers["location"]
     followup = client.get(response.headers["location"])
     assert followup.status_code == 200
-    assert "No existing workspace matched that email." in followup.text
+    assert "Check your inbox." in followup.text
+    assert "If unknown@example.com already has workspace access" in followup.text
 
 
 def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -622,18 +624,23 @@ def test_property_search_results_email_serializes_emailit_meta(monkeypatch: pyte
     payload = dict(captured["payload"])
     assert payload["from"] == "PropertyQuarry <property@propertyquarry.com>"
     assert payload["subject"] == "PropertyQuarry results ready"
+    assert "Research summary:" in payload["text"]
+    assert "Best current match: BG Leopoldstadt, 082 25 E 89/25g" in payload["text"]
+    assert "Key facts: EUR 310,000 | 82 m2 | 3 rooms | 1020 Vienna" in payload["text"]
     assert "Best matches:" in payload["text"]
     assert "BG Leopoldstadt" in payload["text"]
     assert "https://propertyquarry.com/app/properties?run_id=run-1" in payload["text"]
     html = str(payload["html"])
+    assert "PropertyQuarry research brief" in html
+    assert "Current read" in html
     assert "<table" in html
-    assert "Best matches" in html
+    assert "Open full search desk" in html
     assert 'href="https://propertyquarry.com/app/research/run-1/prop-1"' in html
-    assert ">BG Leopoldstadt, 082 25 E 89/25g</a>" in html
+    assert "BG Leopoldstadt, 082 25 E 89/25g" in html
     assert "EUR 310,000" in html
     assert "82 m2" in html
     assert 'href="https://propertyquarry.com/app/properties?run_id=run-1"' in html
-    assert ">Open full results</a>" in html
+    assert ">Open full search desk</a>" in html
     assert ">https://propertyquarry.com/app/research/run-1/prop-1</a>" not in html
     assert ">https://propertyquarry.com/app/properties?run_id=run-1</a>" not in html
     assert isinstance(payload["meta"]["top_property_refs"], str)

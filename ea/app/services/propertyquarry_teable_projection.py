@@ -240,6 +240,55 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _safe_commercial_json(payload: dict[str, Any] | None) -> dict[str, Any]:
+    blocked_exact = {"last_payer_email", "payer_email", "email", "billing_email"}
+    blocked_markers = ("token", "secret", "cookie", "session", "oauth", "internal")
+    result: dict[str, Any] = {}
+    for key, value in dict(payload or {}).items():
+        normalized = str(key or "").strip()
+        lowered = normalized.lower()
+        if normalized in blocked_exact:
+            continue
+        if any(marker in lowered for marker in blocked_markers):
+            continue
+        result[normalized] = value
+    return result
+
+
+def _safe_teable_facts(payload: dict[str, Any] | None) -> dict[str, Any]:
+    blocked_exact = {"exact_address", "street_address", "house_number", "map_lat", "map_lng", "lat", "lng"}
+    blocked_markers = ("token", "secret", "cookie", "session", "oauth", "internal")
+    result: dict[str, Any] = {}
+    for key, value in dict(payload or {}).items():
+        normalized = str(key or "").strip()
+        lowered = normalized.lower()
+        if normalized in blocked_exact:
+            continue
+        if any(marker in lowered for marker in blocked_markers):
+            continue
+        result[normalized] = value
+    return result
+
+
+def _safe_source_summary(source: dict[str, Any] | None, *, source_label: str, platform: str, source_url: str) -> dict[str, Any]:
+    payload = dict(source or {})
+    return {
+        "source_label": source_label,
+        "platform": platform,
+        "source_url": source_url,
+        "raw_listing_total": payload.get("raw_listing_total"),
+        "scanned_listing_total": payload.get("scanned_listing_total"),
+        "listing_total": payload.get("listing_total"),
+        "duplicate_listing_total": payload.get("duplicate_listing_total"),
+        "filtered_area_total": payload.get("filtered_area_total"),
+        "filtered_low_fit_total": payload.get("filtered_low_fit_total"),
+        "filtered_floorplan_total": payload.get("filtered_floorplan_total"),
+        "high_fit_total": payload.get("high_fit_total"),
+        "top_fit_score": payload.get("top_fit_score"),
+        "scan_truncated": bool(payload.get("scan_truncated")),
+    }
+
+
 def _text(value: object, *, limit: int = 500) -> str:
     text = str(value or "").strip()
     if limit > 0 and len(text) > limit:
@@ -333,6 +382,7 @@ def build_propertyquarry_teable_projection_records(
     effective_preferences = raw_preferences or preferences
     commercial = _property_commercial_snapshot(effective_preferences)
     commercial_json = dict(commercial.get("property_commercial") or {})
+    safe_commercial_json = _safe_commercial_json(commercial_json)
     preference_person_id = _text(effective_preferences.get("preference_person_id") or "self", limit=120) or "self"
 
     tenants: dict[str, dict[str, object]] = {
@@ -382,13 +432,13 @@ def build_propertyquarry_teable_projection_records(
             "active_until": _text(commercial.get("active_until"), limit=120),
             "is_paid": bool(commercial.get("is_paid")),
             "pending_plan_key": _text(commercial.get("pending_plan_key"), limit=80),
-            "plan_source": _text(commercial_json.get("plan_source"), limit=120),
-            "last_order_id": _text(commercial_json.get("last_order_id"), limit=160),
-            "last_capture_id": _text(commercial_json.get("last_capture_id"), limit=160),
-            "last_payment_status": _text(commercial_json.get("last_payment_status"), limit=120),
-            "last_payment_amount_eur": _text(commercial_json.get("last_payment_amount_eur"), limit=80),
-            "captured_at": _text(commercial_json.get("captured_at"), limit=120),
-            "commercial_json": commercial_json,
+            "plan_source": _text(safe_commercial_json.get("plan_source"), limit=120),
+            "last_order_id": _text(safe_commercial_json.get("last_order_id"), limit=160),
+            "last_capture_id": _text(safe_commercial_json.get("last_capture_id"), limit=160),
+            "last_payment_status": _text(safe_commercial_json.get("last_payment_status"), limit=120),
+            "last_payment_amount_eur": _text(safe_commercial_json.get("last_payment_amount_eur"), limit=80),
+            "captured_at": _text(safe_commercial_json.get("captured_at"), limit=120),
+            "commercial_json": safe_commercial_json,
             "last_projected_at": projected_at,
         }
         preference_rows[f"preferences:{normalized_tenant}:{normalized_principal}:{preference_person_id}"] = {
@@ -504,7 +554,12 @@ def build_propertyquarry_teable_projection_records(
                 "min_rooms": _number(applied_pushdown.get("min_rooms")),
                 "provider_filter_pushdown_json": provider_filter_pushdown,
                 "provider_cache_json": provider_cache,
-                "source_json": source,
+                "source_json": _safe_source_summary(
+                    source,
+                    source_label=source_label,
+                    platform=platform,
+                    source_url=source_url,
+                ),
                 "last_projected_at": projected_at,
             }
         for candidate in _candidate_rows_from_run(run):
@@ -513,6 +568,7 @@ def build_propertyquarry_teable_projection_records(
                 continue
             property_ref = _stable_ref(property_url, prefix="property")
             facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+            safe_facts = _safe_teable_facts(facts)
             property_rows[property_ref] = {
                 "projection_id": property_ref,
                 "tenant_key": normalized_tenant,
@@ -521,13 +577,13 @@ def build_propertyquarry_teable_projection_records(
                 "listing_id": _text(candidate.get("listing_id") or property_url, limit=200),
                 "title": _text(candidate.get("title"), limit=240),
                 "source_label": _text(candidate.get("source_label"), limit=200),
-                "area_sqm": _number(facts.get("area_sqm") or facts.get("living_area_sqm")),
-                "rooms": _number(facts.get("rooms") or facts.get("room_count")),
-                "total_rent_eur": _number(facts.get("total_rent_eur") or facts.get("rent_eur")),
-                "purchase_price_eur": _number(facts.get("purchase_price_eur") or facts.get("price_eur")),
-                "postal_name": _text(facts.get("postal_name") or facts.get("district") or facts.get("location"), limit=160),
-                "property_type": _text(facts.get("property_type"), limit=120),
-                "facts_json": facts,
+                "area_sqm": _number(safe_facts.get("area_sqm") or safe_facts.get("living_area_sqm")),
+                "rooms": _number(safe_facts.get("rooms") or safe_facts.get("room_count")),
+                "total_rent_eur": _number(safe_facts.get("total_rent_eur") or safe_facts.get("rent_eur")),
+                "purchase_price_eur": _number(safe_facts.get("purchase_price_eur") or safe_facts.get("price_eur")),
+                "postal_name": _text(safe_facts.get("postal_name") or safe_facts.get("district") or safe_facts.get("location"), limit=160),
+                "property_type": _text(safe_facts.get("property_type"), limit=120),
+                "facts_json": safe_facts,
                 "last_seen_run_id": run_id,
                 "last_seen_at": _text(run.get("updated_at") or run.get("generated_at") or projected_at, limit=120),
             }
@@ -550,7 +606,7 @@ def build_propertyquarry_teable_projection_records(
                 "match_reasons_json": list(candidate.get("match_reasons") or []),
                 "mismatch_reasons_json": list(candidate.get("mismatch_reasons") or []),
                 "assessment_json": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
-                "facts_json": facts,
+                "facts_json": safe_facts,
                 "last_projected_at": projected_at,
             }
             review_url = _text(candidate.get("review_url"), limit=1000)

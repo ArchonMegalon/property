@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ORIGINAL_EA_MCP_BASE_URL="${EA_MCP_BASE_URL-}"
+ORIGINAL_EA_BASE_URL="${EA_BASE_URL-}"
+ORIGINAL_CODEXEA_STATUS_URL="${CODEXEA_STATUS_URL-}"
+ORIGINAL_CODEXEA_PROFILES_URL="${CODEXEA_PROFILES_URL-}"
+
 runtime_env_candidates() {
   local git_root=""
   local path
+  case "${CODEXEA_RUNTIME_ENV_DEFAULTS:-1}" in
+    0|false|FALSE|no|NO|off|OFF)
+      return 0
+      ;;
+  esac
   if command -v git >/dev/null 2>&1; then
     git_root="$(git -C "${PWD:-.}" rev-parse --show-toplevel 2>/dev/null || true)"
   fi
@@ -54,9 +64,15 @@ runtime_env_value() {
   return 1
 }
 
+runtime_env_has_value() {
+  local value=""
+  value="$(runtime_env_value "${1:-}" || true)"
+  [ -n "${value}" ]
+}
+
 apply_runtime_env_defaults() {
   local key value
-  for key in EA_MCP_BASE_URL EA_BASE_URL CODEXEA_STATUS_URL CODEXEA_PROFILES_URL EA_MCP_API_TOKEN EA_API_TOKEN EA_MCP_PRINCIPAL_ID EA_PRINCIPAL_ID; do
+  for key in EA_MCP_API_TOKEN EA_API_TOKEN EA_MCP_PRINCIPAL_ID EA_PRINCIPAL_ID; do
     if [ -n "${!key:-}" ]; then
       continue
     fi
@@ -107,6 +123,116 @@ normalize_ea_base_url() {
   printf '%s' "${base_url}"
 }
 
+ea_transport_configured() {
+  [ -n "${ORIGINAL_EA_MCP_BASE_URL}" ] && return 0
+  [ -n "${ORIGINAL_EA_BASE_URL}" ] && return 0
+  [ -n "${ORIGINAL_CODEXEA_STATUS_URL}" ] && return 0
+  [ -n "${ORIGINAL_CODEXEA_PROFILES_URL}" ] && return 0
+  return 1
+}
+
+contains_unsafe_control_chars() {
+  local value="${1-}"
+  case "${value}" in
+    *$'\r'*|*$'\n'*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+require_safe_scalar() {
+  local label="${1:-value}"
+  local value="${2-}"
+  if contains_unsafe_control_chars "${value}"; then
+    echo "Unsafe ${label}: control characters are not allowed" >&2
+    exit 2
+  fi
+}
+
+require_http_url() {
+  local label="${1:-url}"
+  local value="${2-}"
+  require_safe_scalar "${label}" "${value}"
+  case "${value}" in
+    http://*|https://*)
+      return 0
+      ;;
+    *)
+      echo "Unsafe ${label}: expected http:// or https:// URL" >&2
+      exit 2
+      ;;
+  esac
+}
+
+toml_basic_string() {
+  local value="${1-}"
+  python3 - "${value}" <<'PY'
+import json
+import sys
+
+print(json.dumps(sys.argv[1], ensure_ascii=True))
+PY
+}
+
+toml_inline_header_entry() {
+  local key="${1-}"
+  local value="${2-}"
+  printf '%s=%s' "$(toml_basic_string "${key}")" "$(toml_basic_string "${value}")"
+}
+
+ea_probe_url() {
+  local url="${1:-}"
+  local principal_id="${EA_MCP_PRINCIPAL_ID:-${EA_PRINCIPAL_ID:-codexea-shim}}"
+  local api_token="${EA_MCP_API_TOKEN:-${EA_API_TOKEN:-}}"
+  python3 - "${url}" "${principal_id}" "${api_token}" <<'PY'
+import sys
+import urllib.error
+import urllib.request
+
+url = str(sys.argv[1] or "").strip()
+principal_id = str(sys.argv[2] or "").strip() or "codexea-shim"
+api_token = str(sys.argv[3] or "").strip()
+headers = {"X-EA-Principal-ID": principal_id}
+if api_token:
+    headers["Authorization"] = f"Bearer {api_token}"
+    headers["X-EA-Api-Token"] = api_token
+    headers["X-API-Token"] = api_token
+request = urllib.request.Request(url, headers=headers, method="GET")
+try:
+    with urllib.request.urlopen(request, timeout=1.0) as response:
+        code = int(getattr(response, "status", 0) or response.getcode() or 0)
+        raise SystemExit(0 if 200 <= code < 300 else 1)
+except urllib.error.HTTPError as exc:
+    if int(exc.code) in {401, 403}:
+        raise SystemExit(0)
+    raise SystemExit(1)
+except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+    raise SystemExit(1)
+PY
+}
+
+resolve_default_ea_base_url() {
+  local primary_url="${CODEXEA_DEFAULT_BASE_URL:-https://code.girschele.com}"
+  local fallback_url="${CODEXEA_LOCAL_FALLBACK_BASE_URL:-http://127.0.0.1:8090}"
+  local candidate=""
+  local normalized=""
+
+  for candidate in "${primary_url}" "${fallback_url}"; do
+    [ -n "${candidate}" ] || continue
+    normalized="$(normalize_ea_base_url "${candidate}")"
+    require_http_url "EA candidate base URL" "${normalized}"
+    if ea_probe_url "${normalized%/}/v1/codex/status?probe=1"; then
+      printf '%s' "${normalized}"
+      return 0
+    fi
+  done
+
+  printf '%s' "$(normalize_ea_base_url "${primary_url}")"
+}
+
 REAL_CODEX="${CODEXEA_REAL_CODEX:-${CODEX_REAL_BIN:-/usr/bin/codex}}"
 WATCHDOG_BIN="${CODEXEA_WATCHDOG_BIN:-${HOME}/.local/bin/codexea-watchdog}"
 BOOTSTRAP_PROMPT_FILE="${CODEXEA_BOOTSTRAP_PROMPT_FILE:-${HOME}/.codex/prompts/ea_interactive_bootstrap.md}"
@@ -131,10 +257,24 @@ CODEXEA_POST_AUDIT_ONLY_ON_DIFF="${CODEXEA_POST_AUDIT_ONLY_ON_DIFF:-1}"
 CODEXEA_POST_AUDIT_ONLY_ON_VERIFY="${CODEXEA_POST_AUDIT_ONLY_ON_VERIFY:-0}"
 CODEXEA_STATE_DIR="${CODEXEA_STATE_DIR:-${HOME}/.cache/codexea}"
 CODEXEA_STOP_FILE="${CODEXEA_STOP_FILE:-${CODEXEA_STATE_DIR}/stop}"
-EA_BASE_URL="$(normalize_ea_base_url "${EA_MCP_BASE_URL:-${EA_BASE_URL:-http://127.0.0.1:8090}}")"
+CODEXEA_DEFAULT_BASE_URL="${CODEXEA_DEFAULT_BASE_URL:-https://code.girschele.com}"
+CODEXEA_LOCAL_FALLBACK_BASE_URL="${CODEXEA_LOCAL_FALLBACK_BASE_URL:-http://127.0.0.1:8090}"
+if ea_transport_configured; then
+  CODEXEA_RESOLVED_BASE_URL="${EA_MCP_BASE_URL:-${EA_BASE_URL:-${CODEXEA_DEFAULT_BASE_URL}}}"
+else
+  CODEXEA_RESOLVED_BASE_URL="$(resolve_default_ea_base_url)"
+fi
+EA_BASE_URL="$(normalize_ea_base_url "${EA_MCP_BASE_URL:-${EA_BASE_URL:-${CODEXEA_RESOLVED_BASE_URL}}}")"
 EA_STATUS_URL="$(normalize_ea_base_url "${CODEXEA_STATUS_URL:-${EA_BASE_URL%/}/v1/codex/status}")"
 EA_PROFILES_URL="$(normalize_ea_base_url "${CODEXEA_PROFILES_URL:-${EA_BASE_URL%/}/v1/codex/profiles}")"
 ROUTE_HELPER="${CODEXEA_ROUTE_HELPER:-/docker/fleet/scripts/codexea_route.py}"
+
+require_http_url "EA_BASE_URL" "${EA_BASE_URL}"
+require_http_url "EA_STATUS_URL" "${EA_STATUS_URL}"
+require_http_url "EA_PROFILES_URL" "${EA_PROFILES_URL}"
+export EA_BASE_URL
+export EA_STATUS_URL
+export EA_PROFILES_URL
 
 if [ ! -x "${REAL_CODEX}" ]; then
   REAL_CODEX="$(command -v codex || true)"
@@ -358,7 +498,12 @@ profile_name = profile_by_lane.get(lane, lane)
 if not profile_name:
     raise SystemExit(1)
 
-root = str(os.environ.get("EA_MCP_BASE_URL") or "http://127.0.0.1:8090").rstrip("/")
+root = str(
+    os.environ.get("EA_MCP_BASE_URL")
+    or os.environ.get("EA_BASE_URL")
+    or os.environ.get("CODEXEA_DEFAULT_BASE_URL")
+    or "https://code.girschele.com"
+).rstrip("/")
 url = str(os.environ.get("CODEXEA_PROFILES_URL") or f"{root}/v1/codex/profiles").strip()
 principal_id = (
     str(os.environ.get("EA_MCP_PRINCIPAL_ID") or "").strip()
@@ -1043,21 +1188,21 @@ EFFECTIVE_SUBMODE=""
 POST_AUDIT_THIS_RUN=0
 if [ "${EFFECTIVE_LANE}" = "auto" ] || [ "${EFFECTIVE_LANE}" = "easy" ]; then
   EFFECTIVE_LANE="easy"
-  EFFECTIVE_SUBMODE="mcp"
-  EFFECTIVE_REASON="mcp_easy_locked"
+  EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-${CODEXEA_EASY_SUBMODE:-responses}}"
+  EFFECTIVE_REASON="easy_default_lane"
   POST_AUDIT_THIS_RUN=1
 else
   EFFECTIVE_REASON="explicit_lane_requested"
 fi
 
 if [ "${EFFECTIVE_LANE}" = "easy" ] && has_explicit_runtime_override "$@"; then
-  echo "codexea easy is locked to MCP easy; remove model/provider/profile overrides or use an explicit lane wrapper" >&2
+  echo "codexea easy is pinned to the managed easy lane; remove direct model/provider/profile overrides or use an explicit lane wrapper" >&2
   exit 2
 fi
 
 if [ "${EFFECTIVE_LANE}" = "easy" ] && [ -n "${CODEXEA_MODE_OVERRIDE}" ]; then
   if ! env_truthy "${CODEXEA_ALLOW_EASY_MODE_OVERRIDE}"; then
-    echo "codexea easy is locked to MCP; CODEXEA_MODE override is disabled unless CODEXEA_ALLOW_EASY_MODE_OVERRIDE=1 for debugging" >&2
+    echo "codexea easy mode override is disabled unless CODEXEA_ALLOW_EASY_MODE_OVERRIDE=1 for debugging" >&2
     exit 2
   fi
   case "${CODEXEA_MODE_OVERRIDE}" in
@@ -1076,11 +1221,11 @@ MODEL=""
 REASONING=""
 case "${EFFECTIVE_LANE}" in
   easy)
-    EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-${CODEXEA_EASY_SUBMODE:-mcp}}"
+    EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-${CODEXEA_EASY_SUBMODE:-responses}}"
     case "${EFFECTIVE_SUBMODE}" in
       responses_easy|responses_fast|responses)
         MODE="responses"
-        MODEL="${CODEXEA_MODEL:-${CODEXEA_EASY_MODEL:-ea-gemini-flash}}"
+        MODEL="${CODEXEA_MODEL:-${CODEXEA_EASY_MODEL:-ea-coder-fast}}"
         REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_EASY_REASONING_EFFORT:-low}}"
         ;;
       mcp)
@@ -1191,7 +1336,8 @@ fi
 case "${MODE}" in
   mcp)
     if [ -n "${MODEL}" ]; then
-      EA_DEFAULT_ARGS+=(-c "model=\"${MODEL}\"")
+      require_safe_scalar "MODEL" "${MODEL}"
+      EA_DEFAULT_ARGS+=(-c "model=$(toml_basic_string "${MODEL}")")
     fi
     ;;
   responses)
@@ -1200,22 +1346,30 @@ case "${MODE}" in
     if [ "${EA_CODEX_PROFILE}" = "jury" ]; then
       EA_CODEX_PROFILE="audit"
     fi
-    EA_HEADERS="{\"X-EA-Principal-ID\"=\"${EA_PRINCIPAL_ID}\",\"X-EA-Codex-Profile\"=\"${EA_CODEX_PROFILE}\""
+    require_safe_scalar "EA_PRINCIPAL_ID" "${EA_PRINCIPAL_ID}"
+    require_safe_scalar "EA_CODEX_PROFILE" "${EA_CODEX_PROFILE}"
+    require_safe_scalar "MODEL" "${MODEL}"
+    require_safe_scalar "EA_AUTH_TOKEN" "${EA_AUTH_TOKEN}"
+    EA_HEADERS="{$(toml_inline_header_entry "X-EA-Principal-ID" "${EA_PRINCIPAL_ID}"),$(toml_inline_header_entry "X-EA-Codex-Profile" "${EA_CODEX_PROFILE}")"
     if [ -n "${EA_ONEMIN_ACCOUNT_ALIAS:-}" ]; then
-      EA_HEADERS="${EA_HEADERS},\"X-EA-Onemin-Account-Alias\"=\"${EA_ONEMIN_ACCOUNT_ALIAS}\""
+      require_safe_scalar "EA_ONEMIN_ACCOUNT_ALIAS" "${EA_ONEMIN_ACCOUNT_ALIAS}"
+      EA_HEADERS="${EA_HEADERS},$(toml_inline_header_entry "X-EA-Onemin-Account-Alias" "${EA_ONEMIN_ACCOUNT_ALIAS}")"
     fi
     if [ -n "${EA_ONEMIN_ACCOUNT_ENV_NAME:-}" ]; then
-      EA_HEADERS="${EA_HEADERS},\"X-EA-Onemin-Account-Env\"=\"${EA_ONEMIN_ACCOUNT_ENV_NAME}\""
+      require_safe_scalar "EA_ONEMIN_ACCOUNT_ENV_NAME" "${EA_ONEMIN_ACCOUNT_ENV_NAME}"
+      EA_HEADERS="${EA_HEADERS},$(toml_inline_header_entry "X-EA-Onemin-Account-Env" "${EA_ONEMIN_ACCOUNT_ENV_NAME}")"
     fi
     if [ -n "${EA_AUTH_TOKEN:-}" ]; then
-      EA_HEADERS="${EA_HEADERS},\"Authorization\"=\"Bearer ${EA_AUTH_TOKEN}\",\"x-api-token\"=\"${EA_AUTH_TOKEN}\",\"X-EA-Api-Token\"=\"${EA_AUTH_TOKEN}\""
+      EA_HEADERS="${EA_HEADERS},$(toml_inline_header_entry "Authorization" "Bearer ${EA_AUTH_TOKEN}")"
+      EA_HEADERS="${EA_HEADERS},$(toml_inline_header_entry "x-api-token" "${EA_AUTH_TOKEN}")"
+      EA_HEADERS="${EA_HEADERS},$(toml_inline_header_entry "X-EA-Api-Token" "${EA_AUTH_TOKEN}")"
     fi
     EA_HEADERS="${EA_HEADERS}}"
     EA_DEFAULT_ARGS+=(
       -c 'model_provider="ea"'
-      -c "model=\"${MODEL}\""
+      -c "model=$(toml_basic_string "${MODEL}")"
       -c 'model_providers.ea.name="Executive Assistant"'
-      -c "model_providers.ea.base_url=\"${EA_BASE_URL%/}/v1\""
+      -c "model_providers.ea.base_url=$(toml_basic_string "${EA_BASE_URL%/}/v1")"
       -c 'model_providers.ea.wire_api="responses"'
       -c "model_providers.ea.http_headers=${EA_HEADERS}"
       -c 'model_providers.ea.stream_idle_timeout_ms=300000'
@@ -1229,7 +1383,8 @@ case "${MODE}" in
 esac
 
 if [ -n "${REASONING}" ]; then
-  EA_DEFAULT_ARGS+=(-c "model_reasoning_effort=\"${REASONING}\"")
+  require_safe_scalar "REASONING" "${REASONING}"
+  EA_DEFAULT_ARGS+=(-c "model_reasoning_effort=$(toml_basic_string "${REASONING}")")
 fi
 
 mapfile -d '' BASE_PROFILE_ARGS < <(build_base_profile_args "$@")

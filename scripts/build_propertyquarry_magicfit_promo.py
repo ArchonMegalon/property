@@ -16,6 +16,28 @@ def safe_variant(value: object) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "-", str(value or "").strip()).strip("-_")[:48]
 
 
+def is_english_variant(value: str) -> bool:
+    return value in {"v3", "english_v3", "en_v3", "euphoric_en_v3"} or is_continuous_variant(value)
+
+
+def is_continuous_variant(value: str) -> bool:
+    return value in {
+        "v4",
+        "continuous_v4",
+        "cinematic_v4",
+        "continuous_en_v4",
+        "v5",
+        "continuous_v5",
+        "cinematic_v5",
+        "continuous_en_v5",
+        "tour_v5",
+    }
+
+
+def is_tour_claim_variant(value: str) -> bool:
+    return value in {"v5", "continuous_v5", "cinematic_v5", "continuous_en_v5", "tour_v5"}
+
+
 ROOT = Path(os.environ.get("PROPERTYQUARRY_ROOT") or Path(__file__).resolve().parents[1]).resolve()
 EA_ROOT = Path(os.environ.get("PROPERTYQUARRY_EA_ROOT") or "/docker/EA").resolve()
 OUT = Path(
@@ -24,17 +46,18 @@ OUT = Path(
 ).resolve()
 VARIANT = safe_variant(os.environ.get("PROPERTYQUARRY_PROMO_VARIANT", ""))
 VARIANT_TAG = f"_{VARIANT}" if VARIANT else ""
+PROMO_LANGUAGE_TAG = "EN" if is_english_variant(VARIANT) else "DE"
 CLIPS = Path(os.environ.get("PROPERTYQUARRY_MAGICFIT_CLIPS_DIR") or OUT / "magicfit_clips").resolve()
-FINAL = OUT / f"PropertyQuarry_Hero_87s_16x9_4K_DE{VARIANT_TAG}.mp4"
-TELEGRAM_FINAL = OUT / f"PropertyQuarry_Hero_87s_16x9_Telegram_720p_DE{VARIANT_TAG}.mp4"
+FINAL = OUT / f"PropertyQuarry_Hero_87s_16x9_4K_{PROMO_LANGUAGE_TAG}{VARIANT_TAG}.mp4"
+TELEGRAM_FINAL = OUT / f"PropertyQuarry_Hero_87s_16x9_Telegram_720p_{PROMO_LANGUAGE_TAG}{VARIANT_TAG}.mp4"
 SILENT = Path(
     os.environ.get("PROPERTYQUARRY_PROMO_SILENT_VIDEO")
-    or OUT / f"PropertyQuarry_Hero_87s_16x9_4K_DE{VARIANT_TAG}.silent.mp4"
+    or OUT / f"PropertyQuarry_Hero_87s_16x9_4K_{PROMO_LANGUAGE_TAG}{VARIANT_TAG}.silent.mp4"
 ).resolve()
-VOICE_AUDIO = OUT / f"PropertyQuarry_Hero_87s_16x9_4K_DE{VARIANT_TAG}.voice.aac"
-SOUNDTRACK = OUT / f"PropertyQuarry_Hero_87s_16x9_4K_DE{VARIANT_TAG}.soundtrack.wav"
-AUDIO = OUT / f"PropertyQuarry_Hero_87s_16x9_4K_DE{VARIANT_TAG}.aac"
-SRT = OUT / f"PropertyQuarry_Hero_87s_16x9_4K_DE{VARIANT_TAG}.srt"
+VOICE_AUDIO = OUT / f"PropertyQuarry_Hero_87s_16x9_4K_{PROMO_LANGUAGE_TAG}{VARIANT_TAG}.voice.aac"
+SOUNDTRACK = OUT / f"PropertyQuarry_Hero_87s_16x9_4K_{PROMO_LANGUAGE_TAG}{VARIANT_TAG}.soundtrack.wav"
+AUDIO = OUT / f"PropertyQuarry_Hero_87s_16x9_4K_{PROMO_LANGUAGE_TAG}{VARIANT_TAG}.aac"
+SRT = OUT / f"PropertyQuarry_Hero_87s_16x9_4K_{PROMO_LANGUAGE_TAG}{VARIANT_TAG}.srt"
 RECEIPT = OUT / f"PROPERTYQUARRY_MAGICFIT_PROMO{VARIANT_TAG}.generated.json"
 TELEGRAM_RECEIPT = OUT / f"PROPERTYQUARRY_MAGICFIT_PROMO{VARIANT_TAG}.telegram.receipt.json"
 PACKET = Path(
@@ -43,6 +66,9 @@ PACKET = Path(
 ).resolve()
 UNMIXR_API_URL = "https://unmixr.com/api/v1/short-tts/"
 UNMIXR_SMOOTHER_DE_VOICE_ID = "9827708d-c40a-48a4-b8a3-7b878f3e4185"
+UNMIXR_EUPHORIC_EN_VOICE_ID = "8d5ba99b-5f6b-44d7-982c-633f9e13af30"
+UNMIXR_CINEMATIC_EN_VOICE_ID = "426c7d2e-d3cd-4258-9a93-080f9a6d6eee"
+UNMIXR_CINEMATIC_ALT_EN_VOICE_ID = "c5bdcae8-623a-41f2-8a0c-9c2d5f07463c"
 TARGET_SECONDS = 87.0
 TRANSITION_SECONDS = 0.45
 FPS = 24
@@ -78,6 +104,98 @@ SMOOTHER_SALES_VOICEOVER_LINES = [
     "[01:20.0] Stop browsing. Start deciding.",
     "[01:23.0] PropertyQuarry.",
     "[01:24.8] The decision layer for your next home.",
+]
+
+ENGLISH_EUPHORIC_VOICEOVER_LINES = [
+    "[00:00.8] Too many listings are not the problem.",
+    "[00:03.0] The problem is that every beautiful home still leaves you wondering what you are missing.",
+    "[00:08.2] That is where PropertyQuarry changes the search.",
+    "[00:11.0] Not with more tabs. With clarity that turns attention into a decision you can trust.",
+    "[00:16.0] Tell it what actually matters: location, floor plan, heating, lift, outdoor space, risk.",
+    "[00:23.8] PropertyQuarry turns that into a Search Brief that thinks through the market with you.",
+    "[00:29.0] Weak matches drop out. Missing floor plans surface. Open questions stop hiding in the fine print.",
+    "[00:36.2] Every listing becomes a decision dossier.",
+    "[00:39.4] Fit score, confidence, recommendation, risks, and the questions to ask before you book the viewing.",
+    "[00:48.0] A tour shows you the room.",
+    "[00:50.8] PropertyQuarry shows you the tradeoff.",
+    "[00:53.8] What is strong. What is missing. And what could surprise you later.",
+    "[01:00.0] Then the dossier becomes a shareable packet.",
+    "[01:03.5] For family, partners, agents, and feedback that finally comes back structured.",
+    "[01:10.0] So you do not walk into a viewing hoping you remembered everything.",
+    "[01:13.7] You walk in prepared, with better questions, less pressure, and more control.",
+    "[01:20.0] Stop browsing. Start deciding.",
+    "[01:23.0] PropertyQuarry.",
+    "[01:24.8] The decision layer for your next home.",
+]
+
+CINEMATIC_CONTINUOUS_NARRATION = (
+    "Every search begins with a feeling: maybe this is the one. "
+    "Then the tabs multiply, the floor plans blur, and every beautiful apartment starts carrying a quiet question: what am I missing? "
+    "PropertyQuarry is built for that exact moment. "
+    "It turns a crowded market into a clear decision journey, starting with what matters to you: location, floor plan, heating, lift, outdoor space, timing, risk. "
+    "From there, it reads the market with discipline. Weak matches fall away. Missing facts become visible. The listings that remain are not just prettier cards; they become structured dossiers. "
+    "Fit, confidence, tradeoffs, risks, and the next questions are brought into one calm view, so the conversation moves from guesswork to evidence. "
+    "A tour can show you the room, but PropertyQuarry shows you the decision behind the room: what works, what needs proof, and what could cost you later. "
+    "Then the dossier becomes a shareable packet for partners, family, agents, and reports, keeping feedback structured instead of scattered. "
+    "By the time you walk into the viewing, you are not hoping you remembered everything. "
+    "You are prepared, focused, and in control. "
+    "PropertyQuarry. Stop browsing. Start deciding."
+)
+
+CINEMATIC_CONTINUOUS_CAPTIONS = [
+    "Every search begins with a feeling: maybe this is the one.",
+    "Then the tabs multiply, the floor plans blur, and every beautiful apartment starts carrying a quiet question.",
+    "What am I missing?",
+    "PropertyQuarry is built for that exact moment.",
+    "It turns a crowded market into a clear decision journey, starting with what matters to you.",
+    "From there, it reads the market with discipline.",
+    "Weak matches fall away. Missing facts become visible.",
+    "The listings that remain become structured dossiers.",
+    "Fit, confidence, tradeoffs, risks, and the next questions are brought into one calm view.",
+    "A tour can show you the room.",
+    "PropertyQuarry shows you the decision behind the room.",
+    "What works, what needs proof, and what could cost you later.",
+    "Then the dossier becomes a shareable packet for partners, family, agents, and reports.",
+    "By the time you walk into the viewing, you are not hoping you remembered everything.",
+    "You are prepared, focused, and in control.",
+    "PropertyQuarry. Stop browsing. Start deciding.",
+]
+
+CINEMATIC_CONTINUOUS_NARRATION_V5 = (
+    "Every search begins with a feeling: maybe this is the one. "
+    "Then the tabs multiply, the floor plans blur, and every beautiful apartment starts carrying the same quiet question: what am I missing? "
+    "PropertyQuarry is built for that exact moment. "
+    "It turns a crowded market into a clear decision journey, starting with what matters to you: location, floor plan, heating, lift, outdoor space, timing, and risk. "
+    "From there, it reads the market with discipline. Weak matches fall away. Missing facts become visible. "
+    "And when the original listing does not give you a proper tour, PropertyQuarry can give you a 3D inspection tool, so the space becomes something you can inspect instead of imagine. "
+    "The listings that remain are not just prettier cards; they become structured dossiers. "
+    "Fit, confidence, tradeoffs, risks, and the next questions are brought into one calm view, so the conversation moves from guesswork to evidence. "
+    "A tour can show you the room, but PropertyQuarry shows you the decision behind the room: what works, what needs proof, and what could cost you later. "
+    "Then the dossier becomes a shareable packet for partners, family, agents, and reports, keeping feedback structured instead of scattered. "
+    "By the time you walk into the viewing, you are not hoping you remembered everything. "
+    "You are prepared, focused, and in control. "
+    "PropertyQuarry. Stop browsing. Start deciding."
+)
+
+CINEMATIC_CONTINUOUS_CAPTIONS_V5 = [
+    "Every search begins with a feeling: maybe this is the one.",
+    "Then the tabs multiply, the floor plans blur, and every beautiful apartment starts carrying the same quiet question.",
+    "What am I missing?",
+    "PropertyQuarry is built for that exact moment.",
+    "It turns a crowded market into a clear decision journey, starting with what matters to you.",
+    "From there, it reads the market with discipline.",
+    "Weak matches fall away. Missing facts become visible.",
+    "When the original listing does not give you a proper tour, PropertyQuarry can give you a 3D inspection tool.",
+    "The space becomes something you can inspect instead of imagine.",
+    "The listings that remain become structured dossiers.",
+    "Fit, confidence, tradeoffs, risks, and the next questions are brought into one calm view.",
+    "A tour can show you the room.",
+    "PropertyQuarry shows you the decision behind the room.",
+    "What works, what needs proof, and what could cost you later.",
+    "Then the dossier becomes a shareable packet for partners, family, agents, and reports.",
+    "By the time you walk into the viewing, you are not hoping you remembered everything.",
+    "You are prepared, focused, and in control.",
+    "PropertyQuarry. Stop browsing. Start deciding.",
 ]
 
 def load_env(path: Path) -> None:
@@ -143,20 +261,31 @@ def parse_voice_line(raw: str) -> tuple[float, str]:
 def unmixr_config() -> dict[str, str]:
     api_key = os.environ.get("UNMIXR_API_KEY", "").strip()
     voice_id = os.environ.get("PROPERTYQUARRY_UNMIXR_VOICE_ID", "").strip()
+    if not voice_id and is_tour_claim_variant(VARIANT):
+        voice_id = UNMIXR_CINEMATIC_ALT_EN_VOICE_ID
+    if not voice_id and is_continuous_variant(VARIANT):
+        voice_id = UNMIXR_CINEMATIC_EN_VOICE_ID
+    if not voice_id and is_english_variant(VARIANT):
+        voice_id = UNMIXR_EUPHORIC_EN_VOICE_ID
     if not voice_id and VARIANT:
         voice_id = UNMIXR_SMOOTHER_DE_VOICE_ID
     voice_id = voice_id or os.environ.get("UNMIXR_VOICE_ID", "").strip()
     if not api_key or not voice_id:
         raise RuntimeError("unmixr_not_configured")
+    default_language = "en-US" if is_english_variant(VARIANT) else "de-DE"
+    default_rate = "+8%" if is_tour_claim_variant(VARIANT) else "+7%" if is_continuous_variant(VARIANT) else "+12%" if is_english_variant(VARIANT) else "+8%" if VARIANT else "medium"
+    default_pitch = "+1%" if is_tour_claim_variant(VARIANT) else "+2%" if is_continuous_variant(VARIANT) else "+4%" if is_english_variant(VARIANT) else "medium" if VARIANT else "low"
+    default_volume = "loud" if VARIANT else "medium"
+    default_intensity = "42" if is_tour_claim_variant(VARIANT) else "36" if is_continuous_variant(VARIANT) else "48" if is_english_variant(VARIANT) else "28" if VARIANT else ""
     config = {
         "api_key": api_key,
         "voice_id": voice_id,
-        "language": os.environ.get("PROPERTYQUARRY_UNMIXR_LANGUAGE", "de-DE").strip() or "de-DE",
-        "speaking_rate": os.environ.get("PROPERTYQUARRY_UNMIXR_SPEAKING_RATE", "+8%" if VARIANT else "medium").strip() or "medium",
-        "speaking_pitch": os.environ.get("PROPERTYQUARRY_UNMIXR_SPEAKING_PITCH", "medium" if VARIANT else "low").strip() or "low",
-        "speaking_volume": os.environ.get("PROPERTYQUARRY_UNMIXR_SPEAKING_VOLUME", "loud" if VARIANT else "medium").strip() or "medium",
+        "language": os.environ.get("PROPERTYQUARRY_UNMIXR_LANGUAGE", default_language).strip() or default_language,
+        "speaking_rate": os.environ.get("PROPERTYQUARRY_UNMIXR_SPEAKING_RATE", default_rate).strip() or default_rate,
+        "speaking_pitch": os.environ.get("PROPERTYQUARRY_UNMIXR_SPEAKING_PITCH", default_pitch).strip() or default_pitch,
+        "speaking_volume": os.environ.get("PROPERTYQUARRY_UNMIXR_SPEAKING_VOLUME", default_volume).strip() or default_volume,
     }
-    intensity = os.environ.get("PROPERTYQUARRY_UNMIXR_INTENSITY", "28" if VARIANT else "").strip()
+    intensity = os.environ.get("PROPERTYQUARRY_UNMIXR_INTENSITY", default_intensity).strip()
     if intensity:
         try:
             config["intensity"] = str(max(0, min(100, int(intensity))))
@@ -229,6 +358,36 @@ def fit_audio_to_window(input_path: Path, output_path: Path, *, target_seconds: 
     return output_path
 
 
+def fit_audio_to_duration(input_path: Path, output_path: Path, *, target_seconds: float) -> Path:
+    current = max(0.1, duration(input_path))
+    target = max(0.1, target_seconds)
+    ratio = current / target
+    if abs(current - target) < 0.35:
+        output_path.write_bytes(input_path.read_bytes())
+        return output_path
+    factors: list[float] = []
+    while ratio > 2.0:
+        factors.append(2.0)
+        ratio /= 2.0
+    while ratio < 0.5:
+        factors.append(0.5)
+        ratio /= 0.5
+    factors.append(max(0.5, min(2.0, ratio)))
+    filter_chain = ",".join(f"atempo={factor:.5f}" for factor in factors)
+    run(
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(input_path),
+        "-filter:a",
+        filter_chain,
+        "-c:a",
+        "mp3",
+        str(output_path),
+    )
+    return output_path
+
+
 def write_srt(entries: list[tuple[float, float, str]]) -> None:
     def stamp(seconds: float) -> str:
         millis = int(round(seconds * 1000))
@@ -241,6 +400,34 @@ def write_srt(entries: list[tuple[float, float, str]]) -> None:
     for index, (start, end, text) in enumerate(entries, start=1):
         lines.extend([str(index), f"{stamp(start)} --> {stamp(end)}", text, ""])
     SRT.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+
+
+def continuous_narration_text() -> str:
+    if is_tour_claim_variant(VARIANT):
+        return CINEMATIC_CONTINUOUS_NARRATION_V5
+    return CINEMATIC_CONTINUOUS_NARRATION
+
+
+def continuous_caption_lines() -> list[str]:
+    if is_tour_claim_variant(VARIANT):
+        return CINEMATIC_CONTINUOUS_CAPTIONS_V5
+    return CINEMATIC_CONTINUOUS_CAPTIONS
+
+
+def continuous_caption_entries(start: float, spoken_seconds: float) -> list[tuple[float, float, str]]:
+    captions = continuous_caption_lines()
+    total_weight = sum(max(12, len(text)) for text in captions)
+    cursor = start
+    entries: list[tuple[float, float, str]] = []
+    for index, text in enumerate(captions):
+        if index == len(captions) - 1:
+            end = start + spoken_seconds
+        else:
+            span = spoken_seconds * (max(12, len(text)) / total_weight)
+            end = min(start + spoken_seconds, cursor + max(1.8, span))
+        entries.append((cursor, end, text))
+        cursor = min(start + spoken_seconds, end + 0.05)
+    return entries
 
 
 def build_silent_video(scene_paths: list[Path], requested_durations: list[float]) -> None:
@@ -345,6 +532,46 @@ def build_audio(lines: list[str]) -> list[dict[str, Any]]:
         str(VOICE_AUDIO if VARIANT else AUDIO),
     )
     return clips
+
+
+def build_continuous_audio() -> list[dict[str, Any]]:
+    audio_dir = OUT / f"audio{VARIANT_TAG}"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    start = 0.75
+    target_spoken_seconds = TARGET_SECONDS - start - 0.95
+    narration_text = continuous_narration_text()
+    raw_path = audio_dir / "continuous-narration.mp3"
+    if not render_unmixr_tts(narration_text, raw_path):
+        raise RuntimeError("unmixr_continuous_render_failed")
+    fitted_path = audio_dir / "continuous-narration.fit.mp3"
+    fit_audio_to_duration(raw_path, fitted_path, target_seconds=target_spoken_seconds)
+    spoken_seconds = min(duration(fitted_path), target_spoken_seconds)
+    write_srt(continuous_caption_entries(start, spoken_seconds))
+    delay = int(round(start * 1000))
+    run(
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(fitted_path),
+        "-filter_complex",
+        f"[0:a]adelay={delay}|{delay},apad,atrim=0:{TARGET_SECONDS:.3f},aresample=48000[outa]",
+        "-map",
+        "[outa]",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        str(VOICE_AUDIO),
+    )
+    return [
+        {
+            "path": fitted_path,
+            "start": start,
+            "duration": spoken_seconds,
+            "text": narration_text,
+            "mode": "continuous",
+        }
+    ]
 
 
 def build_soundtrack() -> None:
@@ -502,11 +729,16 @@ def send_telegram() -> dict[str, Any]:
     if not telegram_helper.is_file():
         raise RuntimeError(f"telegram_helper_missing:{telegram_helper}")
     receipt_name = f"propertyquarry_magicfit_promo{VARIANT_TAG}.telegram.receipt.json"
-    caption = (
-        "PropertyQuarry hero trailer V2. MagicFit scene render with smoother premium Unmixr narration, earlier voice entry, and music/SFX mix."
-        if VARIANT
-        else "PropertyQuarry hero trailer. MagicFit scene render with premium Unmixr narration. Telegram delivery encode; 4K master retained locally."
-    )
+    if is_tour_claim_variant(VARIANT):
+        caption = "PropertyQuarry hero trailer V5. English MagicFit scene render with Monica continuous cinematic Unmixr narration and 3D tour-layer claim."
+    elif is_continuous_variant(VARIANT):
+        caption = "PropertyQuarry hero trailer V4. English MagicFit scene render with continuous cinematic Unmixr narration and music/SFX mix."
+    elif is_english_variant(VARIANT):
+        caption = "PropertyQuarry hero trailer V3. English MagicFit scene render with euphoric premium Unmixr narration and music/SFX mix."
+    elif VARIANT:
+        caption = "PropertyQuarry hero trailer V2. MagicFit scene render with smoother premium Unmixr narration, earlier voice entry, and music/SFX mix."
+    else:
+        caption = "PropertyQuarry hero trailer. MagicFit scene render with premium Unmixr narration. Telegram delivery encode; 4K master retained locally."
     run(
         "python3",
         str(telegram_helper),
@@ -538,12 +770,15 @@ def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     if not SILENT.is_file():
         build_silent_video(scene_paths, [duration for _scene_id, duration in MAGICFIT_TIMELINE])
-    voiceover_lines = (
-        SMOOTHER_SALES_VOICEOVER_LINES
-        if VARIANT in {"v2", "smoother_sales_v2", "audio_v2"}
-        else list(packet.get("voiceover_lines") or [])
-    )
-    clips = build_audio(voiceover_lines)
+    if is_continuous_variant(VARIANT):
+        voiceover_lines = []
+    elif is_english_variant(VARIANT):
+        voiceover_lines = ENGLISH_EUPHORIC_VOICEOVER_LINES
+    elif VARIANT in {"v2", "smoother_sales_v2", "audio_v2"}:
+        voiceover_lines = SMOOTHER_SALES_VOICEOVER_LINES
+    else:
+        voiceover_lines = list(packet.get("voiceover_lines") or [])
+    clips = build_continuous_audio() if is_continuous_variant(VARIANT) else build_audio(voiceover_lines)
     if VARIANT:
         build_soundtrack()
         mix_voice_with_soundtrack()
@@ -551,11 +786,17 @@ def main() -> int:
     build_telegram_video()
     telegram_receipt = send_telegram()
     scene_receipts = [json.loads(path.read_text(encoding="utf-8")) for path in sidecar_paths]
+    config = unmixr_config()
     receipt = {
         "generated_at_utc": utc_now(),
         "status": "published",
-        "render_mode": "magicfit_per_scene_with_unmixr_narration",
+        "render_mode": (
+            "magicfit_scene_render_with_continuous_unmixr_narration"
+            if is_continuous_variant(VARIANT)
+            else "magicfit_per_scene_with_unmixr_narration"
+        ),
         "audio_variant": VARIANT or "original",
+        "voiceover_mode": "continuous_cinematic_monologue" if is_continuous_variant(VARIANT) else "timed_scene_lines",
         "provider_claim": "MagicFit",
         "magicfit_claim_allowed": True,
         "source_scene_count": len(scene_paths),
@@ -568,10 +809,30 @@ def main() -> int:
         "audio_path": str(AUDIO),
         "subtitle_path": str(SRT),
         "duration_seconds": duration(FINAL),
-        "voice_id": unmixr_config()["voice_id"],
-        "voice_name": "Seraphina (Express)" if VARIANT else "",
-        "voice_language": unmixr_config()["language"],
-        "voice_style_request": "smoother, warmer, more emotional, lightly excited sales narration" if VARIANT else "",
+        "voice_id": config["voice_id"],
+        "voice_name": (
+            "Monica"
+            if is_tour_claim_variant(VARIANT)
+            else
+            "Michelle"
+            if is_continuous_variant(VARIANT)
+            else "Aria (Express)" if is_english_variant(VARIANT) else "Seraphina (Express)" if VARIANT else ""
+        ),
+        "voice_language": config["language"],
+        "voice_style_request": (
+            "English continuous cinematic trailer narration with 3D tour/tool claim, warm, mature, and more euphoric"
+            if is_tour_claim_variant(VARIANT)
+            else "English continuous cinematic trailer narration, warm, confident, emotionally coherent"
+            if is_continuous_variant(VARIANT)
+            else "English, warm, confident, more euphoric premium sales narration"
+            if is_english_variant(VARIANT)
+            else "smoother, warmer, more emotional, lightly excited sales narration" if VARIANT else ""
+        ),
+        "tour_claim": (
+            "PropertyQuarry can create or queue a 3D/360 inspection layer when the original listing does not include a proper tour; unsupported source data can still block tour generation."
+            if is_tour_claim_variant(VARIANT)
+            else ""
+        ),
         "voice_clip_count": len(clips),
         "magicfit_scene_receipts": [str(path) for path in sidecar_paths],
         "magicfit_video_output_urls": [str(receipt.get("video_output_url") or "") for receipt in scene_receipts],

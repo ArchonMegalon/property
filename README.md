@@ -46,6 +46,16 @@ If `8090` is already occupied, set another host port before deploying:
 EA_HOST_PORT=8097 make deploy
 ```
 
+For blue/green or recovery deploys on a host with stale containers, keep the service names stable and override only the project/container names plus host port:
+
+```bash
+PROPERTYQUARRY_COMPOSE_PROJECT_NAME=propertyquarry-next \
+PROPERTYQUARRY_API_CONTAINER_NAME=propertyquarry-api-next \
+PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME=propertyquarry-scheduler-next \
+PROPERTYQUARRY_DB_CONTAINER_NAME=propertyquarry-db-next \
+EA_HOST_PORT=8098 make deploy
+```
+
 `docker-compose.property.yml` defaults `EA_RUNTIME_MODE=prod`, requires `POSTGRES_PASSWORD`, disables public result/tour side surfaces by default, and runs the scheduler with `PROPERTYQUARRY_SCHEDULER_PROFILE=property_only`.
 The inherited generic worker is intentionally not part of the default topology until a dedicated PropertyQuarry job lane exists.
 
@@ -80,6 +90,9 @@ Operator scripts can be pointed at non-default compose service names with:
 - `PROPERTYQUARRY_API_SERVICE`
 - `PROPERTYQUARRY_SCHEDULER_SERVICE`
 - `PROPERTYQUARRY_DB_SERVICE`
+- `PROPERTYQUARRY_API_CONTAINER_NAME`
+- `PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME`
+- `PROPERTYQUARRY_DB_CONTAINER_NAME`
 
 This alias layer also applies to support exports such as `bash scripts/support_bundle.sh`.
 

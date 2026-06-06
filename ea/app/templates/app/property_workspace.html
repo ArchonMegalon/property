@@ -349,6 +349,7 @@
     overflow-wrap: anywhere;
   }
   .pq-tooltip {
+    position: relative;
     display: inline-grid;
     place-items: center;
     width: 18px;
@@ -359,6 +360,30 @@
     font-size: 11px;
     line-height: 1;
     cursor: help;
+  }
+  .pq-tooltip[data-tooltip-open="true"] {
+    color: var(--accent-strong);
+    border-color: rgba(171, 77, 51, 0.42);
+    background: rgba(171, 77, 51, 0.08);
+  }
+  .pq-tooltip[data-tooltip-open="true"]::after {
+    content: attr(aria-label);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    transform: translateX(-50%);
+    width: min(280px, 42vw);
+    padding: 10px 12px;
+    border: 1px solid rgba(185, 173, 154, 0.88);
+    border-radius: 12px;
+    background: rgba(255, 252, 245, 0.98);
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.45;
+    text-align: left;
+    box-shadow: 0 18px 38px rgba(65, 49, 26, 0.16);
+    white-space: normal;
+    z-index: 20;
   }
   .pq-range-value {
     min-width: 112px;
@@ -530,6 +555,41 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+  .pq-shortlist-lifestyle {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .pq-shortlist-lifestyle-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(185, 173, 154, 0.72);
+    background: rgba(255, 253, 248, 0.9);
+    color: var(--text-soft);
+    font-size: 11px;
+    line-height: 1.2;
+  }
+  .pq-shortlist-lifestyle-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    padding: 3px 6px;
+    border-radius: 999px;
+    background: rgba(189, 139, 47, 0.14);
+    color: var(--text);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+  .pq-shortlist-lifestyle-copy {
+    display: inline-flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
   .pq-shortlist-reasons {
     display: grid;
     gap: 8px;
@@ -571,6 +631,25 @@
   .pq-preference-row small {
     display: block;
   }
+  .pq-preference-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .pq-preference-icon,
+  .pq-filter-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    display: inline-grid;
+    place-items: center;
+    background: linear-gradient(180deg, rgba(189, 139, 47, 0.16), rgba(39, 107, 83, 0.14));
+    border: 1px solid rgba(189, 139, 47, 0.28);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1;
+    flex: 0 0 auto;
+  }
   .pq-preference-row small {
     color: var(--text-dim);
     margin-top: 4px;
@@ -606,6 +685,33 @@
     color: var(--text);
     font: inherit;
     padding: 9px 10px;
+  }
+  .pq-filter-picks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .pq-filter-pick {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(185, 173, 154, 0.8);
+    background: rgba(255, 253, 248, 0.88);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 650;
+    cursor: pointer;
+    transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+  }
+  .pq-filter-pick:hover,
+  .pq-filter-pick:focus-visible {
+    border-color: rgba(189, 139, 47, 0.45);
+    background: rgba(189, 139, 47, 0.1);
+    transform: translateY(-1px);
+    outline: none;
   }
   .pq-chip {
     cursor: pointer;
@@ -870,7 +976,7 @@
                 {% if field.upgrade_hint %}<span class="pq-range-upgrade">{{ field.upgrade_hint }}</span>{% endif %}
               </label>
               {% else %}
-              <label>{{ field.label }}
+              <label>{{ field.label }}{% if field.tooltip %} <span class="pq-tooltip" title="{{ field.tooltip }}" aria-label="{{ field.tooltip }}" tabindex="0">?</span>{% endif %}
                 {% if field.type == 'number' %}
                 <input
                   type="number"
@@ -886,7 +992,7 @@
                   {% endfor %}
                 </select>
                 {% elif field.type == 'checkbox' %}
-                <input type="checkbox" name="{{ field.name }}" value="{{ field.value or 'true' }}" {% if field.checked %}checked{% endif %}>
+                <input type="checkbox" name="{{ field.name }}" value="{{ field.value or 'true' }}" {% if field.checked %}checked{% endif %}{% if field.tooltip %} title="{{ field.tooltip }}" aria-label="{{ field.label }}"{% endif %}>
                 {% elif field.type == 'checkbox_group' %}
                 <div class="pq-choice-grid">
                   {% for option in field.options or [] %}
@@ -1044,6 +1150,33 @@
               <span class="pq-tag" data-property-tag>{{ candidate.get('tag') or 'Candidate' }}</span>
             </div>
             {% if candidate.get('detail') %}<div class="pq-shortlist-copy">{{ candidate.get('detail') }}</div>{% endif %}
+            {% if candidate.get('lifestyle_highlights') %}
+            <div class="pq-shortlist-lifestyle">
+              {% for item in candidate.get('lifestyle_highlights') or [] %}
+              <div class="pq-shortlist-lifestyle-badge">
+                <span class="pq-shortlist-lifestyle-icon">{{ item.get('icon') }}</span>
+                <span class="pq-shortlist-lifestyle-copy">
+                  <strong>{{ item.get('label') }}</strong>
+                  <span>{{ item.get('distance') }}</span>
+                </span>
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+            {% if candidate.get('research_highlights') %}
+            <div class="pq-shortlist-lifestyle">
+              {% for item in candidate.get('research_highlights') or [] %}
+              <div class="pq-shortlist-lifestyle-badge">
+                <span class="pq-shortlist-lifestyle-icon">{{ item.get('icon') }}</span>
+                <span class="pq-shortlist-lifestyle-copy">
+                  <strong>{{ item.get('label') }}</strong>
+                  <span>{{ item.get('detail') }}</span>
+                  {% if item.get('tag') %}<span>{{ item.get('tag') }}</span>{% endif %}
+                </span>
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
             <div class="pq-shortlist-reasons">
               {% if candidate.get('match_reasons') %}
               <ul>{% for reason in candidate.get('match_reasons') or [] %}<li>{{ reason }}</li>{% endfor %}</ul>
@@ -1102,7 +1235,7 @@
             data-node-strength="{{ node.get('strength') }}"
           >
             <div>
-              <strong>{{ node.get('label') }}</strong>
+              <strong class="pq-preference-label"><span class="pq-preference-icon" aria-hidden="true">•</span><span>{{ node.get('label') }}</span></strong>
               <small>{{ node.get('value_label') }} | {{ node.get('strength') }} strength | {{ node.get('source_mode') or 'manual' }}</small>
             </div>
             <div class="pq-actions">
@@ -1161,6 +1294,14 @@
                 <option value="low">Low</option>
               </select>
             </label>
+          </div>
+          <div class="pq-filter-picks" aria-label="Common filter shortcuts">
+            <button class="pq-filter-pick" type="button" data-preference-key-pick="prefer_balcony"><span class="pq-filter-icon" aria-hidden="true">☀</span><span>Balcony</span></button>
+            <button class="pq-filter-pick" type="button" data-preference-key-pick="prefer_lift"><span class="pq-filter-icon" aria-hidden="true">⇅</span><span>Lift</span></button>
+            <button class="pq-filter-pick" type="button" data-preference-key-pick="require_floorplan"><span class="pq-filter-icon" aria-hidden="true">▣</span><span>Floorplan</span></button>
+            <button class="pq-filter-pick" type="button" data-preference-key-pick="prefer_360_for_remote_review"><span class="pq-filter-icon" aria-hidden="true">◌</span><span>360</span></button>
+            <button class="pq-filter-pick" type="button" data-preference-key-pick="prefer_subway_nearby"><span class="pq-filter-icon" aria-hidden="true">↘</span><span>Transit</span></button>
+            <button class="pq-filter-pick" type="button" data-preference-key-pick="prefer_playgrounds_nearby"><span class="pq-filter-icon" aria-hidden="true">●</span><span>Playground</span></button>
           </div>
           <div class="pq-actions">
             <button class="pq-action primary" type="submit">Add preference</button>
@@ -1385,14 +1526,35 @@
     const value = node?.value_json;
     const strength = String(node?.strength || 'medium').trim();
     const sourceMode = String(node?.source_mode || 'manual').trim();
+    const icon = preferenceIcon(key, category);
     return `
       <div class="pq-preference-row" data-preference-node data-node-id="${escapeHtml(nodeId)}" data-node-domain="${escapeHtml(node?.domain || 'willhaben')}" data-node-category="${escapeHtml(category)}" data-node-key="${escapeHtml(key)}" data-node-value="${escapeHtml(JSON.stringify(value))}" data-node-strength="${escapeHtml(strength)}">
         <div>
-          <strong>${escapeHtml(preferenceLabel(key, category))}</strong>
+          <strong class="pq-preference-label"><span class="pq-preference-icon" aria-hidden="true">${escapeHtml(icon)}</span><span>${escapeHtml(preferenceLabel(key, category))}</span></strong>
           <small>${escapeHtml(preferenceValueLabel(value))} | ${escapeHtml(strength)} strength | ${escapeHtml(sourceMode || 'manual')}</small>
         </div>
         <div class="pq-actions"><button class="pq-action" type="button" data-preference-remove>Remove</button></div>
       </div>`;
+  };
+
+  const preferenceIcon = (key, category) => {
+    const normalizedKey = String(key || '').trim().toLowerCase();
+    const normalizedCategory = String(category || '').trim().toLowerCase();
+    if (normalizedKey.includes('playground')) return '●';
+    if (normalizedKey.includes('balcony') || normalizedKey.includes('outdoor')) return '☀';
+    if (normalizedKey.includes('lift')) return '⇅';
+    if (normalizedKey.includes('floorplan')) return '▣';
+    if (normalizedKey.includes('360') || normalizedKey.includes('tour')) return '◌';
+    if (normalizedKey.includes('subway') || normalizedKey.includes('transit')) return '↘';
+    if (normalizedKey.includes('supermarket')) return '◫';
+    if (normalizedKey.includes('pharmacy')) return '+';
+    if (normalizedKey.includes('district') || normalizedKey.includes('location')) return '⌂';
+    if (normalizedKey.includes('rent') || normalizedKey.includes('price') || normalizedKey.includes('budget')) return '€';
+    if (normalizedKey.includes('area')) return '□';
+    if (normalizedKey.includes('rooms')) return '◫';
+    if (normalizedCategory === 'aversion') return '!';
+    if (normalizedCategory === 'constraint') return '✓';
+    return '•';
   };
 
   const learningSummaryRows = (summary) => {
@@ -1516,10 +1678,12 @@
     const selectedPlatforms = selectedValuesForForm(form, 'selected_platforms');
     const selectedLocations = selectedValuesForForm(form, 'location_query');
     const selectedKeywords = selectedValuesForForm(form, 'keywords');
+    const desiredProjectStages = selectedValuesForForm(form, 'desired_project_stages');
     const parsedMaxResults = integerValue(form, 'max_results_per_source');
     const countryCode = fieldValue(form, 'country_code') || 'AT';
     const regionCode = fieldValue(form, 'region_code') || '';
     const allOfVienna = checkedValue(form, 'all_of_vienna');
+    const listingMode = fieldValue(form, 'listing_mode') || 'rent';
     const resolvedLocationQuery = countryCode === 'AT' && regionCode === 'vienna' && allOfVienna
       ? 'Vienna'
       : selectedLocations.join(', ');
@@ -1530,20 +1694,48 @@
         country_code: countryCode,
         region_code: regionCode,
         language_code: fieldValue(form, 'language_code') || 'en',
-        listing_mode: fieldValue(form, 'listing_mode') || 'rent',
+        listing_mode: listingMode,
         property_type: fieldValue(form, 'property_type') || 'any',
-        investment_research_mode: fieldValue(form, 'investment_research_mode') || 'off',
+        investment_research_mode: listingMode === 'buy' ? (fieldValue(form, 'investment_research_mode') || 'off') : 'off',
         all_of_vienna: allOfVienna,
         location_query: resolvedLocationQuery,
         keywords: selectedKeywords.join(', '),
         preference_person_id: fieldValue(form, 'preference_person_id') || 'self',
         use_stored_feedback_preferences: checkedValue(form, 'use_stored_feedback_preferences'),
+        include_broker_direct_sources: checkedValue(form, 'include_broker_direct_sources'),
+        include_community_signals: checkedValue(form, 'include_community_signals'),
+        require_manual_validation_for_community: checkedValue(form, 'require_manual_validation_for_community'),
+        include_developer_project_signals: checkedValue(form, 'include_developer_project_signals'),
+        include_public_housing_signals: checkedValue(form, 'include_public_housing_signals'),
+        include_distressed_sale_signals: checkedValue(form, 'include_distressed_sale_signals'),
+        enable_building_risk_research: checkedValue(form, 'enable_building_risk_research'),
+        enable_market_supply_research: checkedValue(form, 'enable_market_supply_research'),
+        enable_location_risk_research: checkedValue(form, 'enable_location_risk_research'),
+        enable_family_mode: checkedValue(form, 'enable_family_mode'),
+        enable_commute_research: checkedValue(form, 'enable_commute_research'),
+        commute_destination: fieldValue(form, 'commute_destination') || '',
+        desired_project_stages: desiredProjectStages,
+        apply_unknowns_penalty: checkedValue(form, 'apply_unknowns_penalty'),
+        enable_action_readiness_research: checkedValue(form, 'enable_action_readiness_research'),
+        enable_lifestyle_research: checkedValue(form, 'enable_lifestyle_research'),
+        enable_trust_risk_scoring: checkedValue(form, 'enable_trust_risk_scoring'),
         max_price_eur: integerValue(form, 'max_price_eur'),
         min_rooms: integerValue(form, 'min_rooms'),
         min_area_m2: integerValue(form, 'min_area_m2'),
+        available_within_years: integerValue(form, 'available_within_years'),
+        max_commute_minutes_transit: integerValue(form, 'max_commute_minutes_transit'),
+        max_commute_minutes_drive: integerValue(form, 'max_commute_minutes_drive'),
+        max_commute_minutes_bike: integerValue(form, 'max_commute_minutes_bike'),
+        max_distance_to_starbucks_m: integerValue(form, 'max_distance_to_starbucks_m'),
+        max_distance_to_fitness_center_m: integerValue(form, 'max_distance_to_fitness_center_m'),
+        max_distance_to_cinema_m: integerValue(form, 'max_distance_to_cinema_m'),
+        max_distance_to_bouldering_m: integerValue(form, 'max_distance_to_bouldering_m'),
+        max_distance_to_dog_park_m: integerValue(form, 'max_distance_to_dog_park_m'),
+        max_distance_to_good_cafe_m: integerValue(form, 'max_distance_to_good_cafe_m'),
         max_results_per_source: parsedMaxResults,
         min_match_score: integerValue(form, 'min_match_score'),
         require_floorplan: checkedValue(form, 'require_floorplan'),
+        use_flatbee_reputation_penalty: checkedValue(form, 'use_flatbee_reputation_penalty'),
       },
       force_refresh: form.querySelector('input[name="force_refresh"]')?.checked || false,
       max_results_per_source: parsedMaxResults,
@@ -1560,6 +1752,9 @@
       if (format === 'currency_eur') return `EUR ${numberFormatter.format(Math.round(value))}`;
       if (format === 'area_m2') return `${numberFormatter.format(Math.round(value))} m2+`;
       if (format === 'rooms') return value === 1 ? '1+ room' : `${numberFormatter.format(Math.round(value))}+ rooms`;
+      if (format === 'availability_years') return value === 1 ? 'Within 1 year' : `Within ${numberFormatter.format(Math.round(value))} years`;
+      if (format === 'minutes') return `${numberFormatter.format(Math.round(value))} min max`;
+      if (format === 'meters_cap') return value < 1000 ? `${numberFormatter.format(Math.round(value))} m max` : `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)} km max`;
       if (format === 'count') return value === 1 ? '1 result' : `${numberFormatter.format(Math.round(value))} results`;
       return `${numberFormatter.format(Math.round(value))}${suffix}`;
     };
@@ -1601,6 +1796,39 @@
       input.addEventListener('input', sync);
       sync();
     });
+  };
+
+  const bindTooltips = (root) => {
+    const tips = [...(root?.querySelectorAll('.pq-tooltip[aria-label]') || [])];
+    if (!tips.length) return;
+    const closeAll = (exceptNode) => {
+      tips.forEach((tip) => {
+        if (exceptNode && tip === exceptNode) return;
+        tip.setAttribute('data-tooltip-open', 'false');
+      });
+    };
+    tips.forEach((tip) => {
+      tip.setAttribute('data-tooltip-open', 'false');
+      tip.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const isOpen = tip.getAttribute('data-tooltip-open') === 'true';
+        closeAll(tip);
+        tip.setAttribute('data-tooltip-open', isOpen ? 'false' : 'true');
+      });
+      tip.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          tip.click();
+        } else if (event.key === 'Escape') {
+          tip.setAttribute('data-tooltip-open', 'false');
+        }
+      });
+      tip.addEventListener('blur', () => {
+        tip.setAttribute('data-tooltip-open', 'false');
+      });
+    });
+    document.addEventListener('click', () => closeAll(null), { passive: true });
   };
 
   const renderRun = (root, payload) => {
@@ -1859,6 +2087,15 @@
     categoryField?.addEventListener('change', syncPreferenceKeyOptions);
     keyField?.addEventListener('input', syncPreferenceKeyOptions);
     syncPreferenceKeyOptions();
+    for (const button of [...manager.querySelectorAll('[data-preference-key-pick]')]) {
+      button.addEventListener('click', () => {
+        const key = String(button.getAttribute('data-preference-key-pick') || '').trim();
+        if (!keyField || !key) return;
+        keyField.value = key;
+        syncPreferenceKeyOptions();
+        keyField.focus();
+      });
+    }
     const ensureEmptyState = () => {
       if (!listNode) return;
       if (listNode.querySelector('[data-preference-node]')) return;
@@ -1967,13 +2204,22 @@
     });
     renderRun(root, meta.initial_run || {});
     if (form) {
-      bindRangeOutputs(form);
+    bindRangeOutputs(form);
+    bindTooltips(root);
       initPropertyWizard(form, meta);
       const countryField = form.querySelector('select[name="country_code"]');
       const regionField = form.querySelector('select[name="region_code"]');
+      const listingModeField = form.querySelector('select[name="listing_mode"]');
+      const investmentField = form.querySelector('select[name="investment_research_mode"]');
+      const investmentFieldWrap = investmentField?.closest('[data-property-field-step]');
       const allViennaField = form.querySelector('input[name="all_of_vienna"]');
       const allViennaFieldWrap = allViennaField?.closest('[data-property-field-step]');
       const locationFieldWrap = form.querySelector('input[name="location_query"]')?.closest('[data-property-field-step]');
+      const syncListingModeControls = () => {
+        const isBuy = String(listingModeField?.value || 'rent').trim().toLowerCase() === 'buy';
+        if (investmentFieldWrap) investmentFieldWrap.hidden = !isBuy;
+        if (!isBuy && investmentField) investmentField.value = 'off';
+      };
       const syncViennaScopeControls = () => {
         const isViennaScope = String(countryField?.value || '').trim() === 'AT' && String(regionField?.value || '').trim() === 'vienna';
         if (allViennaFieldWrap) allViennaFieldWrap.hidden = !isViennaScope;
@@ -2016,7 +2262,9 @@
       }
       if (regionField) regionField.addEventListener('change', refreshRegionAndLocationChoices);
       if (allViennaField) allViennaField.addEventListener('change', syncViennaScopeControls);
+      if (listingModeField) listingModeField.addEventListener('change', syncListingModeControls);
       syncViennaScopeControls();
+      syncListingModeControls();
       root.querySelector('[data-property-edit-brief]')?.addEventListener('click', () => {
         root.querySelector('[data-property-brief-panel]')?.removeAttribute('hidden');
       });

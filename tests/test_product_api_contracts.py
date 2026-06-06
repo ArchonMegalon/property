@@ -7,7 +7,7 @@ import json
 import os
 import urllib.parse
 import zipfile
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlparse
@@ -204,7 +204,8 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert trust_body["public_help_grounding"]["actions"]
     assert any(item["label"] == "PUBLIC_TRUST_CONTENT.yaml" for item in trust_body["public_help_grounding"]["sources"])
 
-    support = client.get("/app/api/support")
+    operator_client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    support = operator_client.get("/app/api/support")
     assert support.status_code == 200
     support_body = support.json()
     assert support_body["plan"]["display_name"] == "Pilot"
@@ -1177,6 +1178,39 @@ def test_property_scout_extract_listing_urls_supports_grouped_austria_cooperativ
     assert frieden_urls == ("https://www.frieden.at/immobiliensuche/59442?returnUrl=%2Fimmobiliensuche",)
 
 
+def test_property_scout_extract_listing_urls_prefilters_wbv_and_frieden_by_min_area() -> None:
+    wbv_html = """
+    <div class="objects__list__rows__item mix steiermark" data-space="54,25">
+      <a href="https://www.wbv-gpa.at/wohnung/too-small/">small</a>
+    </div>
+    <div class="objects__list__rows__item mix wien" data-space="70,71">
+      <a href="https://www.wbv-gpa.at/wohnung/large-enough/">large</a>
+    </div>
+    """
+    frieden_html = """
+    <script>
+      window.__ROUTE_DATA__={"model":{"units":{"items":[
+        {"id":59442,"usableArea":54.67},
+        {"id":59444,"usableArea":82.70}
+      ]}}}
+    </script>
+    """
+
+    wbv_urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://www.wbv-gpa.at/wohnungen/",
+        html=wbv_html,
+        source_spec={"provider_filter_pushdown": {"requested": {"min_area_m2": 60}}},
+    )
+    frieden_urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://www.frieden.at/immobiliensuche",
+        html=frieden_html,
+        source_spec={"provider_filter_pushdown": {"requested": {"min_area_m2": 60}}},
+    )
+
+    assert wbv_urls == ("https://www.wbv-gpa.at/wohnung/large-enough/",)
+    assert frieden_urls == ("https://www.frieden.at/immobiliensuche/59444?returnUrl=%2Fimmobiliensuche",)
+
+
 def test_property_cooperative_preview_fact_parsers_extract_structured_fields() -> None:
     gesiba_html = """
     <img src="/imager/objekte/1100_WIEN_KURBADSTRASSE_-_01000103511/21921/rendering-2.jpg">
@@ -1789,6 +1823,719 @@ def test_property_scout_min_area_filters_before_scoring(monkeypatch) -> None:
     assert result["sources"][0]["filtered_area_total"] == 1
     assert result["sources"][0]["top_candidates"][0]["title"] == "Familienwohnung mit Grundriss"
     assert assessed == ["large"]
+
+
+def test_generated_property_source_specs_push_min_area_into_supported_at_provider_urls() -> None:
+    rows = product_service.generated_property_source_specs(
+        preferences={
+            "country_code": "AT",
+            "listing_mode": "buy",
+            "location_query": "Wien",
+            "min_area_m2": 60,
+            "selected_platforms": ["willhaben", "immmo", "immoscout_at"],
+        },
+        selected_platforms=("willhaben", "immmo", "immoscout_at"),
+        principal_id="pq-source-pushdown-at",
+        default_person_id="self",
+        notify_telegram=False,
+        max_results=2,
+    )
+
+    by_platform = {str(row.get("platform") or ""): dict(row) for row in rows}
+    assert "ESTATE_SIZE%2FLIVING_AREA_FROM=60" in str(by_platform["willhaben"]["url"])
+    assert "minArea=60" in str(by_platform["immmo"]["url"])
+    assert "minArea=60" in str(by_platform["immoscout_at"]["url"])
+    assert by_platform["willhaben"]["provider_filter_pushdown"]["applied"]["min_area_m2"] == 60
+    assert by_platform["immmo"]["provider_filter_pushdown"]["applied"]["min_area_m2"] == 60
+    assert by_platform["immoscout_at"]["provider_filter_pushdown"]["applied"]["min_area_m2"] == 60
+
+
+def test_generated_property_source_specs_push_min_area_into_immoscout_de_url() -> None:
+    rows = product_service.generated_property_source_specs(
+        preferences={
+            "country_code": "DE",
+            "listing_mode": "buy",
+            "location_query": "Berlin",
+            "min_area_m2": 60,
+            "selected_platforms": ["immoscout_de"],
+        },
+        selected_platforms=("immoscout_de",),
+        principal_id="pq-source-pushdown-de",
+        default_person_id="self",
+        notify_telegram=False,
+        max_results=2,
+    )
+
+    assert len(rows) == 1
+    assert "livingspace=60.0-" in str(rows[0]["url"])
+    assert rows[0]["provider_filter_pushdown"]["applied"]["min_area_m2"] == 60
+
+
+def test_generated_property_source_specs_push_min_area_into_kalandra_and_supported_grouped_sources() -> None:
+    rows = product_service.generated_property_source_specs(
+        preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "min_area_m2": 60,
+            "selected_platforms": ["kalandra", "genossenschaften_at"],
+        },
+        selected_platforms=("kalandra", "genossenschaften_at"),
+        principal_id="pq-source-pushdown-at-grouped",
+        default_person_id="self",
+        notify_telegram=False,
+        max_results=2,
+    )
+
+    kalandra_row = next(row for row in rows if str(row.get("platform") or "") == "kalandra")
+    gesiba_row = next(row for row in rows if "GESIBA Wohnungen" in str(row.get("label") or ""))
+    siedlungsunion_row = next(row for row in rows if "Siedlungsunion Sofort" in str(row.get("label") or ""))
+    wbv_row = next(row for row in rows if "WBV-GPA Wohnungen" in str(row.get("label") or ""))
+
+    assert "f%5Ball%5D%5Bliving_area%5D%5Bmin%5D=60" in str(kalandra_row["url"])
+    assert kalandra_row["provider_filter_pushdown"]["applied"]["min_area_m2"] == 60
+
+    assert "size-from=60" in str(gesiba_row["url"])
+    assert gesiba_row["provider_filter_pushdown"]["applied"]["min_area_m2"] == 60
+    assert "min_area_m2" not in list(gesiba_row["provider_filter_pushdown"].get("post_filter_only") or [])
+
+    assert "size=60" in str(siedlungsunion_row["url"])
+    assert siedlungsunion_row["provider_filter_pushdown"]["applied"]["min_area_m2"] == 60
+    assert "min_area_m2" not in list(siedlungsunion_row["provider_filter_pushdown"].get("post_filter_only") or [])
+
+    assert "min_area_m2" in list(wbv_row["provider_filter_pushdown"].get("post_filter_only") or [])
+
+
+def test_generated_property_source_specs_push_min_area_into_flatbee_and_broker_group_urls() -> None:
+    rows = product_service.generated_property_source_specs(
+        preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "min_area_m2": 60,
+            "selected_platforms": ["flatbee", "broker_direct_at"],
+        },
+        selected_platforms=("flatbee", "broker_direct_at"),
+        principal_id="pq-source-pushdown-at-broker-flatbee",
+        default_person_id="self",
+        notify_telegram=False,
+        max_results=2,
+    )
+
+    flatbee_row = next(row for row in rows if str(row.get("platform") or "") == "flatbee")
+    broker_row = next(row for row in rows if "Kalandra Direkt" in str(row.get("label") or ""))
+
+    assert "wohnflache_ab=60" in str(flatbee_row["url"])
+    assert flatbee_row["provider_filter_pushdown"]["applied"]["min_area_m2"] == 60
+    assert flatbee_row["provider_family"] == "community_meta"
+    assert flatbee_row["provider_trust_tier"] == "watch"
+    assert flatbee_row["verification_required"] is True
+    assert "f%5Ball%5D%5Bliving_area%5D%5Bmin%5D=60" in str(broker_row["url"])
+    assert broker_row["provider_family"] == "broker_direct"
+
+
+def test_property_search_preferences_enable_new_research_and_source_flags() -> None:
+    normalized = product_service.normalize_property_search_preferences(
+        {
+            "country_code": "AT",
+            "include_broker_direct_sources": "1",
+            "include_community_signals": "true",
+            "require_manual_validation_for_community": "yes",
+            "include_developer_project_signals": "on",
+            "include_public_housing_signals": "1",
+            "include_distressed_sale_signals": "true",
+            "enable_building_risk_research": "true",
+            "enable_market_supply_research": "true",
+            "enable_location_risk_research": "true",
+            "enable_trust_risk_scoring": "true",
+        }
+    )
+
+    assert normalized["include_broker_direct_sources"] is True
+    assert normalized["include_community_signals"] is True
+    assert normalized["require_manual_validation_for_community"] is True
+    assert normalized["include_developer_project_signals"] is True
+    assert normalized["include_public_housing_signals"] is True
+    assert normalized["include_distressed_sale_signals"] is True
+    assert normalized["enable_building_risk_research"] is True
+    assert normalized["enable_market_supply_research"] is True
+    assert normalized["enable_location_risk_research"] is True
+    assert normalized["enable_trust_risk_scoring"] is True
+
+
+def test_property_search_preferences_enable_lifestyle_filters() -> None:
+    normalized = product_service.normalize_property_search_preferences(
+        {
+            "country_code": "AT",
+            "enable_lifestyle_research": "true",
+            "max_distance_to_starbucks_m": "850",
+            "max_distance_to_fitness_center_m": "1200",
+            "max_distance_to_cinema_m": "900",
+            "max_distance_to_bouldering_m": "1400",
+            "max_distance_to_dog_park_m": "600",
+            "max_distance_to_good_cafe_m": "500",
+        }
+    )
+
+    assert normalized["enable_lifestyle_research"] is True
+    assert normalized["max_distance_to_starbucks_m"] == 850
+    assert normalized["max_distance_to_fitness_center_m"] == 1200
+    assert normalized["max_distance_to_cinema_m"] == 900
+    assert normalized["max_distance_to_bouldering_m"] == 1400
+    assert normalized["max_distance_to_dog_park_m"] == 600
+    assert normalized["max_distance_to_good_cafe_m"] == 500
+
+
+def test_property_search_preferences_force_investment_research_off_for_rent_and_parse_new_controls() -> None:
+    normalized = product_service.normalize_property_search_preferences(
+        {
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "investment_research_mode": "auto",
+            "enable_family_mode": "true",
+            "enable_commute_research": "true",
+            "commute_destination": "Stephansplatz office",
+            "max_commute_minutes_transit": "35",
+            "max_commute_minutes_drive": "20",
+            "max_commute_minutes_bike": "25",
+            "desired_project_stages": ["existing", "planned", "waitlist"],
+            "apply_unknowns_penalty": "true",
+            "enable_action_readiness_research": "true",
+        }
+    )
+
+    assert normalized["investment_research_mode"] == "off"
+    assert normalized["enable_family_mode"] is True
+    assert normalized["enable_commute_research"] is True
+    assert normalized["commute_destination"] == "Stephansplatz office"
+    assert normalized["max_commute_minutes_transit"] == 35
+    assert normalized["max_commute_minutes_drive"] == 20
+    assert normalized["max_commute_minutes_bike"] == 25
+    assert normalized["desired_project_stages"] == ["existing", "planned", "waitlist"]
+    assert normalized["apply_unknowns_penalty"] is True
+    assert normalized["enable_action_readiness_research"] is True
+
+
+def test_property_research_tasks_cover_extended_risk_and_validation_lanes() -> None:
+    tasks = product_service._property_research_tasks_from_result(
+        {
+            "generated_at": "2026-06-06T12:00:00+00:00",
+            "investment_research_mode": "auto",
+            "include_community_signals": True,
+            "require_manual_validation_for_community": True,
+            "enable_building_risk_research": True,
+            "enable_market_supply_research": True,
+            "enable_location_risk_research": True,
+            "enable_trust_risk_scoring": True,
+            "sources": [
+                {
+                    "source_label": "Flatbee",
+                    "platform": "flatbee",
+                    "top_candidates": [
+                        {
+                            "property_url": "https://www.flatbee.at/properties/property_search/property_detail/searchengine_property_detail/1-flat",
+                            "listing_id": "flatbee-1",
+                            "title": "Flatbee result",
+                            "fit_score": 82.0,
+                            "review_url": "https://propertyquarry.example/review/flatbee-1",
+                            "property_facts": {
+                                "source_platform": "flatbee",
+                                "source_trust_tier": "watch",
+                                "future_change_research": {},
+                            },
+                        }
+                    ],
+                }
+            ],
+        },
+        run_id="pq-risk-lanes",
+    )
+
+    fields = {str(item.get("field") or "") for item in tasks}
+    assert "market_supply_pipeline" in fields
+    assert "building_risk_operating_costs" in fields
+    assert "micro_location_quality" in fields
+    assert "listing_trust_verification" in fields
+    assert "community_signal_validation" in fields
+
+
+def test_property_research_tasks_add_commute_family_project_and_action_lanes_without_spamming_noncommunity_sources() -> None:
+    tasks = product_service._property_research_tasks_from_result(
+        {
+            "generated_at": "2026-06-06T12:00:00+00:00",
+            "investment_research_mode": "auto",
+            "enable_family_mode": True,
+            "enable_commute_research": True,
+            "commute_destination": "Stephansplatz office",
+            "max_commute_minutes_transit": 35,
+            "desired_project_stages": ["planned", "waitlist"],
+            "enable_action_readiness_research": True,
+            "enable_building_risk_research": True,
+            "enable_market_supply_research": True,
+            "enable_location_risk_research": True,
+            "enable_trust_risk_scoring": True,
+            "include_community_signals": True,
+            "sources": [
+                {
+                    "source_label": "Willhaben",
+                    "platform": "willhaben",
+                    "provider_family": "marketplace",
+                    "top_candidates": [
+                        {
+                            "property_url": "https://www.willhaben.at/iad/object?adId=123",
+                            "listing_id": "wh-1",
+                            "title": "Willhaben result",
+                            "fit_score": 82.0,
+                            "review_url": "https://propertyquarry.example/review/wh-1",
+                            "property_facts": {
+                                "source_platform": "willhaben",
+                                "source_family": "marketplace",
+                                "future_change_research": {},
+                            },
+                        }
+                    ],
+                }
+            ],
+        },
+        run_id="pq-extended-lanes",
+    )
+
+    fields = {str(item.get("field") or "") for item in tasks}
+    assert "commute_time_research" in fields
+    assert "project_stage_realism" in fields
+    assert "action_readiness" in fields
+    assert "family_fit_research" in fields
+    assert "community_signal_validation" not in fields
+
+
+def test_property_research_tasks_use_research_candidates_beyond_visible_top_five() -> None:
+    research_candidates = [
+        {
+            "property_url": f"https://www.willhaben.at/iad/object?adId={index}",
+            "listing_id": f"wh-{index}",
+            "title": f"Candidate {index}",
+            "fit_score": 70.0 + index,
+            "property_facts": {"future_change_research": {"status": "queued"}},
+        }
+        for index in range(1, 7)
+    ]
+    tasks = product_service._property_research_tasks_from_result(
+        {
+            "generated_at": product_service._now_iso(),
+            "investment_research_mode": "auto",
+            "sources": [
+                {
+                    "source_label": "Willhaben",
+                    "top_candidates": research_candidates[:5],
+                    "research_candidates": research_candidates,
+                }
+            ],
+        },
+        run_id="run-research-candidates",
+    )
+    candidate_titles = {str(item.get("title") or "") for item in tasks}
+    assert "Candidate 6" in candidate_titles
+
+
+def test_property_search_lifestyle_master_toggle_disables_distance_filtering(monkeypatch) -> None:
+    principal_id = "cf-email:lifestyle-master-toggle@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Lifestyle Toggle Office")
+    candidate_url = "https://www.willhaben.at/iad/object?adId=lifestyle-off"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien",
+                "label": "Willhaben apartments",
+                "platform": "willhaben",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 1,
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_listing_urls_for_source", lambda **kwargs: ((candidate_url,), {"status": "miss"}))
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "lifestyle-off",
+            "title": "Lifestyle toggle candidate",
+            "summary": "72 m2 near transit",
+            "property_facts_json": {"area_sqm": 72.0, "nearest_starbucks_m": 2400},
+        },
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "fit_score": 76.0,
+            "confidence": 0.9,
+            "predicted_reaction": "shortlist",
+            "recommendation": "shortlist",
+            "match_reasons_json": [],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "get_profile_bundle", lambda **kwargs: {"preference_nodes": []})
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "property_type": "apartment",
+            "enable_lifestyle_research": False,
+            "max_distance_to_starbucks_m": 300,
+            "min_match_score": 10,
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 1
+
+
+def test_property_search_source_spec_merge_keeps_distinct_family_semantics_for_shared_urls() -> None:
+    rows = product_service._merged_property_scout_source_specs(
+        preferences={"country_code": "AT", "listing_mode": "rent", "location_query": "Wien"},
+        selected_platforms=("genossenschaften_at", "public_housing_at"),
+        principal_id="pq-merge-families",
+        max_results_per_source=1,
+        default_person_id="self",
+    )
+    selected = [row for row in rows if str(row.get("url") or "").startswith("https://www.gesiba.at")]
+    families = {str(row.get("provider_family") or "") for row in selected}
+    assert "cooperative" in families
+    assert "public_housing" in families
+
+
+def test_property_search_platform_family_toggles_expand_selected_platforms() -> None:
+    expanded = product_service._property_search_platforms_with_family_toggles(
+        ("willhaben",),
+        {
+            "include_broker_direct_sources": True,
+            "include_community_signals": True,
+            "include_developer_project_signals": True,
+            "include_public_housing_signals": True,
+            "include_distressed_sale_signals": True,
+        },
+    )
+
+    assert "willhaben" in expanded
+    assert "broker_direct_at" in expanded
+    assert "community_signals_at" in expanded
+    assert "developer_projects_at" in expanded
+    assert "public_housing_at" in expanded
+    assert "distressed_sales_at" in expanded
+
+
+def test_property_result_carries_source_family_and_trust_metadata(monkeypatch) -> None:
+    principal_id = "cf-email:provider-metadata@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Metadata Office")
+
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results, **kwargs: (
+            {
+                "platform": "community_signals_at",
+                "provider_family": "community_signals",
+                "provider_trust_tier": "watch",
+                "source_access_level": "member_only",
+                "verification_required": True,
+                "url": "https://www.flatbee.at/wohnung-mieten",
+                "label": "Community Signals",
+                "max_results": 1,
+                "provider_filter_pushdown": {},
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_listing_urls_for_source",
+        lambda **kwargs: (("https://www.flatbee.at/properties/property_search/property_detail/searchengine_property_detail/1-flat",), {"status": "miss"}),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda property_url, prefer_fast=False: {
+            "listing_id": "community-1",
+            "title": "Community hit",
+            "summary": "75 m2",
+            "property_facts_json": {"area_sqm": 75.0},
+        },
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "fit_score": 70.0,
+            "confidence": 0.8,
+            "predicted_reaction": "mention",
+            "recommendation": "mention",
+            "match_reasons_json": [],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "get_profile_bundle", lambda **kwargs: {"preference_nodes": []})
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("community_signals_at",),
+        property_search_preferences={"property_type": "apartment", "min_match_score": 10},
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    source = result["sources"][0]
+    candidate = source["top_candidates"][0]
+    assert source["provider_family"] == "community_signals"
+    assert source["provider_trust_tier"] == "watch"
+    assert source["source_access_level"] == "member_only"
+    assert source["verification_required"] is True
+    assert candidate["source_family"] == "community_signals"
+    assert candidate["source_trust_tier"] == "watch"
+    assert candidate["source_access_level"] == "member_only"
+    assert candidate["verification_required"] is True
+
+
+def test_property_flatbee_reputation_penalty_applies_by_default(monkeypatch) -> None:
+    principal_id = "cf-email:flatbee-penalty@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Flatbee Office")
+
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results, **kwargs: (
+            {
+                "platform": "flatbee",
+                "url": "https://www.flatbee.at/wohnung-mieten?wohnflache_ab=60",
+                "label": "Flatbee",
+                "max_results": 2,
+                "provider_filter_pushdown": {"requested": {"min_area_m2": 60}, "applied": {"min_area_m2": 60}},
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_listing_urls_for_source",
+        lambda **kwargs: (("https://www.flatbee.at/properties/property_search/property_detail/searchengine_property_detail/1-flat",), {"status": "miss"}),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda property_url, prefer_fast=False: {
+            "listing_id": "flatbee-1",
+            "title": "Flatbee result",
+            "summary": "73 m2 with balcony",
+            "property_facts_json": {"area_sqm": 73.0, "balcony": True},
+        },
+    )
+
+    def _fake_assess_candidate(**kwargs):
+        return {
+            "fit_score": 88.0,
+            "confidence": 0.9,
+            "predicted_reaction": "shortlist",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Base model score is high."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _fake_assess_candidate)
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "get_profile_bundle",
+        lambda **kwargs: {"preference_nodes": [{"status": "active", "domain": "willhaben", "key": "prefer_balcony", "category": "layout", "value_json": True}]},
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("flatbee",),
+        property_search_preferences={
+            "property_type": "apartment",
+            "min_area_m2": 60,
+            "min_match_score": 10,
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    candidate = result["sources"][0]["top_candidates"][0]
+    upstream = dict(candidate["assessment"].get("upstream_personalization") or {})
+    assert upstream["adjusted_fit_score"] == 72.0
+    assert upstream["score_delta"] == -16.0
+    assert any("Flatbee" in entry for entry in upstream["conflicts"])
+
+
+def test_property_scout_move_in_horizon_filters_before_scoring(monkeypatch) -> None:
+    principal_id = "cf-email:move-in.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Move-in Office")
+    candidate_urls = (
+        "https://www.willhaben.at/iad/object?adId=far-future",
+        "https://www.willhaben.at/iad/object?adId=near-future",
+    )
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.willhaben.at/iad/immobilien/eigentumswohnung/wien",
+                "label": "Willhaben apartments",
+                "platform": "willhaben",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 2,
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: candidate_urls)
+    near_year = datetime.now(timezone.utc).year + 1
+    far_year = datetime.now(timezone.utc).year + 8
+    previews = {
+        candidate_urls[0]: {
+            "listing_id": "far-future",
+            "title": "Genossenschaft in late pipeline",
+            "summary": f"Project with move-in Q4 {far_year}.",
+            "property_facts_json": {"property_type": "apartment", "availability_label": f"Q4 {far_year}"},
+        },
+        candidate_urls[1]: {
+            "listing_id": "near-future",
+            "title": "Genossenschaft almost ready",
+            "summary": f"Project with move-in August {near_year}.",
+            "property_facts_json": {"property_type": "apartment", "availability_label": f"August {near_year}"},
+        },
+    }
+    monkeypatch.setattr(product_service, "_property_scout_page_preview", lambda url, prefer_fast=False: dict(previews[url]))
+    assessed: list[str] = []
+
+    def _fake_assess_candidate(**kwargs):
+        assessed.append(str(kwargs.get("object_id") or ""))
+        return {
+            "fit_score": 72.0,
+            "confidence": 0.9,
+            "predicted_reaction": "consider",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Clears the move-in horizon filter."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _fake_assess_candidate)
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "property_type": "apartment",
+            "available_within_years": 2,
+            "min_match_score": 65,
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=2,
+        force_refresh=True,
+    )
+
+    assert result["available_within_years"] == 2
+    assert result["listing_total"] == 1
+    assert result["filtered_availability_total"] == 1
+    assert result["sources"][0]["filtered_availability_total"] == 1
+    assert result["sources"][0]["top_candidates"][0]["title"] == "Genossenschaft almost ready"
+    assert assessed == ["near-future"]
+
+
+def test_property_search_results_include_future_change_research_tasks_when_investment_mode_enabled() -> None:
+    tasks = product_service._property_research_tasks_from_result(
+        {
+            "generated_at": product_service._now_iso(),
+            "investment_research_mode": "auto",
+            "sources": [
+                {
+                    "source_label": "Willhaben",
+                    "top_candidates": [
+                        {
+                            "property_url": "https://www.willhaben.at/iad/object?adId=investment-one",
+                            "title": "Apartment for investment review",
+                            "fit_score": 81.0,
+                            "review_url": "https://propertyquarry.com/app/handoffs/human_task:review-1",
+                            "property_facts": {"future_change_research": {"status": "queued"}},
+                        }
+                    ],
+                }
+            ],
+        },
+        run_id="run-investment-1",
+    )
+
+    fields = {str(task.get("field") or "") for task in tasks}
+    assert "planned_infrastructure_projects" in fields
+    assert "future_value_drivers" in fields
+
+
+def test_property_enrich_future_change_research_includes_schoolatlas_snapshot(monkeypatch) -> None:
+    monkeypatch.setattr(
+        product_service,
+        "_property_schoolatlas_snapshot",
+        lambda lat, lon: {
+            "school_atlas_quality_summary": "Nearby SchoolAtlas schools: Volksschule Beispiel (VS, 280 m, 240 students)",
+            "school_atlas_progression_summary": "Nearest transition-capable school Volksschule Beispiel shows 64 disclosed outgoing transitions; about 62.5% lead to Gymnasium/AHS.",
+            "school_atlas_gymnasium_progression_pct": 62.5,
+            "school_atlas_top_secondary_destinations": [
+                {"name": "AHS Beispiel", "type": "AHS", "count": 40, "count_label": "40"},
+                {"name": "Mittelschule Beispiel", "type": "MS", "count": 24, "count_label": "24"},
+            ],
+            "school_atlas_nearby_schools": [
+                {"name": "Volksschule Beispiel", "type": "VS", "distance_m": 280.0, "student_total": 240}
+            ],
+            "school_atlas_selected_school": {"name": "Volksschule Beispiel", "type": "VS", "distance_m": 280.0, "skz": "9012"},
+            "school_atlas_evidence_type": "hard_public_data",
+            "school_atlas_source_url": "https://www.statistik.at/atlas/schulen/",
+        },
+    )
+
+    enriched = product_service._property_enrich_future_change_research(
+        {
+            "listing_research_snapshot": {"map_lat": 48.2082, "map_lng": 16.3738},
+        },
+        investment_research_mode="auto",
+        available_within_years=3,
+    )
+
+    future = dict(enriched.get("future_change_research") or {})
+    assert future["requested_move_in_horizon_years"] == 3
+    assert future["school_atlas_quality_summary"].startswith("Nearby SchoolAtlas schools:")
+    assert future["school_atlas_progression_summary"].startswith("Nearest transition-capable school")
+    assert future["school_atlas_gymnasium_progression_pct"] == 62.5
+    assert future["school_atlas_top_secondary_destinations"][0]["name"] == "AHS Beispiel"
+    assert future["school_atlas_evidence_type"] == "hard_public_data"
+    assert future["school_atlas_source_url"] == "https://www.statistik.at/atlas/schulen/"
 
 
 def test_generic_property_tour_floorplan_only_bypasses_legacy_360_requirement(monkeypatch) -> None:
@@ -5061,6 +5808,117 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     assert partial.json()["display_name"] == "Updated Tibor"
     assert partial.json()["learning_enabled"] is True
     assert partial.json()["high_stakes_domains_enabled"] is True
+
+
+def test_preference_profile_mailbox_import_applies_property_history_without_review(monkeypatch) -> None:
+    principal_id = "pref-mailbox-import"
+    client = build_product_client(principal_id=principal_id)
+    created = client.post(
+        "/app/api/people/elisabeth/preference-profile",
+        json={
+            "display_name": "Elisabeth",
+            "consent_mode": "explicit_only",
+            "learning_enabled": True,
+        },
+    )
+    assert created.status_code == 200
+
+    def _fake_list_recent_workspace_signals(**kwargs):
+        assert kwargs["principal_id"] == principal_id
+        assert kwargs["account_email_filter"] == "elisabeth.girschele@gmail.com"
+        return google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="elisabeth.girschele@gmail.com",
+            account_emails=("elisabeth.girschele@gmail.com",),
+            granted_scopes=(google_oauth_service.GOOGLE_SCOPE_METADATA,),
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title="Vormerkung Genossenschaft Waehring 1180 - 82 m² Balkon",
+                    summary="Sie sind für das Projekt vorgemerkt. 3 Zimmer, EUR 1.480.",
+                    text="Vormerkung bestätigt. Waehring 1180, 82 m², 3 Zimmer, Balkon, Lift, U-Bahn nah.",
+                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:thread-1",
+                    external_id="gmail-message:elisabeth.girschele@gmail.com:msg-1",
+                    counterparty="GESIBA",
+                    due_at=None,
+                    payload={
+                        "thread_id": "thread-1",
+                        "account_email": "elisabeth.girschele@gmail.com",
+                        "from_email": "wohnen@gesiba.at",
+                        "body_text_excerpt": "Vormerkung bestätigt. Waehring 1180, 82 m², 3 Zimmer, Balkon, Lift, U-Bahn nah.",
+                    },
+                ),
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title="Anfrage zu Wohnung in Döbling mit Grundriss",
+                    summary="Ihre Anfrage wurde beantwortet. 94 m², 4 Zimmer, EUR 1.920.",
+                    text="Nachfrage beantwortet. Döbling, 94 m², 4 Zimmer, Grundriss vorhanden, ruhig, Spielplatz in der Nähe.",
+                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:thread-2",
+                    external_id="gmail-message:elisabeth.girschele@gmail.com:msg-2",
+                    counterparty="Willhaben",
+                    due_at=None,
+                    payload={
+                        "thread_id": "thread-2",
+                        "account_email": "elisabeth.girschele@gmail.com",
+                        "from_email": "agent@willhaben.at",
+                        "body_text_excerpt": "Nachfrage beantwortet. Döbling, 94 m², 4 Zimmer, Grundriss vorhanden, ruhig, Spielplatz in der Nähe.",
+                    },
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(google_oauth_service, "list_recent_workspace_signals", _fake_list_recent_workspace_signals)
+    monkeypatch.setattr(
+        ProductService,
+        "request_preference_teable_sync",
+        lambda self, **kwargs: {"status": "blocked", "sync_result": "blocked", "blocked_reason": "teable_not_configured"},
+    )
+
+    response = client.post(
+        "/app/api/people/elisabeth/preference-profile/mailbox-import",
+        json={
+            "account_email": "elisabeth.girschele@gmail.com",
+            "consent_confirmed": True,
+            "consent_note": "Explicitly approved import of housing-related Gmail threads.",
+            "email_limit": 50,
+            "lookback_days": 540,
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "imported"
+    assert body["activity_total"] == 2
+    assert body["preregistration_total"] == 1
+    assert body["inquiry_total"] == 1
+    assert any(item["key"] == "preferred_districts" for item in body["applied_nodes"])
+    assert any(item["key"] == "min_area_sqm_preference" for item in body["applied_nodes"])
+    assert any(item["key"] == "prefer_balcony" for item in body["applied_nodes"])
+    assert any(item["key"] == "prefer_lift" for item in body["applied_nodes"])
+    assert body["teable_sync_status"] == "blocked"
+    assert any(item["activity_kind"] == "preregistration" for item in body["activities"])
+    assert any(item["activity_kind"] == "inquiry" for item in body["activities"])
+
+    bundle = client.get("/app/api/people/elisabeth/preference-profile")
+    assert bundle.status_code == 200
+    bundle_body = bundle.json()
+    assert any(item["key"] == "preferred_districts" and "Währing" in item["value_json"] for item in bundle_body["preference_nodes"])
+    assert any(item["key"] == "preferred_districts" and "Döbling" in item["value_json"] for item in bundle_body["preference_nodes"])
+    assert any(item["key"] == "min_rooms" and item["value_json"] == 3 for item in bundle_body["preference_nodes"])
+    assert any(item["key"] == "requires_floorplan_for_remote_review" and item["value_json"] is True for item in bundle_body["preference_nodes"])
+    assert any(row["domain"] == "property" for row in bundle_body["recent_evidence_events"])
+
+
+def test_preference_profile_mailbox_import_requires_explicit_consent() -> None:
+    client = build_product_client(principal_id="pref-mailbox-import-consent")
+    response = client.post(
+        "/app/api/people/elisabeth/preference-profile/mailbox-import",
+        json={
+            "account_email": "elisabeth.girschele@gmail.com",
+            "consent_confirmed": False,
+        },
+    )
+    assert response.status_code == 422
 
 
 def test_preference_profile_node_api_rejects_unsupported_or_malformed_nodes() -> None:
@@ -10839,6 +11697,64 @@ def test_google_property_sync_scores_elisabeth_mailbox_against_elisabeth_profile
     assert created[0]["payload"]["tour_url"] == "https://myexternalbrain.com/tours/high-fit-mailbox-1"
 
 
+def test_google_property_sync_updates_elisabeth_preference_profile_from_mailbox_hints(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "EA_PROPERTY_ALERT_ACCOUNT_PERSON_MAP_JSON",
+        '{"elisabeth.girschele@gmail.com":"elisabeth"}',
+    )
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Elisabeth Preference Learning Office")
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_recent_workspace_signals",
+        lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="elisabeth.girschele@gmail.com",
+            account_emails=("elisabeth.girschele@gmail.com",),
+            granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
+                signals=(
+                    google_oauth_service.GoogleWorkspaceSignal(
+                        signal_type="email_thread",
+                        channel="gmail",
+                        title='"Eigentumswohnungen" hat 1 neue Anzeige für dich gefunden',
+                        summary="Recent mail from willhaben-Suchagent.",
+                        text="Waehring 1180, 82 m², 3 Zimmer, Balkon, Lift, U-Bahn nah.",
+                        source_ref="gmail-thread:elisabeth.girschele@gmail.com:profile-sync-1",
+                        external_id="gmail-message:elisabeth.girschele@gmail.com:profile-sync-1",
+                        counterparty="willhaben-Suchagent",
+                        due_at=None,
+                        payload={
+                            "thread_id": "profile-sync-1",
+                            "account_email": "elisabeth.girschele@gmail.com",
+                            "from_email": "no-reply@agent.willhaben.at",
+                            "from_name": "willhaben-Suchagent",
+                            "body_text_excerpt": "Waehring 1180, 82 m², 3 Zimmer, Balkon, Lift, U-Bahn nah.",
+                            "labels": ["CATEGORY_UPDATES", "INBOX"],
+                        },
+                    ),
+                ),
+        ),
+    )
+
+    synced = client.post(
+        "/app/api/signals/google/property-sync",
+        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+    )
+    assert synced.status_code == 200
+    assert synced.json()["synced_total"] == 1
+
+    bundle = client.get("/app/api/people/elisabeth/preference-profile")
+    assert bundle.status_code == 200
+    body = bundle.json()
+    assert any(item["key"] == "preferred_districts" and "Währing" in item["value_json"] for item in body["preference_nodes"])
+    assert any(item["key"] == "min_area_sqm_preference" and item["value_json"] == 82 for item in body["preference_nodes"])
+    assert any(item["key"] == "min_rooms" and item["value_json"] == 3 for item in body["preference_nodes"])
+    assert any(item["key"] == "prefer_balcony" and item["value_json"] is True for item in body["preference_nodes"])
+    assert any(item["key"] == "prefer_lift" and item["value_json"] is True for item in body["preference_nodes"])
+    assert any(row["domain"] == "property" for row in body["recent_evidence_events"])
+
+
 def test_google_property_sync_splits_digest_into_per_listing_reviews(monkeypatch) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
@@ -12852,7 +13768,7 @@ def test_product_diagnostics_include_value_events() -> None:
 
 def test_support_fix_verification_tracks_request_receipt_and_confirmation() -> None:
     principal_id = "exec-support-fix-verification"
-    client = build_product_client(principal_id=principal_id)
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
     start_workspace(client, mode="personal", workspace_name="Support Verification Office")
 
     updated = client.post(
@@ -13333,7 +14249,7 @@ def test_operator_center_clears_historical_digest_failures_after_successful_memo
 
 def test_workspace_invitation_lifecycle_is_seat_aware() -> None:
     principal_id = "exec-workspace-invites"
-    client = build_product_client(principal_id=principal_id)
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
     start_workspace(client, mode="team", workspace_name="Executive Office")
     seed_product_state(client, principal_id=principal_id)
 
@@ -13390,6 +14306,33 @@ def test_workspace_invitation_lifecycle_is_seat_aware() -> None:
     assert revoked.status_code == 200
     assert revoked.json()["status"] == "revoked"
     assert revoked.json()["invitation_id"] == invite["invitation_id"]
+
+
+def test_principal_workspace_session_cannot_mint_operator_access_or_open_operator_center() -> None:
+    principal_id = "exec-principal-no-operator-mint"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+
+    invitation = client.post(
+        "/app/api/invitations",
+        json={"email": "ops@example.com", "role": "operator", "display_name": "Ops"},
+    )
+    assert invitation.status_code == 403
+
+    access_session = client.post(
+        "/app/api/access-sessions",
+        json={"email": "ops@example.com", "role": "operator", "display_name": "Ops", "operator_id": "operator-office"},
+    )
+    assert access_session.status_code == 403
+
+    legacy_access_session = client.post(
+        "/app/api/workspace-access",
+        json={"recipient_email": "ops@example.com", "role": "operator", "operator_id": "operator-office"},
+    )
+    assert legacy_access_session.status_code == 403
+
+    operator_center = client.get("/app/api/operator-center")
+    assert operator_center.status_code == 403
 
 
 def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_ready_links() -> None:

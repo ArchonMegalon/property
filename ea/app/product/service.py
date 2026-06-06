@@ -9,6 +9,7 @@ import hmac
 import html
 import io
 import json
+import math
 import mimetypes
 import os
 import re
@@ -131,6 +132,7 @@ from app.services.property_market_catalog import (
     normalize_property_type,
     resolve_country_code,
     property_platform_keys,
+    property_provider_access_level,
     property_provider_for_platform,
     provider_host_markers,
     provider_listing_markers_for_host,
@@ -227,6 +229,60 @@ _PROPERTY_ALERT_GMAIL_QUERY = (
     "no-reply@immobilienscout24.de"
     ")"
 )
+_PROPERTY_PROFILE_IMPORT_PROVIDER_MARKERS = {
+    "willhaben": ("willhaben", "agent.willhaben.at"),
+    "immoscout": ("immoscout", "immobilienscout24"),
+    "immmo": ("immmo",),
+    "flatbee": ("flatbee",),
+    "gesiba": ("gesiba",),
+    "sozialbau": ("sozialbau",),
+    "wbv-gpa": ("wbv-gpa", "wbvgpa"),
+    "siedlungsunion": ("siedlungsunion",),
+    "kalandra": ("kalandra",),
+    "genossenschaft": ("genossenschaft", "vormerk", "warteliste"),
+}
+_PROPERTY_PROFILE_IMPORT_DISTRICT_MARKERS = (
+    "innere stadt",
+    "leopoldstadt",
+    "landstrasse",
+    "landstraße",
+    "wieden",
+    "margareten",
+    "mariahilf",
+    "neubau",
+    "josefstadt",
+    "alsergrund",
+    "favoriten",
+    "simmering",
+    "meidling",
+    "hietzing",
+    "penzing",
+    "rudolfsheim-fuenfhaus",
+    "rudolfsheim-fünfhaus",
+    "ottakring",
+    "hernals",
+    "waehring",
+    "währing",
+    "doebling",
+    "döbling",
+    "brigittenau",
+    "floridsdorf",
+    "donaustadt",
+    "liesing",
+    "klosterneuburg",
+    "korneuburg",
+    "mödling",
+)
+_PROPERTY_PROFILE_IMPORT_FEATURE_PATTERNS = {
+    "balcony": re.compile(r"\b(balkon|balkony|loggia|terrasse)\b", re.IGNORECASE),
+    "outdoor_space": re.compile(r"\b(garten|garden|terrasse|balkon|loggia)\b", re.IGNORECASE),
+    "lift": re.compile(r"\b(lift|aufzug)\b", re.IGNORECASE),
+    "floorplan": re.compile(r"\b(grundriss|floor\s*plan|floorplan)\b", re.IGNORECASE),
+    "tour_360": re.compile(r"\b(360|rundgang|matterport|virtual tour)\b", re.IGNORECASE),
+    "playground": re.compile(r"\b(spielplatz|playground)\b", re.IGNORECASE),
+    "subway": re.compile(r"\b(u-bahn|ubahn|subway)\b", re.IGNORECASE),
+    "quiet": re.compile(r"\b(ruhig|quiet|hofseitig|hoflage)\b", re.IGNORECASE),
+}
 _PRODUCT_PULSE_FRESH_SECONDS = 48 * 3600
 _PRODUCT_PULSE_STALE_SECONDS = 7 * 24 * 3600
 _DEFAULT_DESIGN_PRODUCT_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
@@ -335,6 +391,7 @@ _PROPERTY_SEARCH_DEFAULT_HIGH_MATCH_MIN_SCORE = 65.0
 _PROPERTY_SEARCH_DEFAULT_SCAN_CAP_PER_SOURCE = 80
 _PROPERTY_SEARCH_TERMINAL_STATUSES = {"processed", "completed", "failed", "cancelled", "noop"}
 _PROPERTY_MARKET_BOOTSTRAP_OPERATOR_ID = "property-market-codex"
+_PROPERTY_SCHOOLATLAS_SOURCE_URL = "https://www.statistik.at/atlas/schulen/"
 
 
 def _json_safe_product_payload(value: object) -> object:
@@ -387,6 +444,25 @@ def _normalize_property_search_platform_inputs(value: object) -> tuple[str, ...]
         return ()
     if any(item == "all" for item in normalized):
         return ("all",)
+    return tuple(normalized)
+
+
+def _property_search_platforms_with_family_toggles(
+    selected_platforms: tuple[str, ...],
+    preferences: dict[str, object] | None,
+) -> tuple[str, ...]:
+    normalized = list(_normalize_property_search_platform_inputs(selected_platforms))
+    payload = dict(preferences or {})
+    toggle_platforms = (
+        ("include_broker_direct_sources", "broker_direct_at"),
+        ("include_community_signals", "community_signals_at"),
+        ("include_developer_project_signals", "developer_projects_at"),
+        ("include_public_housing_signals", "public_housing_at"),
+        ("include_distressed_sale_signals", "distressed_sales_at"),
+    )
+    for flag_name, platform_key in toggle_platforms:
+        if bool(payload.get(flag_name)) and platform_key not in normalized:
+            normalized.append(platform_key)
     return tuple(normalized)
 
 
@@ -709,6 +785,17 @@ def _property_missing_fact_task_status(value: object) -> str:
     return "queued"
 
 
+def _property_future_change_task_id(*, run_id: str, property_url: str, field: str) -> str:
+    raw = "|".join(
+        (
+            str(run_id or "").strip(),
+            urllib.parse.urldefrag(str(property_url or "").strip())[0],
+            str(field or "").strip().lower(),
+        )
+    )
+    return "fc_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:18]
+
+
 def _property_research_tasks_from_result(
     result: dict[str, object] | None,
     *,
@@ -717,17 +804,42 @@ def _property_research_tasks_from_result(
     payload = dict(result or {})
     tasks: list[dict[str, object]] = []
     seen: set[str] = set()
+    investment_research_mode = str(payload.get("investment_research_mode") or "").strip().lower()
+    enable_building_risk_research = bool(payload.get("enable_building_risk_research"))
+    enable_market_supply_research = bool(payload.get("enable_market_supply_research"))
+    enable_location_risk_research = bool(payload.get("enable_location_risk_research"))
+    enable_trust_risk_scoring = bool(payload.get("enable_trust_risk_scoring"))
+    enable_family_mode = bool(payload.get("enable_family_mode"))
+    enable_commute_research = bool(payload.get("enable_commute_research"))
+    enable_action_readiness_research = bool(payload.get("enable_action_readiness_research"))
+    require_manual_validation_for_community = bool(payload.get("require_manual_validation_for_community"))
+    commute_destination = compact_text(str(payload.get("commute_destination") or "").strip(), fallback="", limit=180)
+    desired_project_stages = [
+        str(item or "").strip().lower()
+        for item in list(payload.get("desired_project_stages") or [])
+        if str(item or "").strip()
+    ]
+    max_commute_minutes_transit = int(payload.get("max_commute_minutes_transit") or 0)
+    max_commute_minutes_drive = int(payload.get("max_commute_minutes_drive") or 0)
+    max_commute_minutes_bike = int(payload.get("max_commute_minutes_bike") or 0)
     for source in list(payload.get("sources") or []):
         if not isinstance(source, dict):
             continue
         source_label = compact_text(str(source.get("source_label") or "").strip(), fallback="", limit=120)
-        for candidate in list(source.get("top_candidates") or []):
+        candidate_rows = list(source.get("research_candidates") or source.get("top_candidates") or [])
+        for candidate in candidate_rows:
             if not isinstance(candidate, dict):
                 continue
             property_url = urllib.parse.urldefrag(str(candidate.get("property_url") or "").strip())[0]
             property_ref = str(candidate.get("source_ref") or candidate.get("listing_id") or property_url).strip()
             facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+            try:
+                fit_score = float(candidate.get("fit_score") or 0.0)
+            except Exception:
+                fit_score = 0.0
             research = dict(facts.get("missing_fact_research") or {}) if isinstance(facts.get("missing_fact_research"), dict) else {}
+            source_platform = _normalize_property_search_platform(facts.get("source_platform") or source.get("platform") or "")
+            source_family = str(facts.get("source_family") or source.get("provider_family") or "").strip().lower()
             for item in list(research.get("items") or []):
                 if not isinstance(item, dict):
                     continue
@@ -739,10 +851,6 @@ def _property_research_tasks_from_result(
                     continue
                 seen.add(task_id)
                 status = _property_missing_fact_task_status(item.get("status"))
-                try:
-                    fit_score = float(candidate.get("fit_score") or 0.0)
-                except Exception:
-                    fit_score = 0.0
                 tasks.append(
                     {
                         "task_id": task_id,
@@ -769,6 +877,390 @@ def _property_research_tasks_from_result(
                         "updated_at": str(research.get("updated_at") or payload.get("generated_at") or _now_iso()),
                     }
                 )
+            if investment_research_mode != "off":
+                future_research = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
+                if not list(future_research.get("planned_infrastructure_projects") or []):
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="planned_infrastructure_projects",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "planned_infrastructure_projects",
+                                "label": "Check planned transport, motorway, rail, and noise projects",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": "",
+                                "evidence": compact_text(str(future_research.get("planning_confidence") or "Planning confidence unknown."), fallback="Planning confidence unknown.", limit=280),
+                                "ooda": {},
+                                "next_actions": [
+                                    "Check planned subway, S-Bahn, tram, and bus corridor projects nearby.",
+                                    "Check planned motorway, rail, freight, or long-duration construction exposure.",
+                                    "Record likely timing and whether the impact is positive, negative, or mixed.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if not list(future_research.get("future_value_drivers") or []) and not list(future_research.get("future_value_risks") or []):
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="future_value_drivers",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "future_value_drivers",
+                                "label": "Check long-term value drivers, supply pipeline, and regulatory risks",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": "",
+                                "evidence": compact_text(str(future_research.get("investment_impact") or "Investment impact unknown."), fallback="Investment impact unknown.", limit=280),
+                                "ooda": {},
+                                "next_actions": [
+                                    "Check rezoning, densification, and large new-build supply in the micro-market.",
+                                    "Check employer growth, school and clinic access, and social infrastructure changes.",
+                                    "Check flood, heat, energy, and regulatory risks that could affect long-term value.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if enable_market_supply_research:
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="market_supply_pipeline",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "market_supply_pipeline",
+                                "label": "Check developer pipeline, competing supply, and exit liquidity",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": "",
+                                "evidence": "Competing pipeline and market depth still need review.",
+                                "ooda": {},
+                                "next_actions": [
+                                    "Check direct competing new-build and cooperative pipeline nearby.",
+                                    "Check target renter or buyer demand and probable exit liquidity.",
+                                    "Check whether over-supply could compress rents, price growth, or resale speed.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if enable_building_risk_research:
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="building_risk_operating_costs",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "building_risk_operating_costs",
+                                "label": "Check building reserve, renovation pressure, and operating-cost risk",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": "",
+                                "evidence": "Reserve, CAPEX, and service-cost posture are still unknown.",
+                                "ooda": {},
+                                "next_actions": [
+                                    "Check reserve fund, facade, roof, lift, and heating replacement pressure.",
+                                    "Check energy certificate, heating type, and likely regulatory retrofit exposure.",
+                                    "Check whether service charges or special levies could impair total returns.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if enable_location_risk_research:
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="micro_location_quality",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "micro_location_quality",
+                                "label": "Check school quality, safety, health burden, and daily-life access",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": "",
+                                "evidence": "Micro-location quality and burden indicators still need validation.",
+                                "ooda": {},
+                                "next_actions": [
+                                    "Check Schulatlas school quality, catchment pressure, and nearby kindergarten quality.",
+                                    "Check how many children continue each year into Gymnasium or another strong secondary-school path.",
+                                    "Check crime, lighting, nuisance, flood, heat, and pollution burden.",
+                                    "Check transit quality beyond distance alone: frequency, night service, and parking pressure.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if enable_commute_research and (commute_destination or max_commute_minutes_transit > 0 or max_commute_minutes_drive > 0 or max_commute_minutes_bike > 0):
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="commute_time_research",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        commute_limits = ", ".join(
+                            part for part in (
+                                f"transit <= {max_commute_minutes_transit} min" if max_commute_minutes_transit > 0 else "",
+                                f"drive <= {max_commute_minutes_drive} min" if max_commute_minutes_drive > 0 else "",
+                                f"bike <= {max_commute_minutes_bike} min" if max_commute_minutes_bike > 0 else "",
+                            ) if part
+                        ) or "Commute caps not defined yet."
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "commute_time_research",
+                                "label": "Check commute reality by transit, car, bike, and walking",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": commute_destination,
+                                "evidence": compact_text(commute_limits, fallback="Commute assumptions still need validation.", limit=280),
+                                "ooda": {},
+                                "next_actions": [
+                                    f"Check realistic rush-hour travel times to {commute_destination}." if commute_destination else "Check realistic rush-hour travel times to the user's main destinations.",
+                                    "Compare transit, driving, cycling, and walking times instead of straight-line distance.",
+                                    "Record whether the property clears the requested commute caps at the desired arrival window.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if desired_project_stages:
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="project_stage_realism",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "project_stage_realism",
+                                "label": "Check project stage, waitlist realism, and move-in certainty",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": ", ".join(stage.replace("_", " ") for stage in desired_project_stages),
+                                "evidence": "Requested project-stage posture still needs source-backed confirmation.",
+                                "ooda": {},
+                                "next_actions": [
+                                    "Check whether the listing is existing stock, under construction, planned, or only a waitlist.",
+                                    "Check whether allocation is realistic or just a low-probability pre-registration funnel.",
+                                    "Record timing certainty and whether the stage fits the user's move-in expectations.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if enable_action_readiness_research:
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="action_readiness",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "action_readiness",
+                                "label": "Prepare next actions, document asks, and viewing questions",
+                                "status": "queued",
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": "",
+                                "evidence": "The next best operator actions are not summarized yet.",
+                                "ooda": {},
+                                "next_actions": [
+                                    "List the first document requests: floorplan, energy certificate, reserve fund, and service-charge split.",
+                                    "List the best viewing questions and the biggest red flags to inspect on-site.",
+                                    "State whether the next move is review, schedule viewing, negotiate, or reject.",
+                                ],
+                                "created_at": str(payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if enable_family_mode:
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="family_fit_research",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "family_fit_research",
+                                "label": "Check family-mode school, childcare, playground, and daily-route fit",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": "",
+                                "evidence": "Family-fit evidence is still incomplete.",
+                                "ooda": {},
+                                "next_actions": [
+                                    "Check school quality, kindergarten access, and after-school care.",
+                                    "Check playgrounds, safe walking routes, and pediatrician coverage nearby.",
+                                    "Record whether the property actually works for daily family logistics, not just headline size.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+            if enable_trust_risk_scoring:
+                task_id = _property_future_change_task_id(
+                    run_id=run_id,
+                    property_url=property_url or property_ref,
+                    field="listing_trust_verification",
+                )
+                if task_id not in seen:
+                    seen.add(task_id)
+                    tasks.append(
+                        {
+                            "task_id": task_id,
+                            "kind": "future_change_research",
+                            "field": "listing_trust_verification",
+                            "label": "Check duplicate, scam, stale, and contactability risk",
+                            "status": "queued",
+                            "priority": "high" if fit_score >= 65.0 else "normal",
+                            "property_ref": property_ref[:500],
+                            "property_url": property_url[:800],
+                            "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                            "source_label": source_label,
+                            "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                            "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                            "display_value": "",
+                            "evidence": compact_text(str(facts.get("source_trust_tier") or "Trust tier unknown."), fallback="Trust tier unknown.", limit=280),
+                            "ooda": {},
+                            "next_actions": [
+                                "Check whether the listing is duplicated on stronger providers or already stale.",
+                                "Check whether contact path, publisher identity, and photos look credible.",
+                                "Record scam risk, duplicate risk, stale risk, and manual verification outcome.",
+                            ],
+                            "created_at": str(payload.get("generated_at") or _now_iso()),
+                            "updated_at": str(payload.get("generated_at") or _now_iso()),
+                        }
+                    )
+            if source_platform in {"flatbee", "community_signals_at"} or source_family in {"community_signals", "community_meta"}:
+                task_id = _property_future_change_task_id(
+                    run_id=run_id,
+                    property_url=property_url or property_ref,
+                    field="community_signal_validation",
+                )
+                if task_id not in seen:
+                    seen.add(task_id)
+                    tasks.append(
+                        {
+                            "task_id": task_id,
+                            "kind": "future_change_research",
+                            "field": "community_signal_validation",
+                            "label": "Check community and off-market lead validity",
+                            "status": "queued",
+                            "priority": "high" if require_manual_validation_for_community else "normal",
+                            "property_ref": property_ref[:500],
+                            "property_url": property_url[:800],
+                            "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                            "source_label": source_label,
+                            "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                            "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                            "display_value": "",
+                            "evidence": "Community or weakly verified lead paths require manual validation before trust.",
+                            "ooda": {},
+                            "next_actions": [
+                                "Confirm that the post, publisher, and contact route are real and current.",
+                                "Check whether the unit exists on a first-party or stronger marketplace source too.",
+                                "Mark access level, verification state, and whether the lead should stay in the shortlist.",
+                            ],
+                            "created_at": str(payload.get("generated_at") or _now_iso()),
+                            "updated_at": str(payload.get("generated_at") or _now_iso()),
+                        }
+                    )
     tasks.sort(key=lambda row: (0 if str(row.get("status")) != "filled" else 1, 0 if row.get("priority") == "high" else 1, -float(row.get("fit_score") or 0.0), str(row.get("title") or "")))
     return tasks[:200]
 
@@ -807,6 +1299,27 @@ def _property_apply_research_task_overrides(
                 )
         out.append(row)
     return out
+
+
+def _property_candidate_unknowns_penalty(*, assessment: dict[str, object] | None, property_facts: dict[str, object] | None) -> float:
+    assessment_payload = dict(assessment or {})
+    facts = dict(property_facts or {})
+    unknowns = [item for item in list(assessment_payload.get("unknowns_json") or []) if str(item or "").strip()]
+    missing_items = _property_missing_fact_items(facts)
+    future_research = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
+    unresolved_future = sum(
+        1
+        for key in (
+            "planned_infrastructure_projects",
+            "future_value_drivers",
+            "future_value_risks",
+            "school_atlas_quality_summary",
+            "school_atlas_progression_summary",
+        )
+        if future_research.get(key) in (None, "", [])
+    )
+    penalty = (len(unknowns) * 2.0) + (len(missing_items) * 1.25) + (min(3, unresolved_future) * 0.75)
+    return round(max(0.0, min(18.0, penalty)), 2)
 
 
 def _property_research_task_counts(tasks: list[dict[str, object]]) -> dict[str, int]:
@@ -1132,9 +1645,13 @@ def _merged_property_scout_source_specs(
     for item in (*generated, *configured):
         row = dict(item or {})
         url = urllib.parse.urldefrag(str(row.get("url") or "").strip())[0]
-        if not url or url in seen:
+        provider_source_key = str(row.get("provider_source_key") or "").strip().lower()
+        provider_family = str(row.get("provider_family") or "").strip().lower()
+        platform = str(row.get("platform") or "").strip().lower()
+        dedupe_key = provider_source_key or f"{platform}|{provider_family}|{url}"
+        if not url or dedupe_key in seen:
             continue
-        seen.add(url)
+        seen.add(dedupe_key)
         rows.append(row)
     return tuple(rows)
 
@@ -1859,10 +2376,88 @@ def _property_scout_is_supported_listing_url(url: str) -> bool:
     return any(str(marker or "").lower() in combined for marker in provider_listing_markers_for_host(host))
 
 
-def _property_scout_extract_listing_urls(*, source_url: str, html: str) -> tuple[str, ...]:
+def _property_scout_source_requested_min_area_m2(source_spec: dict[str, object] | None) -> float:
+    payload = dict(source_spec or {})
+    pushdown = dict(payload.get("provider_filter_pushdown") or {}) if isinstance(payload.get("provider_filter_pushdown"), dict) else {}
+    requested = dict(pushdown.get("requested") or {}) if isinstance(pushdown.get("requested"), dict) else {}
+    applied = dict(pushdown.get("applied") or {}) if isinstance(pushdown.get("applied"), dict) else {}
+    return _float_or_none(requested.get("min_area_m2")) or _float_or_none(applied.get("min_area_m2")) or 0.0
+
+
+def _property_area_text_to_sqm(value: object) -> float | None:
+    text = compact_text(str(value or "").strip(), fallback="", limit=80)
+    if not text:
+        return None
+    match = re.search(r"(\d+(?:[.,]\d+)?)", text)
+    if not match:
+        return None
+    try:
+        return float(str(match.group(1) or "").replace(".", "").replace(",", "."))
+    except Exception:
+        return None
+
+
+def _property_scout_extract_wbv_gpa_listing_urls(*, source_url: str, html: str, min_area_m2: float = 0.0) -> tuple[str, ...]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    pattern = re.compile(
+        r'<div[^>]*class="[^"]*objects__list__rows__item[^"]*"[^>]*data-space="([^"]+)"[^>]*>.*?<a[^>]*href="([^"]+/wohnung/[^"]+)"',
+        re.IGNORECASE | re.DOTALL,
+    )
+    for match in pattern.finditer(str(html or "")):
+        area_sqm = _property_area_text_to_sqm(match.group(1))
+        if min_area_m2 > 0.0 and (not isinstance(area_sqm, float) or area_sqm < min_area_m2):
+            continue
+        candidate = urllib.parse.urldefrag(urllib.parse.urljoin(source_url, str(match.group(2) or "").strip()))[0]
+        if candidate and candidate not in seen and _property_scout_is_supported_listing_url(candidate):
+            seen.add(candidate)
+            rows.append(candidate)
+    return tuple(rows)
+
+
+def _property_scout_extract_frieden_listing_urls(*, source_url: str, html: str, min_area_m2: float = 0.0) -> tuple[str, ...]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    route_match = re.search(r"window\.__ROUTE_DATA__\s*=\s*(\{.*?\})\s*(?:</script>|$)", str(html or ""), flags=re.IGNORECASE | re.DOTALL)
+    if route_match:
+        try:
+            route_data = json.loads(str(route_match.group(1) or ""))
+        except Exception:
+            route_data = {}
+        model = dict(route_data.get("model") or {}) if isinstance(route_data, dict) else {}
+        units = list(dict(model.get("units") or {}).get("items") or []) if isinstance(model.get("units"), dict) else []
+        for unit in units:
+            if not isinstance(unit, dict):
+                continue
+            area_sqm = _float_or_none(unit.get("usableArea")) or 0.0
+            if min_area_m2 > 0.0 and area_sqm < min_area_m2:
+                continue
+            unit_id = str(unit.get("id") or "").strip()
+            if not unit_id:
+                continue
+            candidate = urllib.parse.urldefrag(
+                urllib.parse.urljoin(source_url, f"/immobiliensuche/{unit_id}?returnUrl=%2Fimmobiliensuche")
+            )[0]
+            if candidate and candidate not in seen and _property_scout_is_supported_listing_url(candidate):
+                seen.add(candidate)
+                rows.append(candidate)
+    return tuple(rows)
+
+
+def _property_scout_extract_listing_urls(*, source_url: str, html: str, source_spec: dict[str, object] | None = None) -> tuple[str, ...]:
     parsed_source = urllib.parse.urlparse(str(source_url or "").strip())
     source_query = urllib.parse.parse_qs(parsed_source.query)
     sozialbau_scope = str((source_query.get("pq_scope") or [""])[0]).strip().lower()
+    requested_min_area_m2 = _property_scout_source_requested_min_area_m2(source_spec)
+    source_host = parsed_source.netloc.lower()
+    if "wbv-gpa.at" in source_host:
+        rows = _property_scout_extract_wbv_gpa_listing_urls(source_url=source_url, html=html, min_area_m2=requested_min_area_m2)
+        if rows:
+            return rows
+    if "frieden.at" in source_host:
+        rows = _property_scout_extract_frieden_listing_urls(source_url=source_url, html=html, min_area_m2=requested_min_area_m2)
+        if rows:
+            return rows
     if "angebote.sozialbau.at" in parsed_source.netloc.lower() and sozialbau_scope in {"in_bau", "in_planung"}:
         rows: list[str] = []
         seen_rows: set[str] = set()
@@ -2285,6 +2880,13 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
             continue
         if not is_direct_floorplan_asset:
             continue
+        is_image_floorplan_asset = _property_scout_is_asset_url(normalized, extensions=_PROPERTY_SCOUT_IMAGE_EXTENSIONS)
+        if is_image_floorplan_asset and not any(marker in lowered_url for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
+            continue
+        if attr_name in {"src", "data-src", "data-original", "data-lazy-src", "data-background-image"} and not any(
+            marker in lowered_url for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS
+        ):
+            continue
         is_edikte_valuation_pdf = (
             lowered_url.endswith(".pdf")
             and any(marker in urllib.parse.urlparse(normalized).netloc.lower() for marker in ("edikte.justiz.gv.at", "edikte2.justiz.gv.at"))
@@ -2299,7 +2901,7 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
                 )
             )
         )
-        if not is_edikte_valuation_pdf and not any(marker in lowered_url or marker in context for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
+        if not is_edikte_valuation_pdf and not any((marker in lowered_url) or (marker in context) for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
             continue
         seen.add(normalized)
         floorplan_urls.append(normalized)
@@ -3514,6 +4116,245 @@ def _property_image_ocr_address_hint(image_urls: tuple[str, ...], *, source_text
     return {}
 
 
+def _property_schoolatlas_wfs_base_url() -> str:
+    raw = str(
+        os.getenv("EA_PROPERTY_SCHOOLATLAS_WFS_BASE_URL")
+        or os.getenv("EA_PROPERTY_STATISTIK_AT_SCHOOLATLAS_WFS_BASE_URL")
+        or "https://www.statistik.at/gs-open"
+    ).strip()
+    return raw.rstrip("/")
+
+
+@lru_cache(maxsize=64)
+def _property_schoolatlas_wfs_json(
+    layer_name: str,
+    *,
+    viewparams: str = "",
+    max_features: int = 25000,
+    srsname: str = "EPSG:4326",
+) -> dict[str, object]:
+    base_url = _property_schoolatlas_wfs_base_url()
+    if not base_url:
+        return {}
+    params = {
+        "service": "WFS",
+        "version": "1.0.0",
+        "request": "GetFeature",
+        "typeName": f"ATLAS_SCHULE_WFS:{str(layer_name or '').strip()}",
+        "maxFeatures": str(max(1, int(max_features or 1))),
+        "outputFormat": "application/json",
+        "srsname": srsname,
+    }
+    if str(viewparams or "").strip():
+        params["viewparams"] = str(viewparams).strip()
+    try:
+        response = requests.get(
+            f"{base_url}/ATLAS_SCHULE_WFS/ows",
+            params=params,
+            headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT},
+            timeout=12.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _property_schoolatlas_coords_from_facts(facts: dict[str, object] | None) -> tuple[float | None, float | None]:
+    payload = dict(facts or {})
+    snapshot = (
+        dict(payload.get("listing_research_snapshot") or {})
+        if isinstance(payload.get("listing_research_snapshot"), dict)
+        else {}
+    )
+
+    def _pair(source: dict[str, object], lat_key: str, lon_key: str) -> tuple[float | None, float | None]:
+        lat_value = _float_or_none(source.get(lat_key))
+        lon_value = _float_or_none(source.get(lon_key))
+        if lat_value is None or lon_value is None:
+            return None, None
+        return lat_value, lon_value
+
+    for source, lat_key, lon_key in (
+        (payload, "map_lat", "map_lng"),
+        (payload, "latitude", "longitude"),
+        (payload, "location_latitude", "location_longitude"),
+        (snapshot, "map_lat", "map_lng"),
+        (snapshot, "latitude", "longitude"),
+        (snapshot, "location_latitude", "location_longitude"),
+    ):
+        lat_value, lon_value = _pair(source, lat_key, lon_key)
+        if lat_value is not None and lon_value is not None:
+            return lat_value, lon_value
+    return None, None
+
+
+def _property_schoolatlas_transition_capable_school_type(value: object) -> bool:
+    normalized = str(value or "").strip().upper()
+    return normalized in {"VS", "NMSH", "HS", "AHS", "SS", "ASTAT", "NMSA"}
+
+
+def _property_schoolatlas_is_gymnasium_destination(properties: dict[str, object]) -> bool:
+    haystack = " ".join(
+        str(properties.get(key) or "").strip().lower()
+        for key in ("KARTO_TYP", "TYP_LAUFEND", "IPUB2_TYP_LAUFEND", "BEZEICHNUNG", "IPUB2_BEZEICHNUNG")
+    )
+    return any(marker in haystack for marker in ("ahs", "gymnasium", "allgemein bildende höhere", "allgemeinbildende höhere"))
+
+
+def _property_schoolatlas_distance_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> float:
+    radius_m = 6371000.0
+    lat1 = math.radians(lat_a)
+    lat2 = math.radians(lat_b)
+    dlat = math.radians(lat_b - lat_a)
+    dlon = math.radians(lon_b - lon_a)
+    a = (math.sin(dlat / 2.0) ** 2) + math.cos(lat1) * math.cos(lat2) * (math.sin(dlon / 2.0) ** 2)
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+    return radius_m * c
+
+
+def _property_schoolatlas_snapshot(lat: float, lon: float) -> dict[str, object]:
+    schools_payload = _property_schoolatlas_wfs_json("ATLAS_SCHULE")
+    features = list(schools_payload.get("features") or []) if isinstance(schools_payload, dict) else []
+    if not features:
+        return {}
+
+    ranked_schools: list[dict[str, object]] = []
+    for feature in features:
+        if not isinstance(feature, dict):
+            continue
+        geometry = dict(feature.get("geometry") or {}) if isinstance(feature.get("geometry"), dict) else {}
+        coordinates = list(geometry.get("coordinates") or []) if isinstance(geometry.get("coordinates"), (list, tuple)) else []
+        if len(coordinates) < 2:
+            continue
+        lon_value = _float_or_none(coordinates[0])
+        lat_value = _float_or_none(coordinates[1])
+        if lat_value is None or lon_value is None:
+            continue
+        properties = dict(feature.get("properties") or {}) if isinstance(feature.get("properties"), dict) else {}
+        distance_m = _property_schoolatlas_distance_m(lat, lon, lat_value, lon_value)
+        ranked_schools.append(
+            {
+                "distance_m": round(distance_m, 1),
+                "lat": lat_value,
+                "lon": lon_value,
+                "properties": properties,
+            }
+        )
+    if not ranked_schools:
+        return {}
+    ranked_schools.sort(key=lambda item: float(item.get("distance_m") or 0.0))
+    nearby_schools = []
+    for item in ranked_schools[:3]:
+        properties = dict(item.get("properties") or {})
+        nearby_schools.append(
+            {
+                "name": compact_text(str(properties.get("BEZEICHNUNG") or "").strip(), fallback="School", limit=140),
+                "type": str(properties.get("KARTO_TYP") or "").strip(),
+                "distance_m": round(float(item.get("distance_m") or 0.0), 1),
+                "student_total": int(properties.get("SCHUELER_INSG") or 0),
+                "class_total": int(properties.get("KLASSEN") or 0),
+                "postcode": str(properties.get("PLZ") or "").strip(),
+                "city": str(properties.get("ORT") or "").strip(),
+                "street": str(properties.get("STR") or "").strip(),
+                "skz": str(properties.get("SKZ") or properties.get("SKZ_LAUFEND") or "").strip(),
+            }
+        )
+    selected = next(
+        (
+            item
+            for item in ranked_schools
+            if _property_schoolatlas_transition_capable_school_type(dict(item.get("properties") or {}).get("KARTO_TYP"))
+        ),
+        ranked_schools[0],
+    )
+    selected_properties = dict(selected.get("properties") or {})
+    selected_skz = str(selected_properties.get("SKZ") or selected_properties.get("SKZ_LAUFEND") or "").strip()
+    transition_features: list[dict[str, object]] = []
+    if selected_skz:
+        transition_payload = _property_schoolatlas_wfs_json(
+            "ATLAS_SCHULE_UEBERTRITT_OUT_WFS",
+            viewparams=f"SKZ:{selected_skz}",
+            max_features=500,
+        )
+        transition_features = (
+            list(transition_payload.get("features") or [])
+            if isinstance(transition_payload, dict)
+            else []
+        )
+    known_total = 0
+    gym_total = 0
+    top_destinations: list[dict[str, object]] = []
+    suppressed_destinations = 0
+    for feature in transition_features:
+        if not isinstance(feature, dict):
+            continue
+        properties = dict(feature.get("properties") or {}) if isinstance(feature.get("properties"), dict) else {}
+        count = int(properties.get("ANZAHL") or 0)
+        if count <= 0:
+            suppressed_destinations += 1
+        else:
+            known_total += count
+            if _property_schoolatlas_is_gymnasium_destination(properties):
+                gym_total += count
+        top_destinations.append(
+            {
+                "name": compact_text(str(properties.get("BEZEICHNUNG") or "").strip(), fallback="School", limit=140),
+                "type": str(properties.get("IPUB2_BEZEICHNUNG") or properties.get("TYP_LAUFEND") or properties.get("KARTO_TYP") or "").strip(),
+                "count": count,
+                "count_label": "≤6" if count <= 0 else str(count),
+                "postcode": str(properties.get("PLZ") or "").strip(),
+                "city": str(properties.get("ORT") or "").strip(),
+                "street": str(properties.get("STR") or "").strip(),
+            }
+        )
+    top_destinations.sort(key=lambda item: int(item.get("count") or 0), reverse=True)
+    gymnasium_progression_pct = round((gym_total * 100.0) / known_total, 1) if known_total > 0 else ""
+    selected_name = compact_text(str(selected_properties.get("BEZEICHNUNG") or "").strip(), fallback="School", limit=140)
+    selected_type = str(selected_properties.get("KARTO_TYP") or "").strip()
+    selected_distance_m = round(float(selected.get("distance_m") or 0.0), 1)
+    quality_summary = (
+        f"Nearby SchoolAtlas schools: "
+        + "; ".join(
+            f"{row['name']} ({row['type'] or 'school'}, {int(float(row['distance_m']))} m, {int(row['student_total'] or 0)} students)"
+            for row in nearby_schools
+        )
+    )
+    if known_total > 0:
+        progression_summary = (
+            f"Nearest transition-capable school {selected_name} ({selected_type or 'school'}, {int(selected_distance_m)} m) "
+            f"shows {known_total} disclosed outgoing transitions; about {gymnasium_progression_pct}% lead to Gymnasium/AHS."
+        )
+    elif transition_features:
+        progression_summary = (
+            f"Nearest transition-capable school {selected_name} ({selected_type or 'school'}, {int(selected_distance_m)} m) "
+            f"has SchoolAtlas transition rows, but counts are suppressed or undisclosed."
+        )
+    else:
+        progression_summary = (
+            f"No outgoing SchoolAtlas transition table was available for the nearest transition-capable school "
+            f"{selected_name} ({selected_type or 'school'}, {int(selected_distance_m)} m)."
+        )
+    if suppressed_destinations > 0:
+        progression_summary += f" {suppressed_destinations} destination row(s) were only disclosed as ≤6."
+    return {
+        "school_atlas_quality_summary": quality_summary,
+        "school_atlas_progression_summary": progression_summary,
+        "school_atlas_gymnasium_progression_pct": gymnasium_progression_pct,
+        "school_atlas_top_secondary_destinations": top_destinations[:5],
+        "school_atlas_nearby_schools": nearby_schools,
+        "school_atlas_selected_school": {
+            "name": selected_name,
+            "type": selected_type,
+            "distance_m": selected_distance_m,
+            "skz": selected_skz,
+        },
+        "school_atlas_evidence_type": "hard_public_data",
+        "school_atlas_source_url": _PROPERTY_SCHOOLATLAS_SOURCE_URL,
+    }
+
+
 @lru_cache(maxsize=128)
 def _property_research_nearby_pois(lat: float, lon: float) -> dict[str, object]:
     query = f"""
@@ -3561,6 +4402,18 @@ out center tags;
             metric_key, name_key = "nearest_pharmacy_m", "nearest_pharmacy_name"
         elif tags.get("leisure") == "playground":
             metric_key, name_key = "nearest_playground_m", "nearest_playground_name"
+        elif str(tags.get("brand") or "").strip().lower() == "starbucks" or "starbucks" in str(tags.get("name") or "").strip().lower():
+            metric_key, name_key = "nearest_starbucks_m", "nearest_starbucks_name"
+        elif tags.get("leisure") == "fitness_centre" or tags.get("amenity") == "gym" or tags.get("sport") == "fitness":
+            metric_key, name_key = "nearest_fitness_center_m", "nearest_fitness_center_name"
+        elif tags.get("amenity") == "cinema":
+            metric_key, name_key = "nearest_cinema_m", "nearest_cinema_name"
+        elif tags.get("sport") in {"climbing", "bouldering"} or "boulder" in str(tags.get("name") or "").strip().lower():
+            metric_key, name_key = "nearest_bouldering_m", "nearest_bouldering_name"
+        elif tags.get("leisure") == "dog_park" or tags.get("amenity") == "dog_park":
+            metric_key, name_key = "nearest_dog_park_m", "nearest_dog_park_name"
+        elif tags.get("amenity") == "cafe":
+            metric_key, name_key = "nearest_good_cafe_m", "nearest_good_cafe_name"
         elif tags.get("railway") == "subway_entrance":
             metric_key, name_key = "nearest_subway_m", "nearest_subway_name"
         else:
@@ -3701,6 +4554,8 @@ def _property_source_research_snapshot(property_url: str, image_urls: tuple[str,
         "nearest_pharmacy_m": r"Apotheke</span>\s*<span[^>]*>\s*(\d+)\s*m",
         "nearest_clinic_m": r"Klinik</span>\s*<span[^>]*>\s*(\d+)\s*m",
         "nearest_hospital_m": r"Krankenhaus</span>\s*<span[^>]*>\s*(\d+)\s*m",
+        "nearest_fitness_center_m": r"Fitness(?:center| centre|studio)?</span>\s*<span[^>]*>\s*(\d+)\s*m",
+        "nearest_starbucks_m": r"Starbucks</span>\s*<span[^>]*>\s*(\d+)\s*m",
     }
     for key, pattern in poi_patterns.items():
         match = re.search(pattern, source_html, flags=re.IGNORECASE)
@@ -4419,6 +5274,178 @@ def _property_candidate_matches_min_area(
         property_facts=property_facts,
     )
     return isinstance(area, float) and area >= min_area_m2
+
+
+_PROPERTY_MONTH_NAME_INDEX = {
+    "jan": 1,
+    "january": 1,
+    "januar": 1,
+    "feb": 2,
+    "february": 2,
+    "februar": 2,
+    "mar": 3,
+    "march": 3,
+    "maerz": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "mai": 5,
+    "jun": 6,
+    "june": 6,
+    "juni": 6,
+    "jul": 7,
+    "july": 7,
+    "juli": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "okt": 10,
+    "october": 10,
+    "oktober": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "dez": 12,
+    "december": 12,
+    "dezember": 12,
+}
+_PROPERTY_IMMEDIATE_AVAILABILITY_MARKERS = (
+    "ab sofort",
+    "sofort",
+    "immediately",
+    "ready now",
+    "available now",
+    "bezugsfertig",
+)
+
+
+def _property_parse_availability_date(value: object) -> datetime | None:
+    text = compact_text(str(value or "").strip(), fallback="", limit=120)
+    if not text:
+        return None
+    lowered = text.lower()
+    if any(marker in lowered for marker in _PROPERTY_IMMEDIATE_AVAILABILITY_MARKERS):
+        return datetime.now(timezone.utc)
+    normalized = lowered.replace(".", " ").replace(",", " ").replace("/", " ").replace("-", " ")
+    normalized = " ".join(normalized.split())
+    iso_match = re.search(r"(20\d{2})-(\d{2})-(\d{2})", text)
+    if iso_match:
+        try:
+            return datetime(
+                int(iso_match.group(1)),
+                int(iso_match.group(2)),
+                int(iso_match.group(3)),
+                tzinfo=timezone.utc,
+            )
+        except Exception:
+            return None
+    quarter_match = re.search(r"\bq([1-4])\s*(20\d{2})\b", normalized)
+    if quarter_match:
+        quarter = int(quarter_match.group(1))
+        year = int(quarter_match.group(2))
+        return datetime(year, quarter * 3, 28, tzinfo=timezone.utc)
+    quarter_match = re.search(r"\b(20\d{2})\s*q([1-4])\b", normalized)
+    if quarter_match:
+        year = int(quarter_match.group(1))
+        quarter = int(quarter_match.group(2))
+        return datetime(year, quarter * 3, 28, tzinfo=timezone.utc)
+    month_match = re.search(r"\b([a-zA-Z]+)\s+(20\d{2})\b", normalized)
+    if month_match:
+        month = _PROPERTY_MONTH_NAME_INDEX.get(month_match.group(1).lower())
+        if month:
+            return datetime(int(month_match.group(2)), month, 28, tzinfo=timezone.utc)
+    year_match = re.search(r"\b(20\d{2})\b", normalized)
+    if year_match:
+        return datetime(int(year_match.group(1)), 12, 31, tzinfo=timezone.utc)
+    return None
+
+
+def _property_candidate_availability_date(
+    *,
+    property_facts: dict[str, object] | None = None,
+) -> datetime | None:
+    facts = dict(property_facts or {})
+    for key in ("available_from_iso", "available_from", "availability_date", "move_in_date", "move_in", "availability_label"):
+        parsed = _property_parse_availability_date(facts.get(key))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _property_candidate_matches_availability_horizon(
+    *,
+    available_within_years: int,
+    property_facts: dict[str, object] | None = None,
+) -> bool:
+    if available_within_years <= 0:
+        return True
+    available_at = _property_candidate_availability_date(property_facts=property_facts)
+    if available_at is None:
+        return False
+    deadline = datetime.now(timezone.utc) + timedelta(days=366 * available_within_years)
+    return available_at <= deadline
+
+
+def _property_enrich_future_change_research(
+    facts: dict[str, object] | None,
+    *,
+    investment_research_mode: str,
+    available_within_years: int = 0,
+) -> dict[str, object]:
+    enriched = dict(facts or {})
+    if str(investment_research_mode or "").strip().lower() == "off":
+        enriched.pop("future_change_research", None)
+        return enriched
+    existing = dict(enriched.get("future_change_research") or {}) if isinstance(enriched.get("future_change_research"), dict) else {}
+    existing.setdefault("status", "queued")
+    existing.setdefault("planning_confidence", "unknown")
+    existing.setdefault("investment_impact", "unknown")
+    existing.setdefault("time_horizon_options", ["1y", "3y", "5y", "10y"])
+    existing.setdefault("school_atlas_quality_summary", "")
+    existing.setdefault("school_atlas_progression_summary", "")
+    existing.setdefault("school_atlas_gymnasium_progression_pct", "")
+    existing.setdefault("school_atlas_top_secondary_destinations", [])
+    existing.setdefault("school_atlas_nearby_schools", [])
+    existing.setdefault("school_atlas_selected_school", {})
+    existing.setdefault("school_atlas_evidence_type", "")
+    existing.setdefault("school_atlas_source_url", _PROPERTY_SCHOOLATLAS_SOURCE_URL)
+    existing.setdefault(
+        "focus_areas",
+        [
+            "planned_transport_projects",
+            "road_and_noise_risks",
+            "rezoning_and_supply_pipeline",
+            "employer_and_social_infrastructure",
+            "climate_and_regulatory_risks",
+            "school_atlas_quality_and_progression",
+        ],
+    )
+    if available_within_years > 0:
+        existing["requested_move_in_horizon_years"] = int(available_within_years)
+    if not existing.get("school_atlas_quality_summary") or not existing.get("school_atlas_progression_summary"):
+        lat_value, lon_value = _property_schoolatlas_coords_from_facts(enriched)
+        if lat_value is not None and lon_value is not None:
+            schoolatlas_snapshot = _property_schoolatlas_snapshot(lat_value, lon_value)
+            if isinstance(schoolatlas_snapshot, dict) and schoolatlas_snapshot:
+                for key in (
+                    "school_atlas_quality_summary",
+                    "school_atlas_progression_summary",
+                    "school_atlas_gymnasium_progression_pct",
+                    "school_atlas_top_secondary_destinations",
+                    "school_atlas_nearby_schools",
+                    "school_atlas_selected_school",
+                    "school_atlas_evidence_type",
+                    "school_atlas_source_url",
+                ):
+                    value = schoolatlas_snapshot.get(key)
+                    if value not in (None, "", [], {}):
+                        existing[key] = value
+    existing["updated_at"] = str(existing.get("updated_at") or _now_iso())
+    enriched["future_change_research"] = existing
+    return enriched
 
 
 def _is_invalid_property_scout_task_url(property_url: str, *, source_ref: str = "") -> bool:
@@ -5551,7 +6578,11 @@ def _property_alert_upstream_personalization(
     nearest_supermarket = _float_or_none(facts.get("nearest_supermarket_m"))
     nearest_pharmacy = _float_or_none(facts.get("nearest_pharmacy_m"))
     nearest_playground = _float_or_none(facts.get("nearest_playground_m"))
+    nearest_starbucks = _float_or_none(facts.get("nearest_starbucks_m"))
+    nearest_fitness_center = _float_or_none(facts.get("nearest_fitness_center_m"))
     lease_term_years = _float_or_none(facts.get("lease_term_years_max"))
+    source_platform = _normalize_property_search_platform(facts.get("source_platform") or facts.get("platform") or "")
+    apply_flatbee_reputation_penalty = bool(facts.get("apply_flatbee_reputation_penalty", True))
     matches: list[str] = []
     conflicts: list[str] = []
     unknowns: list[str] = []
@@ -5695,6 +6726,10 @@ def _property_alert_upstream_personalization(
             else:
                 conflicts.append("Outdoor space is weak for your learned balcony or terrace preference.")
                 score_delta -= 2.5
+    if source_platform == "flatbee" and apply_flatbee_reputation_penalty:
+        learned_axes.append("provider_reputation")
+        conflicts.append("Flatbee results carry a strong trust and duplicate-listing penalty in all-provider search mode.")
+        score_delta -= 18.0
 
     base_fit_score = 0.0
     if isinstance(assessment, dict):
@@ -5944,6 +6979,8 @@ def _property_feedback_suggestion_groups(
     nearest_supermarket = _float_or_none(facts.get("nearest_supermarket_m"))
     nearest_pharmacy = _float_or_none(facts.get("nearest_pharmacy_m"))
     nearest_playground = _float_or_none(facts.get("nearest_playground_m"))
+    nearest_starbucks = _float_or_none(facts.get("nearest_starbucks_m"))
+    nearest_fitness_center = _float_or_none(facts.get("nearest_fitness_center_m"))
     nearest_cycleway = _float_or_none(facts.get("nearest_cycleway_m"))
     nearest_running = _float_or_none(facts.get("nearest_running_m"))
     lease_years = _float_or_none(facts.get("lease_term_years_max"))
@@ -6658,6 +7695,8 @@ def _property_tour_delivery_message(
         ("nearest_supermarket_m", "Supermarket"),
         ("nearest_pharmacy_m", "Pharmacy"),
         ("nearest_bakery_m", "Bakery"),
+        ("nearest_starbucks_m", "Starbucks"),
+        ("nearest_fitness_center_m", "Fitness"),
         ("nearest_bicycle_parking_m", "Bicycle parking"),
         ("nearest_cycleway_m", "Cycleway"),
         ("nearest_playground_m", "Playground"),
@@ -8217,15 +9256,18 @@ def _property_public_app_base_url() -> str:
     if explicit:
         return explicit
     inherited = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
-    if inherited and "myexternalbrain.com" not in inherited.lower():
+    if inherited:
         return inherited
-    return "https://propertyquarry.com"
+    return _public_app_base_url()
 
 
 def _property_public_tour_base_url() -> str:
     explicit = str(os.getenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL") or "").strip().rstrip("/")
     if explicit:
         return explicit
+    inherited = str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "").strip().rstrip("/")
+    if inherited:
+        return inherited
     return f"{_property_public_app_base_url()}/tours"
 
 
@@ -9433,6 +10475,96 @@ def _tag_summary_text(value: object) -> str:
     return str(value or "").strip()
 
 
+def _property_profile_import_gmail_query(*, lookback_days: int) -> str:
+    normalized_days = max(7, min(int(lookback_days or 365), 3650))
+    return (
+        f"newer_than:{normalized_days}d "
+        "("
+        "\"wohnung\" OR \"immobilie\" OR \"besichtigung\" OR \"vormerk\" OR "
+        "\"warteliste\" OR \"genossenschaft\" OR \"suchagent\" OR \"willhaben\" OR "
+        "\"immoscout\" OR \"immmo\" OR \"miete\" OR \"kauf\""
+        ")"
+    )
+
+
+def _property_profile_provider_from_text(value: str) -> str:
+    lowered = str(value or "").strip().lower()
+    for provider, markers in _PROPERTY_PROFILE_IMPORT_PROVIDER_MARKERS.items():
+        if any(marker in lowered for marker in markers):
+            return provider
+    return ""
+
+
+def _property_profile_detect_location_hint(value: str) -> str:
+    lowered = str(value or "").strip().lower()
+    if not lowered:
+        return ""
+    for marker in _PROPERTY_PROFILE_IMPORT_DISTRICT_MARKERS:
+        if marker in lowered:
+            return marker.replace("ae", "ä").replace("oe", "ö").replace("ue", "ü").title()
+    postal_match = re.search(r"\b(1[0-2][0-9]{2}|3[0-4][0-9]{2})\b", lowered)
+    if postal_match:
+        return postal_match.group(1)
+    return ""
+
+
+def _property_profile_detect_price_eur(value: str) -> float | None:
+    match = re.search(r"(?:€|eur)\s*([0-9][0-9\.\s]{2,}(?:,[0-9]{2})?)|([0-9][0-9\.\s]{2,}(?:,[0-9]{2})?)\s*(?:€|eur)", str(value or ""), re.IGNORECASE)
+    raw = ""
+    if match is not None:
+        raw = str(match.group(1) or match.group(2) or "").strip()
+    if not raw:
+        return None
+    normalized = raw.replace(" ", "").replace(".", "").replace(",", ".")
+    try:
+        return float(normalized)
+    except Exception:
+        return None
+
+
+def _property_profile_detect_area_sqm(value: str) -> float | None:
+    match = re.search(r"\b([0-9]{2,3}(?:[.,][0-9])?)\s*(?:m²|m2|qm)\b", str(value or ""), re.IGNORECASE)
+    if match is None:
+        return None
+    try:
+        return float(str(match.group(1) or "").replace(",", "."))
+    except Exception:
+        return None
+
+
+def _property_profile_detect_rooms(value: str) -> float | None:
+    match = re.search(r"\b([1-9](?:[.,][0-9])?)\s*(?:zimmer|zi\b|rooms?)", str(value or ""), re.IGNORECASE)
+    if match is None:
+        return None
+    try:
+        return float(str(match.group(1) or "").replace(",", "."))
+    except Exception:
+        return None
+
+
+def _property_profile_detect_activity_kind(value: str) -> str:
+    lowered = str(value or "").strip().lower()
+    if not lowered:
+        return ""
+    if any(marker in lowered for marker in ("vormerk", "warteliste", "vorangemeldet", "angemeldet", "registriert", "pre-registration", "vorgemerkt")):
+        return "preregistration"
+    if any(marker in lowered for marker in ("besichtigung", "viewing", "tour", "termin")):
+        return "viewing"
+    if any(marker in lowered for marker in ("nachgefragt", "anfrage", "interesse", "rueckfrage", "rückfrage", "reply", "antwort")):
+        return "inquiry"
+    if any(marker in lowered for marker in ("exposé", "expose", "unterlagen", "grundriss")):
+        return "follow_up"
+    return ""
+
+
+def _property_profile_detect_features(value: str) -> list[str]:
+    found: list[str] = []
+    for key, pattern in _PROPERTY_PROFILE_IMPORT_FEATURE_PATTERNS.items():
+        if pattern.search(str(value or "")):
+            found.append(key)
+    return found
+
+
 class ProductService:
     def __init__(self, container: AppContainer) -> None:
         self._container = container
@@ -9503,6 +10635,304 @@ class ProductService:
             status=status,
             decay_policy=decay_policy,
         )
+
+    def import_property_mailbox_preferences(
+        self,
+        *,
+        principal_id: str,
+        person_id: str = "self",
+        actor: str = "",
+        account_email: str = "",
+        consent_note: str = "",
+        email_limit: int = 80,
+        lookback_days: int = 365,
+    ) -> dict[str, object]:
+        normalized_person_id = str(person_id or "").strip() or "self"
+        normalized_actor = str(actor or "").strip() or "mailbox_import"
+        normalized_account_email = str(account_email or "").strip().lower()
+        if normalized_person_id == "self":
+            display_name = _principal_email_hint(principal_id) or "Principal"
+        else:
+            display_name = normalized_person_id.replace("_", " ").replace("-", " ").strip().title() or normalized_person_id
+        self.upsert_preference_profile(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+            display_name=display_name,
+        )
+        packet = google_oauth_service.list_recent_workspace_signals(
+            container=self._container,
+            principal_id=principal_id,
+            email_limit=max(1, min(int(email_limit or 80), 250)),
+            calendar_limit=0,
+            account_email_filter=normalized_account_email,
+            gmail_query=_property_profile_import_gmail_query(lookback_days=lookback_days),
+        )
+        activities: list[dict[str, object]] = []
+        for signal in packet.signals:
+            activity = self._property_mailbox_import_activity_from_signal(signal=signal)
+            if not activity:
+                continue
+            activities.append(activity)
+            self.record_preference_evidence(
+                principal_id=principal_id,
+                person_id=normalized_person_id,
+                domain="property",
+                event_type="document_pattern_detected",
+                object_type="property_search",
+                object_id=str(activity.get("object_id") or activity.get("thread_id") or activity.get("source_ref") or uuid4().hex).strip(),
+                source_ref=str(activity.get("source_ref") or "").strip(),
+                raw_signal_json=dict(activity),
+                interpreted_signal_json={
+                    "source": "gmail_property_history_import",
+                    "activity_kind": str(activity.get("activity_kind") or "").strip(),
+                    "provider": str(activity.get("provider") or "").strip(),
+                },
+                signal_strength=0.75,
+                reversible=True,
+            )
+        preference_hints = self._property_mailbox_preference_hints_from_activities(activities=activities)
+        evidence_result = self.record_preference_evidence(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+            domain="property",
+            event_type="document_pattern_detected",
+            object_type="profile",
+            object_id=f"gmail-mailbox-import:{normalized_person_id}",
+            source_ref=f"gmail-mailbox-import:{normalized_account_email or normalized_person_id}",
+            raw_signal_json={
+                "account_email": normalized_account_email or packet.account_email,
+                "account_emails": list(packet.account_emails or ()),
+                "actor": normalized_actor,
+                "consent_note": compact_text(consent_note, fallback="", limit=500),
+                "lookback_days": max(7, min(int(lookback_days or 365), 3650)),
+                "activities": [dict(item) for item in activities[:50]],
+            },
+            interpreted_signal_json={
+                "source": "gmail_property_history_import",
+                "preference_hints": preference_hints,
+                "activity_total": len(activities),
+            },
+            signal_strength=0.95 if activities else 0.4,
+            reversible=True,
+        )
+        teable_sync = self.request_preference_teable_sync(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+        )
+        snapshot = self.get_preference_profile(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+        )
+        return {
+            "status": "imported",
+            "person_id": normalized_person_id,
+            "account_email": normalized_account_email or packet.account_email,
+            "consent_confirmed": True,
+            "consent_note": compact_text(consent_note, fallback="", limit=500),
+            "imported_thread_total": len({str(item.get("source_ref") or "").strip() for item in activities if str(item.get("source_ref") or "").strip()}),
+            "activity_total": len(activities),
+            "preregistration_total": sum(1 for item in activities if str(item.get("activity_kind") or "") == "preregistration"),
+            "inquiry_total": sum(1 for item in activities if str(item.get("activity_kind") or "") == "inquiry"),
+            "viewing_total": sum(1 for item in activities if str(item.get("activity_kind") or "") == "viewing"),
+            "applied_nodes": list(evidence_result.get("applied_nodes") or []),
+            "activities": [dict(item) for item in activities[:25]],
+            "preference_snapshot": snapshot,
+            "teable_sync_status": str(teable_sync.get("sync_result") or teable_sync.get("status") or "").strip(),
+            "teable_blocked_reason": str(teable_sync.get("blocked_reason") or "").strip(),
+        }
+
+    def _property_mailbox_import_activity_from_signal(
+        self,
+        *,
+        signal: google_oauth_service.GoogleWorkspaceSignal,
+    ) -> dict[str, object]:
+        payload = dict(signal.payload or {})
+        subject = str(signal.title or "").strip()
+        summary = str(signal.summary or "").strip()
+        body_text = str(payload.get("body_text_excerpt") or signal.text or "").strip()
+        sender = " ".join(
+            part for part in (
+                str(payload.get("from_name") or "").strip(),
+                str(payload.get("from_email") or "").strip().lower(),
+                str(signal.counterparty or "").strip(),
+            )
+            if part
+        ).strip()
+        combined = " \n ".join(part for part in (subject, summary, body_text, sender) if part)
+        activity_kind = _property_profile_detect_activity_kind(combined)
+        provider = _property_profile_provider_from_text(combined)
+        if not activity_kind and not provider:
+            return {}
+        features = _property_profile_detect_features(combined)
+        lower_text = combined.lower()
+        inferred_listing_mode = "buy" if any(marker in lower_text for marker in ("kauf", "eigentum", "purchase")) else "rent"
+        inferred_property_type = "house" if any(marker in lower_text for marker in ("haus", "house", "reihenhaus")) else "apartment"
+        thread_id = str(payload.get("thread_id") or "").strip()
+        return {
+            "object_id": thread_id or str(signal.source_ref or "").strip() or uuid4().hex,
+            "source_ref": str(signal.source_ref or "").strip(),
+            "thread_id": thread_id,
+            "account_email": str(payload.get("account_email") or "").strip().lower(),
+            "activity_kind": activity_kind or "property_signal",
+            "provider": provider,
+            "subject": compact_text(subject, fallback="Property mailbox activity", limit=240),
+            "location_hint": _property_profile_detect_location_hint(combined),
+            "price_eur": _property_profile_detect_price_eur(combined),
+            "area_sqm": _property_profile_detect_area_sqm(combined),
+            "rooms": _property_profile_detect_rooms(combined),
+            "detected_features": features,
+            "inferred_listing_mode": inferred_listing_mode,
+            "inferred_property_type": inferred_property_type,
+        }
+
+    def _property_mailbox_preference_hints_from_activities(
+        self,
+        *,
+        activities: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        hints: list[dict[str, object]] = []
+        if not activities:
+            return hints
+        districts: list[str] = []
+        areas: list[float] = []
+        rooms: list[float] = []
+        prices: list[float] = []
+        feature_counts: dict[str, int] = {}
+        listing_modes: list[str] = []
+        property_types: list[str] = []
+        for item in activities:
+            location_hint = str(item.get("location_hint") or "").strip()
+            if location_hint:
+                districts.append(location_hint)
+            area_value = item.get("area_sqm")
+            if isinstance(area_value, (int, float)) and float(area_value) > 0:
+                areas.append(float(area_value))
+            rooms_value = item.get("rooms")
+            if isinstance(rooms_value, (int, float)) and float(rooms_value) > 0:
+                rooms.append(float(rooms_value))
+            price_value = item.get("price_eur")
+            if isinstance(price_value, (int, float)) and float(price_value) > 0:
+                prices.append(float(price_value))
+            for feature in list(item.get("detected_features") or []):
+                normalized_feature = str(feature or "").strip()
+                if normalized_feature:
+                    feature_counts[normalized_feature] = feature_counts.get(normalized_feature, 0) + 1
+            listing_mode = str(item.get("inferred_listing_mode") or "").strip()
+            if listing_mode:
+                listing_modes.append(listing_mode)
+            property_type = str(item.get("inferred_property_type") or "").strip()
+            if property_type:
+                property_types.append(property_type)
+        unique_districts: list[str] = []
+        seen_districts: set[str] = set()
+        for item in districts:
+            marker = item.lower()
+            if marker in seen_districts:
+                continue
+            seen_districts.add(marker)
+            unique_districts.append(item)
+        if unique_districts:
+            hints.append(
+                {
+                    "domain": "property",
+                    "category": "soft_preference",
+                    "key": "preferred_districts",
+                    "value_json": unique_districts[:12],
+                    "strength": "high",
+                    "merge_mode": "append_unique",
+                    "source_mode": "behavioral_inference",
+                    "confidence": 0.88,
+                }
+            )
+        if areas:
+            hints.append(
+                {
+                    "domain": "property",
+                    "category": "soft_preference",
+                    "key": "min_area_sqm_preference",
+                    "value_json": max(1, int(round(statistics.median(areas)))),
+                    "strength": "medium",
+                    "source_mode": "behavioral_inference",
+                    "confidence": 0.76,
+                }
+            )
+        if rooms:
+            hints.append(
+                {
+                    "domain": "property",
+                    "category": "constraint",
+                    "key": "min_rooms",
+                    "value_json": max(1, int(math.floor(min(rooms)))),
+                    "strength": "medium",
+                    "source_mode": "behavioral_inference",
+                    "confidence": 0.72,
+                }
+            )
+        if prices:
+            hints.append(
+                {
+                    "domain": "property",
+                    "category": "soft_preference",
+                    "key": "prefer_lower_total_rent_eur",
+                    "value_json": max(1, int(round(statistics.median(prices)))),
+                    "strength": "medium",
+                    "source_mode": "behavioral_inference",
+                    "confidence": 0.68,
+                }
+            )
+        total = max(len(activities), 1)
+        feature_key_map = {
+            "balcony": ("soft_preference", "prefer_balcony"),
+            "outdoor_space": ("soft_preference", "prefer_outdoor_space"),
+            "lift": ("soft_preference", "prefer_lift"),
+            "floorplan": ("soft_preference", "requires_floorplan_for_remote_review"),
+            "tour_360": ("soft_preference", "prefer_360_for_remote_review"),
+            "playground": ("soft_preference", "prefer_playgrounds_nearby"),
+            "subway": ("soft_preference", "prefer_subway_nearby"),
+            "quiet": ("soft_preference", "prefer_quiet_micro_location"),
+        }
+        for feature, count in feature_counts.items():
+            if count / total < 0.45:
+                continue
+            category_key = feature_key_map.get(feature)
+            if category_key is None:
+                continue
+            hints.append(
+                {
+                    "domain": "property",
+                    "category": category_key[0],
+                    "key": category_key[1],
+                    "value_json": True,
+                    "strength": "medium" if count / total < 0.7 else "high",
+                    "source_mode": "behavioral_inference",
+                    "confidence": 0.6 if count / total < 0.7 else 0.82,
+                }
+            )
+        if listing_modes and listing_modes.count("buy") >= listing_modes.count("rent"):
+            hints.append(
+                {
+                    "domain": "general",
+                    "category": "workflow_preference",
+                    "key": "prefers_direct_followups",
+                    "value_json": True,
+                    "strength": "low",
+                    "source_mode": "behavioral_inference",
+                    "confidence": 0.55,
+                }
+            )
+        if property_types and property_types.count("house") >= max(1, property_types.count("apartment")):
+            hints.append(
+                {
+                    "domain": "general",
+                    "category": "decision_style",
+                    "key": "needs_side_by_side_comparison",
+                    "value_json": True,
+                    "strength": "low",
+                    "source_mode": "behavioral_inference",
+                    "confidence": 0.45,
+                }
+            )
+        return hints
 
     def apply_preference_correction(
         self,
@@ -14638,7 +16068,7 @@ class ProductService:
             task_type="property_alert_review",
             role_required="operator",
             brief=_property_alert_review_brief(title),
-            why_human="Apartment-search mail should stay visible as a review item, not a fake commitment. Decide whether to open the listing, generate a tour, or ignore the alert.",
+            why_human="Property research, fit reasoning, and review actions for this alert.",
             priority=task_priority,
             input_json={
                 "title": str(title or "").strip(),
@@ -17229,6 +18659,11 @@ class ProductService:
             granted_scopes=packet.granted_scopes,
             signals=filtered_signals,
         )
+        self._apply_property_signal_preference_learning(
+            principal_id=principal_id,
+            actor=actor,
+            signals=filtered_signals,
+        )
         return self._ingest_google_workspace_signal_packet(
             principal_id=principal_id,
             actor=actor,
@@ -17238,6 +18673,60 @@ class ProductService:
             event_type="google_willhaben_signal_sync_completed",
             dedupe_key_prefix="google-willhaben-signal-sync",
         )
+
+    def _apply_property_signal_preference_learning(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        signals: tuple[google_oauth_service.GoogleWorkspaceSignal, ...],
+    ) -> None:
+        grouped_activities: dict[str, list[dict[str, object]]] = {}
+        grouped_account_emails: dict[str, str] = {}
+        for signal in signals:
+            payload = dict(signal.payload or {})
+            person_id = _property_alert_preference_person_id(payload)
+            if str(person_id or "").strip().lower() == "self":
+                continue
+            activity = self._property_mailbox_import_activity_from_signal(signal=signal)
+            if not activity:
+                continue
+            normalized_person_id = str(person_id or "").strip()
+            grouped_activities.setdefault(normalized_person_id, []).append(activity)
+            account_email = str(payload.get("account_email") or "").strip().lower()
+            if account_email:
+                grouped_account_emails[normalized_person_id] = account_email
+        for person_id, activities in grouped_activities.items():
+            preference_hints = self._property_mailbox_preference_hints_from_activities(activities=activities)
+            if not preference_hints:
+                continue
+            display_name = person_id.replace("_", " ").replace("-", " ").strip().title() or person_id
+            self.upsert_preference_profile(
+                principal_id=principal_id,
+                person_id=person_id,
+                display_name=display_name,
+            )
+            self.record_preference_evidence(
+                principal_id=principal_id,
+                person_id=person_id,
+                domain="property",
+                event_type="document_pattern_detected",
+                object_type="profile",
+                object_id=f"google-property-sync:{person_id}",
+                source_ref=f"google-property-sync:{grouped_account_emails.get(person_id) or person_id}",
+                raw_signal_json={
+                    "account_email": grouped_account_emails.get(person_id, ""),
+                    "actor": str(actor or "").strip() or "google_sync",
+                    "activities": [dict(item) for item in activities[:50]],
+                },
+                interpreted_signal_json={
+                    "source": "google_property_sync",
+                    "preference_hints": preference_hints,
+                    "activity_total": len(activities),
+                },
+                signal_strength=0.9,
+                reversible=True,
+            )
 
     def _snapshot_property_search_run(self, *, run_id: str, principal_id: str) -> dict[str, object] | None:
         normalized_run_id = str(run_id or "").strip()
@@ -17627,7 +19116,45 @@ class ProductService:
             return urllib.parse.urljoin(f"{_property_public_app_base_url()}/", raw.lstrip("/"))
         return ""
 
-    def _property_search_results_email_top_properties(self, *, result: dict[str, object]) -> list[dict[str, object]]:
+    def _property_search_results_email_top_properties(
+        self,
+        *,
+        result: dict[str, object],
+        workspace_access_url: str = "",
+    ) -> list[dict[str, object]]:
+        def _secure_workspace_link(target: object) -> str:
+            raw_target = str(target or "").strip()
+            if not raw_target:
+                return ""
+            absolute_target = self._property_absolute_app_url(raw_target)
+            if not workspace_access_url:
+                return absolute_target or raw_target
+            if absolute_target:
+                parsed_target = urllib.parse.urlparse(absolute_target)
+                if parsed_target.path.startswith("/workspace-access/"):
+                    return absolute_target
+            parsed_access = urllib.parse.urlparse(workspace_access_url)
+            query = urllib.parse.parse_qs(parsed_access.query, keep_blank_values=True)
+            target_value = raw_target
+            if absolute_target:
+                target_parts = urllib.parse.urlparse(absolute_target)
+                target_value = target_parts.path or "/app/properties"
+                if target_parts.query:
+                    target_value = f"{target_value}?{target_parts.query}"
+                if target_parts.fragment:
+                    target_value = f"{target_value}#{target_parts.fragment}"
+            query["return_to"] = [target_value]
+            return urllib.parse.urlunparse(
+                (
+                    parsed_access.scheme,
+                    parsed_access.netloc,
+                    parsed_access.path,
+                    parsed_access.params,
+                    urllib.parse.urlencode(query, doseq=True),
+                    parsed_access.fragment,
+                )
+            )
+
         rows: list[dict[str, object]] = []
         for source in list(dict(result or {}).get("sources") or []):
             if not isinstance(source, dict):
@@ -17682,9 +19209,12 @@ class ProductService:
                             fallback=f"Personal fit {fit_score:.0f}/100" if fit_score else "",
                             limit=160,
                         ),
-                        "review_url": review_url or click_url,
-                        "tour_url": tour_url,
-                        "property_url": property_url,
+                        "review_url": _secure_workspace_link(review_url or click_url),
+                        "tour_url": _secure_workspace_link(tour_url),
+                        "property_url": _secure_workspace_link(property_url),
+                        "raw_review_url": review_url or click_url,
+                        "raw_tour_url": tour_url,
+                        "raw_property_url": property_url,
                         "tour_status": str(candidate.get("tour_status") or ("ready" if tour_url else "pending")).strip(),
                         "price_label": compact_text(price_label, fallback="", limit=80),
                         "area_label": compact_text(area_label, fallback="", limit=80),
@@ -17728,7 +19258,10 @@ class ProductService:
             int(result.get("ready_tour_total") or 0),
             int(result.get("tour_created_total") or 0) + int(result.get("tour_existing_total") or 0),
         )
-        top_properties = self._property_search_results_email_top_properties(result=result)
+        top_properties = self._property_search_results_email_top_properties(
+            result=result,
+            workspace_access_url=absolute_access_url,
+        )
         receipt = send_property_search_results_ready_email(
             recipient_email=recipient_email,
             results_url=results_url,
@@ -18036,13 +19569,22 @@ class ProductService:
         merged_preferences = normalize_property_search_preferences(merged_preferences)
 
         explicit_platform_input = bool(selected_platforms)
-        normalized_platforms = _normalize_property_search_platform_inputs(selected_platforms)
+        normalized_platforms = _property_search_platforms_with_family_toggles(
+            _normalize_property_search_platform_inputs(selected_platforms),
+            merged_preferences,
+        )
         if explicit_platform_input and not normalized_platforms:
             raise ValueError("invalid_property_search_platform")
         if not normalized_platforms and not explicit_platform_input:
-            normalized_platforms = _normalize_property_search_platform_inputs(merged_preferences.get("selected_platforms"))
+            normalized_platforms = _property_search_platforms_with_family_toggles(
+                _normalize_property_search_platform_inputs(merged_preferences.get("selected_platforms")),
+                merged_preferences,
+            )
             if not normalized_platforms:
-                normalized_platforms = tuple(default_platforms_for_country(merged_preferences.get("country_code")))
+                normalized_platforms = _property_search_platforms_with_family_toggles(
+                    tuple(default_platforms_for_country(merged_preferences.get("country_code"))),
+                    merged_preferences,
+                )
 
         merged_preferences["selected_platforms"] = list(normalized_platforms)
         merged_preferences["country_code"] = normalize_country_code(
@@ -18413,7 +19955,10 @@ class ProductService:
         max_results_per_source: int | None = None,
         progress_callback: callable | None = None,
     ) -> dict[str, object]:
-        run_platforms = _normalize_property_search_platform_inputs(selected_platforms)
+        run_platforms = _property_search_platforms_with_family_toggles(
+            _normalize_property_search_platform_inputs(selected_platforms),
+            property_search_preferences,
+        )
 
         def _report(
             *,
@@ -18469,17 +20014,60 @@ class ProductService:
         )
         location_hints = _property_search_location_hints(request_preferences)
         requested_property_type = normalize_property_type(request_preferences.get("property_type"))
+        listing_mode = str(request_preferences.get("listing_mode") or "rent").strip().lower() or "rent"
+        investment_research_mode = str(request_preferences.get("investment_research_mode") or "off").strip().lower() or "off"
+        if listing_mode != "buy":
+            investment_research_mode = "off"
         min_match_score = _property_search_effective_min_match_score(request_preferences)
         match_score_cap = _property_search_match_score_cap(request_preferences)
         min_area_m2 = _float_or_none(request_preferences.get("min_area_m2")) or 0.0
         if min_area_m2 < 0.0:
             min_area_m2 = 0.0
+        try:
+            available_within_years = max(0, min(10, int(float(str(request_preferences.get("available_within_years") or "").strip()))))
+        except Exception:
+            available_within_years = 0
         require_floorplan = _property_truthy_flag(request_preferences.get("require_floorplan"))
+        enable_lifestyle_research = _property_truthy_flag(request_preferences.get("enable_lifestyle_research"))
+        enable_family_mode = _property_truthy_flag(request_preferences.get("enable_family_mode"))
+        enable_commute_research = _property_truthy_flag(request_preferences.get("enable_commute_research"))
+        apply_unknowns_penalty = _property_truthy_flag(request_preferences.get("apply_unknowns_penalty"))
+        enable_action_readiness_research = _property_truthy_flag(request_preferences.get("enable_action_readiness_research"))
+        desired_project_stages = [
+            str(item or "").strip().lower()
+            for item in list(request_preferences.get("desired_project_stages") or [])
+            if str(item or "").strip()
+        ]
+        commute_destination = str(request_preferences.get("commute_destination") or "").strip()
         request_preferences["min_match_score"] = min_match_score
         if min_area_m2 > 0.0:
             request_preferences["min_area_m2"] = int(min_area_m2) if min_area_m2.is_integer() else round(min_area_m2, 2)
+        if available_within_years > 0:
+            request_preferences["available_within_years"] = available_within_years
+        else:
+            request_preferences.pop("available_within_years", None)
         request_preferences["require_floorplan"] = require_floorplan
         request_preferences["use_stored_feedback_preferences"] = use_stored_feedback_preferences
+        request_preferences["investment_research_mode"] = investment_research_mode
+        request_preferences["enable_family_mode"] = enable_family_mode
+        request_preferences["enable_commute_research"] = enable_commute_research
+        request_preferences["apply_unknowns_penalty"] = apply_unknowns_penalty
+        request_preferences["enable_action_readiness_research"] = enable_action_readiness_research
+        request_preferences["desired_project_stages"] = desired_project_stages
+        if commute_destination:
+            request_preferences["commute_destination"] = commute_destination
+        else:
+            request_preferences.pop("commute_destination", None)
+        if not enable_lifestyle_research:
+            for numeric_key in (
+                "max_distance_to_starbucks_m",
+                "max_distance_to_fitness_center_m",
+                "max_distance_to_cinema_m",
+                "max_distance_to_bouldering_m",
+                "max_distance_to_dog_park_m",
+                "max_distance_to_good_cafe_m",
+            ):
+                request_preferences.pop(numeric_key, None)
 
         specs = [
             dict(spec)
@@ -18504,7 +20092,9 @@ class ProductService:
                 "high_match_min_score": min_match_score,
                 "max_match_score": match_score_cap,
                 "min_area_m2": request_preferences.get("min_area_m2") or 0,
+                "available_within_years": available_within_years,
                 "require_floorplan": require_floorplan,
+                "investment_research_mode": investment_research_mode,
                 "use_stored_feedback_preferences": use_stored_feedback_preferences,
             },
             steps_delta=1,
@@ -18527,6 +20117,7 @@ class ProductService:
                 "failed_total": 0,
                 "filtered_property_type_total": 0,
                 "filtered_area_total": 0,
+                "filtered_availability_total": 0,
                 "filtered_floorplan_total": 0,
                 "filtered_low_fit_total": 0,
                 "provider_cache_hit_total": 0,
@@ -18534,8 +20125,29 @@ class ProductService:
                 "high_match_min_score": min_match_score,
                 "max_match_score": match_score_cap,
                 "min_area_m2": request_preferences.get("min_area_m2") or 0,
+                "available_within_years": available_within_years,
                 "require_floorplan": require_floorplan,
+                "investment_research_mode": investment_research_mode,
                 "use_stored_feedback_preferences": use_stored_feedback_preferences,
+                "include_broker_direct_sources": bool(request_preferences.get("include_broker_direct_sources")),
+                "include_community_signals": bool(request_preferences.get("include_community_signals")),
+                "require_manual_validation_for_community": bool(request_preferences.get("require_manual_validation_for_community")),
+                "include_developer_project_signals": bool(request_preferences.get("include_developer_project_signals")),
+                "include_public_housing_signals": bool(request_preferences.get("include_public_housing_signals")),
+                "include_distressed_sale_signals": bool(request_preferences.get("include_distressed_sale_signals")),
+                "enable_building_risk_research": bool(request_preferences.get("enable_building_risk_research")),
+                "enable_market_supply_research": bool(request_preferences.get("enable_market_supply_research")),
+                "enable_location_risk_research": bool(request_preferences.get("enable_location_risk_research")),
+                "enable_trust_risk_scoring": bool(request_preferences.get("enable_trust_risk_scoring")),
+                "enable_family_mode": enable_family_mode,
+                "enable_commute_research": enable_commute_research,
+                "commute_destination": commute_destination,
+                "max_commute_minutes_transit": int(request_preferences.get("max_commute_minutes_transit") or 0),
+                "max_commute_minutes_drive": int(request_preferences.get("max_commute_minutes_drive") or 0),
+                "max_commute_minutes_bike": int(request_preferences.get("max_commute_minutes_bike") or 0),
+                "desired_project_stages": desired_project_stages,
+                "apply_unknowns_penalty": apply_unknowns_penalty,
+                "enable_action_readiness_research": enable_action_readiness_research,
                 "watch_notified_total": 0,
                 "sources": [],
             }
@@ -18552,6 +20164,7 @@ class ProductService:
         failed_total = 0
         filtered_property_type_total = 0
         filtered_area_total = 0
+        filtered_availability_total = 0
         filtered_floorplan_total = 0
         filtered_low_fit_total = 0
         provider_cache_hit_total = 0
@@ -18579,6 +20192,7 @@ class ProductService:
                 source_preference_person_id = preference_person_id
             filtered_property_type_for_source = 0
             filtered_area_for_source = 0
+            filtered_availability_for_source = 0
             filtered_floorplan_for_source = 0
             filtered_low_fit_for_source = 0
             provider_cache_state: dict[str, object] = {"status": "not_started", "cache_key": provider_cache_key}
@@ -18661,6 +20275,7 @@ class ProductService:
                     "high_match_min_score": min_match_score,
                     "max_match_score": match_score_cap,
                     "min_area_m2": request_preferences.get("min_area_m2") or 0,
+                    "available_within_years": available_within_years,
                 },
                 stages_total_override=2 + (len(specs) * max(8, (max(1, len(listing_urls)) * 2) + 6)),
             )
@@ -18687,6 +20302,17 @@ class ProductService:
                     facts=preview_facts,
                     source_url=source_url,
                     source_label=source_label,
+                )
+                preview_facts["source_platform"] = str(source_spec.get("platform") or "").strip().lower()
+                preview_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
+                preview_facts["source_trust_tier"] = str(source_spec.get("provider_trust_tier") or "").strip().lower()
+                preview_facts["source_access_level"] = str(source_spec.get("source_access_level") or "").strip().lower()
+                preview_facts["verification_required"] = bool(source_spec.get("verification_required"))
+                preview_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
+                preview_facts = _property_enrich_future_change_research(
+                    preview_facts,
+                    investment_research_mode=investment_research_mode,
+                    available_within_years=available_within_years,
                 )
                 preview["property_facts_json"] = preview_facts
                 preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
@@ -18729,6 +20355,12 @@ class ProductService:
                                 source_url=source_url,
                                 source_label=source_label,
                             )
+                            preview_facts["source_platform"] = str(source_spec.get("platform") or "").strip().lower()
+                            preview_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
+                            preview_facts["source_trust_tier"] = str(source_spec.get("provider_trust_tier") or "").strip().lower()
+                            preview_facts["source_access_level"] = str(source_spec.get("source_access_level") or "").strip().lower()
+                            preview_facts["verification_required"] = bool(source_spec.get("verification_required"))
+                            preview_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
                             preview["property_facts_json"] = preview_facts
                             preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
                             preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
@@ -18754,6 +20386,23 @@ class ProductService:
                         },
                     )
                     continue
+                if available_within_years > 0 and not _property_candidate_matches_availability_horizon(
+                    available_within_years=available_within_years,
+                    property_facts=preview_facts,
+                ):
+                    filtered_availability_total += 1
+                    filtered_availability_for_source += 1
+                    _report(
+                        step="source_availability_filter",
+                        message=f"Skipped candidate {ordinal} of {len(listing_urls)} outside the move-in horizon for {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                        summary_updates={
+                            "filtered_availability_total": filtered_availability_total,
+                            "available_within_years": available_within_years,
+                        },
+                    )
+                    continue
                 if require_floorplan and not _property_candidate_has_floorplan(
                     property_url=property_url,
                     title=preview_title,
@@ -18775,6 +20424,12 @@ class ProductService:
                                 source_url=source_url,
                                 source_label=source_label,
                             )
+                            preview_facts["source_platform"] = str(source_spec.get("platform") or "").strip().lower()
+                            preview_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
+                            preview_facts["source_trust_tier"] = str(source_spec.get("provider_trust_tier") or "").strip().lower()
+                            preview_facts["source_access_level"] = str(source_spec.get("source_access_level") or "").strip().lower()
+                            preview_facts["verification_required"] = bool(source_spec.get("verification_required"))
+                            preview_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
                             preview["property_facts_json"] = preview_facts
                             preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
                             preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
@@ -18843,6 +20498,7 @@ class ProductService:
                     preliminary_rows = preliminary_matching_rows
             analysis_limit = len(preliminary_rows)
             ranked_rows: list[dict[str, object]] = []
+            top_watch_candidate_for_source: dict[str, object] | None = None
             for ordinal, row in enumerate(preliminary_rows[:analysis_limit], start=1):
                 if len(ranked_rows) >= max_results:
                     break
@@ -18871,6 +20527,22 @@ class ProductService:
                     facts=detailed_facts,
                     source_url=source_url,
                     source_label=source_label,
+                )
+                detailed_facts["source_platform"] = str(source_spec.get("platform") or "").strip().lower()
+                detailed_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
+                detailed_facts["source_trust_tier"] = str(source_spec.get("provider_trust_tier") or "").strip().lower()
+                detailed_facts["source_access_level"] = str(source_spec.get("source_access_level") or "").strip().lower()
+                detailed_facts["verification_required"] = bool(source_spec.get("verification_required"))
+                detailed_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
+                detailed_facts = _property_enrich_future_change_research(
+                    detailed_facts,
+                    investment_research_mode=investment_research_mode,
+                    available_within_years=available_within_years,
+                )
+                detailed_facts = _merge_property_facts_with_source_research(
+                    property_url=property_url,
+                    property_facts=detailed_facts,
+                    image_urls=tuple(_property_nonempty_sequence(preview.get("media_urls_json"))),
                 )
                 preview["property_facts_json"] = detailed_facts
                 detailed_title = str(preview.get("title") or property_url).strip() or property_url
@@ -18912,6 +20584,107 @@ class ProductService:
                         },
                     )
                     continue
+                if available_within_years > 0 and not _property_candidate_matches_availability_horizon(
+                    available_within_years=available_within_years,
+                    property_facts=detailed_facts,
+                ):
+                    filtered_availability_total += 1
+                    filtered_availability_for_source += 1
+                    _report(
+                        step="source_availability_filter",
+                        message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the move-in horizon for {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                        summary_updates={
+                            "filtered_availability_total": filtered_availability_total,
+                            "available_within_years": available_within_years,
+                        },
+                    )
+                    continue
+                max_distance_to_starbucks_m = int(request_preferences.get("max_distance_to_starbucks_m") or 0) if enable_lifestyle_research else 0
+                if enable_lifestyle_research and max_distance_to_starbucks_m > 0:
+                    try:
+                        nearest_starbucks_m = float(detailed_facts.get("nearest_starbucks_m") or 0.0)
+                    except Exception:
+                        nearest_starbucks_m = 0.0
+                    if nearest_starbucks_m <= 0.0 or nearest_starbucks_m > float(max_distance_to_starbucks_m):
+                        _report(
+                            step="source_lifestyle_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the Starbucks radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
+                max_distance_to_fitness_center_m = int(request_preferences.get("max_distance_to_fitness_center_m") or 0) if enable_lifestyle_research else 0
+                if enable_lifestyle_research and max_distance_to_fitness_center_m > 0:
+                    try:
+                        nearest_fitness_center_m = float(detailed_facts.get("nearest_fitness_center_m") or 0.0)
+                    except Exception:
+                        nearest_fitness_center_m = 0.0
+                    if nearest_fitness_center_m <= 0.0 or nearest_fitness_center_m > float(max_distance_to_fitness_center_m):
+                        _report(
+                            step="source_lifestyle_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the fitness radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
+                max_distance_to_cinema_m = int(request_preferences.get("max_distance_to_cinema_m") or 0) if enable_lifestyle_research else 0
+                if enable_lifestyle_research and max_distance_to_cinema_m > 0:
+                    try:
+                        nearest_cinema_m = float(detailed_facts.get("nearest_cinema_m") or 0.0)
+                    except Exception:
+                        nearest_cinema_m = 0.0
+                    if nearest_cinema_m <= 0.0 or nearest_cinema_m > float(max_distance_to_cinema_m):
+                        _report(
+                            step="source_lifestyle_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the cinema radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
+                max_distance_to_bouldering_m = int(request_preferences.get("max_distance_to_bouldering_m") or 0) if enable_lifestyle_research else 0
+                if enable_lifestyle_research and max_distance_to_bouldering_m > 0:
+                    try:
+                        nearest_bouldering_m = float(detailed_facts.get("nearest_bouldering_m") or 0.0)
+                    except Exception:
+                        nearest_bouldering_m = 0.0
+                    if nearest_bouldering_m <= 0.0 or nearest_bouldering_m > float(max_distance_to_bouldering_m):
+                        _report(
+                            step="source_lifestyle_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the bouldering radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
+                max_distance_to_dog_park_m = int(request_preferences.get("max_distance_to_dog_park_m") or 0) if enable_lifestyle_research else 0
+                if enable_lifestyle_research and max_distance_to_dog_park_m > 0:
+                    try:
+                        nearest_dog_park_m = float(detailed_facts.get("nearest_dog_park_m") or 0.0)
+                    except Exception:
+                        nearest_dog_park_m = 0.0
+                    if nearest_dog_park_m <= 0.0 or nearest_dog_park_m > float(max_distance_to_dog_park_m):
+                        _report(
+                            step="source_lifestyle_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the dog park radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
+                max_distance_to_good_cafe_m = int(request_preferences.get("max_distance_to_good_cafe_m") or 0) if enable_lifestyle_research else 0
+                if enable_lifestyle_research and max_distance_to_good_cafe_m > 0:
+                    try:
+                        nearest_good_cafe_m = float(detailed_facts.get("nearest_good_cafe_m") or 0.0)
+                    except Exception:
+                        nearest_good_cafe_m = 0.0
+                    if nearest_good_cafe_m <= 0.0 or nearest_good_cafe_m > float(max_distance_to_good_cafe_m):
+                        _report(
+                            step="source_lifestyle_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the cafe radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
                 if require_floorplan and not _property_candidate_has_floorplan(
                     property_url=property_url,
                     title=detailed_title,
@@ -18959,6 +20732,10 @@ class ProductService:
                         ),
                     }
                 )
+                assessment_fit_score = max(
+                    0.0,
+                    float(dict(assessment or {}).get("fit_score") or 0.0),
+                )
                 ranked_rows[-1]["fit_score"] = max(
                     0.0,
                     _property_scout_rank_score(
@@ -18968,7 +20745,31 @@ class ProductService:
                         ordinal=int(row.get("ordinal") or ordinal),
                     ) - (30.0 if location_hints and not bool(ranked_rows[-1].get("location_match")) else 0.0)
                 )
-                if float(ranked_rows[-1].get("fit_score") or 0.0) <= min_match_score:
+                if apply_unknowns_penalty:
+                    ranked_rows[-1]["fit_score"] = max(
+                        0.0,
+                        float(ranked_rows[-1].get("fit_score") or 0.0)
+                        - _property_candidate_unknowns_penalty(assessment=assessment, property_facts=detailed_facts),
+                    )
+                ranked_rows[-1]["assessment_fit_score"] = assessment_fit_score
+                score_below_min = assessment_fit_score < float(min_match_score)
+                is_watch_fit = _property_alert_is_watch_fit(assessment, policy=policy)
+                if score_below_min:
+                    if bool(policy.get("notify_top_watch_hit_when_no_good_fit")) and is_watch_fit:
+                        candidate_source_ref = (
+                            f"property-scout:{str(preview.get('listing_id') or property_url).strip() or property_url}"
+                        )
+                        if top_watch_candidate_for_source is None or assessment_fit_score > float(
+                            top_watch_candidate_for_source.get("fit_score") or 0.0
+                        ):
+                            top_watch_candidate_for_source = {
+                                "title": compact_text(detailed_title, fallback=property_url, limit=160),
+                                "summary": compact_text(detailed_summary, fallback="", limit=240),
+                                "property_url": property_url,
+                                "source_ref": candidate_source_ref,
+                                "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
+                                "fit_score": assessment_fit_score,
+                            }
                     filtered_low_fit_total += 1
                     filtered_low_fit_for_source += 1
                     ranked_rows.pop()
@@ -19040,7 +20841,11 @@ class ProductService:
             tour_existing_for_source = 0
             high_fit_for_source = 0
             watch_notified_for_source = 0
-            top_watch_candidate: dict[str, object] | None = None
+            top_watch_candidate: dict[str, object] | None = (
+                dict(top_watch_candidate_for_source)
+                if isinstance(top_watch_candidate_for_source, dict) and top_watch_candidate_for_source
+                else None
+            )
             top_candidates_for_source: list[dict[str, object]] = []
 
             for row_index, row in enumerate(ranked_rows, start=1):
@@ -19050,20 +20855,23 @@ class ProductService:
                 summary = str(row.get("summary") or "").strip()
                 assessment = dict(row.get("assessment") or {})
                 fit_score = float(row.get("fit_score") or 0.0)
+                assessment_fit_score = _property_alert_fit_score(assessment)
                 source_ref = f"property-scout:{listing_id}"
                 is_good_fit = _property_alert_is_good_fit(assessment, policy=policy)
                 is_watch_fit = _property_alert_is_watch_fit(assessment, policy=policy)
                 if is_good_fit:
                     high_fit_for_source += 1
                     high_fit_total += 1
-                elif is_watch_fit and top_watch_candidate is None:
+                elif is_watch_fit and (
+                    top_watch_candidate is None or assessment_fit_score > float(top_watch_candidate.get("fit_score") or 0.0)
+                ):
                     top_watch_candidate = {
                         "title": title,
                         "summary": summary,
                         "property_url": property_url,
                         "source_ref": source_ref,
                         "assessment": assessment,
-                        "fit_score": fit_score,
+                        "fit_score": assessment_fit_score,
                     }
 
                 tour_result: dict[str, object] = {"status": "skipped", "tour_url": "", "blocked_reason": ""}
@@ -19172,6 +20980,11 @@ class ProductService:
                         "fit_score": fit_score,
                         "fit_summary": _property_alert_fit_summary(assessment),
                         "recommendation": str(assessment.get("recommendation") or "").strip(),
+                        "source_platform": str(source_spec.get("platform") or "").strip().lower(),
+                        "source_family": str(source_spec.get("provider_family") or "").strip().lower(),
+                        "source_trust_tier": str(source_spec.get("provider_trust_tier") or "").strip().lower(),
+                        "source_access_level": str(source_spec.get("source_access_level") or "").strip().lower(),
+                        "verification_required": bool(source_spec.get("verification_required")),
                         "review_url": str(opened.get("editor_url") or "").strip(),
                         "review_status": str(opened.get("status") or "").strip(),
                         "review_task_id": str(opened.get("human_task_id") or "").strip(),
@@ -19203,6 +21016,30 @@ class ProductService:
                 and bool(policy.get("notify_top_watch_hit_when_no_good_fit"))
                 and top_watch_candidate is not None
             ):
+                if not str(top_watch_candidate.get("review_url") or "").strip():
+                    opened = self._open_property_alert_review(
+                        principal_id=principal_id,
+                        title=str(top_watch_candidate.get("title") or "").strip(),
+                        summary=str(top_watch_candidate.get("summary") or "").strip(),
+                        source_ref=str(top_watch_candidate.get("source_ref") or "").strip(),
+                        external_id=str(top_watch_candidate.get("property_url") or "").strip(),
+                        counterparty=source_label,
+                        account_email=account_email,
+                        property_url=str(top_watch_candidate.get("property_url") or "").strip(),
+                        actor=actor,
+                        notify_telegram=False,
+                        candidate_properties=candidate_properties,
+                        personal_fit_assessment=dict(top_watch_candidate.get("assessment") or {}),
+                        preference_person_id=source_preference_person_id,
+                        tour_url="",
+                    )
+                    if str(opened.get("status") or "").strip() == "opened":
+                        created_for_source += 1
+                        review_created_total += 1
+                    else:
+                        existing_for_source += 1
+                        review_existing_total += 1
+                    top_watch_candidate["review_url"] = str(opened.get("editor_url") or "").strip()
                 notify_result = self._send_property_scout_hit_telegram(
                     principal_id=principal_id,
                     actor=actor,
@@ -19228,6 +21065,11 @@ class ProductService:
                 {
                     "source_url": source_url,
                     "source_label": source_label,
+                    "platform": str(source_spec.get("platform") or "").strip().lower(),
+                    "provider_family": str(source_spec.get("provider_family") or "").strip().lower(),
+                    "provider_trust_tier": str(source_spec.get("provider_trust_tier") or "").strip().lower(),
+                    "source_access_level": str(source_spec.get("source_access_level") or "").strip().lower() or property_provider_access_level(source_spec.get("platform")),
+                    "verification_required": bool(source_spec.get("verification_required")),
                     "preference_person_id": source_preference_person_id,
                     "provider_filter_pushdown": provider_filter_pushdown,
                     "provider_cache": provider_cache_state,
@@ -19235,13 +21077,35 @@ class ProductService:
                     "duplicate_listing_total": duplicate_for_source,
                     "filtered_property_type_total": filtered_property_type_for_source,
                     "filtered_area_total": filtered_area_for_source,
+                    "filtered_availability_total": filtered_availability_for_source,
                     "filtered_floorplan_total": filtered_floorplan_for_source,
                     "filtered_low_fit_total": filtered_low_fit_for_source,
                     "high_match_min_score": min_match_score,
                     "max_match_score": match_score_cap,
                     "min_area_m2": request_preferences.get("min_area_m2") or 0,
+                    "available_within_years": available_within_years,
                     "require_floorplan": require_floorplan,
+                    "investment_research_mode": investment_research_mode,
                     "use_stored_feedback_preferences": use_stored_feedback_preferences,
+                    "include_broker_direct_sources": bool(request_preferences.get("include_broker_direct_sources")),
+                    "include_community_signals": bool(request_preferences.get("include_community_signals")),
+                    "require_manual_validation_for_community": bool(request_preferences.get("require_manual_validation_for_community")),
+                    "include_developer_project_signals": bool(request_preferences.get("include_developer_project_signals")),
+                    "include_public_housing_signals": bool(request_preferences.get("include_public_housing_signals")),
+                    "include_distressed_sale_signals": bool(request_preferences.get("include_distressed_sale_signals")),
+                    "enable_building_risk_research": bool(request_preferences.get("enable_building_risk_research")),
+                    "enable_market_supply_research": bool(request_preferences.get("enable_market_supply_research")),
+                    "enable_location_risk_research": bool(request_preferences.get("enable_location_risk_research")),
+                    "enable_trust_risk_scoring": bool(request_preferences.get("enable_trust_risk_scoring")),
+                    "enable_family_mode": enable_family_mode,
+                    "enable_commute_research": enable_commute_research,
+                    "commute_destination": commute_destination,
+                    "max_commute_minutes_transit": int(request_preferences.get("max_commute_minutes_transit") or 0),
+                    "max_commute_minutes_drive": int(request_preferences.get("max_commute_minutes_drive") or 0),
+                    "max_commute_minutes_bike": int(request_preferences.get("max_commute_minutes_bike") or 0),
+                    "desired_project_stages": desired_project_stages,
+                    "apply_unknowns_penalty": apply_unknowns_penalty,
+                    "enable_action_readiness_research": enable_action_readiness_research,
                     "raw_listing_total": raw_listing_count,
                     "scanned_listing_total": len(listing_urls),
                     "scan_truncated": scan_truncated,
@@ -19253,8 +21117,9 @@ class ProductService:
                     "tour_existing_total": tour_existing_for_source,
                     "high_fit_total": high_fit_for_source,
                     "watch_notified_total": watch_notified_for_source,
-                    "top_fit_score": max((float(item.get("fit_score") or 0.0) for item in ranked_rows), default=0.0),
+                    "top_fit_score": max((_property_alert_fit_score(dict(item.get("assessment") or {})) for item in ranked_rows), default=0.0),
                     "top_candidates": top_candidates_for_source[:5],
+                    "research_candidates": top_candidates_for_source,
                 }
             )
             _report(
@@ -19273,6 +21138,7 @@ class ProductService:
             "duplicate_listing_total": duplicate_listing_total,
             "filtered_property_type_total": filtered_property_type_total,
             "filtered_area_total": filtered_area_total,
+            "filtered_availability_total": filtered_availability_total,
             "filtered_floorplan_total": filtered_floorplan_total,
             "filtered_low_fit_total": filtered_low_fit_total,
             "provider_cache_hit_total": provider_cache_hit_total,
@@ -19280,8 +21146,29 @@ class ProductService:
             "high_match_min_score": min_match_score,
             "max_match_score": match_score_cap,
             "min_area_m2": request_preferences.get("min_area_m2") or 0,
+            "available_within_years": available_within_years,
             "require_floorplan": require_floorplan,
+            "investment_research_mode": investment_research_mode,
             "use_stored_feedback_preferences": use_stored_feedback_preferences,
+            "include_broker_direct_sources": bool(request_preferences.get("include_broker_direct_sources")),
+            "include_community_signals": bool(request_preferences.get("include_community_signals")),
+            "require_manual_validation_for_community": bool(request_preferences.get("require_manual_validation_for_community")),
+            "include_developer_project_signals": bool(request_preferences.get("include_developer_project_signals")),
+            "include_public_housing_signals": bool(request_preferences.get("include_public_housing_signals")),
+            "include_distressed_sale_signals": bool(request_preferences.get("include_distressed_sale_signals")),
+            "enable_building_risk_research": bool(request_preferences.get("enable_building_risk_research")),
+            "enable_market_supply_research": bool(request_preferences.get("enable_market_supply_research")),
+            "enable_location_risk_research": bool(request_preferences.get("enable_location_risk_research")),
+            "enable_trust_risk_scoring": bool(request_preferences.get("enable_trust_risk_scoring")),
+            "enable_family_mode": enable_family_mode,
+            "enable_commute_research": enable_commute_research,
+            "commute_destination": commute_destination,
+            "max_commute_minutes_transit": int(request_preferences.get("max_commute_minutes_transit") or 0),
+            "max_commute_minutes_drive": int(request_preferences.get("max_commute_minutes_drive") or 0),
+            "max_commute_minutes_bike": int(request_preferences.get("max_commute_minutes_bike") or 0),
+            "desired_project_stages": desired_project_stages,
+            "apply_unknowns_penalty": apply_unknowns_penalty,
+            "enable_action_readiness_research": enable_action_readiness_research,
             "review_created_total": review_created_total,
             "review_existing_total": review_existing_total,
             "notified_total": notified_total,
@@ -23175,7 +25062,7 @@ class ProductService:
         access_token = _sign_channel_payload(secret=self._workspace_access_secret(), payload=token_payload)
         resolved_default_target = str(default_target or "").strip()
         if not resolved_default_target:
-            resolved_default_target = "/admin/office" if normalized_role == "operator" else "/app/today"
+            resolved_default_target = "/admin/office" if normalized_role == "operator" else "/app/properties"
         payload = {
             "session_id": session_id,
             "principal_id": str(principal_id or "").strip(),
@@ -23236,7 +25123,7 @@ class ProductService:
                     "expires_at": str(payload.get("expires_at") or "").strip(),
                     "access_token": str(payload.get("access_token") or "").strip(),
                     "access_url": str(payload.get("access_url") or "").strip(),
-                    "default_target": str(payload.get("default_target") or ("/admin/office" if normalized_role == "operator" else "/app/today")).strip(),
+                    "default_target": str(payload.get("default_target") or ("/admin/office" if normalized_role == "operator" else "/app/properties")).strip(),
                 }
             elif event_type == "workspace_access_session_revoked" and session_id in sessions:
                 sessions[session_id].update(
@@ -23290,7 +25177,7 @@ class ProductService:
             "expires_at": str(payload.get("expires_at") or "").strip(),
             "access_token": str(token or "").strip(),
             "access_url": f"/workspace-access/{token}",
-            "default_target": "/admin/office" if normalized_role == "operator" else "/app/today",
+            "default_target": "/admin/office" if normalized_role == "operator" else "/app/properties",
         }
 
     def open_workspace_access_session(self, *, token: str, actor: str = "") -> dict[str, object] | None:
@@ -27931,7 +29818,7 @@ class ProductService:
             "access_session_id": str(access_session.get("session_id") or "").strip(),
             "access_token": str(access_session.get("access_token") or "").strip(),
             "access_url": str(access_session.get("access_url") or "").strip(),
-            "default_target": str(access_session.get("default_target") or "/app/today"),
+            "default_target": str(access_session.get("default_target") or "/app/properties"),
             "headline": str(digest.get("headline") or "Channel digest"),
             "preview_text": str(digest.get("preview_text") or ""),
             "plain_text": plain_text,
@@ -28145,7 +30032,7 @@ class ProductService:
             "open_url": f"/app/channel-loop/{digest_key}",
             "access_token": access_token,
             "access_url": str(access_session.get("access_url") or "").strip(),
-            "default_target": str(access_session.get("default_target") or "/app/today"),
+            "default_target": str(access_session.get("default_target") or "/app/properties"),
             "headline": str(digest.get("headline") or "Channel digest"),
             "preview_text": str(digest.get("preview_text") or ""),
             "plain_text": self.channel_digest_text(

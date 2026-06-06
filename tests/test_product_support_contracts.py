@@ -1,13 +1,22 @@
 from __future__ import annotations
 
-from tests.product_test_helpers import build_product_client, seed_product_state, start_workspace
+from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
 
 
 def _seed(principal_id: str = "exec-support-contracts"):
-    client = build_product_client(principal_id=principal_id)
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
     start_workspace(client, mode="executive_ops", workspace_name="Executive Office")
     seeded = seed_product_state(client, principal_id=principal_id)
     return client, seeded
+
+
+def test_support_surfaces_require_operator_context() -> None:
+    client = build_product_client(principal_id="exec-support-principal")
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+
+    assert client.get("/app/api/support").status_code == 403
+    assert client.get("/app/api/diagnostics/export").status_code == 403
+    assert client.post("/app/api/support/fix-verification/request").status_code == 403
 
 
 def test_surface_open_events_flow_into_workspace_diagnostics() -> None:

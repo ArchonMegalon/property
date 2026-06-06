@@ -831,8 +831,6 @@ def sign_in_page(
     principal_id, status = _load_status(container=container, access_identity=access_identity)
     link_status = str(request.query_params.get("link_status") or "").strip()
     link_email = str(request.query_params.get("link_email") or "").strip()
-    link_count = int(request.query_params.get("link_count") or 0)
-    link_failed_total = int(request.query_params.get("link_failed_total") or 0)
     link_error = str(request.query_params.get("link_error") or "").strip()
     google_error = str(request.query_params.get("google_error") or "").strip()
     return _render_public_template(
@@ -850,8 +848,6 @@ def sign_in_page(
                 "sign_in_link_enabled": email_delivery_enabled(),
                 "sign_in_link_status": link_status,
                 "sign_in_link_email": link_email,
-                "sign_in_link_count": link_count,
-                "sign_in_link_failed_total": link_failed_total,
                 "sign_in_link_error": link_error,
                 "sign_in_google_error": google_error,
             },
@@ -897,22 +893,9 @@ async def sign_in_email_link(
             status_code=303,
         )
     query = {
-        "link_status": str(result.get("status") or "failed").strip() or "failed",
+        "link_status": "submitted",
         "link_email": str(result.get("email") or email).strip().lower(),
-        "link_count": str(int(result.get("sent_total") or 0)),
-        "link_failed_total": str(int(result.get("failed_total") or 0)),
     }
-    if str(query["link_status"]) == "failed":
-        first_error = next(
-            (
-                str(item.get("error") or "").strip()
-                for item in list(result.get("items") or [])
-                if str(item.get("error") or "").strip()
-            ),
-            "",
-        )
-        if first_error:
-            query["link_error"] = first_error
     return RedirectResponse("/sign-in?" + urllib.parse.urlencode(query), status_code=303)
 
 
@@ -1061,7 +1044,7 @@ def workspace_access_session(
         )
     target = _normalize_browser_return_to(
         request.query_params.get("return_to") or str(session.get("default_target") or "").strip(),
-        default=str(brand.get("app_home") or "/app/today"),
+        default=str(session.get("default_target") or brand.get("app_home") or "/app/properties"),
     )
     response = RedirectResponse(target, status_code=303)
     response.set_cookie(
@@ -1713,6 +1696,44 @@ def _property_packet_provenance_rows(facts: dict[str, object]) -> list[dict[str,
     return rows
 
 
+def _property_packet_future_research_rows(facts: dict[str, object]) -> list[dict[str, str]]:
+    future = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
+    rows: list[dict[str, str]] = []
+    school_quality = str(future.get("school_atlas_quality_summary") or "").strip()
+    school_progression = str(future.get("school_atlas_progression_summary") or "").strip()
+    school_evidence_type = str(future.get("school_atlas_evidence_type") or "").strip().replace("_", " ")
+    school_source_url = str(future.get("school_atlas_source_url") or "").strip()
+    if school_quality:
+        rows.append(_object_detail_row("SchoolAtlas quality", school_quality, school_evidence_type.title() or "Research", href=school_source_url))
+    if school_progression:
+        rows.append(_object_detail_row("Gymnasium progression", school_progression, school_evidence_type.title() or "Research", href=school_source_url))
+    selected_school = dict(future.get("school_atlas_selected_school") or {}) if isinstance(future.get("school_atlas_selected_school"), dict) else {}
+    if selected_school:
+        selected_label = " | ".join(
+            part for part in (
+                str(selected_school.get("name") or "").strip(),
+                str(selected_school.get("type") or "").strip(),
+                f"{int(float(selected_school.get('distance_m') or 0))} m" if selected_school.get("distance_m") not in (None, "", []) else "",
+            ) if part
+        )
+        if selected_label:
+            rows.append(_object_detail_row("Nearest selected school", selected_label, "School"))
+    top_destinations = [
+        str(item.get("name") or "").strip()
+        for item in list(future.get("school_atlas_top_secondary_destinations") or [])
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    ]
+    if top_destinations:
+        rows.append(_object_detail_row("Top next schools", ", ".join(top_destinations[:3]), "Path"))
+    planning_confidence = str(future.get("planning_confidence") or "").strip()
+    if planning_confidence:
+        rows.append(_object_detail_row("Planning confidence", planning_confidence, "Confidence"))
+    investment_impact = str(future.get("investment_impact") or "").strip()
+    if investment_impact:
+        rows.append(_object_detail_row("Long-term impact", investment_impact.replace("_", " ").title(), "Impact"))
+    return rows
+
+
 def _property_packet_score_rows(
     *,
     facts: dict[str, object],
@@ -2162,6 +2183,7 @@ def property_research_packet(
         missing_rows=missing_rows,
     )
     provenance_rows = _property_packet_provenance_rows(facts)
+    future_research_rows = _property_packet_future_research_rows(facts)
     compare_rows = _property_packet_compare_rows(
         property_context=property_context,
         current_candidate_ref=str(candidate_ref or "").strip(),
@@ -2268,22 +2290,28 @@ def property_research_packet(
                 secondary_action_label="Open source" if property_url else "",
                 secondary_action_method="get" if property_url else "",
             ),
-            _object_detail_row(
-                "Investment research",
-                (
-                    "Agent can run the full buy-side investment pass."
-                    if str(commercial.get("investment_research_level") or "") == "full"
-                    else (
-                        "Plus can run a shortened benchmark view."
-                        if str(commercial.get("investment_research_level") or "") == "preview"
-                        else "Upgrade to a paid investment tier to run buy-side underwriting research."
+            *(
+                [
+                    _object_detail_row(
+                        "Investment research",
+                        (
+                            "Agent can run the full buy-side investment pass."
+                            if str(commercial.get("investment_research_level") or "") == "full"
+                            else (
+                                "Plus can run a shortened benchmark view."
+                                if str(commercial.get("investment_research_level") or "") == "preview"
+                                else "Upgrade to a paid investment tier to run buy-side underwriting research."
+                            )
+                        ),
+                        "Research",
+                        href=investment_run_target,
+                        secondary_action_href=investment_run_target,
+                        secondary_action_label="Run investment research",
+                        secondary_action_method="get",
                     )
-                ),
-                "Research",
-                href=investment_run_target if str(preferences.get("listing_mode") or "") == "buy" else "",
-                secondary_action_href=investment_run_target if str(preferences.get("listing_mode") or "") == "buy" else "",
-                secondary_action_label="Run investment research" if str(preferences.get("listing_mode") or "") == "buy" else "",
-                secondary_action_method="get" if str(preferences.get("listing_mode") or "") == "buy" else "",
+                ]
+                if str(preferences.get("listing_mode") or "").strip().lower() == "buy"
+                else []
             ),
         ],
         object_sections=[
@@ -2318,11 +2346,23 @@ def property_research_packet(
                 or [_object_detail_row("No provenance rows yet", "Deeper enrichment will surface which facts were researched versus copied from the listing.", "Pending")],
             },
             {
-                "eyebrow": "Investment research",
-                "title": "Buy-side benchmark, rent thesis, and underwriting posture",
-                "items": investment_rows
-                or [_object_detail_row("Investment research is off", "Enable investment research in the search brief or request it explicitly from this packet on buy listings.", "Idle")],
+                "eyebrow": "Future-change research",
+                "title": "School quality, planning evidence, and long-term micro-location posture",
+                "items": future_research_rows
+                or [_object_detail_row("No future-change evidence yet", "Deeper planning, school, and neighbourhood research has not been attached to this packet yet.", "Pending")],
             },
+            *(
+                [
+                    {
+                        "eyebrow": "Investment research",
+                        "title": "Buy-side benchmark, rent thesis, and underwriting posture",
+                        "items": investment_rows
+                        or [_object_detail_row("Investment research is off", "Enable investment research in the search brief or request it explicitly from this packet on buy listings.", "Idle")],
+                    }
+                ]
+                if str(preferences.get("listing_mode") or "").strip().lower() == "buy"
+                else []
+            ),
             {
                 "eyebrow": "Open questions",
                 "title": "What still needs verification before this is trustworthy",

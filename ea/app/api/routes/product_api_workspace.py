@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from app.api.dependencies import RequestContext, get_container, get_request_context
+from app.api.dependencies import RequestContext, get_container, get_request_context, require_operator_context
 from app.api.routes.product_api_contracts import (
     OperatorCenterActionOut,
     OperatorCenterLaneOut,
@@ -90,6 +90,7 @@ def get_workspace_diagnostics(
 def get_operator_center(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
+    _operator_guard: None = Depends(require_operator_context),
 ) -> OperatorCenterOut:
     service = build_product_service(container)
     payload = service.operator_center(
@@ -197,6 +198,7 @@ def export_workspace_support_bundle(
     download: bool = Query(False),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
+    _operator_guard: None = Depends(require_operator_context),
 ) -> WorkspaceSupportBundleOut | JSONResponse:
     service = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
@@ -222,6 +224,7 @@ def export_workspace_support_bundle(
 def get_workspace_support_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
+    _operator_guard: None = Depends(require_operator_context),
 ) -> WorkspaceSupportBundleOut:
     service = build_product_service(container)
     service.record_surface_event(
@@ -238,6 +241,7 @@ def request_support_fix_verification(
     request: Request,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
+    _operator_guard: None = Depends(require_operator_context),
 ) -> WorkspaceSupportBundleOut:
     service = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "support").strip()

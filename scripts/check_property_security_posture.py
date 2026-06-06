@@ -47,6 +47,9 @@ def main() -> int:
         "PROPERTYQUARRY_API_SERVICE": "propertyquarry-api",
         "PROPERTYQUARRY_SCHEDULER_SERVICE": "propertyquarry-scheduler",
         "PROPERTYQUARRY_DB_SERVICE": "propertyquarry-db",
+        "PROPERTYQUARRY_API_CONTAINER_NAME": "propertyquarry-api",
+        "PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME": "propertyquarry-scheduler",
+        "PROPERTYQUARRY_DB_CONTAINER_NAME": "propertyquarry-db",
     }
     for env_name, expected_value in expected_service_aliases.items():
         if not re.search(rf"^{re.escape(env_name)}={re.escape(expected_value)}$", env_example, flags=re.MULTILINE):
@@ -69,6 +72,14 @@ def main() -> int:
     for service_name in ("propertyquarry-api", "propertyquarry-scheduler", "propertyquarry-db"):
         if service_name not in compose:
             failures.append(f"docker-compose.property.yml missing {service_name}")
+    expected_container_name_envs = (
+        'container_name: "${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"',
+        'container_name: "${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-propertyquarry-scheduler}"',
+        'container_name: "${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-db}"',
+    )
+    for expected in expected_container_name_envs:
+        if expected not in compose:
+            failures.append(f"docker-compose.property.yml must keep recoverable container alias {expected}")
     if "propertyquarry-worker" in compose or "PROPERTYQUARRY_WORKER_PROFILE" in compose:
         failures.append("docker-compose.property.yml must not start the inherited idle worker by default")
     if "POSTGRES_HOST_AUTH_METHOD" in compose or ":-trust" in compose:

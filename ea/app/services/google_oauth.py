@@ -1717,23 +1717,35 @@ def _gmail_messages_payload_pages(
         body = exc.read().decode("utf-8", errors="replace")
         normalized_gmail_query = str(gmail_query or "").strip()
         if exc.code == 403 and normalized_gmail_query:
-            return _gmail_messages_payload_pages_request(
-                access_token=access_token,
-                max_results=page_size,
-                scan_goal=scan_goal,
-                apply_recent_filter=False,
-                gmail_query="",
-            )
+            try:
+                return _gmail_messages_payload_pages_request(
+                    access_token=access_token,
+                    max_results=page_size,
+                    scan_goal=scan_goal,
+                    apply_recent_filter=False,
+                    gmail_query="",
+                )
+            except urllib.error.HTTPError as retry_exc:
+                if retry_exc.code == 403:
+                    raise RuntimeError("google_gmail_read_forbidden") from retry_exc
+                raise
         if exc.code == 403 and "Metadata scope does not support 'q' parameter" in body:
             if str(gmail_query or "").strip():
                 raise
-            return _gmail_messages_payload_pages_request(
-                access_token=access_token,
-                max_results=page_size,
-                scan_goal=scan_goal,
-                apply_recent_filter=False,
-                gmail_query="",
-            )
+            try:
+                return _gmail_messages_payload_pages_request(
+                    access_token=access_token,
+                    max_results=page_size,
+                    scan_goal=scan_goal,
+                    apply_recent_filter=False,
+                    gmail_query="",
+                )
+            except urllib.error.HTTPError as retry_exc:
+                if retry_exc.code == 403:
+                    raise RuntimeError("google_gmail_read_forbidden") from retry_exc
+                raise
+        if exc.code == 403:
+            raise RuntimeError("google_gmail_read_forbidden") from exc
         raise
 
 

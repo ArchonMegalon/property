@@ -461,6 +461,14 @@ def app_section_payload(
     property_investment_research_mode_label = str(property_state.get("investment_research_mode_label") or "Off")
     property_type_label = str(property_state.get("property_type_label") or "Any type")
     property_provider_total_for_country = int(property_state.get("provider_total_for_country") or 0)
+    selected_listing_mode = str(property_preferences.get("listing_mode") or "rent").strip().lower() or "rent"
+    try:
+        property_available_within_years_value = max(
+            0,
+            min(10, int(float(str(property_preferences.get("available_within_years") or "").strip()))),
+        )
+    except Exception:
+        property_available_within_years_value = 0
     selected_location_values = _csv_values(property_preferences.get("location_query"))
     selected_keyword_values = _csv_values(property_preferences.get("keywords"))
     selected_region_code = str(property_preferences.get("region_code") or "").strip().lower()
@@ -507,9 +515,18 @@ def app_section_payload(
         row_item("Country", property_country_label, "Market"),
         row_item("Research language", property_language_label, "Research"),
         row_item("Search mode", property_listing_mode_label, "Mode"),
-        row_item("Investment research", property_investment_research_mode_label, "Underwriting"),
         row_item("Property type", property_type_label, "Type"),
     ]
+    if selected_listing_mode == "buy":
+        property_market_summary_items.append(row_item("Investment research", property_investment_research_mode_label, "Underwriting"))
+    if property_available_within_years_value > 0:
+        property_market_summary_items.append(
+            row_item(
+                "Move-in deadline",
+                "Within 1 year" if property_available_within_years_value == 1 else f"Within {property_available_within_years_value} years",
+                "Timing",
+            )
+        )
     if str(property_preferences.get("location_query") or "").strip():
         property_market_summary_items.append(
             row_item("Location query", str(property_preferences.get("location_query") or "").strip(), "Target")
@@ -518,6 +535,19 @@ def app_section_payload(
         property_market_summary_items.append(
             row_item("Research focus", str(property_preferences.get("keywords") or "").strip(), "Focus")
         )
+    if bool(property_preferences.get("enable_family_mode")):
+        property_market_summary_items.append(row_item("Family mode", "Enabled", "Mode"))
+    if str(property_preferences.get("commute_destination") or "").strip():
+        property_market_summary_items.append(
+            row_item("Commute destination", str(property_preferences.get("commute_destination") or "").strip(), "Route")
+        )
+    desired_project_stages = [
+        str(item or "").strip().replace("_", " ")
+        for item in list(property_preferences.get("desired_project_stages") or [])
+        if str(item or "").strip()
+    ]
+    if desired_project_stages:
+        property_market_summary_items.append(row_item("Accepted project stages", ", ".join(desired_project_stages), "Pipeline"))
     property_platform_rows = [
         row_item(
             str(option.get("label") or option.get("value") or "Platform"),
@@ -597,6 +627,55 @@ def app_section_payload(
     ]
     property_shortlist_rows: list[dict[str, str]] = []
     property_shortlist_cards: list[dict[str, object]] = []
+
+    def _candidate_lifestyle_highlights(candidate: dict[str, object]) -> list[dict[str, str]]:
+        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        specs = (
+            ("SB", "Starbucks", facts.get("nearest_starbucks_m")),
+            ("GYM", "Fitness", facts.get("nearest_fitness_center_m")),
+            ("FILM", "Cinema", facts.get("nearest_cinema_m")),
+            ("BLD", "Bouldering", facts.get("nearest_bouldering_m")),
+            ("DOG", "Dog park", facts.get("nearest_dog_park_m")),
+            ("CAFE", "Cafe", facts.get("nearest_good_cafe_m")),
+        )
+        rows: list[dict[str, str]] = []
+        for icon, label, raw_value in specs:
+            if raw_value in (None, "", []):
+                continue
+            try:
+                meters = int(float(raw_value))
+            except Exception:
+                continue
+            rows.append({"icon": icon, "label": label, "distance": f"{meters} m"})
+        return rows[:4]
+
+    def _candidate_research_highlights(candidate: dict[str, object]) -> list[dict[str, str]]:
+        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        future = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
+        rows: list[dict[str, str]] = []
+        school_quality = str(future.get("school_atlas_quality_summary") or "").strip()
+        school_progression = str(future.get("school_atlas_progression_summary") or "").strip()
+        school_evidence = str(future.get("school_atlas_evidence_type") or "").strip().replace("_", " ")
+        if school_quality:
+            rows.append(
+                {
+                    "icon": "SCH",
+                    "label": "SchoolAtlas",
+                    "detail": school_quality,
+                    "tag": school_evidence.title() if school_evidence else "Research",
+                }
+            )
+        if school_progression:
+            rows.append(
+                {
+                    "icon": "AHS",
+                    "label": "Gymnasium path",
+                    "detail": school_progression,
+                    "tag": school_evidence.title() if school_evidence else "Research",
+                }
+            )
+        return rows[:3]
+
     for source in list(property_summary.get("sources") or []):
         if not isinstance(source, dict):
             continue
@@ -702,6 +781,8 @@ def app_section_payload(
                     "blocked_reason": str(candidate.get("blocked_reason") or "").strip(),
                     "match_reasons": match_reasons,
                     "mismatch_reasons": mismatch_reasons,
+                    "lifestyle_highlights": _candidate_lifestyle_highlights(candidate),
+                    "research_highlights": _candidate_research_highlights(candidate),
                     "property_facts": dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {},
                     "assessment": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
                 }
@@ -759,8 +840,6 @@ def app_section_payload(
         property_plan_max_match_score = 45
     property_visible_max_match_score = 80
     property_visible_max_results_per_source = 10
-    selected_listing_mode = str(property_preferences.get("listing_mode") or "rent").strip().lower() or "rent"
-
     def _positive_int(value: object, *, default: int = 0) -> int:
         try:
             parsed = int(float(str(value or "").strip()))
@@ -786,6 +865,7 @@ def app_section_payload(
     property_price_slider_step = int(property_price_preset["step"])
     property_min_rooms_value = min(8, _positive_int(property_preferences.get("min_rooms")))
     property_min_area_value = min(250, _positive_int(property_preferences.get("min_area_m2")))
+    property_available_within_years_value = min(10, _positive_int(property_preferences.get("available_within_years")))
     try:
         property_results_value = int(property_preferences.get("max_results_per_source") or property_plan_max_results)
     except Exception:
@@ -851,6 +931,7 @@ def app_section_payload(
                 "label": "Investment research",
                 "value": str(property_preferences.get("investment_research_mode") or "off"),
                 "options": investment_research_mode_options,
+                "hidden": selected_listing_mode != "buy",
                 "step": "search",
             },
             {
@@ -889,6 +970,69 @@ def app_section_payload(
                 "step": "providers",
             },
             {
+                "type": "checkbox",
+                "name": "use_flatbee_reputation_penalty",
+                "label": "Apply Flatbee reputation penalty",
+                "value": "true",
+                "checked": bool(property_preferences.get("use_flatbee_reputation_penalty", True)),
+                "tooltip": "Flatbee stays available in all-provider sweeps, but this modifier heavily discounts its results because the source has a weak trust reputation and frequent duplicate-quality issues.",
+                "step": "providers",
+            },
+            {
+                "type": "checkbox",
+                "name": "include_broker_direct_sources",
+                "label": "Broker-direct source family",
+                "value": "true",
+                "checked": bool(property_preferences.get("include_broker_direct_sources")),
+                "tooltip": "Track Makler-direkt pages as a distinct source family so they can be weighted and expanded separately from marketplaces and cooperatives.",
+                "step": "providers",
+            },
+            {
+                "type": "checkbox",
+                "name": "include_community_signals",
+                "label": "Community leads",
+                "value": "true",
+                "checked": bool(property_preferences.get("include_community_signals")),
+                "tooltip": "Include community and off-market leads such as Facebook or Telegram signals, but keep them separately verifiable.",
+                "step": "providers",
+            },
+            {
+                "type": "checkbox",
+                "name": "require_manual_validation_for_community",
+                "label": "Manual validation for community leads",
+                "value": "true",
+                "checked": bool(property_preferences.get("require_manual_validation_for_community")),
+                "tooltip": "Community-sourced hits should be treated as unverified until a human confirms identity, freshness, and legitimacy.",
+                "step": "providers",
+            },
+            {
+                "type": "checkbox",
+                "name": "include_developer_project_signals",
+                "label": "Developer project signals",
+                "value": "true",
+                "checked": bool(property_preferences.get("include_developer_project_signals")),
+                "tooltip": "Track early-stage project and launch signals from Bauträger and premarket project sites.",
+                "step": "providers",
+            },
+            {
+                "type": "checkbox",
+                "name": "include_public_housing_signals",
+                "label": "Public housing signals",
+                "value": "true",
+                "checked": bool(property_preferences.get("include_public_housing_signals")),
+                "tooltip": "Track municipal, public housing, and Wohnservice-like lanes separately from commercial marketplaces.",
+                "step": "providers",
+            },
+            {
+                "type": "checkbox",
+                "name": "include_distressed_sale_signals",
+                "label": "Distressed and auction signals",
+                "value": "true",
+                "checked": bool(property_preferences.get("include_distressed_sale_signals")),
+                "tooltip": "Track forced-sale, insolvency, and other distressed-sale lanes as their own signal family.",
+                "step": "providers",
+            },
+            {
                 "type": "checkbox_group",
                 "name": "keywords",
                 "label": "What matters",
@@ -914,6 +1058,253 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("use_stored_feedback_preferences", True)),
                 "manage_href": profile_manage_href,
                 "manage_label": "Manage",
+                "step": "areas",
+            },
+            {
+                "type": "checkbox",
+                "name": "enable_building_risk_research",
+                "label": "Building and operating-cost research",
+                "value": "true",
+                "checked": bool(property_preferences.get("enable_building_risk_research")),
+                "tooltip": "Investigate reserve fund, renovation pressure, energy risk, special levies, and operating-cost exposure.",
+                "step": "areas",
+            },
+            {
+                "type": "checkbox",
+                "name": "enable_market_supply_research",
+                "label": "Market supply and exit research",
+                "value": "true",
+                "checked": bool(property_preferences.get("enable_market_supply_research")),
+                "tooltip": "Investigate developer pipeline, competing supply, target-demand depth, and exit liquidity.",
+                "step": "areas",
+            },
+            {
+                "type": "checkbox",
+                "name": "enable_location_risk_research",
+                "label": "Micro-location risk research",
+                "value": "true",
+                "checked": bool(property_preferences.get("enable_location_risk_research")),
+                "tooltip": "Investigate safety, schools, clinics, daily-life access, pollution, flood, heat, and nuisance burden.",
+                "step": "areas",
+            },
+            {
+                "type": "checkbox",
+                "name": "enable_family_mode",
+                "label": "Family mode",
+                "value": "true",
+                "checked": bool(property_preferences.get("enable_family_mode")),
+                "tooltip": "Prioritize school quality, childcare, playgrounds, pediatrician access, and daily family logistics as a coherent mode.",
+                "step": "research",
+            },
+            {
+                "type": "checkbox",
+                "name": "enable_commute_research",
+                "label": "Commute reality research",
+                "value": "true",
+                "checked": bool(property_preferences.get("enable_commute_research")),
+                "tooltip": "Check actual travel times at realistic times of day instead of relying only on straight-line distance.",
+                "step": "research",
+            },
+            {
+                "type": "text",
+                "name": "commute_destination",
+                "label": "Commute destination",
+                "value": str(property_preferences.get("commute_destination") or ""),
+                "placeholder": "Office, school, or key destination",
+                "step": "research",
+            },
+            {
+                "type": "range",
+                "name": "max_commute_minutes_transit",
+                "label": "Max commute by transit",
+                "value": str(property_preferences.get("max_commute_minutes_transit") or 0),
+                "min": "0",
+                "max": "180",
+                "visual_max": "180",
+                "range_step": "5",
+                "format": "minutes",
+                "empty_label": "Any transit commute",
+                "scale_min_label": "Any",
+                "scale_max_label": "180 min",
+                "tooltip": "Maximum acceptable public-transit commute time.",
+                "step": "research",
+            },
+            {
+                "type": "range",
+                "name": "max_commute_minutes_drive",
+                "label": "Max commute by car",
+                "value": str(property_preferences.get("max_commute_minutes_drive") or 0),
+                "min": "0",
+                "max": "180",
+                "visual_max": "180",
+                "range_step": "5",
+                "format": "minutes",
+                "empty_label": "Any driving commute",
+                "scale_min_label": "Any",
+                "scale_max_label": "180 min",
+                "tooltip": "Maximum acceptable driving commute time.",
+                "step": "research",
+            },
+            {
+                "type": "range",
+                "name": "max_commute_minutes_bike",
+                "label": "Max commute by bike",
+                "value": str(property_preferences.get("max_commute_minutes_bike") or 0),
+                "min": "0",
+                "max": "180",
+                "visual_max": "180",
+                "range_step": "5",
+                "format": "minutes",
+                "empty_label": "Any cycling commute",
+                "scale_min_label": "Any",
+                "scale_max_label": "180 min",
+                "tooltip": "Maximum acceptable cycling commute time.",
+                "step": "research",
+            },
+            {
+                "type": "checkbox_group",
+                "name": "desired_project_stages",
+                "label": "Accepted project stages",
+                "options": [
+                    {"value": "existing", "label": "Existing"},
+                    {"value": "under_construction", "label": "Under construction"},
+                    {"value": "planned", "label": "Planned"},
+                    {"value": "waitlist", "label": "Waitlist"},
+                    {"value": "pre_registration", "label": "Pre-registration"},
+                ],
+                "values": list(property_preferences.get("desired_project_stages") or []),
+                "step": "research",
+            },
+            {
+                "type": "checkbox",
+                "name": "apply_unknowns_penalty",
+                "label": "Penalize unknowns in ranking",
+                "value": "true",
+                "checked": bool(property_preferences.get("apply_unknowns_penalty")),
+                "tooltip": "Keep strong unknown-heavy listings visible if they fit, but rank better-known candidates above them.",
+                "step": "research",
+            },
+            {
+                "type": "checkbox",
+                "name": "enable_action_readiness_research",
+                "label": "Action-readiness research",
+                "value": "true",
+                "checked": bool(property_preferences.get("enable_action_readiness_research")),
+                "tooltip": "Generate the next best actions, document asks, and viewing questions for each serious candidate.",
+                "step": "research",
+            },
+            {
+                "type": "checkbox",
+                "name": "enable_lifestyle_research",
+                "label": "Freizeit- und Spaßfilter",
+                "value": "true",
+                "checked": bool(property_preferences.get("enable_lifestyle_research")),
+                "tooltip": "Track lifestyle distance signals like Starbucks and fitness centers separately from hard investment or family-risk criteria.",
+                "step": "lifestyle",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_starbucks_m",
+                "label": "Max distance to Starbucks",
+                "value": str(property_preferences.get("max_distance_to_starbucks_m") or 0),
+                "min": "0",
+                "max": "5000",
+                "visual_max": "5000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any Starbucks distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "5 km",
+                "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest Starbucks.",
+                "step": "lifestyle",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_fitness_center_m",
+                "label": "Max distance to fitness center",
+                "value": str(property_preferences.get("max_distance_to_fitness_center_m") or 0),
+                "min": "0",
+                "max": "5000",
+                "visual_max": "5000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any fitness distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "5 km",
+                "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest fitness center or gym.",
+                "step": "lifestyle",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_cinema_m",
+                "label": "Max distance to cinema",
+                "value": str(property_preferences.get("max_distance_to_cinema_m") or 0),
+                "min": "0",
+                "max": "5000",
+                "visual_max": "5000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any cinema distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "5 km",
+                "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest cinema.",
+                "step": "lifestyle",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_bouldering_m",
+                "label": "Max distance to bouldering gym",
+                "value": str(property_preferences.get("max_distance_to_bouldering_m") or 0),
+                "min": "0",
+                "max": "5000",
+                "visual_max": "5000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any bouldering distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "5 km",
+                "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest bouldering or climbing gym.",
+                "step": "lifestyle",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_dog_park_m",
+                "label": "Max distance to dog park",
+                "value": str(property_preferences.get("max_distance_to_dog_park_m") or 0),
+                "min": "0",
+                "max": "5000",
+                "visual_max": "5000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any dog park distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "5 km",
+                "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest dog park or dog exercise area.",
+                "step": "lifestyle",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_good_cafe_m",
+                "label": "Max distance to good cafe",
+                "value": str(property_preferences.get("max_distance_to_good_cafe_m") or 0),
+                "min": "0",
+                "max": "5000",
+                "visual_max": "5000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any cafe distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "5 km",
+                "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest cafe-quality proxy.",
+                "step": "lifestyle",
+            },
+            {
+                "type": "checkbox",
+                "name": "enable_trust_risk_scoring",
+                "label": "Duplicate, scam, and stale scoring",
+                "value": "true",
+                "checked": bool(property_preferences.get("enable_trust_risk_scoring")),
+                "tooltip": "Generate trust-verification work for duplicate, stale, and scam risk rather than treating all sources equally.",
                 "step": "areas",
             },
             {
@@ -964,6 +1355,22 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "250+ m2",
                 "tooltip": "Minimum usable area. Larger minimums reduce weak matches but can make the crawl skip sparse auction or cooperative listings.",
+                "step": "search",
+            },
+            {
+                "type": "range",
+                "name": "available_within_years",
+                "label": "Move-in deadline",
+                "value": str(property_available_within_years_value),
+                "min": "0",
+                "max": "10",
+                "visual_max": "10",
+                "range_step": "1",
+                "format": "availability_years",
+                "empty_label": "Any delivery date",
+                "scale_min_label": "Any",
+                "scale_max_label": "10 years",
+                "tooltip": "Filter for listings or projects that should be ready within the selected number of years. Useful for cooperative and planned development sign-ups.",
                 "step": "search",
             },
             {
@@ -1059,6 +1466,16 @@ def app_section_payload(
                     "detail": "Select the districts and the property traits that should actually drive the ranking.",
                 },
                 {
+                    "key": "research",
+                    "label": "Research modes",
+                    "detail": "Decide which deeper research layers should run: family fit, commute reality, project stage realism, uncertainty handling, and action-readiness.",
+                },
+                {
+                    "key": "lifestyle",
+                    "label": "Freizeit und Alltag",
+                    "detail": "Add optional fun filters like Starbucks and fitness proximity without mixing them into the hard-risk layer.",
+                },
+                {
                     "key": "providers",
                     "label": "Providers and launch",
                     "detail": "Pick the portals, confirm the run cap, then save or launch the visible crawl.",
@@ -1066,6 +1483,12 @@ def app_section_payload(
             ],
         },
     }
+    if selected_listing_mode != "buy":
+        property_form["fields"] = [
+            field
+            for field in list(property_form.get("fields") or [])
+            if str(field.get("name") or "").strip() != "investment_research_mode"
+        ]
 
     mapping: dict[str, dict[str, object]] = {
         "today": {
@@ -1607,6 +2030,8 @@ def property_workspace_payload(
             ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m")),
             ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m")),
             ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m")),
+            ("Starbucks", facts.get("nearest_starbucks_m")),
+            ("Fitness", facts.get("nearest_fitness_center_m")),
             ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m")),
         )
         parts: list[str] = []
@@ -1694,6 +2119,8 @@ def property_workspace_payload(
             ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m")),
             ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m")),
             ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m")),
+            ("Starbucks", facts.get("nearest_starbucks_m")),
+            ("Fitness", facts.get("nearest_fitness_center_m")),
             ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m")),
         ):
             if raw_value in (None, "", []):

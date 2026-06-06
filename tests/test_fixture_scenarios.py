@@ -20,8 +20,7 @@ def test_founder_fixture_supports_first_value_loop() -> None:
     assert "google" in body["selected_channels"]
 
     bundle = client.get("/app/api/diagnostics/export")
-    assert bundle.status_code == 200
-    assert bundle.json()["billing"]["renewal_owner_role"] == "principal"
+    assert bundle.status_code == 403
 
     today = client.get("/app/today")
     assert today.status_code == 200

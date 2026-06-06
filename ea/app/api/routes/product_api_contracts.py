@@ -978,6 +978,24 @@ class PreferenceProfileUpsertIn(BaseModel):
     high_stakes_domains_enabled: bool | None = None
 
 
+class PreferenceMailboxImportIn(BaseModel):
+    account_email: str = Field(default="", max_length=320)
+    consent_confirmed: bool = False
+    consent_note: str = Field(default="", max_length=500)
+    email_limit: int = Field(default=80, ge=1, le=250)
+    lookback_days: int = Field(default=365, ge=7, le=3650)
+
+    @field_validator("account_email", mode="before")
+    @classmethod
+    def _normalize_account_email(cls, value: object) -> str:
+        return " ".join(str(value or "").split()).strip().lower()
+
+    @field_validator("consent_note", mode="before")
+    @classmethod
+    def _normalize_consent_note(cls, value: object) -> str:
+        return " ".join(str(value or "").split()).strip()
+
+
 class PreferenceNodeUpsertIn(BaseModel):
     domain: str = Field(min_length=1, max_length=80)
     category: str = Field(min_length=1, max_length=80)
@@ -1201,6 +1219,40 @@ class PreferenceProfileBundleOut(BaseModel):
     recent_evidence_events: list[PreferenceEvidenceEventOut] = Field(default_factory=list)
     recent_decision_assessments: list[PreferenceDecisionAssessmentOut] = Field(default_factory=list)
     recent_corrections: list[PreferenceCorrectionOut] = Field(default_factory=list)
+
+
+class PreferenceMailboxImportActivityOut(BaseModel):
+    source_ref: str = ""
+    thread_id: str = ""
+    account_email: str = ""
+    activity_kind: str = ""
+    provider: str = ""
+    subject: str = ""
+    location_hint: str = ""
+    price_eur: float | None = None
+    area_sqm: float | None = None
+    rooms: float | None = None
+    detected_features: list[str] = Field(default_factory=list)
+    inferred_listing_mode: str = ""
+    inferred_property_type: str = ""
+
+
+class PreferenceMailboxImportOut(BaseModel):
+    status: str
+    person_id: str
+    account_email: str = ""
+    consent_confirmed: bool
+    consent_note: str = ""
+    imported_thread_total: int = 0
+    activity_total: int = 0
+    preregistration_total: int = 0
+    inquiry_total: int = 0
+    viewing_total: int = 0
+    applied_nodes: list[PreferenceNodeOut] = Field(default_factory=list)
+    activities: list[PreferenceMailboxImportActivityOut] = Field(default_factory=list)
+    preference_snapshot: PreferenceProfileBundleOut
+    teable_sync_status: str = ""
+    teable_blocked_reason: str = ""
 
 
 class PropertyFeedbackSuggestionOut(BaseModel):

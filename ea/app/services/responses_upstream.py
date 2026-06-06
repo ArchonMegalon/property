@@ -2857,6 +2857,7 @@ def _onemin_models() -> tuple[str, ...]:
 def _onemin_code_models() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_ONEMIN_CODE_MODELS"))
     defaults = (
+        "gpt-oss-120b",
         "deepseek-chat",
         "gpt-4o",
         "gpt-5",
@@ -2868,6 +2869,7 @@ def _onemin_code_models() -> tuple[str, ...]:
 def _onemin_fast_candidate_models() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_ONEMIN_FAST_CANDIDATE_MODELS"))
     defaults = (
+        "anthropic/claude-4-sonnet",
         "deepseek-chat",
         "gpt-4.1-nano",
         "gpt-4.1",
@@ -2939,7 +2941,7 @@ def _magicx_lane_models() -> tuple[str, ...]:
 
 def _onemin_hard_models() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_ONEMIN_HARD_MODELS"))
-    defaults = ("gpt-5.4", "gpt-5", "gpt-4o")
+    defaults = ("gpt-oss-120b", "gpt-5.4", "gpt-5", "gpt-4o")
     if configured:
         return _merge_unique(configured, defaults)
     return defaults
@@ -2963,7 +2965,7 @@ def _onemin_rescue_models() -> tuple[str, ...]:
 
 def _onemin_review_models() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_ONEMIN_REVIEW_MODELS"))
-    defaults = ("deepseek-chat", "gpt-4.1-nano", "gpt-4.1")
+    defaults = ("anthropic/claude-4-sonnet", "deepseek-chat", "gpt-4.1-nano", "gpt-4.1")
     if configured:
         return _merge_unique(configured, defaults)
     return defaults
@@ -4298,7 +4300,7 @@ def _provider_order() -> tuple[str, ...]:
 
 
 def _cheap_provider_order() -> tuple[str, ...]:
-    return ("gemini_vortex", "magixai", "onemin")
+    return ("onemin", "gemini_vortex", "magixai")
 
 
 def _hard_provider_order() -> tuple[str, ...]:

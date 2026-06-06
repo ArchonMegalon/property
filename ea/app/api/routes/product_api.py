@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from app.api.dependencies import RequestContext, get_container, get_request_context
+from app.api.dependencies import RequestContext, get_container, get_request_context, require_operator_context
 from app.api.routes.product_api_contracts import (
     BriefResponse,
     CommitmentCandidateOut,
@@ -35,6 +35,8 @@ from app.api.routes.product_api_contracts import (
     PreferenceDecisionAssessmentOut,
     PreferenceEvidenceApplyOut,
     PreferenceEvidenceEventIn,
+    PreferenceMailboxImportIn,
+    PreferenceMailboxImportOut,
     PreferenceLearningSummaryOut,
     PreferenceNodeArchiveIn,
     PreferenceNodeOut,
@@ -91,6 +93,12 @@ from app.container import AppContainer
 from app.product.service import _property_feedback_reason_map, build_product_service
 
 router = APIRouter(prefix="/app/api", tags=["product"])
+
+
+def _require_operator_for_workspace_role(*, role: str, operator_id: str = "", context: RequestContext) -> None:
+    normalized_role = str(role or "principal").strip().lower() or "principal"
+    if normalized_role == "operator" or str(operator_id or "").strip():
+        require_operator_context(context)
 
 @router.get("/brief", response_model=BriefResponse)
 def get_brief(
@@ -680,6 +688,32 @@ def upsert_preference_profile(
     )
 
 
+@router.post("/people/{person_id}/preference-profile/mailbox-import", response_model=PreferenceMailboxImportOut)
+def import_preference_profile_mailbox_history(
+    person_id: str,
+    body: PreferenceMailboxImportIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PreferenceMailboxImportOut:
+    if not body.consent_confirmed:
+        raise HTTPException(status_code=422, detail="mailbox_import_consent_required")
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    try:
+        payload = service.import_property_mailbox_preferences(
+            principal_id=context.principal_id,
+            person_id=person_id,
+            actor=actor,
+            account_email=body.account_email,
+            consent_note=body.consent_note,
+            email_limit=body.email_limit,
+            lookback_days=body.lookback_days,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return PreferenceMailboxImportOut(**payload)
+
+
 @router.post("/people/{person_id}/preference-profile/nodes", response_model=PreferenceNodeOut)
 def upsert_preference_node(
     person_id: str,
@@ -1213,6 +1247,7 @@ def create_workspace_invitation(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> WorkspaceInvitationOut:
+    _require_operator_for_workspace_role(role=body.role, context=context)
     service = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "workspace").strip()
     payload = service.create_workspace_invitation(
@@ -1258,6 +1293,7 @@ def create_workspace_access_session(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> WorkspaceAccessSessionOut:
+    _require_operator_for_workspace_role(role=body.role, operator_id=body.operator_id, context=context)
     service = build_product_service(container)
     payload = service.issue_workspace_access_session(
         principal_id=context.principal_id,
@@ -1300,6 +1336,7 @@ def create_workspace_access_session_legacy(
     email, role, display_name, operator_id, expires_in_hours, default_target = _normalize_workspace_access_legacy_payload(
         body=dict(body or {})
     )
+    _require_operator_for_workspace_role(role=role, operator_id=operator_id, context=context)
     payload = service.issue_workspace_access_session(
         principal_id=context.principal_id,
         email=email,

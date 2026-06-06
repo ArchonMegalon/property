@@ -96,6 +96,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
             "nearest_supermarket_lng": 13.385,
             "nearest_pharmacy_m": 410,
             "nearest_playground_m": 520,
+            "nearest_starbucks_m": 340,
+            "nearest_fitness_center_m": 460,
+            "nearest_cinema_m": 690,
+            "nearest_bouldering_m": 880,
             "nearest_subway_m": 1200,
             "listing_research_snapshot": {
                 "street_address": "Invalidenstrasse 14",
@@ -104,6 +108,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
             },
             "listing_research_meta": {
                 "strategy": "provider_html_plus_geo",
+            },
+            "future_change_research": {
+                "school_atlas_quality_summary": "Nearby SchoolAtlas schools: Volksschule Beispiel (VS, 280 m, 240 students)",
+                "school_atlas_progression_summary": "Nearest transition-capable school Volksschule Beispiel shows 64 disclosed outgoing transitions; about 62.5% lead to Gymnasium/AHS.",
+                "school_atlas_evidence_type": "hard_public_data",
+                "school_atlas_source_url": "https://www.statistik.at/atlas/schulen/",
             },
         },
     }
@@ -249,6 +259,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-range-control="max_price_eur"' in setup.text
     assert 'data-range-control="min_rooms"' in setup.text
     assert 'data-range-control="min_area_m2"' in setup.text
+    assert 'data-range-control="available_within_years"' in setup.text
     assert 'data-range-control="max_results_per_source"' in setup.text
     assert 'data-range-control="min_match_score"' in setup.text
     assert 'data-range-format="currency_eur"' in setup.text
@@ -290,7 +301,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "OODA" in search.text
     assert "Playground" in search.text
     assert "Supermarket" in search.text
-    assert "Underground" in search.text
+    assert "Starbucks" in search.text
+    assert "Fitness" in search.text
+    assert "Cinema" in search.text
+    assert "Bouldering" in search.text
+    assert "SchoolAtlas" in search.text
+    assert "Gymnasium path" in search.text
     assert "Decision reasons" in search.text
     assert "Risk and investment" in search.text
     assert "Missing facts" in search.text
@@ -343,6 +359,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Missing-data severity" in packet.text
     assert "Decision scorecard" in packet.text
     assert "Evidence and provenance" in packet.text
+    assert "Future-change research" in packet.text
+    assert "SchoolAtlas quality" in packet.text
+    assert "Gymnasium progression" in packet.text
     assert "Investment research" in packet.text
     assert "Gross yield" in packet.text
     assert "Expected monthly rent" in packet.text
@@ -498,11 +517,47 @@ def test_propertyquarry_workspace_supports_all_of_vienna_toggle() -> None:
     assert "Use stored feedback preferences" in search.text
     assert "Manage feedback preferences" in search.text
     assert "All of Vienna" in search.text
+    assert "Freizeit und Alltag" in search.text
+    assert "Max distance to Starbucks" in search.text
+    assert "Max distance to fitness center" in search.text
+    assert "Max distance to cinema" in search.text
+    assert "Max distance to bouldering gym" in search.text
+    assert "Max distance to dog park" in search.text
+    assert "Max distance to good cafe" in search.text
+    assert "Research modes" in search.text
+    assert "Family mode" in search.text
+    assert "Commute reality research" in search.text
+    assert "Accepted project stages" in search.text
+    assert "Action-readiness research" in search.text
     assert 'name="location_query"' in search.text
     assert re.search(
         r'data-property-field-step="areas" data-property-field-name="location_query" hidden>\s*<div class="pqx-field-title">Target areas</div>',
         search.text,
     )
+
+
+def test_propertyquarry_workspace_hides_investment_research_for_rent() -> None:
+    principal_id = "pq-rent-no-investment-filter"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Rent Scope Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "investment_research_mode": "auto",
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+    assert search.status_code == 200
+    assert 'name="investment_research_mode"' not in search.text
 
 
 def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> None:

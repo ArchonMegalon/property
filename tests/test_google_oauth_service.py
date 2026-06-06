@@ -223,6 +223,41 @@ def test_google_signal_loader_retries_without_q_on_generic_forbidden_query(monke
     assert rows[0].payload["from_email"] == "no-reply@agent.willhaben.at"
 
 
+def test_google_signal_loader_raises_runtime_error_when_retry_without_q_is_still_forbidden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    def _http_error(url: str, *, code: int, payload: dict[str, object]) -> urllib.error.HTTPError:
+        return urllib.error.HTTPError(
+            url=url,
+            code=code,
+            msg="Forbidden",
+            hdrs=None,
+            fp=io.BytesIO(json.dumps(payload).encode("utf-8")),
+        )
+
+    def _fake_urlopen(request, timeout=30):  # type: ignore[no-untyped-def]
+        url = str(request.full_url)
+        if url.startswith("https://gmail.googleapis.com/gmail/v1/users/me/messages?"):
+            raise _http_error(
+                url,
+                code=403,
+                payload={"error": {"code": 403, "message": "Request had insufficient authentication scopes."}},
+            )
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(google_service.urllib.request, "urlopen", _fake_urlopen)
+
+    with pytest.raises(RuntimeError, match="google_gmail_read_forbidden"):
+        google_service._list_recent_gmail_signals(
+            access_token="token-123",
+            max_results=5,
+            account_email="elisabeth.girschele@gmail.com",
+            gmail_query="from:(agent.willhaben.at OR no-reply@agent.willhaben.at)",
+        )
+
+
 def test_google_signal_loader_uses_full_message_text_when_modify_scope_granted(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import google_oauth as google_service
 
