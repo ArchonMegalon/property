@@ -464,6 +464,33 @@ Rules:
 - never reuse owner-private or paid-customer artifacts across principals
 - regenerate only when source hash, privacy mode, or packet renderer contract changes
 
+### 6.10 PropertyQuarryTeableTenantProjection
+
+Postgres remains the operational store for search runs, onboarding, billing state, and packet publication contracts. Teable is the structured operator/BI mirror for the important PropertyQuarry facts.
+
+Projection tables:
+
+- `propertyquarry_tenants`
+- `propertyquarry_users`
+- `propertyquarry_subscriptions`
+- `propertyquarry_preferences`
+- `propertyquarry_search_runs`
+- `propertyquarry_properties`
+- `propertyquarry_property_evaluations`
+- `propertyquarry_research_tasks`
+
+Rules:
+
+- create a dedicated PropertyQuarry Teable base/tenant, not a mixed EA table set
+- all rows use stable `projection_id` upsert keys
+- global property facts are separated from user-specific evaluations
+- subscription state is projected from the normalized commercial snapshot
+- current preferences and per-run search preferences are both projected
+- search-run results include provider pushdown/cache metadata through the run summary
+- sync is fail-closed unless every PropertyQuarry table has a configured Teable table ID
+- auto-sync may run after search completion or research-task updates, but must not block the search worker
+- Teable writes are a projection; the runtime must remain correct if Teable is unavailable
+
 ## 7. API Shape
 
 The greenfield API should use property nouns.
@@ -482,6 +509,9 @@ Recommended endpoints:
 - `GET /app/api/property/providers?country=AT`
 - `GET /app/api/property/billing`
 - `POST /app/api/property/billing/checkout`
+- `GET /app/api/property/teable-projection`
+- `GET /app/api/property/teable-sync-preview`
+- `POST /app/api/property/teable-sync`
 
 Keep old endpoints as compatibility wrappers only:
 

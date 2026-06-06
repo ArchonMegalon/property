@@ -70,6 +70,13 @@ if [[ "${db_ready}" != "1" ]]; then
   exit 3
 fi
 
+password_sql_literal="$("${PYTHON_BIN}" - <<'PY'
+import os
+print("'" + str(os.environ.get("POSTGRES_PASSWORD") or "").replace("'", "''") + "'")
+PY
+)"
+docker exec -i propertyquarry-db psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres \
+  -c "ALTER USER postgres WITH PASSWORD ${password_sql_literal};" >/dev/null
 docker exec -i propertyquarry-db psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres \
   -c "DROP DATABASE IF EXISTS \"${TEST_DB}\";" >/dev/null
 docker exec -i propertyquarry-db psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres \

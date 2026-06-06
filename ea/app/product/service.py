@@ -91,6 +91,12 @@ from app.services import google_oauth as google_oauth_service
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
 from app.services.ltd_runtime_skill_projection import projected_task_key
 from app.services.teable_projection_adapter import build_teable_projection_records, build_teable_projection_summary
+from app.services.propertyquarry_teable_projection import (
+    PROPERTYQUARRY_TEABLE_TABLE_NAMES,
+    build_propertyquarry_teable_projection_records,
+    build_propertyquarry_teable_projection_summary,
+    propertyquarry_teable_tenant_key,
+)
 from app.services.telegram_delivery import (
     build_telegram_feedback_callback_data_for_principal,
     resolve_primary_telegram_binding,
@@ -9957,6 +9963,258 @@ class ProductService:
             },
         }
 
+    def _propertyquarry_teable_table_config(self) -> dict[str, dict[str, object]]:
+        raw = str(os.environ.get("PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
+        if not raw:
+            raw = str(os.environ.get("TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
+        if not raw:
+            return {}
+        try:
+            loaded = json.loads(raw)
+        except Exception:
+            return {}
+        if not isinstance(loaded, dict):
+            return {}
+        return {
+            str(table_name or "").strip(): dict(table_config or {})
+            for table_name, table_config in dict(loaded or {}).items()
+            if str(table_name or "").strip() and isinstance(table_config, dict)
+        }
+
+    def _propertyquarry_teable_missing_table_mappings(self, config: dict[str, dict[str, object]]) -> list[str]:
+        missing: list[str] = []
+        for table_name in PROPERTYQUARRY_TEABLE_TABLE_NAMES:
+            table_config = dict(config.get(table_name) or {})
+            if not str(table_config.get("table_id") or "").strip():
+                missing.append(table_name)
+        return missing
+
+    def propertyquarry_teable_projection_records(
+        self,
+        *,
+        principal_id: str,
+        run_id: str = "",
+        limit: int = 20,
+    ) -> dict[str, list[dict[str, object]]]:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_run_id = str(run_id or "").strip()
+        onboarding_status = self._container.onboarding.status(principal_id=normalized_principal) if normalized_principal else {}
+        runs: list[dict[str, object]] = []
+        if normalized_run_id:
+            snapshot = self.get_property_search_run_status(
+                principal_id=normalized_principal,
+                run_id=normalized_run_id,
+            )
+            if isinstance(snapshot, dict):
+                runs.append(dict(snapshot))
+        elif normalized_principal:
+            records = _list_property_search_run_records(limit=max(int(limit or 0), 1))
+            for record in records:
+                if str(record.get("principal_id") or "").strip() != normalized_principal:
+                    continue
+                run_record_id = str(record.get("run_id") or "").strip()
+                snapshot = self.get_property_search_run_status(
+                    principal_id=normalized_principal,
+                    run_id=run_record_id,
+                ) if run_record_id else None
+                runs.append(dict(snapshot or record))
+        return build_propertyquarry_teable_projection_records(
+            principal_id=normalized_principal,
+            onboarding_status=dict(onboarding_status or {}),
+            search_runs=tuple(runs),
+        )
+
+    def propertyquarry_teable_projection_summary(
+        self,
+        *,
+        principal_id: str,
+        run_id: str = "",
+        limit: int = 20,
+    ) -> dict[str, object]:
+        records = self.propertyquarry_teable_projection_records(
+            principal_id=principal_id,
+            run_id=run_id,
+            limit=limit,
+        )
+        return build_propertyquarry_teable_projection_summary(records)
+
+    def propertyquarry_teable_sync_preview(
+        self,
+        *,
+        principal_id: str,
+        run_id: str = "",
+        limit: int = 20,
+    ) -> dict[str, object]:
+        records = self.propertyquarry_teable_projection_records(
+            principal_id=principal_id,
+            run_id=run_id,
+            limit=limit,
+        )
+        summary = build_propertyquarry_teable_projection_summary(records)
+        table_config = self._propertyquarry_teable_table_config()
+        missing_tables = self._propertyquarry_teable_missing_table_mappings(table_config)
+        table_sync_configured = not missing_tables
+        provider_state = self._container.provider_registry.binding_state("teable", principal_id=principal_id)
+        teable_base_url = str(os.environ.get("TEABLE_BASE_URL") or "https://app.teable.ai").strip().rstrip("/")
+        candidate_routes = tuple(
+            route
+            for route in self._container.provider_registry.candidate_routes_by_capability_with_context(
+                capability_key="table_sync",
+                principal_id=principal_id,
+                require_executable=False,
+            )
+            if str(route.provider_key or "").strip().lower() == "teable"
+        )
+        provider_state_value = str(getattr(provider_state, "state", "") or "catalog_only").strip().lower() or "catalog_only"
+        provider_routable = provider_state_value not in {"catalog_only", "unconfigured", "disabled", "maintenance"}
+        runtime_reachable = False
+        runtime_blocked_reason = ""
+        if provider_routable and table_sync_configured and bool(getattr(provider_state, "secret_configured", False)):
+            runtime_reachable, runtime_blocked_reason = self._teable_sync_runtime_available(base_url=teable_base_url)
+        executable_route = next(
+            (
+                route
+                for route in candidate_routes
+                if bool(route.executable) and provider_routable and table_sync_configured and runtime_reachable
+            ),
+            None,
+        )
+        if executable_route is not None:
+            blocked_reason = ""
+        elif not table_sync_configured:
+            blocked_reason = "propertyquarry_teable_table_sync_config_missing"
+        elif not provider_routable:
+            blocked_reason = "teable_provider_unconfigured"
+        else:
+            blocked_reason = runtime_blocked_reason or "teable_table_sync_unavailable"
+        sync_payload = {
+            "projection_scope": "propertyquarry",
+            "person_id": propertyquarry_teable_tenant_key(),
+            "tables_json": records,
+            "table_config_json": table_config,
+        }
+        return {
+            "status": "ready" if executable_route is not None else "blocked",
+            "blocked_reason": blocked_reason,
+            "provider": {
+                "provider_key": "teable",
+                "display_name": str(getattr(provider_state, "display_name", "") or "Teable").strip() or "Teable",
+                "binding_state": provider_state_value,
+                "enabled": bool(getattr(provider_state, "enabled", False)),
+                "executable": bool(getattr(provider_state, "executable", False)),
+                "binding_id": str(getattr(provider_state, "binding_id", "") or "").strip(),
+                "secret_configured": bool(getattr(provider_state, "secret_configured", False)),
+                "table_sync_configured": table_sync_configured,
+                "missing_tables": missing_tables,
+                "runtime_reachable": runtime_reachable,
+                "base_url": teable_base_url,
+                "updated_at": str(getattr(provider_state, "updated_at", "") or "").strip(),
+            },
+            "route": {
+                "capability_key": "table_sync",
+                "tool_name": str(getattr(executable_route, "tool_name", "") or "provider.teable.table_sync").strip(),
+                "candidate_count": len(candidate_routes),
+                "candidate_tools": [str(route.tool_name or "").strip() for route in candidate_routes],
+                "executable": executable_route is not None,
+            },
+            "projection_summary": summary,
+            "projected_table_count": len(records),
+            "projected_record_count": sum(len(rows) for rows in records.values()),
+            "records_preview": {
+                table_name: [dict(row) for row in rows[:2]]
+                for table_name, rows in records.items()
+            },
+            "sync_payload_json": sync_payload,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def request_propertyquarry_teable_sync(
+        self,
+        *,
+        principal_id: str,
+        run_id: str = "",
+        limit: int = 20,
+    ) -> dict[str, object]:
+        preview = self.propertyquarry_teable_sync_preview(
+            principal_id=principal_id,
+            run_id=run_id,
+            limit=limit,
+        )
+        if str(preview.get("status") or "").strip().lower() != "ready":
+            return {
+                **preview,
+                "sync_attempted": False,
+                "sync_result": "blocked",
+            }
+        route = dict(preview.get("route") or {})
+        tool_name = str(route.get("tool_name") or "provider.teable.table_sync").strip()
+        payload_json = dict(preview.get("sync_payload_json") or {})
+        invocation = ToolInvocationRequest(
+            session_id=f"propertyquarry-teable-sync:{uuid4()}",
+            step_id=f"propertyquarry-teable-sync-step:{uuid4()}",
+            tool_name=tool_name,
+            action_kind="table.sync",
+            payload_json=payload_json,
+            context_json={"principal_id": principal_id, "run_id": str(run_id or "").strip()},
+        )
+        result = self._container.tool_execution.execute_invocation(invocation)
+        return {
+            **preview,
+            "sync_attempted": True,
+            "sync_result": "sent",
+            "tool_execution": {
+                "tool_name": result.tool_name,
+                "action_kind": result.action_kind,
+                "target_ref": result.target_ref,
+                "output_json": dict(result.output_json or {}),
+                "receipt_json": dict(result.receipt_json or {}),
+            },
+        }
+
+    def _propertyquarry_teable_auto_sync_enabled(self) -> bool:
+        raw = str(os.environ.get("PROPERTYQUARRY_TEABLE_AUTO_SYNC") or "1").strip().lower()
+        return raw not in {"0", "false", "no", "off", "disabled"}
+
+    def _best_effort_propertyquarry_teable_sync(
+        self,
+        *,
+        principal_id: str,
+        run_id: str = "",
+        reason: str = "",
+    ) -> None:
+        if not self._propertyquarry_teable_auto_sync_enabled():
+            return
+        table_config = self._propertyquarry_teable_table_config()
+        if self._propertyquarry_teable_missing_table_mappings(table_config):
+            return
+
+        def _run() -> None:
+            try:
+                self.request_propertyquarry_teable_sync(
+                    principal_id=principal_id,
+                    run_id=run_id,
+                    limit=20,
+                )
+            except Exception as exc:
+                try:
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="propertyquarry_teable_sync_failed",
+                        payload={
+                            "run_id": str(run_id or "").strip(),
+                            "reason": compact_text(str(reason or "auto_sync"), fallback="auto_sync", limit=120),
+                            "error": compact_text(str(exc or "teable sync failed"), fallback="teable sync failed", limit=240),
+                        },
+                        source_id=str(run_id or principal_id or "propertyquarry-teable-sync"),
+                    )
+                except Exception:
+                    pass
+
+        try:
+            threading.Thread(target=_run, daemon=True).start()
+        except Exception:
+            _run()
+
     def _support_fix_verification_contact(
         self,
         *,
@@ -17868,6 +18126,11 @@ class ProductService:
         except Exception:
             pass
         _prune_property_search_runs()
+        self._best_effort_propertyquarry_teable_sync(
+            principal_id=normalized_principal,
+            run_id=run_id,
+            reason="property_search_run_queued",
+        )
 
         def _progress(
             *,
@@ -17972,6 +18235,11 @@ class ProductService:
                             source_id=run_id,
                             dedupe_key=f"{normalized_principal}|{run_id}|property-search-results-ready-refresh-failed",
                         )
+                self._best_effort_propertyquarry_teable_sync(
+                    principal_id=normalized_principal,
+                    run_id=run_id,
+                    reason="property_search_run_completed",
+                )
             except Exception as exc:
                 self._record_property_search_run_event(
                     run_id=run_id,
@@ -17981,6 +18249,11 @@ class ProductService:
                     status="failed",
                     steps_delta=0,
                     force_status="failed",
+                )
+                self._best_effort_propertyquarry_teable_sync(
+                    principal_id=normalized_principal,
+                    run_id=run_id,
+                    reason="property_search_run_failed",
                 )
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -18067,6 +18340,11 @@ class ProductService:
             steps_delta=0,
             summary_updates=None,
             force_status=str(snapshot.get("status") or "processed").strip().lower() or "processed",
+        )
+        self._best_effort_propertyquarry_teable_sync(
+            principal_id=normalized_principal,
+            run_id=normalized_run_id,
+            reason="property_research_task_updated",
         )
         return self._snapshot_property_search_run(run_id=normalized_run_id, principal_id=normalized_principal)
 

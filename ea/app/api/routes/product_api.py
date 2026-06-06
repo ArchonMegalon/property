@@ -922,6 +922,66 @@ def request_preference_teable_sync(
     )
 
 
+@router.get("/property/teable-projection", response_model=dict[str, list[dict[str, object]]])
+def get_propertyquarry_teable_projection(
+    run_id: str = Query(default=""),
+    limit: int = Query(default=20, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, list[dict[str, object]]]:
+    service = build_product_service(container)
+    return service.propertyquarry_teable_projection_records(
+        principal_id=context.principal_id,
+        run_id=run_id,
+        limit=limit,
+    )
+
+
+@router.get("/property/teable-projection-summary", response_model=dict[str, object])
+def get_propertyquarry_teable_projection_summary(
+    run_id: str = Query(default=""),
+    limit: int = Query(default=20, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_product_service(container)
+    return service.propertyquarry_teable_projection_summary(
+        principal_id=context.principal_id,
+        run_id=run_id,
+        limit=limit,
+    )
+
+
+@router.get("/property/teable-sync-preview", response_model=dict[str, object])
+def get_propertyquarry_teable_sync_preview(
+    run_id: str = Query(default=""),
+    limit: int = Query(default=20, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_product_service(container)
+    return service.propertyquarry_teable_sync_preview(
+        principal_id=context.principal_id,
+        run_id=run_id,
+        limit=limit,
+    )
+
+
+@router.post("/property/teable-sync", response_model=dict[str, object])
+def request_propertyquarry_teable_sync(
+    run_id: str = Query(default=""),
+    limit: int = Query(default=20, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_product_service(container)
+    return service.request_propertyquarry_teable_sync(
+        principal_id=context.principal_id,
+        run_id=run_id,
+        limit=limit,
+    )
+
+
 @router.get("/handoffs", response_model=list[HandoffNoteOut])
 def list_handoffs(
     status: str | None = Query(default="pending"),

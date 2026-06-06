@@ -1,0 +1,209 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import app.product.service as product_service
+from app.domain.models import ToolInvocationResult
+from app.services.propertyquarry_teable_projection import (
+    PROPERTYQUARRY_TEABLE_TABLE_NAMES,
+    build_propertyquarry_teable_projection_records,
+)
+from tests.product_test_helpers import build_product_client, start_workspace
+
+
+def _propertyquarry_teable_mapping() -> dict[str, dict[str, str]]:
+    return {
+        table_name: {
+            "table_id": f"tbl_{table_name}",
+            "key_field": "projection_id",
+            "field_key_type": "name",
+        }
+        for table_name in PROPERTYQUARRY_TEABLE_TABLE_NAMES
+    }
+
+
+def test_propertyquarry_teable_projection_covers_user_subscription_search_and_evaluations() -> None:
+    records = build_propertyquarry_teable_projection_records(
+        principal_id="pq-user-1",
+        onboarding_status={
+            "workspace": {"name": "PropertyQuarry Home", "mode": "personal", "region": "AT", "language": "de"},
+            "timezone": "Europe/Vienna",
+            "selected_channels": ["email", "telegram"],
+            "property_search_preferences": {
+                "country_code": "AT",
+                "language_code": "de",
+                "listing_mode": "rent",
+                "property_type": "apartment",
+                "location_query": "1020 Wien",
+                "selected_platforms": ["willhaben"],
+                "min_area_m2": 80,
+                "property_commercial": {
+                    "active_plan_key": "plus",
+                    "status": "active",
+                    "active_until": "2999-01-01T00:00:00+00:00",
+                    "plan_source": "payfunnels",
+                },
+            },
+        },
+        search_runs=(
+            {
+                "run_id": "run-1",
+                "principal_id": "pq-user-1",
+                "status": "processed",
+                "selected_platforms": ["willhaben"],
+                "property_search_preferences": {"min_area_m2": 80, "selected_platforms": ["willhaben"]},
+                "summary": {
+                    "sources_total": 1,
+                    "listing_total": 1,
+                    "high_fit_total": 1,
+                    "research_task_total": 1,
+                    "sources": [
+                        {
+                            "source_label": "Willhaben | Austria | Rent",
+                            "top_candidates": [
+                                {
+                                    "property_url": "https://www.willhaben.at/iad/object?adId=123",
+                                    "listing_id": "123",
+                                    "title": "Helle Wohnung",
+                                    "fit_score": 82.5,
+                                    "recommendation": "strong_fit",
+                                    "tour_url": "https://propertyquarry.com/tours/123",
+                                    "property_facts": {
+                                        "area_sqm": 91,
+                                        "rooms": 3,
+                                        "total_rent_eur": 1850,
+                                        "postal_name": "1020 Wien",
+                                    },
+                                    "assessment": {"recommendation": "strong_fit"},
+                                }
+                            ],
+                        }
+                    ],
+                    "research_tasks": [
+                        {
+                            "task_id": "run-1:123:rooms",
+                            "status": "queued",
+                            "field_key": "rooms",
+                            "question": "How many rooms?",
+                            "property_url": "https://www.willhaben.at/iad/object?adId=123",
+                        }
+                    ],
+                },
+                "research_tasks": [
+                    {
+                        "task_id": "run-1:123:rooms",
+                        "status": "queued",
+                        "field_key": "rooms",
+                        "question": "How many rooms?",
+                        "property_url": "https://www.willhaben.at/iad/object?adId=123",
+                    }
+                ],
+            },
+        ),
+    )
+
+    assert records["propertyquarry_tenants"][0]["tenant_key"] == "propertyquarry"
+    assert records["propertyquarry_users"][0]["principal_id"] == "pq-user-1"
+    assert records["propertyquarry_subscriptions"][0]["current_plan_key"] == "plus"
+    assert records["propertyquarry_preferences"][0]["min_area_m2"] == 80
+    assert records["propertyquarry_search_runs"][0]["run_id"] == "run-1"
+    assert records["propertyquarry_properties"][0]["area_sqm"] == 91
+    assert records["propertyquarry_property_evaluations"][0]["fit_score"] == 82.5
+    assert records["propertyquarry_research_tasks"][0]["field_key"] == "rooms"
+
+
+def test_propertyquarry_teable_sync_preview_fails_closed_without_property_table_mapping(monkeypatch) -> None:
+    monkeypatch.delenv("PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON", raising=False)
+    monkeypatch.delenv("TEABLE_TABLE_SYNC_CONFIG_JSON", raising=False)
+    client = build_product_client(principal_id="pq-teable-preview")
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
+
+    response = client.get("/app/api/property/teable-sync-preview")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["status"] == "blocked"
+    assert body["blocked_reason"] == "propertyquarry_teable_table_sync_config_missing"
+    assert set(body["provider"]["missing_tables"]) == set(PROPERTYQUARRY_TEABLE_TABLE_NAMES)
+    assert body["projection_summary"]["projection_scope"] == "propertyquarry"
+
+
+def test_propertyquarry_teable_sync_uses_dedicated_property_tables_when_ready(monkeypatch) -> None:
+    client = build_product_client(principal_id="pq-teable-ready")
+    container = client.app.state.container
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
+    monkeypatch.setenv("PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON", json.dumps(_propertyquarry_teable_mapping()))
+    monkeypatch.delenv("TEABLE_TABLE_SYNC_CONFIG_JSON", raising=False)
+    monkeypatch.setattr(
+        container.provider_registry,
+        "candidate_routes_by_capability_with_context",
+        lambda **_: (
+            SimpleNamespace(
+                provider_key="teable",
+                capability_key="table_sync",
+                tool_name="provider.teable.table_sync",
+                executable=True,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        container.provider_registry,
+        "binding_state",
+        lambda provider_key, principal_id=None: SimpleNamespace(
+            provider_key=provider_key,
+            display_name="Teable",
+            state="ready",
+            enabled=True,
+            executable=True,
+            binding_id=f"{principal_id}:teable",
+            secret_configured=True,
+            updated_at="2026-06-06T00:00:00Z",
+        ),
+    )
+    monkeypatch.setattr(product_service.ProductService, "_teable_sync_runtime_available", lambda self, *, base_url: (True, ""))
+
+    def _execute(invocation):
+        assert invocation.tool_name == "provider.teable.table_sync"
+        assert invocation.action_kind == "table.sync"
+        assert invocation.payload_json["projection_scope"] == "propertyquarry"
+        assert set(invocation.payload_json["tables_json"]) == set(PROPERTYQUARRY_TEABLE_TABLE_NAMES)
+        assert "propertyquarry_users" in invocation.payload_json["table_config_json"]
+        assert "preference_review_queue" not in invocation.payload_json["table_config_json"]
+        return ToolInvocationResult(
+            tool_name=invocation.tool_name,
+            action_kind=invocation.action_kind,
+            target_ref="teable-sync:propertyquarry:propertyquarry",
+            output_json={"synced_tables": list(PROPERTYQUARRY_TEABLE_TABLE_NAMES)},
+            receipt_json={"status": "pass", "rows_upserted": 4},
+        )
+
+    monkeypatch.setattr(container.tool_execution, "execute_invocation", _execute)
+
+    response = client.post("/app/api/property/teable-sync")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["sync_attempted"] is True
+    assert body["sync_result"] == "sent"
+    assert body["tool_execution"]["receipt_json"]["rows_upserted"] == 4
+
+
+def test_propertyquarry_teable_bootstrap_preview_has_all_property_tables() -> None:
+    script = Path("scripts/bootstrap_propertyquarry_teable_tenant.py")
+    result = subprocess.run(
+        [sys.executable, str(script)],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["status"] == "preview"
+    assert set(payload["mapping_preview"]) == set(PROPERTYQUARRY_TEABLE_TABLE_NAMES)
+    assert "propertyquarry_users" in payload["tables"]
+    assert payload["tables"]["propertyquarry_properties"][0]["name"] == "projection_id"

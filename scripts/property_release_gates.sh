@@ -20,6 +20,7 @@ Runs the focused PropertyQuarry release bundle:
   - property workspace redesign browser contracts
   - FlipLink packet privacy, publication, and webhook contracts
   - MagicFit-only promo packet contracts
+  - PropertyQuarry Teable tenant/projection contracts
   - property workspace real-browser greenfield checks
   - property search run contracts
   - property market catalog contracts
@@ -34,6 +35,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_security_posture.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_repo_isolation.py
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_deploy_operator_contracts.py \
+  tests/test_propertyquarry_teable_sync.py \
   tests/test_propertyquarry_magicfit_promo_contract.py \
   tests/test_fliplink_packet_privacy.py \
   tests/test_property_packet_publications.py \

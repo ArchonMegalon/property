@@ -335,7 +335,7 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
-        page.wait_for_url(lambda url: "/app/research/" in str(url) and "run_id=run-42" in str(url), timeout=5000)
+        page.wait_for_url(lambda url: "/app/research/" in str(url) and "run_id=run-42" in str(url), wait_until="domcontentloaded", timeout=5000)
         packet_content = page.content()
         assert "Open the space before you read the rest" not in packet_content
         assert "360 review first" not in packet_content
@@ -369,7 +369,7 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         assert mobile_dock.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
-        page.wait_for_url(lambda url: "/app/research/" in str(url) and "run_id=run-42" in str(url), timeout=5000)
+        page.wait_for_url(lambda url: "/app/research/" in str(url) and "run_id=run-42" in str(url), wait_until="domcontentloaded", timeout=5000)
         assert page.locator("body", has_text="OODA summary").is_visible()
         assert page.locator("body", has_text="Preference feedback").is_visible()
         review_action = page.get_by_role("button", name="Save feedback").bounding_box()
