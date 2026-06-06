@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import time
 import urllib.parse
@@ -163,6 +164,99 @@ def test_property_search_type_filter_blocks_garage_for_residential_searches() ->
         )
         is True
     )
+
+
+def test_property_scout_listing_url_cache_reuses_provider_result_lists(monkeypatch) -> None:
+    with product_service._PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+        product_service._PROPERTY_SOURCE_LISTING_CACHE.clear()
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS", "60")
+    fetch_calls: list[str] = []
+
+    def _fake_fetch_html(url: str, *, timeout_seconds: float = 60.0) -> str:
+        fetch_calls.append(url)
+        return "<html>provider source</html>"
+
+    def _fake_extract_listing_urls(*, source_url: str, html: str) -> tuple[str, ...]:
+        return (
+            "https://www.willhaben.at/iad/object?adId=cache-1",
+            "https://www.willhaben.at/iad/object?adId=cache-2",
+        )
+
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", _fake_fetch_html)
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", _fake_extract_listing_urls)
+    source_spec = {
+        "platform": "willhaben",
+        "provider_cache_key": "willhaben:test-cache-key",
+        "provider_filter_pushdown": {"cache_key": "willhaben:test-cache-key"},
+    }
+
+    first_urls, first_cache = product_service._property_scout_listing_urls_for_source(
+        source_url="https://www.willhaben.at/iad/immobilien/mietwohnungen?ESTATE_SIZE%2FLIVING_AREA_FROM=80",
+        source_spec=source_spec,
+    )
+    second_urls, second_cache = product_service._property_scout_listing_urls_for_source(
+        source_url="https://www.willhaben.at/iad/immobilien/mietwohnungen?ESTATE_SIZE%2FLIVING_AREA_FROM=80",
+        source_spec=source_spec,
+    )
+    refreshed_urls, refreshed_cache = product_service._property_scout_listing_urls_for_source(
+        source_url="https://www.willhaben.at/iad/immobilien/mietwohnungen?ESTATE_SIZE%2FLIVING_AREA_FROM=80",
+        source_spec=source_spec,
+        force_refresh=True,
+    )
+
+    assert first_cache["status"] == "miss"
+    assert second_cache["status"] == "hit"
+    assert refreshed_cache["status"] == "refresh"
+    assert first_urls == second_urls == refreshed_urls
+    assert len(fetch_calls) == 2
+
+
+def test_hosted_property_tour_bundle_reuses_existing_manifest(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    title = "Reusable listing"
+    listing_id = "reuse-1"
+    property_url = "https://www.willhaben.at/iad/object?adId=reuse-1"
+    variant_key = "layout_first"
+    slug = product_service._hosted_property_tour_slug(
+        title=title,
+        listing_id=listing_id,
+        property_url=property_url,
+        variant_key=variant_key,
+    )
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "floorplan-01.pdf").write_bytes(b"%PDF-1.4\n")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+                "public_url": f"https://propertyquarry.com/tours/{slug}",
+                "creation_mode": "hosted_floorplan_tour",
+                "scenes": [{"asset_relpath": "floorplan-01.pdf", "role": "floorplan"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def _blocked_download(*args, **kwargs) -> str:
+        raise AssertionError("existing hosted tour should not download assets again")
+
+    monkeypatch.setattr(product_service, "_download_public_tour_asset_with_type", _blocked_download)
+
+    payload = product_service._write_hosted_floorplan_property_tour_bundle(
+        principal_id="exec-reuse",
+        title=title,
+        listing_id=listing_id,
+        property_url=property_url,
+        variant_key=variant_key,
+        floorplan_urls=("https://cdn.example.com/floorplan.pdf",),
+        property_facts_json={},
+        source_host="willhaben.at",
+    )
+
+    assert payload["tour_cache_status"] == "existing"
+    assert str(payload["hosted_url"]).endswith(f"/{slug}")
 
 
 def test_property_search_run_status_reconstructs_missing_status_url() -> None:

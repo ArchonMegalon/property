@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import urllib.parse
+
 from app.services.property_market_catalog import (
     default_language_for_country,
     default_platforms_for_country,
@@ -262,6 +264,42 @@ def test_generated_source_specs_split_multi_area_queries_into_dedicated_sources(
     assert [row["location_query"] for row in specs] == ["1200 Vienna", "1020 Vienna", "1090"]
     assert "q=1200+Vienna+lift+family" in str(specs[0]["url"])
     assert "q=1020+Vienna+lift+family" in str(specs[1]["url"])
+
+
+def test_generated_source_specs_pushes_coarse_filters_to_willhaben() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "1200 Vienna",
+            "keywords": "lift family",
+            "min_area_m2": 80,
+            "min_rooms": 3,
+            "max_price_eur": 2200,
+            "require_floorplan": True,
+        },
+        selected_platforms=("willhaben",),
+        principal_id="exec-property-at-pushdown",
+        default_person_id="self",
+        max_results=2,
+    )
+
+    assert len(specs) == 1
+    url = str(specs[0]["url"])
+    params = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+    assert params["q"] == ["1200 Vienna lift family"]
+    assert params["ESTATE_SIZE/LIVING_AREA_FROM"] == ["80"]
+    assert params["PRICE_TO"] == ["2200"]
+    assert params["NO_OF_ROOMS_BUCKET"] == ["3X3"]
+    pushdown = dict(specs[0]["provider_filter_pushdown"])
+    assert pushdown["applied"]["min_area_m2"] == 80
+    assert pushdown["applied"]["max_price_eur"] == 2200
+    assert pushdown["applied"]["min_rooms"] == 3
+    assert "require_floorplan" in pushdown["post_filter_only"]
+    assert str(pushdown["cache_key"]).startswith("willhaben:")
+    assert specs[0]["provider_cache_key"] == pushdown["cache_key"]
 
 
 def test_generated_source_specs_expand_austria_cooperative_provider_group() -> None:

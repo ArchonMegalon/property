@@ -311,6 +311,9 @@ _PROPERTY_SEARCH_RUN_REGISTRY: dict[str, dict[str, object]] = {}
 _PROPERTY_SEARCH_RUN_LOCK = threading.Lock()
 _PROPERTY_SEARCH_RUN_SCHEMA_LOCK = threading.Lock()
 _PROPERTY_SEARCH_RUN_SCHEMA_READY = False
+_PROPERTY_SOURCE_LISTING_CACHE_LOCK = threading.Lock()
+_PROPERTY_SOURCE_LISTING_CACHE: dict[str, dict[str, object]] = {}
+_PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES = 256
 _PROPERTY_TOUR_PREBUILD_LIMIT = 5
 _PROPERTY_SEARCH_RESULTS_NOTIFY_TIMEOUT_SECONDS = 6 * 60 * 60
 _PROPERTY_SEARCH_RESULTS_NOTIFY_POLL_SECONDS = 20.0
@@ -449,6 +452,8 @@ def _property_search_run_default_summary(property_preferences: dict[str, object]
         "filtered_area_total": 0,
         "filtered_floorplan_total": 0,
         "filtered_low_fit_total": 0,
+        "provider_cache_hit_total": 0,
+        "provider_cache_refresh_total": 0,
         "high_match_min_score": min_match_score,
         "max_match_score": _property_search_match_score_cap(property_preferences),
         "min_area_m2": dict(property_preferences or {}).get("min_area_m2") or 0,
@@ -1140,6 +1145,130 @@ def _property_alert_preference_person_id(payload: dict[str, object] | None = Non
         ).strip()
         or "self"
     )
+
+
+def _property_source_listing_cache_ttl_seconds() -> int:
+    raw_value = str(os.getenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS") or "").strip()
+    if not raw_value:
+        return 15 * 60
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return 15 * 60
+    return max(0, min(parsed, 24 * 60 * 60))
+
+
+def _property_source_listing_cache_key(*, source_url: str, source_spec: dict[str, object] | None = None) -> str:
+    spec = dict(source_spec or {})
+    configured = str(spec.get("provider_cache_key") or "").strip()
+    if configured:
+        return configured[:240]
+    pushdown = dict(spec.get("provider_filter_pushdown") or {}) if isinstance(spec.get("provider_filter_pushdown"), dict) else {}
+    pushdown_key = str(pushdown.get("cache_key") or "").strip()
+    if pushdown_key:
+        return pushdown_key[:240]
+    return ""
+
+
+def _property_source_listing_cache_get(cache_key: str, *, allow_stale: bool = False) -> tuple[tuple[str, ...], dict[str, object]]:
+    normalized_key = str(cache_key or "").strip()
+    if not normalized_key:
+        return (), {}
+    now = time.time()
+    ttl = _property_source_listing_cache_ttl_seconds()
+    with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+        row = dict(_PROPERTY_SOURCE_LISTING_CACHE.get(normalized_key) or {})
+    if not row:
+        return (), {}
+    try:
+        stored_at = float(row.get("stored_at_epoch") or 0.0)
+    except Exception:
+        stored_at = 0.0
+    age_seconds = max(0.0, now - stored_at)
+    if not allow_stale and (ttl <= 0 or age_seconds > float(ttl)):
+        return (), {}
+    urls = tuple(str(value or "").strip() for value in list(row.get("listing_urls") or []) if str(value or "").strip())
+    if not urls:
+        return (), {}
+    state = {
+        "status": "stale_fallback" if ttl > 0 and age_seconds > float(ttl) else "hit",
+        "cache_key": normalized_key,
+        "age_seconds": round(age_seconds, 2),
+        "listing_total": len(urls),
+        "revalidation": "candidate_preview",
+    }
+    return urls, state
+
+
+def _property_source_listing_cache_put(
+    cache_key: str,
+    *,
+    source_url: str,
+    listing_urls: tuple[str, ...],
+    source_spec: dict[str, object] | None = None,
+) -> dict[str, object]:
+    normalized_key = str(cache_key or "").strip()
+    if not normalized_key:
+        return {"status": "disabled", "cache_key": "", "listing_total": len(listing_urls)}
+    urls = tuple(str(value or "").strip() for value in listing_urls if str(value or "").strip())
+    spec = dict(source_spec or {})
+    row = {
+        "cache_key": normalized_key,
+        "source_url": urllib.parse.urldefrag(str(source_url or "").strip())[0],
+        "listing_urls": list(urls[:250]),
+        "stored_at_epoch": time.time(),
+        "provider_filter_pushdown": dict(spec.get("provider_filter_pushdown") or {})
+        if isinstance(spec.get("provider_filter_pushdown"), dict)
+        else {},
+    }
+    with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+        if len(_PROPERTY_SOURCE_LISTING_CACHE) >= _PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES:
+            oldest_key = min(
+                _PROPERTY_SOURCE_LISTING_CACHE,
+                key=lambda key: float(_PROPERTY_SOURCE_LISTING_CACHE.get(key, {}).get("stored_at_epoch") or 0.0),
+            )
+            _PROPERTY_SOURCE_LISTING_CACHE.pop(oldest_key, None)
+        _PROPERTY_SOURCE_LISTING_CACHE[normalized_key] = row
+    return {
+        "status": "stored",
+        "cache_key": normalized_key,
+        "listing_total": len(urls),
+        "ttl_seconds": _property_source_listing_cache_ttl_seconds(),
+    }
+
+
+def _property_scout_listing_urls_for_source(
+    *,
+    source_url: str,
+    source_spec: dict[str, object] | None = None,
+    force_refresh: bool = False,
+) -> tuple[tuple[str, ...], dict[str, object]]:
+    normalized_url = urllib.parse.urldefrag(str(source_url or "").strip())[0]
+    cache_key = _property_source_listing_cache_key(source_url=normalized_url, source_spec=source_spec)
+    if not cache_key:
+        html = _property_scout_fetch_html(normalized_url)
+        listing_urls = _property_scout_extract_listing_urls(source_url=normalized_url, html=html)
+        return listing_urls, {"status": "disabled", "cache_key": "", "listing_total": len(listing_urls)}
+    if not force_refresh:
+        cached_urls, cached_state = _property_source_listing_cache_get(cache_key)
+        if cached_urls:
+            return cached_urls, cached_state
+    try:
+        html = _property_scout_fetch_html(normalized_url)
+        listing_urls = _property_scout_extract_listing_urls(source_url=normalized_url, html=html)
+    except Exception:
+        cached_urls, cached_state = _property_source_listing_cache_get(cache_key, allow_stale=True)
+        if cached_urls:
+            return cached_urls, {**cached_state, "revalidation": "stale_source_fetch_failed"}
+        raise
+    cache_state = _property_source_listing_cache_put(
+        cache_key,
+        source_url=normalized_url,
+        listing_urls=listing_urls,
+        source_spec=source_spec,
+    )
+    cache_state["status"] = "refresh" if force_refresh else "miss"
+    return listing_urls, cache_state
 
 
 def _property_scout_fetch_html(url: str, *, timeout_seconds: float = 60.0) -> str:
@@ -7729,6 +7858,30 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
     return hosted_url
 
 
+def _existing_hosted_property_tour_payload(slug: str) -> dict[str, object]:
+    normalized_slug = str(slug or "").strip()
+    if not normalized_slug:
+        return {}
+    hosted_url = _existing_hosted_property_tour_url({"slug": normalized_slug})
+    if not hosted_url:
+        return {}
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    manifest_path = public_dir / normalized_slug / "tour.json"
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    payload = dict(payload)
+    payload["slug"] = normalized_slug
+    payload["hosted_url"] = hosted_url
+    payload["public_url"] = hosted_url
+    payload["tour_cache_status"] = "existing"
+    payload.setdefault("creation_mode", "hosted_property_tour")
+    return payload
+
+
 def _safe_live_property_tour_url(value: object) -> str:
     normalized = str(value or "").strip()
     if not normalized:
@@ -7824,6 +7977,9 @@ def _write_hosted_floorplan_property_tour_bundle(
     base_url = _property_public_tour_base_url()
     public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
     slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
+    existing_payload = _existing_hosted_property_tour_payload(slug)
+    if existing_payload:
+        return existing_payload
     bundle_dir = public_dir / slug
     staging_dir = public_dir / f".{slug}.tmp-{uuid4().hex}"
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -7933,6 +8089,9 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
         base_url = _property_public_tour_base_url()
         public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
         slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
+        existing_payload = _existing_hosted_property_tour_payload(slug)
+        if existing_payload:
+            return existing_payload
         bundle_dir = public_dir / slug
         bundle_dir.mkdir(parents=True, exist_ok=True)
         facts = dict(property_facts_json or {})
@@ -8000,6 +8159,9 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     base_url = _property_public_tour_base_url()
     public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
     slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
+    existing_payload = _existing_hosted_property_tour_payload(slug)
+    if existing_payload:
+        return existing_payload
     bundle_dir = public_dir / slug
     bundle_dir.mkdir(parents=True, exist_ok=True)
     root = _feelestate_json_rpc("getLocationWithAuthentication", ["", 6489, None, 63379, None, ""])
@@ -17559,6 +17721,8 @@ class ProductService:
                 "filtered_area_total": 0,
                 "filtered_floorplan_total": 0,
                 "filtered_low_fit_total": 0,
+                "provider_cache_hit_total": 0,
+                "provider_cache_refresh_total": 0,
                 "high_match_min_score": min_match_score,
                 "max_match_score": match_score_cap,
                 "min_area_m2": request_preferences.get("min_area_m2") or 0,
@@ -17582,6 +17746,8 @@ class ProductService:
         filtered_area_total = 0
         filtered_floorplan_total = 0
         filtered_low_fit_total = 0
+        provider_cache_hit_total = 0
+        provider_cache_refresh_total = 0
         watch_notified_total = 0
         policy = self.property_alert_policy(principal_id=principal_id)
         source_summaries: list[dict[str, object]] = []
@@ -17589,6 +17755,12 @@ class ProductService:
         for source_spec in specs:
             source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
             source_label = compact_text(str(source_spec.get("label") or "").strip(), fallback="", limit=120) or urllib.parse.urlparse(source_url).netloc
+            provider_filter_pushdown = (
+                dict(source_spec.get("provider_filter_pushdown") or {})
+                if isinstance(source_spec.get("provider_filter_pushdown"), dict)
+                else {}
+            )
+            provider_cache_key = _property_source_listing_cache_key(source_url=source_url, source_spec=source_spec)
             default_max = max(1, min(int(source_spec.get("max_results") or 3), 10))
             max_results = default_max if resolved_max_results is None else resolved_max_results
             max_results = max(1, min(10, int(max_results)))
@@ -17601,6 +17773,7 @@ class ProductService:
             filtered_area_for_source = 0
             filtered_floorplan_for_source = 0
             filtered_low_fit_for_source = 0
+            provider_cache_state: dict[str, object] = {"status": "not_started", "cache_key": provider_cache_key}
 
             _report(
                 step="source_started",
@@ -17615,15 +17788,28 @@ class ProductService:
                     message=f"Fetching source page for {source_label}.",
                     status="in_progress",
                     steps_delta=1,
+                    summary_updates={
+                        "provider_filter_pushdown": provider_filter_pushdown,
+                        "provider_cache_key": provider_cache_key,
+                    },
                 )
-                html = _property_scout_fetch_html(source_url)
+                listing_urls, provider_cache_state = _property_scout_listing_urls_for_source(
+                    source_url=source_url,
+                    source_spec=source_spec,
+                    force_refresh=effective_force_refresh,
+                )
+                cache_status = str(provider_cache_state.get("status") or "").strip()
+                if cache_status in {"hit", "stale_fallback"}:
+                    provider_cache_hit_total += 1
+                elif cache_status in {"miss", "refresh"}:
+                    provider_cache_refresh_total += 1
                 _report(
                     step="source_extracting",
                     message=f"Extracting listing candidates from {source_label}.",
                     status="in_progress",
                     steps_delta=1,
+                    summary_updates={"provider_cache": provider_cache_state},
                 )
-                listing_urls = _property_scout_extract_listing_urls(source_url=source_url, html=html)
             except Exception as exc:
                 failed_total += 1
                 source_summaries.append(
@@ -17631,6 +17817,8 @@ class ProductService:
                         "source_url": source_url,
                         "source_label": source_label,
                         "preference_person_id": source_preference_person_id,
+                        "provider_filter_pushdown": provider_filter_pushdown,
+                        "provider_cache": {**provider_cache_state, "status": "failed"},
                         "listing_total": 0,
                         "review_created_total": 0,
                         "review_existing_total": 0,
@@ -17658,6 +17846,10 @@ class ProductService:
                     "raw_listing_total": raw_listing_count,
                     "scan_cap_per_source": scan_cap,
                     "scan_truncated": scan_truncated,
+                    "provider_cache": provider_cache_state,
+                    "provider_filter_pushdown": provider_filter_pushdown,
+                    "provider_cache_hit_total": provider_cache_hit_total,
+                    "provider_cache_refresh_total": provider_cache_refresh_total,
                     "high_match_min_score": min_match_score,
                     "max_match_score": match_score_cap,
                     "min_area_m2": request_preferences.get("min_area_m2") or 0,
@@ -18223,6 +18415,8 @@ class ProductService:
                     "source_url": source_url,
                     "source_label": source_label,
                     "preference_person_id": source_preference_person_id,
+                    "provider_filter_pushdown": provider_filter_pushdown,
+                    "provider_cache": provider_cache_state,
                     "listing_total": len(ranked_rows),
                     "duplicate_listing_total": duplicate_for_source,
                     "filtered_property_type_total": filtered_property_type_for_source,
@@ -18267,6 +18461,8 @@ class ProductService:
             "filtered_area_total": filtered_area_total,
             "filtered_floorplan_total": filtered_floorplan_total,
             "filtered_low_fit_total": filtered_low_fit_total,
+            "provider_cache_hit_total": provider_cache_hit_total,
+            "provider_cache_refresh_total": provider_cache_refresh_total,
             "high_match_min_score": min_match_score,
             "max_match_score": match_score_cap,
             "min_area_m2": request_preferences.get("min_area_m2") or 0,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 import re
 import urllib.parse
 
@@ -1233,6 +1235,124 @@ def _append_query(url: str, query_items: dict[str, str]) -> str:
     return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(existing, doseq=True)))
 
 
+def _positive_int(value: object) -> int | None:
+    if isinstance(value, bool) or value in (None, ""):
+        return None
+    try:
+        parsed = int(float(str(value).strip()))
+    except Exception:
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _willhaben_rooms_bucket(min_rooms: int | None) -> str:
+    if not min_rooms:
+        return ""
+    if min_rooms >= 10:
+        return "10X"
+    if min_rooms >= 6:
+        return "6X9"
+    normalized = max(1, min(int(min_rooms), 5))
+    return f"{normalized}X{normalized}"
+
+
+def _willhaben_search_base_url(*, base_url: str, listing_mode: str, property_type: str) -> str:
+    normalized_type = normalize_property_type(property_type)
+    if normalized_type != "house":
+        return base_url
+    if normalize_listing_mode(listing_mode) == "buy":
+        return "https://www.willhaben.at/iad/immobilien/haus-kaufen"
+    return "https://www.willhaben.at/iad/immobilien/haus-mieten"
+
+
+def _provider_filter_pushdown_payload(
+    *,
+    provider: PropertyProviderSpec,
+    country_code: str,
+    listing_mode: str,
+    location_query: str,
+    keywords: str,
+    property_type: str,
+    max_price_eur: int | None,
+    min_rooms: int | None,
+    min_area_m2: int | None,
+    require_floorplan: bool,
+) -> dict[str, object]:
+    requested: dict[str, object] = {
+        "country_code": str(country_code or "").strip().upper(),
+        "listing_mode": normalize_listing_mode(listing_mode),
+    }
+    for key, value in (
+        ("location_query", str(location_query or "").strip()),
+        ("keywords", str(keywords or "").strip()),
+        ("property_type", normalize_property_type(property_type)),
+        ("max_price_eur", _positive_int(max_price_eur)),
+        ("min_rooms", _positive_int(min_rooms)),
+        ("min_area_m2", _positive_int(min_area_m2)),
+        ("require_floorplan", bool(require_floorplan)),
+    ):
+        if value not in (None, "", False, "any"):
+            requested[key] = value
+
+    provider_side_area_keys = {
+        "willhaben",
+        "immmo",
+        "immoscout_at",
+        "homegate",
+        "bienici",
+        "funda",
+        "pararius",
+        "immoweb",
+        "realestate_au",
+        "domain_au",
+        "otodom",
+        "rightmove",
+        "zoopla",
+        "realtor",
+        "zillow",
+    }
+    provider_side_price_keys = provider_side_area_keys | {
+        "seloger",
+        "imovirtual",
+        "realtor_ca",
+        "rew_ca",
+    }
+    provider_side_room_keys = provider_side_area_keys | {"rew_ca"}
+    applied: dict[str, object] = {
+        "country_code": requested["country_code"],
+        "listing_mode": requested["listing_mode"],
+    }
+    if requested.get("location_query"):
+        applied["location_query"] = requested["location_query"]
+    if requested.get("keywords"):
+        applied["keywords"] = requested["keywords"]
+    if requested.get("property_type") and provider.key in {"willhaben", "funda"}:
+        applied["property_type"] = requested["property_type"]
+    if requested.get("max_price_eur") and provider.key in provider_side_price_keys:
+        applied["max_price_eur"] = requested["max_price_eur"]
+    if requested.get("min_rooms") and provider.key in provider_side_room_keys:
+        applied["min_rooms"] = requested["min_rooms"]
+    if requested.get("min_area_m2") and provider.key in provider_side_area_keys:
+        applied["min_area_m2"] = requested["min_area_m2"]
+
+    post_filter_only = sorted(key for key in requested if key not in applied)
+    cache_seed = {
+        "provider": provider.key,
+        "country_code": requested["country_code"],
+        "listing_mode": requested["listing_mode"],
+        "filters": applied,
+    }
+    cache_key = hashlib.sha256(json.dumps(cache_seed, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:24]
+    return {
+        "version": "property_provider_filter_pushdown_v1",
+        "provider": provider.key,
+        "requested": requested,
+        "applied": applied,
+        "post_filter_only": post_filter_only,
+        "cache_key": f"{provider.key}:{cache_key}",
+    }
+
+
 def _slug_tokens(value: str) -> list[str]:
     cleaned = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower())
     cleaned = re.sub(r"-+", "-", cleaned).strip("-")
@@ -1324,11 +1444,27 @@ def _build_provider_search_url(
     property_type: str,
     max_price_eur: int | None,
     min_rooms: int | None,
+    min_area_m2: int | None,
 ) -> str:
     search_terms = " ".join(part for part in (location_query, keywords) if part).strip()
     location_slug = _location_slug(location_query)
     if provider.key == "justiz_edikte_at":
         return _build_justiz_edikte_search_url(base_url=base_url, location_query=location_query)
+    if provider.key == "willhaben":
+        query_items = {"isNavigation": "true"}
+        if search_terms:
+            query_items["q"] = search_terms
+        if max_price_eur:
+            query_items["PRICE_TO"] = str(max_price_eur)
+        if min_area_m2:
+            query_items["ESTATE_SIZE/LIVING_AREA_FROM"] = str(min_area_m2)
+        room_bucket = _willhaben_rooms_bucket(min_rooms)
+        if room_bucket:
+            query_items["NO_OF_ROOMS_BUCKET"] = room_bucket
+        return _append_query(
+            _willhaben_search_base_url(base_url=base_url, listing_mode=listing_mode, property_type=property_type),
+            query_items,
+        )
     if provider.key == "immoscout_at":
         scout_fallback = "https://www.immmo.at/suche/kauf" if listing_mode == "buy" else "https://www.immmo.at/suche/miete"
         query_items = {"pq_upstream": "immoscout_at"}
@@ -1338,6 +1474,8 @@ def _build_provider_search_url(
             query_items["maxPrice"] = str(max_price_eur)
         if min_rooms:
             query_items["minRooms"] = str(min_rooms)
+        if min_area_m2:
+            query_items["minArea"] = str(min_area_m2)
         return _append_query(scout_fallback, query_items)
     if provider.key == "kalandra":
         return "https://www.kalandra.at/immobiliensuche"
@@ -1355,6 +1493,8 @@ def _build_provider_search_url(
             query_items["ag"] = str(max_price_eur)
         if min_rooms:
             query_items["ac"] = str(min_rooms)
+        if min_area_m2:
+            query_items["areaMin"] = str(min_area_m2)
         return _append_query(base_url, query_items)
     if provider.key == "idealista_es" and location_slug:
         if listing_mode == "buy":
@@ -1385,6 +1525,8 @@ def _build_provider_search_url(
             query_items["minRooms"] = str(min_rooms)
         if max_price_eur:
             query_items["maxPrice"] = str(max_price_eur)
+        if min_area_m2:
+            query_items["minLivingArea"] = str(min_area_m2)
         return _append_query(f"https://www.bienici.com/recherche/{mode_segment}/{location_slug}", query_items)
     if provider.key == "funda" and location_slug:
         mode_segment = "koop" if listing_mode == "buy" else "huur"
@@ -1394,6 +1536,8 @@ def _build_provider_search_url(
             query_items["object_type"] = property_segment
         if min_rooms:
             query_items["min_kamers"] = str(min_rooms)
+        if min_area_m2:
+            query_items["min_woonopp"] = str(min_area_m2)
         return _append_query(f"https://www.funda.nl/zoeken/{mode_segment}/{location_slug}/", query_items)
     if provider.key == "pararius":
         query_items = {}
@@ -1403,6 +1547,8 @@ def _build_provider_search_url(
             query_items["bedrooms"] = str(min_rooms)
         if max_price_eur:
             query_items["price_to"] = str(max_price_eur)
+        if min_area_m2:
+            query_items["surface_from"] = str(min_area_m2)
         return _append_query(base_url, query_items)
     if provider.key == "immoweb":
         query_items = {}
@@ -1412,6 +1558,8 @@ def _build_provider_search_url(
             query_items["maxPrice"] = str(max_price_eur)
         if min_rooms:
             query_items["minBedroomCount"] = str(min_rooms)
+        if min_area_m2:
+            query_items["minSurface"] = str(min_area_m2)
         return _append_query(base_url, query_items)
     if provider.key == "daft_ie" and location_slug:
         if listing_mode == "buy":
@@ -1430,6 +1578,8 @@ def _build_provider_search_url(
             query_items["maxPrice"] = str(max_price_eur)
         if min_rooms:
             query_items["bedrooms"] = str(min_rooms)
+        if min_area_m2:
+            query_items["minLandSize"] = str(min_area_m2)
         return _append_query(base_url, query_items)
     if provider.key == "domain_au":
         query_items = {}
@@ -1439,6 +1589,8 @@ def _build_provider_search_url(
             query_items["price-max"] = str(max_price_eur)
         if min_rooms:
             query_items["bedrooms"] = str(min_rooms)
+        if min_area_m2:
+            query_items["areaMin"] = str(min_area_m2)
         return _append_query(base_url, query_items)
     if provider.key == "imovirtual":
         query_items = {}
@@ -1446,6 +1598,8 @@ def _build_provider_search_url(
             query_items["q"] = search_terms
         if max_price_eur:
             query_items["priceMax"] = str(max_price_eur)
+        if min_area_m2:
+            query_items["areaMin"] = str(min_area_m2)
         return _append_query(base_url, query_items)
     if provider.key == "otodom":
         query_items = {}
@@ -1455,6 +1609,8 @@ def _build_provider_search_url(
             query_items["priceMax"] = str(max_price_eur)
         if min_rooms:
             query_items["roomsNumberMin"] = str(min_rooms)
+        if min_area_m2:
+            query_items["areaMin"] = str(min_area_m2)
         return _append_query(base_url, query_items)
     if provider.key == "realtor_ca":
         query_items = {}
@@ -1462,6 +1618,8 @@ def _build_provider_search_url(
             query_items["searchtext"] = search_terms
         if max_price_eur:
             query_items["price-max"] = str(max_price_eur)
+        if min_area_m2:
+            query_items["building-size-min"] = str(min_area_m2)
         return _append_query(base_url, query_items)
     if provider.key == "rew_ca":
         query_items = {}
@@ -1471,6 +1629,8 @@ def _build_provider_search_url(
             query_items["price_max"] = str(max_price_eur)
         if min_rooms:
             query_items["bedrooms"] = str(min_rooms)
+        if min_area_m2:
+            query_items["sqft_min"] = str(min_area_m2)
         return _append_query(base_url, query_items)
     if provider.key == "rightmove":
         query_items = {"searchLocation": location_query or keywords}
@@ -1478,6 +1638,8 @@ def _build_provider_search_url(
             query_items["maxPrice"] = str(max_price_eur)
         if min_rooms:
             query_items["minBedrooms"] = str(min_rooms)
+        if min_area_m2:
+            query_items["minSize"] = str(min_area_m2)
         return _append_query(base_url, query_items)
     if provider.key == "zoopla":
         query_items = {"q": location_query or keywords}
@@ -1485,6 +1647,8 @@ def _build_provider_search_url(
             query_items["price_max"] = str(max_price_eur)
         if min_rooms:
             query_items["beds_min"] = str(min_rooms)
+        if min_area_m2:
+            query_items["floor_area_min"] = str(min_area_m2)
         return _append_query(base_url, query_items)
     if provider.key == "realtor":
         query_items = {"view": "list", "query": location_query or keywords}
@@ -1492,6 +1656,8 @@ def _build_provider_search_url(
             query_items["beds-min"] = str(min_rooms)
         if max_price_eur:
             query_items["price-max"] = str(max_price_eur)
+        if min_area_m2:
+            query_items["sqft-min"] = str(min_area_m2)
         return _append_query(base_url, query_items)
     if provider.key == "zillow":
         query_items = {"query": location_query or keywords}
@@ -1499,6 +1665,8 @@ def _build_provider_search_url(
             query_items["beds"] = str(min_rooms)
         if max_price_eur:
             query_items["price"] = f"-{max_price_eur}"
+        if min_area_m2:
+            query_items["sqft"] = f"{min_area_m2}-"
         return _append_query(base_url, query_items)
     query_items: dict[str, str] = {}
     if search_terms:
@@ -1507,6 +1675,8 @@ def _build_provider_search_url(
         query_items["maxPrice"] = str(max_price_eur)
     if min_rooms:
         query_items["minRooms"] = str(min_rooms)
+    if min_area_m2:
+        query_items["minArea"] = str(min_area_m2)
     if property_type and property_type != "any":
         query_items["propertyType"] = property_type
     return _append_query(base_url, query_items)
@@ -1529,6 +1699,8 @@ def generated_source_specs(
     property_type = str(normalized_preferences.get("property_type") or "any").strip().lower() or "any"
     max_price_eur = normalized_preferences.get("max_price_eur")
     min_rooms = normalized_preferences.get("min_rooms")
+    min_area_m2 = normalized_preferences.get("min_area_m2")
+    require_floorplan = bool(normalized_preferences.get("require_floorplan"))
     requested_platforms = [normalize_property_platform(item) for item in (selected_platforms or ())]
     effective_platforms = [item for item in requested_platforms if item and item != "all"]
     if not effective_platforms:
@@ -1543,6 +1715,18 @@ def generated_source_specs(
         grouped_sources = GROUPED_PROVIDER_SOURCE_MAP.get(provider.key)
         if grouped_sources:
             for location_variant in location_queries:
+                pushdown = _provider_filter_pushdown_payload(
+                    provider=provider,
+                    country_code=country_code,
+                    listing_mode=provider_mode,
+                    location_query=location_variant,
+                    keywords=keywords,
+                    property_type=property_type,
+                    max_price_eur=int(max_price_eur) if isinstance(max_price_eur, int) else None,
+                    min_rooms=int(min_rooms) if isinstance(min_rooms, int) else None,
+                    min_area_m2=int(min_area_m2) if isinstance(min_area_m2, int) else None,
+                    require_floorplan=require_floorplan,
+                )
                 detail_parts = [provider.label, country_label(country_code), LISTING_MODE_LABELS.get(provider_mode, provider_mode.capitalize())]
                 if location_variant:
                     detail_parts.append(location_variant)
@@ -1566,6 +1750,8 @@ def generated_source_specs(
                             "listing_mode": provider_mode,
                             "location_query": location_variant,
                             "keywords": keywords,
+                            "provider_filter_pushdown": pushdown,
+                            "provider_cache_key": f"{pushdown['cache_key']}:{source_index}",
                         }
                     )
             continue
@@ -1582,6 +1768,19 @@ def generated_source_specs(
                 property_type=property_type,
                 max_price_eur=int(max_price_eur) if isinstance(max_price_eur, int) else None,
                 min_rooms=int(min_rooms) if isinstance(min_rooms, int) else None,
+                min_area_m2=int(min_area_m2) if isinstance(min_area_m2, int) else None,
+            )
+            pushdown = _provider_filter_pushdown_payload(
+                provider=provider,
+                country_code=country_code,
+                listing_mode=provider_mode,
+                location_query=location_variant,
+                keywords=keywords,
+                property_type=property_type,
+                max_price_eur=int(max_price_eur) if isinstance(max_price_eur, int) else None,
+                min_rooms=int(min_rooms) if isinstance(min_rooms, int) else None,
+                min_area_m2=int(min_area_m2) if isinstance(min_area_m2, int) else None,
+                require_floorplan=require_floorplan,
             )
             detail_parts = [provider.label, country_label(country_code), LISTING_MODE_LABELS.get(provider_mode, provider_mode.capitalize())]
             if location_variant:
@@ -1601,6 +1800,8 @@ def generated_source_specs(
                     "listing_mode": provider_mode,
                     "location_query": location_variant,
                     "keywords": keywords,
+                    "provider_filter_pushdown": pushdown,
+                    "provider_cache_key": str(pushdown.get("cache_key") or ""),
                 }
             )
     return tuple(rows)
