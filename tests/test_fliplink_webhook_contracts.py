@@ -191,6 +191,12 @@ def test_fliplink_browseract_publish_request_is_guarded_and_audited(monkeypatch,
     assert queued.status_code == 200, queued.text
     assert queued.json()["status"] == "queued_operator_assist"
     assert queued.json()["task_name"] == "browseract.fliplink_publish_property_packet"
+    assert queued.json()["contract_version"] == "fliplink_browseract_publish_v1"
+    assert queued.json()["required_outputs"] == ["fliplink_url", "screenshot_proof_ref"]
+    assert queued.json()["completion_payload_schema"]["required"] == ["fliplink_url", "screenshot_proof_ref"]
+    assert queued.json()["runner_payload"]["publication_id"] == publication_id
+    assert queued.json()["runner_payload"]["completion"]["endpoint"] == queued.json()["completion_endpoint"]
+    assert queued.json()["runner_payload"]["proof_policy"]["screenshot_proof_ref_required"] is True
     assert queued.json()["human_task_id"]
     assert queued.json()["queue_item_ref"] == f"human_task:{queued.json()['human_task_id']}"
     assert queued.json()["completion_endpoint"] == f"/app/api/properties/packets/{publication_id}/fliplink/browseract-complete"
@@ -206,6 +212,15 @@ def test_fliplink_browseract_publish_request_is_guarded_and_audited(monkeypatch,
     assert task["input_json"]["pdf_artifact_ref"]
     assert task["input_json"]["source_pdf_sha256"]
     assert task["input_json"]["completion_endpoint"] == queued.json()["completion_endpoint"]
+    assert task["input_json"]["contract_version"] == "fliplink_browseract_publish_v1"
+    assert task["input_json"]["required_outputs"] == ["fliplink_url", "screenshot_proof_ref"]
+    assert task["input_json"]["completion_payload_schema"]["required"] == ["fliplink_url", "screenshot_proof_ref"]
+    assert task["input_json"]["browseract_runner_payload"] == queued.json()["runner_payload"]
+    assert task["input_json"]["browseract_runner_payload"]["source_pdf_sha256"] == task["input_json"]["source_pdf_sha256"]
+    assert task["desired_output_json"]["contract_version"] == "fliplink_browseract_publish_v1"
+    assert task["desired_output_json"]["required_outputs"] == ["fliplink_url", "screenshot_proof_ref"]
+    assert task["quality_rubric_json"]["must_follow_contract_version"] == "fliplink_browseract_publish_v1"
+    assert task["quality_rubric_json"]["must_return_required_outputs"] == ["fliplink_url", "screenshot_proof_ref"]
     assert task["quality_rubric_json"]["must_not_upload_unredacted_source_payload"] is True
 
     duplicate = client.post(
@@ -218,6 +233,16 @@ def test_fliplink_browseract_publish_request_is_guarded_and_audited(monkeypatch,
     events = client.get(f"/app/api/properties/packets/{publication_id}")
     assert events.status_code == 200
     assert any(event["event_type"] == "fliplink_browser_publish_requested" for event in events.json()["events"])
+
+    missing_proof = client.post(
+        f"/app/api/properties/packets/{publication_id}/fliplink/browseract-complete",
+        json={
+            "fliplink_url": "https://packets.propertyquarry.com/p/browseract-family",
+            "lead_capture_enabled": True,
+        },
+    )
+    assert missing_proof.status_code == 422
+    assert "browseract_screenshot_proof_required" in missing_proof.text
 
     completed = client.post(
         f"/app/api/properties/packets/{publication_id}/fliplink/browseract-complete",
@@ -240,9 +265,15 @@ def test_fliplink_browseract_publish_request_is_guarded_and_audited(monkeypatch,
     assert len(returned_tasks) == 1
     assert returned_tasks[0]["resolution"] == "published"
     assert returned_tasks[0]["returned_payload_json"]["fliplink_url"] == "https://packets.propertyquarry.com/p/browseract-family"
+    assert returned_tasks[0]["returned_payload_json"]["contract_version"] == "fliplink_browseract_publish_v1"
     events_after = client.get(f"/app/api/properties/packets/{publication_id}")
     assert any(event["event_type"] == "fliplink_browser_publish_completed" for event in events_after.json()["events"])
     assert any(event["event_type"] == "fliplink_browser_publish_task_closed" for event in events_after.json()["events"])
+    completed_event = next(
+        event for event in events_after.json()["events"]
+        if event["event_type"] == "fliplink_browser_publish_completed"
+    )
+    assert completed_event["payload_json"]["contract_version"] == "fliplink_browseract_publish_v1"
 
     republish = client.post(
         f"/app/api/properties/packets/{publication_id}/fliplink/browseract-publish",

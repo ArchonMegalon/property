@@ -21,7 +21,11 @@ from app.services.fliplink.models import (
     normalize_packet_kind,
     normalize_privacy_mode,
 )
-from app.services.fliplink.browser_adapter import browseract_fliplink_publish_requested
+from app.services.fliplink.browser_adapter import (
+    BROWSERACT_FLIPLINK_PUBLISH_CONTRACT_VERSION,
+    BROWSERACT_FLIPLINK_REQUIRED_OUTPUTS,
+    browseract_fliplink_publish_requested,
+)
 from app.services.fliplink.pdf_renderer import render_property_packet_pdf
 from app.services.fliplink.webhooks import FlipLinkLeadWebhook, normalize_lead_webhook
 from app.services.fliplink.webhooks import safe_custom_fields
@@ -276,6 +280,8 @@ class FlipLinkPacketService:
             raise KeyError("property_packet_publication_not_found")
         if str(publication.get("status") or "") == "archived":
             raise ValueError("fliplink_publication_archived")
+        if not str(screenshot_proof_ref or "").strip():
+            raise ValueError("browseract_screenshot_proof_required")
         validated_url = validate_manual_fliplink_url(fliplink_url)
         self._validate_publish_policy(
             publication=publication,
@@ -314,6 +320,7 @@ class FlipLinkPacketService:
                     "lead_capture_enabled": bool(lead_capture_enabled),
                     "password_required": bool(password_required),
                     "sale_mode_enabled": bool(sale_mode_enabled),
+                    "contract_version": BROWSERACT_FLIPLINK_PUBLISH_CONTRACT_VERSION,
                     "published_at": now,
                 },
             }
@@ -339,6 +346,7 @@ class FlipLinkPacketService:
                         "resolution": str(getattr(closed_task, "resolution", "") or ""),
                         "fliplink_url": validated_url,
                         "screenshot_proof_ref": str(screenshot_proof_ref or "").strip()[:500],
+                        "contract_version": BROWSERACT_FLIPLINK_PUBLISH_CONTRACT_VERSION,
                     },
                 }
             )
@@ -424,7 +432,11 @@ class FlipLinkPacketService:
         result = browseract_fliplink_publish_requested(
             {
                 "publication_id": publication_id,
+                "packet_kind": str(publication.get("packet_kind") or ""),
                 "pdf_artifact_ref": str(publication.get("source_pdf_artifact_ref") or ""),
+                "receipt_artifact_ref": str(publication.get("receipt_artifact_ref") or ""),
+                "source_pdf_sha256": str(publication.get("source_pdf_sha256") or ""),
+                "source_pdf_size_bytes": int(publication.get("source_pdf_size_bytes") or 0),
                 "redaction_receipt_present": bool(
                     publication.get("receipt_artifact_ref") or publication.get("redaction_receipt_json")
                 ),
@@ -596,6 +608,10 @@ class FlipLinkPacketService:
             "password_required": bool(password_required),
             "completion_endpoint": completion_endpoint,
             "task_name": str(request_payload.get("task_name") or "browseract.fliplink_publish_property_packet"),
+            "contract_version": str(request_payload.get("contract_version") or BROWSERACT_FLIPLINK_PUBLISH_CONTRACT_VERSION),
+            "required_outputs": list(request_payload.get("required_outputs") or BROWSERACT_FLIPLINK_REQUIRED_OUTPUTS),
+            "completion_payload_schema": dict(request_payload.get("completion_payload_schema") or {}),
+            "browseract_runner_payload": dict(request_payload.get("runner_payload") or {}),
             "provider": str(request_payload.get("provider") or "fliplink"),
         }
         return orchestrator.create_human_task(  # type: ignore[attr-defined]
@@ -610,15 +626,21 @@ class FlipLinkPacketService:
                 "the already redacted PDF, chosen permanent format, password flag, and custom domain policy."
             ),
             quality_rubric_json={
+                "must_follow_contract_version": str(
+                    request_payload.get("contract_version") or BROWSERACT_FLIPLINK_PUBLISH_CONTRACT_VERSION
+                ),
                 "must_use_pdf_artifact_ref": str(publication.get("source_pdf_artifact_ref") or ""),
                 "must_verify_pdf_sha256": str(publication.get("source_pdf_sha256") or ""),
                 "must_call_completion_endpoint": completion_endpoint,
                 "must_capture_screenshot_proof_ref": True,
+                "must_return_required_outputs": list(request_payload.get("required_outputs") or BROWSERACT_FLIPLINK_REQUIRED_OUTPUTS),
                 "must_not_upload_unredacted_source_payload": True,
             },
             input_json=input_json,
             desired_output_json={
                 "resolution": "published",
+                "contract_version": str(request_payload.get("contract_version") or BROWSERACT_FLIPLINK_PUBLISH_CONTRACT_VERSION),
+                "required_outputs": list(request_payload.get("required_outputs") or BROWSERACT_FLIPLINK_REQUIRED_OUTPUTS),
                 "fliplink_url": "",
                 "embed_code": "",
                 "qr_url": "",
@@ -656,6 +678,7 @@ class FlipLinkPacketService:
                 "publication_id": publication_id,
                 "fliplink_url": fliplink_url,
                 "screenshot_proof_ref": str(screenshot_proof_ref or "").strip()[:500],
+                "contract_version": BROWSERACT_FLIPLINK_PUBLISH_CONTRACT_VERSION,
                 "completion_source": "fliplink_browseract_complete",
             },
             provenance_json={
@@ -677,6 +700,7 @@ class FlipLinkPacketService:
                 "publication_id": publication_id,
                 "fliplink_url": fliplink_url,
                 "screenshot_proof_ref": str(screenshot_proof_ref or "").strip()[:500],
+                "contract_version": BROWSERACT_FLIPLINK_PUBLISH_CONTRACT_VERSION,
                 "completion_source": "fliplink_browseract_complete",
             },
             provenance_json={
