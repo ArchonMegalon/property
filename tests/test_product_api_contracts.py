@@ -13810,12 +13810,14 @@ def test_support_fix_verification_tracks_request_receipt_and_confirmation() -> N
     opened_delivery = client.get(verification["delivery_url"], follow_redirects=False)
     assert opened_delivery.status_code == 303
 
+    client.cookies.pop("ea_workspace_session", None)
     after_delivery = dict(client.get("/app/api/support").json()["support_verification"])
     assert after_delivery["channel_receipt_state"] == "received"
 
     opened_access = client.get(verification["access_url"], follow_redirects=False)
     assert opened_access.status_code == 303
 
+    client.cookies.pop("ea_workspace_session", None)
     after_access = dict(client.get("/app/api/support").json()["support_verification"])
     assert after_access["install_receipt_state"] == "opened"
 
@@ -13828,6 +13830,7 @@ def test_support_fix_verification_tracks_request_receipt_and_confirmation() -> N
     assert confirmed.status_code == 303
     assert confirmed.headers["location"] == "/app/channel-loop/memo"
 
+    client.cookies.pop("ea_workspace_session", None)
     final = dict(client.get("/app/api/support").json()["support_verification"])
     assert final["state"] == "confirmed"
     assert final["confirmation_state"] == "confirmed"
