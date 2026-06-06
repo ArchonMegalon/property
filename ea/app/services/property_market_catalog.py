@@ -167,7 +167,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
     ),
     PropertyProviderSpec(
         key="broker_direct_at",
-        label="Makler Direkt",
+        label="Makler Direkt / Kalandra",
         country_code="AT",
         host_markers=("kalandra.at",),
         listing_path_markers=("/objekt/",),
@@ -223,7 +223,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
     ),
     PropertyProviderSpec(
         key="community_signals_at",
-        label="Community Hinweise",
+        label="Facebook / Telegram Hinweise",
         country_code="AT",
         host_markers=("flatbee.at", "flatbee.de"),
         listing_path_markers=(
@@ -235,7 +235,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
             "rent": "https://www.flatbee.at/wohnung-mieten",
             "buy": "https://www.flatbee.at/wohnung-kaufen",
         },
-        description="Austria community, off-market, and weakly verified lead surfaces that require stronger manual validation.",
+        description="Austria Facebook groups, Telegram leads, Flatbee-style community surfaces, and other weakly verified off-market sources that require stronger manual validation.",
         family="community_signals",
         trust_tier="watch",
     ),

@@ -14513,7 +14513,7 @@ def test_workspace_session_cookie_secure_for_proxy_protocol_chain(
 ) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_SIGNIN", "1")
     principal_id = "exec-workspace-cookie-chain"
-    client = build_product_client(principal_id=principal_id)
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
     start_workspace(client, mode="team", workspace_name="Cookie Protocol Team")
 
     access_body = client.post(
