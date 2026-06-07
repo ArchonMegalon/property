@@ -267,6 +267,17 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-range-empty-label="Any budget"' in setup.text
     assert 'data-range-preset="listing_mode_price"' in setup.text
     assert "Max budget" in setup.text
+    assert 'data-tooltip-trigger' in setup.text
+    assert 'aria-expanded="false"' in setup.text
+    assert "Set a hard budget ceiling. Leave it at Any budget when you want PropertyQuarry to rank first and filter price later." in setup.text
+    assert 'data-school-stage-variant' in setup.text
+    assert 'data-school-stage-parent' in setup.text
+    assert "Checked school types are treated as OR matches." in setup.text
+    assert "Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants." in setup.text
+    assert 'name="school_stage_preferences"' in setup.text
+    assert 'value="volksschule"' in setup.text
+    assert 'value="ganztags_volksschule"' in setup.text
+    assert 'value="halbtags_volksschule"' in setup.text
     assert "Min area" in setup.text
 
     search = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)

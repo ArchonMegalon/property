@@ -523,10 +523,10 @@ def test_db_operator_scripts_support_propertyquarry_service_aliases() -> None:
     db_retention = (ROOT / "scripts/db_retention.sh").read_text(encoding="utf-8")
     db_size = (ROOT / "scripts/db_size.sh").read_text(encoding="utf-8")
 
-    assert "PROPERTYQUARRY_API_SERVICE=ea-api" in env_example
+    assert "PROPERTYQUARRY_API_SERVICE=propertyquarry-api" in env_example
     assert "PROPERTYQUARRY_WORKER_SERVICE=ea-worker" in env_example
-    assert "PROPERTYQUARRY_SCHEDULER_SERVICE=ea-scheduler" in env_example
-    assert "PROPERTYQUARRY_DB_SERVICE=ea-db" in env_example
+    assert "PROPERTYQUARRY_SCHEDULER_SERVICE=propertyquarry-scheduler" in env_example
+    assert "PROPERTYQUARRY_DB_SERVICE=propertyquarry-db" in env_example
 
     assert "PROPERTYQUARRY_DB_SERVICE" in readme
     assert "PROPERTYQUARRY_DB_SERVICE" in runbook

@@ -490,8 +490,13 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('[data-property-field-name="school_quality_priority"]').is_hidden()
         assert page.locator('[data-property-field-name="school_quality_priority"]').get_attribute("data-property-collapsed-by") == "school_stage_preferences"
         assert page.locator('[data-property-field-name="max_distance_to_playground_m"]').is_visible()
+        assert page.locator('[data-school-stage-note]').is_visible()
+        assert "OR matches" in (page.locator('[data-school-stage-note]').text_content() or "")
+        assert page.locator('[data-school-stage-variant]').first.is_hidden()
 
         page.locator('input[name="school_stage_preferences"][value="volksschule"]').check()
+        assert page.locator('[data-school-stage-variant]').first.is_visible()
+        assert "matching either variant stay in" in (page.locator('[data-school-stage-note]').text_content() or "")
         assert page.locator('[data-property-field-name="school_quality_priority"]').is_visible()
 
         page.locator('input[name="enable_family_mode"]').uncheck()

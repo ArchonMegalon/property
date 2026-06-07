@@ -865,7 +865,7 @@ make release-preflight
 - `13`: runtime response missing an expected resource id (delivery or memory flow)
 
 Other transport failures (for example `curl`) return their native non-zero exit codes.
-PropertyQuarry operator scripts default to the inherited compose service keys (`ea-api`, `ea-worker`, `ea-scheduler`, `ea-db`), but you can override them per environment with:
+PropertyQuarry operator scripts default to the standalone compose service keys (`propertyquarry-api`, `propertyquarry-scheduler`, `propertyquarry-db`) while still honoring the legacy worker alias (`ea-worker`). You can override them per environment with:
 
 - `PROPERTYQUARRY_API_SERVICE`
 - `PROPERTYQUARRY_WORKER_SERVICE`

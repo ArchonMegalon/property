@@ -214,12 +214,39 @@
     place-items: center;
     width: 18px;
     height: 18px;
+    padding: 0;
     border: 1px solid var(--line);
     border-radius: 999px;
+    background: transparent;
     color: var(--text-soft);
     cursor: help;
     font-size: 11px;
     line-height: 1;
+    font: inherit;
+    position: relative;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-range-help[data-tooltip-open="true"] {
+    color: var(--accent-strong);
+    border-color: rgba(171, 77, 51, 0.42);
+    background: rgba(171, 77, 51, 0.08);
+  }
+  .console-form[data-console-form-variant="property_search"] .console-range-help[data-tooltip-open="true"]::after {
+    content: attr(aria-label);
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 10px);
+    width: min(280px, 42vw);
+    padding: 10px 12px;
+    border: 1px solid rgba(185, 173, 154, 0.88);
+    border-radius: 12px;
+    background: rgba(255, 252, 245, 0.98);
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.45;
+    text-align: left;
+    box-shadow: 0 18px 38px rgba(65, 49, 26, 0.16);
+    white-space: normal;
+    z-index: 20;
   }
   .console-form[data-console-form-variant="property_search"] .console-range-value {
     color: var(--text);
@@ -386,6 +413,12 @@
     gap: 8px;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .console-choice-note {
+    margin-top: 8px;
+    color: var(--text-soft);
+    font-size: 12px;
+    line-height: 1.45;
+  }
   .console-choice {
     display: flex;
     align-items: flex-start;
@@ -394,6 +427,15 @@
     border: 1px solid var(--line);
     border-radius: 12px;
     background: var(--panel);
+  }
+  .console-choice[data-school-stage-parent] {
+    border-color: rgba(171, 77, 51, 0.3);
+    background: rgba(255, 249, 241, 0.88);
+  }
+  .console-choice[data-school-stage-variant] {
+    margin-left: 20px;
+    border-style: dashed;
+    background: rgba(250, 246, 238, 0.92);
   }
   .console-choice input {
     width: auto;
@@ -989,7 +1031,7 @@
             {% elif field.type == 'range' %}
             <span class="console-range-head">
               <span class="console-range-value" data-range-value-for="{{ field.name }}">{{ field.value or field.min or '1' }}{{ field.suffix or '' }}</span>
-              {% if field.tooltip %}<span class="console-range-help" title="{{ field.tooltip }}" aria-label="{{ field.tooltip }}" tabindex="0">?</span>{% endif %}
+              {% if field.tooltip %}<button type="button" class="console-range-help" title="{{ field.tooltip }}" aria-label="{{ field.tooltip }}" aria-expanded="false" data-tooltip-trigger>?</button>{% endif %}
             </span>
             <input
               type="range"
@@ -1023,7 +1065,7 @@
             <div class="console-choice-grid">
               {% for option in field.options or [] %}
               {% set option_value = option.get('value') or '' %}
-              <label class="console-choice">
+              <label class="console-choice"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}>
                 <input
                   type="checkbox"
                   name="{{ field.name }}"
@@ -1039,6 +1081,9 @@
               </label>
               {% endfor %}
             </div>
+            {% if field.name == 'school_stage_preferences' %}
+            <div class="console-choice-note" data-school-stage-note>Checked school types are treated as OR matches. Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants.</div>
+            {% endif %}
             {% else %}
             <input
               type="{{ field.type or 'text' }}"
@@ -1451,6 +1496,65 @@
     });
   };
 
+  const bindTooltips = (root) => {
+    const tips = [...(root?.querySelectorAll('.console-range-help[data-tooltip-trigger][aria-label]') || [])];
+    if (!tips.length) return;
+    const closeAll = (exceptNode) => {
+      tips.forEach((tip) => {
+        if (exceptNode && tip === exceptNode) return;
+        tip.setAttribute('data-tooltip-open', 'false');
+        tip.setAttribute('aria-expanded', 'false');
+      });
+    };
+    tips.forEach((tip) => {
+      tip.setAttribute('data-tooltip-open', 'false');
+      tip.setAttribute('aria-expanded', 'false');
+      tip.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      tip.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const isOpen = tip.getAttribute('data-tooltip-open') === 'true';
+        closeAll(tip);
+        tip.setAttribute('data-tooltip-open', isOpen ? 'false' : 'true');
+        tip.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+      });
+      tip.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          tip.setAttribute('data-tooltip-open', 'false');
+          tip.setAttribute('aria-expanded', 'false');
+        }
+      });
+      tip.addEventListener('blur', () => {
+        tip.setAttribute('data-tooltip-open', 'false');
+        tip.setAttribute('aria-expanded', 'false');
+      });
+    });
+    document.addEventListener('click', () => closeAll(null), { passive: true });
+  };
+
+  const syncSchoolStageVariantVisibility = (form) => {
+    const parent = form?.querySelector('input[name="school_stage_preferences"][value="volksschule"]');
+    const variants = [...(form?.querySelectorAll('[data-school-stage-variant]') || [])];
+    const note = form?.querySelector('[data-school-stage-note]');
+    const enabled = Boolean(parent?.checked);
+    variants.forEach((row) => {
+      row.hidden = !enabled;
+      row.toggleAttribute('aria-hidden', !enabled);
+      if (!enabled) {
+        const input = row.querySelector('input[name="school_stage_preferences"]');
+        if (input) input.checked = false;
+      }
+    });
+    if (note) {
+      note.textContent = enabled
+        ? 'Checked school types are treated as OR matches. If both Volksschule variants are checked, listings matching either variant stay in.'
+        : 'Checked school types are treated as OR matches. Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants.';
+    }
+  };
+
   const renderRun = (form, payload) => {
     const panel = form.querySelector('[data-property-run]');
     const statusNode = form.querySelector('[data-property-run-status]');
@@ -1564,6 +1668,8 @@
       meta = {};
     }
     bindRangeOutputs(form);
+    bindTooltips(form);
+    syncSchoolStageVariantVisibility(form);
     initPropertyWizard(form, meta);
     const countryField = form.querySelector('select[name="country_code"]');
     const regionField = form.querySelector('select[name="region_code"]');
@@ -1605,6 +1711,9 @@
     if (regionField) {
       regionField.addEventListener('change', refreshRegionAndLocationChoices);
     }
+    form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => {
+      node.addEventListener('change', () => syncSchoolStageVariantVisibility(form));
+    });
     renderRun(form, meta.initial_run || {});
 
     form.querySelector('[data-property-save]')?.addEventListener('click', async () => {

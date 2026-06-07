@@ -451,17 +451,61 @@
       min-width: 0;
       overflow-wrap: anywhere;
     }
+    .pqx-check-note {
+      margin-top: 8px;
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .pqx-check[data-school-stage-parent] {
+      border-color: rgba(171, 77, 51, 0.3);
+      background: rgba(255, 249, 241, 0.88);
+    }
+    .pqx-check[data-school-stage-variant] {
+      margin-left: 20px;
+      min-height: 76px;
+      border-style: dashed;
+      background: rgba(250, 246, 238, 0.92);
+    }
     .pqx-tooltip {
+      position: relative;
       display: inline-grid;
       place-items: center;
       width: 18px;
       height: 18px;
+      padding: 0;
       border-radius: 999px;
       border: 1px solid var(--pq-line-strong);
+      background: transparent;
       color: var(--pq-muted);
       font-size: 11px;
       line-height: 1;
       cursor: help;
+      font: inherit;
+    }
+    .pqx-tooltip[data-tooltip-open="true"] {
+      color: var(--pq-burnt);
+      border-color: rgba(171, 77, 51, 0.42);
+      background: rgba(171, 77, 51, 0.08);
+    }
+    .pqx-tooltip[data-tooltip-open="true"]::after {
+      content: attr(aria-label);
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% + 10px);
+      transform: translateX(-50%);
+      width: min(280px, 42vw);
+      padding: 10px 12px;
+      border: 1px solid rgba(185, 173, 154, 0.88);
+      border-radius: 12px;
+      background: rgba(255, 252, 245, 0.98);
+      color: var(--pq-ink);
+      font-size: 12px;
+      line-height: 1.45;
+      text-align: left;
+      box-shadow: 0 18px 38px rgba(65, 49, 26, 0.16);
+      white-space: normal;
+      z-index: 20;
     }
     .pqx-range-value {
       min-width: 112px;
@@ -1381,7 +1425,7 @@
                 <div class="pqx-check-grid" data-pqx-check-grid="{{ field.name }}">
                   {% for option in field.options or [] %}
                   {% set option_value = option.get('value') or '' %}
-                  <label class="pqx-check">
+                  <label class="pqx-check"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}>
                     <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}>
                     <span>
                       <span>{{ option.get('label') }}</span>
@@ -1390,6 +1434,9 @@
                   </label>
                   {% endfor %}
                 </div>
+                {% if field.name == 'school_stage_preferences' %}
+                <div class="pqx-check-note" data-school-stage-note>Checked school types are treated as OR matches. Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants.</div>
+                {% endif %}
                 {% elif field.type == 'checkbox' %}
                 <label class="pqx-check">
                   <input type="checkbox" name="{{ field.name }}" value="{{ field.value or 'true' }}" {% if field.checked %}checked{% endif %}>
@@ -1402,7 +1449,7 @@
                 {% set has_plan_cap = field.get('selectable_max') and field.get('visual_max') and (field.get('selectable_max')|string != field.get('visual_max')|string) %}
                 <label class="pqx-range-label" data-range-control="{{ field.name }}">
                   <span class="pqx-range-head">
-                    <span>{{ field.label }}{% if field.tooltip %} <span class="pqx-tooltip" title="{{ field.tooltip }}" aria-label="{{ field.tooltip }}" tabindex="0">?</span>{% endif %}</span>
+                    <span>{{ field.label }}{% if field.tooltip %} <button type="button" class="pqx-tooltip" title="{{ field.tooltip }}" aria-label="{{ field.tooltip }}" aria-expanded="false" data-tooltip-trigger>?</button>{% endif %}</span>
                     <span class="pqx-range-value" data-range-value-for="{{ field.name }}">{{ range_display }}</span>
                   </span>
                   <input type="range" name="{{ field.name }}" value="{{ range_value }}" {% if field.min is not none %}min="{{ field.min }}"{% endif %} {% if field.max %}max="{{ field.max }}"{% endif %} {% if field.range_step %}step="{{ field.range_step }}"{% endif %} {% if field.tooltip %}title="{{ field.tooltip }}" aria-label="{{ field.label }}"{% endif %} data-range-output="{{ field.name }}" data-range-suffix="{{ field.suffix or '' }}" data-range-selectable-max="{{ field.selectable_max or '' }}" data-range-visual-max="{{ field.visual_max or field.max or '' }}" data-range-format="{{ field.get('format') or '' }}" data-range-empty-label="{{ field.get('empty_label') or '' }}" data-range-preset="{{ field.get('range_preset') or '' }}" {% if field.get('range_presets') %}data-range-presets='{{ field.get("range_presets")|tojson|safe }}'{% endif %}>
@@ -2626,6 +2673,63 @@
         sync();
       });
     };
+    const bindTooltips = (root) => {
+      const tips = [...(root?.querySelectorAll('.pqx-tooltip[data-tooltip-trigger][aria-label]') || [])];
+      if (!tips.length) return;
+      const closeAll = (exceptNode) => {
+        tips.forEach((tip) => {
+          if (exceptNode && tip === exceptNode) return;
+          tip.setAttribute('data-tooltip-open', 'false');
+          tip.setAttribute('aria-expanded', 'false');
+        });
+      };
+      tips.forEach((tip) => {
+        tip.setAttribute('data-tooltip-open', 'false');
+        tip.setAttribute('aria-expanded', 'false');
+        tip.addEventListener('pointerdown', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        });
+        tip.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const isOpen = tip.getAttribute('data-tooltip-open') === 'true';
+          closeAll(tip);
+          tip.setAttribute('data-tooltip-open', isOpen ? 'false' : 'true');
+          tip.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+        });
+        tip.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            tip.setAttribute('data-tooltip-open', 'false');
+            tip.setAttribute('aria-expanded', 'false');
+          }
+        });
+        tip.addEventListener('blur', () => {
+          tip.setAttribute('data-tooltip-open', 'false');
+          tip.setAttribute('aria-expanded', 'false');
+        });
+      });
+      document.addEventListener('click', () => closeAll(null), { passive: true });
+    };
+    const syncSchoolStageVariantVisibility = (form) => {
+      const parent = form?.querySelector('input[name="school_stage_preferences"][value="volksschule"]');
+      const variants = [...(form?.querySelectorAll('[data-school-stage-variant]') || [])];
+      const note = form?.querySelector('[data-school-stage-note]');
+      const enabled = Boolean(parent?.checked);
+      variants.forEach((row) => {
+        row.hidden = !enabled;
+        row.toggleAttribute('aria-hidden', !enabled);
+        if (!enabled) {
+          const input = row.querySelector('input[name="school_stage_preferences"]');
+          if (input) input.checked = false;
+        }
+      });
+      if (note) {
+        note.textContent = enabled
+          ? 'Checked school types are treated as OR matches. If both Volksschule variants are checked, listings matching either variant stay in.'
+          : 'Checked school types are treated as OR matches. Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants.';
+      }
+    };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
       const sources = Number(summary.sources_total || 0);
@@ -2736,6 +2840,7 @@
     };
     if (form) {
       bindRangeOutputs(form);
+      bindTooltips(form);
       initWizard(form);
       const countryField = form.querySelector('select[name="country_code"]');
       const regionField = form.querySelector('select[name="region_code"]');
@@ -2783,6 +2888,7 @@
         const selectedSchoolStages = checkedValues(form, 'school_stage_preferences');
         const showSchoolDetails = isChildrenStep && familyModeEnabled;
         const showSchoolPriority = showSchoolDetails && selectedSchoolStages.length > 0;
+        syncSchoolStageVariantVisibility(form);
         if (schoolStageWrap) {
           schoolStageWrap.hidden = !showSchoolDetails;
           schoolStageWrap.toggleAttribute('aria-hidden', schoolStageWrap.hidden);
