@@ -1,7 +1,7 @@
 {% set property_meta = console_form.get('meta') or {} %}
 {% set workbench = decision_workbench or {} %}
 {% set results = workbench.get('results') or [] %}
-{% set selected = results[0] if results else {} %}
+{% set selected = workbench.get('selected') or (results[0] if results else {}) %}
 {% set run = workbench.get('run') or {} %}
 {% set brief = workbench.get('brief') or {} %}
 {% set recent_packets = workbench.get('recent_packets') or [] %}
@@ -454,6 +454,27 @@
     .pqx-form-body {
       display: grid;
       gap: 12px;
+    }
+    .pqx-advanced-panel {
+      border: 1px dashed var(--pq-line-strong);
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(247, 241, 229, 0.72), rgba(255, 253, 248, 0.9));
+      padding: 10px 12px 12px;
+    }
+    .pqx-advanced-panel summary {
+      cursor: pointer;
+      color: var(--pq-ink);
+      font-size: 13px;
+      font-weight: 760;
+      list-style: none;
+    }
+    .pqx-advanced-panel summary::-webkit-details-marker {
+      display: none;
+    }
+    .pqx-advanced-panel-grid {
+      display: grid;
+      gap: 12px;
+      margin-top: 12px;
     }
     .pqx-field {
       display: grid;
@@ -1487,7 +1508,28 @@
             </div>
             {% endif %}
             <div class="pqx-form-body">
+              {% set panel = namespace(open=false, current='') %}
               {% for field in console_form.get('fields') or [] %}
+              {% set advanced_panel = field.get('advanced_panel') or '' %}
+              {% if panel.open and (not advanced_panel or advanced_panel != panel.current) %}
+              </div>
+              </details>
+              {% set panel.open = false %}
+              {% set panel.current = '' %}
+              {% endif %}
+              {% if advanced_panel and not panel.open %}
+              {% set panel.open = true %}
+              {% set panel.current = advanced_panel %}
+              <details class="pqx-advanced-panel" data-property-advanced-panel="{{ advanced_panel }}">
+                <summary>
+                  {% if advanced_panel == 'children' %}
+                  Erweiterte Kinder- und Familienfilter
+                  {% else %}
+                  Erweiterte Lage- und Researchfilter
+                  {% endif %}
+                </summary>
+                <div class="pqx-advanced-panel-grid">
+              {% endif %}
               <div class="pqx-field" data-property-field-step="{{ field.get('step') or 'search' }}" data-property-field-name="{{ field.name }}"{% if field.get('hidden') %} hidden{% endif %}>
                 {% if field.type == 'checkbox_group' %}
                 <div class="pqx-field-title">{{ field.label }}</div>
@@ -1560,6 +1602,10 @@
                 {% endif %}
               </div>
               {% endfor %}
+              {% if panel.open %}
+              </div>
+              </details>
+              {% endif %}
             </div>
             <div class="pqx-form-footer">
               <div class="pqx-actions">
@@ -1638,6 +1684,18 @@
                     <option value="prefer_supermarket_nearby"></option>
                     <option value="prefer_pharmacy_nearby"></option>
                     <option value="prefer_playgrounds_nearby"></option>
+                    <option value="prefer_libraries_nearby"></option>
+                    <option value="prefer_markets_nearby"></option>
+                    <option value="prefer_hardware_store_nearby"></option>
+                    <option value="prefer_shopping_street_nearby"></option>
+                    <option value="prefer_shopping_center_nearby"></option>
+                    <option value="prefer_public_pool_nearby"></option>
+                    <option value="prefer_theatre_nearby"></option>
+                    <option value="prefer_medical_care_nearby"></option>
+                    <option value="prefer_good_air_quality"></option>
+                    <option value="prefer_low_crime_area"></option>
+                    <option value="prefer_low_parking_pressure"></option>
+                    <option value="prefer_high_quality_drinking_water"></option>
                     <option value="preferred_districts"></option>
                     <option value="avoided_districts"></option>
                     <option value="min_area_sqm_preference"></option>
@@ -1688,6 +1746,31 @@
               <a class="pqx-link-button primary" href="/app/properties">New search</a>
               <button class="pqx-button subtle" type="button" data-pqx-refresh-status>Refresh delivery</button>
             </div>
+            {% if workbench.get('counterfactual_rows') %}
+            <div class="pqx-section-head" style="margin-top:18px;">
+              <div>
+                <h2>What would unlock more matches?</h2>
+                <div class="pqx-note">Apply one broader brief change and reopen the search desk without rebuilding the whole brief manually.</div>
+              </div>
+            </div>
+            <div class="pqx-event-list" data-pqx-counterfactuals>
+              {% for row in workbench.get('counterfactual_rows') or [] %}
+              <div class="pqx-event-card">
+                <strong>{{ row.get('title') }}</strong>
+                <span class="pqx-note">{{ row.get('detail') }}</span>
+                <span class="pqx-small">{{ row.get('tag') }}</span>
+                <div class="pqx-actions">
+                  <button
+                    class="pqx-button"
+                    type="button"
+                    data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}'
+                  >{{ row.get('action_label') or 'Apply and reopen brief' }}</button>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="pqx-decision-status" data-pqx-counterfactual-status></div>
+            {% endif %}
           </div>
         </aside>
         <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property">
@@ -1830,6 +1913,17 @@
           </div>
           <div class="pqx-evidence">
             <section class="pqx-card">
+              <div class="pqx-section-head"><h2>Decision pipeline</h2><span class="pqx-pill">Operating loop</span></div>
+              <div class="pqx-event-list">
+                <div class="pqx-event-card"><strong>Brief set</strong><span class="pqx-note">Budget, providers, school posture, and hard rules are already active for this run.</span><span class="pqx-small">Completed</span></div>
+                <div class="pqx-event-card"><strong>Providers scanned</strong><span class="pqx-note">The selected providers already produced the shortlist now shown on this desk.</span><span class="pqx-small">Completed</span></div>
+                <div class="pqx-event-card"><strong>Ranked shortlist</strong><span class="pqx-note">This candidate stack is the ranked decision queue, not just raw search output.</span><span class="pqx-small">Completed</span></div>
+                <div class="pqx-event-card"><strong>Review packet</strong><span class="pqx-note">Packet, feedback, and decision controls are already live for the selected property.</span><span class="pqx-small">Active</span></div>
+                <div class="pqx-event-card"><strong>360 and research</strong><span class="pqx-note">Use hosted review and underwriting before locking the final decision.</span><span class="pqx-small">Active</span></div>
+                <div class="pqx-event-card"><strong>Decide</strong><span class="pqx-note">Save Yes, Maybe, No, or Hide so the next sweep and follow-up queue learn from the result.</span><span class="pqx-small">Next</span></div>
+              </div>
+            </section>
+            <section class="pqx-card">
               <div class="pqx-section-head">
                 <div>
                   <h2>OODA</h2>
@@ -1867,6 +1961,14 @@
                 <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="dislike">No</button>
                 <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="hide">Hide</button>
               </div>
+              <div class="pqx-decision-copy"><strong>Decision state</strong> Move the property forward when the next real-world action is clearer than another like/dislike vote.</div>
+              <div class="pqx-actions">
+                <button class="pqx-button" type="button" data-pw-decision-state="viewing_requested">Viewing requested</button>
+                <button class="pqx-button" type="button" data-pw-decision-state="documents_requested">Documents requested</button>
+                <button class="pqx-button" type="button" data-pw-decision-state="offer_candidate">Offer candidate</button>
+                <button class="pqx-button" type="button" data-pw-decision-state="archived">Archived</button>
+              </div>
+              <div class="pqx-decision-status" data-pw-decision-state-status></div>
               <div class="pqx-decision-copy"><strong>What drove that?</strong> Pick the strongest reasons first. If the answer is No, these become the clearest suppressors for the next shortlist.</div>
               <div class="pqx-decision-reasons" data-pw-feedback-reasons></div>
               <div class="pqx-decision-copy"><strong>Ask agent next</strong></div>
@@ -1885,10 +1987,71 @@
               <div class="pqx-decision-status" data-pw-feedback-status></div>
             </section>
             <section class="pqx-card">
+              <div class="pqx-section-head"><h2>Clippy</h2><span class="pqx-pill">Opt-in</span></div>
+              <div class="pqx-decision-copy">Open Clippy only when you want a grounded answer about this property. It answers from shortlist fit, packet feedback, timeline changes, and investment context already loaded here.</div>
+              <div class="pqx-actions">
+                <button class="pqx-button" type="button" data-pw-clippy-toggle>Open Clippy</button>
+              </div>
+              <div data-pw-clippy-panel hidden>
+                <div class="pqx-actions">
+                  <button class="pqx-button" type="button" data-pw-clippy-prompt="Why is this only Maybe?">Why is this only Maybe?</button>
+                  <button class="pqx-button" type="button" data-pw-clippy-prompt="What should I ask the agent next?">Ask agent next</button>
+                  <button class="pqx-button" type="button" data-pw-clippy-prompt="What changed since last time?">What changed?</button>
+                  <button class="pqx-button" type="button" data-pw-clippy-prompt="What is the biggest investment risk here?">Investment risk</button>
+                </div>
+                <textarea class="pqx-decision-note" rows="3" placeholder="Ask Clippy about blockers, household disagreement, timeline shifts, or underwriting risk." data-pw-clippy-question></textarea>
+                <div class="pqx-actions">
+                  <button class="pqx-button primary" type="button" data-pw-clippy-ask>Ask Clippy</button>
+                </div>
+                <div class="pqx-decision-status" data-pw-clippy-status></div>
+                <div class="pqx-event-list" data-pw-clippy-answer>
+                  <div class="pqx-note">Clippy stays off until you open it.</div>
+                </div>
+              </div>
+            </section>
+            <section class="pqx-card">
+              <div class="pqx-section-head"><h2>Household review</h2><span class="pqx-pill" data-pw-household-label>{{ selected.get('household_alignment_label') or 'waiting' }}</span></div>
+              <div class="pqx-decision-copy" data-pw-household-score>Alignment score {{ selected.get('household_alignment_score') or 0 }}/100</div>
+              <div class="pqx-event-list" data-pw-household>
+                {% for row in selected.get('household_rows') or [] %}
+                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
+                {% endfor %}
+              </div>
+            </section>
+            <section class="pqx-card">
+              <div class="pqx-section-head"><h2>Agent follow-up</h2><span class="pqx-pill">Tracked</span></div>
+              <div class="pqx-event-list" data-pw-followups>
+                {% for row in selected.get('followup_rows') or [] %}
+                <div class="pqx-event-card">
+                  <strong>{{ row.get('title') }}</strong>
+                  <span class="pqx-note">{{ row.get('detail') }}</span>
+                  <span class="pqx-small">{{ row.get('tag') }}</span>
+                </div>
+                {% endfor %}
+              </div>
+              <div class="pqx-decision-status" data-pw-followup-status></div>
+            </section>
+            <section class="pqx-card">
               <div class="pqx-section-head"><h2>Top objections</h2><span class="pqx-pill">Risk</span></div>
               <div class="pqx-event-list" data-pw-objections>
                 {% for row in selected.get('objection_rows') or [] %}
                 <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span></div>
+                {% endfor %}
+              </div>
+            </section>
+            <section class="pqx-card">
+              <div class="pqx-section-head"><h2>Risk signals</h2><span class="pqx-pill">Privacy gated</span></div>
+              <div class="pqx-event-list" data-pw-risk-signals>
+                {% for row in selected.get('risk_signal_rows') or [] %}
+                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
+                {% endfor %}
+              </div>
+            </section>
+            <section class="pqx-card">
+              <div class="pqx-section-head"><h2>What changed</h2><span class="pqx-pill">Delta</span></div>
+              <div class="pqx-event-list" data-pw-recent-changes>
+                {% for row in selected.get('recent_change_rows') or [] %}
+                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
                 {% endfor %}
               </div>
             </section>
@@ -2052,6 +2215,35 @@
     const renderObjections = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
       <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Objection')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span></div>
     `).join('') || '<div class="pqx-note">No objection captured yet.</div>';
+    const renderHousehold = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
+      <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Stakeholder')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
+    `).join('') || '<div class="pqx-note">No household vote captured yet.</div>';
+    const renderRiskSignals = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
+      <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Risk signal')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
+    `).join('') || '<div class="pqx-note">No market-risk candidate captured yet.</div>';
+    const renderRecentChanges = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
+      <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Change')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
+    `).join('') || '<div class="pqx-note">No new deltas yet.</div>';
+    const renderFollowups = (rows) => (Array.isArray(rows) ? rows : []).map((row) => {
+      const feedbackId = escapeHtml(row.feedback_id || '');
+      const actionButtons = feedbackId ? `
+        <div class="pqx-actions">
+          <button class="pqx-button" type="button" data-pw-followup-action="answered" data-pw-feedback-id="${feedbackId}">Answered</button>
+          <button class="pqx-button" type="button" data-pw-followup-action="needs_follow_up" data-pw-feedback-id="${feedbackId}">Needs follow-up</button>
+          <button class="pqx-button" type="button" data-pw-followup-action="confirmed" data-pw-feedback-id="${feedbackId}">Confirmed</button>
+          <button class="pqx-button" type="button" data-pw-followup-action="contradicted" data-pw-feedback-id="${feedbackId}">Contradicted</button>
+          <button class="pqx-button" type="button" data-pw-followup-action="resolved" data-pw-feedback-id="${feedbackId}">Resolved</button>
+        </div>
+      ` : '';
+      return `
+        <div class="pqx-event-card">
+          <strong>${escapeHtml(row.title || 'Follow-up')}</strong>
+          <span class="pqx-note">${escapeHtml(row.detail || '')}</span>
+          <span class="pqx-small">${escapeHtml(row.tag || '')}</span>
+          ${actionButtons}
+        </div>
+      `;
+    }).join('') || '<div class="pqx-note">No tracked follow-up yet.</div>';
     const actionMarkup = (candidate) => {
       const tour = candidate.tour || {};
       return [
@@ -2063,23 +2255,81 @@
     };
     const feedbackPersonId = String(meta.feedback_person_id || 'self').trim() || 'self';
     const feedbackStatusNode = root.querySelector('[data-pw-feedback-status]');
+    const decisionStateStatusNode = root.querySelector('[data-pw-decision-state-status]');
     const feedbackReasonsNode = root.querySelector('[data-pw-feedback-reasons]');
     const feedbackQuestionsNode = root.querySelector('[data-pw-feedback-questions]');
     const feedbackConsequencesNode = root.querySelector('[data-pw-feedback-consequences]');
     const feedbackNoteNode = root.querySelector('[data-pw-feedback-note]');
+    const followupsNode = root.querySelector('[data-pw-followups]');
+    const followupStatusNode = root.querySelector('[data-pw-followup-status]');
+    const householdNode = root.querySelector('[data-pw-household]');
+    const householdScoreNode = root.querySelector('[data-pw-household-score]');
+    const householdLabelNode = root.querySelector('[data-pw-household-label]');
+    const riskSignalsNode = root.querySelector('[data-pw-risk-signals]');
+    const recentChangesNode = root.querySelector('[data-pw-recent-changes]');
+    const clippyToggle = root.querySelector('[data-pw-clippy-toggle]');
+    const clippyPanel = root.querySelector('[data-pw-clippy-panel]');
+    const clippyQuestionNode = root.querySelector('[data-pw-clippy-question]');
+    const clippyStatusNode = root.querySelector('[data-pw-clippy-status]');
+    const clippyAnswerNode = root.querySelector('[data-pw-clippy-answer]');
     const feedbackReactionButtons = [...root.querySelectorAll('[data-pw-feedback-reaction]')];
     const feedbackSaveButton = root.querySelector('[data-pw-feedback-save]');
+    const counterfactualStatusNode = root.querySelector('[data-pqx-counterfactual-status]');
     const feedbackSuggestionCache = new Map();
     let selectedFeedbackReaction = '';
     let selectedFeedbackCandidateRef = '';
     let selectedFeedbackReasonKeys = new Set();
     const candidatePropertyRef = (candidate) => String(
-      candidate?.source_url ||
-      candidate?.property_url ||
+      candidate?.property_ref ||
       candidate?.candidate_ref ||
+      candidate?.property_url ||
+      candidate?.review_url ||
+      candidate?.source_url ||
       candidate?.title ||
       'property'
     ).trim() || 'property';
+    const saveCounterfactualBrief = async (adjustments) => {
+      const endpoint = String(meta.preferences_endpoint || data.endpoints?.preferences || '').trim();
+      if (!endpoint) throw new Error('Brief endpoint missing.');
+      const basePreferences = (data.brief_preferences && typeof data.brief_preferences === 'object') ? { ...data.brief_preferences } : {};
+      const nextPreferences = { ...basePreferences, ...(adjustments && typeof adjustments === 'object' ? adjustments : {}) };
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(nextPreferences),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not apply the broader brief.'));
+      return nextPreferences;
+    };
+    const recordDecisionState = async (candidate, decisionState, statusNode) => {
+      if (!candidate) return;
+      if (statusNode) statusNode.textContent = 'Recording decision state...';
+      try {
+        const response = await fetch('/app/api/property-feedback', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            stakeholder_id: `profile:${feedbackPersonId}`,
+            stakeholder_label: feedbackPersonId,
+            property_ref: candidatePropertyRef(candidate),
+            category: 'priority',
+            sentiment: 'neutral',
+            importance: 4,
+            text: `Decision state moved to ${String(decisionState || '').replaceAll('_', ' ')}.`,
+            source: 'decision_lifecycle',
+            decision_state: String(decisionState || ''),
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not record the decision state.'));
+        if (statusNode) statusNode.textContent = `Decision state saved as ${String(decisionState || '').replaceAll('_', ' ')}.`;
+      } catch (error) {
+        if (statusNode) statusNode.textContent = error instanceof Error ? error.message : 'Could not record the decision state.';
+      }
+    };
     const createFlipLinkPacket = async (candidate, button) => {
       if (!candidate) return;
       const original = button?.textContent || 'Create share packet';
@@ -2110,6 +2360,113 @@
         }
       }
     };
+    const renderClippyAnswer = (body) => {
+      if (!clippyAnswerNode) return;
+      const evidence = Array.isArray(body?.evidence) ? body.evidence : [];
+      const actions = Array.isArray(body?.actions) ? body.actions : [];
+      clippyAnswerNode.innerHTML = `
+        <div class="pqx-event-card"><strong>${escapeHtml(body?.name || 'Clippy')}</strong><span class="pqx-note">${escapeHtml(body?.answer || 'No answer returned.')}</span></div>
+        ${evidence.map((row) => `
+          <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Evidence')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.confidence || row.source || '')}</span></div>
+        `).join('')}
+        ${actions.length ? `<div class="pqx-actions">${actions.map((row, index) => `<button class="pqx-button" type="button" data-pw-clippy-action="${escapeHtml(row.action || '')}" data-pw-clippy-index="${index}">${escapeHtml(row.label || 'Action')}</button>`).join('')}</div>` : ''}
+      `;
+      clippyAnswerNode.querySelectorAll('[data-pw-clippy-action]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const row = actions[Number.parseInt(String(button.getAttribute('data-pw-clippy-index') || '-1'), 10)];
+          const candidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+          if (!row || !candidate) return;
+          const action = String(row.action || '').trim();
+          if (action === 'open_packet' && row.href) {
+            window.location.href = String(row.href);
+            return;
+          }
+          if (action === 'mark_blocker' && row.reason_key) {
+            selectedFeedbackReaction = String(row.reaction || 'dislike').trim() || 'dislike';
+            feedbackReactionButtons.forEach((candidateButton) => {
+              candidateButton.classList.toggle('active', candidateButton.getAttribute('data-pw-feedback-reaction') === selectedFeedbackReaction);
+            });
+            const reasonButton = feedbackReasonsNode?.querySelector(`[data-pw-feedback-reason="${CSS.escape(String(row.reason_key || ''))}"]`);
+            if (reasonButton) {
+              selectedFeedbackReasonKeys.add(String(row.reason_key || ''));
+              reasonButton.classList.add('active');
+            }
+            if (feedbackStatusNode) feedbackStatusNode.textContent = `Clippy marked ${String(row.detail || 'a blocker').trim()} as the main blocker. Save decision when ready.`;
+            return;
+          }
+          if (action === 'ask_agent' && row.question) {
+            if (clippyStatusNode) clippyStatusNode.textContent = 'Writing agent follow-up into the timeline...';
+            try {
+              const response = await fetch('/app/api/property-feedback', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  stakeholder_id: `profile:${feedbackPersonId}`,
+                  stakeholder_label: feedbackPersonId,
+                  property_ref: candidatePropertyRef(candidate),
+                  category: 'question',
+                  sentiment: 'neutral',
+                  importance: 4,
+                  text: String(row.question || ''),
+                  source: 'clippy_agent_brief',
+                  followup_status: 'asked',
+                }),
+              });
+              const payload = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error, 'Could not record the agent question.'));
+              if (clippyStatusNode) clippyStatusNode.textContent = 'Agent follow-up recorded in the timeline.';
+            } catch (error) {
+              if (clippyStatusNode) clippyStatusNode.textContent = error instanceof Error ? error.message : 'Could not record the agent question.';
+            }
+          }
+        });
+      });
+    };
+    clippyToggle?.addEventListener('click', () => {
+      const open = Boolean(clippyPanel?.hidden);
+      if (clippyPanel) clippyPanel.hidden = !open;
+      clippyToggle.textContent = open ? 'Hide Clippy' : 'Open Clippy';
+    });
+    root.querySelectorAll('[data-pw-clippy-prompt]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (clippyQuestionNode) clippyQuestionNode.value = String(button.getAttribute('data-pw-clippy-prompt') || '').trim();
+      });
+    });
+    root.querySelector('[data-pw-clippy-ask]')?.addEventListener('click', async () => {
+      const candidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+      const question = String(clippyQuestionNode?.value || '').trim();
+      if (!candidate || !question) {
+        if (clippyStatusNode) clippyStatusNode.textContent = 'Ask Clippy a specific property question first.';
+        return;
+      }
+      if (clippyStatusNode) clippyStatusNode.textContent = 'Clippy is reviewing the property context...';
+      try {
+        const response = await fetch('/app/api/property/decision-copilot', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            property_ref: candidatePropertyRef(candidate),
+            property_title: String(candidate.title || ''),
+            property_url: String(candidate.packet_url || candidate.property_url || candidate.source_url || ''),
+            question,
+            property_facts: candidate.property_facts || {},
+            assessment: candidate.assessment || {},
+            investment_context: [
+              { title: 'Risk', detail: String(candidate.risk?.summary || 'No risk summary captured yet.'), tag: String(candidate.risk?.level || 'risk') },
+              { title: 'Investment', detail: String(candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the packet for detailed underwriting when buy mode is active.'), tag: 'investment' },
+            ],
+          }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(body.detail || body.error || body, 'Clippy could not answer right now.'));
+        renderClippyAnswer(body);
+        if (clippyStatusNode) clippyStatusNode.textContent = 'Clippy answered from the current property context.';
+      } catch (error) {
+        if (clippyStatusNode) clippyStatusNode.textContent = error instanceof Error ? error.message : 'Clippy could not answer right now.';
+      }
+    });
     const renderFeedbackReasonChips = (suggestions) => {
       if (!feedbackReasonsNode) return;
       const rows = []
@@ -2334,6 +2691,38 @@
       if (match) match.innerHTML = renderMatch(candidate.match_reasons);
       const objections = root.querySelector('[data-pw-objections]');
       if (objections) objections.innerHTML = renderObjections(candidate.objection_rows);
+      if (householdNode) householdNode.innerHTML = renderHousehold(candidate.household_rows);
+      if (householdScoreNode) householdScoreNode.textContent = `Alignment score ${Number(candidate.household_alignment_score || 0)}/100`;
+      if (householdLabelNode) householdLabelNode.textContent = String(candidate.household_alignment_label || 'waiting');
+      if (riskSignalsNode) riskSignalsNode.innerHTML = renderRiskSignals(candidate.risk_signal_rows);
+      if (recentChangesNode) recentChangesNode.innerHTML = renderRecentChanges(candidate.recent_change_rows);
+      if (followupsNode) {
+        followupsNode.innerHTML = renderFollowups(candidate.followup_rows);
+        followupsNode.querySelectorAll('[data-pw-followup-action]').forEach((button) => {
+          button.addEventListener('click', async () => {
+            const feedbackId = String(button.getAttribute('data-pw-feedback-id') || '').trim();
+            const status = String(button.getAttribute('data-pw-followup-action') || '').trim();
+            if (!feedbackId || !status) return;
+            if (followupStatusNode) followupStatusNode.textContent = 'Updating follow-up state...';
+            try {
+              const response = await fetch(`/app/api/property-feedback/${encodeURIComponent(feedbackId)}/followup-status`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ followup_status: status }),
+              });
+              const payload = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not update follow-up state.'));
+              const target = (Array.isArray(candidate.followup_rows) ? candidate.followup_rows : []).find((row) => String(row.feedback_id || '') === feedbackId);
+              if (target) target.tag = status.replaceAll('_', ' ').replace(/\b\w/g, (match) => match.toUpperCase());
+              followupsNode.innerHTML = renderFollowups(candidate.followup_rows);
+              if (followupStatusNode) followupStatusNode.textContent = `Follow-up marked ${status.replaceAll('_', ' ')}.`;
+            } catch (error) {
+              if (followupStatusNode) followupStatusNode.textContent = error instanceof Error ? error.message : 'Could not update follow-up state.';
+            }
+          });
+        });
+      }
       const timeline = root.querySelector('[data-pw-timeline]');
       if (timeline) timeline.innerHTML = renderTimeline(candidate.timeline_rows);
       const risk = root.querySelector('[data-pw-risk]');
@@ -2530,9 +2919,21 @@
       if (nodeValues.get('prefer_playgrounds_nearby') === true && familyField) familyField.checked = true;
       const keywordValues = [];
       if (nodeValues.get('prefer_playgrounds_nearby') === true) keywordValues.push('playground nearby');
+      if (nodeValues.get('prefer_libraries_nearby') === true) keywordValues.push('library nearby');
       if (nodeValues.get('prefer_subway_nearby') === true) keywordValues.push('underground nearby');
       if (nodeValues.get('prefer_supermarket_nearby') === true) keywordValues.push('supermarket nearby');
       if (nodeValues.get('prefer_pharmacy_nearby') === true) keywordValues.push('pharmacy nearby');
+      if (nodeValues.get('prefer_markets_nearby') === true) keywordValues.push('market nearby');
+      if (nodeValues.get('prefer_hardware_store_nearby') === true) keywordValues.push('hardware store nearby');
+      if (nodeValues.get('prefer_shopping_street_nearby') === true) keywordValues.push('shopping street nearby');
+      if (nodeValues.get('prefer_shopping_center_nearby') === true) keywordValues.push('shopping center nearby');
+      if (nodeValues.get('prefer_public_pool_nearby') === true) keywordValues.push('public pool nearby');
+      if (nodeValues.get('prefer_theatre_nearby') === true) keywordValues.push('theatre nearby');
+      if (nodeValues.get('prefer_medical_care_nearby') === true) keywordValues.push('medical care nearby');
+      if (nodeValues.get('prefer_good_air_quality') === true) keywordValues.push('good air quality');
+      if (nodeValues.get('prefer_low_crime_area') === true) keywordValues.push('low crime area');
+      if (nodeValues.get('prefer_low_parking_pressure') === true) keywordValues.push('easy parking');
+      if (nodeValues.get('prefer_high_quality_drinking_water') === true) keywordValues.push('high quality drinking water');
       if (nodeValues.get('prefer_balcony') === true || nodeValues.get('prefer_outdoor_space') === true) keywordValues.push('balcony');
       if (nodeValues.get('prefer_lift') === true || nodeValues.get('require_lift') === true) keywordValues.push('lift');
       setCheckboxValues(form, 'keywords', keywordValues);
@@ -2549,6 +2950,14 @@
         const field = form.querySelector('[name="max_distance_to_playground_m"]');
         if (field) {
           field.value = String(Math.round(playgroundDistance));
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
+      const libraryDistance = Number(nodeValues.get('max_distance_to_library_m') || 0);
+      if (libraryDistance > 0) {
+        const field = form.querySelector('[name="max_distance_to_library_m"]');
+        if (field) {
+          field.value = String(Math.round(libraryDistance));
           field.dispatchEvent(new Event('input', { bubbles: true }));
         }
       }
@@ -2878,6 +3287,7 @@
           max_commute_minutes_bike: integerValue(form, 'max_commute_minutes_bike'),
           max_commute_minutes_walk: integerValue(form, 'max_commute_minutes_walk'),
           max_distance_to_playground_m: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? integerValue(form, 'max_distance_to_playground_m') : null,
+          max_distance_to_library_m: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? integerValue(form, 'max_distance_to_library_m') : null,
           max_distance_to_university_m: integerValue(form, 'max_distance_to_university_m'),
           max_distance_to_starbucks_m: integerValue(form, 'max_distance_to_starbucks_m'),
           max_distance_to_fitness_center_m: integerValue(form, 'max_distance_to_fitness_center_m'),
@@ -2885,6 +3295,20 @@
           max_distance_to_bouldering_m: integerValue(form, 'max_distance_to_bouldering_m'),
           max_distance_to_dog_park_m: integerValue(form, 'max_distance_to_dog_park_m'),
           max_distance_to_good_cafe_m: integerValue(form, 'max_distance_to_good_cafe_m'),
+          max_distance_to_market_m: integerValue(form, 'max_distance_to_market_m'),
+          max_distance_to_hardware_store_m: integerValue(form, 'max_distance_to_hardware_store_m'),
+          max_distance_to_shopping_center_m: integerValue(form, 'max_distance_to_shopping_center_m'),
+          max_distance_to_shopping_street_m: integerValue(form, 'max_distance_to_shopping_street_m'),
+          max_distance_to_theatre_m: integerValue(form, 'max_distance_to_theatre_m'),
+          max_distance_to_public_pool_m: integerValue(form, 'max_distance_to_public_pool_m'),
+          max_distance_to_medical_care_m: integerValue(form, 'max_distance_to_medical_care_m'),
+          prefer_good_air_quality: Boolean(form.querySelector('input[name="prefer_good_air_quality"]')?.checked),
+          prefer_low_crime_area: Boolean(form.querySelector('input[name="prefer_low_crime_area"]')?.checked),
+          require_drinking_water_quality_research: Boolean(form.querySelector('input[name="require_drinking_water_quality_research"]')?.checked),
+          require_parking_pressure_check: Boolean(form.querySelector('input[name="require_parking_pressure_check"]')?.checked),
+          avoid_cesspit_or_septic_risk: Boolean(form.querySelector('input[name="avoid_cesspit_or_septic_risk"]')?.checked),
+          require_winter_access_research: Boolean(form.querySelector('input[name="require_winter_access_research"]')?.checked),
+          avoid_flood_risk_area: Boolean(form.querySelector('input[name="avoid_flood_risk_area"]')?.checked),
           max_results_per_source: integerValue(form, 'max_results_per_source'),
           min_match_score: integerValue(form, 'min_match_score'),
           require_floorplan: Boolean(form.querySelector('input[name="require_floorplan"]')?.checked),
@@ -3125,6 +3549,7 @@
       const schoolStageWrap = form.querySelector('[data-property-field-name="school_stage_preferences"]');
       const schoolQualityWrap = form.querySelector('[data-property-field-name="school_quality_priority"]');
       const playgroundDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_playground_m"]');
+      const libraryDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_library_m"]');
       const allViennaField = form.querySelector('input[name="all_of_vienna"]');
       const preferencePersonField = form.querySelector('[name="preference_person_id"]');
       const allViennaFieldWrap = form.querySelector('[data-property-field-name="all_of_vienna"]');
@@ -3172,6 +3597,11 @@
           playgroundDistanceWrap.hidden = !showSchoolDetails;
           playgroundDistanceWrap.toggleAttribute('aria-hidden', playgroundDistanceWrap.hidden);
           playgroundDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+        }
+        if (libraryDistanceWrap) {
+          libraryDistanceWrap.hidden = !showSchoolDetails;
+          libraryDistanceWrap.toggleAttribute('aria-hidden', libraryDistanceWrap.hidden);
+          libraryDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
         }
         if (schoolQualityWrap) {
           schoolQualityWrap.hidden = !showSchoolPriority;
@@ -3329,10 +3759,36 @@
       lastStep?.click();
       setMode('brief');
     });
+    root.querySelectorAll('[data-pqx-counterfactual]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        let adjustments = {};
+        try {
+          adjustments = JSON.parse(String(button.getAttribute('data-pqx-counterfactual') || '{}'));
+        } catch (_error) {
+          adjustments = {};
+        }
+        if (counterfactualStatusNode) counterfactualStatusNode.textContent = 'Applying broader brief...';
+        try {
+          await saveCounterfactualBrief(adjustments);
+          if (counterfactualStatusNode) counterfactualStatusNode.textContent = 'Broader brief saved. Reopening the search desk...';
+          window.location.href = '/app/properties';
+        } catch (error) {
+          if (counterfactualStatusNode) counterfactualStatusNode.textContent = error instanceof Error ? error.message : 'Could not apply the broader brief.';
+        }
+      });
+    });
     root.querySelectorAll('[data-pqx-refresh-status]').forEach((button) => {
       button.addEventListener('click', () => {
         const statusUrl = String(data.run?.status_url || '').trim();
         if (statusUrl) pollRun(statusUrl);
+      });
+    });
+    root.querySelectorAll('[data-pw-decision-state]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const candidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+        const decisionState = String(button.getAttribute('data-pw-decision-state') || '').trim();
+        if (!candidate || !decisionState) return;
+        await recordDecisionState(candidate, decisionState, decisionStateStatusNode);
       });
     });
     if (data.run && typeof data.run === 'object') {

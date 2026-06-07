@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from app.container import AppContainer
 from app.domain.models import HumanTask, IntentSpecV3, now_utc_iso
+from app.product.projections.common import compact_text
 from app.repositories.property_packet_publications import (
     PropertyPacketPublicationRepository,
     build_property_packet_publication_repository,
@@ -1250,11 +1251,37 @@ class FlipLinkPacketService:
         text: str = "",
         source: str = "packet",
         source_event_id: str = "",
+        decision_state: str = "",
+        followup_status: str = "",
         actor: str = "browser",
     ) -> dict[str, object]:
         normalized_category = str(category or "").strip().lower()
         if normalized_category not in {"love", "concern", "dealbreaker", "question", "priority", "compare_request"}:
             raise ValueError("invalid_property_feedback_category")
+        normalized_decision_state = str(decision_state or "").strip().lower()
+        if normalized_decision_state and normalized_decision_state not in {
+            "unseen",
+            "seen",
+            "interested",
+            "maybe",
+            "rejected",
+            "viewing_requested",
+            "documents_requested",
+            "offer_candidate",
+            "archived",
+        }:
+            raise ValueError("invalid_property_feedback_decision_state")
+        normalized_followup_status = str(followup_status or "").strip().lower()
+        if normalized_followup_status and normalized_followup_status not in {
+            "suggested",
+            "asked",
+            "answered",
+            "needs_follow_up",
+            "confirmed",
+            "contradicted",
+            "resolved",
+        }:
+            raise ValueError("invalid_property_feedback_followup_status")
         feedback = {
             "feedback_id": f"fbk_{uuid4().hex}",
             "property_ref": str(property_ref or "").strip(),
@@ -1269,6 +1296,8 @@ class FlipLinkPacketService:
             "text": str(text or "").strip()[:2000],
             "source": str(source or "packet").strip()[:80],
             "source_event_id": str(source_event_id or "").strip()[:160],
+            "decision_state": normalized_decision_state,
+            "followup_status": normalized_followup_status or ("asked" if normalized_category == "question" else ""),
             "created_at": now_utc_iso(),
         }
         self._repo.record_event(
@@ -1282,6 +1311,45 @@ class FlipLinkPacketService:
         )
         return feedback
 
+    def update_feedback_followup_status(
+        self,
+        *,
+        principal_id: str,
+        feedback_id: str,
+        followup_status: str,
+        note: str = "",
+        actor: str = "browser",
+    ) -> dict[str, object]:
+        target = next(
+            (
+                row
+                for row in self.list_structured_feedback(principal_id=principal_id)
+                if str(row.get("feedback_id") or "") == str(feedback_id or "").strip()
+            ),
+            None,
+        )
+        if target is None:
+            raise KeyError("property_feedback_not_found")
+        normalized = str(followup_status or "").strip().lower()
+        if normalized not in {"asked", "answered", "needs_follow_up", "confirmed", "contradicted", "resolved"}:
+            raise ValueError("invalid_property_feedback_followup_status")
+        event = self._repo.record_event(
+            {
+                "publication_id": str(target.get("publication_id") or ""),
+                "principal_id": principal_id,
+                "event_type": "property_feedback_followup_updated",
+                "actor": actor,
+                "payload_json": {
+                    "feedback_id": str(feedback_id or "").strip(),
+                    "property_ref": str(target.get("property_ref") or ""),
+                    "followup_status": normalized,
+                    "note": str(note or "").strip()[:500],
+                    "updated_at": now_utc_iso(),
+                },
+            }
+        )
+        return event
+
     def list_structured_feedback(
         self,
         *,
@@ -1292,6 +1360,17 @@ class FlipLinkPacketService:
         category: str = "",
     ) -> list[dict[str, object]]:
         rows = self._feedback_events(principal_id=principal_id, publication_id=publication_id or None)
+        status_events = [
+            row
+            for row in self._repo.list_events(principal_id=principal_id, limit=4000, event_type="property_feedback_followup_updated")
+        ]
+        latest_status_by_feedback: dict[str, dict[str, object]] = {}
+        for row in status_events:
+            payload = dict(row.get("payload_json") or {})
+            feedback_id = str(payload.get("feedback_id") or "").strip()
+            if not feedback_id:
+                continue
+            latest_status_by_feedback[feedback_id] = payload
         out: list[dict[str, object]] = []
         for row in rows:
             if property_ref and str(row.get("property_ref") or "") != str(property_ref or "").strip():
@@ -1300,8 +1379,120 @@ class FlipLinkPacketService:
                 continue
             if category and str(row.get("category") or "") != str(category or "").strip():
                 continue
-            out.append(row)
+            enriched = dict(row)
+            status_payload = latest_status_by_feedback.get(str(row.get("feedback_id") or "").strip())
+            if status_payload:
+                enriched["followup_status"] = str(status_payload.get("followup_status") or enriched.get("followup_status") or "").strip()
+                enriched["followup_note"] = str(status_payload.get("note") or "").strip()
+            out.append(enriched)
         return out
+
+    def property_household_alignment(self, *, principal_id: str, property_ref: str) -> dict[str, object]:
+        rows = self.list_structured_feedback(principal_id=principal_id, property_ref=property_ref)
+        stakeholder_rows: list[dict[str, object]] = []
+        for stakeholder_id in {str(row.get("stakeholder_id") or "").strip() for row in rows if str(row.get("stakeholder_id") or "").strip()}:
+            stakeholder_items = [row for row in rows if str(row.get("stakeholder_id") or "").strip() == stakeholder_id]
+            label = str(stakeholder_items[0].get("stakeholder_label") or stakeholder_id).strip()
+            categories = {str(row.get("category") or "").strip() for row in stakeholder_items}
+            decision = "maybe"
+            if "dealbreaker" in categories:
+                decision = "no"
+            elif "love" in categories or "priority" in categories:
+                decision = "yes"
+            reason = next((str(row.get("text") or "").strip() for row in stakeholder_items if str(row.get("text") or "").strip()), "")
+            stakeholder_rows.append(
+                {
+                    "stakeholder_id": stakeholder_id,
+                    "stakeholder_label": label,
+                    "decision": decision,
+                    "reason": reason or ", ".join(sorted(categories)) or "No detail yet.",
+                }
+            )
+        if not stakeholder_rows:
+            return {
+                "alignment_score": 0,
+                "alignment_label": "waiting",
+                "stakeholders": [],
+                "primary_conflicts": [],
+                "next_best_question": "",
+            }
+        yes_total = sum(1 for row in stakeholder_rows if row["decision"] == "yes")
+        maybe_total = sum(1 for row in stakeholder_rows if row["decision"] == "maybe")
+        no_total = sum(1 for row in stakeholder_rows if row["decision"] == "no")
+        total = len(stakeholder_rows)
+        alignment_score = int(round(((yes_total + (maybe_total * 0.5)) / max(total, 1)) * 100.0))
+        alignment_label = "aligned" if no_total == 0 else ("split" if yes_total > 0 else "blocked")
+        conflicts = [row["reason"] for row in stakeholder_rows if row["decision"] in {"maybe", "no"} and str(row["reason"]).strip()]
+        next_best_question = ""
+        for row in rows:
+            if str(row.get("category") or "") == "question" and str(row.get("followup_status") or "asked").strip().lower() not in {"answered", "confirmed", "resolved"}:
+                next_best_question = str(row.get("text") or "").strip()
+                break
+        if not next_best_question:
+            next_best_question = next(
+                (str(row["reason"]).strip() for row in stakeholder_rows if row["decision"] in {"maybe", "no"} and str(row["reason"]).strip()),
+                "",
+            )
+        return {
+            "alignment_score": alignment_score,
+            "alignment_label": alignment_label,
+            "stakeholders": stakeholder_rows[:8],
+            "primary_conflicts": conflicts[:3],
+            "next_best_question": next_best_question,
+        }
+
+    def property_risk_signal_candidates(self, *, principal_id: str, property_ref: str = "") -> list[dict[str, object]]:
+        rows = self.list_structured_feedback(principal_id=principal_id, property_ref=property_ref)
+        buckets: dict[tuple[str, str], list[dict[str, object]]] = {}
+        for row in rows:
+            category = str(row.get("category") or "").strip().lower()
+            if category not in {"concern", "dealbreaker", "question"}:
+                continue
+            text = " ".join(
+                [
+                    category,
+                    str(row.get("text") or ""),
+                ]
+            ).lower()
+            theme = "general"
+            for candidate, markers in {
+                "price": ("price", "budget", "cost"),
+                "noise": ("noise", "street", "traffic"),
+                "layout": ("layout", "floorplan", "room"),
+                "documents": ("document", "floorplan", "operating cost", "energy certificate"),
+                "legal": ("legal", "auction", "title", "lease"),
+                "investment": ("yield", "capex", "operating cost", "liquidity"),
+                "family": ("school", "playground", "family"),
+            }.items():
+                if any(marker in text for marker in markers):
+                    theme = candidate
+                    break
+            buckets.setdefault((theme, category), []).append(row)
+        results: list[dict[str, object]] = []
+        for (theme, category), items in buckets.items():
+            stakeholder_total = len({str(item.get("stakeholder_id") or "").strip() for item in items if str(item.get("stakeholder_id") or "").strip()})
+            property_total = len({str(item.get("property_ref") or "").strip() for item in items if str(item.get("property_ref") or "").strip()})
+            privacy_state = "eligible" if stakeholder_total >= 10 and property_total >= 3 else "suppressed"
+            confidence = "high" if len(items) >= 10 else ("medium" if len(items) >= 4 else "low")
+            results.append(
+                {
+                    "scope_type": "property" if property_ref else "portfolio",
+                    "scope_ref": property_ref or "portfolio",
+                    "theme": theme,
+                    "reason_key": category,
+                    "count": len(items),
+                    "distinct_stakeholder_count": stakeholder_total,
+                    "distinct_property_count": property_total,
+                    "privacy_state": privacy_state,
+                    "confidence": confidence,
+                    "summary": compact_text(
+                        next((str(item.get("text") or "").strip() for item in items if str(item.get("text") or "").strip()), f"{theme} concern"),
+                        fallback=f"{theme} concern",
+                        limit=220,
+                    ),
+                }
+            )
+        return sorted(results, key=lambda item: (item["privacy_state"] != "eligible", -int(item["count"])))[:8]
 
     def cluster_feedback(self, *, principal_id: str, property_ref: str) -> list[dict[str, object]]:
         rows = self.list_structured_feedback(principal_id=principal_id, property_ref=property_ref)
@@ -1365,14 +1556,19 @@ class FlipLinkPacketService:
         rows = self.list_structured_feedback(principal_id=principal_id, property_ref=property_ref)
         counts: dict[str, int] = {}
         stakeholders: dict[str, set[str]] = {}
+        decision_states: dict[str, int] = {}
         for row in rows:
             category = str(row.get("category") or "")
             counts[category] = counts.get(category, 0) + 1
             stakeholders.setdefault(str(row.get("stakeholder_id") or ""), set()).add(category)
+            decision_state = str(row.get("decision_state") or "").strip().lower()
+            if decision_state:
+                decision_states[decision_state] = decision_states.get(decision_state, 0) + 1
         disagreement = 0
         if len(stakeholders) >= 2:
             category_sets = [value for value in stakeholders.values() if value]
             disagreement = 1 if len({tuple(sorted(item)) for item in category_sets}) > 1 else 0
+        household = self.property_household_alignment(principal_id=principal_id, property_ref=property_ref)
         return {
             "property_ref": property_ref,
             "counts": counts,
@@ -1381,7 +1577,11 @@ class FlipLinkPacketService:
             "open_questions_count": counts.get("question", 0),
             "clusters": self.cluster_feedback(principal_id=principal_id, property_ref=property_ref),
             "disagreement_count": disagreement,
-            "family_alignment": "split" if disagreement else "aligned",
+            "family_alignment": household.get("alignment_label") or ("split" if disagreement else "aligned"),
+            "household_alignment_score": int(household.get("alignment_score") or 0),
+            "household_review": household,
+            "decision_state_counts": decision_states,
+            "risk_signal_candidates": self.property_risk_signal_candidates(principal_id=principal_id, property_ref=property_ref),
         }
 
     def generate_summary_artifact(
@@ -1730,7 +1930,23 @@ class FlipLinkPacketService:
                     "event_type": str(row.get("event_type") or ""),
                     "publication_id": str(row.get("publication_id") or ""),
                     "stakeholder_id": str(payload.get("stakeholder_id") or payload.get("recipient_id") or ""),
-                    "summary": str(payload.get("text") or payload.get("recommended_action") or payload.get("event_type") or "").strip() or str(row.get("event_type") or ""),
+                    "summary": " | ".join(
+                        part
+                        for part in (
+                            str(payload.get("text") or payload.get("recommended_action") or payload.get("event_type") or "").strip() or str(row.get("event_type") or ""),
+                            (
+                                f"Decision {str(payload.get('decision_state') or '').strip().replace('_', ' ')}"
+                                if str(payload.get("decision_state") or "").strip()
+                                else ""
+                            ),
+                            (
+                                f"Follow-up {str(payload.get('followup_status') or '').strip().replace('_', ' ')}"
+                                if str(payload.get("followup_status") or "").strip()
+                                else ""
+                            ),
+                        )
+                        if str(part or "").strip()
+                    ),
                     "created_at": str(row.get("created_at") or ""),
                 }
             )

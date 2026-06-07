@@ -5814,6 +5814,13 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     assert "PropertyQuarry" in preview_body["html"]
     assert "EA shortlisted" not in preview_body["text"]
 
+    workspace_preview = client.get("/app/api/property/notifications/preview", params={"template": "workspace_access"})
+    assert workspace_preview.status_code == 200
+    workspace_preview_body = workspace_preview.json()
+    assert workspace_preview_body["template_key"] == "workspace_access"
+    assert "PropertyQuarry Workspace" in workspace_preview_body["text"]
+    assert "Open access link" in workspace_preview_body["html"]
+
     partial = client.post(
         "/app/api/people/self/preference-profile",
         json={
@@ -6318,6 +6325,57 @@ def test_property_feedback_records_preference_learning_and_updates_assessment() 
     assert any(item["key"] == "prefer_lift" for item in applied)
     assert any("heating aversion" in entry.lower() for entry in result["updated_assessment"]["mismatch_reasons_json"])
     assert "Avoid heating: Gasheizung" in result["learning_summary"]["dislikes"]
+
+
+def test_property_decision_copilot_returns_grounded_answer_and_actions() -> None:
+    principal_id = "pref-property-clippy"
+    client = build_product_client(principal_id=principal_id)
+
+    feedback = client.post(
+        "/app/api/property-feedback",
+        json={
+            "stakeholder_id": "family-jonas",
+            "stakeholder_label": "Jonas",
+            "property_ref": "listing-clippy-1",
+            "category": "dealbreaker",
+            "sentiment": "negative",
+            "importance": 5,
+            "text": "Street noise and missing operating costs.",
+            "source": "packet",
+        },
+    )
+    assert feedback.status_code == 200, feedback.text
+
+    response = client.post(
+        "/app/api/property/decision-copilot",
+        json={
+            "property_ref": "listing-clippy-1",
+            "property_title": "Listing Clippy 1",
+            "property_url": "/app/research/listing-clippy-1",
+            "question": "What should I ask the agent next?",
+            "property_facts": {
+                "heating_type": "Gasheizung",
+                "missing_fact_research": {
+                    "items": [
+                        {"field": "operating_cost_history", "label": "Operating costs", "status": "open"},
+                    ]
+                },
+                "has_floorplan": False,
+            },
+            "assessment": {
+                "mismatch_reasons_json": ["Operating costs are still unclear."],
+            },
+            "investment_context": [
+                {"title": "Risk", "detail": "Operating costs still unknown.", "tag": "risk"},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["name"] == "Clippy"
+    assert "agent brief" in body["answer"].lower() or "agent" in body["answer"].lower()
+    assert any(item["action"] == "ask_agent" for item in body["actions"])
+    assert any("operating-cost" in item["detail"].lower() or "operating cost" in item["detail"].lower() for item in body["evidence"])
 
 
 def test_preference_profile_teable_sync_preview_fails_closed_without_executable_lane() -> None:

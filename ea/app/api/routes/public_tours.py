@@ -920,8 +920,30 @@ def _fetch_nearby_poi_research(lat: float, lon: float) -> dict[str, object]:
   way["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
   node["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
   way["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
+  node["amenity"="library"](around:5000,{lat:.8f},{lon:.8f});
+  way["amenity"="library"](around:5000,{lat:.8f},{lon:.8f});
   node["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
   way["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
+  node["shop"="doityourself"](around:7000,{lat:.8f},{lon:.8f});
+  way["shop"="doityourself"](around:7000,{lat:.8f},{lon:.8f});
+  node["shop"="hardware"](around:7000,{lat:.8f},{lon:.8f});
+  way["shop"="hardware"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="marketplace"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="marketplace"](around:7000,{lat:.8f},{lon:.8f});
+  node["shop"="mall"](around:7000,{lat:.8f},{lon:.8f});
+  way["shop"="mall"](around:7000,{lat:.8f},{lon:.8f});
+  node["highway"="pedestrian"](around:7000,{lat:.8f},{lon:.8f});
+  way["highway"="pedestrian"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="theatre"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="theatre"](around:7000,{lat:.8f},{lon:.8f});
+  node["leisure"="swimming_pool"](around:7000,{lat:.8f},{lon:.8f});
+  way["leisure"="swimming_pool"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="doctors"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="doctors"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="clinic"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="clinic"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="hospital"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="hospital"](around:7000,{lat:.8f},{lon:.8f});
   node["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
   way["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
 );
@@ -962,9 +984,33 @@ out center tags;
         elif tags.get("amenity") == "pharmacy":
             key = "nearest_pharmacy_m"
             name_key = "nearest_pharmacy_name"
+        elif tags.get("amenity") == "library":
+            key = "nearest_library_m"
+            name_key = "nearest_library_name"
         elif tags.get("leisure") == "playground":
             key = "nearest_playground_m"
             name_key = "nearest_playground_name"
+        elif tags.get("shop") in {"doityourself", "hardware"}:
+            key = "nearest_hardware_store_m"
+            name_key = "nearest_hardware_store_name"
+        elif tags.get("amenity") == "marketplace":
+            key = "nearest_market_m"
+            name_key = "nearest_market_name"
+        elif tags.get("shop") == "mall":
+            key = "nearest_shopping_center_m"
+            name_key = "nearest_shopping_center_name"
+        elif tags.get("highway") == "pedestrian":
+            key = "nearest_shopping_street_m"
+            name_key = "nearest_shopping_street_name"
+        elif tags.get("amenity") == "theatre":
+            key = "nearest_theatre_m"
+            name_key = "nearest_theatre_name"
+        elif tags.get("leisure") == "swimming_pool":
+            key = "nearest_public_pool_m"
+            name_key = "nearest_public_pool_name"
+        elif tags.get("amenity") in {"doctors", "clinic", "hospital"}:
+            key = "nearest_medical_care_m"
+            name_key = "nearest_medical_care_name"
         elif tags.get("railway") == "subway_entrance":
             key = "nearest_subway_m"
             name_key = "nearest_subway_name"
@@ -2028,6 +2074,14 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             ("nearest_subway_m", "Underground"),
             ("nearest_supermarket_m", "Supermarket"),
             ("nearest_pharmacy_m", "Pharmacy"),
+            ("nearest_library_m", "Library"),
+            ("nearest_medical_care_m", "Medical care"),
+            ("nearest_market_m", "Market"),
+            ("nearest_hardware_store_m", "Baumarkt"),
+            ("nearest_shopping_street_m", "Flaniermeile"),
+            ("nearest_shopping_center_m", "Shopping center"),
+            ("nearest_theatre_m", "Theatre"),
+            ("nearest_public_pool_m", "Public pool"),
             ("nearest_bakery_m", "Bakery"),
             ("nearest_bicycle_parking_m", "Bicycle parking"),
             ("nearest_cycleway_m", "Cycleway"),
@@ -2147,6 +2201,20 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         parking_monthly = facts.get("parking_monthly_eur")
         if isinstance(parking_monthly, (int, float)) and parking_monthly > 0:
             rows.append(f"The garage space is optional but adds about EUR {int(parking_monthly):d} per month.")
+        if _fact_bool("air_quality_risk"):
+            rows.append("Air quality still needs explicit validation for pollution burden and respiratory comfort.")
+        if _fact_bool("crime_risk"):
+            rows.append("Crime and safety burden still need explicit validation for this micro-location.")
+        if _fact_bool("parking_pressure_risk"):
+            rows.append("Parking pressure still needs clarification because no reliable garage fallback is confirmed.")
+        if _fact_bool("drinking_water_risk"):
+            rows.append("Drinking-water source and groundwater burden still need explicit validation.")
+        if _fact_bool("cesspit_risk"):
+            rows.append("Senkgrube or septic dependence still needs explicit validation for cost and smell burden.")
+        if _fact_bool("winter_access_risk"):
+            rows.append("Winter snow or slope access still needs explicit validation.")
+        if _fact_bool("flood_risk"):
+            rows.append("Flood and runoff exposure still need explicit validation.")
         if not _fact_bool("has_floorplan") and not rows:
             rows.append("No floor plan is stored yet.")
         if not _fact_bool("lift") and not rows:
@@ -2167,6 +2235,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         has_lift = _fact_bool("lift")
         has_balcony = _fact_bool("balcony") or _fact_bool("terrace")
         nearest_playground = livability_snapshot.get("nearest_playground_m")
+        nearest_library = livability_snapshot.get("nearest_library_m")
+        nearest_medical_care = livability_snapshot.get("nearest_medical_care_m")
         nearest_cycleway = livability_snapshot.get("nearest_cycleway_m")
         nearest_bicycle_parking = livability_snapshot.get("nearest_bicycle_parking_m")
         nearest_running = livability_snapshot.get("nearest_running_m")
@@ -2210,6 +2280,16 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                     positive.append(f"The nearest playground is about {int(nearest_playground):d} m away.")
                 else:
                     open_questions.append("Playground distance is not stored yet.")
+            elif "library" in key:
+                if isinstance(nearest_library, (int, float)) and nearest_library > 0:
+                    positive.append(f"The nearest library is about {int(nearest_library):d} m away.")
+                else:
+                    open_questions.append("Library distance is not stored yet.")
+            elif "medical" in key or "doctor" in key or "hospital" in key:
+                if isinstance(nearest_medical_care, (int, float)) and nearest_medical_care > 0:
+                    positive.append(f"Medical care is about {int(nearest_medical_care):d} m away.")
+                else:
+                    open_questions.append("Medical-care distance is not stored yet.")
             elif "bike" in key:
                 if isinstance(nearest_cycleway, (int, float)) and nearest_cycleway > 0:
                     positive.append(f"Cycleway access is about {int(nearest_cycleway):d} m away.")
@@ -2361,6 +2441,14 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         "nearest_subway_m",
         "nearest_supermarket_m",
         "nearest_pharmacy_m",
+        "nearest_library_m",
+        "nearest_medical_care_m",
+        "nearest_market_m",
+        "nearest_hardware_store_m",
+        "nearest_shopping_street_m",
+        "nearest_shopping_center_m",
+        "nearest_theatre_m",
+        "nearest_public_pool_m",
         "nearest_bakery_m",
         "nearest_bicycle_parking_m",
         "nearest_cycleway_m",
@@ -2510,6 +2598,14 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             ("nearest_supermarket_m", "Supermarket"),
             ("nearest_pharmacy_m", "Pharmacy"),
             ("nearest_playground_m", "Playground"),
+            ("nearest_library_m", "Library"),
+            ("nearest_medical_care_m", "Medical care"),
+            ("nearest_market_m", "Market"),
+            ("nearest_hardware_store_m", "Baumarkt"),
+            ("nearest_shopping_street_m", "Flaniermeile"),
+            ("nearest_shopping_center_m", "Shopping center"),
+            ("nearest_theatre_m", "Theatre"),
+            ("nearest_public_pool_m", "Public pool"),
             ("nearest_subway_m", "Underground"),
         )
         for key, label in evidence_specs:

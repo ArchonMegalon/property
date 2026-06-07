@@ -46,6 +46,8 @@ from app.api.routes.product_api_contracts import (
     PreferenceProfileSummaryOut,
     PropertyFeedbackRecordIn,
     PropertyFeedbackRecordOut,
+    PropertyDecisionCopilotIn,
+    PropertyDecisionCopilotOut,
     PropertyFeedbackSuggestionRequestIn,
     PropertyFeedbackSuggestionSetOut,
     PreferenceProfileUpsertIn,
@@ -111,6 +113,13 @@ class StructuredPropertyFeedbackIn(BaseModel):
     text: str = Field(default="", max_length=2000)
     source: str = Field(default="packet", max_length=80)
     source_event_id: str = Field(default="", max_length=160)
+    decision_state: str = Field(default="", max_length=80)
+    followup_status: str = Field(default="", max_length=80)
+
+
+class PropertyFeedbackStatusUpdateIn(BaseModel):
+    followup_status: str = Field(min_length=1, max_length=80)
+    note: str = Field(default="", max_length=500)
 
 
 class PropertySummaryGenerateIn(BaseModel):
@@ -951,6 +960,12 @@ def record_property_feedback(
             "dislike": "negative",
             "hide": "negative",
         }.get(str(body.reaction or "").strip().lower(), "neutral")
+        decision_state = {
+            "like": "interested",
+            "maybe": "maybe",
+            "dislike": "rejected",
+            "hide": "archived",
+        }.get(str(body.reaction or "").strip().lower(), "")
         reason_labels = [
             str(_property_feedback_reason_map().get(key, {}).get("label") or key).strip()
             for key in normalized_reason_keys
@@ -979,11 +994,52 @@ def record_property_feedback(
                 text=summary_text or f"Decision: {str(body.reaction or '').strip().lower()}",
                 source="workspace_property_feedback",
                 source_event_id=str(result.get("evidence", {}).get("event", {}).get("event_id") or "").strip(),
+                decision_state=decision_state,
                 actor=actor,
             )
         except Exception:
             pass
     return PropertyFeedbackRecordOut(**result)
+
+
+@router.post("/property/decision-copilot", response_model=PropertyDecisionCopilotOut)
+def property_decision_copilot(
+    body: PropertyDecisionCopilotIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyDecisionCopilotOut:
+    service = build_product_service(container)
+    packet_service = build_fliplink_packet_service(container)
+    property_ref = str(body.property_ref or body.property_url or body.property_title or "property").strip()
+    feedback_summary = {}
+    timeline_rows: list[dict[str, object]] = []
+    change_rows: list[dict[str, object]] = []
+    if property_ref:
+        try:
+            feedback_summary = dict(packet_service.feedback_summary(principal_id=context.principal_id, property_ref=property_ref))
+        except Exception:
+            feedback_summary = {}
+        try:
+            timeline_rows = list(packet_service.property_timeline(principal_id=context.principal_id, property_ref=property_ref))
+        except Exception:
+            timeline_rows = []
+        try:
+            change_rows = list(packet_service.property_change_log(principal_id=context.principal_id, property_ref=property_ref))
+        except Exception:
+            change_rows = []
+    return PropertyDecisionCopilotOut(
+        **service.property_decision_copilot(
+            question=body.question,
+            property_title=body.property_title,
+            property_url=body.property_url,
+            property_facts=dict(body.property_facts or {}),
+            assessment=dict(body.assessment or {}),
+            feedback_summary=feedback_summary,
+            timeline_rows=timeline_rows,
+            change_rows=change_rows,
+            investment_context=[dict(row) for row in list(body.investment_context or []) if isinstance(row, dict)],
+        )
+    )
 
 
 @router.post("/property-feedback")
@@ -1009,11 +1065,36 @@ def record_structured_property_feedback(
             text=body.text,
             source=body.source,
             source_event_id=body.source_event_id,
+            decision_state=body.decision_state,
+            followup_status=body.followup_status,
             actor=actor,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"status": "recorded", "feedback": feedback}
+
+
+@router.post("/property-feedback/{feedback_id}/followup-status")
+def update_property_feedback_followup_status(
+    feedback_id: str,
+    body: PropertyFeedbackStatusUpdateIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    try:
+        event = service.update_feedback_followup_status(
+            principal_id=context.principal_id,
+            feedback_id=feedback_id,
+            followup_status=body.followup_status,
+            note=body.note,
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"event": dict(event)}
 
 
 @router.get("/property-feedback")

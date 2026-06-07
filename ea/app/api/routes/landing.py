@@ -528,6 +528,42 @@ def _property_console_context(
             )
         except Exception:
             run_payload = {}
+    if run_payload:
+        packet_service = build_fliplink_packet_service(container)
+        summary = dict(run_payload.get("summary") or {}) if isinstance(run_payload.get("summary"), dict) else {}
+        sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+        for source in sources:
+            source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
+            candidates = [dict(row) for row in list(source.get("top_candidates") or []) if isinstance(row, dict)]
+            enriched_candidates: list[dict[str, object]] = []
+            for candidate in candidates:
+                candidate.setdefault("source_label", source_label)
+                feedback_summary: dict[str, object] = {}
+                feedback_rows: list[dict[str, object]] = []
+                for feedback_ref in _property_feedback_reference_candidates(
+                    _property_candidate_ref(candidate),
+                    candidate,
+                ):
+                    try:
+                        summary_candidate = dict(packet_service.feedback_summary(principal_id=principal_id, property_ref=feedback_ref))
+                    except Exception:
+                        summary_candidate = {}
+                    try:
+                        rows_candidate = list(packet_service.list_structured_feedback(principal_id=principal_id, property_ref=feedback_ref))
+                    except Exception:
+                        rows_candidate = []
+                    if summary_candidate and not feedback_summary:
+                        feedback_summary = summary_candidate
+                    if rows_candidate and not feedback_rows:
+                        feedback_rows = rows_candidate
+                    if feedback_summary and feedback_rows:
+                        break
+                candidate["feedback_summary"] = feedback_summary
+                candidate["feedback_rows"] = feedback_rows[:12]
+                enriched_candidates.append(candidate)
+            source["top_candidates"] = enriched_candidates
+        summary["sources"] = sources
+        run_payload["summary"] = summary
 
     recent_matches: list[dict[str, object]] = []
     learning_summary: dict[str, object] = {}
@@ -1475,8 +1511,16 @@ def _property_fact_rows(facts: dict[str, object]) -> list[dict[str, str]]:
         "distance_supermarket_m": "Supermarket",
         "distance_playground_m": "Playground",
         "nearest_playground_m": "Playground",
+        "nearest_library_m": "Library",
         "distance_pharmacy_m": "Pharmacy",
         "nearest_pharmacy_m": "Pharmacy",
+        "nearest_market_m": "Market",
+        "nearest_hardware_store_m": "Baumarkt",
+        "nearest_shopping_center_m": "Shopping center",
+        "nearest_shopping_street_m": "Flaniermeile",
+        "nearest_theatre_m": "Theatre",
+        "nearest_public_pool_m": "Public pool",
+        "nearest_medical_care_m": "Medical care",
         "distance_underground_m": "Underground",
         "nearest_subway_m": "Underground",
         "nearest_supermarket_m": "Supermarket",
@@ -1566,7 +1610,15 @@ def _property_distance_ooda_rows(facts: dict[str, object]) -> list[dict[str, str
     rows: list[dict[str, str]] = []
     distance_specs = (
         ("Playground", ("distance_playground_m", "nearest_playground_m"), "Neighbourhood", "walking"),
+        ("Library", ("nearest_library_m",), "Family", "walking"),
         ("Pharmacy", ("distance_pharmacy_m", "nearest_pharmacy_m"), "Errands", "walking"),
+        ("Medical care", ("nearest_medical_care_m",), "Care", "walking"),
+        ("Market", ("nearest_market_m",), "District life", "walking"),
+        ("Baumarkt", ("nearest_hardware_store_m",), "Practical", "bicycling"),
+        ("Shopping center", ("nearest_shopping_center_m",), "Errands", "bicycling"),
+        ("Flaniermeile", ("nearest_shopping_street_m",), "City life", "walking"),
+        ("Theatre", ("nearest_theatre_m",), "Culture", "walking"),
+        ("Public pool", ("nearest_public_pool_m",), "Family", "bicycling"),
         ("Supermarket", ("distance_supermarket_m", "nearest_supermarket_m"), "Errands", "walking"),
         ("Underground", ("distance_underground_m", "nearest_subway_m"), "Transit", "bicycling"),
     )
@@ -1720,6 +1772,28 @@ def _property_packet_provenance_rows(facts: dict[str, object]) -> list[dict[str,
     return rows
 
 
+def _property_packet_official_evidence_rows(facts: dict[str, object]) -> list[dict[str, str]]:
+    official = dict(facts.get("official_risk_evidence") or {}) if isinstance(facts.get("official_risk_evidence"), dict) else {}
+    rows: list[dict[str, str]] = []
+    for row in list(official.get("sources") or [])[:6]:
+        if not isinstance(row, dict):
+            continue
+        title = str(row.get("label") or row.get("risk_key") or "Official evidence").strip()
+        source_label = str(row.get("source_label") or row.get("provider") or "Official dataset").strip()
+        summary = str(row.get("summary") or "").strip()
+        availability = str(row.get("availability") or "official_dataset").replace("_", " ").title()
+        detail = " | ".join(part for part in (source_label, summary) if part)
+        rows.append(
+            _object_detail_row(
+                title,
+                detail or "Official source attached for this risk lane.",
+                availability,
+                href=str(row.get("source_url") or "").strip(),
+            )
+        )
+    return rows
+
+
 def _property_packet_future_research_rows(facts: dict[str, object]) -> list[dict[str, str]]:
     future = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
     rows: list[dict[str, str]] = []
@@ -1815,8 +1889,23 @@ def _property_packet_missing_rows(
         ("has_lift", "Lift status", "Needed because access and daily usability often decide the shortlist."),
         ("distance_supermarket_m", "Supermarket distance", "Needed to validate daily-errand convenience."),
         ("distance_playground_m", "Playground distance", "Needed if the search is family-oriented."),
+        ("nearest_library_m", "Library distance", "Needed for family, study, and child logistics when that criterion matters."),
         ("distance_pharmacy_m", "Pharmacy distance", "Needed to confirm basic services nearby."),
+        ("nearest_medical_care_m", "Doctors and hospitals", "Needed when family, elder-care, or health resilience matter."),
+        ("nearest_market_m", "Market distance", "Needed if district-life quality or produce-market access matters."),
+        ("nearest_hardware_store_m", "Baumarkt distance", "Needed when renovation or practical errand access matters."),
+        ("nearest_shopping_center_m", "Shopping-center distance", "Needed when broad bad-weather errand access matters."),
+        ("nearest_shopping_street_m", "Flaniermeile distance", "Needed when promenade and walkable city life matter."),
+        ("nearest_theatre_m", "Theatre distance", "Needed when cultural access matters."),
+        ("nearest_public_pool_m", "Public-pool distance", "Needed when family or swimming access matters."),
         ("distance_underground_m", "Underground distance", "Needed to validate fast transit access."),
+        ("air_quality_risk", "Air-quality risk", "Needed to understand pollution burden and respiratory comfort."),
+        ("crime_risk", "Crime pattern", "Needed to understand practical safety burden in the quarter."),
+        ("parking_pressure_risk", "Parking pressure", "Needed when there is no garage and street parking might be difficult."),
+        ("drinking_water_risk", "Water source and groundwater burden", "Needed to understand whether water quality or source dependence is a real concern."),
+        ("cesspit_risk", "Senkgrube or septic burden", "Needed to understand recurring costs, maintenance, and smell risk."),
+        ("winter_access_risk", "Winter driving access", "Needed to understand snow, slope, and seasonal access constraints."),
+        ("flood_risk", "Flood exposure", "Needed to understand historic flooding, runoff, and zone risk."),
     ]
     wanted_keywords = {str(value).strip().lower() for value in str(preferences.get("keywords") or "").split(",") if str(value).strip()}
     for key, title, detail in missing_fact_specs:
@@ -1824,9 +1913,25 @@ def _property_packet_missing_rows(
             continue
         if key == "distance_playground_m" and "playground nearby" not in wanted_keywords and "family" not in wanted_keywords:
             continue
+        if key == "nearest_library_m" and "library nearby" not in wanted_keywords and "family" not in wanted_keywords:
+            continue
         if key == "distance_underground_m" and "underground nearby" not in wanted_keywords:
             continue
         if key == "heating_type" and not ({"no gas", "district heating"} & wanted_keywords):
+            continue
+        if key == "air_quality_risk" and not bool(preferences.get("prefer_good_air_quality")):
+            continue
+        if key == "crime_risk" and not bool(preferences.get("prefer_low_crime_area")):
+            continue
+        if key == "parking_pressure_risk" and not bool(preferences.get("require_parking_pressure_check")):
+            continue
+        if key == "drinking_water_risk" and not bool(preferences.get("require_drinking_water_quality_research")):
+            continue
+        if key == "cesspit_risk" and not bool(preferences.get("avoid_cesspit_or_septic_risk")):
+            continue
+        if key == "winter_access_risk" and not bool(preferences.get("require_winter_access_research")):
+            continue
+        if key == "flood_risk" and not bool(preferences.get("avoid_flood_risk_area")):
             continue
         severity = "Critical" if key in {"address", "heating_type", "has_lift"} else "Important"
         rows.append(_object_detail_row(title, detail, severity))
@@ -1837,6 +1942,86 @@ def _property_packet_missing_rows(
         ooda = dict(item.get("ooda") or {}) if isinstance(item.get("ooda"), dict) else {}
         detail = str(ooda.get("act") or item.get("evidence") or "Missing-fact OODA queued.").strip()
         rows.append(_object_detail_row(label, detail, "OODA"))
+    return rows
+
+
+def _property_packet_everyday_fit_rows(
+    *,
+    facts: dict[str, object],
+    preferences: dict[str, object],
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for key, title, tag in (
+        ("nearest_supermarket_m", "Supermarket", "Errands"),
+        ("nearest_playground_m", "Playground", "Family"),
+        ("nearest_library_m", "Library", "Family"),
+        ("nearest_medical_care_m", "Medical care", "Care"),
+        ("nearest_market_m", "Market", "District life"),
+        ("nearest_hardware_store_m", "Baumarkt", "Practical"),
+        ("nearest_shopping_center_m", "Shopping center", "Errands"),
+        ("nearest_shopping_street_m", "Flaniermeile", "City life"),
+        ("nearest_theatre_m", "Theatre", "Culture"),
+        ("nearest_public_pool_m", "Public pool", "Family"),
+        ("nearest_subway_m", "Underground", "Transit"),
+    ):
+        raw_value = facts.get(key)
+        if raw_value in (None, "", []):
+            continue
+        try:
+            meters = int(float(raw_value))
+        except Exception:
+            continue
+        rows.append(_object_detail_row(title, f"About {meters} m away.", tag))
+    if bool(preferences.get("enable_commute_research")):
+        commute_rows: list[str] = []
+        for key, label in (
+            ("max_commute_minutes_transit", "Transit"),
+            ("max_commute_minutes_bike", "Bike"),
+            ("max_commute_minutes_drive", "Car"),
+            ("max_commute_minutes_walk", "Walk"),
+        ):
+            try:
+                minutes = int(float(preferences.get(key) or 0))
+            except Exception:
+                minutes = 0
+            if minutes > 0:
+                commute_rows.append(f"{label} <= {minutes} min")
+        if commute_rows:
+            rows.append(_object_detail_row("Commute posture", " | ".join(commute_rows), "Reachability"))
+    return rows
+
+
+def _property_packet_risk_fit_rows(
+    *,
+    facts: dict[str, object],
+    preferences: dict[str, object],
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for flag, title, detail in (
+        ("air_quality_risk", "Air quality", "Pollution burden or respiratory comfort still need explicit validation."),
+        ("crime_risk", "Crime burden", "Quarter-level safety pattern still needs explicit validation."),
+        ("parking_pressure_risk", "Parking pressure", "Street-parking burden still needs explicit validation when no garage is included."),
+        ("drinking_water_risk", "Water quality", "Water source and groundwater burden still need explicit validation."),
+        ("cesspit_risk", "Senkgrube or septic", "Recurring cost, maintenance, and smell burden still need explicit validation."),
+        ("winter_access_risk", "Winter access", "Snow, slope, and seasonal driveability still need explicit validation."),
+        ("flood_risk", "Flood exposure", "Historic flooding, runoff, or zone risk still need explicit validation."),
+    ):
+        if bool(facts.get(flag)):
+            rows.append(_object_detail_row(title, detail, "Risk"))
+    if bool(preferences.get("prefer_good_air_quality")) and not bool(facts.get("air_quality_risk")):
+        rows.append(_object_detail_row("Air-quality check", "The brief explicitly asks for good air quality, so deep research should still verify the local burden.", "Research"))
+    if bool(preferences.get("prefer_low_crime_area")) and not bool(facts.get("crime_risk")):
+        rows.append(_object_detail_row("Safety check", "The brief explicitly asks for a lower-crime area, so deep research should still verify the quarter pattern.", "Research"))
+    if bool(preferences.get("require_parking_pressure_check")) and not bool(facts.get("garage")) and not bool(facts.get("parking_pressure_risk")):
+        rows.append(_object_detail_row("Parking check", "No garage is confirmed, so deep research should still verify evening street-parking reality.", "Research"))
+    if bool(preferences.get("require_drinking_water_quality_research")) and not bool(facts.get("drinking_water_risk")):
+        rows.append(_object_detail_row("Water-source check", "The brief explicitly asks for water-source and groundwater validation.", "Research"))
+    if bool(preferences.get("avoid_cesspit_or_septic_risk")) and not bool(facts.get("cesspit_risk")):
+        rows.append(_object_detail_row("Senkgrube check", "The brief explicitly asks to avoid Senkgrube or septic burden, so the infrastructure should be verified.", "Research"))
+    if bool(preferences.get("require_winter_access_research")) and not bool(facts.get("winter_access_risk")):
+        rows.append(_object_detail_row("Winter-access check", "The brief explicitly asks for snow and slope driveability validation.", "Research"))
+    if bool(preferences.get("avoid_flood_risk_area")) and not bool(facts.get("flood_risk")):
+        rows.append(_object_detail_row("Flood check", "The brief explicitly asks to avoid flood exposure, so runoff and flood-zone history should be verified.", "Research"))
     return rows
 
 
@@ -2196,6 +2381,14 @@ def property_research_packet(
         match_reasons=match_reasons,
         mismatch_reasons=mismatch_reasons,
     )
+    everyday_fit_rows = _property_packet_everyday_fit_rows(
+        facts=facts,
+        preferences=preferences,
+    )
+    risk_fit_rows = _property_packet_risk_fit_rows(
+        facts=facts,
+        preferences=preferences,
+    )
     missing_rows = _property_packet_missing_rows(
         facts=facts,
         preferences=preferences,
@@ -2207,6 +2400,7 @@ def property_research_packet(
         missing_rows=missing_rows,
     )
     provenance_rows = _property_packet_provenance_rows(facts)
+    official_evidence_rows = _property_packet_official_evidence_rows(facts)
     future_research_rows = _property_packet_future_research_rows(facts)
     compare_rows = _property_packet_compare_rows(
         property_context=property_context,
@@ -2259,6 +2453,7 @@ def property_research_packet(
     packet_service = build_fliplink_packet_service(container)
     feedback_summary: dict[str, object] = {}
     property_timeline_rows: list[dict[str, object]] = []
+    structured_feedback_rows: list[dict[str, object]] = []
     for feedback_ref in _property_feedback_reference_candidates(str(candidate_ref or "").strip(), candidate):
         try:
             summary_candidate = dict(packet_service.feedback_summary(principal_id=context.principal_id, property_ref=feedback_ref))
@@ -2268,11 +2463,17 @@ def property_research_packet(
             timeline_candidate = list(packet_service.property_timeline(principal_id=context.principal_id, property_ref=feedback_ref))
         except Exception:
             timeline_candidate = []
+        try:
+            feedback_rows_candidate = list(packet_service.list_structured_feedback(principal_id=context.principal_id, property_ref=feedback_ref))
+        except Exception:
+            feedback_rows_candidate = []
         if summary_candidate and not feedback_summary:
             feedback_summary = summary_candidate
         if timeline_candidate and not property_timeline_rows:
             property_timeline_rows = timeline_candidate
-        if feedback_summary and property_timeline_rows:
+        if feedback_rows_candidate and not structured_feedback_rows:
+            structured_feedback_rows = feedback_rows_candidate
+        if feedback_summary and property_timeline_rows and structured_feedback_rows:
             break
     objection_clusters = [
         _object_detail_row(
@@ -2291,6 +2492,42 @@ def property_research_packet(
                 "Waiting",
             )
         ]
+    household_review = dict(feedback_summary.get("household_review") or {}) if isinstance(feedback_summary.get("household_review"), dict) else {}
+    household_rows = [
+        _object_detail_row(
+            str(row.get("stakeholder_label") or "Stakeholder").strip(),
+            str(row.get("reason") or "No detail yet.").strip(),
+            str(row.get("decision") or "maybe").replace("_", " ").title(),
+        )
+        for row in list(household_review.get("stakeholders") or [])[:4]
+        if isinstance(row, dict)
+    ]
+    if not household_rows:
+        household_rows = [
+            _object_detail_row(
+                "No household votes yet",
+                "Shared household or advisor reactions will appear here once someone records a Yes, Maybe, or No.",
+                "Waiting",
+            )
+        ]
+    risk_signal_rows = [
+        _object_detail_row(
+            str(row.get("theme") or "risk").replace("_", " ").title(),
+            f"{str(row.get('summary') or 'No summary yet.').strip()} | privacy {str(row.get('privacy_state') or 'suppressed')} | confidence {str(row.get('confidence') or 'low')}",
+            str(row.get("reason_key") or "signal").replace("_", " ").title(),
+        )
+        for row in list(feedback_summary.get("risk_signal_candidates") or [])[:4]
+        if isinstance(row, dict)
+    ]
+    if not risk_signal_rows:
+        risk_signal_rows = [
+            _object_detail_row(
+                "No published risk signal yet",
+                "PropertyQuarry is still below the anonymization threshold for this property, so market-risk candidates stay suppressed.",
+                "Suppressed",
+            )
+        ]
+    next_best_question = str(household_review.get("next_best_question") or "").strip()
     timeline_rows = [
         _object_detail_row(
             str(row.get("event_type") or "packet_update").replace("_", " ").title(),
@@ -2306,6 +2543,13 @@ def property_research_packet(
             _object_detail_row("Tour state", tour_url or _property_tour_source_gap_detail(candidate), "360"),
             _object_detail_row("Feedback state", "No packet timeline events are recorded yet. The first saved decision will start the visible timeline.", "Waiting"),
         ]
+    changed_rows = timeline_rows[:3] or [
+        _object_detail_row(
+            "No new deltas yet",
+            "The first saved decision, packet event, or follow-up update will appear here.",
+            "Waiting",
+        )
+    ]
     agent_question_rows = [
         _object_detail_row(
             f"Question {index + 1}",
@@ -2322,6 +2566,25 @@ def property_research_packet(
                 "Save a decision or add missing-fact blockers to generate the next agent brief automatically.",
                 "Waiting",
             )
+        ]
+    followup_rows = [
+        {
+            "feedback_id": str(row.get("feedback_id") or "").strip(),
+            "title": str(row.get("text") or row.get("category") or "Follow-up").strip(),
+            "detail": str(row.get("followup_note") or row.get("stakeholder_label") or row.get("stakeholder_id") or "").strip(),
+            "tag": str(row.get("followup_status") or "suggested").replace("_", " ").title(),
+        }
+        for row in structured_feedback_rows
+        if isinstance(row, dict) and str(row.get("category") or "").strip() == "question"
+    ]
+    if not followup_rows:
+        followup_rows = [
+            {
+                "feedback_id": "",
+                "title": "No tracked question yet",
+                "detail": "Use Clippy or Ask agent next to start a tracked follow-up.",
+                "tag": "Waiting",
+            }
         ]
     return _render_console_object_detail(
         request=request,
@@ -2431,10 +2694,28 @@ def property_research_packet(
                 "items": _property_fact_rows(facts) or [_object_detail_row("No structured facts yet", "Run deeper enrichment or inspect the raw listing.", "Pending")],
             },
             {
+                "eyebrow": "Alltagsfit",
+                "title": "The strongest everyday convenience and family-life signals",
+                "items": everyday_fit_rows
+                or [_object_detail_row("No Alltagssignale yet", "The packet does not yet have enough structured neighborhood convenience data.", "Pending")],
+            },
+            {
+                "eyebrow": "Risikofit",
+                "title": "The strongest location and operations risks that still need proof",
+                "items": risk_fit_rows
+                or [_object_detail_row("No explicit risk-fit row yet", "No explicit location-risk burden is currently flagged beyond the normal packet questions.", "Clear")],
+            },
+            {
                 "eyebrow": "Evidence and provenance",
                 "title": "Which facts came from the listing and which were researched",
                 "items": provenance_rows
                 or [_object_detail_row("No provenance rows yet", "Deeper enrichment will surface which facts were researched versus copied from the listing.", "Pending")],
+            },
+            {
+                "eyebrow": "Official risk evidence",
+                "title": "Primary-source datasets used for the risk read",
+                "items": official_evidence_rows
+                or [_object_detail_row("No official dataset linked yet", "This packet has not yet attached an official-source risk dataset for the active market.", "Pending")],
             },
             {
                 "eyebrow": "Future-change research",
@@ -2473,7 +2754,22 @@ def property_research_packet(
             {
                 "eyebrow": "Ask agent next",
                 "title": "The next concrete questions PropertyQuarry would send now",
-                "items": agent_question_rows,
+                "items": agent_question_rows
+                + (
+                    [_object_detail_row("Household follow-up", next_best_question, "Next")]
+                    if next_best_question
+                    else []
+                ),
+            },
+            {
+                "eyebrow": "Household review",
+                "title": f"Alignment score {int(feedback_summary.get('household_alignment_score') or 0)}/100 · {str(feedback_summary.get('family_alignment') or 'waiting').replace('_', ' ').title()}",
+                "items": household_rows,
+            },
+            {
+                "eyebrow": "What changed",
+                "title": "The fastest read on what is different since the last look",
+                "items": changed_rows,
             },
             {
                 "eyebrow": "Decision timeline",
@@ -2484,6 +2780,11 @@ def property_research_packet(
                 "eyebrow": "Top objections",
                 "title": "The strongest blockers or disagreements visible so far",
                 "items": objection_clusters,
+            },
+            {
+                "eyebrow": "Risk signals",
+                "title": "Anonymized market-risk candidates stay suppressed until privacy thresholds are met",
+                "items": risk_signal_rows,
             },
             {
                 "eyebrow": "Compare next",
@@ -2499,11 +2800,17 @@ def property_research_packet(
             "profile_href": f"/app/profile" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else ""),
             "suggestions": feedback_suggestions,
             "property_url": property_url,
+            "packet_href": f"/app/research/{urllib.parse.quote(candidate_ref, safe='')}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else ""),
             "property_title": title,
             "property_facts": facts,
             "assessment": assessment or candidate,
+            "investment_context": investment_rows + investment_risk_rows,
+            "followup_rows": followup_rows,
             "property_slug": str(candidate_ref or "").strip(),
             "save_endpoint": f"/app/api/people/{urllib.parse.quote(preference_person_id, safe='')}/preference-profile/property-feedback",
+            "clippy_endpoint": "/app/api/property/decision-copilot",
+            "structured_feedback_endpoint": "/app/api/property-feedback",
+            "followup_status_endpoint_template": "/app/api/property-feedback/__FEEDBACK_ID__/followup-status",
         },
     )
 
@@ -2521,6 +2828,10 @@ def property_notification_preview_page(
         "property_match",
         "tour_ready",
         "investment_research_ready",
+        "workspace_invitation",
+        "workspace_access",
+        "google_connect",
+        "market_ready",
     )
     selected = str(template or "search_results_ready").strip().lower() or "search_results_ready"
     if selected not in templates_available:
@@ -2593,6 +2904,7 @@ def app_shell(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
     run_id: str = Query(default=""),
+    candidate: str = Query(default=""),
 ) -> HTMLResponse:
     brand = request_brand(request)
     property_brand = brand["key"] == "propertyquarry"
@@ -2750,6 +3062,8 @@ def app_shell(
                 actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
             )
         if property_brand and resolved_section in property_sections:
+            if property_context is not None and resolved_section == "properties":
+                property_context["selected_candidate_ref"] = str(candidate or "").strip()
             payload = _property_workspace_payload(
                 resolved_section,
                 status=status,

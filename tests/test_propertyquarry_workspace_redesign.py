@@ -109,6 +109,27 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
             "listing_research_meta": {
                 "strategy": "provider_html_plus_geo",
             },
+            "official_risk_evidence": {
+                "country_code": "AT",
+                "sources": [
+                    {
+                        "label": "Air quality",
+                        "provider": "data.gv.at / Stadt Wien",
+                        "source_label": "Luftmessnetz: aktuelle Messdaten Wien",
+                        "source_url": "https://www.data.gv.at/datasets/d9ae1245-158e-4d79-86a4-2d9b3defbedc?locale=de",
+                        "availability": "official_dataset",
+                        "summary": "Official city air-quality measurements should anchor the pollution read for this micro-location.",
+                    },
+                    {
+                        "label": "Flood exposure",
+                        "provider": "data.gv.at / Hochwasserrichtlinie",
+                        "source_label": "Überflutungsflächen HQ30, HWRL",
+                        "source_url": "https://www.data.gv.at/datasets/84372374-996a-4d7c-a7ee-9b063d9a7282?locale=de",
+                        "availability": "official_dataset",
+                        "summary": "Official HQ30 and flood-zone evidence should anchor the flood-risk read.",
+                    },
+                ],
+            },
             "future_change_research": {
                 "school_atlas_quality_summary": "Nearby SchoolAtlas schools: Volksschule Beispiel (VS, 280 m, 240 students)",
                 "school_atlas_progression_summary": "Nearest transition-capable school Volksschule Beispiel shows 64 disclosed outgoing transitions; about 62.5% lead to Gymnasium/AHS.",
@@ -278,6 +299,25 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Select all" in setup.text
     assert "Notverkauf und Justiz" in setup.text
     assert "Justiz Edikte" in setup.text
+    assert 'data-property-advanced-panel="children"' in setup.text
+    assert 'data-property-advanced-panel="location_research"' in setup.text
+    assert "Erweiterte Kinder- und Familienfilter" in setup.text
+    assert "Erweiterte Lage- und Researchfilter" in setup.text
+    assert 'name="max_distance_to_library_m"' in setup.text
+    assert 'name="max_distance_to_market_m"' in setup.text
+    assert 'name="max_distance_to_hardware_store_m"' in setup.text
+    assert 'name="max_distance_to_shopping_center_m"' in setup.text
+    assert 'name="max_distance_to_shopping_street_m"' in setup.text
+    assert 'name="max_distance_to_theatre_m"' in setup.text
+    assert 'name="max_distance_to_public_pool_m"' in setup.text
+    assert 'name="max_distance_to_medical_care_m"' in setup.text
+    assert 'name="prefer_good_air_quality"' in setup.text
+    assert 'name="prefer_low_crime_area"' in setup.text
+    assert 'name="require_drinking_water_quality_research"' in setup.text
+    assert 'name="require_parking_pressure_check"' in setup.text
+    assert 'name="avoid_cesspit_or_septic_risk"' in setup.text
+    assert 'name="require_winter_access_research"' in setup.text
+    assert 'name="avoid_flood_risk_area"' in setup.text
     assert 'name="school_stage_preferences"' in setup.text
     assert 'value="volksschule"' in setup.text
     assert 'value="ganztags_volksschule"' in setup.text
@@ -324,10 +364,21 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Gymnasium path" in search.text
     assert "Decision reasons" in search.text
     assert "Risk and investment" in search.text
+    assert "Decision pipeline" in search.text
     assert "Decision feedback" in search.text
     assert "Would you pursue this property?" in search.text
+    assert "Viewing requested" in search.text
+    assert "Documents requested" in search.text
+    assert "Offer candidate" in search.text
     assert "Save decision" in search.text
+    assert "Open Clippy" in search.text
+    assert "Household review" in search.text
+    assert "Agent follow-up" in search.text
+    assert "Contradicted" in search.text
+    assert "Resolved" in search.text
+    assert "What changed" in search.text
     assert "Top objections" in search.text
+    assert "Risk signals" in search.text
     assert "Stakeholder timeline" in search.text
     assert "Missing facts" in search.text
     assert "Facts still being completed from floorplans" in search.text
@@ -342,6 +393,22 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Launch search" not in search.text
     assert "Morning Memo" not in search.text
     assert "Office signals ingested" not in search.text
+    family_candidate_ref = landing_routes._property_candidate_ref(
+        {
+            "title": str(second_candidate.get("title") or "").strip(),
+            "property_url": str(second_candidate.get("property_url") or "").strip(),
+            "review_url": str(second_candidate.get("review_url") or "").strip(),
+            "tour_url": str(second_candidate.get("tour_url") or "").strip(),
+            "source_label": "ImmoScout24 Germany",
+        }
+    )
+    selected_candidate = client.get(
+        "/app/properties",
+        params={"run_id": "run-42", "candidate": family_candidate_ref},
+        headers=headers,
+    )
+    assert selected_candidate.status_code == 200
+    assert re.search(r'data-pw-title>\s*Family flat near Tiergarten\s*<', selected_candidate.text) is not None
 
     shortlist = client.get("/app/shortlist", params={"run_id": "run-42"}, headers=headers)
     assert shortlist.status_code == 200
@@ -379,6 +446,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Missing-data severity" in packet.text
     assert "Decision scorecard" in packet.text
     assert "Evidence and provenance" in packet.text
+    assert "Official risk evidence" in packet.text
+    assert "Luftmessnetz: aktuelle Messdaten Wien" in packet.text
+    assert "Alltagsfit" in packet.text
+    assert "Risikofit" in packet.text
     assert "Future-change research" in packet.text
     assert "SchoolAtlas quality" in packet.text
     assert "Gymnasium progression" in packet.text
@@ -394,10 +465,21 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Hosted review" in packet.text
     assert "Original listing" in packet.text
     assert "Decision feedback" in packet.text
+    assert "Decision pipeline" in packet.text
     assert "Would you pursue this property?" in packet.text
+    assert "Viewing requested" in packet.text
+    assert "Documents requested" in packet.text
+    assert "Offer candidate" in packet.text
+    assert "Open Clippy" in packet.text
     assert "Ask agent next" in packet.text
+    assert "Tracked follow-up" in packet.text
     assert "Decision timeline" in packet.text
     assert "Top objections" in packet.text
+    assert "Household review" in packet.text
+    assert "Risk signals" in packet.text
+    assert "What changed" in packet.text
+    assert "Contradicted" in packet.text
+    assert "Resolved" in packet.text
     assert 'data-object-feedback-reaction="like"' in packet.text
     assert 'data-object-feedback-save' in packet.text
     assert "Save decision" in packet.text
@@ -618,6 +700,8 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     assert "The search did not finish cleanly." in page.text
     assert "Provider coverage report" in page.text
     assert "Provider returned 403 while fetching Willhaben." in page.text
+    assert "What would unlock more matches?" in page.text
+    assert ("Lower the match threshold" in page.text) or ("Reopen the brief with broader constraints" in page.text)
     assert "Run activity" in page.text
     assert 'data-workbench-brief-drawer' not in page.text
     assert "Build the brief. Then let the agents work." not in page.text

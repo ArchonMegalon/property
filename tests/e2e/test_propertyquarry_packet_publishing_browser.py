@@ -34,6 +34,36 @@ def test_packet_dashboard_republishes_variant_in_real_browser(
     client = propertyquarry_browser_server["client"]
     assert isinstance(client, TestClient)
     publication_id = seed_packet(client, property_ref="listing-phase4-browser")
+    first_feedback = client.post(
+        "/app/api/property-feedback",
+        json={
+            "stakeholder_id": "family-mara",
+            "stakeholder_label": "Mara",
+            "property_ref": "listing-phase4-browser",
+            "publication_id": publication_id,
+            "category": "question",
+            "sentiment": "neutral",
+            "importance": 4,
+            "text": "Can the agent confirm the operating costs?",
+            "followup_status": "asked",
+        },
+    )
+    assert first_feedback.status_code == 200, first_feedback.text
+    second_feedback = client.post(
+        "/app/api/property-feedback",
+        json={
+            "stakeholder_id": "family-jonas",
+            "stakeholder_label": "Jonas",
+            "property_ref": "listing-phase4-browser",
+            "publication_id": publication_id,
+            "category": "dealbreaker",
+            "sentiment": "negative",
+            "importance": 5,
+            "text": "Street noise is a blocker.",
+            "decision_state": "rejected",
+        },
+    )
+    assert second_feedback.status_code == 200, second_feedback.text
     variant = client.post(
         f"/app/api/properties/packets/{publication_id}/variants",
         json={"audience_type": "family", "base_variant_key": "family-v2", "title_override": "Family Review Packet"},
@@ -52,6 +82,9 @@ def test_packet_dashboard_republishes_variant_in_real_browser(
         assert page.locator("[data-property-packets-dashboard]").is_visible()
         assert page.locator("body", has_text="Family Review Packet").is_visible()
         assert page.locator("body", has_text="Republish revised packet").is_visible()
+        assert page.locator("body", has_text="Household review").is_visible()
+        assert page.locator("body", has_text="Risk signals").is_visible()
+        assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
         with page.expect_response("**/app/api/properties/packets/*/republish") as republish_response_info:
             page.locator(f'[data-republish-publication][data-publication-id="{publication_id}"]').click()
         republish_response = republish_response_info.value
@@ -59,5 +92,6 @@ def test_packet_dashboard_republishes_variant_in_real_browser(
         page.reload(wait_until="networkidle")
         assert page.locator("body", has_text="Share journey:").is_visible()
         assert page.locator("body", has_text="Family Review Packet").is_visible()
+        assert page.locator("body", has_text="What changed").is_visible()
     finally:
         context.close()

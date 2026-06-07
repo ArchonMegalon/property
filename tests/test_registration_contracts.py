@@ -848,6 +848,8 @@ def test_google_connect_email_uses_workspace_delivery_sender(monkeypatch: pytest
     assert payload["subject"] == "Connect Google to PropertyQuarry Workspace"
     assert "No Google inbox is connected in this workspace yet" in payload["text"]
     assert "https://propertyquarry.com/workspace-access/token?return_to=%2Fapp%2Factions%2Fgoogle%2Fconnect" in payload["text"]
+    assert "Google connection" in str(payload["html"])
+    assert "Connect Google" in str(payload["html"])
     assert receipt.message_id == "emailit-google-connect-1"
 
 

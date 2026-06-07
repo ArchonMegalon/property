@@ -855,6 +855,18 @@ _PROPERTY_PREFERENCE_VALUE_SPECS = {
     ("soft_preference", "prefer_supermarket_nearby"): "bool",
     ("soft_preference", "prefer_pharmacy_nearby"): "bool",
     ("soft_preference", "prefer_playgrounds_nearby"): "bool",
+    ("soft_preference", "prefer_libraries_nearby"): "bool",
+    ("soft_preference", "prefer_markets_nearby"): "bool",
+    ("soft_preference", "prefer_hardware_store_nearby"): "bool",
+    ("soft_preference", "prefer_shopping_street_nearby"): "bool",
+    ("soft_preference", "prefer_shopping_center_nearby"): "bool",
+    ("soft_preference", "prefer_public_pool_nearby"): "bool",
+    ("soft_preference", "prefer_theatre_nearby"): "bool",
+    ("soft_preference", "prefer_medical_care_nearby"): "bool",
+    ("soft_preference", "prefer_low_crime_area"): "bool",
+    ("soft_preference", "prefer_good_air_quality"): "bool",
+    ("soft_preference", "prefer_low_parking_pressure"): "bool",
+    ("soft_preference", "prefer_high_quality_drinking_water"): "bool",
     ("soft_preference", "prefer_quiet_micro_location"): "bool",
     ("soft_preference", "prefer_bike_infrastructure"): "bool",
     ("soft_preference", "prefer_running_green_space"): "bool",
@@ -1273,6 +1285,41 @@ class PropertyFeedbackSuggestionSetOut(BaseModel):
     positive: list[PropertyFeedbackSuggestionOut] = Field(default_factory=list)
     agent_questions: list[PropertyFeedbackAgentQuestionOut] = Field(default_factory=list)
     decision_consequences: list[str] = Field(default_factory=list)
+
+
+class PropertyDecisionCopilotIn(BaseModel):
+    property_ref: str = Field(min_length=1, max_length=500)
+    property_title: str = Field(default="", max_length=240)
+    property_url: str = Field(default="", max_length=2000)
+    question: str = Field(min_length=1, max_length=500)
+    property_facts: dict[str, object] = Field(default_factory=dict)
+    assessment: dict[str, object] = Field(default_factory=dict)
+    investment_context: list[dict[str, object]] = Field(default_factory=list)
+
+
+class PropertyDecisionCopilotEvidenceOut(BaseModel):
+    title: str
+    detail: str
+    confidence: str = ""
+    source: str = ""
+
+
+class PropertyDecisionCopilotActionOut(BaseModel):
+    label: str
+    action: str
+    detail: str = ""
+    reaction: str = ""
+    reason_key: str = ""
+    question: str = ""
+    href: str = ""
+
+
+class PropertyDecisionCopilotOut(BaseModel):
+    name: str = "Clippy"
+    mode: str = "property_decision_copilot"
+    answer: str
+    evidence: list[PropertyDecisionCopilotEvidenceOut] = Field(default_factory=list)
+    actions: list[PropertyDecisionCopilotActionOut] = Field(default_factory=list)
 
 
 class PreferenceLearningFeedbackEventOut(BaseModel):

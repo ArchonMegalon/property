@@ -119,6 +119,33 @@
     .pq-pack-card h3 { margin: 0; font-size: 18px; line-height: 1.25; }
     .pq-pack-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
     .pq-pack-muted { color: var(--pq-muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+    .pq-pack-decision-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .pq-pack-decision-card {
+      border: 1px solid var(--pq-border);
+      border-radius: 8px;
+      background: #fff;
+      padding: 12px;
+      display: grid;
+      gap: 7px;
+      min-width: 0;
+    }
+    .pq-pack-decision-card ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--pq-muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .pq-pack-decision-value {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--pq-ink);
+    }
     .pq-pack-toolbox { display: grid; gap: 10px; align-content: start; }
     .pq-pack-form { display: grid; gap: 8px; }
     .pq-pack-input {
@@ -202,6 +229,7 @@
       .pq-pack-actions, .pq-pack-button { width: 100%; }
       .pq-pack-inline .pq-pack-button { width: auto; flex: 1 1 142px; }
       .pq-pack-stat-grid, .pq-pack-summary-grid { grid-template-columns: minmax(0, 1fr); }
+      .pq-pack-decision-grid { grid-template-columns: minmax(0, 1fr); }
       h1 { font-size: 34px; }
     }
   </style>
@@ -299,6 +327,52 @@
               {% if row.fliplink_url %}shared link attached{% else %}waiting for shared link{% endif %} ·
               {% if row.structured_feedback %}feedback present{% else %}no structured feedback yet{% endif %} ·
               {% if row.optimization %}optimization lane active{% else %}no optimization recommendation yet{% endif %}
+            </div>
+            <div class="pq-pack-decision-grid">
+              <section class="pq-pack-decision-card">
+                <div class="pq-pack-kicker">Household review</div>
+                <div class="pq-pack-decision-value">
+                  {{ row.feedback_summary.household_alignment_score or 0 }}% · {{ (row.feedback_summary.household_review.alignment_label or 'waiting')|replace("_", " ") }}
+                </div>
+                <ul>
+                  {% for item in row.feedback_summary.household_review.stakeholders[:3] %}
+                  <li>{{ item.stakeholder_label }} · {{ item.decision }} · {{ item.reason }}</li>
+                  {% else %}
+                  <li>No household stance recorded yet. Shared reactions will resolve here once the first packet is reviewed.</li>
+                  {% endfor %}
+                </ul>
+              </section>
+              <section class="pq-pack-decision-card">
+                <div class="pq-pack-kicker">Next best question</div>
+                <div class="pq-pack-decision-value">{{ row.feedback_summary.next_best_question or 'Share the packet or ask for the first concrete blocker.' }}</div>
+                <ul>
+                  {% for item in row.feedback_summary.top_blockers[:2] %}
+                  <li>{{ item.theme|replace("_", " ") }} · {{ item.summary }}</li>
+                  {% else %}
+                  <li>No blocker cluster yet. The first concerns and dealbreakers will be grouped here.</li>
+                  {% endfor %}
+                </ul>
+              </section>
+              <section class="pq-pack-decision-card">
+                <div class="pq-pack-kicker">Risk signals</div>
+                <ul>
+                  {% for item in row.feedback_summary.risk_signals_visible[:3] %}
+                  <li>{{ item.theme|replace("_", " ") }} · {{ item.confidence }} confidence · {{ item.summary }}</li>
+                  {% else %}
+                  <li>No visible risk signal yet. Signals stay suppressed until the feedback pattern is strong enough.</li>
+                  {% endfor %}
+                </ul>
+              </section>
+              <section class="pq-pack-decision-card">
+                <div class="pq-pack-kicker">What changed</div>
+                <ul>
+                  {% for item in row.change_log[:3] %}
+                  <li>{{ item.summary or item.change_type }}{% if item.detail %} · {{ item.detail }}{% endif %}</li>
+                  {% else %}
+                  <li>No material packet change recorded yet. Publishing, feedback, and follow-up updates will appear here.</li>
+                  {% endfor %}
+                </ul>
+              </section>
             </div>
             {% if row.fliplink_url %}
             <div class="pq-pack-muted"><a href="{{ row.fliplink_url }}" target="_blank" rel="noreferrer">{{ row.recommended_title or 'Open shared packet' }}</a></div>

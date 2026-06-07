@@ -175,6 +175,29 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
   }
+  .console-form[data-console-form-variant="property_search"] .console-advanced-panel {
+    grid-column: 1 / -1;
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+    background: rgba(255, 253, 248, 0.84);
+    padding: 10px 12px 12px;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-advanced-panel summary {
+    cursor: pointer;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 700;
+    list-style: none;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-advanced-panel summary::-webkit-details-marker {
+    display: none;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-advanced-panel-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 12px;
+  }
   .console-form[data-console-form-variant="property_search"] .console-field:has([name="location_query"]),
   .console-form[data-console-form-variant="property_search"] .console-field:has([name="keywords"]),
   .console-form[data-console-form-variant="property_search"] .console-field:has(.console-choice-grid) {
@@ -1035,7 +1058,28 @@
         </noscript>
         {% endif %}
         <div class="console-field-grid">
+          {% set panel = namespace(open=false, current='') %}
           {% for field in console_form.get('fields') or [] %}
+          {% set advanced_panel = field.get('advanced_panel') or '' %}
+          {% if panel.open and (not advanced_panel or advanced_panel != panel.current) %}
+          </div>
+          </details>
+          {% set panel.open = false %}
+          {% set panel.current = '' %}
+          {% endif %}
+          {% if advanced_panel and not panel.open %}
+          {% set panel.open = true %}
+          {% set panel.current = advanced_panel %}
+          <details class="console-advanced-panel" data-property-advanced-panel="{{ advanced_panel }}">
+            <summary>
+              {% if advanced_panel == 'children' %}
+              Erweiterte Kinder- und Familienfilter
+              {% else %}
+              Erweiterte Lage- und Researchfilter
+              {% endif %}
+            </summary>
+            <div class="console-advanced-panel-grid">
+          {% endif %}
           <label class="console-field" {% if field.get('step') %}data-property-field-step="{{ field.get('step') }}"{% endif %}>
             <span>{{ field.label }}</span>
             {% if field.type == 'number' %}
@@ -1123,6 +1167,10 @@
             {% endif %}
           </label>
           {% endfor %}
+          {% if panel.open %}
+          </div>
+          </details>
+          {% endif %}
         </div>
         {% if console_form.get('variant') == 'property_search' %}
         {% set commercial = property_meta.get('commercial') or {} %}
@@ -1498,6 +1546,31 @@
         location_query: selectedLocations.join(', '),
         keywords: selectedKeywords.join(', '),
         preference_person_id: fieldValue(form, 'preference_person_id') || 'self',
+        enable_family_mode: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked),
+        school_stage_preferences: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? selectedValuesForForm(form, 'school_stage_preferences') : [],
+        school_quality_priority: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) && selectedValuesForForm(form, 'school_stage_preferences').length > 0 ? (fieldValue(form, 'school_quality_priority') || 'any') : 'any',
+        enable_commute_research: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked),
+        enable_location_risk_research: Boolean(form.querySelector('input[name="enable_location_risk_research"]')?.checked),
+        enable_lifestyle_research: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked),
+        enable_building_risk_research: Boolean(form.querySelector('input[name="enable_building_risk_research"]')?.checked),
+        enable_market_supply_research: Boolean(form.querySelector('input[name="enable_market_supply_research"]')?.checked),
+        enable_trust_risk_scoring: Boolean(form.querySelector('input[name="enable_trust_risk_scoring"]')?.checked),
+        max_distance_to_playground_m: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? integerValue(form, 'max_distance_to_playground_m') : null,
+        max_distance_to_library_m: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? integerValue(form, 'max_distance_to_library_m') : null,
+        max_distance_to_market_m: integerValue(form, 'max_distance_to_market_m'),
+        max_distance_to_hardware_store_m: integerValue(form, 'max_distance_to_hardware_store_m'),
+        max_distance_to_shopping_center_m: integerValue(form, 'max_distance_to_shopping_center_m'),
+        max_distance_to_shopping_street_m: integerValue(form, 'max_distance_to_shopping_street_m'),
+        max_distance_to_theatre_m: integerValue(form, 'max_distance_to_theatre_m'),
+        max_distance_to_public_pool_m: integerValue(form, 'max_distance_to_public_pool_m'),
+        max_distance_to_medical_care_m: integerValue(form, 'max_distance_to_medical_care_m'),
+        prefer_good_air_quality: Boolean(form.querySelector('input[name="prefer_good_air_quality"]')?.checked),
+        prefer_low_crime_area: Boolean(form.querySelector('input[name="prefer_low_crime_area"]')?.checked),
+        require_drinking_water_quality_research: Boolean(form.querySelector('input[name="require_drinking_water_quality_research"]')?.checked),
+        require_parking_pressure_check: Boolean(form.querySelector('input[name="require_parking_pressure_check"]')?.checked),
+        avoid_cesspit_or_septic_risk: Boolean(form.querySelector('input[name="avoid_cesspit_or_septic_risk"]')?.checked),
+        require_winter_access_research: Boolean(form.querySelector('input[name="require_winter_access_research"]')?.checked),
+        avoid_flood_risk_area: Boolean(form.querySelector('input[name="avoid_flood_risk_area"]')?.checked),
         max_price_eur: integerValue(form, 'max_price_eur'),
         min_rooms: integerValue(form, 'min_rooms'),
         min_area_m2: integerValue(form, 'min_area_m2'),

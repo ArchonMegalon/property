@@ -443,7 +443,22 @@ def test_fliplink_packet_dashboard_and_property_actions_render(monkeypatch, tmp_
     monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))
     client = build_property_client(principal_id="fliplink-dashboard-owner")
     start_workspace(client, mode="personal", workspace_name="FlipLink Dashboard")
-    _seed_packet(client)
+    publication_id = _seed_packet(client)
+    feedback = client.post(
+        "/app/api/property-feedback",
+        json={
+            "stakeholder_id": "family-anna",
+            "stakeholder_label": "Anna",
+            "property_ref": "listing-123",
+            "publication_id": publication_id,
+            "category": "dealbreaker",
+            "sentiment": "negative",
+            "importance": 5,
+            "text": "Street noise feels like a blocker.",
+            "decision_state": "rejected",
+        },
+    )
+    assert feedback.status_code == 200, feedback.text
 
     dashboard = client.get("/app/properties/packets", headers={"host": "propertyquarry.com"})
     assert dashboard.status_code == 200, dashboard.text
@@ -460,6 +475,9 @@ def test_fliplink_packet_dashboard_and_property_actions_render(monkeypatch, tmp_
     assert "data-copy-lead-schema" in dashboard.text
     assert "data-browseract-publish" in dashboard.text
     assert "data-archive-publication" in dashboard.text
+    assert "Household review" in dashboard.text
+    assert "Risk signals" in dashboard.text
+    assert "What changed" in dashboard.text
     assert "data-feedback-action=\"accept_as_preference_signal\"" in dashboard.text or "No viewer responses" in dashboard.text
 
     properties = client.get("/app/properties", headers={"host": "propertyquarry.com"})

@@ -56,6 +56,141 @@ def _split_known_and_custom_values(
     return known, custom
 
 
+def _property_counterfactual_rows(
+    *,
+    preferences: dict[str, object],
+    run_summary: dict[str, object],
+    provider_options: list[dict[str, object]],
+    current_platform_cap: int,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+
+    def _positive_int(value: object, default: int = 0) -> int:
+        try:
+            return max(0, int(float(str(value or "").strip())))
+        except Exception:
+            return default
+
+    current_score = _positive_int(preferences.get("min_match_score"), 0)
+    if current_score > 35:
+        next_score = 35 if current_score <= 45 else max(35, current_score - 10)
+        rows.append(
+            {
+                "title": f"Lower the match threshold to {next_score}",
+                "detail": "Keep more watch-tier candidates in the next sweep instead of filtering them out at the current score gate.",
+                "tag": "Threshold",
+                "action_label": f"Apply {next_score}/80",
+                "adjustments": {"min_match_score": next_score},
+            }
+        )
+
+    filtered_floorplan_total = _positive_int(run_summary.get("filtered_floorplan_total"), 0)
+    if bool(preferences.get("require_floorplan")) and filtered_floorplan_total > 0:
+        rows.append(
+            {
+                "title": "Remove the floorplan hard gate",
+                "detail": f"{filtered_floorplan_total} listing(s) were rejected because no usable floorplan was attached yet.",
+                "tag": "Research",
+                "action_label": "Allow missing floorplans",
+                "adjustments": {"require_floorplan": False},
+            }
+        )
+
+    country_code = str(preferences.get("country_code") or "").strip().upper()
+    region_code = str(preferences.get("region_code") or "").strip().lower()
+    if country_code == "AT" and region_code == "vienna" and not bool(preferences.get("all_of_vienna")):
+        rows.append(
+            {
+                "title": "Expand from district picks to all Vienna",
+                "detail": "Keep Vienna selected but stop suppressing the rest of the city in the next pass.",
+                "tag": "Area",
+                "action_label": "Use all Vienna",
+                "adjustments": {"all_of_vienna": True, "location_query": "Vienna", "custom_location_query": ""},
+            }
+        )
+
+    selected_platforms = [
+        str(value).strip()
+        for value in list(preferences.get("selected_platforms") or [])
+        if str(value).strip()
+    ]
+    cap = max(1, int(current_platform_cap or 1))
+    available_platforms = [
+        str(option.get("value") or "").strip()
+        for option in provider_options
+        if str(option.get("value") or "").strip()
+    ]
+    widened_platforms = list(dict.fromkeys([*selected_platforms, *available_platforms]))[:cap]
+    if len(widened_platforms) > len(selected_platforms):
+        rows.append(
+            {
+                "title": f"Widen the provider batch to {len(widened_platforms)} sources",
+                "detail": "Use the full provider allowance on the current plan before changing the rest of the brief.",
+                "tag": "Providers",
+                "action_label": "Use full provider cap",
+                "adjustments": {"selected_platforms": widened_platforms},
+            }
+        )
+
+    current_budget = _positive_int(preferences.get("max_price_eur"), 0)
+    if current_budget > 0:
+        next_budget = current_budget + max(25000, int(round(current_budget * 0.1)))
+        rows.append(
+            {
+                "title": "Test a wider budget ceiling",
+                "detail": "Run one broader sweep before discarding the market entirely if price pressure may be the real bottleneck.",
+                "tag": "Budget",
+                "action_label": f"Raise to EUR {next_budget:,}".replace(",", ","),
+                "adjustments": {"max_price_eur": next_budget},
+            }
+        )
+
+    strict_distance_keys = [
+        "max_distance_to_market_m",
+        "max_distance_to_hardware_store_m",
+        "max_distance_to_medical_care_m",
+        "max_distance_to_library_m",
+        "max_distance_to_public_pool_m",
+        "max_distance_to_theatre_m",
+    ]
+    strict_distance_count = sum(1 for key in strict_distance_keys if _positive_int(preferences.get(key), 0) > 0)
+    if strict_distance_count >= 2:
+        relaxed_adjustments: dict[str, object] = {}
+        for key in strict_distance_keys:
+            current_value = _positive_int(preferences.get(key), 0)
+            if current_value > 0:
+                relaxed_adjustments[key] = int(round(current_value * 1.35))
+        rows.append(
+            {
+                "title": "Relax the stricter everyday-distance caps",
+                "detail": "Keep the same lifestyle intent but widen the walk radius enough to recover borderline candidates.",
+                "tag": "Alltag",
+                "action_label": "Relax distance caps",
+                "adjustments": relaxed_adjustments,
+            }
+        )
+
+    deduped: list[dict[str, object]] = []
+    seen_titles: set[str] = set()
+    for row in rows:
+        title = str(row.get("title") or "").strip().lower()
+        if not title or title in seen_titles:
+            continue
+        seen_titles.add(title)
+        deduped.append(row)
+    if not deduped:
+        deduped.append(
+            {
+                "title": "Reopen the brief with broader constraints",
+                "detail": "Keep the same market, but reopen the brief so you can lower the score gate, widen providers, or relax one hard filter before the next sweep.",
+                "tag": "Reset",
+                "action_label": "Reopen brief",
+                "adjustments": {},
+            }
+        )
+    return deduped[:5]
+
+
 def _property_preference_schema() -> dict[str, object]:
     from app.api.routes.product_api_contracts import _PROPERTY_PREFERENCE_VALUE_SPECS
 
@@ -851,6 +986,12 @@ def app_section_payload(
                     "research_highlights": _candidate_research_highlights(candidate),
                     "property_facts": dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {},
                     "assessment": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
+                    "feedback_summary": dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {},
+                    "feedback_rows": [
+                        dict(row)
+                        for row in list(candidate.get("feedback_rows") or [])
+                        if isinstance(row, dict)
+                    ],
                 }
             )
     property_shortlist_rows.sort(
@@ -1242,6 +1383,23 @@ def app_section_payload(
                 "step": "children",
             },
             {
+                "type": "range",
+                "name": "max_distance_to_library_m",
+                "label": "Max distance to library",
+                "value": str(property_preferences.get("max_distance_to_library_m") or 0),
+                "min": "0",
+                "max": "5000",
+                "visual_max": "5000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any library distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "5 km",
+                "tooltip": "Optional family and study signal. Only keep listings within this distance of a public library or comparable Bücherei.",
+                "step": "children",
+                "advanced_panel": "children",
+            },
+            {
                 "type": "checkbox",
                 "name": "enable_commute_research",
                 "label": "Commute reality research",
@@ -1503,6 +1661,195 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest cafe-quality proxy.",
                 "step": "areas",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_market_m",
+                "label": "Max distance to market",
+                "value": str(property_preferences.get("max_distance_to_market_m") or 0),
+                "min": "0",
+                "max": "5000",
+                "visual_max": "5000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any market distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "5 km",
+                "tooltip": "Optional district-life filter. Covers produce markets and flanier markets like Naschmarkt.",
+                "step": "areas",
+                "advanced_panel": "location_research",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_hardware_store_m",
+                "label": "Max distance to Baumarkt",
+                "value": str(property_preferences.get("max_distance_to_hardware_store_m") or 0),
+                "min": "0",
+                "max": "7000",
+                "visual_max": "7000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any Baumarkt distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "7 km",
+                "tooltip": "Useful for renovation and everyday practical access. Tracks DIY and hardware-store distance.",
+                "step": "areas",
+                "advanced_panel": "location_research",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_shopping_center_m",
+                "label": "Max distance to shopping center",
+                "value": str(property_preferences.get("max_distance_to_shopping_center_m") or 0),
+                "min": "0",
+                "max": "7000",
+                "visual_max": "7000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any shopping-center distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "7 km",
+                "tooltip": "Tracks larger shopping centers for errands and bad-weather convenience.",
+                "step": "areas",
+                "advanced_panel": "location_research",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_shopping_street_m",
+                "label": "Max distance to flaniermeile",
+                "value": str(property_preferences.get("max_distance_to_shopping_street_m") or 0),
+                "min": "0",
+                "max": "7000",
+                "visual_max": "7000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any promenade distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "7 km",
+                "tooltip": "Tracks pedestrian-heavy shopping streets and promenade zones for strolling and city-life fit.",
+                "step": "areas",
+                "advanced_panel": "location_research",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_theatre_m",
+                "label": "Max distance to theatre",
+                "value": str(property_preferences.get("max_distance_to_theatre_m") or 0),
+                "min": "0",
+                "max": "7000",
+                "visual_max": "7000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any theatre distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "7 km",
+                "tooltip": "Optional culture filter. Only keep listings within this distance of a theatre.",
+                "step": "areas",
+                "advanced_panel": "location_research",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_public_pool_m",
+                "label": "Max distance to public pool",
+                "value": str(property_preferences.get("max_distance_to_public_pool_m") or 0),
+                "min": "0",
+                "max": "7000",
+                "visual_max": "7000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any pool distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "7 km",
+                "tooltip": "Useful for family leisure and everyday sport access. Tracks public swimming pools.",
+                "step": "areas",
+                "advanced_panel": "location_research",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_medical_care_m",
+                "label": "Max distance to doctors and hospitals",
+                "value": str(property_preferences.get("max_distance_to_medical_care_m") or 0),
+                "min": "0",
+                "max": "7000",
+                "visual_max": "7000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any medical-care distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "7 km",
+                "tooltip": "Tracks proximity to doctors, health centers, clinics, and hospitals. Stronger signal when children or elder-care logistics matter.",
+                "step": "areas",
+                "advanced_panel": "location_research",
+            },
+            {
+                "type": "checkbox",
+                "name": "prefer_good_air_quality",
+                "label": "Good air quality matters",
+                "value": "true",
+                "checked": bool(property_preferences.get("prefer_good_air_quality")),
+                "tooltip": "Treat poor air quality as a risk signal in deep research and ranking.",
+                "step": "areas",
+                "advanced_panel": "location_research",
+            },
+            {
+                "type": "checkbox",
+                "name": "prefer_low_crime_area",
+                "label": "Low crime area matters",
+                "value": "true",
+                "checked": bool(property_preferences.get("prefer_low_crime_area")),
+                "tooltip": "Treat crime burden and safety pattern as a genuine risk factor in deep research.",
+                "step": "areas",
+                "advanced_panel": "location_research",
+            },
+            {
+                "type": "checkbox",
+                "name": "require_drinking_water_quality_research",
+                "label": "Research water source and groundwater burden",
+                "value": "true",
+                "checked": bool(property_preferences.get("require_drinking_water_quality_research")),
+                "tooltip": "Ask deep research to investigate Hochquellwasser versus groundwater dependency and any public burden signals.",
+                "step": "areas",
+                "advanced_panel": "location_research",
+            },
+            {
+                "type": "checkbox",
+                "name": "require_parking_pressure_check",
+                "label": "Check parking situation if no garage",
+                "value": "true",
+                "checked": bool(property_preferences.get("require_parking_pressure_check")),
+                "tooltip": "If the listing has no garage, deep research should investigate general street-parking pressure and paid-parking burden.",
+                "step": "areas",
+                "advanced_panel": "location_research",
+            },
+            {
+                "type": "checkbox",
+                "name": "avoid_cesspit_or_septic_risk",
+                "label": "Avoid Senkgrube or septic risk",
+                "value": "true",
+                "checked": bool(property_preferences.get("avoid_cesspit_or_septic_risk")),
+                "tooltip": "Treat cesspit or septic dependence, costs, and smell burden as a risk that must be clarified.",
+                "step": "areas",
+                "advanced_panel": "location_research",
+            },
+            {
+                "type": "checkbox",
+                "name": "require_winter_access_research",
+                "label": "Check winter driving conditions",
+                "value": "true",
+                "checked": bool(property_preferences.get("require_winter_access_research")),
+                "tooltip": "For more remote properties, deep research should investigate winter snow access, slope, and seasonal driving constraints.",
+                "step": "areas",
+                "advanced_panel": "location_research",
+            },
+            {
+                "type": "checkbox",
+                "name": "avoid_flood_risk_area",
+                "label": "Avoid flood-risk area",
+                "value": "true",
+                "checked": bool(property_preferences.get("avoid_flood_risk_area")),
+                "tooltip": "Treat historic flooding, runoff, and river or drainage exposure as a serious location risk in deep research.",
+                "step": "areas",
+                "advanced_panel": "location_research",
             },
             {
                 "type": "checkbox",
@@ -2013,6 +2360,14 @@ def property_workspace_payload(
     }
     property_form = dict(base.get("console_form") or {})
     property_meta = dict(property_form.get("meta") or {})
+    provider_options = []
+    for field in list(property_form.get("schema") or []):
+        if not isinstance(field, dict):
+            continue
+        if str(field.get("name") or "").strip() != "selected_platforms":
+            continue
+        provider_options = [dict(option) for option in list(field.get("options") or []) if isinstance(option, dict)]
+        break
     commercial = dict(property_state.get("commercial") or {})
     property_preferences = dict(property_state.get("preferences") or {})
     preference_person_id = str(property_state.get("preference_person_id") or property_preferences.get("preference_person_id") or "self").strip() or "self"
@@ -2026,6 +2381,10 @@ def property_workspace_payload(
     channels = dict(status.get("channels") or {})
     google = dict(channels.get("google") or {})
     current_plan_label = str(commercial.get("current_plan_label") or "Free").strip() or "Free"
+    try:
+        current_platform_cap = max(1, int(commercial.get("max_platforms") or 3))
+    except Exception:
+        current_platform_cap = 3
     search_posture_card = cards_by_eyebrow.get("search posture", {})
     market_coverage_card = cards_by_eyebrow.get("market coverage", {})
     shortlist_card = cards_by_eyebrow.get("shortlist", {})
@@ -2040,6 +2399,7 @@ def property_workspace_payload(
     selected_locations = _csv_values(property_preferences.get("location_query"))
     selected_keywords = _csv_values(property_preferences.get("keywords"))
     selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
+    selected_candidate_ref = str(property_state.get("selected_candidate_ref") or "").strip()
     run_id = str(run_payload.get("run_id") or "").strip()
     run_suffix = f"?run_id={run_id}" if run_id else ""
     search_posture_items = list(search_posture_card.get("items") or [])
@@ -2239,8 +2599,12 @@ def property_workspace_payload(
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
         specs = (
             ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m")),
+            ("Library", facts.get("nearest_library_m")),
             ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m")),
+            ("Medical", facts.get("nearest_medical_care_m")),
             ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m")),
+            ("Market", facts.get("nearest_market_m")),
+            ("Baumarkt", facts.get("nearest_hardware_store_m")),
             ("Starbucks", facts.get("nearest_starbucks_m")),
             ("Fitness", facts.get("nearest_fitness_center_m")),
             ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m")),
@@ -2313,6 +2677,20 @@ def property_workspace_payload(
             missing.append("address")
         if not (facts.get("heating") or facts.get("heating_type")):
             missing.append("heating")
+        if bool(facts.get("air_quality_risk")):
+            missing.append("air quality")
+        if bool(facts.get("crime_risk")):
+            missing.append("crime risk")
+        if bool(facts.get("parking_pressure_risk")):
+            missing.append("parking pressure")
+        if bool(facts.get("drinking_water_risk")):
+            missing.append("water quality")
+        if bool(facts.get("cesspit_risk")):
+            missing.append("Senkgrube or septic burden")
+        if bool(facts.get("winter_access_risk")):
+            missing.append("winter access")
+        if bool(facts.get("flood_risk")):
+            missing.append("flood exposure")
         for item in _missing_fact_items(facts):
             if str(item.get("status") or "").strip().lower() != "filled":
                 missing.append(str(item.get("label") or item.get("field") or "research fact").strip())
@@ -2328,8 +2706,12 @@ def property_workspace_payload(
         rows: list[dict[str, str]] = []
         for label, raw_value in (
             ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m")),
+            ("Library", facts.get("nearest_library_m")),
             ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m")),
+            ("Medical care", facts.get("nearest_medical_care_m")),
             ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m")),
+            ("Market", facts.get("nearest_market_m")),
+            ("Baumarkt", facts.get("nearest_hardware_store_m")),
             ("Starbucks", facts.get("nearest_starbucks_m")),
             ("Fitness", facts.get("nearest_fitness_center_m")),
             ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m")),
@@ -2369,13 +2751,35 @@ def property_workspace_payload(
                     "detail": str(ooda.get("act") or item.get("evidence") or "Missing-fact OODA queued.").strip(),
                 }
             )
+        for risk_key, label, detail in (
+            ("air_quality_risk", "Risk", "Air quality needs explicit verification for this micro-location."),
+            ("crime_risk", "Risk", "Crime and safety burden need explicit verification for this quarter."),
+            ("parking_pressure_risk", "Risk", "Parking pressure still needs clarification if no garage is included."),
+            ("drinking_water_risk", "Risk", "Water source and groundwater burden still need verification."),
+            ("cesspit_risk", "Risk", "Senkgrube or septic burden still needs verification."),
+            ("winter_access_risk", "Risk", "Winter driving access still needs verification."),
+            ("flood_risk", "Risk", "Flood and runoff exposure still need verification."),
+        ):
+            if bool(facts.get(risk_key)):
+                rows.append({"label": label, "value": risk_key.replace("_", " ").title(), "detail": detail})
         return rows[:6]
 
     def _candidate_objection_rows(candidate: dict[str, object], facts: dict[str, object]) -> list[dict[str, str]]:
         mismatch_reasons = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
         rows: list[dict[str, str]] = []
+        feedback_summary = dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {}
         for reason in mismatch_reasons[:3]:
             rows.append({"title": "Mismatch", "detail": reason, "tag": "Risk"})
+        for cluster in list(feedback_summary.get("clusters") or [])[:2]:
+            if not isinstance(cluster, dict):
+                continue
+            rows.append(
+                {
+                    "title": str(cluster.get("theme") or "feedback").replace("_", " ").title(),
+                    "detail": str(cluster.get("summary") or "No detail yet.").strip(),
+                    "tag": str(cluster.get("severity") or "Risk").replace("_", " ").title(),
+                }
+            )
         if not str(candidate.get("tour_url") or "").strip():
             rows.append({"title": "360 gap", "detail": _tour_source_gap_detail(candidate), "tag": "Review"})
         for item in _missing_fact_items(facts)[:2]:
@@ -2388,6 +2792,17 @@ def property_workspace_payload(
                     "tag": "Research",
                 }
             )
+        for risk_key, title, detail in (
+            ("air_quality_risk", "Air quality", "Location-risk research should verify pollution burden and recurring exposure."),
+            ("crime_risk", "Crime burden", "Quarter-level safety pattern still needs verification."),
+            ("parking_pressure_risk", "Parking pressure", "Street-parking burden still needs verification where no garage is included."),
+            ("drinking_water_risk", "Water quality", "Drinking-water source and groundwater burden still need verification."),
+            ("cesspit_risk", "Senkgrube or septic", "Recurring cost, smell, or maintenance burden still need verification."),
+            ("winter_access_risk", "Winter access", "Snow, slope, and seasonal driveability still need verification."),
+            ("flood_risk", "Flood exposure", "Historic flooding and runoff exposure still need verification."),
+        ):
+            if bool(facts.get(risk_key)):
+                rows.append({"title": title, "detail": detail, "tag": "Risk"})
         if not rows:
             rows.append({"title": "No recorded objection yet", "detail": "This candidate has no explicit blocker captured yet.", "tag": "Clear"})
         return rows[:4]
@@ -2431,7 +2846,79 @@ def property_workspace_payload(
                     "tag": "Packet",
                 }
             )
+        feedback_summary = dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {}
+        household = dict(feedback_summary.get("household_review") or {}) if isinstance(feedback_summary.get("household_review"), dict) else {}
+        if int(feedback_summary.get("household_alignment_score") or 0) > 0:
+            rows.append(
+                {
+                    "title": "Household alignment",
+                    "detail": f"{int(feedback_summary.get('household_alignment_score') or 0)}/100 · {str(household.get('alignment_label') or feedback_summary.get('family_alignment') or 'waiting').replace('_', ' ')}",
+                    "tag": "Household",
+                }
+            )
         return rows[:5]
+
+    def _candidate_household_rows(candidate: dict[str, object]) -> list[dict[str, str]]:
+        feedback_summary = dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {}
+        household = dict(feedback_summary.get("household_review") or {}) if isinstance(feedback_summary.get("household_review"), dict) else {}
+        rows = [
+            {
+                "title": str(row.get("stakeholder_label") or "Stakeholder").strip(),
+                "detail": str(row.get("reason") or "No detail yet.").strip(),
+                "tag": str(row.get("decision") or "maybe").replace("_", " ").title(),
+            }
+            for row in list(household.get("stakeholders") or [])[:4]
+            if isinstance(row, dict)
+        ]
+        if not rows:
+            rows.append({"title": "No household votes yet", "detail": "Shared reactions will appear here after packet or workspace decisions are recorded.", "tag": "Waiting"})
+        return rows
+
+    def _candidate_risk_signal_rows(candidate: dict[str, object]) -> list[dict[str, str]]:
+        feedback_summary = dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {}
+        rows = [
+            {
+                "title": str(row.get("theme") or "risk").replace("_", " ").title(),
+                "detail": f"{str(row.get('summary') or 'No summary yet.').strip()} | privacy {str(row.get('privacy_state') or 'suppressed')} | confidence {str(row.get('confidence') or 'low')}",
+                "tag": str(row.get("reason_key") or "signal").replace("_", " ").title(),
+            }
+            for row in list(feedback_summary.get("risk_signal_candidates") or [])[:3]
+            if isinstance(row, dict)
+        ]
+        if not rows:
+            rows.append({"title": "No published risk signal yet", "detail": "Signals stay suppressed until the privacy threshold is met.", "tag": "Suppressed"})
+        return rows
+
+    def _candidate_followup_rows(candidate: dict[str, object]) -> list[dict[str, str]]:
+        feedback_rows = [dict(row) for row in list(candidate.get("feedback_rows") or []) if isinstance(row, dict)]
+        rows = [
+            {
+                "feedback_id": str(row.get("feedback_id") or "").strip(),
+                "title": str(row.get("text") or row.get("category") or "Follow-up").strip(),
+                "detail": str(row.get("followup_note") or row.get("stakeholder_label") or row.get("stakeholder_id") or "").strip(),
+                "tag": str(row.get("followup_status") or "suggested").replace("_", " ").title(),
+            }
+            for row in feedback_rows
+            if str(row.get("category") or "").strip() == "question"
+        ]
+        if not rows:
+            rows.append({"feedback_id": "", "title": "No tracked question yet", "detail": "Use Clippy or Ask agent next to start a tracked follow-up.", "tag": "Waiting"})
+        return rows[:4]
+
+    def _candidate_recent_change_rows(candidate: dict[str, object]) -> list[dict[str, str]]:
+        timeline_rows = [dict(row) for row in list(candidate.get("timeline_rows") or []) if isinstance(row, dict)]
+        rows = [
+            {
+                "title": str(row.get("title") or "Update").strip(),
+                "detail": str(row.get("detail") or "Property state updated.").strip(),
+                "tag": str(row.get("tag") or "Changed").strip(),
+            }
+            for row in timeline_rows[:3]
+            if str(row.get("detail") or row.get("title") or "").strip()
+        ]
+        if not rows:
+            rows.append({"title": "No new deltas yet", "detail": "The visible timeline will summarize what changed after the first decision, packet event, or follow-up update.", "tag": "Waiting"})
+        return rows
 
     def _tour_payload(candidate: dict[str, object]) -> dict[str, str]:
         tour_url = str(candidate.get("tour_url") or "").strip()
@@ -2505,6 +2992,12 @@ def property_workspace_payload(
                 "assessment": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
                 "objection_rows": _candidate_objection_rows(candidate, facts),
                 "timeline_rows": _candidate_timeline_rows(candidate, facts),
+                "household_rows": _candidate_household_rows(candidate),
+                "risk_signal_rows": _candidate_risk_signal_rows(candidate),
+                "followup_rows": _candidate_followup_rows(candidate),
+                "recent_change_rows": _candidate_recent_change_rows(candidate),
+                "household_alignment_score": int(dict(candidate.get("feedback_summary") or {}).get("household_alignment_score") or 0) if isinstance(candidate.get("feedback_summary"), dict) else 0,
+                "household_alignment_label": str(dict(candidate.get("feedback_summary") or {}).get("family_alignment") or "waiting") if isinstance(candidate.get("feedback_summary"), dict) else "waiting",
             }
         )
         results_table_rows.append(
@@ -3098,6 +3591,15 @@ def property_workspace_payload(
     payload["run_payload"] = run_payload
     payload["run_summary"] = run_summary
     payload["preference_manager"] = preference_manager
+    selected_result = workbench_results[0] if workbench_results else {}
+    if selected_candidate_ref:
+        for index, row in enumerate(workbench_results):
+            if str(row.get("candidate_ref") or "").strip() != selected_candidate_ref:
+                continue
+            selected_result = row
+            if index != 0:
+                workbench_results = [row, *workbench_results[:index], *workbench_results[index + 1 :]]
+            break
     payload["decision_workbench"] = {
         "run": {
             "run_id": run_id,
@@ -3123,11 +3625,18 @@ def property_workspace_payload(
             "plan": current_plan_label,
             "research_depth": str(commercial.get("research_depth") or "deep").strip(),
         },
+        "brief_preferences": dict(property_preferences),
         "endpoints": {
             "preferences": str(property_meta.get("preferences_endpoint") or "").strip(),
             "start": str(property_meta.get("start_endpoint") or "").strip(),
             "billing_order": str(property_meta.get("billing_order_endpoint") or "").strip(),
         },
+        "counterfactual_rows": _property_counterfactual_rows(
+            preferences=property_preferences,
+            run_summary=run_summary,
+            provider_options=provider_options,
+            current_platform_cap=current_platform_cap,
+        ),
         "recent_packets": [
             {
                 "title": str(item.get("title") or item.get("label") or "Review packet").strip(),
@@ -3146,7 +3655,8 @@ def property_workspace_payload(
             "filled": filled_research_task_total,
             "dismissed": dismissed_research_task_total,
         },
-        "selected_candidate_ref": workbench_results[0]["candidate_ref"] if workbench_results else "",
+        "selected_candidate_ref": str(selected_result.get("candidate_ref") or "").strip(),
+        "selected": selected_result,
         "show_brief_default": not (run_in_progress or (run_status_value in {"processed", "completed"} and bool(workbench_results))),
     }
     return payload

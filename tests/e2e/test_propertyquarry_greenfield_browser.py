@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 import threading
 import time
@@ -342,8 +343,10 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert "360 review first" not in packet_content
         _assert_research_packet_360_first(page, min_stage_height=420)
         assert page.locator("body", has_text="OODA summary").is_visible()
+        assert page.locator("body", has_text="Decision pipeline").is_visible()
         assert page.locator("body", has_text="Decision feedback").is_visible()
         assert page.get_by_role("button", name="Save decision").is_visible()
+        assert page.get_by_role("button", name="Open Clippy").is_visible()
     finally:
         context.close()
 
@@ -372,10 +375,179 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
         page.wait_for_url(lambda url: "/app/research/" in str(url) and "run_id=run-42" in str(url), wait_until="domcontentloaded", timeout=5000)
         assert page.locator("body", has_text="OODA summary").is_visible()
+        assert page.locator("body", has_text="Decision pipeline").is_visible()
         assert page.locator("body", has_text="Decision feedback").is_visible()
+        assert page.get_by_role("button", name="Open Clippy").is_visible()
         review_action = page.get_by_role("button", name="Save decision").bounding_box()
         assert review_action is not None and review_action["width"] <= 430
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
+    finally:
+        context.close()
+
+
+def test_propertyquarry_workbench_tracks_household_and_followup_state_in_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    property_ref = "https://www.immobilienscout24.de/expose/altbau-u6"
+    first = client.post(
+        "/app/api/property-feedback",
+        json={
+            "stakeholder_id": "family-mara",
+            "stakeholder_label": "Mara",
+            "property_ref": property_ref,
+            "category": "question",
+            "sentiment": "neutral",
+            "importance": 4,
+            "text": "Can the agent confirm the operating costs?",
+            "source": "clippy_agent_brief",
+            "followup_status": "asked",
+        },
+    )
+    assert first.status_code == 200, first.text
+    second = client.post(
+        "/app/api/property-feedback",
+        json={
+            "stakeholder_id": "family-jonas",
+            "stakeholder_label": "Jonas",
+            "property_ref": property_ref,
+            "category": "dealbreaker",
+            "sentiment": "negative",
+            "importance": 5,
+            "text": "Street noise still feels risky.",
+            "source": "packet",
+            "decision_state": "rejected",
+        },
+    )
+    assert second.status_code == 200, second.text
+
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
+        assert response is not None and response.ok
+        assert page.locator("body", has_text="Household review").is_visible()
+        assert page.locator("body", has_text="Agent follow-up").is_visible()
+        assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
+        candidate_ref = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-ref")
+        assert candidate_ref
+        response = page.goto(f"{base_url}/app/properties?run_id=run-42&candidate={candidate_ref}", wait_until="networkidle")
+        assert response is not None and response.ok
+        with page.expect_response("**/app/api/property-feedback/*/followup-status") as update_response_info:
+            page.get_by_role("button", name="Answered").first.click()
+        update_response = update_response_info.value
+        assert update_response.ok, update_response.text()
+        assert page.locator("[data-pw-followup-status]", has_text="Follow-up marked answered").is_visible()
+        page.reload(wait_until="networkidle")
+        assert page.locator("body", has_text="Answered").is_visible()
+        assert page.locator("body", has_text="Risk signals").is_visible()
+    finally:
+        context.close()
+
+
+def test_propertyquarry_packet_tracks_followup_state_in_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    property_ref = "https://www.immobilienscout24.de/expose/altbau-u6"
+    seeded = client.post(
+        "/app/api/property-feedback",
+        json={
+            "stakeholder_id": "family-mara",
+            "stakeholder_label": "Mara",
+            "property_ref": property_ref,
+            "category": "question",
+            "sentiment": "neutral",
+            "importance": 4,
+            "text": "Can the agent confirm the operating costs?",
+            "source": "clippy_agent_brief",
+            "followup_status": "asked",
+        },
+    )
+    assert seeded.status_code == 200, seeded.text
+
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
+        assert response is not None and response.ok
+        packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
+        assert packet_path
+        response = page.goto(f"{base_url}{packet_path}?run_id=run-42" if "?" not in packet_path else f"{base_url}{packet_path}", wait_until="networkidle")
+        assert response is not None and response.ok
+        assert page.locator("body", has_text="Tracked follow-up").is_visible()
+        assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
+        with page.expect_response("**/app/api/property-feedback/*/followup-status") as update_response_info:
+            page.get_by_role("button", name="Answered").first.click()
+        update_response = update_response_info.value
+        assert update_response.ok, update_response.text()
+        assert page.locator("body", has_text="Follow-up marked answered").is_visible()
+        page.reload(wait_until="networkidle")
+        assert page.locator("body", has_text="Answered").is_visible()
+    finally:
+        context.close()
+
+
+def test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
+        assert response is not None and response.ok
+        candidate_ref = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-ref")
+        packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
+        assert candidate_ref
+        assert packet_path
+
+        response = page.goto(f"{base_url}/app/properties?run_id=run-42&candidate={candidate_ref}", wait_until="networkidle")
+        assert response is not None and response.ok
+        with page.expect_response("**/app/api/people/*/preference-profile/property-feedback") as save_response_info:
+            page.get_by_role("button", name="No", exact=True).click()
+            page.get_by_role("button", name="Save decision").click()
+        save_response = save_response_info.value
+        assert save_response.ok, save_response.text()
+        assert page.locator("[data-pw-feedback-status]", has_text="Saved.").is_visible()
+
+        page.get_by_role("button", name="Open Clippy").click()
+        page.get_by_role("button", name="Ask agent next").click()
+        with page.expect_response("**/app/api/property/decision-copilot") as clippy_response_info:
+            page.get_by_role("button", name="Ask Clippy").click()
+        clippy_response = clippy_response_info.value
+        assert clippy_response.ok, clippy_response.text()
+        with page.expect_response("**/app/api/property-feedback") as ask_agent_response_info:
+            page.get_by_role("button", name=re.compile(r"Ask agent:")).first.click()
+        ask_agent_response = ask_agent_response_info.value
+        assert ask_agent_response.ok, ask_agent_response.text()
+        assert page.locator("[data-pw-clippy-status]", has_text="Agent follow-up recorded").is_visible()
+
+        page.reload(wait_until="networkidle")
+        assert page.locator("body", has_text="Can you").is_visible()
+        assert page.locator("body", has_text="Asked").is_visible()
+
+        response = page.goto(f"{base_url}{packet_path}?run_id=run-42" if "?" not in packet_path else f"{base_url}{packet_path}", wait_until="networkidle")
+        assert response is not None and response.ok
+        assert page.locator("body", has_text="Tracked follow-up").is_visible()
+        with page.expect_response("**/app/api/property-feedback/*/followup-status") as packet_update_info:
+            page.get_by_role("button", name="Answered").first.click()
+        packet_update = packet_update_info.value
+        assert packet_update.ok, packet_update.text()
+        assert page.locator("body", has_text="Follow-up marked answered").is_visible()
+
+        response = page.goto(f"{base_url}/app/properties?run_id=run-42&candidate={candidate_ref}", wait_until="networkidle")
+        assert response is not None and response.ok
+        assert page.locator("body", has_text="Answered").is_visible()
+        assert page.locator("body", has_text="Household review").is_visible()
+        assert page.locator("body", has_text="Risk signals").is_visible()
     finally:
         context.close()
 
@@ -415,6 +587,9 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
         )
         page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
         assert page.locator("[data-pqx-empty-results]", has_text="No strong matches met this brief").is_visible()
+        assert page.locator("body", has_text="What would unlock more matches?").is_visible()
+        assert page.locator("[data-pqx-counterfactuals]").is_visible()
+        assert page.get_by_role("button", name=re.compile("Apply|Allow|Use|Raise|Relax|Reopen")).first.is_visible()
         assert page.locator("[data-pqx-source-breakdown]", has_text="Genossenschaften Austria").is_visible()
         assert page.evaluate("window.localStorage.getItem('pq-test-notification-title')") == "PropertyQuarry results are ready"
         assert "0 high-fit matches" in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
@@ -481,16 +656,21 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         page.locator('[data-property-step-trigger="children"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'")
         assert page.locator('[data-property-field-name="enable_family_mode"]').is_visible()
+        assert page.locator('details[data-property-advanced-panel="children"]').evaluate("(node) => node.hasAttribute('open')") is False
         assert page.locator('[data-property-field-name="school_stage_preferences"]').is_hidden()
         assert page.locator('[data-property-field-name="school_stage_preferences"]').get_attribute("data-property-collapsed-by") == "enable_family_mode"
         assert page.locator('[data-property-field-name="school_quality_priority"]').is_hidden()
         assert page.locator('[data-property-field-name="max_distance_to_playground_m"]').is_hidden()
+        assert page.locator('[data-property-field-name="max_distance_to_library_m"]').is_hidden()
 
         page.locator('input[name="enable_family_mode"]').check()
         assert page.locator('[data-property-field-name="school_stage_preferences"]').is_visible()
         assert page.locator('[data-property-field-name="school_quality_priority"]').is_hidden()
         assert page.locator('[data-property-field-name="school_quality_priority"]').get_attribute("data-property-collapsed-by") == "school_stage_preferences"
         assert page.locator('[data-property-field-name="max_distance_to_playground_m"]').is_visible()
+        page.locator('details[data-property-advanced-panel="children"] summary').click()
+        assert page.locator('details[data-property-advanced-panel="children"]').evaluate("(node) => node.hasAttribute('open')") is True
+        assert page.locator('[data-property-field-name="max_distance_to_library_m"]').is_visible()
         assert page.locator('[data-school-stage-note]').is_visible()
         assert "OR matches" in (page.locator('[data-school-stage-note]').text_content() or "")
         assert page.locator('[data-school-stage-variant]').first.is_hidden()
@@ -504,6 +684,17 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('[data-property-field-name="school_stage_preferences"]').is_hidden()
         assert page.locator('[data-property-field-name="school_quality_priority"]').is_hidden()
         assert page.locator('[data-property-field-name="max_distance_to_playground_m"]').is_hidden()
+        assert page.locator('[data-property-field-name="max_distance_to_library_m"]').is_hidden()
+
+        page.locator('[data-property-step-trigger="areas"]').click()
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'areas'")
+        assert page.locator('details[data-property-advanced-panel="location_research"]').evaluate("(node) => node.hasAttribute('open')") is False
+        page.locator('details[data-property-advanced-panel="location_research"] summary').click()
+        assert page.locator('details[data-property-advanced-panel="location_research"]').evaluate("(node) => node.hasAttribute('open')") is True
+        assert page.locator('[data-property-field-name="max_distance_to_market_m"]').is_visible()
+        assert page.locator('[data-property-field-name="max_distance_to_hardware_store_m"]').is_visible()
+        assert page.locator('[data-property-field-name="prefer_good_air_quality"]').is_visible()
+        assert page.locator('[data-property-field-name="avoid_flood_risk_area"]').is_visible()
 
         page.locator('[data-property-step-trigger="providers"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
@@ -662,6 +853,30 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.locator('[data-property-step-trigger="areas"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'areas'")
         page.locator('input[name="all_of_vienna"]').check()
+        page.locator('details[data-property-advanced-panel="location_research"] summary').click()
+        page.locator('input[name="prefer_good_air_quality"]').check()
+        page.locator('input[name="prefer_low_crime_area"]').check()
+        page.locator('input[name="require_parking_pressure_check"]').check()
+        page.locator('input[name="require_drinking_water_quality_research"]').check()
+        page.locator('input[name="avoid_cesspit_or_septic_risk"]').check()
+        page.locator('input[name="require_winter_access_research"]').check()
+        page.locator('input[name="avoid_flood_risk_area"]').check()
+        page.locator('input[name="max_distance_to_market_m"]').evaluate(
+            "(node) => { node.value = '900'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
+        )
+        page.locator('input[name="max_distance_to_hardware_store_m"]').evaluate(
+            "(node) => { node.value = '1800'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
+        )
+        page.locator('input[name="max_distance_to_medical_care_m"]').evaluate(
+            "(node) => { node.value = '1200'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
+        )
+        page.locator('[data-property-step-trigger="children"]').click()
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'")
+        page.locator('input[name="enable_family_mode"]').check()
+        page.locator('details[data-property-advanced-panel="children"] summary').click()
+        page.locator('input[name="max_distance_to_library_m"]').evaluate(
+            "(node) => { node.value = '700'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
+        )
         page.locator('[data-property-step-trigger="providers"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
         providerCount = page.locator('input[name="selected_platforms"]').count()
@@ -693,6 +908,17 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert preferences["region_code"] == "vienna"
         assert preferences["all_of_vienna"] is True
         assert preferences["location_query"] == "Vienna"
+        assert preferences["prefer_good_air_quality"] is True
+        assert preferences["prefer_low_crime_area"] is True
+        assert preferences["require_parking_pressure_check"] is True
+        assert preferences["require_drinking_water_quality_research"] is True
+        assert preferences["avoid_cesspit_or_septic_risk"] is True
+        assert preferences["require_winter_access_research"] is True
+        assert preferences["avoid_flood_risk_area"] is True
+        assert preferences["max_distance_to_market_m"] == 900
+        assert preferences["max_distance_to_hardware_store_m"] == 1800
+        assert preferences["max_distance_to_medical_care_m"] == 1200
+        assert preferences["max_distance_to_library_m"] == 700
         assert preferences["min_match_score"] == 45
         assert preferences["require_floorplan"] is True
         assert len(observed["selected_platforms"]) == 3
@@ -704,6 +930,8 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
         page.wait_for_url(lambda url: "/app/research/" in str(url) and f"run_id={run_id}" in str(url), wait_until="domcontentloaded", timeout=5000)
         assert page.locator("body", has_text="OODA summary").is_visible()
+        assert page.locator("body", has_text="Alltagsfit").is_visible()
+        assert page.locator("body", has_text="Risikofit").is_visible()
         assert page.locator("body", has_text="Decision feedback").is_visible()
     finally:
         context.close()
@@ -742,6 +970,36 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
     )
     assert publication.status_code == 200, publication.text
     publication_id = publication.json()["publication"]["publication_id"]
+    feedback_one = client.post(
+        "/app/api/property-feedback",
+        json={
+            "stakeholder_id": "family-mara",
+            "stakeholder_label": "Mara",
+            "property_ref": "listing-browser-packet",
+            "publication_id": publication_id,
+            "category": "question",
+            "sentiment": "neutral",
+            "importance": 4,
+            "text": "Can the agent confirm the operating costs?",
+            "followup_status": "asked",
+        },
+    )
+    assert feedback_one.status_code == 200, feedback_one.text
+    feedback_two = client.post(
+        "/app/api/property-feedback",
+        json={
+            "stakeholder_id": "family-jonas",
+            "stakeholder_label": "Jonas",
+            "property_ref": "listing-browser-packet",
+            "publication_id": publication_id,
+            "category": "dealbreaker",
+            "sentiment": "negative",
+            "importance": 5,
+            "text": "Street noise is a blocker.",
+            "decision_state": "rejected",
+        },
+    )
+    assert feedback_two.status_code == 200, feedback_two.text
     base_url = str(propertyquarry_browser_server["base_url"])
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
@@ -750,6 +1008,9 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
         assert response is not None and response.ok
         assert page.locator("[data-property-packets-dashboard]").is_visible()
         assert page.locator("body", has_text="Review packets ready for branded sharing.").is_visible()
+        assert page.locator("body", has_text="Household review").is_visible()
+        assert page.locator("body", has_text="Risk signals").is_visible()
+        assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
         page.locator('[data-packet-share-form] input[name="recipient_name"]').fill("Anna")
         page.locator('[data-packet-share-form] input[name="recipient_email"]').fill("anna@example.com")
         page.locator('[data-packet-share-form] input[name="relationship"]').fill("Sister")
@@ -776,5 +1037,12 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
         assert page.locator("[data-analytics-summary]", has_text="8 views").is_visible()
         assert page.locator("[data-analytics-summary]", has_text="2 visitors").is_visible()
         assert page.locator("body", has_text="Optimization recommendations").is_visible()
+        assert page.locator("body", has_text="What changed").is_visible()
+        assert page.locator("body", has_text="Street noise is a blocker.").is_visible()
+
+        response = page.goto(f"{base_url}/app/properties/notifications/preview?template=tour_ready", wait_until="networkidle")
+        assert response is not None and response.ok
+        assert page.locator("body", has_text="Email preview").is_visible()
+        assert page.locator("body", has_text="PropertyQuarry prepared a hosted 360 review").is_visible()
     finally:
         context.close()

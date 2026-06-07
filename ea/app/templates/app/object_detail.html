@@ -618,6 +618,14 @@
 	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="dislike">No</button>
 	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="hide">Hide</button>
 	      </div>
+	      <p class="object-copy"><strong>Decision state</strong> Move the property forward when the next concrete action matters more than another shortlist vote.</p>
+	      <div class="object-actions">
+	        <button class="console-action" type="button" data-object-decision-state="viewing_requested">Viewing requested</button>
+	        <button class="console-action" type="button" data-object-decision-state="documents_requested">Documents requested</button>
+	        <button class="console-action" type="button" data-object-decision-state="offer_candidate">Offer candidate</button>
+	        <button class="console-action" type="button" data-object-decision-state="archived">Archived</button>
+	      </div>
+	      <p class="object-copy" data-object-decision-state-status></p>
 	      <p class="object-copy"><strong>What drove that?</strong> Select the clearest reasons first. If you reject the property, those reasons become the strongest future suppressors.</p>
 	      <div class="object-feedback-reasons" data-object-feedback-reasons>
 	        {% for row in (object_feedback.get('suggestions') or {}).get('negative') or [] %}
@@ -641,6 +649,19 @@
 	        {% endfor %}
 	      </div>
 	      {% endif %}
+	      <div class="object-copy"><strong>Tracked follow-up</strong></div>
+	      <div class="object-list" data-object-followups>
+	        {% for row in object_feedback.get('followup_rows') or [] %}
+	        <div class="object-row">
+	          <div>
+	            <strong>{{ row.get('title') }}</strong>
+	            <small>{{ row.get('detail') }}</small>
+	          </div>
+	          <div class="object-tag">{{ row.get('tag') }}</div>
+	        </div>
+	        {% endfor %}
+	      </div>
+	      <p class="object-copy" data-object-followup-status></p>
 	      {% if (object_feedback.get('suggestions') or {}).get('decision_consequences') %}
 	      <p class="object-copy">This will:</p>
 	      <div class="object-list">
@@ -660,12 +681,48 @@
 	        <a class="console-action" href="{{ object_feedback.get('profile_href') or '/app/profile' }}">Manage preferences</a>
 	      </div>
 	      <p class="object-copy" data-object-feedback-status></p>
+	      <div class="object-actions" style="margin-top: 12px;">
+	        <button class="console-action" type="button" data-object-clippy-toggle>Open Clippy</button>
+	      </div>
+	      <div class="object-list" data-object-clippy-panel hidden>
+	        <div class="object-row">
+	          <div>
+	            <strong>Clippy</strong>
+	            <small>Ask one grounded question about this property. Clippy only answers from packet facts, timeline, stakeholder feedback, and investment context already on this page.</small>
+	          </div>
+	          <div class="object-tag">Opt-in</div>
+	        </div>
+	        <div class="object-actions">
+	          <button class="console-action" type="button" data-object-clippy-prompt="Why is this only Maybe?">Why is this only Maybe?</button>
+	          <button class="console-action" type="button" data-object-clippy-prompt="What should I ask the agent next?">Ask agent next</button>
+	          <button class="console-action" type="button" data-object-clippy-prompt="What changed since last time?">What changed?</button>
+	          <button class="console-action" type="button" data-object-clippy-prompt="What is the biggest investment risk here?">Investment risk</button>
+	        </div>
+	        <textarea data-object-clippy-question rows="3" placeholder="Ask Clippy about blockers, household disagreement, underwriting risk, or the next agent follow-up."></textarea>
+	        <div class="object-actions">
+	          <button class="console-action" type="button" data-object-clippy-ask>Ask Clippy</button>
+	        </div>
+	        <div class="object-copy" data-object-clippy-status></div>
+	        <div class="object-list" data-object-clippy-answer></div>
+	      </div>
 	    </section>
 	    {% endif %}
 	  </aside>
 	</section>
 
 <section class="object-sections">
+  <section class="object-section">
+    <div class="object-kicker">Decision pipeline</div>
+    <h2>Brief set → Providers scanned → Ranked shortlist → Review packet → 360 and research → Decide</h2>
+    <div class="object-list">
+      <div class="object-row"><div><strong>Brief set</strong><small>The search brief and personal rules are already loaded for this packet.</small></div><div class="object-tag">Completed</div></div>
+      <div class="object-row"><div><strong>Providers scanned</strong><small>The provider sweep already produced this candidate and the supporting evidence.</small></div><div class="object-tag">Completed</div></div>
+      <div class="object-row"><div><strong>Ranked shortlist</strong><small>This property survived the shortlist and moved into the deeper review lane.</small></div><div class="object-tag">Completed</div></div>
+      <div class="object-row"><div><strong>Review packet</strong><small>You are here: packet, timeline, household review, and agent next questions are visible.</small></div><div class="object-tag">Active</div></div>
+      <div class="object-row"><div><strong>360 and research</strong><small>Use the hosted 360 and underwriting sections before making a final call.</small></div><div class="object-tag">Active</div></div>
+      <div class="object-row"><div><strong>Decide</strong><small>Record Yes, Maybe, No, or Hide so the next shortlist learns from the outcome.</small></div><div class="object-tag">Next</div></div>
+    </div>
+  </section>
   {% for section in object_sections %}
   <section class="object-section">
     <div class="object-kicker">{{ section["eyebrow"] }}</div>
@@ -794,6 +851,226 @@
   const selectedReasons = new Set();
   let reaction = '';
   const status = root.querySelector('[data-object-feedback-status]');
+  const decisionStateStatus = root.querySelector('[data-object-decision-state-status]');
+  const clippyToggle = root.querySelector('[data-object-clippy-toggle]');
+  const clippyPanel = root.querySelector('[data-object-clippy-panel]');
+  const clippyQuestion = root.querySelector('[data-object-clippy-question]');
+  const clippyStatus = root.querySelector('[data-object-clippy-status]');
+  const clippyAnswer = root.querySelector('[data-object-clippy-answer]');
+  const followupsNode = root.querySelector('[data-object-followups]');
+  const followupStatus = root.querySelector('[data-object-followup-status]');
+  const structuredFeedbackEndpoint = String(payload.structured_feedback_endpoint || '/app/api/property-feedback');
+  const followupStatusEndpointTemplate = String(payload.followup_status_endpoint_template || '/app/api/property-feedback/__FEEDBACK_ID__/followup-status');
+  const renderFollowups = (rows) => {
+    if (!followupsNode) return;
+    const safeRows = Array.isArray(rows) ? rows : [];
+    const escapeHtml = (value) => String(value || '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+    followupsNode.innerHTML = safeRows.map((row) => {
+      const feedbackId = String(row?.feedback_id || '').trim();
+      const actions = feedbackId ? `
+        <div class="object-actions">
+          <button class="console-action" type="button" data-object-followup-action="answered" data-object-feedback-id="${escapeHtml(feedbackId)}">Answered</button>
+          <button class="console-action" type="button" data-object-followup-action="needs_follow_up" data-object-feedback-id="${escapeHtml(feedbackId)}">Needs follow-up</button>
+          <button class="console-action" type="button" data-object-followup-action="confirmed" data-object-feedback-id="${escapeHtml(feedbackId)}">Confirmed</button>
+          <button class="console-action" type="button" data-object-followup-action="contradicted" data-object-feedback-id="${escapeHtml(feedbackId)}">Contradicted</button>
+          <button class="console-action" type="button" data-object-followup-action="resolved" data-object-feedback-id="${escapeHtml(feedbackId)}">Resolved</button>
+        </div>
+      ` : '';
+      return `
+        <div class="object-row">
+          <div>
+            <strong>${escapeHtml(row?.title || 'Follow-up')}</strong>
+            <small>${escapeHtml(row?.detail || '')}</small>
+            ${actions}
+          </div>
+          <div class="object-tag">${escapeHtml(row?.tag || '')}</div>
+        </div>
+      `;
+    }).join('') || '<div class="object-row"><div><strong>No tracked question yet</strong><small>Use Clippy or Ask agent next to start a tracked follow-up.</small></div><div class="object-tag">Waiting</div></div>';
+    followupsNode.querySelectorAll('[data-object-followup-action]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const feedbackId = String(button.getAttribute('data-object-feedback-id') || '').trim();
+        const nextStatus = String(button.getAttribute('data-object-followup-action') || '').trim();
+        if (!feedbackId || !nextStatus) return;
+        if (followupStatus) followupStatus.textContent = 'Updating follow-up state...';
+        try {
+          const endpoint = followupStatusEndpointTemplate.replace('__FEEDBACK_ID__', encodeURIComponent(feedbackId));
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ followup_status: nextStatus }),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(String(body.detail || 'Could not update the follow-up state.'));
+          const target = safeRows.find((row) => String(row?.feedback_id || '') === feedbackId);
+          if (target) target.tag = nextStatus.replaceAll('_', ' ').replace(/\b\w/g, (match) => match.toUpperCase());
+          renderFollowups(safeRows);
+          if (followupStatus) followupStatus.textContent = `Follow-up marked ${nextStatus.replaceAll('_', ' ')}.`;
+        } catch (error) {
+          if (followupStatus) followupStatus.textContent = error instanceof Error ? error.message : 'Could not update the follow-up state.';
+        }
+      });
+    });
+  };
+  renderFollowups(payload.followup_rows || []);
+  const recordDecisionState = async (decisionState) => {
+    if (!decisionState) return;
+    if (decisionStateStatus) decisionStateStatus.textContent = 'Recording decision state...';
+    try {
+      const response = await fetch(structuredFeedbackEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          stakeholder_id: `profile:${String(payload.person_id || 'self')}`,
+          stakeholder_label: String(payload.person_id || 'self'),
+          property_ref: String(payload.property_slug || payload.property_url || payload.property_title || 'property'),
+          category: 'priority',
+          sentiment: 'neutral',
+          importance: 4,
+          text: `Decision state moved to ${String(decisionState || '').replaceAll('_', ' ')}.`,
+          source: 'decision_lifecycle',
+          decision_state: String(decisionState || ''),
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not record the decision state.'));
+      if (decisionStateStatus) decisionStateStatus.textContent = `Decision state saved as ${String(decisionState || '').replaceAll('_', ' ')}.`;
+    } catch (error) {
+      if (decisionStateStatus) decisionStateStatus.textContent = error instanceof Error ? error.message : 'Could not record the decision state.';
+    }
+  };
+  root.querySelectorAll('[data-object-decision-state]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      await recordDecisionState(String(button.getAttribute('data-object-decision-state') || '').trim());
+    });
+  });
+  const renderClippy = (body) => {
+    if (!clippyAnswer) return;
+    const evidence = Array.isArray(body?.evidence) ? body.evidence : [];
+    const actions = Array.isArray(body?.actions) ? body.actions : [];
+    const escapeHtml = (value) => String(value || '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+    clippyAnswer.innerHTML = `
+      <div class="object-row">
+        <div>
+          <strong>${escapeHtml(body?.name || 'Clippy')}</strong>
+          <small>${escapeHtml(body?.answer || 'No answer returned.')}</small>
+        </div>
+        <div class="object-tag">Grounded</div>
+      </div>
+      ${evidence.map((row) => `
+        <div class="object-row">
+          <div>
+            <strong>${escapeHtml(row.title || 'Evidence')}</strong>
+            <small>${escapeHtml(row.detail || '')}</small>
+          </div>
+          <div class="object-tag">${escapeHtml(row.confidence || row.source || '')}</div>
+        </div>
+      `).join('')}
+      ${actions.length ? `<div class="object-actions">${actions.map((row, index) => `<button class="console-action" type="button" data-object-clippy-action="${escapeHtml(row.action || '')}" data-object-clippy-index="${index}">${escapeHtml(row.label || 'Action')}</button>`).join('')}</div>` : ''}
+    `;
+    clippyAnswer.querySelectorAll('[data-object-clippy-action]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const row = actions[Number.parseInt(String(button.getAttribute('data-object-clippy-index') || '-1'), 10)];
+        if (!row) return;
+        const action = String(row.action || '').trim();
+        if (action === 'open_packet' && row.href) {
+          window.location.href = String(row.href);
+          return;
+        }
+        if (action === 'mark_blocker' && row.reason_key) {
+          reaction = String(row.reaction || 'dislike').trim() || 'dislike';
+          root.querySelectorAll('[data-object-feedback-reaction]').forEach((candidate) => {
+            candidate.classList.toggle('active', candidate.getAttribute('data-object-feedback-reaction') === reaction);
+          });
+          const reasonButton = root.querySelector(`[data-object-feedback-reason="${CSS.escape(String(row.reason_key || ''))}"]`);
+          if (reasonButton) {
+            selectedReasons.add(String(row.reason_key || ''));
+            reasonButton.classList.add('active');
+          }
+          if (status) status.textContent = `Clippy marked ${String(row.detail || 'a blocker').trim()} as the current blocker. Save decision when ready.`;
+          return;
+        }
+        if (action === 'ask_agent' && row.question) {
+          if (clippyStatus) clippyStatus.textContent = 'Writing agent follow-up into the timeline...';
+          try {
+            const response = await fetch(structuredFeedbackEndpoint, {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                stakeholder_id: `profile:${String(payload.person_id || 'self')}`,
+                stakeholder_label: String(payload.person_id || 'self'),
+                property_ref: String(payload.property_slug || payload.property_url || payload.property_title || 'property'),
+                category: 'question',
+                sentiment: 'neutral',
+                importance: 4,
+                text: String(row.question || ''),
+                source: 'clippy_agent_brief',
+                followup_status: 'asked',
+              }),
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(String(body.detail || 'Could not record the agent question.'));
+            if (clippyStatus) clippyStatus.textContent = 'Agent follow-up recorded in the decision timeline.';
+          } catch (error) {
+            if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'Could not record the agent question.';
+          }
+        }
+      });
+    });
+  };
+  clippyToggle?.addEventListener('click', () => {
+    const open = Boolean(clippyPanel?.hidden);
+    if (clippyPanel) clippyPanel.hidden = !open;
+    clippyToggle.textContent = open ? 'Hide Clippy' : 'Open Clippy';
+  });
+  root.querySelectorAll('[data-object-clippy-prompt]').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (clippyQuestion) clippyQuestion.value = String(button.getAttribute('data-object-clippy-prompt') || '').trim();
+    });
+  });
+  root.querySelector('[data-object-clippy-ask]')?.addEventListener('click', async () => {
+    const question = String(clippyQuestion?.value || '').trim();
+    if (!question) {
+      if (clippyStatus) clippyStatus.textContent = 'Ask Clippy a specific property question first.';
+      return;
+    }
+    if (clippyStatus) clippyStatus.textContent = 'Clippy is reviewing the packet context...';
+    try {
+      const response = await fetch(String(payload.clippy_endpoint || '/app/api/property/decision-copilot'), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          property_ref: String(payload.property_slug || payload.property_url || payload.property_title || 'property'),
+          property_title: String(payload.property_title || ''),
+          property_url: String(payload.packet_href || payload.property_url || ''),
+          question,
+          property_facts: payload.property_facts || {},
+          assessment: payload.assessment || {},
+          investment_context: payload.investment_context || [],
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.detail || 'Clippy could not answer right now.'));
+      renderClippy(body);
+      if (clippyStatus) clippyStatus.textContent = 'Clippy answered from the current property context.';
+    } catch (error) {
+      if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'Clippy could not answer right now.';
+    }
+  });
   root.querySelectorAll('[data-object-feedback-reaction]').forEach((button) => {
     button.addEventListener('click', () => {
       reaction = String(button.getAttribute('data-object-feedback-reaction') || '').trim();

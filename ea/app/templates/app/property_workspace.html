@@ -302,6 +302,29 @@
   .pq-form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .pq-advanced-panel {
+    grid-column: 1 / -1;
+    border: 1px dashed rgba(185, 173, 154, 0.9);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(250, 246, 238, 0.84), rgba(255, 253, 248, 0.92));
+    padding: 10px 12px 12px;
+  }
+  .pq-advanced-panel summary {
+    cursor: pointer;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 700;
+    list-style: none;
+  }
+  .pq-advanced-panel summary::-webkit-details-marker {
+    display: none;
+  }
+  .pq-advanced-panel-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 12px;
+  }
   .pq-field {
     display: grid;
     gap: 8px;
@@ -975,7 +998,28 @@
 
           <div class="pq-form-grid">
             <span hidden>Freizeit und Alltag</span>
+            {% set panel = namespace(open=false, current='') %}
             {% for field in console_form.get('fields') or [] %}
+            {% set advanced_panel = field.get('advanced_panel') or '' %}
+            {% if panel.open and (not advanced_panel or advanced_panel != panel.current) %}
+            </div>
+            </details>
+            {% set panel.open = false %}
+            {% set panel.current = '' %}
+            {% endif %}
+            {% if advanced_panel and not panel.open %}
+            {% set panel.open = true %}
+            {% set panel.current = advanced_panel %}
+            <details class="pq-advanced-panel" data-property-advanced-panel="{{ advanced_panel }}">
+              <summary>
+                {% if advanced_panel == 'children' %}
+                Erweiterte Kinder- und Familienfilter
+                {% else %}
+                Erweiterte Lage- und Researchfilter
+                {% endif %}
+              </summary>
+              <div class="pq-advanced-panel-grid">
+            {% endif %}
             {% set is_wide = field.type == 'checkbox_group' or field.name in ('location_query', 'keywords') %}
             <div class="pq-field{% if is_wide %} pq-field-wide{% endif %}" {% if is_wide %}data-wide="true"{% endif %} data-property-field-step="{{ field.get('step') or 'search' }}"{% if field.get('hidden') %} hidden{% endif %}>
               {% if field.type == 'range' %}
@@ -1073,6 +1117,10 @@
               {% endif %}
             </div>
             {% endfor %}
+            {% if panel.open %}
+            </div>
+            </details>
+            {% endif %}
           </div>
 
           {% set commercial = property_meta.get('commercial') or {} %}
@@ -1344,6 +1392,18 @@
                 <option value="prefer_supermarket_nearby"></option>
                 <option value="prefer_pharmacy_nearby"></option>
                 <option value="prefer_playgrounds_nearby"></option>
+                <option value="prefer_libraries_nearby"></option>
+                <option value="prefer_markets_nearby"></option>
+                <option value="prefer_hardware_store_nearby"></option>
+                <option value="prefer_shopping_street_nearby"></option>
+                <option value="prefer_shopping_center_nearby"></option>
+                <option value="prefer_public_pool_nearby"></option>
+                <option value="prefer_theatre_nearby"></option>
+                <option value="prefer_medical_care_nearby"></option>
+                <option value="prefer_good_air_quality"></option>
+                <option value="prefer_low_crime_area"></option>
+                <option value="prefer_low_parking_pressure"></option>
+                <option value="prefer_high_quality_drinking_water"></option>
                 <option value="preferred_districts"></option>
                 <option value="avoided_districts"></option>
                 <option value="min_area_sqm_preference"></option>
@@ -1370,6 +1430,8 @@
             <button class="pq-filter-pick" type="button" data-preference-key-pick="prefer_360_for_remote_review"><span class="pq-filter-icon" aria-hidden="true">◌</span><span>360</span></button>
             <button class="pq-filter-pick" type="button" data-preference-key-pick="prefer_subway_nearby"><span class="pq-filter-icon" aria-hidden="true">↘</span><span>Transit</span></button>
             <button class="pq-filter-pick" type="button" data-preference-key-pick="prefer_playgrounds_nearby"><span class="pq-filter-icon" aria-hidden="true">●</span><span>Playground</span></button>
+            <button class="pq-filter-pick" type="button" data-preference-key-pick="prefer_libraries_nearby"><span class="pq-filter-icon" aria-hidden="true">▤</span><span>Bibliothek</span></button>
+            <button class="pq-filter-pick" type="button" data-preference-key-pick="prefer_hardware_store_nearby"><span class="pq-filter-icon" aria-hidden="true">⌘</span><span>Baumarkt</span></button>
           </div>
           <div class="pq-actions">
             <button class="pq-action primary" type="submit">Add preference</button>
@@ -1638,9 +1700,21 @@
     if (nodeValues.get('prefer_playgrounds_nearby') === true && familyField) familyField.checked = true;
     const keywordValues = [];
     if (nodeValues.get('prefer_playgrounds_nearby') === true) keywordValues.push('playground nearby');
+    if (nodeValues.get('prefer_libraries_nearby') === true) keywordValues.push('library nearby');
     if (nodeValues.get('prefer_subway_nearby') === true) keywordValues.push('underground nearby');
     if (nodeValues.get('prefer_supermarket_nearby') === true) keywordValues.push('supermarket nearby');
     if (nodeValues.get('prefer_pharmacy_nearby') === true) keywordValues.push('pharmacy nearby');
+    if (nodeValues.get('prefer_markets_nearby') === true) keywordValues.push('market nearby');
+    if (nodeValues.get('prefer_hardware_store_nearby') === true) keywordValues.push('hardware store nearby');
+    if (nodeValues.get('prefer_shopping_street_nearby') === true) keywordValues.push('shopping street nearby');
+    if (nodeValues.get('prefer_shopping_center_nearby') === true) keywordValues.push('shopping center nearby');
+    if (nodeValues.get('prefer_public_pool_nearby') === true) keywordValues.push('public pool nearby');
+    if (nodeValues.get('prefer_theatre_nearby') === true) keywordValues.push('theatre nearby');
+    if (nodeValues.get('prefer_medical_care_nearby') === true) keywordValues.push('medical care nearby');
+    if (nodeValues.get('prefer_good_air_quality') === true) keywordValues.push('good air quality');
+    if (nodeValues.get('prefer_low_crime_area') === true) keywordValues.push('low crime area');
+    if (nodeValues.get('prefer_low_parking_pressure') === true) keywordValues.push('easy parking');
+    if (nodeValues.get('prefer_high_quality_drinking_water') === true) keywordValues.push('high quality drinking water');
     if (nodeValues.get('prefer_balcony') === true || nodeValues.get('prefer_outdoor_space') === true) keywordValues.push('balcony');
     if (nodeValues.get('prefer_lift') === true || nodeValues.get('require_lift') === true) keywordValues.push('lift');
     setCheckboxValues(form, 'keywords', keywordValues);
@@ -1657,6 +1731,14 @@
       const field = form.querySelector('[name="max_distance_to_playground_m"]');
       if (field) {
         field.value = String(Math.round(playgroundDistance));
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+    const libraryDistance = Number(nodeValues.get('max_distance_to_library_m') || 0);
+    if (libraryDistance > 0) {
+      const field = form.querySelector('[name="max_distance_to_library_m"]');
+      if (field) {
+        field.value = String(Math.round(libraryDistance));
         field.dispatchEvent(new Event('input', { bubbles: true }));
       }
     }
@@ -2002,6 +2084,7 @@
         max_commute_minutes_bike: integerValue(form, 'max_commute_minutes_bike'),
         max_commute_minutes_walk: integerValue(form, 'max_commute_minutes_walk'),
         max_distance_to_playground_m: checkedValue(form, 'enable_family_mode') ? integerValue(form, 'max_distance_to_playground_m') : null,
+        max_distance_to_library_m: checkedValue(form, 'enable_family_mode') ? integerValue(form, 'max_distance_to_library_m') : null,
         max_distance_to_university_m: integerValue(form, 'max_distance_to_university_m'),
         max_distance_to_starbucks_m: integerValue(form, 'max_distance_to_starbucks_m'),
         max_distance_to_fitness_center_m: integerValue(form, 'max_distance_to_fitness_center_m'),
@@ -2009,6 +2092,20 @@
         max_distance_to_bouldering_m: integerValue(form, 'max_distance_to_bouldering_m'),
         max_distance_to_dog_park_m: integerValue(form, 'max_distance_to_dog_park_m'),
         max_distance_to_good_cafe_m: integerValue(form, 'max_distance_to_good_cafe_m'),
+        max_distance_to_market_m: integerValue(form, 'max_distance_to_market_m'),
+        max_distance_to_hardware_store_m: integerValue(form, 'max_distance_to_hardware_store_m'),
+        max_distance_to_shopping_center_m: integerValue(form, 'max_distance_to_shopping_center_m'),
+        max_distance_to_shopping_street_m: integerValue(form, 'max_distance_to_shopping_street_m'),
+        max_distance_to_theatre_m: integerValue(form, 'max_distance_to_theatre_m'),
+        max_distance_to_public_pool_m: integerValue(form, 'max_distance_to_public_pool_m'),
+        max_distance_to_medical_care_m: integerValue(form, 'max_distance_to_medical_care_m'),
+        prefer_good_air_quality: checkedValue(form, 'prefer_good_air_quality'),
+        prefer_low_crime_area: checkedValue(form, 'prefer_low_crime_area'),
+        require_drinking_water_quality_research: checkedValue(form, 'require_drinking_water_quality_research'),
+        require_parking_pressure_check: checkedValue(form, 'require_parking_pressure_check'),
+        avoid_cesspit_or_septic_risk: checkedValue(form, 'avoid_cesspit_or_septic_risk'),
+        require_winter_access_research: checkedValue(form, 'require_winter_access_research'),
+        avoid_flood_risk_area: checkedValue(form, 'avoid_flood_risk_area'),
         max_results_per_source: parsedMaxResults,
         min_match_score: integerValue(form, 'min_match_score'),
         require_floorplan: checkedValue(form, 'require_floorplan'),
@@ -2519,6 +2616,7 @@
       const schoolStageWrap = form.querySelector('[data-property-field-name="school_stage_preferences"]');
       const schoolQualityWrap = form.querySelector('[data-property-field-name="school_quality_priority"]');
       const playgroundDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_playground_m"]');
+      const libraryDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_library_m"]');
       const allViennaField = form.querySelector('input[name="all_of_vienna"]');
       const preferencePersonField = form.querySelector('[name="preference_person_id"]');
       const allViennaFieldWrap = allViennaField?.closest('[data-property-field-step]');
@@ -2550,6 +2648,11 @@
           playgroundDistanceWrap.hidden = !showSchoolDetails;
           if (!showSchoolDetails) playgroundDistanceWrap.setAttribute('data-property-collapsed-by', 'enable_family_mode');
           else playgroundDistanceWrap.removeAttribute('data-property-collapsed-by');
+        }
+        if (libraryDistanceWrap) {
+          libraryDistanceWrap.hidden = !showSchoolDetails;
+          if (!showSchoolDetails) libraryDistanceWrap.setAttribute('data-property-collapsed-by', 'enable_family_mode');
+          else libraryDistanceWrap.removeAttribute('data-property-collapsed-by');
         }
         if (schoolQualityWrap) {
           schoolQualityWrap.hidden = !showSchoolPriority;

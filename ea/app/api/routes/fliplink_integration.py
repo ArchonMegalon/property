@@ -168,6 +168,8 @@ def _publication_out(
     structured_feedback: list[dict[str, object]] | None = None,
     attached_summaries: list[dict[str, object]] | None = None,
     optimization: list[dict[str, object]] | None = None,
+    feedback_summary: dict[str, object] | None = None,
+    change_log: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     summary = dict(row.get("packet_summary_json") or {}) if isinstance(row.get("packet_summary_json"), dict) else {}
     analytics_out = {
@@ -213,7 +215,61 @@ def _publication_out(
         "structured_feedback": list(structured_feedback or []),
         "attached_summaries": list(attached_summaries or []),
         "optimization": list(optimization or []),
+        "feedback_summary": dict(feedback_summary or {}),
+        "change_log": list(change_log or []),
     }
+
+
+def _property_decision_summary(
+    service,
+    *,
+    principal_id: str,
+    property_ref: str,
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    property_token = str(property_ref or "").strip()
+    if not property_token:
+        return {}, []
+    feedback_summary = service.feedback_summary(principal_id=principal_id, property_ref=property_token)
+    household_review = dict(feedback_summary.get("household_review") or {})
+    clusters = list(feedback_summary.get("clusters") or [])
+    risk_signals = list(feedback_summary.get("risk_signal_candidates") or [])
+    top_blockers = [
+        {
+            "theme": str(item.get("theme") or "general"),
+            "severity": str(item.get("severity") or "medium"),
+            "summary": str(item.get("summary") or "").strip() or str(item.get("theme") or "General concern").strip(),
+        }
+        for item in clusters[:3]
+        if isinstance(item, dict)
+    ]
+    next_best_question = str(household_review.get("next_best_question") or "").strip()
+    if not next_best_question:
+        next_best_question = next(
+            (
+                str(item.get("text") or "").strip()
+                for item in list(feedback_summary.get("recent_feedback") or [])
+                if isinstance(item, dict)
+                and str(item.get("category") or "").strip().lower() == "question"
+                and str(item.get("text") or "").strip()
+            ),
+            "",
+        )
+    summary = {
+        **feedback_summary,
+        "top_blockers": top_blockers,
+        "next_best_question": next_best_question,
+        "risk_signals_visible": [
+            {
+                "theme": str(item.get("theme") or "general"),
+                "privacy_state": str(item.get("privacy_state") or "suppressed"),
+                "confidence": str(item.get("confidence") or "low"),
+                "summary": str(item.get("summary") or "").strip() or str(item.get("theme") or "General concern").strip(),
+            }
+            for item in risk_signals[:3]
+            if isinstance(item, dict)
+        ],
+    }
+    return summary, service.property_change_log(principal_id=principal_id, property_ref=property_token)[:3]
 
 
 def _feedback_text(*, custom_fields: dict[str, object], note: str = "") -> str:
@@ -356,33 +412,43 @@ def property_packets_dashboard(
         principal_id=context.principal_id,
         publication_ids=[str(row.get("publication_id") or "") for row in raw_rows],
     )
-    rows = [
-        _publication_out(
-            row,
-            analytics=analytics.get(str(row.get("publication_id") or ""), {}),
-            engagement=service.engagement_snapshot(
-                principal_id=context.principal_id,
-                publication_id=str(row.get("publication_id") or ""),
-            ),
-            share_journey=service.share_journey(
-                principal_id=context.principal_id,
-                publication_id=str(row.get("publication_id") or ""),
-            ),
-            structured_feedback=service.list_structured_feedback(
-                principal_id=context.principal_id,
-                publication_id=str(row.get("publication_id") or ""),
-            )[:6],
-            attached_summaries=service.attached_summaries(
-                principal_id=context.principal_id,
-                publication_id=str(row.get("publication_id") or ""),
-            ),
-            optimization=service.optimization_recommendations(
-                principal_id=context.principal_id,
-                publication_id=str(row.get("publication_id") or ""),
-            ),
+    rows = []
+    for row in raw_rows:
+        publication_id = str(row.get("publication_id") or "")
+        property_ref = str(row.get("property_ref") or "")
+        feedback_summary, change_log = _property_decision_summary(
+            service,
+            principal_id=context.principal_id,
+            property_ref=property_ref,
         )
-        for row in raw_rows
-    ]
+        rows.append(
+            _publication_out(
+                row,
+                analytics=analytics.get(publication_id, {}),
+                engagement=service.engagement_snapshot(
+                    principal_id=context.principal_id,
+                    publication_id=publication_id,
+                ),
+                share_journey=service.share_journey(
+                    principal_id=context.principal_id,
+                    publication_id=publication_id,
+                ),
+                structured_feedback=service.list_structured_feedback(
+                    principal_id=context.principal_id,
+                    publication_id=publication_id,
+                )[:6],
+                attached_summaries=service.attached_summaries(
+                    principal_id=context.principal_id,
+                    publication_id=publication_id,
+                ),
+                optimization=service.optimization_recommendations(
+                    principal_id=context.principal_id,
+                    publication_id=publication_id,
+                ),
+                feedback_summary=feedback_summary,
+                change_log=change_log,
+            )
+        )
     inbox = service.feedback_inbox(principal_id=context.principal_id, limit=100)
     capacity = service.capacity_status(principal_id=context.principal_id)
     published_total = sum(1 for row in rows if str(row.get("status") or "").strip().lower() == "published")
@@ -449,33 +515,43 @@ def list_property_packets(
         principal_id=context.principal_id,
         publication_ids=[str(row.get("publication_id") or "") for row in raw_rows],
     )
-    rows = [
-        _publication_out(
-            row,
-            analytics=analytics.get(str(row.get("publication_id") or ""), {}),
-            engagement=service.engagement_snapshot(
-                principal_id=context.principal_id,
-                publication_id=str(row.get("publication_id") or ""),
-            ),
-            share_journey=service.share_journey(
-                principal_id=context.principal_id,
-                publication_id=str(row.get("publication_id") or ""),
-            ),
-            structured_feedback=service.list_structured_feedback(
-                principal_id=context.principal_id,
-                publication_id=str(row.get("publication_id") or ""),
-            )[:6],
-            attached_summaries=service.attached_summaries(
-                principal_id=context.principal_id,
-                publication_id=str(row.get("publication_id") or ""),
-            ),
-            optimization=service.optimization_recommendations(
-                principal_id=context.principal_id,
-                publication_id=str(row.get("publication_id") or ""),
-            ),
+    rows = []
+    for row in raw_rows:
+        publication_id = str(row.get("publication_id") or "")
+        property_ref = str(row.get("property_ref") or "")
+        feedback_summary, change_log = _property_decision_summary(
+            service,
+            principal_id=context.principal_id,
+            property_ref=property_ref,
         )
-        for row in raw_rows
-    ]
+        rows.append(
+            _publication_out(
+                row,
+                analytics=analytics.get(publication_id, {}),
+                engagement=service.engagement_snapshot(
+                    principal_id=context.principal_id,
+                    publication_id=publication_id,
+                ),
+                share_journey=service.share_journey(
+                    principal_id=context.principal_id,
+                    publication_id=publication_id,
+                ),
+                structured_feedback=service.list_structured_feedback(
+                    principal_id=context.principal_id,
+                    publication_id=publication_id,
+                )[:6],
+                attached_summaries=service.attached_summaries(
+                    principal_id=context.principal_id,
+                    publication_id=publication_id,
+                ),
+                optimization=service.optimization_recommendations(
+                    principal_id=context.principal_id,
+                    publication_id=publication_id,
+                ),
+                feedback_summary=feedback_summary,
+                change_log=change_log,
+            )
+        )
     return {"items": rows, "total": len(rows), "capacity": service.capacity_status(principal_id=context.principal_id)}
 
 
@@ -567,6 +643,11 @@ def get_property_packet_publication(
     if row is None:
         raise HTTPException(status_code=404, detail="property_packet_publication_not_found")
     events = service.list_events(publication_id=publication_id, principal_id=context.principal_id, limit=100)
+    feedback_summary, change_log = _property_decision_summary(
+        service,
+        principal_id=context.principal_id,
+        property_ref=str(row.get("property_ref") or ""),
+    )
     return {
         "publication": _publication_out(
             row,
@@ -579,6 +660,8 @@ def get_property_packet_publication(
             )[:10],
             attached_summaries=service.attached_summaries(principal_id=context.principal_id, publication_id=publication_id),
             optimization=service.optimization_recommendations(principal_id=context.principal_id, publication_id=publication_id),
+            feedback_summary=feedback_summary,
+            change_log=change_log,
         ),
         "events": [dict(event) for event in events],
     }

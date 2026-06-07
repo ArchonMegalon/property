@@ -4364,8 +4364,30 @@ def _property_research_nearby_pois(lat: float, lon: float) -> dict[str, object]:
   way["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
   node["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
   way["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
+  node["amenity"="library"](around:5000,{lat:.8f},{lon:.8f});
+  way["amenity"="library"](around:5000,{lat:.8f},{lon:.8f});
   node["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
   way["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
+  node["shop"="doityourself"](around:7000,{lat:.8f},{lon:.8f});
+  way["shop"="doityourself"](around:7000,{lat:.8f},{lon:.8f});
+  node["shop"="hardware"](around:7000,{lat:.8f},{lon:.8f});
+  way["shop"="hardware"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="marketplace"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="marketplace"](around:7000,{lat:.8f},{lon:.8f});
+  node["shop"="mall"](around:7000,{lat:.8f},{lon:.8f});
+  way["shop"="mall"](around:7000,{lat:.8f},{lon:.8f});
+  node["highway"="pedestrian"](around:7000,{lat:.8f},{lon:.8f});
+  way["highway"="pedestrian"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="theatre"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="theatre"](around:7000,{lat:.8f},{lon:.8f});
+  node["leisure"="swimming_pool"](around:7000,{lat:.8f},{lon:.8f});
+  way["leisure"="swimming_pool"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="doctors"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="doctors"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="clinic"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="clinic"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="hospital"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="hospital"](around:7000,{lat:.8f},{lon:.8f});
   node["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
   way["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
 );
@@ -4400,8 +4422,24 @@ out center tags;
             metric_key, name_key = "nearest_supermarket_m", "nearest_supermarket_name"
         elif tags.get("amenity") == "pharmacy":
             metric_key, name_key = "nearest_pharmacy_m", "nearest_pharmacy_name"
+        elif tags.get("amenity") == "library":
+            metric_key, name_key = "nearest_library_m", "nearest_library_name"
         elif tags.get("leisure") == "playground":
             metric_key, name_key = "nearest_playground_m", "nearest_playground_name"
+        elif tags.get("shop") in {"doityourself", "hardware"}:
+            metric_key, name_key = "nearest_hardware_store_m", "nearest_hardware_store_name"
+        elif tags.get("amenity") == "marketplace":
+            metric_key, name_key = "nearest_market_m", "nearest_market_name"
+        elif tags.get("shop") == "mall":
+            metric_key, name_key = "nearest_shopping_center_m", "nearest_shopping_center_name"
+        elif tags.get("highway") == "pedestrian":
+            metric_key, name_key = "nearest_shopping_street_m", "nearest_shopping_street_name"
+        elif tags.get("amenity") == "theatre":
+            metric_key, name_key = "nearest_theatre_m", "nearest_theatre_name"
+        elif tags.get("leisure") == "swimming_pool":
+            metric_key, name_key = "nearest_public_pool_m", "nearest_public_pool_name"
+        elif tags.get("amenity") in {"doctors", "clinic", "hospital"}:
+            metric_key, name_key = "nearest_medical_care_m", "nearest_medical_care_name"
         elif str(tags.get("brand") or "").strip().lower() == "starbucks" or "starbucks" in str(tags.get("name") or "").strip().lower():
             metric_key, name_key = "nearest_starbucks_m", "nearest_starbucks_name"
         elif tags.get("leisure") == "fitness_centre" or tags.get("amenity") == "gym" or tags.get("sport") == "fitness":
@@ -4429,6 +4467,91 @@ out center tags;
         result[f"{prefix}_lat"] = value[2]
         result[f"{prefix}_lng"] = value[3]
     return result
+
+
+def _property_point_looks_like_austria(lat: float, lon: float) -> bool:
+    return 46.0 <= float(lat) <= 49.5 and 9.0 <= float(lon) <= 17.5
+
+
+def _property_official_risk_evidence(
+    *,
+    lat: float,
+    lon: float,
+    facts: dict[str, object] | None = None,
+) -> dict[str, object]:
+    if not _property_point_looks_like_austria(lat, lon):
+        return {}
+    payload = dict(facts or {})
+    postal_name = str(payload.get("postal_name") or "").strip().lower()
+    is_vienna = "wien" in postal_name or "vienna" in postal_name
+    sources = [
+        {
+            "risk_key": "air_quality_risk",
+            "label": "Air quality",
+            "provider": "data.gv.at / Umweltbundesamt" if not is_vienna else "data.gv.at / Stadt Wien",
+            "source_label": "Luftgütemessungen u. meteorologische Messungen" if not is_vienna else "Luftmessnetz: aktuelle Messdaten Wien",
+            "source_url": "https://www.data.gv.at/datasets/f2be2752-14cb-47c6-913e-d6fdf26771e0?locale=de" if not is_vienna else "https://www.data.gv.at/datasets/d9ae1245-158e-4d79-86a4-2d9b3defbedc?locale=de",
+            "availability": "official_dataset",
+            "verification_state": "flagged" if bool(payload.get("air_quality_risk")) else "needs_review",
+            "summary": "Official Austrian air-quality measurements should anchor the pollution read for this micro-location.",
+        },
+        {
+            "risk_key": "crime_risk",
+            "label": "Crime burden",
+            "provider": "data.gv.at / amtliche Statistik",
+            "source_label": "Amtliche Statistiken - Kriminalität",
+            "source_url": "https://www.data.gv.at/datasets/76d09d69-4258-49e3-88ea-d87668fc30d2?locale=de",
+            "availability": "official_dataset",
+            "verification_state": "flagged" if bool(payload.get("crime_risk")) else "needs_review",
+            "summary": "Official crime statistics should be checked before treating quarter-level safety as solved.",
+        },
+        {
+            "risk_key": "drinking_water_risk",
+            "label": "Water source and groundwater burden",
+            "provider": "data.gv.at / BMLUK",
+            "source_label": "Grundwasser Aktuell Österreich",
+            "source_url": "https://www.data.gv.at/datasets/36b90f02-0f6b-4e94-8d22-d5ba9ac8530b?locale=de",
+            "availability": "official_dataset",
+            "verification_state": "flagged" if bool(payload.get("drinking_water_risk")) else "needs_review",
+            "summary": "Groundwater and water-source evidence should come from the federal monitoring datasets, not only listing copy.",
+        },
+        {
+            "risk_key": "flood_risk",
+            "label": "Flood exposure",
+            "provider": "data.gv.at / Hochwasserrichtlinie",
+            "source_label": "Überflutungsflächen HQ30, HWRL",
+            "source_url": "https://www.data.gv.at/datasets/84372374-996a-4d7c-a7ee-9b063d9a7282?locale=de",
+            "availability": "official_dataset",
+            "verification_state": "flagged" if bool(payload.get("flood_risk")) else "needs_review",
+            "summary": "Historic flood and runoff checks should use the official HQ30/HWRL flood-zone datasets.",
+        },
+        {
+            "risk_key": "parking_pressure_risk",
+            "label": "Parking pressure",
+            "provider": "municipal parking data",
+            "source_label": "Municipal parking-regulation evidence required",
+            "source_url": "",
+            "availability": "municipal_gap",
+            "verification_state": "flagged" if bool(payload.get("parking_pressure_risk")) else "source_gap",
+            "summary": "There is no shared national parking-pressure dataset here yet; this still needs a municipality-specific street-parking source.",
+        },
+        {
+            "risk_key": "winter_access_risk",
+            "label": "Winter access",
+            "provider": "official weather / municipal winter-service",
+            "source_label": "Geosphere or municipal winter-service evidence required",
+            "source_url": "https://www.geosphere.at/",
+            "availability": "partial_official",
+            "verification_state": "flagged" if bool(payload.get("winter_access_risk")) else "source_gap",
+            "summary": "Winter driveability still needs an official weather and municipality-specific access source, not only terrain heuristics.",
+        },
+    ]
+    return {
+        "country_code": "AT",
+        "source_count": len(sources),
+        "updated_at": _now_iso(),
+        "sources": sources,
+    }
 
 
 @lru_cache(maxsize=128)
@@ -4472,6 +4595,9 @@ def _property_source_research_snapshot(property_url: str, image_urls: tuple[str,
             if display_name:
                 findings["exact_address"] = display_name
             findings.update(_property_research_nearby_pois(lat, lon))
+            official_evidence = _property_official_risk_evidence(lat=lat, lon=lon, facts=findings)
+            if official_evidence:
+                findings["official_risk_evidence"] = official_evidence
         except ValueError:
             pass
 
@@ -4489,6 +4615,14 @@ def _property_source_research_snapshot(property_url: str, image_urls: tuple[str,
         findings["building_units"] = 8
     if "tiefgaragenstellplatz" in lowered or "underground parking space" in lowered:
         findings["garage"] = True
+    if any(marker in lowered for marker in ("senkgrube", "septic", "kleinkläranlage")):
+        findings["cesspit_risk"] = True
+    if any(marker in lowered for marker in ("grundwasser", "groundwater contamination", "nitratbelastung")):
+        findings["drinking_water_risk"] = True
+    if any(marker in lowered for marker in ("hochwasser", "flood zone", "überschwemmung", "ueberschwemmung")):
+        findings["flood_risk"] = True
+    if any(marker in lowered for marker in ("steile zufahrt", "schneeketten", "winterdienst", "steep access road")):
+        findings["winter_access_risk"] = True
     if "5 jahre befristetes mietverhältnis" in lowered or "up to 5 years duration" in lowered:
         findings["lease_term_years_max"] = 5
     if "neuwertig" in lowered:
@@ -6578,6 +6712,14 @@ def _property_alert_upstream_personalization(
     nearest_supermarket = _float_or_none(facts.get("nearest_supermarket_m"))
     nearest_pharmacy = _float_or_none(facts.get("nearest_pharmacy_m"))
     nearest_playground = _float_or_none(facts.get("nearest_playground_m"))
+    nearest_library = _float_or_none(facts.get("nearest_library_m"))
+    nearest_market = _float_or_none(facts.get("nearest_market_m"))
+    nearest_hardware_store = _float_or_none(facts.get("nearest_hardware_store_m"))
+    nearest_shopping_street = _float_or_none(facts.get("nearest_shopping_street_m"))
+    nearest_shopping_center = _float_or_none(facts.get("nearest_shopping_center_m"))
+    nearest_public_pool = _float_or_none(facts.get("nearest_public_pool_m"))
+    nearest_theatre = _float_or_none(facts.get("nearest_theatre_m"))
+    nearest_medical_care = _float_or_none(facts.get("nearest_medical_care_m"))
     nearest_starbucks = _float_or_none(facts.get("nearest_starbucks_m"))
     nearest_fitness_center = _float_or_none(facts.get("nearest_fitness_center_m"))
     lease_term_years = _float_or_none(facts.get("lease_term_years_max"))
@@ -6683,6 +6825,58 @@ def _property_alert_upstream_personalization(
                 score_delta += 2.5
             elif isinstance(nearest_playground, float) and nearest_playground > 500.0:
                 conflicts.append(f"Playground access is about {int(nearest_playground)} m away, which is weaker than you usually want.")
+                score_delta -= 3.0
+        elif key == "prefer_libraries_nearby" and bool(value):
+            learned_axes.append("library_access")
+            if isinstance(nearest_library, float) and nearest_library <= 700.0:
+                matches.append(f"Library access is about {int(nearest_library)} m away, which supports family and study routines.")
+                score_delta += 2.5
+            elif isinstance(nearest_library, float) and nearest_library > 1300.0:
+                conflicts.append(f"Library access is about {int(nearest_library)} m away, which is weaker than you usually want.")
+                score_delta -= 3.0
+        elif key == "prefer_markets_nearby" and bool(value):
+            learned_axes.append("market_access")
+            if isinstance(nearest_market, float) and nearest_market <= 900.0:
+                matches.append(f"Market access is about {int(nearest_market)} m away, which supports everyday district life.")
+                score_delta += 2.0
+            elif isinstance(nearest_market, float) and nearest_market > 1800.0:
+                conflicts.append(f"Market access is about {int(nearest_market)} m away, which is weaker than you usually want.")
+                score_delta -= 2.5
+        elif key == "prefer_hardware_store_nearby" and bool(value):
+            learned_axes.append("hardware_access")
+            if isinstance(nearest_hardware_store, float) and nearest_hardware_store <= 1800.0:
+                matches.append(f"Baumarkt access is about {int(nearest_hardware_store)} m away, which helps renovation and daily practical errands.")
+                score_delta += 1.8
+            elif isinstance(nearest_hardware_store, float) and nearest_hardware_store > 3500.0:
+                conflicts.append(f"Baumarkt access is about {int(nearest_hardware_store)} m away, which weakens practical access.")
+                score_delta -= 2.0
+        elif key == "prefer_shopping_street_nearby" and bool(value):
+            learned_axes.append("shopping_street_access")
+            if isinstance(nearest_shopping_street, float) and nearest_shopping_street <= 1000.0:
+                matches.append(f"Promenade or shopping-street access is about {int(nearest_shopping_street)} m away.")
+                score_delta += 1.5
+        elif key == "prefer_shopping_center_nearby" and bool(value):
+            learned_axes.append("shopping_center_access")
+            if isinstance(nearest_shopping_center, float) and nearest_shopping_center <= 1800.0:
+                matches.append(f"Shopping-center access is about {int(nearest_shopping_center)} m away.")
+                score_delta += 1.5
+        elif key == "prefer_public_pool_nearby" and bool(value):
+            learned_axes.append("public_pool_access")
+            if isinstance(nearest_public_pool, float) and nearest_public_pool <= 1600.0:
+                matches.append(f"Public-pool access is about {int(nearest_public_pool)} m away.")
+                score_delta += 1.8
+        elif key == "prefer_theatre_nearby" and bool(value):
+            learned_axes.append("theatre_access")
+            if isinstance(nearest_theatre, float) and nearest_theatre <= 1800.0:
+                matches.append(f"Theatre access is about {int(nearest_theatre)} m away.")
+                score_delta += 1.5
+        elif key == "prefer_medical_care_nearby" and bool(value):
+            learned_axes.append("medical_care_access")
+            if isinstance(nearest_medical_care, float) and nearest_medical_care <= 1200.0:
+                matches.append(f"Medical-care access is about {int(nearest_medical_care)} m away, which supports resilience and family logistics.")
+                score_delta += 2.5
+            elif isinstance(nearest_medical_care, float) and nearest_medical_care > 2500.0:
+                conflicts.append(f"Medical-care access is about {int(nearest_medical_care)} m away, which is weaker than you usually want.")
                 score_delta -= 3.0
         elif key == "prefer_unlimited_lease" and bool(value):
             learned_axes.append("lease_stability")
@@ -6928,7 +7122,17 @@ _PROPERTY_FEEDBACK_REASON_LIBRARY: tuple[dict[str, object], ...] = (
     {"key": "supermarket_too_far", "sentiment": "negative", "label": "Supermarket too far", "category": "location"},
     {"key": "pharmacy_too_far", "sentiment": "negative", "label": "Pharmacy too far", "category": "location"},
     {"key": "playground_too_far", "sentiment": "negative", "label": "Playground too far", "category": "location"},
+    {"key": "library_too_far", "sentiment": "negative", "label": "Library too far", "category": "location"},
+    {"key": "medical_care_too_far", "sentiment": "negative", "label": "Medical care too far", "category": "location"},
+    {"key": "market_too_far", "sentiment": "negative", "label": "Market too far", "category": "location"},
+    {"key": "hardware_store_too_far", "sentiment": "negative", "label": "Baumarkt too far", "category": "location"},
+    {"key": "shopping_street_too_far", "sentiment": "negative", "label": "Flaniermeile too far", "category": "location"},
+    {"key": "shopping_center_too_far", "sentiment": "negative", "label": "Shopping center too far", "category": "location"},
+    {"key": "public_pool_too_far", "sentiment": "negative", "label": "Public pool too far", "category": "location"},
+    {"key": "theatre_too_far", "sentiment": "negative", "label": "Theatre too far", "category": "location"},
     {"key": "transit_strong", "sentiment": "positive", "label": "Transit is strong", "category": "location"},
+    {"key": "library_strong", "sentiment": "positive", "label": "Library access is strong", "category": "family"},
+    {"key": "medical_care_strong", "sentiment": "positive", "label": "Medical care is strong", "category": "family"},
     {"key": "gas_heating", "sentiment": "negative", "label": "Gas heating", "category": "building"},
     {"key": "no_lift", "sentiment": "negative", "label": "No lift", "category": "building"},
     {"key": "lift_good", "sentiment": "positive", "label": "Lift is useful", "category": "building"},
@@ -6941,6 +7145,13 @@ _PROPERTY_FEEDBACK_REASON_LIBRARY: tuple[dict[str, object], ...] = (
     {"key": "outdoor_space_strong", "sentiment": "positive", "label": "Outdoor space is strong", "category": "amenity"},
     {"key": "bike_access_weak", "sentiment": "negative", "label": "Bike access weak", "category": "lifestyle"},
     {"key": "green_access_weak", "sentiment": "negative", "label": "Green access weak", "category": "lifestyle"},
+    {"key": "air_quality_risk", "sentiment": "negative", "label": "Air-quality risk", "category": "risk"},
+    {"key": "crime_risk", "sentiment": "negative", "label": "Crime burden risk", "category": "risk"},
+    {"key": "parking_pressure_risk", "sentiment": "negative", "label": "Parking-pressure risk", "category": "risk"},
+    {"key": "drinking_water_risk", "sentiment": "negative", "label": "Water-quality risk", "category": "risk"},
+    {"key": "cesspit_risk", "sentiment": "negative", "label": "Senkgrube or septic risk", "category": "risk"},
+    {"key": "winter_access_risk", "sentiment": "negative", "label": "Winter-access risk", "category": "risk"},
+    {"key": "flood_risk", "sentiment": "negative", "label": "Flood risk", "category": "risk"},
     {"key": "family_fit_strong", "sentiment": "positive", "label": "Family fit is strong", "category": "family"},
     {"key": "style_not_right", "sentiment": "negative", "label": "Style not right", "category": "taste"},
     {"key": "bright", "sentiment": "positive", "label": "Feels bright", "category": "taste"},
@@ -6969,6 +7180,12 @@ def _property_feedback_reason_agent_question(reason_key: str, *, property_facts:
         "supermarket_too_far": "Which grocery options are realistically walkable from the property?",
         "pharmacy_too_far": "Which pharmacy is the nearest practical option and how long is the walk?",
         "playground_too_far": "Which playgrounds or family amenities are the nearest everyday options?",
+        "library_too_far": "Which library or Bücherei is the nearest practical option for children, study, or errands?",
+        "medical_care_too_far": "Which doctors, clinics, or hospitals are the nearest realistic care options from this address?",
+        "market_too_far": "Which market is realistically used from this address and how often is it practical on foot?",
+        "hardware_store_too_far": "Which Baumarkt or DIY store is the nearest practical option and how easy is the trip?",
+        "shopping_street_too_far": "Which pedestrian shopping street or promenade is realistically used from this address?",
+        "shopping_center_too_far": "Which shopping center is the nearest bad-weather fallback for everyday errands?",
         "gas_heating": "Can you confirm the heating source and share the latest energy certificate?",
         "no_lift": "Can you confirm the exact floor, lift access, and whether there are any planned accessibility upgrades?",
         "weak_floorplan": "Can you send the floorplan with room dimensions and indicate the room orientation?",
@@ -6977,6 +7194,13 @@ def _property_feedback_reason_agent_question(reason_key: str, *, property_facts:
         "outdoor_space_weak": "Can you confirm whether there is any balcony, terrace, courtyard, or shared outdoor access?",
         "bike_access_weak": "How practical is bike storage and what is the nearest protected cycling access?",
         "green_access_weak": "What are the nearest green or running routes people realistically use from this address?",
+        "air_quality_risk": "What is known about local air-quality burden, traffic emissions, and recurring pollution exposure here?",
+        "crime_risk": "Are there any known safety or crime-pattern issues around the immediate micro-location?",
+        "parking_pressure_risk": "Without a garage, how difficult is street parking at normal evening hours and what paid-parking burden exists?",
+        "drinking_water_risk": "Can you clarify the drinking-water source and whether groundwater quality or burden is a known issue here?",
+        "cesspit_risk": "Can you confirm whether the property depends on a Senkgrube or septic system and what recurring costs or smell issues exist?",
+        "winter_access_risk": "How reliable is winter access in snow or ice, especially for steeper or more remote approach roads?",
+        "flood_risk": "Has the immediate area seen flooding or runoff issues in recent decades and is there any formal flood-zone exposure?",
         "style_not_right": "Are there more current interior photos or a recent walkthrough that shows the real condition more clearly?",
         "kitchen_bad": "Can you share newer kitchen photos, appliance details, and any planned replacement timeline?",
         "bathroom_bad": "Can you share updated bathroom photos and confirm renovation age and condition?",
@@ -7064,6 +7288,245 @@ def _property_feedback_decision_consequences() -> list[str]:
     ]
 
 
+def _property_decision_copilot_mode(question: str) -> str:
+    normalized = str(question or "").strip().lower()
+    if any(token in normalized for token in ("what changed", "changed", "last time", "new since", "update")):
+        return "change_log"
+    if any(token in normalized for token in ("ask agent", "agent", "follow up", "follow-up", "question")):
+        return "ask_agent"
+    if any(token in normalized for token in ("investment", "yield", "underwriting", "capex", "risk", "return")):
+        return "investment"
+    if any(token in normalized for token in ("reject", "rejected", "why no", "why did", "jonas", "anna", "household", "family")):
+        return "household"
+    if any(token in normalized for token in ("pass the brief", "unlock", "make this pass", "what would help", "counterfactual")):
+        return "unlock"
+    if any(token in normalized for token in ("why", "maybe", "only maybe", "not yes", "not shortlisted")):
+        return "decision"
+    return "decision"
+
+
+def _property_decision_copilot_answer(
+    *,
+    question: str,
+    property_title: str,
+    property_url: str,
+    property_facts: dict[str, object],
+    assessment: dict[str, object],
+    feedback_summary: dict[str, object] | None = None,
+    timeline_rows: list[dict[str, object]] | None = None,
+    change_rows: list[dict[str, object]] | None = None,
+    investment_context: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    facts = dict(property_facts or {})
+    assessment_json = dict(assessment or {})
+    summary = dict(feedback_summary or {})
+    timeline = [dict(row) for row in list(timeline_rows or []) if isinstance(row, dict)]
+    changes = [dict(row) for row in list(change_rows or []) if isinstance(row, dict)]
+    investment_rows = [dict(row) for row in list(investment_context or []) if isinstance(row, dict)]
+    mode = _property_decision_copilot_mode(question)
+    suggestions = _property_feedback_suggestion_groups(property_facts=facts, assessment=assessment_json)
+    negative = [dict(row) for row in list(suggestions.get("negative") or []) if isinstance(row, dict)]
+    positive = [dict(row) for row in list(suggestions.get("positive") or []) if isinstance(row, dict)]
+    agent_questions = [dict(row) for row in list(suggestions.get("agent_questions") or []) if isinstance(row, dict)]
+    evidence: list[dict[str, str]] = []
+    actions: list[dict[str, str]] = []
+    fit_reasons = [compact_text(item, fallback="", limit=220) for item in list(assessment_json.get("match_reasons_json") or [])]
+    fit_reasons = [item for item in fit_reasons if item]
+    mismatch_reasons = [compact_text(item, fallback="", limit=220) for item in list(assessment_json.get("mismatch_reasons_json") or [])]
+    mismatch_reasons = [item for item in mismatch_reasons if item]
+    property_label = compact_text(property_title, fallback="", limit=120) or compact_text(facts.get("headline") or facts.get("title"), fallback="this property", limit=120)
+
+    if mode == "change_log":
+        answer = "The latest visible change is the packet and feedback state, not a fresh ranking shift yet."
+        for row in changes[:3]:
+            evidence.append(
+                {
+                    "title": compact_text(row.get("summary") or row.get("change_type"), fallback="Change", limit=80),
+                    "detail": compact_text(row.get("detail"), fallback="Property state changed.", limit=240),
+                    "confidence": "High",
+                    "source": "timeline",
+                }
+            )
+        for row in timeline[:2]:
+            evidence.append(
+                {
+                    "title": compact_text(row.get("event_type"), fallback="Timeline", limit=80).replace("_", " ").title(),
+                    "detail": compact_text(row.get("summary"), fallback="Timeline event recorded.", limit=240),
+                    "confidence": "Medium",
+                    "source": "packet",
+                }
+            )
+        actions.append({"label": "Open review packet", "action": "open_packet", "href": compact_text(property_url, fallback="", limit=2000)})
+    elif mode == "ask_agent":
+        primary = agent_questions[:3]
+        answer = "The next strongest agent brief is driven by your blockers and the missing facts still open on this property."
+        if mismatch_reasons:
+            evidence.append(
+                {
+                    "title": "Current blocker",
+                    "detail": mismatch_reasons[0],
+                    "confidence": "High",
+                    "source": "ranking",
+                }
+            )
+        for index, row in enumerate(primary):
+            evidence.append(
+                {
+                    "title": f"Question {index + 1}",
+                    "detail": compact_text(row.get("question"), fallback="Clarify the remaining blocker.", limit=240),
+                    "confidence": "High",
+                    "source": "feedback_suggestions",
+                }
+            )
+            actions.append(
+                {
+                    "label": f"Ask agent: {index + 1}",
+                    "action": "ask_agent",
+                    "question": compact_text(row.get("question"), fallback="", limit=240),
+                    "detail": "Write this into the decision timeline as the next follow-up.",
+                }
+            )
+    elif mode == "investment":
+        answer = "The investment read here is still a screening view. Treat the current yield or price signal as provisional until the missing operating facts are confirmed."
+        for row in investment_rows[:4]:
+            evidence.append(
+                {
+                    "title": compact_text(row.get("title"), fallback="Investment", limit=80),
+                    "detail": compact_text(row.get("detail"), fallback="Investment signal pending.", limit=240),
+                    "confidence": "Medium" if "pending" in str(row.get("detail") or "").lower() else "High",
+                    "source": compact_text(row.get("tag"), fallback="investment", limit=40),
+                }
+            )
+        if not evidence:
+            headline = compact_text(assessment_json.get("investment", {}).get("headline"), fallback="", limit=240) if isinstance(assessment_json.get("investment"), dict) else ""
+            evidence.append(
+                {
+                    "title": "Investment posture",
+                    "detail": headline or "Open the packet in investment mode to build the benchmark, yield, and diligence view.",
+                    "confidence": "Low" if not headline else "Medium",
+                    "source": "assessment",
+                }
+            )
+        if negative:
+            first_negative = negative[0]
+            actions.append(
+                {
+                    "label": "Mark main blocker",
+                    "action": "mark_blocker",
+                    "reaction": "dislike",
+                    "reason_key": compact_text(first_negative.get("key"), fallback="", limit=80),
+                    "detail": compact_text(first_negative.get("label"), fallback="Main blocker", limit=160),
+                }
+            )
+    elif mode == "household":
+        alignment = compact_text(summary.get("family_alignment"), fallback="mixed", limit=40)
+        disagreement_count = int(summary.get("disagreement_count") or 0)
+        recent_feedback = [dict(row) for row in list(summary.get("recent_feedback") or []) if isinstance(row, dict)]
+        answer = (
+            f"Household alignment is currently {alignment}. "
+            + ("There is a visible disagreement in the recorded reactions." if disagreement_count else "No direct conflict has been recorded yet.")
+        )
+        for row in recent_feedback[:4]:
+            evidence.append(
+                {
+                    "title": compact_text(row.get("stakeholder_label") or row.get("stakeholder_id"), fallback="Stakeholder", limit=80),
+                    "detail": compact_text(row.get("text") or row.get("category"), fallback="Feedback recorded.", limit=240),
+                    "confidence": "Medium",
+                    "source": compact_text(row.get("category"), fallback="feedback", limit=40),
+                }
+            )
+        for cluster in list(summary.get("clusters") or [])[:2]:
+            if not isinstance(cluster, dict):
+                continue
+            actions.append(
+                {
+                    "label": f"Mark blocker: {compact_text(cluster.get('theme'), fallback='risk', limit=40).replace('_', ' ')}",
+                    "action": "mark_blocker",
+                    "reaction": "dislike",
+                    "detail": compact_text(cluster.get("summary"), fallback="Blocker", limit=160),
+                }
+            )
+    elif mode == "unlock":
+        blocker_labels = [compact_text(row.get("label"), fallback="", limit=160) for row in negative[:3]]
+        blocker_labels = [item for item in blocker_labels if item]
+        answer = (
+            "To make this property pass the brief, remove the strongest blockers or convert the missing facts into verified answers first."
+            if blocker_labels
+            else "This property needs more proof before it can move from maybe to pursue."
+        )
+        for row in negative[:3]:
+            evidence.append(
+                {
+                    "title": compact_text(row.get("label"), fallback="Blocker", limit=80),
+                    "detail": compact_text(row.get("explanation"), fallback="This is currently suppressing the score.", limit=240),
+                    "confidence": "High",
+                    "source": "brief_fit",
+                }
+            )
+        for row in agent_questions[:2]:
+            actions.append(
+                {
+                    "label": "Ask to unlock",
+                    "action": "ask_agent",
+                    "question": compact_text(row.get("question"), fallback="", limit=240),
+                    "detail": "Use this to turn a blocker into a verified fact.",
+                }
+            )
+    else:
+        best_positive = positive[0] if positive else {}
+        main_negative = negative[0] if negative else {}
+        answer = (
+            f"{property_label} is still closer to Maybe than Yes because the best fit signal is "
+            f"{compact_text(best_positive.get('label'), fallback='still generic', limit=80).lower()}, "
+            f"while the main blocker is {compact_text(main_negative.get('label'), fallback='still unresolved evidence', limit=80).lower()}."
+        )
+        if fit_reasons:
+            evidence.append({"title": "Why it survived", "detail": fit_reasons[0], "confidence": "High", "source": "ranking"})
+        elif best_positive:
+            evidence.append({"title": "Best signal", "detail": compact_text(best_positive.get("label"), fallback="Fit signal", limit=200), "confidence": "Medium", "source": "feedback_suggestions"})
+        if mismatch_reasons:
+            evidence.append({"title": "Main blocker", "detail": mismatch_reasons[0], "confidence": "High", "source": "ranking"})
+        elif main_negative:
+            evidence.append({"title": "Main blocker", "detail": compact_text(main_negative.get("label"), fallback="Still unresolved", limit=200), "confidence": "Medium", "source": "feedback_suggestions"})
+        if agent_questions:
+            actions.append(
+                {
+                    "label": "Ask agent next",
+                    "action": "ask_agent",
+                    "question": compact_text(agent_questions[0].get("question"), fallback="", limit=240),
+                    "detail": "Turn the strongest open blocker into a direct follow-up.",
+                }
+            )
+        if main_negative:
+            actions.append(
+                {
+                    "label": "Mark blocker",
+                    "action": "mark_blocker",
+                    "reaction": "dislike",
+                    "reason_key": compact_text(main_negative.get("key"), fallback="", limit=80),
+                    "detail": compact_text(main_negative.get("label"), fallback="Blocker", limit=160),
+                }
+            )
+
+    if property_url:
+        actions.append({"label": "Open review packet", "action": "open_packet", "href": property_url, "detail": "Review the packet or continue the decision flow."})
+    deduped_actions: list[dict[str, str]] = []
+    seen_actions: set[tuple[str, str, str]] = set()
+    for row in actions:
+        key = (str(row.get("action") or ""), str(row.get("question") or ""), str(row.get("reason_key") or ""))
+        if key in seen_actions:
+            continue
+        seen_actions.add(key)
+        deduped_actions.append(row)
+    return {
+        "name": "Clippy",
+        "mode": "property_decision_copilot",
+        "answer": compact_text(answer, fallback="Clippy needs a little more property context to answer that.", limit=480),
+        "evidence": evidence[:5],
+        "actions": deduped_actions[:5],
+    }
+
+
 def _property_feedback_suggestion_groups(
     *,
     property_facts: dict[str, object],
@@ -7084,6 +7547,14 @@ def _property_feedback_suggestion_groups(
     nearest_supermarket = _float_or_none(facts.get("nearest_supermarket_m"))
     nearest_pharmacy = _float_or_none(facts.get("nearest_pharmacy_m"))
     nearest_playground = _float_or_none(facts.get("nearest_playground_m"))
+    nearest_library = _float_or_none(facts.get("nearest_library_m"))
+    nearest_market = _float_or_none(facts.get("nearest_market_m"))
+    nearest_hardware_store = _float_or_none(facts.get("nearest_hardware_store_m"))
+    nearest_shopping_street = _float_or_none(facts.get("nearest_shopping_street_m"))
+    nearest_shopping_center = _float_or_none(facts.get("nearest_shopping_center_m"))
+    nearest_public_pool = _float_or_none(facts.get("nearest_public_pool_m"))
+    nearest_theatre = _float_or_none(facts.get("nearest_theatre_m"))
+    nearest_medical_care = _float_or_none(facts.get("nearest_medical_care_m"))
     nearest_starbucks = _float_or_none(facts.get("nearest_starbucks_m"))
     nearest_fitness_center = _float_or_none(facts.get("nearest_fitness_center_m"))
     nearest_cycleway = _float_or_none(facts.get("nearest_cycleway_m"))
@@ -7119,6 +7590,26 @@ def _property_feedback_suggestion_groups(
         suggestions.append("playground_too_far")
     elif isinstance(nearest_playground, float) and nearest_playground <= 250.0:
         positives.append("family_fit_strong")
+    if isinstance(nearest_library, float) and nearest_library > 1400.0:
+        suggestions.append("library_too_far")
+    elif isinstance(nearest_library, float) and nearest_library <= 700.0:
+        positives.append("library_strong")
+    if isinstance(nearest_market, float) and nearest_market > 1800.0:
+        suggestions.append("market_too_far")
+    if isinstance(nearest_hardware_store, float) and nearest_hardware_store > 3500.0:
+        suggestions.append("hardware_store_too_far")
+    if isinstance(nearest_shopping_street, float) and nearest_shopping_street > 2500.0:
+        suggestions.append("shopping_street_too_far")
+    if isinstance(nearest_shopping_center, float) and nearest_shopping_center > 3200.0:
+        suggestions.append("shopping_center_too_far")
+    if isinstance(nearest_public_pool, float) and nearest_public_pool > 2500.0:
+        suggestions.append("public_pool_too_far")
+    if isinstance(nearest_theatre, float) and nearest_theatre > 2800.0:
+        suggestions.append("theatre_too_far")
+    if isinstance(nearest_medical_care, float) and nearest_medical_care > 2500.0:
+        suggestions.append("medical_care_too_far")
+    elif isinstance(nearest_medical_care, float) and nearest_medical_care <= 1200.0:
+        positives.append("medical_care_strong")
     if isinstance(nearest_cycleway, float) and nearest_cycleway > 700.0:
         suggestions.append("bike_access_weak")
     if isinstance(nearest_running, float) and nearest_running > 900.0:
@@ -7131,6 +7622,20 @@ def _property_feedback_suggestion_groups(
         positives.append("outdoor_space_strong")
     if bool(facts.get("has_360")) or bool(facts.get("source_virtual_tour_url")):
         positives.append("tour_helpful")
+    if bool(facts.get("air_quality_risk")) or bool(facts.get("prefer_good_air_quality")):
+        suggestions.append("air_quality_risk")
+    if bool(facts.get("crime_risk")) or bool(facts.get("prefer_low_crime_area")):
+        suggestions.append("crime_risk")
+    if bool(facts.get("parking_pressure_risk")) or (not bool(facts.get("garage")) and bool(facts.get("require_parking_pressure_check"))):
+        suggestions.append("parking_pressure_risk")
+    if bool(facts.get("drinking_water_risk")) or bool(facts.get("require_drinking_water_quality_research")):
+        suggestions.append("drinking_water_risk")
+    if bool(facts.get("cesspit_risk")) or bool(facts.get("avoid_cesspit_or_septic_risk")):
+        suggestions.append("cesspit_risk")
+    if bool(facts.get("winter_access_risk")) or bool(facts.get("require_winter_access_research")):
+        suggestions.append("winter_access_risk")
+    if bool(facts.get("flood_risk")) or bool(facts.get("avoid_flood_risk_area")):
+        suggestions.append("flood_risk")
 
     if not suggestions:
         suggestions.extend(["location_weak", "style_not_right"])
@@ -7279,6 +7784,78 @@ def _property_feedback_inferred_hints(
                     "value_json": True,
                     "strength": "high" if normalized == "playground_too_far" else "medium",
                     "confidence": 0.88,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized in {"library_too_far", "library_strong"}:
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_libraries_nearby",
+                    "value_json": True,
+                    "strength": "high" if normalized == "library_too_far" else "medium",
+                    "confidence": 0.86,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "market_too_far":
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_markets_nearby",
+                    "value_json": True,
+                    "strength": "medium",
+                    "confidence": 0.8,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "hardware_store_too_far":
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_hardware_store_nearby",
+                    "value_json": True,
+                    "strength": "medium",
+                    "confidence": 0.78,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized in {"medical_care_too_far", "medical_care_strong"}:
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_medical_care_nearby",
+                    "value_json": True,
+                    "strength": "high" if normalized == "medical_care_too_far" else "medium",
+                    "confidence": 0.84,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "air_quality_risk":
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_good_air_quality",
+                    "value_json": True,
+                    "strength": "high",
+                    "confidence": 0.9,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "crime_risk":
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_low_crime_area",
+                    "value_json": True,
+                    "strength": "high",
+                    "confidence": 0.9,
                     "source_mode": source_mode,
                 }
             )
@@ -7811,6 +8388,14 @@ def _property_tour_delivery_message(
         ("nearest_transit_m", "Transit"),
         ("nearest_supermarket_m", "Supermarket"),
         ("nearest_pharmacy_m", "Pharmacy"),
+        ("nearest_library_m", "Library"),
+        ("nearest_medical_care_m", "Medical care"),
+        ("nearest_market_m", "Market"),
+        ("nearest_hardware_store_m", "Baumarkt"),
+        ("nearest_shopping_street_m", "Flaniermeile"),
+        ("nearest_shopping_center_m", "Shopping center"),
+        ("nearest_theatre_m", "Theatre"),
+        ("nearest_public_pool_m", "Public pool"),
         ("nearest_bakery_m", "Bakery"),
         ("nearest_starbucks_m", "Starbucks"),
         ("nearest_fitness_center_m", "Fitness"),
@@ -11033,6 +11618,10 @@ class ProductService:
             "floorplan": ("soft_preference", "requires_floorplan_for_remote_review"),
             "tour_360": ("soft_preference", "prefer_360_for_remote_review"),
             "playground": ("soft_preference", "prefer_playgrounds_nearby"),
+            "library": ("soft_preference", "prefer_libraries_nearby"),
+            "market": ("soft_preference", "prefer_markets_nearby"),
+            "hardware": ("soft_preference", "prefer_hardware_store_nearby"),
+            "medical": ("soft_preference", "prefer_medical_care_nearby"),
             "subway": ("soft_preference", "prefer_subway_nearby"),
             "quiet": ("soft_preference", "prefer_quiet_micro_location"),
         }
@@ -11325,6 +11914,31 @@ class ProductService:
                 "preference_nodes": list(profile_bundle.get("preference_nodes") or []),
             },
         }
+
+    def property_decision_copilot(
+        self,
+        *,
+        question: str,
+        property_title: str = "",
+        property_url: str = "",
+        property_facts: dict[str, object] | None = None,
+        assessment: dict[str, object] | None = None,
+        feedback_summary: dict[str, object] | None = None,
+        timeline_rows: list[dict[str, object]] | None = None,
+        change_rows: list[dict[str, object]] | None = None,
+        investment_context: list[dict[str, object]] | None = None,
+    ) -> dict[str, object]:
+        return _property_decision_copilot_answer(
+            question=question,
+            property_title=property_title,
+            property_url=property_url,
+            property_facts=dict(property_facts or {}),
+            assessment=dict(assessment or {}),
+            feedback_summary=dict(feedback_summary or {}),
+            timeline_rows=list(timeline_rows or []),
+            change_rows=list(change_rows or []),
+            investment_context=list(investment_context or []),
+        )
 
     def preference_teable_projection_records(
         self,
@@ -20213,6 +20827,8 @@ class ProductService:
                 "max_distance_to_good_cafe_m",
             ):
                 request_preferences.pop(numeric_key, None)
+        if not enable_family_mode:
+            request_preferences.pop("max_distance_to_library_m", None)
 
         specs = [
             dict(spec)
@@ -20830,6 +21446,64 @@ class ProductService:
                             steps_delta=0,
                         )
                         continue
+                max_distance_to_library_m = int(request_preferences.get("max_distance_to_library_m") or 0) if enable_family_mode else 0
+                if enable_family_mode and max_distance_to_library_m > 0:
+                    try:
+                        nearest_library_m = float(detailed_facts.get("nearest_library_m") or 0.0)
+                    except Exception:
+                        nearest_library_m = 0.0
+                    if nearest_library_m <= 0.0 or nearest_library_m > float(max_distance_to_library_m):
+                        _report(
+                            step="source_family_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the library radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
+                for preference_key, fact_key, label, report_step in (
+                    ("max_distance_to_market_m", "nearest_market_m", "market", "source_location_filter"),
+                    ("max_distance_to_hardware_store_m", "nearest_hardware_store_m", "Baumarkt", "source_location_filter"),
+                    ("max_distance_to_shopping_center_m", "nearest_shopping_center_m", "shopping-center", "source_location_filter"),
+                    ("max_distance_to_shopping_street_m", "nearest_shopping_street_m", "shopping-street", "source_location_filter"),
+                    ("max_distance_to_theatre_m", "nearest_theatre_m", "theatre", "source_location_filter"),
+                    ("max_distance_to_public_pool_m", "nearest_public_pool_m", "public-pool", "source_location_filter"),
+                    ("max_distance_to_medical_care_m", "nearest_medical_care_m", "medical-care", "source_location_filter"),
+                ):
+                    limit_m = int(request_preferences.get(preference_key) or 0)
+                    if limit_m <= 0:
+                        continue
+                    try:
+                        actual_m = float(detailed_facts.get(fact_key) or 0.0)
+                    except Exception:
+                        actual_m = 0.0
+                    if actual_m <= 0.0 or actual_m > float(limit_m):
+                        _report(
+                            step=report_step,
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the {label} radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        break
+                else:
+                    pass
+                if any(
+                    int(request_preferences.get(preference_key) or 0) > 0
+                    and (
+                        not isinstance(detailed_facts.get(fact_key), (int, float))
+                        or float(detailed_facts.get(fact_key) or 0.0) <= 0.0
+                        or float(detailed_facts.get(fact_key) or 0.0) > float(int(request_preferences.get(preference_key) or 0))
+                    )
+                    for preference_key, fact_key in (
+                        ("max_distance_to_market_m", "nearest_market_m"),
+                        ("max_distance_to_hardware_store_m", "nearest_hardware_store_m"),
+                        ("max_distance_to_shopping_center_m", "nearest_shopping_center_m"),
+                        ("max_distance_to_shopping_street_m", "nearest_shopping_street_m"),
+                        ("max_distance_to_theatre_m", "nearest_theatre_m"),
+                        ("max_distance_to_public_pool_m", "nearest_public_pool_m"),
+                        ("max_distance_to_medical_care_m", "nearest_medical_care_m"),
+                    )
+                ):
+                    continue
                 if require_floorplan and not _property_candidate_has_floorplan(
                     property_url=property_url,
                     title=detailed_title,

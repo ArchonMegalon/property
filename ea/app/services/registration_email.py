@@ -201,15 +201,69 @@ def _html_link(*, href: object, label: object) -> str:
     return f'<a href="{_html_escape(url)}" style="{_EMAIL_LINK_STYLE}">{_html_escape(text)}</a>'
 
 
-def _html_email_shell(*, title: str, body_html: str) -> str:
+def _html_email_shell(*, title: str, body_html: str, preheader: str = "") -> str:
+    preheader_html = (
+        f'<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">{_html_escape(preheader)}</div>'
+        if str(preheader or "").strip()
+        else ""
+    )
     return (
         '<!doctype html><html><body style="margin:0;padding:0;background:#f6f3ee;'
         'font-family:Arial,Helvetica,sans-serif;color:#191714;">'
+        f"{preheader_html}"
         '<div style="max-width:760px;margin:0 auto;padding:24px;">'
         '<div style="border:1px solid #ded6c8;border-radius:10px;background:#fffdf8;padding:20px;">'
         f'<h1 style="margin:0 0 14px;font-size:22px;line-height:1.2;">{_html_escape(title)}</h1>'
         f"{body_html}"
         "</div></div></body></html>"
+    )
+
+
+def _workspace_email_shell(
+    *,
+    eyebrow: str,
+    title: str,
+    summary: str,
+    primary_label: str,
+    primary_href: str,
+    detail_rows: list[tuple[str, str]] | None = None,
+    secondary_label: str = "",
+    secondary_href: str = "",
+    preheader: str = "",
+) -> str:
+    details = list(detail_rows or [])
+    details_html = "".join(
+        "<tr>"
+        f'<td style="padding:8px 10px 8px 0;color:#6c675f;font-size:12px;white-space:nowrap;border-top:1px solid #ece4d8;">{_html_escape(label)}</td>'
+        f'<td style="padding:8px 0;color:#242321;font-size:13px;border-top:1px solid #ece4d8;">{_html_escape(value)}</td>'
+        "</tr>"
+        for label, value in details
+        if str(label or "").strip() and str(value or "").strip()
+    )
+    actions = []
+    if str(primary_href or "").strip():
+        actions.append(
+            f'<a href="{_html_escape(primary_href)}" style="display:inline-block;padding:12px 16px;border-radius:999px;background:#276b53;color:#fffdf8;text-decoration:none;font-weight:700;">{_html_escape(primary_label)}</a>'
+        )
+    if str(secondary_href or "").strip():
+        actions.append(
+            f'<a href="{_html_escape(secondary_href)}" style="display:inline-block;padding:12px 16px;border-radius:999px;border:1px solid #d7c7ad;color:#1f1d19;text-decoration:none;font-weight:700;">{_html_escape(secondary_label)}</a>'
+        )
+    return _html_email_shell(
+        title=title,
+        preheader=preheader,
+        body_html=(
+            f'<div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;margin:0 0 10px;">{_html_escape(eyebrow)}</div>'
+            f'<p style="margin:0 0 16px;font-size:15px;line-height:1.65;color:#51493f;">{_html_escape(summary)}</p>'
+            + (
+                '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 18px;">'
+                f"{details_html}</table>"
+                if details_html
+                else ""
+            )
+            + (f'<div style="margin:0 0 14px;">{" &nbsp; ".join(actions)}</div>' if actions else "")
+            + '<p style="margin:0;font-size:13px;line-height:1.6;color:#6c675f;">PropertyQuarry only uses this link to continue the exact workspace flow described above.</p>'
+        ),
     )
 
 
@@ -536,6 +590,20 @@ def send_workspace_invitation_email(
         recipient_email=recipient_email,
         subject=f"{inviter} invited you to PropertyQuarry",
         text="\n".join(body).strip() + "\n",
+        html_body=_workspace_email_shell(
+            eyebrow="Workspace invite",
+            title=f"{inviter} invited you to PropertyQuarry",
+            summary=f"Review the invite, confirm the role, and continue through a secure workspace join link before it expires.",
+            primary_label="Review workspace invite",
+            primary_href=invite_url,
+            detail_rows=[
+                ("Role", role_label),
+                ("Invited by", inviter),
+                ("Expires in", f"about {minutes} minutes"),
+                *([("Message", note_text)] if note_text else []),
+            ],
+            preheader="Review the workspace invite and continue through a secure PropertyQuarry join link.",
+        ),
         kind="ea_workspace_invitation",
         meta={"invite_ref": _meta_ref(invite_url), "role": str(role or "").strip().lower()},
     )
@@ -577,6 +645,20 @@ def send_workspace_access_email(
         recipient_email=recipient_email,
         subject=f"Your access link for {workspace_label}",
         text="\n".join(body).strip() + "\n",
+        html_body=_workspace_email_shell(
+            eyebrow="Workspace access",
+            title=f"Your access link for {workspace_label}",
+            summary="Open the secure link below to return directly into the workspace without restarting the whole sign-in flow.",
+            primary_label="Open access link",
+            primary_href=access_url,
+            detail_rows=[
+                ("Workspace", workspace_label),
+                ("Role", role_label),
+                *([("Identity", display)] if display else []),
+                ("Expires in", f"about {minutes} minutes"),
+            ],
+            preheader="Open your secure PropertyQuarry access link before it expires.",
+        ),
         kind="ea_workspace_access_session",
         meta={
             "access_ref": _meta_ref(access_url),
@@ -632,6 +714,22 @@ def send_google_connect_email(
         recipient_email=recipient_email,
         subject=f"Connect Google to {workspace_label}",
         text="\n".join(body).strip() + "\n",
+        html_body=_workspace_email_shell(
+            eyebrow="Google connection",
+            title=f"Connect Google to {workspace_label}",
+            summary="This secure link returns to the workspace first and then starts the Google consent flow for the requested bundle.",
+            primary_label="Connect Google",
+            primary_href=connect_url,
+            detail_rows=[
+                ("Workspace", workspace_label),
+                ("Bundle", label),
+                *([("Summary", summary)] if summary else []),
+                ("Connected inboxes", str(max(int(connected_account_total or 0), 0))),
+                *([("Primary inbox", primary_email)] if primary_email else []),
+                ("Expires in", f"about {minutes} minutes"),
+            ],
+            preheader="Return to PropertyQuarry and start the Google consent flow from a secure workspace link.",
+        ),
         kind="ea_google_connect_link",
         sender_email=str(os.environ.get("EA_EMAIL_DEFAULT_FROM") or "").strip(),
         sender_name=str(os.environ.get("EA_EMAIL_DEFAULT_NAME") or "").strip(),
@@ -696,10 +794,41 @@ def send_property_tour_email(
             "Open the hosted 360 review first, then continue into the research packet if needed.",
         ]
     )
+    facts_table_html = "".join(
+        "<tr>"
+        f'<td style="padding:8px 10px 8px 0;color:#6c675f;font-size:12px;white-space:nowrap;border-top:1px solid #ece4d8;">{_html_escape(label)}</td>'
+        f'<td style="padding:8px 0;color:#242321;font-size:13px;border-top:1px solid #ece4d8;">{_html_escape(value)}</td>'
+        "</tr>"
+        for label, value in (
+            ("Listing ID", listing_id),
+            ("Area", area_label),
+            ("Rooms", rooms_label),
+            ("Price", price_label),
+        )
+        if str(value or "").strip()
+    )
+    html_body = (
+        '<div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;margin:0 0 10px;">Hosted review</div>'
+        '<p style="margin:0 0 16px;font-size:15px;line-height:1.65;color:#51493f;">PropertyQuarry prepared a hosted 360 review for this property. Open the space first, then continue into the research packet and the decision desk.</p>'
+        f'<p style="margin:0 0 14px;">{_html_link(href=tour_url, label="Open hosted 360")}</p>'
+    )
+    if str(property_url or "").strip():
+        html_body += f'<p style="margin:0 0 14px;">{_html_link(href=property_url, label="Open research packet or listing context")}</p>'
+    if facts_table_html:
+        html_body += (
+            '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:12px 0 0;">'
+            + facts_table_html
+            + "</table>"
+        )
     return _send_emailit_email(
         recipient_email=recipient_email,
         subject=subject[:220],
         text="\n".join(body).strip() + "\n",
+        html_body=_html_email_shell(
+            title=f"Hosted 360 review ready: {title}",
+            preheader="PropertyQuarry prepared a hosted 360 review for this property.",
+            body_html=html_body,
+        ),
         kind="ea_property_tour_delivery",
         meta={
             "tour_ref": _meta_ref(tour_url),
@@ -803,6 +932,15 @@ def send_property_market_ready_email(
         recipient_email=recipient_email,
         subject=f"PropertyQuarry market ready: {label}"[:220],
         text="\n".join(body).strip() + "\n",
+        html_body=_workspace_email_shell(
+            eyebrow="Market ready",
+            title=f"{label} is ready in PropertyQuarry",
+            summary="The market initialization finished and the search desk can now start the first real sweep.",
+            primary_label="Open PropertyQuarry",
+            primary_href=review_url,
+            detail_rows=[("Market", label)],
+            preheader="The market setup is complete and PropertyQuarry is ready for the next search.",
+        ),
         kind="ea_property_market_ready_delivery",
         meta={"market_label": label, "workspace_ref": _meta_ref(review_url)},
         sender_email=sender_email,
@@ -1122,6 +1260,93 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                     '<ul style="margin:0 0 16px;padding-left:20px;"><li>Gross yield: 4.14%</li><li>Net yield: 2.8-3.2%</li><li>Missing documents: operating costs, energy certificate</li></ul>'
                     f'<p style="margin:0;">{_html_link(href="https://propertyquarry.com/app/research/run-42/altbau-u6?investment=1", label="Open investment packet")}</p>'
                 ),
+            ),
+        }
+    if normalized == "workspace_invitation":
+        invite_url = "https://propertyquarry.com/workspace-invites/invite-demo"
+        return {
+            "template_key": normalized,
+            "subject": "Mara invited you to PropertyQuarry",
+            "preheader": "Review the workspace invite and continue through a secure PropertyQuarry join link.",
+            "text": (
+                "Hello,\n\n"
+                "Mara invited you to join a PropertyQuarry workspace as Advisor.\n\n"
+                "Open this secure link to accept the invite:\n\n"
+                f"{invite_url}\n\n"
+                "This link expires in about 60 minutes.\n"
+            ),
+            "html": _workspace_email_shell(
+                eyebrow="Workspace invite",
+                title="Mara invited you to PropertyQuarry",
+                summary="Review the invite, confirm the role, and continue through a secure workspace join link before it expires.",
+                primary_label="Review workspace invite",
+                primary_href=invite_url,
+                detail_rows=[("Role", "Advisor"), ("Invited by", "Mara"), ("Expires in", "about 60 minutes")],
+                preheader="Review the workspace invite and continue through a secure PropertyQuarry join link.",
+            ),
+        }
+    if normalized == "workspace_access":
+        access_url = "https://propertyquarry.com/workspace-access/token-demo"
+        return {
+            "template_key": normalized,
+            "subject": "Your access link for PropertyQuarry Workspace",
+            "preheader": "Open your secure PropertyQuarry access link before it expires.",
+            "text": (
+                "Hello,\n\n"
+                "Open this secure link to return to PropertyQuarry Workspace:\n\n"
+                f"{access_url}\n\n"
+                "This link expires in about 60 minutes.\n"
+            ),
+            "html": _workspace_email_shell(
+                eyebrow="Workspace access",
+                title="Your access link for PropertyQuarry Workspace",
+                summary="Open the secure link below to return directly into the workspace without restarting the whole sign-in flow.",
+                primary_label="Open access link",
+                primary_href=access_url,
+                detail_rows=[("Workspace", "PropertyQuarry Workspace"), ("Role", "Principal"), ("Expires in", "about 60 minutes")],
+                preheader="Open your secure PropertyQuarry access link before it expires.",
+            ),
+        }
+    if normalized == "google_connect":
+        connect_url = "https://propertyquarry.com/workspace-access/token-demo?return_to=%2Fapp%2Factions%2Fgoogle%2Fconnect"
+        return {
+            "template_key": normalized,
+            "subject": "Connect Google to PropertyQuarry Workspace",
+            "preheader": "Return to PropertyQuarry and start the Google consent flow from a secure workspace link.",
+            "text": (
+                "Hello,\n\n"
+                "Open this secure link to connect a Google inbox to PropertyQuarry Workspace:\n\n"
+                f"{connect_url}\n\n"
+                "This link expires in about 60 minutes.\n"
+            ),
+            "html": _workspace_email_shell(
+                eyebrow="Google connection",
+                title="Connect Google to PropertyQuarry Workspace",
+                summary="This secure link returns to the workspace first and then starts the Google consent flow for the requested bundle.",
+                primary_label="Connect Google",
+                primary_href=connect_url,
+                detail_rows=[("Workspace", "PropertyQuarry Workspace"), ("Bundle", "Google Full Workspace"), ("Connected inboxes", "0"), ("Expires in", "about 60 minutes")],
+                preheader="Return to PropertyQuarry and start the Google consent flow from a secure workspace link.",
+            ),
+        }
+    if normalized == "market_ready":
+        return {
+            "template_key": normalized,
+            "subject": "PropertyQuarry market ready: Vienna",
+            "preheader": "The market setup is complete and PropertyQuarry is ready for the next search.",
+            "text": (
+                "Hello,\n\n"
+                "Initialization for Vienna is complete.\n\n"
+                "Your market is now ready in PropertyQuarry. You can start the search now.\n"
+            ),
+            "html": _workspace_email_shell(
+                eyebrow="Market ready",
+                title="Vienna is ready in PropertyQuarry",
+                summary="The market initialization finished and the search desk can now start the first real sweep.",
+                primary_label="Open PropertyQuarry",
+                primary_href="https://propertyquarry.com/app/properties",
+                detail_rows=[("Market", "Vienna")],
+                preheader="The market setup is complete and PropertyQuarry is ready for the next search.",
             ),
         }
     raise ValueError("unsupported_property_notification_preview")
