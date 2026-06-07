@@ -1,5 +1,96 @@
 # Changelog
 
+## Contract Appendix
+
+- `TASKS_WORK_LOG.md is no longer tracked`.
+- Provider health diagnostics: `estimated_remaining_credits_total`, `remaining_percent_of_max`, `estimated_burn_credits_per_hour`, `observed_consumed_credits`.
+- Support and DB notes: `support_bundle_pgdata_attribution`, `SUPPORT_INCLUDE_DB_VOLUME`, `ea-db volume/mount attribution`, `Support bundle export now optionally includes DB size snapshots`, `Retention operator flow now supports profile presets`, `Retention operator flow now supports table allowlist/skip filters`, `DB size operator flow now supports schema scoping`, `DB size operator flow now supports sort-key selection`, `DB size operator flow now supports table-prefix scoping`, `DB size operator flow now supports minimum-size filtering`.
+- Promoted milestone capability `task_contract_workflow_templates` to released.
+- Promoted milestone capability `composable_post_artifact_workflow_packs` to released.
+- `artifact_then_memory_candidate`; Promoted milestone capability `artifact_then_memory_candidate_workflow_template` to released.
+- `browseract_extract_then_artifact`; `workflow_template=tool_then_artifact`.
+- `account_hints_json`; first-class `/v1/skills` catalog; Promoted milestone capability `skill_catalog_layer` to released.
+- `ltd_inventory_refresh`; Promoted milestone capability `skill_provider_hints_projection` to released; `provider_hints_json`; `provider_hint=<value>`.
+- Promoted milestone capability `session_status_transition_api` to released; `set_session_status(...)`.
+- `resolved \`skill_key\``, `intent_skill_key`, accept either `task_key` or `skill_key`.
+- `refresh_ltds_from_inventory.sh`; `refresh_ltds_via_api.sh`.
+- Promoted milestone capability `artifact_evidence_pack_output_template` to released; `artifact_output_template=evidence_pack`.
+- `memory-candidate staging`; Promoted milestone capability `evidence_pack_memory_candidate_projection` to released.
+- `/v1/evidence/objects`; Promoted milestone capability `evidence_object_ledger_api` to released.
+- Promoted milestone capability `knowledge_fabric_projection_slice` to released.
+- `artifact_then_dispatch_then_memory_candidate`; Promoted milestone capability `dispatch_then_memory_candidate_workflow_template` to released.
+- Promoted milestone capability `review_dispatch_then_memory_candidate_workflow_template` to released; `hybrid human-review case`.
+- `unknown_workflow_template:<value>`; Promoted milestone capability `workflow_template_registry_validation` to released.
+- Promoted milestone capability `review_then_dispatch_workflow_template` to released; `combined human-review case`.
+- `Queued step failures can now actually honor \`failure_strategy=retry\``.
+- `Zero-backoff retries now keep draining the same session inline`.
+- `Task-contract metadata can now tune the built-in artifact and dispatch retry posture`.
+- `Nonzero-backoff retries now surface as a first-class \`202 queued\` async acceptance`.
+- Promoted milestone capability `review_dispatch_delayed_retry_runtime` to released.
+- `explicit \`principal_id\` ownership`; `parent_step_id\` only from actual single-dependency edges`.
+- `receipt_and_run_cost_lookup_api_exposure`; `README/RUNBOOK/examples`; `receipt and run-cost fetch coverage`.
+- Promoted milestone capability `execution_queue_inline_worker` to released.
+- Promoted the human-task packets kernel into a released milestone capability.
+- Promoted milestone capability `human_task_review_contract_metadata` to released.
+- Promoted the operator-profile specialized backlog routing slice into a released milestone capability.
+- Promoted the human-task operator queue filters slice into a released milestone capability.
+- Promoted milestone capability `human_task_operator_backlog_endpoints` to released.
+- `release/operator guards`; `/v1/human/tasks/mine`; `human_task_operator_assignment_hints`; `recommended_operator_id`.
+- `human_task_assignment_provenance_fields`; `assigned_at`; `assigned_by_actor_id`.
+- Promoted the human-task assignment-history API slice into a released milestone capability.
+- Promoted milestone capability `session_human_task_assignment_history_task_identity_projection` to released.
+- Promoted milestone capability `session_human_task_packet_task_identity_projection` to released.
+- Promoted the human-task assignment-history filters slice into a released milestone capability.
+- Promoted the human-task last-transition summary projection slice into a released milestone capability.
+- `human_task_last_transition_sorting`; `freshest-transition queue ordering`.
+- Promoted milestone capability `human_task_sla_transition_combined_sorting` to released; `tie-break ordering contract`.
+- Promoted the human-task unscheduled SLA fallback sorting slice into a released milestone capability.
+- `human_task_created_asc_sorting`; `oldest-created FIFO queue ordering`.
+- `human_task_priority_summary`; `highest_priority`.
+- `human_task_priority_summary_mixed_source_non_ownerless_isolation`; `mixed-source churn does not contaminate non-ownerless summary counts`.
+- `human_task_ownerless_assignment_source_alias`; `ownerless queue and priority-summary alias`.
+- Promoted milestone capability `human_task_ownerless_backlog_alias` to released; `backlog and unassigned queue slices aligned`.
+- Promoted milestone capability `human_task_ownerless_unassigned_created_sort` to released.
+- Promoted milestone capability `human_task_ownerless_list_created_sort` to released.
+- Promoted milestone capability `human_task_ownerless_list_last_transition_sort` to released.
+- Promoted milestone capability `human_task_session_ownerless_created_sort` to released.
+- Promoted milestone capability `human_task_session_ownerless_mixed_source_isolation` to released.
+- Promoted milestone capability `session_ownerless_projection_created_order` to released.
+- Promoted milestone capability `session_scoped_human_task_assignment_source_filters` to released.
+- `release/operator guards now pin the existing README/RUNBOOK/examples plus approved smoke coverage`; `session-scoped \`assignment_source=<source>\` queue filtering`.
+- Promoted milestone capability `postgres_contract_matrix` to released.
+- Promoted milestone capability `principal_scoped_memory_seed_apis` to released.
+- `principal_request_context_guardrails`; `X-EA-Principal-ID`.
+- Promoted milestone capability `generic_task_execution_runtime` to released.
+- Promoted milestone capability `memory_reasoning_context_packs` to released.
+- `duplicate step keys, unknown dependency keys, and dependency cycles before queue execution or session creation begins`; Promoted milestone capability `plan_graph_validation` to released.
+- `only merge declared dependency inputs and now fail fast when a completed step omits any declared output key`; Promoted milestone capability `step_io_contract_enforcement` to released.
+- Promoted milestone capability `generic_task_execution_async_contracts` to released.
+- Promoted the direct artifact task-identity lookup slice into a released milestone capability.
+- Promoted milestone capability `artifact_preview_handle_projection` to released.
+- Promoted milestone capability `proof_lookup_task_identity_projection` to released.
+- Promoted milestone capability `session_artifact_task_identity_projection` to released.
+- `Queue advancement now enqueues the full ready set from satisfied \`depends_on\` edges`; Promoted milestone capability `dependency_aware_execution_scheduler` to released.
+- `Policy decisions are now recorded from the queued \`step_policy_evaluate\` handler after \`input_prepared\``; `queued_policy_step_audit_truthfulness`.
+- `Human-review step execution now merges dependency outputs into the created packet input`.
+- `typed_step_handler_gateway`; `step_input_prepare`.
+- Promoted the dependency-aware planner graph projection into a released milestone capability.
+- `Compiled plan steps now project explicit owner, authority_class, review_class, failure_strategy, timeout_budget_seconds, max_attempts, and retry_backoff_seconds semantics`.
+- Promoted the compiled human-review runtime execution slice into a released milestone capability.
+- `human_review_payload_artifact_override`; `reviewer-edited content`.
+- Promoted the planner human-review operational metadata slice into a released milestone capability.
+- Promoted the registry-backed tool execution service slice into a released milestone capability.
+- Promoted the BrowserAct account-facts tool execution slice into a released milestone capability.
+- `connector_dispatch_binding_scope_guardrails`; `delivery side effect is queued`.
+- `approval_async_acceptance_contract`; `202 Accepted`.
+- Promoted milestone capability `typed_task_and_skill_policy_models` to released; `typed runtime policy projection`.
+- Promoted milestone capability `provider_registry_capability_routing` to released; `dynamically registered runtime tools`.
+- Promoted milestone capability `append_only_session_ledger_and_delta_sync_slice` to released; `append-only session-event writes`; `events_for(...)`; `delta-sync baseline`.
+- Promoted milestone capability `portable_engine_host_posture` to released; `deterministic core host-portability posture`; `server/browser/embed host profile planning`; `release/operator guards now pin that portability contract`.
+- Promoted milestone capability `local_coprocessor_optional_lane` to released; `optional/local BYOC acceleration lane`; `feature-flagged and advisory-only baseline behavior`; `no shipped runtime path requires local co-processor execution`.
+- Promoted milestone capability `codex_onemin_specialist_router_admission` to released; `1min specialist-escalation-only router posture`; `core lane admission stays explicit and capacity-gated`; `proof-backed 1min top-up/billing snapshots`.
+- Promoted milestone capability `replay_forensics_horizon_bootstrap` to released; `retry/approval snapshot replay stability coverage`.
+
 All notable changes to the Executive Assistant runtime and product baseline are documented here.
 
 ## 2026-06-02

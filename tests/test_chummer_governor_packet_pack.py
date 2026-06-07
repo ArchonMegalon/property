@@ -78,6 +78,13 @@ def _source_path(row: dict) -> Path:
     return raw_path if raw_path.is_absolute() else ROOT / raw_path
 
 
+def _ea_local_alias(path: Path) -> Path:
+    path_text = path.as_posix()
+    if path_text.startswith("/docker/EA/"):
+        return ROOT / path_text.removeprefix("/docker/EA/")
+    return path
+
+
 def _find_package(queue: dict) -> dict:
     matches = [
         dict(item)
@@ -334,7 +341,7 @@ def test_successor_queue_ea_proof_paths_are_not_stale() -> None:
     assert ea_file_proofs, "queue row should cite EA-local proof artifacts"
     assert all(path.exists() for path in ea_file_proofs)
     assert all(
-        path.relative_to(ROOT).parts[0] in {"docs", "tests", "feedback", "skills"}
+        _ea_local_alias(path).relative_to(ROOT).parts[0] in {"docs", "tests", "feedback", "skills"}
         for path in ea_file_proofs
     )
 
@@ -396,7 +403,7 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
     assert registry_ea_file_proofs, "registry work task should cite EA-local proof artifacts"
     assert all(path.exists() for path in registry_ea_file_proofs)
     assert all(
-        path.relative_to(ROOT).parts[0] in {"docs", "tests", "feedback", "skills"}
+        _ea_local_alias(path).relative_to(ROOT).parts[0] in {"docs", "tests", "feedback", "skills"}
         for path in registry_ea_file_proofs
     )
     assert any(

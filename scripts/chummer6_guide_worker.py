@@ -877,15 +877,16 @@ def apply_visual_overrides_to_media(overrides: dict[str, object]) -> None:
     if not isinstance(media, dict):
         return
     visual_overrides = load_visual_overrides()
-    if not visual_overrides:
-        return
 
     hero = media.get("hero")
     hero_override = visual_overrides.get("assets/hero/chummer6-hero.png")
     if isinstance(hero, dict) and isinstance(hero_override, dict):
         media["hero"] = _merge_media_override_row(dict(hero), hero_override, target="assets/hero/chummer6-hero.png")
 
-    for group, prefix in (("parts", "assets/parts"), ("horizons", "assets/horizons")):
+    for group, prefix, kind, canon_items in (
+        ("parts", "assets/parts", "part", PARTS),
+        ("horizons", "assets/horizons", "horizon", HORIZONS),
+    ):
         rows = media.get(group)
         if not isinstance(rows, dict):
             continue
@@ -894,12 +895,55 @@ def apply_visual_overrides_to_media(overrides: dict[str, object]) -> None:
             if not isinstance(row, dict):
                 merged_rows[item_id] = row
                 continue
+            base_row = dict(row)
+            scene_contract = (
+                dict(base_row.get("scene_contract"))
+                if isinstance(base_row.get("scene_contract"), dict)
+                else {}
+            )
+            if kind == "horizon" and item_id == "black-ledger":
+                scene_contract = {
+                    **scene_contract,
+                    "subject": "a GM and world operator reading a living Seattle district map as an AR lattice projects branching mission futures",
+                    "environment": "a world-tick control house above a rain-slick Seattle map wall where augmented-reality overlays map district variants, branch probabilities, and pressure forecasts",
+                    "action": "turning completed-run fallout into reviewed Mission Market job seeds, heat changes, faction pressure, and player-safe news",
+                    "metaphor": "living city ledger",
+                    "props": [
+                        "Seattle district map",
+                        "AR map projector",
+                        "branch-token deck",
+                        "mission pins",
+                        "faction dossiers",
+                        "heat meters",
+                        "newsreel thumbnails",
+                        "intel report cards",
+                        "holographic timeline markers",
+                    ],
+                    "overlays": [
+                        "world-tick change traces",
+                        "GM-only intel filters",
+                        "public-safe news markers",
+                        "faction pressure arcs",
+                        "open-run roster tags",
+                        "branch probability heat",
+                        "alternative timeline overlay",
+                    ],
+                    "composition": "district_map",
+                    "palette": "rain black, Tacoma sodium, Redmond hazard red, matrix cyan",
+                    "mood": "scheming, governed, and alive",
+                    "humor_policy": "allow",
+                }
+                base_row["scene_contract"] = scene_contract
+                base_row["visual_prompt"] = (
+                    "Living-city consequence board above a rain-slick Seattle district map, with mission pins, "
+                    "branching future overlays, faction pressure arcs, GM-only filters, and public-safe fallout markers."
+                )
             target = f"{prefix}/{item_id}.png"
             override_row = visual_overrides.get(target)
             if isinstance(override_row, dict):
-                merged_rows[item_id] = _merge_media_override_row(dict(row), override_row, target=target)
+                merged_rows[item_id] = _merge_media_override_row(base_row, override_row, target=target)
             else:
-                merged_rows[item_id] = row
+                merged_rows[item_id] = base_row
         media[group] = merged_rows
 
 

@@ -16,18 +16,19 @@ if str(ROOT / "ea") not in sys.path:
 
 from app.yaml_inputs import load_yaml_dict
 
+EA_ROOT = Path("/docker/EA") if Path("/docker/EA").exists() else ROOT
 DOCS_ROOT = ROOT / "docs" / "chummer5a_parity_lab"
 
 OUTPUT_PATH = DOCS_ROOT / "NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml"
 MARKDOWN_PATH = DOCS_ROOT / "NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.md"
 FEEDBACK_PATH = ROOT / "feedback" / "2026-05-06-next90-m142-ea-family-local-screenshot-and-interaction-packs.md"
-COMPARE_PACKS_PATH = DOCS_ROOT / "compare_packs.yaml"
-VETERAN_WORKFLOW_PACK_PATH = DOCS_ROOT / "veteran_workflow_pack.yaml"
+COMPARE_PACKS_PATH = EA_ROOT / "docs" / "chummer5a_parity_lab" / "compare_packs.yaml"
+VETERAN_WORKFLOW_PACK_PATH = EA_ROOT / "docs" / "chummer5a_parity_lab" / "veteran_workflow_pack.yaml"
 SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
 DESIGN_QUEUE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 FLEET_QUEUE_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-LOCAL_MIRROR_REGISTRY_PATH = ROOT / ".codex-design" / "product" / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
-LOCAL_MIRROR_QUEUE_PATH = ROOT / ".codex-design" / "product" / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+LOCAL_MIRROR_REGISTRY_PATH = EA_ROOT / ".codex-design" / "product" / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
+LOCAL_MIRROR_QUEUE_PATH = EA_ROOT / ".codex-design" / "product" / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
 NEXT90_GUIDE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_GUIDE.md")
 PARITY_AUDIT_PATH = Path("/docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json")
 SCREENSHOT_GATE_PATH = Path("/docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import hmac
 from pathlib import Path
@@ -921,6 +922,908 @@ class FlipLinkPacketService:
                 }
             )
         return {"items": items, "total": len(items)}
+
+    def create_share(
+        self,
+        *,
+        principal_id: str,
+        publication_id: str,
+        audience_type: str,
+        channel: str,
+        variant_key: str = "",
+        cover_note: str = "",
+        recipients: list[dict[str, object]] | None = None,
+        actor: str = "browser",
+    ) -> dict[str, object]:
+        publication = self._repo.get_publication(publication_id=publication_id, principal_id=principal_id)
+        if publication is None:
+            raise KeyError("property_packet_publication_not_found")
+        if str(publication.get("status") or "") == "archived":
+            raise ValueError("fliplink_publication_archived")
+        normalized_recipients = []
+        for item in list(recipients or [])[:25]:
+            if not isinstance(item, dict):
+                continue
+            normalized_recipients.append(
+                {
+                    "recipient_id": str(item.get("recipient_id") or f"rec_{uuid4().hex}").strip(),
+                    "name": str(item.get("name") or "").strip()[:160],
+                    "email": str(item.get("email") or "").strip()[:240],
+                    "relationship": str(item.get("relationship") or "").strip()[:120],
+                    "role_label": str(item.get("role_label") or item.get("relationship") or "").strip()[:120],
+                    "created_at": now_utc_iso(),
+                }
+            )
+        if not normalized_recipients:
+            raise ValueError("packet_share_requires_recipient")
+        share = {
+            "share_id": f"shr_{uuid4().hex}",
+            "publication_id": publication_id,
+            "property_ref": str(publication.get("property_ref") or ""),
+            "variant_key": str(variant_key or "default").strip()[:120] or "default",
+            "audience_type": str(audience_type or "family").strip()[:80] or "family",
+            "channel": str(channel or "link").strip()[:80] or "link",
+            "cover_note": str(cover_note or "").strip()[:1000],
+            "sent_by": actor,
+            "sent_at": now_utc_iso(),
+            "status": "shared",
+            "recipients": normalized_recipients,
+        }
+        self._repo.record_event(
+            {
+                "publication_id": publication_id,
+                "principal_id": principal_id,
+                "event_type": "packet_share_created",
+                "actor": actor,
+                "payload_json": copy.deepcopy(share),
+            }
+        )
+        for recipient in normalized_recipients:
+            self._repo.record_event(
+                {
+                    "publication_id": publication_id,
+                    "principal_id": principal_id,
+                    "event_type": "packet_followup_task_created",
+                    "actor": actor,
+                    "payload_json": {
+                        "task_id": f"fup_{uuid4().hex}",
+                        "share_id": str(share["share_id"]),
+                        "recipient_id": str(recipient.get("recipient_id") or ""),
+                        "recipient_name": str(recipient.get("name") or ""),
+                        "stakeholder_id": str(recipient.get("recipient_id") or ""),
+                        "property_ref": str(publication.get("property_ref") or ""),
+                        "recommended_action": "await_open",
+                        "reason": "share_sent",
+                        "status": "open",
+                        "owner": "",
+                        "created_at": now_utc_iso(),
+                    },
+                }
+            )
+        return share
+
+    def list_shares(self, *, principal_id: str, publication_id: str) -> list[dict[str, object]]:
+        rows = self._repo.list_events(
+            principal_id=principal_id,
+            publication_id=publication_id,
+            event_type="packet_share_created",
+            limit=500,
+        )
+        return [dict(event.get("payload_json") or {}) for event in rows]
+
+    def record_engagement_event(
+        self,
+        *,
+        principal_id: str,
+        publication_id: str,
+        share_id: str,
+        recipient_id: str,
+        event_type: str,
+        event_value: str = "",
+        metadata_json: dict[str, object] | None = None,
+        actor: str = "browser",
+    ) -> dict[str, object]:
+        publication = self._repo.get_publication(publication_id=publication_id, principal_id=principal_id)
+        if publication is None:
+            raise KeyError("property_packet_publication_not_found")
+        normalized_type = str(event_type or "").strip()
+        if normalized_type not in {
+            "opened",
+            "clicked_property",
+            "expanded_gallery",
+            "saved_property",
+            "submitted_feedback",
+            "requested_followup",
+            "no_activity_48h",
+        }:
+            raise ValueError("invalid_packet_engagement_event_type")
+        payload = {
+            "engagement_id": f"eng_{uuid4().hex}",
+            "share_id": str(share_id or "").strip(),
+            "recipient_id": str(recipient_id or "").strip(),
+            "event_type": normalized_type,
+            "event_value": str(event_value or "").strip()[:240],
+            "metadata_json": copy.deepcopy(metadata_json or {}),
+            "occurred_at": now_utc_iso(),
+        }
+        return self._repo.record_event(
+            {
+                "publication_id": publication_id,
+                "principal_id": principal_id,
+                "event_type": "packet_engagement_event_recorded",
+                "actor": actor,
+                "payload_json": payload,
+            }
+        )
+
+    def _engagement_events(self, *, principal_id: str, publication_id: str) -> list[dict[str, object]]:
+        rows = self._repo.list_events(
+            principal_id=principal_id,
+            publication_id=publication_id,
+            event_type="packet_engagement_event_recorded",
+            limit=1000,
+        )
+        return [dict(event.get("payload_json") or {}) for event in rows]
+
+    def _feedback_events(self, *, principal_id: str, publication_id: str | None = None) -> list[dict[str, object]]:
+        rows = self._repo.list_events(
+            principal_id=principal_id,
+            publication_id=publication_id,
+            event_type="property_feedback_entry_recorded",
+            limit=1000,
+        )
+        return [dict(event.get("payload_json") or {}) for event in rows]
+
+    def _summary_events(self, *, principal_id: str) -> list[dict[str, object]]:
+        rows = self._repo.list_events(
+            principal_id=principal_id,
+            event_type="property_summary_artifact_generated",
+            limit=500,
+        )
+        return [dict(event.get("payload_json") or {}) for event in rows]
+
+    def _attached_summary_ids(self, *, principal_id: str, publication_id: str) -> list[str]:
+        rows = self._repo.list_events(
+            principal_id=principal_id,
+            publication_id=publication_id,
+            event_type="packet_summary_artifact_attached",
+            limit=500,
+        )
+        return [str(dict(event.get("payload_json") or {}).get("artifact_id") or "") for event in rows]
+
+    def _current_followup_tasks(self, *, principal_id: str, publication_id: str) -> list[dict[str, object]]:
+        events = self._repo.list_events(principal_id=principal_id, publication_id=publication_id, limit=2000)
+        created: dict[str, dict[str, object]] = {}
+        latest_engagement: dict[str, str] = {}
+        for row in reversed(events):
+            event_type = str(row.get("event_type") or "")
+            payload = dict(row.get("payload_json") or {})
+            if event_type == "packet_engagement_event_recorded":
+                recipient_id = str(payload.get("recipient_id") or "")
+                if recipient_id and recipient_id not in latest_engagement:
+                    latest_engagement[recipient_id] = str(payload.get("event_type") or "")
+            elif event_type == "packet_followup_task_created":
+                task_id = str(payload.get("task_id") or "")
+                if task_id:
+                    created[task_id] = copy.deepcopy(payload)
+            elif event_type == "packet_followup_task_assigned":
+                task = created.get(str(payload.get("task_id") or ""))
+                if task is not None:
+                    task["owner"] = str(payload.get("owner") or "")
+                    task["status"] = "assigned"
+            elif event_type == "packet_followup_task_resolved":
+                task = created.get(str(payload.get("task_id") or ""))
+                if task is not None:
+                    task["status"] = "resolved"
+                    task["resolution"] = str(payload.get("resolution") or "")
+        rows_out: list[dict[str, object]] = []
+        for task in created.values():
+            recipient_id = str(task.get("recipient_id") or "")
+            if str(task.get("status") or "") != "resolved":
+                state = latest_engagement.get(recipient_id, "")
+                if state == "submitted_feedback":
+                    task["recommended_action"] = "review_feedback"
+                elif state in {"opened", "clicked_property", "expanded_gallery", "saved_property"}:
+                    task["recommended_action"] = "request_feedback"
+                elif state == "requested_followup":
+                    task["recommended_action"] = "contact_recipient"
+                elif state == "no_activity_48h" or not state:
+                    task["recommended_action"] = "resend_or_follow_up"
+            rows_out.append(task)
+        return sorted(rows_out, key=lambda item: str(item.get("created_at") or ""), reverse=True)
+
+    def engagement_snapshot(self, *, principal_id: str, publication_id: str) -> dict[str, object]:
+        shares = self.list_shares(principal_id=principal_id, publication_id=publication_id)
+        engagements = self._engagement_events(principal_id=principal_id, publication_id=publication_id)
+        latest_state: dict[str, dict[str, object]] = {}
+        for share in shares:
+            for recipient in list(share.get("recipients") or []):
+                if not isinstance(recipient, dict):
+                    continue
+                latest_state[str(recipient.get("recipient_id") or "")] = {
+                    "recipient_id": str(recipient.get("recipient_id") or ""),
+                    "recipient_name": str(recipient.get("name") or ""),
+                    "share_id": str(share.get("share_id") or ""),
+                    "state": "shared",
+                    "occurred_at": str(share.get("sent_at") or ""),
+                }
+        for event in reversed(engagements):
+            recipient_id = str(event.get("recipient_id") or "")
+            if not recipient_id:
+                continue
+            latest_state[recipient_id] = {
+                **dict(latest_state.get(recipient_id) or {}),
+                "recipient_id": recipient_id,
+                "share_id": str(event.get("share_id") or ""),
+                "state": str(event.get("event_type") or ""),
+                "occurred_at": str(event.get("occurred_at") or ""),
+            }
+        states = list(latest_state.values())
+        opens = sum(1 for item in states if str(item.get("state") or "") in {"opened", "clicked_property", "expanded_gallery", "saved_property"})
+        responses = sum(1 for item in states if str(item.get("state") or "") in {"submitted_feedback", "requested_followup"})
+        inactivity = sum(1 for item in states if str(item.get("state") or "") in {"shared", "no_activity_48h"})
+        followups = self._current_followup_tasks(principal_id=principal_id, publication_id=publication_id)
+        next_best_action = "share_packet"
+        if any(str(item.get("recommended_action") or "") == "review_feedback" for item in followups):
+            next_best_action = "review_feedback"
+        elif responses:
+            next_best_action = "review_feedback"
+        elif opens:
+            next_best_action = "request_feedback"
+        elif inactivity:
+            next_best_action = "resend_or_follow_up"
+        elif opens >= 2:
+            next_best_action = "prepare_variant_or_summary"
+        return {
+            "shares": shares,
+            "summary": {
+                "total_shares": len(shares),
+                "total_recipients": len(states),
+                "opened": opens,
+                "responded": responses,
+                "no_activity": inactivity,
+                "next_best_action": next_best_action,
+            },
+            "recipients": states,
+            "followups": followups,
+        }
+
+    def record_structured_feedback(
+        self,
+        *,
+        principal_id: str,
+        property_ref: str,
+        stakeholder_id: str,
+        stakeholder_label: str = "",
+        publication_id: str = "",
+        share_id: str = "",
+        audience_type: str = "",
+        category: str,
+        sentiment: str = "",
+        importance: int = 3,
+        text: str = "",
+        source: str = "packet",
+        source_event_id: str = "",
+        actor: str = "browser",
+    ) -> dict[str, object]:
+        normalized_category = str(category or "").strip().lower()
+        if normalized_category not in {"love", "concern", "dealbreaker", "question", "priority", "compare_request"}:
+            raise ValueError("invalid_property_feedback_category")
+        feedback = {
+            "feedback_id": f"fbk_{uuid4().hex}",
+            "property_ref": str(property_ref or "").strip(),
+            "stakeholder_id": str(stakeholder_id or "").strip() or "stakeholder",
+            "stakeholder_label": str(stakeholder_label or stakeholder_id or "Stakeholder").strip()[:160],
+            "publication_id": str(publication_id or "").strip(),
+            "share_id": str(share_id or "").strip(),
+            "audience_type": str(audience_type or "").strip()[:80],
+            "category": normalized_category,
+            "sentiment": str(sentiment or normalized_category).strip()[:80],
+            "importance": max(1, min(int(importance or 3), 5)),
+            "text": str(text or "").strip()[:2000],
+            "source": str(source or "packet").strip()[:80],
+            "source_event_id": str(source_event_id or "").strip()[:160],
+            "created_at": now_utc_iso(),
+        }
+        self._repo.record_event(
+            {
+                "publication_id": str(publication_id or "").strip(),
+                "principal_id": principal_id,
+                "event_type": "property_feedback_entry_recorded",
+                "actor": actor,
+                "payload_json": copy.deepcopy(feedback),
+            }
+        )
+        return feedback
+
+    def list_structured_feedback(
+        self,
+        *,
+        principal_id: str,
+        property_ref: str = "",
+        stakeholder_id: str = "",
+        publication_id: str = "",
+        category: str = "",
+    ) -> list[dict[str, object]]:
+        rows = self._feedback_events(principal_id=principal_id, publication_id=publication_id or None)
+        out: list[dict[str, object]] = []
+        for row in rows:
+            if property_ref and str(row.get("property_ref") or "") != str(property_ref or "").strip():
+                continue
+            if stakeholder_id and str(row.get("stakeholder_id") or "") != str(stakeholder_id or "").strip():
+                continue
+            if category and str(row.get("category") or "") != str(category or "").strip():
+                continue
+            out.append(row)
+        return out
+
+    def cluster_feedback(self, *, principal_id: str, property_ref: str) -> list[dict[str, object]]:
+        rows = self.list_structured_feedback(principal_id=principal_id, property_ref=property_ref)
+        themes: dict[str, list[dict[str, object]]] = {}
+        for row in rows:
+            text = " ".join(
+                [
+                    str(row.get("category") or ""),
+                    str(row.get("text") or ""),
+                ]
+            ).lower()
+            theme = "general"
+            for candidate, markers in {
+                "price": ("price", "expensive", "cost", "budget"),
+                "location": ("location", "district", "far", "commute", "school"),
+                "layout": ("layout", "floorplan", "rooms", "room"),
+                "condition": ("condition", "renovation", "repair", "old"),
+                "noise": ("noise", "traffic", "quiet"),
+                "family_fit": ("family", "kids", "playground"),
+            }.items():
+                if any(marker in text for marker in markers):
+                    theme = candidate
+                    break
+            themes.setdefault(theme, []).append(row)
+        clusters: list[dict[str, object]] = []
+        for theme, items in themes.items():
+            severity = "high" if any(str(item.get("category") or "") == "dealbreaker" for item in items) else "medium"
+            clusters.append(
+                {
+                    "cluster_id": f"clu_{uuid4().hex}",
+                    "property_ref": property_ref,
+                    "theme": theme,
+                    "severity": severity,
+                    "entry_count": len(items),
+                    "summary": "; ".join(str(item.get("text") or item.get("category") or "").strip() for item in items[:3]),
+                }
+            )
+        return sorted(clusters, key=lambda item: (item["severity"] != "high", -int(item["entry_count"])))
+
+    def stakeholder_preferences(self, *, principal_id: str, stakeholder_id: str) -> dict[str, object]:
+        rows = self.list_structured_feedback(principal_id=principal_id, stakeholder_id=stakeholder_id)
+        signals: list[dict[str, object]] = []
+        for row in rows:
+            category = str(row.get("category") or "")
+            text = str(row.get("text") or "").lower()
+            if category in {"love", "priority"}:
+                signals.append({"dimension": "positive_signal", "value": text or category, "confidence": 0.7, "source": category})
+            if category in {"concern", "dealbreaker"}:
+                signals.append({"dimension": "negative_signal", "value": text or category, "confidence": 0.85 if category == "dealbreaker" else 0.65, "source": category})
+        return {
+            "stakeholder_id": stakeholder_id,
+            "signals": signals[:20],
+            "summary": {
+                "signal_total": len(signals),
+                "likes": sum(1 for item in signals if item["dimension"] == "positive_signal"),
+                "concerns": sum(1 for item in signals if item["dimension"] == "negative_signal"),
+            },
+        }
+
+    def feedback_summary(self, *, principal_id: str, property_ref: str) -> dict[str, object]:
+        rows = self.list_structured_feedback(principal_id=principal_id, property_ref=property_ref)
+        counts: dict[str, int] = {}
+        stakeholders: dict[str, set[str]] = {}
+        for row in rows:
+            category = str(row.get("category") or "")
+            counts[category] = counts.get(category, 0) + 1
+            stakeholders.setdefault(str(row.get("stakeholder_id") or ""), set()).add(category)
+        disagreement = 0
+        if len(stakeholders) >= 2:
+            category_sets = [value for value in stakeholders.values() if value]
+            disagreement = 1 if len({tuple(sorted(item)) for item in category_sets}) > 1 else 0
+        return {
+            "property_ref": property_ref,
+            "counts": counts,
+            "recent_feedback": rows[:10],
+            "dealbreaker_count": counts.get("dealbreaker", 0),
+            "open_questions_count": counts.get("question", 0),
+            "clusters": self.cluster_feedback(principal_id=principal_id, property_ref=property_ref),
+            "disagreement_count": disagreement,
+            "family_alignment": "split" if disagreement else "aligned",
+        }
+
+    def generate_summary_artifact(
+        self,
+        *,
+        principal_id: str,
+        subject_type: str,
+        subject_id: str,
+        artifact_type: str,
+        audience_type: str = "family",
+        actor: str = "browser",
+    ) -> dict[str, object]:
+        subject = str(subject_id or "").strip()
+        artifact_kind = str(artifact_type or "").strip()
+        if artifact_kind not in {"why_shortlisted", "tradeoff_summary", "what_changed", "recommended_next_step", "family_review_digest"}:
+            raise ValueError("unsupported_property_summary_type")
+        title = artifact_kind.replace("_", " ").title()
+        property_ref = subject if subject_type == "property" else ""
+        summary = self.feedback_summary(principal_id=principal_id, property_ref=property_ref) if property_ref else {}
+        body = {
+            "why_shortlisted": f"This property stays shortlisted because it is review-ready and has a shareable packet. Feedback signals: {summary.get('dealbreaker_count', 0)} dealbreakers, {summary.get('open_questions_count', 0)} open questions.",
+            "tradeoff_summary": f"Main tradeoffs: {', '.join(cluster.get('theme') for cluster in list(summary.get('clusters') or [])[:3]) or 'No major tradeoffs captured yet.'}",
+            "what_changed": "; ".join(item.get("summary") or item.get("detail") or "Packet and feedback state updated." for item in self.property_change_log(principal_id=principal_id, property_ref=property_ref)[:3]) or "No major change recorded yet.",
+            "recommended_next_step": "Review the packet engagement state and send the next focused follow-up.",
+            "family_review_digest": "Family review digest: package the current shortlist reason, tradeoffs, and open questions in one shareable note.",
+        }[artifact_kind]
+        artifact = {
+            "artifact_id": f"sum_{uuid4().hex}",
+            "subject_type": str(subject_type or "property").strip(),
+            "subject_id": subject,
+            "artifact_type": artifact_kind,
+            "audience_type": str(audience_type or "family").strip()[:80],
+            "title": title,
+            "body_markdown": body,
+            "status": "ready",
+            "created_by": actor,
+            "created_at": now_utc_iso(),
+        }
+        self._repo.record_event(
+            {
+                "publication_id": "",
+                "principal_id": principal_id,
+                "event_type": "property_summary_artifact_generated",
+                "actor": actor,
+                "payload_json": copy.deepcopy(artifact),
+            }
+        )
+        return artifact
+
+    def get_summary_artifact(self, *, principal_id: str, artifact_id: str) -> dict[str, object] | None:
+        for artifact in self._summary_events(principal_id=principal_id):
+            if str(artifact.get("artifact_id") or "") == str(artifact_id or "").strip():
+                return artifact
+        return None
+
+    def attach_summary_to_packet(
+        self,
+        *,
+        principal_id: str,
+        publication_id: str,
+        artifact_id: str,
+        actor: str = "browser",
+    ) -> dict[str, object]:
+        artifact = self.get_summary_artifact(principal_id=principal_id, artifact_id=artifact_id)
+        if artifact is None:
+            raise KeyError("property_summary_artifact_not_found")
+        event = self._repo.record_event(
+            {
+                "publication_id": publication_id,
+                "principal_id": principal_id,
+                "event_type": "packet_summary_artifact_attached",
+                "actor": actor,
+                "payload_json": {
+                    "publication_id": publication_id,
+                    "artifact_id": artifact_id,
+                    "attached_at": now_utc_iso(),
+                },
+            }
+        )
+        return {"status": "attached", "event": event, "artifact": artifact}
+
+    def attached_summaries(self, *, principal_id: str, publication_id: str) -> list[dict[str, object]]:
+        out: list[dict[str, object]] = []
+        for artifact_id in self._attached_summary_ids(principal_id=principal_id, publication_id=publication_id):
+            artifact = self.get_summary_artifact(principal_id=principal_id, artifact_id=artifact_id)
+            if artifact is not None:
+                out.append(artifact)
+        return out
+
+    def property_change_log(self, *, principal_id: str, property_ref: str) -> list[dict[str, object]]:
+        publications = [
+            row
+            for row in self._repo.list_publications(principal_id=principal_id, limit=500)
+            if str(row.get("property_ref") or "") == str(property_ref or "").strip()
+        ]
+        changes: list[dict[str, object]] = []
+        for publication in publications[:5]:
+            publication_id = str(publication.get("publication_id") or "")
+            events = self._repo.list_events(principal_id=principal_id, publication_id=publication_id, limit=50)
+            for event in events[:10]:
+                event_type = str(event.get("event_type") or "")
+                if event_type in {"fliplink_manual_publish_completed", "fliplink_browser_publish_completed", "packet_republished"}:
+                    changes.append(
+                        {
+                            "change_id": f"chg_{uuid4().hex}",
+                            "property_ref": property_ref,
+                            "change_type": event_type,
+                            "summary": event_type.replace("_", " "),
+                            "detail": f"{publication_id} changed at {str(event.get('created_at') or '')[:19]}",
+                        }
+                    )
+        for feedback in self.list_structured_feedback(principal_id=principal_id, property_ref=property_ref)[:5]:
+            changes.append(
+                {
+                    "change_id": f"chg_{uuid4().hex}",
+                    "property_ref": property_ref,
+                    "change_type": "feedback",
+                    "summary": f"Feedback {str(feedback.get('category') or '')}",
+                    "detail": str(feedback.get("text") or ""),
+                }
+            )
+        return changes[:20]
+
+    def create_variant(
+        self,
+        *,
+        principal_id: str,
+        publication_id: str,
+        audience_type: str,
+        base_variant_key: str = "default",
+        title_override: str = "",
+        actor: str = "browser",
+    ) -> dict[str, object]:
+        publication = self._repo.get_publication(publication_id=publication_id, principal_id=principal_id)
+        if publication is None:
+            raise KeyError("property_packet_publication_not_found")
+        variant_id = f"pub_{uuid4().hex}"
+        summary = dict(publication.get("packet_summary_json") or {})
+        variant_row = self._repo.create_publication(
+            {
+                **publication,
+                "publication_id": variant_id,
+                "fliplink_url": "",
+                "fliplink_custom_domain_url": "",
+                "fliplink_embed_code": "",
+                "fliplink_qr_url": "",
+                "status": "rendered",
+                "published_at": "",
+                "archived_at": "",
+                "packet_summary_json": {
+                    **summary,
+                    "base_publication_id": publication_id,
+                    "variant_key": str(base_variant_key or "default").strip()[:120] or "default",
+                    "audience_type": str(audience_type or "family").strip()[:80] or "family",
+                    "variant_title": str(title_override or publication.get("recommended_title") or "").strip()[:200],
+                },
+                "recommended_title": str(title_override or publication.get("recommended_title") or "").strip()[:200]
+                or str(publication.get("recommended_title") or ""),
+            }
+        )
+        self._repo.record_event(
+            {
+                "publication_id": variant_id,
+                "principal_id": principal_id,
+                "event_type": "packet_variant_created",
+                "actor": actor,
+                "payload_json": {
+                    "publication_id": variant_id,
+                    "base_publication_id": publication_id,
+                    "audience_type": str(audience_type or "family").strip(),
+                    "variant_key": str(base_variant_key or "default").strip(),
+                    "title_override": str(title_override or "").strip(),
+                    "created_at": now_utc_iso(),
+                },
+            }
+        )
+        return variant_row
+
+    def republish_publication(
+        self,
+        *,
+        principal_id: str,
+        publication_id: str,
+        actor: str = "browser",
+    ) -> dict[str, object]:
+        publication = self._repo.get_publication(publication_id=publication_id, principal_id=principal_id)
+        if publication is None:
+            raise KeyError("property_packet_publication_not_found")
+        summary = dict(publication.get("packet_summary_json") or {})
+        revision = int(summary.get("revision_number") or 1) + 1
+        updated = self._repo.update_publication(
+            publication_id=publication_id,
+            updates={
+                "packet_summary_json": {**summary, "revision_number": revision, "republished_at": now_utc_iso()},
+                "status": "published" if str(publication.get("fliplink_url") or "").strip() else str(publication.get("status") or "rendered"),
+            },
+        )
+        self._repo.record_event(
+            {
+                "publication_id": publication_id,
+                "principal_id": principal_id,
+                "event_type": "packet_republished",
+                "actor": actor,
+                "payload_json": {
+                    "publication_id": publication_id,
+                    "revision_number": revision,
+                    "republished_at": now_utc_iso(),
+                },
+            }
+        )
+        if updated is None:
+            raise KeyError("property_packet_publication_not_found")
+        return updated
+
+    def list_variants(self, *, principal_id: str, publication_id: str) -> list[dict[str, object]]:
+        rows = self._repo.list_publications(principal_id=principal_id, limit=500)
+        return [
+            row
+            for row in rows
+            if str(dict(row.get("packet_summary_json") or {}).get("base_publication_id") or "") == str(publication_id or "").strip()
+        ]
+
+    def share_journey(self, *, principal_id: str, publication_id: str) -> dict[str, object]:
+        publication = self._repo.get_publication(publication_id=publication_id, principal_id=principal_id)
+        if publication is None:
+            raise KeyError("property_packet_publication_not_found")
+        snapshot = self.engagement_snapshot(principal_id=principal_id, publication_id=publication_id)
+        feedback = self.feedback_summary(principal_id=principal_id, property_ref=str(publication.get("property_ref") or ""))
+        state = "drafted"
+        if str(publication.get("status") or "") == "published":
+            state = "published"
+        if int(snapshot["summary"].get("opened") or 0) > 0:
+            state = "opened"
+        if int(snapshot["summary"].get("responded") or 0) > 0 or int(feedback.get("dealbreaker_count") or 0) > 0:
+            state = "feedback_active"
+        if any(str(item.get("status") or "") != "resolved" for item in list(snapshot.get("followups") or [])):
+            state = "followup_needed"
+        if int(feedback.get("open_questions_count") or 0) == 0 and int(snapshot["summary"].get("responded") or 0) > 0:
+            state = "decision_ready"
+        return {
+            "publication_id": publication_id,
+            "state": state,
+            "variants": [
+                {
+                    "publication_id": str(item.get("publication_id") or ""),
+                    "title": str(item.get("recommended_title") or ""),
+                    "audience_type": str(dict(item.get("packet_summary_json") or {}).get("audience_type") or ""),
+                    "variant_key": str(dict(item.get("packet_summary_json") or {}).get("variant_key") or ""),
+                }
+                for item in self.list_variants(principal_id=principal_id, publication_id=publication_id)
+            ],
+            "next_best_action": str(snapshot["summary"].get("next_best_action") or ""),
+        }
+
+    def assign_followup(
+        self,
+        *,
+        principal_id: str,
+        followup_id: str,
+        owner: str,
+        actor: str = "browser",
+    ) -> dict[str, object]:
+        publication_id = self._followup_publication_id(principal_id=principal_id, followup_id=followup_id)
+        if not publication_id:
+            raise KeyError("packet_followup_not_found")
+        return self._repo.record_event(
+            {
+                "publication_id": publication_id,
+                "principal_id": principal_id,
+                "event_type": "packet_followup_task_assigned",
+                "actor": actor,
+                "payload_json": {
+                    "task_id": followup_id,
+                    "owner": str(owner or "").strip()[:160],
+                    "assigned_at": now_utc_iso(),
+                },
+            }
+        )
+
+    def resolve_followup(
+        self,
+        *,
+        principal_id: str,
+        followup_id: str,
+        resolution: str,
+        actor: str = "browser",
+    ) -> dict[str, object]:
+        publication_id = self._followup_publication_id(principal_id=principal_id, followup_id=followup_id)
+        if not publication_id:
+            raise KeyError("packet_followup_not_found")
+        return self._repo.record_event(
+            {
+                "publication_id": publication_id,
+                "principal_id": principal_id,
+                "event_type": "packet_followup_task_resolved",
+                "actor": actor,
+                "payload_json": {
+                    "task_id": followup_id,
+                    "resolution": str(resolution or "").strip()[:240],
+                    "resolved_at": now_utc_iso(),
+                },
+            }
+        )
+
+    def _followup_publication_id(self, *, principal_id: str, followup_id: str) -> str:
+        rows = self._repo.list_events(principal_id=principal_id, event_type="packet_followup_task_created", limit=2000)
+        for row in rows:
+            payload = dict(row.get("payload_json") or {})
+            if str(payload.get("task_id") or "") == str(followup_id or "").strip():
+                return str(row.get("publication_id") or "")
+        return ""
+
+    def stakeholder_timeline(self, *, principal_id: str, stakeholder_id: str) -> list[dict[str, object]]:
+        rows = self._repo.list_events(principal_id=principal_id, limit=4000)
+        out: list[dict[str, object]] = []
+        for row in rows:
+            payload = dict(row.get("payload_json") or {})
+            if str(payload.get("stakeholder_id") or payload.get("recipient_id") or "") != str(stakeholder_id or "").strip():
+                continue
+            out.append(
+                {
+                    "event_id": str(row.get("event_id") or ""),
+                    "event_type": str(row.get("event_type") or ""),
+                    "publication_id": str(row.get("publication_id") or ""),
+                    "summary": str(payload.get("text") or payload.get("recommended_action") or payload.get("event_type") or "").strip() or str(row.get("event_type") or ""),
+                    "created_at": str(row.get("created_at") or ""),
+                }
+            )
+        return out[:100]
+
+    def property_timeline(self, *, principal_id: str, property_ref: str) -> list[dict[str, object]]:
+        rows = self._repo.list_events(principal_id=principal_id, limit=4000)
+        out: list[dict[str, object]] = []
+        publication_ids = {
+            str(row.get("publication_id") or "")
+            for row in self._repo.list_publications(principal_id=principal_id, limit=500)
+            if str(row.get("property_ref") or "") == str(property_ref or "").strip()
+        }
+        for row in rows:
+            payload = dict(row.get("payload_json") or {})
+            if str(payload.get("property_ref") or "") != str(property_ref or "").strip() and str(row.get("publication_id") or "") not in publication_ids:
+                continue
+            out.append(
+                {
+                    "event_id": str(row.get("event_id") or ""),
+                    "event_type": str(row.get("event_type") or ""),
+                    "publication_id": str(row.get("publication_id") or ""),
+                    "stakeholder_id": str(payload.get("stakeholder_id") or payload.get("recipient_id") or ""),
+                    "summary": str(payload.get("text") or payload.get("recommended_action") or payload.get("event_type") or "").strip() or str(row.get("event_type") or ""),
+                    "created_at": str(row.get("created_at") or ""),
+                }
+            )
+        return out[:200]
+
+    def list_offers(
+        self,
+        *,
+        principal_id: str,
+        property_ref: str = "",
+        publication_id: str = "",
+    ) -> list[dict[str, object]]:
+        contextual = bool(property_ref or publication_id)
+        return [
+            {
+                "offer_id": "premium_market_report",
+                "offer_type": "premium_report",
+                "title": "Premium market report",
+                "price_label": "EUR 49",
+                "provider": "propertyquarry",
+                "contextual": contextual,
+                "status": "available",
+            },
+            {
+                "offer_id": "concierge_shortlist_refresh",
+                "offer_type": "concierge_refresh",
+                "title": "Concierge shortlist refresh",
+                "price_label": "EUR 99",
+                "provider": "propertyquarry",
+                "contextual": contextual,
+                "status": "available",
+            },
+            {
+                "offer_id": "agent_ready_export",
+                "offer_type": "agent_export",
+                "title": "Agent-ready export",
+                "price_label": "EUR 19",
+                "provider": "propertyquarry",
+                "contextual": contextual,
+                "status": "available",
+            },
+        ]
+
+    def start_offer_checkout(
+        self,
+        *,
+        principal_id: str,
+        offer_id: str,
+        property_ref: str = "",
+        publication_id: str = "",
+        actor: str = "browser",
+    ) -> dict[str, object]:
+        offer = next((item for item in self.list_offers(principal_id=principal_id, property_ref=property_ref, publication_id=publication_id) if item["offer_id"] == offer_id), None)
+        if offer is None:
+            raise KeyError("property_offer_not_found")
+        checkout_url = f"/pricing?offer_id={offer_id}"
+        event = self._repo.record_event(
+            {
+                "publication_id": publication_id,
+                "principal_id": principal_id,
+                "event_type": "property_offer_checkout_started",
+                "actor": actor,
+                "payload_json": {
+                    "offer_id": offer_id,
+                    "property_ref": property_ref,
+                    "checkout_url": checkout_url,
+                    "started_at": now_utc_iso(),
+                },
+            }
+        )
+        return {"status": "checkout_started", "offer": offer, "checkout_url": checkout_url, "event_id": str(event.get("event_id") or "")}
+
+    def optimization_recommendations(self, *, principal_id: str, publication_id: str) -> list[dict[str, object]]:
+        snapshot = self.engagement_snapshot(principal_id=principal_id, publication_id=publication_id)
+        analytics = self.latest_analytics_snapshot(principal_id=principal_id, publication_id=publication_id)
+        recommendations: list[dict[str, object]] = []
+        if int(analytics.get("views") or 0) > 0 and int(snapshot["summary"].get("responded") or 0) == 0:
+            recommendations.append(
+                {
+                    "recommendation_id": f"opt_{publication_id}_followup",
+                    "recommendation_type": "followup",
+                    "priority": "high",
+                    "reason": "Views are present but no structured response has been captured yet.",
+                    "status": "open",
+                }
+            )
+        device_breakdown = dict(analytics.get("device_breakdown") or {})
+        if int(device_breakdown.get("mobile") or 0) > int(device_breakdown.get("desktop") or 0):
+            recommendations.append(
+                {
+                    "recommendation_id": f"opt_{publication_id}_mobile",
+                    "recommendation_type": "mobile_readability",
+                    "priority": "medium",
+                    "reason": "Mobile traffic leads, so packet readability should be checked on phone-sized layouts.",
+                    "status": "open",
+                }
+            )
+        if not recommendations:
+            recommendations.append(
+                {
+                    "recommendation_id": f"opt_{publication_id}_variant",
+                    "recommendation_type": "variant_test",
+                    "priority": "low",
+                    "reason": "No major issue detected. Try a family or agent variant to learn which packet framing performs better.",
+                    "status": "open",
+                }
+            )
+        ack_events = self._repo.list_events(
+            principal_id=principal_id,
+            publication_id=publication_id,
+            event_type="packet_optimization_acknowledged",
+            limit=200,
+        )
+        acknowledged = {str(dict(event.get("payload_json") or {}).get("recommendation_id") or "") for event in ack_events}
+        for row in recommendations:
+            if row["recommendation_id"] in acknowledged:
+                row["status"] = "acknowledged"
+        return recommendations
+
+    def acknowledge_optimization(
+        self,
+        *,
+        principal_id: str,
+        publication_id: str,
+        recommendation_id: str,
+        actor: str = "browser",
+    ) -> dict[str, object]:
+        return self._repo.record_event(
+            {
+                "publication_id": publication_id,
+                "principal_id": principal_id,
+                "event_type": "packet_optimization_acknowledged",
+                "actor": actor,
+                "payload_json": {
+                    "recommendation_id": str(recommendation_id or "").strip(),
+                    "acknowledged_at": now_utc_iso(),
+                },
+            }
+        )
 
     def review_feedback(
         self,

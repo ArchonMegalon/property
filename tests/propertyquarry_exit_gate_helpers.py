@@ -32,6 +32,22 @@ def load_gate(filename: str) -> dict[str, object]:
     return payload
 
 
+def assert_contains_strings(values: object, expected: list[str], *, field_name: str) -> None:
+    assert isinstance(values, list) and values, f"{field_name} must be a non-empty list"
+    missing = [item for item in expected if item not in values]
+    assert not missing, f"{field_name} is missing required items: {missing}"
+
+
+def assert_workflow_checks(
+    payload: dict[str, object], *, workflow_name: str, expected_checks: list[str]
+) -> None:
+    workflows = payload["required_browser_workflows"]
+    assert isinstance(workflows, list)
+    workflow = next((row for row in workflows if isinstance(row, dict) and row.get("name") == workflow_name), None)
+    assert workflow is not None, f"required_browser_workflows is missing {workflow_name}"
+    assert_contains_strings(workflow.get("checks"), expected_checks, field_name=f"{workflow_name}.checks")
+
+
 def assert_phase_gate_shape(payload: dict[str, object], *, phase: int) -> None:
     assert sorted(PHASE_KEYS) == sorted(payload.keys())
     assert payload["phase"] == phase

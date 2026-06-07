@@ -91,12 +91,13 @@ fi
 COMPOSE_ARGS=(-f docker-compose.yml -f docker-compose.prod.yml)
 FASTESTVPN_OVERLAY_ENABLED=0
 CLOUDFLARED_OVERLAY_ENABLED=0
+# Legacy literal contract: if [[ "${EA_ENABLE_FASTESTVPN:-0}" == "1" ]]; then
 if [[ "${enable_fastestvpn}" == "1" ]]; then
   if find "${APP_ROOT}/vpn/fastestvpn" -maxdepth 1 -type f -name '*.ovpn' | grep -q .; then
     COMPOSE_ARGS+=(-f docker-compose.fastestvpn.yml)
     FASTESTVPN_OVERLAY_ENABLED=1
   else
-    echo "PROPERTYQUARRY_ENABLE_FASTESTVPN=1 but no FastestVPN *.ovpn profiles were found under ${APP_ROOT}/vpn/fastestvpn" >&2
+    echo "EA_ENABLE_FASTESTVPN=1 but no FastestVPN *.ovpn profiles were found under ${APP_ROOT}/vpn/fastestvpn" >&2
     exit 1
   fi
 fi

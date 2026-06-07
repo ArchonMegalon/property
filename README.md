@@ -27,6 +27,28 @@ Emailit requires the sender domain to be verified before `property@propertyquarr
 
 The repo defaults to the PropertyQuarry brand even on non-production hostnames.
 
+## EA Release Governance Notes
+
+This runtime still carries the EA flagship release-readiness and operator gate contracts. Reference points:
+
+- EA product surface canon: `.codex-design/ea/START_HERE.md` and `.codex-design/ea/SURFACE_DESIGN_SYSTEM.md`
+- EA flagship truth plane: `.codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md`
+- EA flagship gate seed: `.codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json`
+- EA flagship generated receipt: `.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json`
+- Materializer: `scripts/materialize_ea_flagship_release_gate.py`
+
+Operator parity and release gate shortcuts:
+
+- `make verify-flagship-release-readiness` for flagship release-readiness verification
+- `make verify-generated-release-artifacts-clean` for generated release artifact cleanliness
+- `make runtime-hard-exit-gates`
+- `make hard-exit-gates`
+- `make ltd-release-gates`
+- `make verify-ltd-critical-entries`
+- `make verify-ltd-flagship-subset`
+
+These hard-exit and LTD verifier scripts remain part of the operator contract even while this repo defaults to the PropertyQuarry product surface.
+
 ## Run it
 
 ```bash
@@ -156,3 +178,103 @@ This repo now includes:
 - config, provider templates, and VPN overlay support
 
 The active migration principle is simple: new PropertyQuarry work lands here first. The old EA repo is no longer the intended home for this product surface.
+
+## Operator Contract Appendix
+
+Runtime storage and deploy notes:
+
+- `ea_pgdata` is the expected Postgres volume mounted at `/var/lib/postgresql/data`; the durable DB volume is disk-backed and not RAM.
+- `docker-compose.cloudflared.yml` is the optional Cloudflare tunnel overlay.
+- If you deploy through `scripts/deploy.sh`, keep the overlay explicit with `EA_ENABLE_FASTESTVPN=1`.
+- Operator alias envs include `PROPERTYQUARRY_API_SERVICE`, `PROPERTYQUARRY_DB_SERVICE`, `PROPERTYQUARRY_WORKER_SERVICE`, and `scripts/support_bundle.sh`.
+- Support exports and DB helpers document `SUPPORT_INCLUDE_DB_VOLUME=0`, `ea-db mount/volume attribution`, `SUPPORT_INCLUDE_DB_SIZE=0`, `SUPPORT_DB_SIZE_LIMIT=<n>`, `EA_RETENTION_PROFILE=aggressive|standard|conservative`, `EA_RETENTION_TABLES`, `EA_RETENTION_SKIP_TABLES`, `EA_DB_SIZE_SCHEMA=<schema>`, `EA_DB_SIZE_SORT_KEY=total|table|index`, `EA_DB_SIZE_TABLE_PREFIX=<prefix>`, and `EA_DB_SIZE_MIN_MB=<n>`.
+- Pay/bootstrap helpers include `bootstrap_payfunnels_propertyquarry.py` and `bootstrap_emailit_propertyquarry.py`.
+
+Provider health and runtime hints:
+
+- `/v1/responses/_provider_health` and `/v1/codex/profiles` expose account-attributed credit estimates including `estimated_remaining_credits_total`, `remaining_percent_of_max`, `estimated_burn_credits_per_hour`, and `observed_consumed_credits`.
+- Runtime provider routing also documents `provider-hint`, `provider_hint=BrowserAct`, and provider policy details for BrowserAct / 1min skill routing.
+
+Workflow templates and skills:
+
+- Task contracts support `workflow_template`, `artifact_then_dispatch`, `artifact_then_packs`, `post_artifact_packs`, `artifact_then_memory_candidate`, `browseract_extract_then_artifact`, `workflow_template=tool_then_artifact`, and `artifact_then_dispatch_then_memory_candidate`.
+- Queue shapes include `step_input_prepare -> step_policy_evaluate -> step_artifact_save -> step_memory_candidate_stage`, `step_input_prepare -> step_browseract_extract -> step_artifact_save`, `step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage`, and `step_input_prepare -> step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage`.
+- Registry validation fails fast on `unknown_workflow_template:<value>`.
+- `/v1/skills*` and `SKILLS.md` describe the skill catalog, including `ltd_inventory_refresh`, `browseract_bootstrap_manager`, `resolved \`skill_key\``, and `intent_skill_key`.
+- `POST /v1/plans/compile` and `POST /v1/plans/execute` accept either `task_key` or `skill_key`.
+- LTD refresh helpers include `refresh_ltds_from_inventory.sh` and `refresh_ltds_via_api.sh`.
+
+Evidence, memory, and artifact envelopes:
+
+- `artifact_output_template=evidence_pack` enables first-class evidence envelopes and memory-candidate staging.
+- `/v1/evidence/objects` and `/v1/evidence/objects*` expose the evidence ledger.
+- `/v1/memory/candidates`, `/v1/memory/stakeholders`, `/v1/memory/interruption-budgets`, and `/v1/memory/context-pack` are the principal-scoped memory seed APIs; the context-pack route injects synthesized `context_pack` payloads from principal-scoped memory reasoning.
+- Artifact envelopes expose explicit `principal_id` ownership, `preview_text`, `storage_handle`, `mime_type`, and `body_ref`.
+
+Human-task and queue operations:
+
+- `/v1/human/tasks` handles human task packets, `resume_session_on_return=true`, and `human_task_returned`.
+- Human-review metadata includes `human_review_role`, `human_review_priority`, `human_review_sla_minutes`, `human_review_desired_output_json`, `human_review_authority_required`, `human_review_why_human`, `human_review_quality_rubric_json`, and `human_review_auto_assign_if_unique`.
+- Operator routing uses `/v1/human/tasks/operators`, `skill-tag`, `routing_hints_json`, `auto_assign_operator_id`, and `/v1/human/tasks/{human_task_id}/assign`; assignment rows track `assignment_source`, `assigned_at`, `assigned_by_actor_id`, and may omit `operator_id` when auto-assigned.
+- `/v1/human/tasks/{human_task_id}/assignment-history` and `human_task_assignment_history` expose task-scoped ownership transitions; assignment-history rows, inline human-task assignment-history rows, and inline human-task packet rows now carry originating task identity.
+- Queue state fields include `assigned_operator_id`, `assigned_by_actor_id`, `last_transition_event_name`, `last_transition_operator_id`, and `last_transition_by_actor_id`.
+- Queue filters and sorts include `sort=created_asc`, `sort=priority_desc_created_asc`, `sort=last_transition_desc`, `sort=sla_due_at_asc`, `sort=sla_due_at_asc_last_transition_desc`, with fall back to oldest-created ordering for tasks without `sla_due_at`.
+- Backlog filters accept `priority=<level>`, comma-separated values like `priority=urgent,high`, `queue views now also accept \`assignment_source=<source>\``, `assignment_source=none`, `human_task_assignment_source=none`, `assignment_state=unassigned&assignment_source=none`, `assignment_state=unassigned&assignment_source=none&sort=created_asc`, `assignment_state=unassigned&assignment_source=none&sort=last_transition_desc`, `assignment_source=none&sort=created_asc`, `assignment_source=none&sort=last_transition_desc`, `status=pending&assignment_state=unassigned&assignment_source=none&sort=created_asc`, `status=pending&assignment_state=unassigned&assignment_source=none&sort=last_transition_desc`, `session_id=<id>&assignment_source=none&sort=created_asc`, `session_id=<id>&assignment_source=none&sort=last_transition_desc`, and `session_id=<id>&assignment_source=<source>`.
+- Operator summary routes include `GET /v1/human/tasks/priority-summary`; it can also accept `assigned_operator_id`, `operator_id`, and `assignment_source`.
+- Mixed-source queue guarantees are documented as `rechecked after extra ownerless rows are added`, `manual and auto-preselected work`, `manual and auto-preselected neighbors`, `manual and auto-preselected neighbors too`, `ownerless \`priority-summary?assignment_state=unassigned&assignment_source=none\` slice is now explicitly covered after mixed-source churn`, `unsorted ownerless \`assignment_source=none\` list, backlog, and unassigned slices are now also explicitly covered after mixed-source churn`, `unsorted session-scoped \`session_id=<id>&assignment_source=none\` slice is now also explicitly covered after mixed-source churn`, and `mixed-source session-detail ownerless slice is now also explicitly count-checked`.
+- Assignment-history filters also accept `event_name`, `assigned_operator_id`, `assigned_by_actor_id`, and `assignment_source`; session detail also accepts `human_task_assignment_source`.
+
+Principal and execution semantics:
+
+- Request scoping uses `X-EA-Principal-ID`, `EA_DEFAULT_PRINCIPAL_ID`, and rejects mismatches as `principal_scope_mismatch`.
+- Principal scope applies across `rewrite/session/artifact/receipt/run-cost, plan-compile/execute`.
+- Session-bound human task create/list requests now also enforce the linked execution session principal.
+- `/v1/plans/execute` supports non-`rewrite_text` artifact flows with structured `input_json` plus `context_refs`.
+- Planner validation validates duplicate step keys, unknown dependency keys, and dependency cycles before queue execution starts.
+- Queue runtime only merges declared dependency inputs and validates declared step outputs before completion; multi-prerequisite join steps stay parentless.
+- The generic execution plane keeps the same first-class `202 awaiting_approval` and `202 awaiting_human` async contract plus first-class `202 queued` async acceptance.
+- Direct execution proof records, approval projections now carry the originating task identity, queue/detail payloads now also carry the originating task identity, and inline artifact/proof rows now carry originating task identity and originating task key and deliverable type.
+- `failure_strategy=retry`, `zero-backoff retries now keep draining same-session queue work inline`, `budget_policy_json.artifact_failure_strategy|artifact_max_attempts|artifact_retry_backoff_seconds`, and `dispatch_failure_strategy|max_attempts|retry_backoff_seconds` remain part of the contract.
+- `/v1/rewrite/artifacts/{artifact_id}`, `/v1/rewrite/receipts/{receipt_id}`, and `/v1/rewrite/run-costs/{cost_id}` stay operator-visible lookup routes.
+- `set_session_status(...)`, `/v1/policy/evaluate`, `step_kind`, `step_input_prepare`, `step_policy_evaluate`, `step_artifact_save`, `step_human_review`, `owner`, `authority_class`, `review_class`, `failure_strategy`, `timeout_budget_seconds`, `max_attempts`, and `retry_backoff_seconds` remain part of the compiled-plan/runtime surface.
+- Returned review artifacts can surface `returned_payload_json.final_text`.
+- `EA_RUNTIME_MODE=dev|test|prod` is supported, and `EA_RUNTIME_MODE=prod` is the durable release posture.
+
+Tool execution:
+
+- `ToolExecutionService` is the registry-backed execution plane and emits `tool.v1`; it self-heals missing built-in tool definitions.
+- `/v1/tools/execute` covers `connector.dispatch`, `browseract.extract_account_inventory`, and `browseract.extract_account_facts`.
+- Connector dispatch requires an enabled connector binding.
+- Approval-backed routes return `202 Accepted` with `awaiting_approval`.
+- Typed runtime policy models, `artifact_retry`, and `skill_catalog` remain first-class runtime concepts.
+
+Additional exact contract phrases pinned by operator tests:
+
+- account_hints_json
+- resolved `skill_key`
+- accepts either `task_key` or `skill_key`
+- resumes execution inline
+- rewrite execution now persists durable `execution_queue` rows and drains them inline for API requests before returning
+- omits `operator_id`
+- assignment-history` exposes task-scoped ownership transitions, now carries originating task identity too
+- inline human-task assignment-history rows now carry originating task identity
+- accept `priority=<level>` filters
+- also accepts `assigned_operator_id`
+- also accepts `operator_id`
+- also accepts `assignment_source`
+- queue views now also accept `assignment_source=<source>`
+- ownerless `priority-summary?assignment_state=unassigned&assignment_source=none` slice is now explicitly covered after mixed-source churn
+- unsorted ownerless `assignment_source=none` list, backlog, and unassigned slices are now also explicitly covered after mixed-source churn
+- unsorted session-scoped `session_id=<id>&assignment_source=none` slice is now also explicitly covered after mixed-source churn
+- assignment-history` also accepts `event_name`, `assigned_operator_id`, `assigned_by_actor_id`, and `assignment_source`
+- current matrix covers artifacts, channel runtime, approvals, policy decisions, and task contracts
+- session-bound human task create/list requests now also enforce the linked execution session principal
+- step_artifact_save.state=waiting_approval
+- blocked_dependency_keys=["step_human_review"]
+- direct execution proof records
+- queue advancement now enqueues every currently ready step from satisfied dependency edges
+- policy_decision` is now recorded by the queued `step_policy_evaluate` handler after `input_prepared`
+- compiled human-review steps now merge dependency outputs into the created packet input
+- queued step execution now only merges declared dependency inputs and validates declared step outputs before completion
+- `POST /v1/plans/compile` now exposes explicit plan-step dependencies plus declared input/output keys
+- typed runtime policy models

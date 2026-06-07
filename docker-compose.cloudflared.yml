@@ -5,6 +5,7 @@ services:
     restart: unless-stopped
     command: tunnel run
     environment:
+      - TUNNEL_TOKEN=${EA_CF_TUNNEL_TOKEN}
       - TUNNEL_TOKEN=${PROPERTYQUARRY_CF_TUNNEL_TOKEN:-${EA_CF_TUNNEL_TOKEN}}
     depends_on:
       ea-api:

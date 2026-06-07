@@ -364,7 +364,11 @@ def compile_plan(
     )
 
 
-@router.post("/execute")
+@router.post(
+    "/execute",
+    response_model=PlanExecuteOut,
+    responses={202: {"model": PlanExecuteAcceptedOut}},
+)
 def execute_plan(
     body: PlanExecuteIn,
     container: AppContainer = Depends(get_container),

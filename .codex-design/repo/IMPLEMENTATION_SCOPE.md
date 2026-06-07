@@ -4,6 +4,7 @@
 
 `executive-assistant` is the private chief-of-staff system for one executive and one operator.
 Its product center of gravity is the daily command brief, decision queue, commitment ledger, approved-action workflow, and evidence-backed audit trail.
+The flagship-facing product canon lives in the EA product surface canon under `.codex-design/ea/*`, and release claims must stay downstream of that truth plane instead of relying on milestone history alone.
 
 Inside the Chummer estate, it is also the governed synthesis/runtime substrate adjacent to the release train.
 It exists to turn mirrored canon and bounded product signals into petitions, synthesis briefs, and operator aids without becoming a second product authority.

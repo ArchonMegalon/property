@@ -1250,7 +1250,7 @@
     const nextSelected = new Set((selectedValues || []).filter(Boolean));
     grid.innerHTML = (Array.isArray(options) ? options : []).map((option) => {
       const value = String(option.value || '').trim();
-      const label = String(option.label || value || 'Platform').trim();
+      const label = String(option.label || value || 'Provider').trim();
       const detail = String(option.detail || option.description || '').trim();
       return `
         <label class="console-choice">

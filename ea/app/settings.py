@@ -466,7 +466,22 @@ def get_settings() -> Settings:
         if raw_public_memorials_enabled is None
         else _env_truthy(raw_public_memorials_enabled)
     )
-    legacy_runtime_surfaces_enabled = _env_truthy(raw_legacy_runtime_surfaces_enabled)
+    inferred_legacy_runtime_surfaces_enabled = bool(
+        str(os.environ.get("EA_TELEGRAM_INGEST_SECRET") or "").strip()
+        or str(os.environ.get("EA_TELEGRAM_BOT_TOKEN") or "").strip()
+        or (
+            str(os.environ.get("EA_API_TOKEN") or "").strip()
+            and (
+                str(os.environ.get("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER") or "").strip()
+                or str(os.environ.get("EA_OPERATOR_PRINCIPAL_IDS") or "").strip()
+            )
+        )
+    )
+    legacy_runtime_surfaces_enabled = (
+        inferred_legacy_runtime_surfaces_enabled
+        if raw_legacy_runtime_surfaces_enabled is None
+        else _env_truthy(raw_legacy_runtime_surfaces_enabled)
+    )
 
     settings = Settings(
         core=CoreSettings(

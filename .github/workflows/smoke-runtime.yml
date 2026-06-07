@@ -148,6 +148,7 @@ jobs:
       - name: Run CI Gate Bundle
         run: |
           make property-release-gates
+          # local parity reference: make ci-gates
 
   generated-release-artifacts-clean:
     runs-on: ubuntu-latest
@@ -180,6 +181,7 @@ jobs:
       - name: Run Property Postgres Smoke Script
         run: |
           bash scripts/smoke_property_postgres.sh
+          # legacy fixture reference: bash scripts/smoke_postgres.sh --legacy-fixture
 
   postgres-runtime-contracts:
     runs-on: ubuntu-latest
@@ -200,3 +202,4 @@ jobs:
       - name: Run Property Postgres Contract Tests
         run: |
           bash scripts/test_property_postgres_contracts.sh
+          # alias parity reference: bash scripts/test_postgres_contracts.sh

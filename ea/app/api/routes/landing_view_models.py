@@ -29,9 +29,31 @@ def _merge_option_catalog(
         normalized = str(value or "").strip()
         if not normalized or normalized.lower() in values:
             continue
-        merged.append({"value": normalized, "label": normalized, "detail": "Saved preference"})
+        merged.append({"value": normalized, "label": normalized})
         values.add(normalized.lower())
     return merged
+
+
+def _split_known_and_custom_values(
+    base: list[dict[str, str]],
+    selected_values: list[str],
+) -> tuple[list[str], list[str]]:
+    known_values = {
+        str(item.get("value") or "").strip().lower()
+        for item in base
+        if str(item.get("value") or "").strip()
+    }
+    known: list[str] = []
+    custom: list[str] = []
+    for value in selected_values:
+        normalized = str(value or "").strip()
+        if not normalized:
+            continue
+        if normalized.lower() in known_values:
+            known.append(normalized)
+        else:
+            custom.append(normalized)
+    return known, custom
 
 
 def _property_preference_schema() -> dict[str, object]:
@@ -97,7 +119,14 @@ def _property_location_options(country_code: str, region_code: str = "") -> list
             {"value": "1070 Vienna", "label": "1070 Vienna", "detail": "Neubau"},
             {"value": "1080 Vienna", "label": "1080 Vienna", "detail": "Josefstadt"},
             {"value": "1090 Vienna", "label": "1090 Vienna", "detail": "Alsergrund"},
+            {"value": "1100 Vienna", "label": "1100 Vienna", "detail": "Favoriten"},
+            {"value": "1110 Vienna", "label": "1110 Vienna", "detail": "Simmering"},
             {"value": "1120 Vienna", "label": "1120 Vienna", "detail": "Meidling"},
+            {"value": "1130 Vienna", "label": "1130 Vienna", "detail": "Hietzing"},
+            {"value": "1140 Vienna", "label": "1140 Vienna", "detail": "Penzing"},
+            {"value": "1150 Vienna", "label": "1150 Vienna", "detail": "Rudolfsheim-Fuenfhaus"},
+            {"value": "1160 Vienna", "label": "1160 Vienna", "detail": "Ottakring"},
+            {"value": "1170 Vienna", "label": "1170 Vienna", "detail": "Hernals"},
             {"value": "1180 Vienna", "label": "1180 Vienna", "detail": "Waehring"},
             {"value": "1190 Vienna", "label": "1190 Vienna", "detail": "Doebling"},
             {"value": "1200 Vienna", "label": "1200 Vienna", "detail": "Brigittenau"},
@@ -469,8 +498,6 @@ def app_section_payload(
         )
     except Exception:
         property_available_within_years_value = 0
-    selected_location_values = _csv_values(property_preferences.get("location_query"))
-    selected_keyword_values = _csv_values(property_preferences.get("keywords"))
     selected_region_code = str(property_preferences.get("region_code") or "").strip().lower()
     selected_all_of_vienna = bool(property_preferences.get("all_of_vienna"))
     country_options = [dict(option) for option in list(property_state.get("country_options") or []) if isinstance(option, dict)]
@@ -483,11 +510,30 @@ def app_section_payload(
         for value in (property_state.get("selected_platforms") or [])
         if str(value or "").strip()
     }
+    selected_country_code = str(property_preferences.get("country_code") or "AT").strip().upper() or "AT"
     platform_options = [
         dict(option)
         for option in list(property_state.get("platform_options") or [])
         if isinstance(option, dict)
     ]
+    try:
+        from app.services.property_market_catalog import provider_options as property_provider_options
+
+        known_values = {
+            str(option.get("value") or "").strip().lower()
+            for option in platform_options
+            if str(option.get("value") or "").strip()
+        }
+        for option in property_provider_options(country_code=selected_country_code):
+            value = str(option.get("value") or "").strip()
+            if not value or value.lower() in known_values:
+                continue
+            platform_options.append(dict(option))
+            known_values.add(value.lower())
+    except Exception:
+        pass
+    selected_location_values = _csv_values(property_preferences.get("location_query"))
+    selected_keyword_values = _csv_values(property_preferences.get("keywords"))
     region_options = _property_region_options(str(property_preferences.get("country_code") or "AT"))
     if not selected_region_code and region_options:
         selected_region_code = str(region_options[0].get("value") or "").strip().lower()
@@ -498,14 +544,15 @@ def app_section_payload(
         and str(property_preferences.get("location_query") or "").strip().lower() in {"vienna", "wien"}
     ):
         selected_all_of_vienna = True
-    location_options = _merge_option_catalog(
-        _property_location_options(
-            str(property_preferences.get("country_code") or "AT"),
-            selected_region_code,
-        ),
-        selected_location_values,
+    location_options = _property_location_options(
+        str(property_preferences.get("country_code") or "AT"),
+        selected_region_code,
     )
-    keyword_options = _merge_option_catalog(_property_keyword_options(), selected_keyword_values)
+    keyword_options = _property_keyword_options()
+    selected_location_values, custom_location_values = _split_known_and_custom_values(location_options, selected_location_values)
+    selected_keyword_values, custom_keyword_values = _split_known_and_custom_values(keyword_options, selected_keyword_values)
+    custom_location_query = str(property_preferences.get("custom_location_query") or ", ".join(custom_location_values)).strip()
+    custom_keywords = str(property_preferences.get("custom_keywords") or ", ".join(custom_keyword_values)).strip()
     property_selected_platform_labels = [
         str(option.get("label") or option.get("value") or "").strip()
         for option in platform_options
@@ -513,7 +560,7 @@ def app_section_payload(
     ]
     property_market_summary_items = [
         row_item("Country", property_country_label, "Market"),
-        row_item("Research language", property_language_label, "Research"),
+        row_item("Browser language", property_language_label, "Research"),
         row_item("Search mode", property_listing_mode_label, "Mode"),
         row_item("Property type", property_type_label, "Type"),
     ]
@@ -535,11 +582,30 @@ def app_section_payload(
         property_market_summary_items.append(
             row_item("Research focus", str(property_preferences.get("keywords") or "").strip(), "Focus")
         )
+    if custom_keywords:
+        property_market_summary_items.append(row_item("Custom priorities", custom_keywords, "Custom"))
     if bool(property_preferences.get("enable_family_mode")):
         property_market_summary_items.append(row_item("Family mode", "Enabled", "Mode"))
     if str(property_preferences.get("commute_destination") or "").strip():
         property_market_summary_items.append(
             row_item("Commute destination", str(property_preferences.get("commute_destination") or "").strip(), "Route")
+        )
+    if str(property_preferences.get("additional_reachability_targets") or "").strip():
+        property_market_summary_items.append(
+            row_item("Additional destinations", str(property_preferences.get("additional_reachability_targets") or "").strip(), "Route")
+        )
+    if str(property_preferences.get("university_name") or "").strip():
+        property_market_summary_items.append(
+            row_item("University focus", str(property_preferences.get("university_name") or "").strip(), "Research")
+        )
+    school_stage_preferences = [
+        str(item or "").strip().replace("_", " ")
+        for item in list(property_preferences.get("school_stage_preferences") or [])
+        if str(item or "").strip()
+    ]
+    if school_stage_preferences:
+        property_market_summary_items.append(
+            row_item("Children", ", ".join(school_stage_preferences), "Family")
         )
     desired_project_stages = [
         str(item or "").strip().replace("_", " ")
@@ -550,7 +616,7 @@ def app_section_payload(
         property_market_summary_items.append(row_item("Accepted project stages", ", ".join(desired_project_stages), "Pipeline"))
     property_platform_rows = [
         row_item(
-            str(option.get("label") or option.get("value") or "Platform"),
+            str(option.get("label") or option.get("value") or "Provider"),
             "Included in the dedicated crawl lane." if str(option.get("value") or "").strip() in selected_platforms else "Available to add to the crawl lane.",
             "Selected" if str(option.get("value") or "").strip() in selected_platforms else "Available",
         )
@@ -890,7 +956,7 @@ def app_section_payload(
         "variant": "property_search",
         "title": "Run a premium market sweep",
         "eyebrow": "Flagship property desk",
-        "copy": "Set the market, shape the shortlist, choose the providers, then launch one visible research run with ranking, hosted review pages, and client-ready alerts.",
+        "copy": "Set the market, shape the shortlist, choose the sources, then launch one visible research run with ranking, hosted review pages, and client-ready alerts.",
         "submit_label": "Launch search",
         "fields": [
             {
@@ -899,14 +965,6 @@ def app_section_payload(
                 "label": "Country",
                 "value": str(property_preferences.get("country_code") or "AT"),
                 "options": country_options,
-                "step": "search",
-            },
-            {
-                "type": "select",
-                "name": "language_code",
-                "label": "Research language",
-                "value": str(property_preferences.get("language_code") or "de"),
-                "options": language_options,
                 "step": "search",
             },
             {
@@ -962,9 +1020,18 @@ def app_section_payload(
                 "step": "areas",
             },
             {
+                "type": "text",
+                "name": "custom_location_query",
+                "label": "Custom areas",
+                "value": custom_location_query,
+                "placeholder": "Free text for areas not covered by the checklist",
+                "tooltip": "Use this only when the district or area is not already available as a visible checkbox.",
+                "step": "areas",
+            },
+            {
                 "type": "checkbox_group",
                 "name": "selected_platforms",
-                "label": "Platforms",
+                "label": "Search sources",
                 "options": platform_options,
                 "values": list(selected_platforms),
                 "step": "providers",
@@ -1042,6 +1109,15 @@ def app_section_payload(
             },
             {
                 "type": "text",
+                "name": "custom_keywords",
+                "label": "Custom priorities",
+                "value": custom_keywords,
+                "placeholder": "Free text for priorities not listed above",
+                "tooltip": "If the same custom preference is requested three times, it should be promoted into this user's default catalog. If many users request the same thing, it should become available for everyone.",
+                "step": "areas",
+            },
+            {
+                "type": "text",
                 "name": "preference_person_id",
                 "label": "Preference profile",
                 "value": str(property_preferences.get("preference_person_id") or "self"),
@@ -1094,7 +1170,50 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("enable_family_mode")),
                 "tooltip": "Prioritize school quality, childcare, playgrounds, pediatrician access, and daily family logistics as a coherent mode.",
-                "step": "research",
+                "step": "children",
+            },
+            {
+                "type": "checkbox_group",
+                "name": "school_stage_preferences",
+                "label": "Children and school needs",
+                "options": [
+                    {"value": "kindergarten", "label": "Kindergarten"},
+                    {"value": "private_kindergarten", "label": "Private kindergarten"},
+                    {"value": "volksschule", "label": "Volksschule"},
+                    {"value": "ganztags_volksschule", "label": "Ganztagsvolksschule"},
+                    {"value": "halbtags_volksschule", "label": "Halbtagsvolksschule"},
+                    {"value": "gymnasium", "label": "Gymnasium"},
+                ],
+                "values": list(property_preferences.get("school_stage_preferences") or []),
+                "step": "children",
+            },
+            {
+                "type": "select",
+                "name": "school_quality_priority",
+                "label": "School quality priority",
+                "value": str(property_preferences.get("school_quality_priority") or "any"),
+                "options": [
+                    {"value": "any", "label": "Any"},
+                    {"value": "important", "label": "Important"},
+                    {"value": "very_important", "label": "Very important"},
+                ],
+                "step": "children",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_playground_m",
+                "label": "Max distance to playground",
+                "value": str(property_preferences.get("max_distance_to_playground_m") or 0),
+                "min": "0",
+                "max": "5000",
+                "visual_max": "5000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any playground distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "5 km",
+                "tooltip": "Only keep listings within this distance of a playground or similar children's outdoor space.",
+                "step": "children",
             },
             {
                 "type": "checkbox",
@@ -1103,15 +1222,36 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("enable_commute_research")),
                 "tooltip": "Check actual travel times at realistic times of day instead of relying only on straight-line distance.",
-                "step": "research",
+                "step": "reachability",
             },
             {
                 "type": "text",
                 "name": "commute_destination",
-                "label": "Commute destination",
+                "label": "Primary destination",
                 "value": str(property_preferences.get("commute_destination") or ""),
-                "placeholder": "Office, school, or key destination",
-                "step": "research",
+                "placeholder": "Workplace, university, Oma, or another key address",
+                "step": "reachability",
+            },
+            {
+                "type": "text",
+                "name": "additional_reachability_targets",
+                "label": "Additional destinations",
+                "value": str(property_preferences.get("additional_reachability_targets") or ""),
+                "placeholder": "Comma-separated: office, grandma, club, doctor",
+                "step": "reachability",
+            },
+            {
+                "type": "checkbox_group",
+                "name": "preferred_reachability_modes",
+                "label": "Reachability modes",
+                "options": [
+                    {"value": "public_transit", "label": "Public transit"},
+                    {"value": "bike", "label": "Bike"},
+                    {"value": "car", "label": "Car"},
+                    {"value": "walk", "label": "Walk"},
+                ],
+                "values": list(property_preferences.get("preferred_reachability_modes") or []),
+                "step": "reachability",
             },
             {
                 "type": "range",
@@ -1127,7 +1267,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "180 min",
                 "tooltip": "Maximum acceptable public-transit commute time.",
-                "step": "research",
+                "step": "reachability",
             },
             {
                 "type": "range",
@@ -1143,7 +1283,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "180 min",
                 "tooltip": "Maximum acceptable driving commute time.",
-                "step": "research",
+                "step": "reachability",
             },
             {
                 "type": "range",
@@ -1159,7 +1299,23 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "180 min",
                 "tooltip": "Maximum acceptable cycling commute time.",
-                "step": "research",
+                "step": "reachability",
+            },
+            {
+                "type": "range",
+                "name": "max_commute_minutes_walk",
+                "label": "Max commute by foot",
+                "value": str(property_preferences.get("max_commute_minutes_walk") or 0),
+                "min": "0",
+                "max": "180",
+                "visual_max": "180",
+                "range_step": "5",
+                "format": "minutes",
+                "empty_label": "Any walking commute",
+                "scale_min_label": "Any",
+                "scale_max_label": "180 min",
+                "tooltip": "Maximum acceptable walking time for adult destinations.",
+                "step": "reachability",
             },
             {
                 "type": "checkbox_group",
@@ -1196,11 +1352,35 @@ def app_section_payload(
             {
                 "type": "checkbox",
                 "name": "enable_lifestyle_research",
-                "label": "Freizeit- und Spaßfilter",
+                "label": "Freizeit und Alltag",
                 "value": "true",
                 "checked": bool(property_preferences.get("enable_lifestyle_research")),
                 "tooltip": "Track lifestyle distance signals like Starbucks and fitness centers separately from hard investment or family-risk criteria.",
-                "step": "lifestyle",
+                "step": "areas",
+            },
+            {
+                "type": "text",
+                "name": "university_name",
+                "label": "University focus",
+                "value": str(property_preferences.get("university_name") or ""),
+                "placeholder": "University of Vienna, WU, TU Wien",
+                "step": "areas",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_university_m",
+                "label": "Max distance to university",
+                "value": str(property_preferences.get("max_distance_to_university_m") or 0),
+                "min": "0",
+                "max": "5000",
+                "visual_max": "5000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any university distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "5 km",
+                "tooltip": "Keep university proximity visible as a livability and investment signal. Use the university name above for a target campus or institution.",
+                "step": "areas",
             },
             {
                 "type": "range",
@@ -1216,7 +1396,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest Starbucks.",
-                "step": "lifestyle",
+                "step": "areas",
             },
             {
                 "type": "range",
@@ -1232,7 +1412,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest fitness center or gym.",
-                "step": "lifestyle",
+                "step": "areas",
             },
             {
                 "type": "range",
@@ -1248,7 +1428,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest cinema.",
-                "step": "lifestyle",
+                "step": "areas",
             },
             {
                 "type": "range",
@@ -1264,7 +1444,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest bouldering or climbing gym.",
-                "step": "lifestyle",
+                "step": "areas",
             },
             {
                 "type": "range",
@@ -1280,7 +1460,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest dog park or dog exercise area.",
-                "step": "lifestyle",
+                "step": "areas",
             },
             {
                 "type": "range",
@@ -1296,7 +1476,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest cafe-quality proxy.",
-                "step": "lifestyle",
+                "step": "areas",
             },
             {
                 "type": "checkbox",
@@ -1463,22 +1643,27 @@ def app_section_payload(
                 {
                     "key": "areas",
                     "label": "Areas and priorities",
-                    "detail": "Select the districts and the property traits that should actually drive the ranking.",
+                    "detail": "Select districts, fit signals, lifestyle filters, and university proximity that should actually drive the ranking.",
+                },
+                {
+                    "key": "children",
+                    "label": "Children",
+                    "detail": "Capture playground, kindergarten, school type, and school-quality priorities as a separate family layer.",
+                },
+                {
+                    "key": "reachability",
+                    "label": "Reachability",
+                    "detail": "Set adult destinations, transport modes, and hard travel-time constraints independently from the children layer.",
                 },
                 {
                     "key": "research",
                     "label": "Research modes",
-                    "detail": "Decide which deeper research layers should run: family fit, commute reality, project stage realism, uncertainty handling, and action-readiness.",
-                },
-                {
-                    "key": "lifestyle",
-                    "label": "Freizeit und Alltag",
-                    "detail": "Add optional fun filters like Starbucks and fitness proximity without mixing them into the hard-risk layer.",
+                    "detail": "Decide which deeper research layers should run: investment, supply, risks, project-stage realism, uncertainty handling, and action-readiness.",
                 },
                 {
                     "key": "providers",
                     "label": "Providers and launch",
-                    "detail": "Pick the portals, confirm the run cap, then save or launch the visible crawl.",
+                    "detail": "Pick the sources, confirm the run cap, then save or launch the visible crawl.",
                 },
             ],
         },
@@ -1683,7 +1868,7 @@ def app_section_payload(
                         ),
                         row_item(
                             "Active providers",
-                            ", ".join(property_selected_platform_labels) if property_selected_platform_labels else "No platforms saved yet.",
+                            ", ".join(property_selected_platform_labels) if property_selected_platform_labels else "No providers saved yet.",
                             "Profile",
                         ),
                         row_item(

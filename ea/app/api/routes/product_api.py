@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, require_operator_context
 from app.api.routes.product_api_contracts import (
@@ -91,8 +92,39 @@ from app.api.routes.product_api_contracts import (
 )
 from app.container import AppContainer
 from app.product.service import _property_feedback_reason_map, build_product_service
+from app.services.fliplink import build_fliplink_packet_service
 
 router = APIRouter(prefix="/app/api", tags=["product"])
+
+
+class StructuredPropertyFeedbackIn(BaseModel):
+    stakeholder_id: str = Field(min_length=1, max_length=160)
+    stakeholder_label: str = Field(default="", max_length=160)
+    property_ref: str = Field(min_length=1, max_length=500)
+    publication_id: str = Field(default="", max_length=160)
+    share_id: str = Field(default="", max_length=160)
+    audience_type: str = Field(default="", max_length=80)
+    category: str = Field(min_length=1, max_length=80)
+    sentiment: str = Field(default="", max_length=80)
+    importance: int = Field(default=3, ge=1, le=5)
+    text: str = Field(default="", max_length=2000)
+    source: str = Field(default="packet", max_length=80)
+    source_event_id: str = Field(default="", max_length=160)
+
+
+class PropertySummaryGenerateIn(BaseModel):
+    subject_type: str = Field(default="property", max_length=80)
+    subject_id: str = Field(min_length=1, max_length=500)
+    artifact_type: str = Field(min_length=1, max_length=80)
+    audience_type: str = Field(default="family", max_length=80)
+
+
+class FollowupAssignIn(BaseModel):
+    owner: str = Field(min_length=1, max_length=160)
+
+
+class FollowupResolveIn(BaseModel):
+    resolution: str = Field(min_length=1, max_length=240)
 
 
 def _require_operator_for_workspace_role(*, role: str, operator_id: str = "", context: RequestContext) -> None:
@@ -904,6 +936,229 @@ def record_property_feedback(
         actor=actor,
     )
     return PropertyFeedbackRecordOut(**result)
+
+
+@router.post("/property-feedback")
+def record_structured_property_feedback(
+    body: StructuredPropertyFeedbackIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    try:
+        feedback = service.record_structured_feedback(
+            principal_id=context.principal_id,
+            property_ref=body.property_ref,
+            stakeholder_id=body.stakeholder_id,
+            stakeholder_label=body.stakeholder_label,
+            publication_id=body.publication_id,
+            share_id=body.share_id,
+            audience_type=body.audience_type,
+            category=body.category,
+            sentiment=body.sentiment,
+            importance=body.importance,
+            text=body.text,
+            source=body.source,
+            source_event_id=body.source_event_id,
+            actor=actor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "recorded", "feedback": feedback}
+
+
+@router.get("/property-feedback")
+def list_structured_property_feedback(
+    property_ref: str = Query(default=""),
+    stakeholder_id: str = Query(default=""),
+    publication_id: str = Query(default=""),
+    category: str = Query(default=""),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    items = service.list_structured_feedback(
+        principal_id=context.principal_id,
+        property_ref=property_ref,
+        stakeholder_id=stakeholder_id,
+        publication_id=publication_id,
+        category=category,
+    )
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/property-feedback/cluster")
+def cluster_structured_property_feedback(
+    property_ref: str = Query(min_length=1),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    return {"property_ref": property_ref, "clusters": service.cluster_feedback(principal_id=context.principal_id, property_ref=property_ref)}
+
+
+@router.get("/stakeholders/{stakeholder_id}/preferences")
+def get_stakeholder_property_preferences(
+    stakeholder_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    return service.stakeholder_preferences(principal_id=context.principal_id, stakeholder_id=stakeholder_id)
+
+
+@router.get("/properties/{property_ref:path}/feedback-summary")
+def get_property_feedback_summary(
+    property_ref: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    return service.feedback_summary(principal_id=context.principal_id, property_ref=property_ref)
+
+
+@router.post("/property-summaries/generate")
+def generate_property_summary_artifact(
+    body: PropertySummaryGenerateIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    try:
+        artifact = service.generate_summary_artifact(
+            principal_id=context.principal_id,
+            subject_type=body.subject_type,
+            subject_id=body.subject_id,
+            artifact_type=body.artifact_type,
+            audience_type=body.audience_type,
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"artifact": artifact}
+
+
+@router.get("/property-summaries/{artifact_id}")
+def get_property_summary_artifact(
+    artifact_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    artifact = service.get_summary_artifact(principal_id=context.principal_id, artifact_id=artifact_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="property_summary_artifact_not_found")
+    return {"artifact": artifact}
+
+
+@router.get("/properties/{property_ref:path}/change-log")
+def get_property_change_log(
+    property_ref: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    return {"items": service.property_change_log(principal_id=context.principal_id, property_ref=property_ref)}
+
+
+@router.get("/stakeholders/{stakeholder_id}/timeline")
+def get_property_stakeholder_timeline(
+    stakeholder_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    items = service.stakeholder_timeline(principal_id=context.principal_id, stakeholder_id=stakeholder_id)
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/properties/{property_ref:path}/timeline")
+def get_property_timeline(
+    property_ref: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    items = service.property_timeline(principal_id=context.principal_id, property_ref=property_ref)
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/followups/{followup_id}/assign")
+def assign_property_followup(
+    followup_id: str,
+    body: FollowupAssignIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    try:
+        event = service.assign_followup(
+            principal_id=context.principal_id,
+            followup_id=followup_id,
+            owner=body.owner,
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"event": dict(event)}
+
+
+@router.post("/followups/{followup_id}/resolve")
+def resolve_property_followup(
+    followup_id: str,
+    body: FollowupResolveIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    try:
+        event = service.resolve_followup(
+            principal_id=context.principal_id,
+            followup_id=followup_id,
+            resolution=body.resolution,
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"event": dict(event)}
+
+
+@router.get("/offers")
+def list_property_offers(
+    property_ref: str = Query(default=""),
+    publication_id: str = Query(default=""),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    items = service.list_offers(
+        principal_id=context.principal_id,
+        property_ref=property_ref,
+        publication_id=publication_id,
+    )
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/offers/{offer_id}/checkout")
+def start_property_offer_checkout(
+    offer_id: str,
+    property_ref: str = Query(default=""),
+    publication_id: str = Query(default=""),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    try:
+        return service.start_offer_checkout(
+            principal_id=context.principal_id,
+            offer_id=offer_id,
+            property_ref=property_ref,
+            publication_id=publication_id,
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/people/{person_id}/preference-profile/teable-projection", response_model=dict[str, list[dict[str, object]]])

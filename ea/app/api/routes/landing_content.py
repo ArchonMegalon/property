@@ -50,6 +50,7 @@ ADMIN_NAV_GROUPS = (
     {
         "label": "Operator center",
         "items": (
+            {"href": "/admin/policies", "label": "Policies", "key": "policies"},
             {"href": "/admin/office", "label": "Office", "key": "office"},
             {"href": "/admin/providers", "label": "Providers", "key": "providers"},
             {"href": "/admin/audit-trail", "label": "Audit Trail", "key": "audit-trail"},

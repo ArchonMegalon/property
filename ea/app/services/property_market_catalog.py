@@ -33,7 +33,7 @@ class PropertyProviderSpec:
 
 
 COUNTRIES: tuple[PropertyCountrySpec, ...] = (
-    PropertyCountrySpec("AT", "Austria", "de", "EUR", "EUR", "Vienna, Graz, Linz", ("willhaben", "immmo", "immoscout_at", "kalandra", "genossenschaften_at", "flatbee")),
+    PropertyCountrySpec("AT", "Austria", "de", "EUR", "EUR", "Vienna, Graz, Linz", ("willhaben", "immmo", "immoscout_at", "kalandra", "broker_direct_at", "community_signals_at", "genossenschaften_at")),
     PropertyCountrySpec("BE", "Belgium", "nl", "EUR", "EUR", "Brussels, Antwerp, Ghent", ("immoweb", "zimmo")),
     PropertyCountrySpec("CA", "Canada", "en", "CAD", "CAD", "Toronto, Montreal, Vancouver", ("realtor_ca", "rew_ca", "rentals_ca")),
     PropertyCountrySpec("DE", "Germany", "de", "EUR", "EUR", "Berlin, Munich, Hamburg", ("immoscout_de", "immowelt", "immonet", "kleinanzeigen_immo")),
@@ -1370,6 +1370,9 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         "max_commute_minutes_transit",
         "max_commute_minutes_drive",
         "max_commute_minutes_bike",
+        "max_commute_minutes_walk",
+        "max_distance_to_playground_m",
+        "max_distance_to_university_m",
         "max_distance_to_starbucks_m",
         "max_distance_to_fitness_center_m",
         "max_distance_to_cinema_m",
@@ -1388,9 +1391,12 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
                 "max_commute_minutes_transit",
                 "max_commute_minutes_drive",
                 "max_commute_minutes_bike",
+                "max_commute_minutes_walk",
             }:
                 payload[numeric_key] = max(5, min(180, numeric_value))
             elif numeric_key in {
+                "max_distance_to_playground_m",
+                "max_distance_to_university_m",
                 "max_distance_to_starbucks_m",
                 "max_distance_to_fitness_center_m",
                 "max_distance_to_cinema_m",
@@ -1440,6 +1446,68 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         payload["commute_destination"] = raw_commute_destination[:240]
     else:
         payload.pop("commute_destination", None)
+    raw_additional_reachability_targets = str(payload.get("additional_reachability_targets") or "").strip()
+    if raw_additional_reachability_targets:
+        payload["additional_reachability_targets"] = raw_additional_reachability_targets[:500]
+    else:
+        payload.pop("additional_reachability_targets", None)
+    raw_university_name = str(payload.get("university_name") or "").strip()
+    if raw_university_name:
+        payload["university_name"] = raw_university_name[:240]
+    else:
+        payload.pop("university_name", None)
+    school_quality_priority = str(payload.get("school_quality_priority") or "").strip().lower()
+    if school_quality_priority not in {"", "any", "important", "very_important"}:
+        school_quality_priority = "any"
+    payload["school_quality_priority"] = school_quality_priority or "any"
+    raw_school_stages = payload.get("school_stage_preferences")
+    if isinstance(raw_school_stages, (list, tuple, set)):
+        school_stage_preferences = [
+            current
+            for current in dict.fromkeys(str(item or "").strip().lower() for item in raw_school_stages)
+            if current in {
+                "kindergarten",
+                "private_kindergarten",
+                "volksschule",
+                "ganztags_volksschule",
+                "halbtags_volksschule",
+                "gymnasium",
+            }
+        ]
+    else:
+        school_stage_preferences = [
+            current
+            for current in dict.fromkeys(
+                part.strip().lower()
+                for part in str(raw_school_stages or "").replace(";", ",").split(",")
+            )
+            if current in {
+                "kindergarten",
+                "private_kindergarten",
+                "volksschule",
+                "ganztags_volksschule",
+                "halbtags_volksschule",
+                "gymnasium",
+            }
+        ]
+    payload["school_stage_preferences"] = school_stage_preferences
+    raw_reachability_modes = payload.get("preferred_reachability_modes")
+    if isinstance(raw_reachability_modes, (list, tuple, set)):
+        preferred_reachability_modes = [
+            current
+            for current in dict.fromkeys(str(item or "").strip().lower() for item in raw_reachability_modes)
+            if current in {"public_transit", "bike", "car", "walk"}
+        ]
+    else:
+        preferred_reachability_modes = [
+            current
+            for current in dict.fromkeys(
+                part.strip().lower()
+                for part in str(raw_reachability_modes or "").replace(";", ",").split(",")
+            )
+            if current in {"public_transit", "bike", "car", "walk"}
+        ]
+    payload["preferred_reachability_modes"] = preferred_reachability_modes
     raw_project_stages = payload.get("desired_project_stages")
     if isinstance(raw_project_stages, (list, tuple, set)):
         desired_project_stages = [

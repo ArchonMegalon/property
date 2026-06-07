@@ -118,11 +118,57 @@ class FlipLinkAnalyticsSnapshotIn(BaseModel):
     captured_from_url: str = Field(default="", max_length=500)
 
 
+class PacketShareRecipientIn(BaseModel):
+    name: str = Field(default="", max_length=160)
+    email: str = Field(default="", max_length=240)
+    relationship: str = Field(default="", max_length=120)
+    role_label: str = Field(default="", max_length=120)
+
+
+class PacketShareCreateIn(BaseModel):
+    audience_type: str = Field(default="family", max_length=80)
+    channel: str = Field(default="link", max_length=80)
+    variant_key: str = Field(default="default", max_length=120)
+    cover_note: str = Field(default="", max_length=1000)
+    recipients: list[PacketShareRecipientIn] = Field(default_factory=list, max_length=25)
+
+
+class PacketEngagementEventIn(BaseModel):
+    share_id: str = Field(min_length=1, max_length=160)
+    recipient_id: str = Field(min_length=1, max_length=160)
+    event_type: str = Field(min_length=1, max_length=80)
+    event_value: str = Field(default="", max_length=240)
+    metadata_json: dict[str, object] = Field(default_factory=dict)
+
+
+class PacketVariantCreateIn(BaseModel):
+    audience_type: str = Field(default="family", max_length=80)
+    base_variant_key: str = Field(default="default", max_length=120)
+    title_override: str = Field(default="", max_length=200)
+
+
+class PacketAttachSummaryIn(BaseModel):
+    artifact_id: str = Field(min_length=1, max_length=160)
+
+
+class PacketOptimizationAckIn(BaseModel):
+    recommendation_id: str = Field(min_length=1, max_length=160)
+
+
 def _actor(context: RequestContext) -> str:
     return str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
 
 
-def _publication_out(row: dict[str, object], *, analytics: dict[str, object] | None = None) -> dict[str, object]:
+def _publication_out(
+    row: dict[str, object],
+    *,
+    analytics: dict[str, object] | None = None,
+    engagement: dict[str, object] | None = None,
+    share_journey: dict[str, object] | None = None,
+    structured_feedback: list[dict[str, object]] | None = None,
+    attached_summaries: list[dict[str, object]] | None = None,
+    optimization: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
     summary = dict(row.get("packet_summary_json") or {}) if isinstance(row.get("packet_summary_json"), dict) else {}
     analytics_out = {
         "views": None,
@@ -160,7 +206,13 @@ def _publication_out(row: dict[str, object], *, analytics: dict[str, object] | N
         "recommended_folder": str(summary.get("recommended_folder") or ""),
         "recommended_custom_domain": str(summary.get("recommended_custom_domain") or ""),
         "renderer_version": str(summary.get("renderer_version") or ""),
+        "packet_summary_json": summary,
         "analytics": analytics_out,
+        "engagement": dict(engagement or {"summary": {}, "shares": [], "recipients": [], "followups": []}),
+        "share_journey": dict(share_journey or {}),
+        "structured_feedback": list(structured_feedback or []),
+        "attached_summaries": list(attached_summaries or []),
+        "optimization": list(optimization or []),
     }
 
 
@@ -305,7 +357,30 @@ def property_packets_dashboard(
         publication_ids=[str(row.get("publication_id") or "") for row in raw_rows],
     )
     rows = [
-        _publication_out(row, analytics=analytics.get(str(row.get("publication_id") or ""), {}))
+        _publication_out(
+            row,
+            analytics=analytics.get(str(row.get("publication_id") or ""), {}),
+            engagement=service.engagement_snapshot(
+                principal_id=context.principal_id,
+                publication_id=str(row.get("publication_id") or ""),
+            ),
+            share_journey=service.share_journey(
+                principal_id=context.principal_id,
+                publication_id=str(row.get("publication_id") or ""),
+            ),
+            structured_feedback=service.list_structured_feedback(
+                principal_id=context.principal_id,
+                publication_id=str(row.get("publication_id") or ""),
+            )[:6],
+            attached_summaries=service.attached_summaries(
+                principal_id=context.principal_id,
+                publication_id=str(row.get("publication_id") or ""),
+            ),
+            optimization=service.optimization_recommendations(
+                principal_id=context.principal_id,
+                publication_id=str(row.get("publication_id") or ""),
+            ),
+        )
         for row in raw_rows
     ]
     inbox = service.feedback_inbox(principal_id=context.principal_id, limit=100)
@@ -349,7 +424,30 @@ def list_property_packets(
         publication_ids=[str(row.get("publication_id") or "") for row in raw_rows],
     )
     rows = [
-        _publication_out(row, analytics=analytics.get(str(row.get("publication_id") or ""), {}))
+        _publication_out(
+            row,
+            analytics=analytics.get(str(row.get("publication_id") or ""), {}),
+            engagement=service.engagement_snapshot(
+                principal_id=context.principal_id,
+                publication_id=str(row.get("publication_id") or ""),
+            ),
+            share_journey=service.share_journey(
+                principal_id=context.principal_id,
+                publication_id=str(row.get("publication_id") or ""),
+            ),
+            structured_feedback=service.list_structured_feedback(
+                principal_id=context.principal_id,
+                publication_id=str(row.get("publication_id") or ""),
+            )[:6],
+            attached_summaries=service.attached_summaries(
+                principal_id=context.principal_id,
+                publication_id=str(row.get("publication_id") or ""),
+            ),
+            optimization=service.optimization_recommendations(
+                principal_id=context.principal_id,
+                publication_id=str(row.get("publication_id") or ""),
+            ),
+        )
         for row in raw_rows
     ]
     return {"items": rows, "total": len(rows), "capacity": service.capacity_status(principal_id=context.principal_id)}
@@ -443,7 +541,83 @@ def get_property_packet_publication(
     if row is None:
         raise HTTPException(status_code=404, detail="property_packet_publication_not_found")
     events = service.list_events(publication_id=publication_id, principal_id=context.principal_id, limit=100)
-    return {"publication": _publication_out(row), "events": [dict(event) for event in events]}
+    return {
+        "publication": _publication_out(
+            row,
+            analytics=service.latest_analytics_snapshot(principal_id=context.principal_id, publication_id=publication_id),
+            engagement=service.engagement_snapshot(principal_id=context.principal_id, publication_id=publication_id),
+            share_journey=service.share_journey(principal_id=context.principal_id, publication_id=publication_id),
+            structured_feedback=service.list_structured_feedback(
+                principal_id=context.principal_id,
+                publication_id=publication_id,
+            )[:10],
+            attached_summaries=service.attached_summaries(principal_id=context.principal_id, publication_id=publication_id),
+            optimization=service.optimization_recommendations(principal_id=context.principal_id, publication_id=publication_id),
+        ),
+        "events": [dict(event) for event in events],
+    }
+
+
+@authenticated_router.post("/app/api/properties/packets/{publication_id}/shares")
+def create_property_packet_share(
+    publication_id: str,
+    body: PacketShareCreateIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    try:
+        share = service.create_share(
+            principal_id=context.principal_id,
+            publication_id=publication_id,
+            audience_type=body.audience_type,
+            channel=body.channel,
+            variant_key=body.variant_key,
+            cover_note=body.cover_note,
+            recipients=[item.model_dump() for item in body.recipients],
+            actor=_actor(context),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"share": share}
+
+
+@authenticated_router.get("/app/api/properties/packets/{publication_id}/engagement")
+def get_property_packet_engagement(
+    publication_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    return service.engagement_snapshot(principal_id=context.principal_id, publication_id=publication_id)
+
+
+@authenticated_router.post("/app/api/properties/packets/{publication_id}/engagement-events")
+def record_property_packet_engagement_event(
+    publication_id: str,
+    body: PacketEngagementEventIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    try:
+        event = service.record_engagement_event(
+            principal_id=context.principal_id,
+            publication_id=publication_id,
+            share_id=body.share_id,
+            recipient_id=body.recipient_id,
+            event_type=body.event_type,
+            event_value=body.event_value,
+            metadata_json=body.metadata_json,
+            actor=_actor(context),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"event": dict(event), "engagement": service.engagement_snapshot(principal_id=context.principal_id, publication_id=publication_id)}
 
 
 @authenticated_router.post("/app/api/properties/packets/{publication_id}/fliplink/manual-link")
@@ -574,6 +748,105 @@ def record_fliplink_analytics_snapshot(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@authenticated_router.post("/app/api/properties/packets/{publication_id}/variants")
+def create_property_packet_variant(
+    publication_id: str,
+    body: PacketVariantCreateIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    try:
+        row = service.create_variant(
+            principal_id=context.principal_id,
+            publication_id=publication_id,
+            audience_type=body.audience_type,
+            base_variant_key=body.base_variant_key,
+            title_override=body.title_override,
+            actor=_actor(context),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"variant": _publication_out(row)}
+
+
+@authenticated_router.post("/app/api/properties/packets/{publication_id}/republish")
+def republish_property_packet(
+    publication_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    try:
+        row = service.republish_publication(
+            principal_id=context.principal_id,
+            publication_id=publication_id,
+            actor=_actor(context),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"publication": _publication_out(row), "share_journey": service.share_journey(principal_id=context.principal_id, publication_id=publication_id)}
+
+
+@authenticated_router.get("/app/api/properties/packets/{publication_id}/share-journey")
+def get_property_packet_share_journey(
+    publication_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    try:
+        return service.share_journey(principal_id=context.principal_id, publication_id=publication_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@authenticated_router.post("/app/api/properties/packets/{publication_id}/attach-summary")
+def attach_property_summary_to_packet(
+    publication_id: str,
+    body: PacketAttachSummaryIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    try:
+        return service.attach_summary_to_packet(
+            principal_id=context.principal_id,
+            publication_id=publication_id,
+            artifact_id=body.artifact_id,
+            actor=_actor(context),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@authenticated_router.get("/app/api/properties/packets/{publication_id}/optimization")
+def get_property_packet_optimization(
+    publication_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    return {"items": service.optimization_recommendations(principal_id=context.principal_id, publication_id=publication_id)}
+
+
+@authenticated_router.post("/app/api/properties/packets/{publication_id}/optimization/ack")
+def acknowledge_property_packet_optimization(
+    publication_id: str,
+    body: PacketOptimizationAckIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    event = service.acknowledge_optimization(
+        principal_id=context.principal_id,
+        publication_id=publication_id,
+        recommendation_id=body.recommendation_id,
+        actor=_actor(context),
+    )
+    return {"event": dict(event), "items": service.optimization_recommendations(principal_id=context.principal_id, publication_id=publication_id)}
 
 
 @authenticated_router.post("/app/api/properties/{property_ref:path}/packets/render")

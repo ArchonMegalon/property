@@ -2414,6 +2414,18 @@ def app_shell(
     property_brand = brand["key"] == "propertyquarry"
     nav_groups = app_nav_groups_for_brand(brand["key"])
     allowed = {item["href"].rstrip("/").rsplit("/", 1)[-1] for group in nav_groups for item in group["items"]}
+    legacy_redirects = {
+        "briefing": "/app/queue",
+        "inbox": "/app/queue",
+        "follow-ups": "/app/commitments",
+        "memory": "/app/people",
+        "contacts": "/app/evidence",
+        "activity": "/admin/office",
+        "channels": "/app/settings",
+        "automations": "/app/settings",
+    }
+    allowed.update(legacy_redirects)
+    allowed.update({"today", "queue", "commitments", "people", "evidence", "activity", "channel-loop"})
     if property_brand:
         allowed.update({"properties", "shortlist", "research", "profile", "alerts", "billing", "settings"})
     else:
@@ -2428,28 +2440,10 @@ def app_shell(
                 "settings",
                 "search",
                 "channel-loop",
-                "briefing",
-                "inbox",
-                "follow-ups",
-                "memory",
-                "contacts",
-                "activity",
-                "channels",
-                "automations",
             }
         )
     if section not in allowed:
         raise HTTPException(status_code=404, detail="app_section_not_found")
-    legacy_redirects = {
-        "briefing": "/app/queue",
-        "inbox": "/app/queue",
-        "follow-ups": "/app/commitments",
-        "memory": "/app/people",
-        "contacts": "/app/evidence",
-        "activity": "/admin/office",
-        "channels": "/app/settings",
-        "automations": "/app/settings",
-    }
     if section in legacy_redirects:
         target = legacy_redirects[section]
         query = str(request.url.query or "").strip()
@@ -2519,7 +2513,9 @@ def app_shell(
             ),
         )
     property_sections = {"properties", "shortlist", "research", "profile", "alerts", "billing", "settings"} if property_brand else set()
-    core_sections = {"today", "queue", "commitments", "people", "evidence", "activity", "settings"} - property_sections
+    core_sections = {"today", "queue", "commitments", "people", "evidence", "activity"}
+    if not property_brand:
+        core_sections.add("settings")
     if resolved_section in core_sections:
         product = build_product_service(container)
         surface_event = {

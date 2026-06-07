@@ -877,7 +877,7 @@ def _property_research_tasks_from_result(
                         "updated_at": str(research.get("updated_at") or payload.get("generated_at") or _now_iso()),
                     }
                 )
-            if investment_research_mode != "off":
+            if investment_research_mode in {"auto", "preview", "full", "enabled", "on"}:
                 future_research = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
                 if not list(future_research.get("planned_infrastructure_projects") or []):
                     task_id = _property_future_change_task_id(
@@ -9255,20 +9255,36 @@ def _property_public_app_base_url() -> str:
     explicit = str(os.getenv("PROPERTYQUARRY_PUBLIC_BASE_URL") or "").strip().rstrip("/")
     if explicit:
         return explicit
-    inherited = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
-    if inherited:
-        return inherited
-    return _public_app_base_url()
+    return "https://propertyquarry.com"
 
 
 def _property_public_tour_base_url() -> str:
     explicit = str(os.getenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL") or "").strip().rstrip("/")
     if explicit:
         return explicit
-    inherited = str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "").strip().rstrip("/")
-    if inherited:
-        return inherited
     return f"{_property_public_app_base_url()}/tours"
+
+
+def _hosted_property_tour_public_base_url() -> str:
+    explicit = str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    public_app = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
+    if public_app:
+        return f"{public_app}/tours"
+    return _property_public_tour_base_url()
+
+
+def _workspace_access_public_base_url() -> str:
+    explicit = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    redirect_uri = str(os.getenv("EA_GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
+    if redirect_uri:
+        parsed = urllib.parse.urlparse(redirect_uri)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+    return _public_app_base_url()
 
 
 def _is_crezlo_tour_host(value: object) -> bool:
@@ -9373,7 +9389,7 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
     slug = str(structured_output.get("slug") or "").strip()
     if not slug:
         return ""
-    base_url = _property_public_tour_base_url()
+    base_url = _hosted_property_tour_public_base_url()
     public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
     bundle_dir = public_dir / slug
     bundle_manifest = public_dir / slug / "tour.json"
@@ -9528,7 +9544,7 @@ def _write_hosted_floorplan_property_tour_bundle(
     ]
     if not normalized_urls:
         raise RuntimeError("floorplan_assets_missing")
-    base_url = _property_public_tour_base_url()
+    base_url = _hosted_property_tour_public_base_url()
     public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
     slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
     existing_payload = _existing_hosted_property_tour_payload(slug)
@@ -9640,7 +9656,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     parsed_live = urllib.parse.urlparse(live_url)
     live_host = parsed_live.netloc.lower()
     if "matterport" in live_host:
-        base_url = _property_public_tour_base_url()
+        base_url = _hosted_property_tour_public_base_url()
         public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
         slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
         existing_payload = _existing_hosted_property_tour_payload(slug)
@@ -9710,7 +9726,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
         return payload
     if "360.kalandra.at" not in live_host and "feelestate" not in live_host:
         raise RuntimeError("pure_360_source_unsupported")
-    base_url = _property_public_tour_base_url()
+    base_url = _hosted_property_tour_public_base_url()
     public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
     slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
     existing_payload = _existing_hosted_property_tour_payload(slug)
@@ -10659,6 +10675,18 @@ class ProductService:
             person_id=normalized_person_id,
             display_name=display_name,
         )
+        if normalized_person_id != "self":
+            try:
+                onboarding_preferences = dict(
+                    self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {}
+                )
+                onboarding_preferences["preference_person_id"] = normalized_person_id
+                self._container.onboarding.upsert_property_search_preferences(
+                    principal_id=principal_id,
+                    property_search_preferences_json=onboarding_preferences,
+                )
+            except Exception:
+                pass
         packet = google_oauth_service.list_recent_workspace_signals(
             container=self._container,
             principal_id=principal_id,
@@ -10834,7 +10862,7 @@ class ProductService:
         if unique_districts:
             hints.append(
                 {
-                    "domain": "property",
+                    "domain": "willhaben",
                     "category": "soft_preference",
                     "key": "preferred_districts",
                     "value_json": unique_districts[:12],
@@ -10847,7 +10875,7 @@ class ProductService:
         if areas:
             hints.append(
                 {
-                    "domain": "property",
+                    "domain": "willhaben",
                     "category": "soft_preference",
                     "key": "min_area_sqm_preference",
                     "value_json": max(1, int(round(statistics.median(areas)))),
@@ -10859,7 +10887,7 @@ class ProductService:
         if rooms:
             hints.append(
                 {
-                    "domain": "property",
+                    "domain": "willhaben",
                     "category": "constraint",
                     "key": "min_rooms",
                     "value_json": max(1, int(math.floor(min(rooms)))),
@@ -10871,7 +10899,7 @@ class ProductService:
         if prices:
             hints.append(
                 {
-                    "domain": "property",
+                    "domain": "willhaben",
                     "category": "soft_preference",
                     "key": "prefer_lower_total_rent_eur",
                     "value_json": max(1, int(round(statistics.median(prices)))),
@@ -10899,7 +10927,7 @@ class ProductService:
                 continue
             hints.append(
                 {
-                    "domain": "property",
+                    "domain": "willhaben",
                     "category": category_key[0],
                     "key": category_key[1],
                     "value_json": True,
@@ -15310,7 +15338,7 @@ class ProductService:
         access_url = str(session.get("access_url") or "").strip()
         if not access_url:
             return ""
-        absolute_access_url = urllib.parse.urljoin(f"{_property_public_app_base_url()}/", access_url.lstrip("/"))
+        absolute_access_url = urllib.parse.urljoin(f"{_workspace_access_public_base_url()}/", access_url.lstrip("/"))
         separator = "&" if "?" in absolute_access_url else "?"
         return f"{absolute_access_url}{separator}return_to={urllib.parse.quote(target_path, safe='/')}"
 
@@ -19079,9 +19107,9 @@ class ProductService:
         )
         access_url = str(access_session.get("access_url") or "").strip()
         absolute_access_url = (
-            urllib.parse.urljoin(f"{_property_public_app_base_url()}/", access_url.lstrip("/"))
+            urllib.parse.urljoin(f"{_workspace_access_public_base_url()}/", access_url.lstrip("/"))
             if access_url
-            else f"{_property_public_app_base_url()}/app/properties"
+            else f"{_workspace_access_public_base_url()}/app/properties"
         )
         separator = "&" if "?" in absolute_access_url else "?"
         workspace_url = f"{absolute_access_url}{separator}return_to={urllib.parse.quote('/app/properties', safe='/?:=&')}"
@@ -19247,9 +19275,9 @@ class ProductService:
         access_url = str(access_session.get("access_url") or "").strip()
         results_target = f"/app/properties?run_id={urllib.parse.quote(str(run_id or '').strip())}"
         absolute_access_url = (
-            urllib.parse.urljoin(f"{_property_public_app_base_url()}/", access_url.lstrip("/"))
+            urllib.parse.urljoin(f"{_workspace_access_public_base_url()}/", access_url.lstrip("/"))
             if access_url
-            else f"{_property_public_app_base_url()}{results_target}"
+            else f"{_workspace_access_public_base_url()}{results_target}"
         )
         separator = "&" if "?" in absolute_access_url else "?"
         results_url = f"{absolute_access_url}{separator}return_to={urllib.parse.quote(results_target, safe='/')}"

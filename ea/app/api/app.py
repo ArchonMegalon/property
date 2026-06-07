@@ -64,20 +64,41 @@ def _include_authenticated_routes(
     onboarding_router: APIRouter,
     images_router: APIRouter,
     google_oauth_router: APIRouter,
+    channels_router: APIRouter,
+    memory_candidates_router: APIRouter,
     product_api_delivery_router: APIRouter,
     product_api_workspace_router: APIRouter,
     product_api_router: APIRouter,
     fliplink_authenticated_router: APIRouter,
+    policy_router: APIRouter,
+    providers_router: APIRouter,
+    plans_router: APIRouter,
+    rewrite_router: APIRouter,
     runtime_router: APIRouter,
 ) -> None:
     app.include_router(onboarding_router, dependencies=auth_dependency)
     app.include_router(images_router, dependencies=auth_dependency)
     app.include_router(google_oauth_router)
+    app.include_router(channels_router, dependencies=auth_dependency)
+    app.include_router(memory_candidates_router, prefix="/v1/memory", dependencies=auth_dependency)
     app.include_router(product_api_delivery_router, dependencies=auth_dependency)
     app.include_router(product_api_workspace_router, dependencies=auth_dependency)
     app.include_router(product_api_router, dependencies=auth_dependency)
     app.include_router(fliplink_authenticated_router, dependencies=auth_dependency)
+    app.include_router(policy_router, dependencies=auth_dependency)
+    app.include_router(providers_router, dependencies=auth_dependency)
+    app.include_router(plans_router, dependencies=auth_dependency)
+    app.include_router(rewrite_router, dependencies=auth_dependency)
     app.include_router(runtime_router, dependencies=auth_dependency)
+
+
+def _router_without_paths(router: APIRouter, *, excluded_paths: set[str]) -> APIRouter:
+    filtered = APIRouter()
+    for route in router.routes:
+        if getattr(route, "path", "") in excluded_paths:
+            continue
+        filtered.routes.append(route)
+    return filtered
 
 
 def _include_legacy_authenticated_routes(
@@ -95,7 +116,6 @@ def _include_legacy_authenticated_routes(
     providers_router: APIRouter,
     ltd_runtime_router: APIRouter,
     plans_router: APIRouter,
-    rewrite_router: APIRouter,
     skills_router: APIRouter,
     task_contracts_router: APIRouter,
     tools_router: APIRouter,
@@ -112,7 +132,6 @@ def _include_legacy_authenticated_routes(
     app.include_router(providers_router, dependencies=auth_dependency)
     app.include_router(ltd_runtime_router, dependencies=auth_dependency)
     app.include_router(plans_router, dependencies=auth_dependency)
-    app.include_router(rewrite_router, dependencies=auth_dependency)
     app.include_router(skills_router, dependencies=auth_dependency)
     app.include_router(task_contracts_router, dependencies=auth_dependency)
     app.include_router(tools_router, dependencies=auth_dependency)
@@ -142,6 +161,7 @@ def create_app() -> FastAPI:
     from app.api.routes.landing_setup import router as landing_setup_router
     from app.api.routes.landing_workspace import router as landing_workspace_router
     from app.api.routes.ltd_runtime import router as ltd_runtime_router
+    from app.api.routes.memory_candidates import router as memory_candidates_router
     from app.api.routes.memory import router as memory_router
     from app.api.routes.observations import router as observations_router
     from app.api.routes.onboarding import register_router, router as onboarding_router
@@ -160,8 +180,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
-    if s.legacy_runtime_surfaces_enabled:
-        app.router.on_startup.append(_prewarm_provider_health_cache)
+    app.router.on_startup.append(_prewarm_provider_health_cache)
     _include_public_routes(
         app,
         settings=s,
@@ -183,10 +202,20 @@ def create_app() -> FastAPI:
         onboarding_router=onboarding_router,
         images_router=images_router,
         google_oauth_router=google_oauth_router,
+        channels_router=_router_without_paths(channels_router, excluded_paths={"/v1/channels/telegram/ingest"}),
+        memory_candidates_router=memory_candidates_router,
         product_api_delivery_router=product_api_delivery_router,
         product_api_workspace_router=product_api_workspace_router,
         product_api_router=product_api_router,
         fliplink_authenticated_router=fliplink_authenticated_router,
+        policy_router=policy_router,
+        providers_router=(
+            providers_router
+            if s.legacy_runtime_surfaces_enabled
+            else _router_without_paths(providers_router, excluded_paths={"/v1/providers/registry"})
+        ),
+        plans_router=plans_router,
+        rewrite_router=rewrite_router,
         runtime_router=runtime_router,
     )
     if s.legacy_runtime_surfaces_enabled:
@@ -206,7 +235,6 @@ def create_app() -> FastAPI:
             providers_router=providers_router,
             ltd_runtime_router=ltd_runtime_router,
             plans_router=plans_router,
-            rewrite_router=rewrite_router,
             skills_router=skills_router,
             task_contracts_router=task_contracts_router,
             tools_router=tools_router,

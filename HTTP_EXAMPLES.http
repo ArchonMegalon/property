@@ -2114,3 +2114,96 @@ GET {{host}}/v1/memory/interruption-budgets?principal_id=exec-1&limit=20
 
 ### Memory -> get interruption budget (principal-scoped)
 GET {{host}}/v1/memory/interruption-budgets/{{interruption_budget_id}}?principal_id=exec-1
+### Provider health and account-attributed credit estimates
+GET {{host}}/v1/providers/onemin/probe-all
+
+### Skills, workflow templates, and BrowserAct
+# stakeholder_dispatch
+# artifact_then_dispatch
+# stakeholder_pack_template
+# artifact_then_packs
+# stakeholder_memory_candidate
+# step_memory_candidate_stage
+# browseract_ltd_discovery
+# browseract_ltd_discovery_generic
+# browseract_ltd_inventory_refresh
+# ltd_inventory_refresh
+# run_url
+# account_hints_json
+# provider_hints_json
+# provider_hint=BrowserAct
+# browseract_bootstrap_manager
+# chummer6_visual_director
+# chummer6_public_writer
+# meeting_prep
+POST {{host}}/v1/tools/execute
+
+### Tool execution routes
+# browseract.extract_account_facts
+# browseract.extract_account_inventory
+# connector.dispatch
+
+### Principal and evidence routes
+# principal_id ownership
+# X-EA-Principal-ID
+# principal_scope_mismatch
+GET {{host}}/v1/evidence/objects
+
+### Plans execute
+POST {{host}}/v1/plans/execute
+
+### Rewrite and proof lookups
+GET {{host}}/v1/rewrite/artifacts/{{artifact_id}}
+GET {{host}}/v1/rewrite/receipts/{{receipt_id}}
+GET {{host}}/v1/rewrite/run-costs/{{cost_id}}
+# includes originating task_key and deliverable type
+# preview_text and storage_handle
+# fetch receipt (includes originating task_key and deliverable_type)
+# fetch run cost (includes originating task_key and deliverable_type)
+# approve and resume execution
+# approval-required acceptance contract
+
+### Human task routes
+GET {{host}}/v1/human/tasks/backlog?role_required=communications_reviewer&overdue_only=true&limit=20
+GET {{host}}/v1/human/tasks/unassigned?role_required=communications_reviewer&overdue_only=true&limit=20
+GET {{host}}/v1/human/tasks/mine?operator_id=operator&limit=20
+POST {{host}}/v1/human/tasks/{{human_task_id}}/assign
+POST {{host}}/v1/human/tasks/{{human_task_id}}/return
+GET {{host}}/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&event_name=human_task_assigned&assigned_by_actor_id={{principal_id}}
+GET {{host}}/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&assignment_source=none
+GET {{host}}/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&assignment_source=recommended
+GET {{host}}/v1/human/tasks/backlog?sort=last_transition_desc&limit=20
+GET {{host}}/v1/human/tasks/backlog?sort=sla_due_at_asc&limit=20
+GET {{host}}/v1/human/tasks/backlog?sort=sla_due_at_asc_last_transition_desc&limit=20
+GET {{host}}/v1/human/tasks?principal_id={{principal_id}}&status=pending&sort=sla_due_at_asc&limit=20
+GET {{host}}/v1/human/tasks/backlog?sort=created_asc&limit=20
+GET {{host}}/v1/human/tasks/backlog?sort=priority_desc_created_asc&limit=20
+GET {{host}}/v1/human/tasks/backlog?priority=high&sort=created_asc&limit=20
+GET {{host}}/v1/human/tasks/backlog?priority=urgent,high&sort=priority_desc_created_asc&limit=20
+GET {{host}}/v1/human/tasks/priority-summary?status=pending&role_required=communications_reviewer
+GET {{host}}/v1/human/tasks/priority-summary?status=pending&role_required=communications_reviewer&assigned_operator_id=operator
+GET {{host}}/v1/human/tasks/priority-summary?status=pending&assignment_state=unassigned&operator_id=operator-specialist
+GET {{host}}/v1/human/tasks/priority-summary?status=pending&assignment_source=manual
+GET {{host}}/v1/human/tasks/backlog?assignment_source=auto_preselected&limit=20
+GET {{host}}/v1/human/tasks/unassigned?assignment_source=none&limit=20
+GET {{host}}/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&limit=20
+GET {{host}}/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=created_asc&limit=20
+GET {{host}}/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=last_transition_desc&limit=20
+GET {{host}}/v1/human/tasks/unassigned?assignment_source=none&sort=last_transition_desc&limit=20
+GET {{host}}/v1/human/tasks/unassigned?assignment_source=none&sort=created_asc&limit=20
+GET {{host}}/v1/human/tasks?status=pending&assignment_state=unassigned&assignment_source=none&sort=created_asc&limit=20
+GET {{host}}/v1/human/tasks?status=pending&assignment_state=unassigned&assignment_source=none&sort=last_transition_desc&limit=20
+GET {{host}}/v1/human/tasks?session_id={{session_id}}&assignment_source=none&sort=created_asc&limit=20
+GET {{host}}/v1/human/tasks?session_id={{session_id}}&assignment_source=none&sort=last_transition_desc&limit=20
+GET {{host}}/v1/human/tasks?principal_id={{principal_id}}&session_id={{session_id}}&assignment_source=manual&limit=20
+GET {{host}}/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=none
+GET {{host}}/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=manual
+# assignment_state=assigned&limit=20
+# assigned_operator_id=operator&status=claimed
+# assignment history (includes originating task_key and deliverable_type)
+# human-task assignment-history rows include originating task_key and deliverable_type
+# human-task packet, and human-task assignment-history rows include originating task_key and deliverable_type
+# Approvals -> pending (includes originating task_key and deliverable_type)
+# Human tasks -> direct detail (includes originating task_key and deliverable_type)
+# inspect paused approval-backed session dependency projection
+# inspect paused human-review-backed session dependency projection

@@ -236,11 +236,29 @@
               {{ row.analytics.unique_visitors if row.analytics.unique_visitors is not none else 'n/a' }} visitors ·
               {{ row.analytics.average_time_seconds if row.analytics.average_time_seconds is not none else 'n/a' }}s avg
             </div>
+            <div class="pq-pack-muted">
+              Engagement: {{ row.engagement.summary.opened or 0 }} opened · {{ row.engagement.summary.responded or 0 }} responded · {{ row.engagement.summary.no_activity or 0 }} no activity
+            </div>
+            <div class="pq-pack-muted">
+              Next best action: {{ row.engagement.summary.next_best_action or 'share_packet' }} · Share journey: {{ row.share_journey.state or 'drafted' }}
+            </div>
             {% if row.fliplink_url %}
             <div class="pq-pack-muted"><a href="{{ row.fliplink_url }}" target="_blank" rel="noreferrer">{{ row.recommended_title or 'Open shared packet' }}</a></div>
             {% endif %}
           </div>
           <div class="pq-pack-toolbox">
+            <form class="pq-pack-form" data-packet-share-form data-publication-id="{{ row.publication_id }}">
+              <div class="pq-pack-inline">
+                <input class="pq-pack-input" type="text" name="recipient_name" placeholder="Recipient name" autocomplete="off">
+                <input class="pq-pack-input" type="email" name="recipient_email" placeholder="recipient@example.com" autocomplete="off">
+                <input class="pq-pack-input" type="text" name="relationship" placeholder="Family / agent" autocomplete="off">
+              </div>
+              <div class="pq-pack-inline">
+                <input class="pq-pack-input" type="text" name="audience_type" placeholder="family" value="family" autocomplete="off">
+                <input class="pq-pack-input" type="text" name="variant_key" placeholder="family-v1" value="default" autocomplete="off">
+                <button class="pq-pack-button small" type="submit">Share packet</button>
+              </div>
+            </form>
             <form class="pq-pack-form" data-fliplink-manual-form data-publication-id="{{ row.publication_id }}">
               <input class="pq-pack-input" type="url" name="fliplink_url" placeholder="https://packets.propertyquarry.com/p/..." value="{{ row.fliplink_url }}" autocomplete="off">
               <input type="hidden" name="fliplink_format" value="{{ row.fliplink_format }}">
@@ -261,11 +279,54 @@
             </form>
             <div class="pq-pack-inline">
               <a class="pq-pack-button small" href="{{ row.artifact_download_path }}">Download PDF</a>
+              <button class="pq-pack-button small" type="button" data-republish-publication data-publication-id="{{ row.publication_id }}">Republish revised packet</button>
               <button class="pq-pack-button small" type="button" data-copy-kind="title" data-copy-value="{{ row.recommended_title or row.property_ref }}">Copy title</button>
               <button class="pq-pack-button small" type="button" data-copy-kind="webhook" data-copy-value="{{ fliplink_webhook_url }}">Copy response URL</button>
               <button class="pq-pack-button small" type="button" data-copy-lead-schema data-property-ref="{{ row.property_ref }}" data-packet-kind="{{ row.packet_kind }}" data-privacy-mode="{{ row.privacy_mode }}">Copy response fields</button>
               <button class="pq-pack-button small" type="button" data-browseract-publish data-publication-id="{{ row.publication_id }}">Publish assist</button>
               <button class="pq-pack-button small danger" type="button" data-archive-publication data-publication-id="{{ row.publication_id }}">Archive</button>
+            </div>
+            <div class="pq-pack-muted">
+              <strong>Recipients</strong>
+              {% for share in row.engagement.shares[:2] %}
+                {% for recipient in share.recipients[:3] %}
+                <div>{{ recipient.name or recipient.email }} · {{ share.audience_type }} · {{ share.channel }}</div>
+                {% endfor %}
+              {% else %}
+                <div>No shares yet.</div>
+              {% endfor %}
+            </div>
+            <div class="pq-pack-muted">
+              <strong>Follow-ups</strong>
+              {% for item in row.engagement.followups[:3] %}
+              <div>{{ item.recipient_name or item.recipient_id }} · {{ item.status }} · {{ item.recommended_action }}</div>
+              {% else %}
+              <div>No open loops yet.</div>
+              {% endfor %}
+            </div>
+            <div class="pq-pack-muted">
+              <strong>Structured feedback</strong>
+              {% for item in row.structured_feedback[:3] %}
+              <div>{{ item.stakeholder_label or item.stakeholder_id }} · {{ item.category }} · {{ item.text or item.sentiment }}</div>
+              {% else %}
+              <div>No structured feedback yet.</div>
+              {% endfor %}
+            </div>
+            <div class="pq-pack-muted">
+              <strong>Attached summaries</strong>
+              {% for item in row.attached_summaries[:3] %}
+              <div>{{ item.title }} · {{ item.audience_type }}</div>
+              {% else %}
+              <div>No attached summaries yet.</div>
+              {% endfor %}
+            </div>
+            <div class="pq-pack-muted">
+              <strong>Optimization recommendations</strong>
+              {% for item in row.optimization[:3] %}
+              <div>{{ item.recommendation_type|replace("_", " ") }} · {{ item.priority }} · {{ item.status }}</div>
+              {% else %}
+              <div>No optimization recommendation yet.</div>
+              {% endfor %}
             </div>
             <div class="pq-pack-status" data-action-status aria-live="polite"></div>
           </div>
@@ -370,6 +431,30 @@
       };
 
       root.addEventListener("submit", async (event) => {
+        const shareForm = event.target.closest("[data-packet-share-form]");
+        if (shareForm) {
+          event.preventDefault();
+          const publicationId = shareForm.dataset.publicationId;
+          const fields = shareForm.elements;
+          try {
+            await postJson(`/app/api/properties/packets/${encodeURIComponent(publicationId)}/shares`, {
+              audience_type: fields.audience_type.value || "family",
+              channel: "link",
+              variant_key: fields.variant_key.value || "default",
+              recipients: [
+                {
+                  name: fields.recipient_name.value,
+                  email: fields.recipient_email.value,
+                  relationship: fields.relationship.value,
+                },
+              ],
+            });
+            showStatus(shareForm, "Share packet saved.", "ok");
+          } catch (error) {
+            showStatus(shareForm, error.message, "error");
+          }
+          return;
+        }
         const form = event.target.closest("[data-fliplink-manual-form]");
         if (!form) return;
         event.preventDefault();
@@ -481,6 +566,16 @@
           try {
             const result = await postJson(`/app/api/properties/packets/${encodeURIComponent(publicationId)}/fliplink/browseract-publish`, {lead_capture_enabled: true, password_required: false});
             showStatus(button, result.status || "Queued.", "ok");
+          } catch (error) {
+            showStatus(button, error.message, "error");
+          }
+          return;
+        }
+        if (button.hasAttribute("data-republish-publication")) {
+          const publicationId = button.dataset.publicationId;
+          try {
+            await postJson(`/app/api/properties/packets/${encodeURIComponent(publicationId)}/republish`, {});
+            showStatus(button, "Republish recorded.", "ok");
           } catch (error) {
             showStatus(button, error.message, "error");
           }

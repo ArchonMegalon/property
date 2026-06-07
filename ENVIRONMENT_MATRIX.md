@@ -60,3 +60,12 @@
 - `EA_RUNTIME_MODE=prod` requires `EA_SIGNING_SECRET`; outside prod, omitting it falls back to a process-local ephemeral secret.
 - The base `docker-compose.yml` intentionally omits `/docker` and `/var/run/docker.sock`; add `docker-compose.host-tools.yml` only for workflows that truly need host repo access or Docker control.
 - The Cloudflare tunnel is opt-in; add `docker-compose.cloudflared.yml` only when you explicitly want to expose EA through Cloudflare Tunnel.
+# Operator Contract Env Keys
+
+- `EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY`
+- `EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS`
+- `EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH`
+- `EA_RESPONSES_ONEMIN_PROBE_MODEL`
+- `EA_RESPONSES_MAGICX_HEALTH_CHECK`
+- `EA_RUNTIME_MODE`
+- `EA_DEFAULT_PRINCIPAL_ID`

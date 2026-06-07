@@ -26,6 +26,7 @@
 - Connectors: `/v1/connectors/*`
 - Delivery: `/v1/delivery/*`
 - Evidence: `/v1/evidence/*`
+- FlipLink integrations: `/v1/integrations/fliplink/*`
 - Human tasks: `/v1/human/*`
 - Memory: `/v1/memory/*`
 - Observations: `/v1/observations/*`

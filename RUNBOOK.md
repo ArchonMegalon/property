@@ -5,6 +5,25 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 2. `EA_HOST_PORT` from `.env`
 3. fallback `8090`
 
+## Flagship Gates
+
+The runtime runbook still tracks the EA product canon and flagship gate receipts:
+
+- `.codex-design/ea/START_HERE.md`
+- `.codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md`
+- `.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json`
+- `scripts/materialize_ea_flagship_release_gate.py`
+
+Recommended operator gate commands:
+
+- `make verify-flagship-release-readiness`
+- `make verify-generated-release-artifacts-clean`
+- `make runtime-hard-exit-gates`
+- `make hard-exit-gates`
+- `make ltd-release-gates`
+
+The runbook also expects the hard-exit and LTD verifier scripts, including `verify_ltd_critical_entries.py` and `verify_ltd_flagship_subset.py`, to stay wired into operator release practice.
+
 ## API Contract Summary
 
 | Method | Route | Success | Error contracts |
@@ -239,6 +258,29 @@ Policy notes:
 - Human task list/detail/session rows now also expose compact `last_transition_event_name`, `last_transition_at`, `last_transition_assignment_state`, `last_transition_operator_id`, `last_transition_assignment_source`, and `last_transition_by_actor_id` fields so operators can see the most recent ownership event (`created`, `assigned`, `claimed`, or `returned`) plus its actor/source metadata without fetching the full assignment-history chain first.
 
 ## Operator Script Help Index
+
+## Runtime Contract Appendix
+
+- `ea_pgdata` is mounted at `/var/lib/postgresql/data`; durable volume accounting is not RAM.
+- `/v1/responses/_provider_health`, `/v1/codex/profiles`, and `/v1/providers/onemin/probe-all` expose `estimated_remaining_credits_total`, `estimated_hours_remaining_at_current_pace`, `observed_consumed_credits`, and `EA_RESPONSES_MAGICX_HEALTH_CHECK`.
+- If you use `scripts/deploy.sh`, keep that overlay explicit with `EA_ENABLE_FASTESTVPN=1`.
+- `SUPPORT_INCLUDE_DB_VOLUME=0 bash scripts/support_bundle.sh`, `EA_RETENTION_PROFILE=aggressive bash scripts/db_retention.sh`, `EA_RETENTION_TABLES=execution_events,delivery_outbox bash scripts/db_retention.sh`, `EA_RETENTION_SKIP_TABLES=observation_events,policy_decisions bash scripts/db_retention.sh`, `EA_DB_SIZE_SCHEMA=public bash scripts/db_size.sh`, `EA_DB_SIZE_SORT_KEY=index bash scripts/db_size.sh`, `EA_DB_SIZE_TABLE_PREFIX=execution_ bash scripts/db_size.sh`, `EA_DB_SIZE_MIN_MB=25 bash scripts/db_size.sh`, and `SUPPORT_DB_SIZE_LIMIT=15 bash scripts/support_bundle.sh` remain the operator examples.
+- Alias/service variables include `PROPERTYQUARRY_API_SERVICE`, `PROPERTYQUARRY_DB_SERVICE`, `/docker/property/docker-compose.fastestvpn.yml`, `/docker/property/vpn/fastestvpn/README.md`, `/docker/property/scripts/bootstrap_fastestvpn_configs.sh`, `/docker/property/scripts/rotate_fastestvpn_proxy.sh`, `/docker/property/LTDs.md`, and `/docker/property/SKILLS.md`.
+- Workflow templates include `workflow_template`, `artifact_then_dispatch`, `artifact_then_packs`, `post_artifact_packs`, `artifact_then_memory_candidate`, `browseract_extract_then_artifact`, `workflow_template=tool_then_artifact`, and `artifact_then_dispatch_then_memory_candidate`.
+- Queue shapes include `step_input_prepare -> step_policy_evaluate -> step_artifact_save -> step_memory_candidate_stage`, `step_input_prepare -> step_browseract_extract -> step_artifact_save`, `step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage`, and `step_input_prepare -> step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage`.
+- `/v1/skills`, `ltd_inventory_refresh`, `chummer6_visual_director`, `chummer6_public_writer`, `browseract_bootstrap_manager`, provider policy, `provider_hint=<value>`, `resolved \`skill_key\``, `intent_skill_key`, and refresh helpers `refresh_ltds_from_inventory.sh` and `refresh_ltds_via_api.sh` remain part of runtime operations.
+- Evidence and memory lanes cover `artifact_output_template=evidence_pack`, memory-candidate staging, `/v1/evidence/objects`, `/v1/memory/candidates`, `/v1/memory/stakeholders`, `/v1/memory/interruption-budgets`, and `/v1/memory/context-pack`, including promoted-memory signals, conflict rows, commitment-risk rows, and unresolved refs.
+- Principal guardrails use `X-EA-Principal-ID`, `EA_DEFAULT_PRINCIPAL_ID`, and `403 principal_scope_mismatch`; the scoped surfaces include `/v1/rewrite/sessions/{session_id}`, `/v1/plans/compile`, and `/v1/plans/execute`.
+- `/v1/plans/execute` remains the generic task runtime for stakeholder briefings and other non-rewrite flows, with structured `input_json` plus `context_refs`, same first-class `202 awaiting_approval` and `202 awaiting_human` workflow contract, and accepts either `task_key` or `skill_key`.
+- Planner/runtime rules include duplicate step keys, unknown dependency keys, and dependency cycles before any session rows are started; only merges declared dependency inputs and fails missing declared outputs before a step can complete; `POST /v1/plans/compile` exposes `depends_on`, `input_keys`, and `output_keys`; and `owner`, `authority_class`, `review_class`, `failure_strategy`, `timeout_budget_seconds`, `max_attempts`, and `retry_backoff_seconds` remain projected.
+- Human-task operations cover `/v1/human/tasks`, `human_task_created`, `human_task_returned`, `awaiting_human`, `human_review_role`, `human_review_priority`, `human_review_sla_minutes`, `human_review_desired_output_json`, `human_review_authority_required`, `human_review_why_human`, `human_review_quality_rubric_json`, and `human_review_auto_assign_if_unique`.
+- Reviewer routing covers `/v1/human/tasks/operators`, `operator_id=<id>`, `routing_hints_json`, `auto_assign_operator_id`, `assignment_source`, `assigned_at`, `assigned_by_actor_id`, `/v1/human/tasks/{human_task_id}/assignment-history`, assignment-history rows now also carry originating `task_key`/`deliverable_type`, inline `human_tasks` rows now also carry originating `task_key`/`deliverable_type`, `last_transition_event_name`, `last_transition_operator_id`, and `last_transition_by_actor_id`.
+- Queue filtering/sorting covers `priority=urgent|high|normal|low`, `priority=urgent,high`, `assignment_source=manual|recommended|auto_preselected`, `assignment_source=none`, `human_task_assignment_source=none`, `assignment_state=unassigned&assignment_source=none`, `assignment_state=unassigned&assignment_source=none&sort=created_asc`, `assignment_state=unassigned&assignment_source=none&sort=last_transition_desc`, `assignment_source=none&sort=created_asc`, `assignment_source=none&sort=last_transition_desc`, `status=pending&assignment_state=unassigned&assignment_source=none&sort=created_asc`, `status=pending&assignment_state=unassigned&assignment_source=none&sort=last_transition_desc`, `session_id=<id>&assignment_source=none&sort=created_asc`, `session_id=<id>&assignment_source=none&sort=last_transition_desc`, and `session_id=<id>&assignment_source=<source>`.
+- Queue sort enums include `sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc`; they fall back to oldest-created ordering for tasks without `sla_due_at`.
+- Mixed-source guarantees include `manual and auto-preselected neighbors present`, ownerless `priority-summary?status=pending&assignment_state=unassigned&assignment_source=none` slice is now also covered after mixed-source churn, unsorted ownerless `assignment_source=none` list, backlog, and unassigned slices are now also covered after mixed-source churn, unsorted session-scoped `session_id=<id>&assignment_source=none` slice is now also covered after mixed-source churn, and mixed-source session-detail ownerless projection is now also count-checked.
+- Queue examples also document `Current \`scripts/test_postgres_contracts.sh\` coverage includes artifacts, channel runtime, approvals, policy decisions, and task contracts.`
+- Artifact/proof lookups expose `preview_text`, `storage_handle`, `mime_type`, `body_ref`, `originating \`task_key\`/\`deliverable_type\``, and self-describing artifact/proof task identity.
+- Tool execution remains `ToolExecutionService`, `tool.v1`, self-heals its registry definition, `/v1/tools/execute`, `connector.dispatch`, `browseract.extract_account_inventory`, `browseract.extract_account_facts`, principal scope, `202 awaiting_approval`, `poll_or_subscribe`, typed runtime policy models, `artifact_retry`, and `skill_catalog`.
 
 Use `--help` (or `-h`) on key scripts to print usage contracts quickly:
 
