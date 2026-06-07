@@ -50,6 +50,7 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[d
     start_workspace(client, mode="personal", workspace_name="Property Office")
     monkeypatch.setenv("PAYPAL_CLIENT_ID", "paypal-client")
     monkeypatch.setenv("PAYPAL_SECRET", "paypal-secret")
+    monkeypatch.setenv("FLIPLINK_WEBHOOK_SECRET", "webhook-secret")
     stored = client.post(
         "/v1/onboarding/property-search/preferences",
         json={
