@@ -1240,15 +1240,16 @@
               {% endif %}
             </div>
             <div class="property-feedback-row">
-              <button class="property-feedback-chip" type="button" data-feedback-reaction="like">Like</button>
+              <button class="property-feedback-chip" type="button" data-feedback-reaction="like">Yes</button>
               <button class="property-feedback-chip" type="button" data-feedback-reaction="maybe">Maybe</button>
-              <button class="property-feedback-chip" type="button" data-feedback-reaction="dislike">Dislike</button>
+              <button class="property-feedback-chip" type="button" data-feedback-reaction="dislike">No</button>
               <button class="property-feedback-chip" type="button" data-feedback-reaction="hide">Hide</button>
             </div>
+            <div class="console-copy">Would you pursue this property? The answer teaches the next shortlist and keeps missing-fact follow-up visible.</div>
             <div class="property-feedback-reasons" data-feedback-reasons></div>
-            <textarea class="property-feedback-note" rows="3" placeholder="What exactly worked or failed?" data-feedback-note></textarea>
+            <textarea class="property-feedback-note" rows="3" placeholder="What exactly worked, failed, or still needs proof?" data-feedback-note></textarea>
             <div class="console-row-actions">
-              <button class="console-action" type="button" data-feedback-save>Save feedback</button>
+              <button class="console-action" type="button" data-feedback-save>Save decision</button>
             </div>
             <div class="property-feedback-status" data-feedback-status></div>
           </article>
@@ -1907,10 +1908,10 @@
       saveButton?.addEventListener('click', async () => {
         if (!statusNode) return;
         if (!selectedReaction) {
-          statusNode.textContent = 'Choose a reaction first.';
+          statusNode.textContent = 'Choose Yes, Maybe, No, or Hide first.';
           return;
         }
-        statusNode.textContent = 'Saving feedback…';
+        statusNode.textContent = 'Saving decision…';
         try {
           const response = await fetch(propertyFeedbackSaveEndpoint(personId), {
             method: 'POST',
@@ -1929,7 +1930,7 @@
           if (!response.ok) throw new Error(String(body.detail || 'Could not save feedback.'));
           refreshLearningSummary(form, body.learning_summary || {});
           applyUpdatedAssessment(card, body.updated_assessment || {});
-          statusNode.textContent = 'Saved. Learning loop updated.';
+          statusNode.textContent = 'Saved. Decision loop updated.';
         } catch (error) {
           statusNode.textContent = error instanceof Error ? error.message : 'Could not save feedback.';
         }

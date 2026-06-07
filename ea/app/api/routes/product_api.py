@@ -93,6 +93,7 @@ from app.api.routes.product_api_contracts import (
 from app.container import AppContainer
 from app.product.service import _property_feedback_reason_map, build_product_service
 from app.services.fliplink import build_fliplink_packet_service
+from app.services.registration_email import property_notification_preview
 
 router = APIRouter(prefix="/app/api", tags=["product"])
 
@@ -909,6 +910,7 @@ def record_property_feedback(
     context: RequestContext = Depends(get_request_context),
 ) -> PropertyFeedbackRecordOut:
     service = build_product_service(container)
+    packet_service = build_fliplink_packet_service(container)
     actor = str(body.actor or context.operator_id or context.access_email or context.principal_id or "browser").strip()
     allowed_reason_keys = set(_property_feedback_reason_map().keys())
     normalized_reason_keys = [
@@ -935,6 +937,52 @@ def record_property_feedback(
         note=body.note,
         actor=actor,
     )
+    structured_property_ref = str(body.property_slug or body.property_url or body.property_title or "property").strip()
+    if structured_property_ref:
+        reaction_category = {
+            "like": "love",
+            "maybe": "question",
+            "dislike": "dealbreaker",
+            "hide": "concern",
+        }.get(str(body.reaction or "").strip().lower(), "concern")
+        reaction_sentiment = {
+            "like": "positive",
+            "maybe": "neutral",
+            "dislike": "negative",
+            "hide": "negative",
+        }.get(str(body.reaction or "").strip().lower(), "neutral")
+        reason_labels = [
+            str(_property_feedback_reason_map().get(key, {}).get("label") or key).strip()
+            for key in normalized_reason_keys
+        ]
+        summary_text = " | ".join(
+            part
+            for part in (
+                str(body.note or "").strip(),
+                ", ".join(label for label in reason_labels if label),
+                f"Decision: {str(body.reaction or '').strip().lower()}",
+            )
+            if str(part or "").strip()
+        )
+        try:
+            packet_service.record_structured_feedback(
+                principal_id=context.principal_id,
+                property_ref=structured_property_ref,
+                stakeholder_id=f"profile:{str(person_id or 'self').strip() or 'self'}",
+                stakeholder_label=str(person_id or "self").strip() or "self",
+                publication_id="",
+                share_id="",
+                audience_type="owner",
+                category=reaction_category,
+                sentiment=reaction_sentiment,
+                importance=5 if reaction_category == "dealbreaker" else (4 if reaction_category == "question" else 3),
+                text=summary_text or f"Decision: {str(body.reaction or '').strip().lower()}",
+                source="workspace_property_feedback",
+                source_event_id=str(result.get("evidence", {}).get("event", {}).get("event_id") or "").strip(),
+                actor=actor,
+            )
+        except Exception:
+            pass
     return PropertyFeedbackRecordOut(**result)
 
 
@@ -1016,6 +1064,19 @@ def get_property_feedback_summary(
 ) -> dict[str, object]:
     service = build_fliplink_packet_service(container)
     return service.feedback_summary(principal_id=context.principal_id, property_ref=property_ref)
+
+
+@router.get("/property/notifications/preview")
+def get_property_notification_preview(
+    template: str = Query(min_length=1),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    del container, context
+    try:
+        return property_notification_preview(template)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/property-summaries/generate")

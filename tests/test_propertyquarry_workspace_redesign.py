@@ -324,6 +324,11 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Gymnasium path" in search.text
     assert "Decision reasons" in search.text
     assert "Risk and investment" in search.text
+    assert "Decision feedback" in search.text
+    assert "Would you pursue this property?" in search.text
+    assert "Save decision" in search.text
+    assert "Top objections" in search.text
+    assert "Stakeholder timeline" in search.text
     assert "Missing facts" in search.text
     assert "Facts still being completed from floorplans" in search.text
     assert "Rooms under review" in search.text
@@ -388,10 +393,14 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Researched" in packet.text
     assert "Hosted review" in packet.text
     assert "Original listing" in packet.text
-    assert "Preference feedback" in packet.text
-    assert "Tune this search profile" in packet.text
+    assert "Decision feedback" in packet.text
+    assert "Would you pursue this property?" in packet.text
+    assert "Ask agent next" in packet.text
+    assert "Decision timeline" in packet.text
+    assert "Top objections" in packet.text
     assert 'data-object-feedback-reaction="like"' in packet.text
     assert 'data-object-feedback-save' in packet.text
+    assert "Save decision" in packet.text
     assert "Manage preferences" in packet.text
     assert "rgba(18, 23, 34" not in packet.text
     assert "rgba(15, 19, 26" not in packet.text
@@ -411,6 +420,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert alerts.status_code == 200
     assert "Recent outbound property follow-ups" in alerts.text
     assert "The alert lane should still expose the search brief driving it" in alerts.text
+
+    notifications_preview = client.get("/app/properties/notifications/preview", params={"template": "property_match"}, headers=headers)
+    assert notifications_preview.status_code == 200
+    assert "Email preview" in notifications_preview.text
+    assert "Property match: Altbau near U6" in notifications_preview.text
+    assert "PropertyQuarry shortlisted a property match" in notifications_preview.text
 
     billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=headers)
     assert billing.status_code == 200

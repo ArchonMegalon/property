@@ -994,6 +994,139 @@ def send_property_search_results_ready_email(
     )
 
 
+def property_notification_preview(template_key: str) -> dict[str, object]:
+    normalized = str(template_key or "").strip().lower()
+    if normalized == "search_results_ready":
+        property_rows = [
+            {
+                "title": "Altbau near U6",
+                "fit_summary": "Personal fit 92/100 · shortlist · Lift and transit fit.",
+                "price_label": "EUR 420,000",
+                "area_label": "78 m2",
+                "rooms_label": "3 rooms",
+                "location_label": "Berlin Mitte",
+                "source_label": "ImmoScout24 Germany",
+                "review_url": "https://propertyquarry.com/app/research/run-42/altbau-near-u6",
+                "tour_url": "https://propertyquarry.com/tours/altbau-near-u6",
+                "property_url": "https://www.immobilienscout24.de/expose/altbau-near-u6",
+                "tour_status": "ready",
+            },
+            {
+                "title": "Family flat near Augarten",
+                "fit_summary": "Personal fit 88/100 · family shortlist · Floorplan and daily-life radius fit.",
+                "price_label": "EUR 498,000",
+                "area_label": "84 m2",
+                "rooms_label": "3 rooms",
+                "location_label": "1020 Wien",
+                "source_label": "Willhaben",
+                "review_url": "https://propertyquarry.com/app/research/run-42/family-flat-near-augarten",
+                "tour_url": "",
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/demo",
+                "tour_status": "queued",
+            },
+        ]
+        best_row = property_rows[0]
+        return {
+            "template_key": normalized,
+            "subject": "PropertyQuarry found 2 strong matches · 1 tour ready",
+            "preheader": "Your ranked shortlist, review packets, and hosted 360 reviews are ready.",
+            "text": (
+                "Hello,\n\n"
+                "Your PropertyQuarry results are ready.\n\n"
+                "Ranked results: 2\n"
+                "Hosted tours ready: 1\n\n"
+                f"Research summary:\n- Best current match: {best_row['title']}\n"
+                f"- Assessment: {best_row['fit_summary']}\n"
+                "- Key facts: EUR 420,000 | 78 m2 | 3 rooms | Berlin Mitte\n\n"
+                "Open the full search desk: https://propertyquarry.com/app/properties?run_id=run-42\n"
+            ),
+            "html": _property_search_results_ready_html(
+                results_url="https://propertyquarry.com/app/properties?run_id=run-42",
+                result_total=2,
+                hosted_tour_total=1,
+                property_rows=property_rows,
+            ),
+        }
+    if normalized == "property_match":
+        decision_summary = {
+            "good_fit_reasons": ["Lift and transit fit."],
+            "bad_fit_reasons": ["Street noise still unknown."],
+            "unknowns": ["Heating source still needs confirmation."],
+        }
+        return {
+            "template_key": normalized,
+            "subject": "Property match: Altbau near U6",
+            "preheader": "A new property is worth reviewing.",
+            "text": (
+                "Hello,\n\n"
+                "PropertyQuarry shortlisted a property match: Altbau near U6\n"
+                "Source: ImmoScout24 Germany\n\n"
+                "Personal fit 92/100 · shortlist · Lift and transit fit.\n\n"
+                "Open the hosted review: https://propertyquarry.com/tours/altbau-u6\n"
+            ),
+            "html": _property_match_html(
+                title="Altbau near U6",
+                provider="ImmoScout24 Germany",
+                primary_link="https://propertyquarry.com/tours/altbau-u6",
+                review_url="https://propertyquarry.com/app/research/run-42/altbau-u6",
+                tour_url="https://propertyquarry.com/tours/altbau-u6",
+                property_url="https://www.immobilienscout24.de/expose/altbau-u6",
+                fit_summary="Personal fit 92/100 · shortlist · Lift and transit fit.",
+                decision_summary=decision_summary,
+            ),
+        }
+    if normalized == "tour_ready":
+        return {
+            "template_key": normalized,
+            "subject": "Apartment tour ready: Family flat near Augarten · layout first",
+            "preheader": "PropertyQuarry prepared a hosted 360 review for this property.",
+            "text": (
+                "Hello,\n\n"
+                "PropertyQuarry prepared a hosted 360 review for Family flat near Augarten:\n\n"
+                "https://propertyquarry.com/tours/family-flat-near-augarten\n\n"
+                "Listing: https://propertyquarry.com/source/property-1\n\n"
+                "Open the hosted 360 review first, then continue into the research packet if needed.\n"
+            ),
+            "html": _html_email_shell(
+                title="Hosted 360 review ready",
+                body_html=(
+                    '<div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;">Hosted review</div>'
+                    '<h1 style="margin:10px 0 12px 0;font-size:28px;line-height:1.2;color:#242321;">Hosted 360 review ready: Family flat near Augarten</h1>'
+                    '<p style="margin:0 0 16px 0;font-size:15px;line-height:1.65;color:#51493f;">PropertyQuarry prepared a hosted 360 review for this property. Open the space first, then review the risks and missing facts.</p>'
+                    f'<p style="margin:0 0 12px;">{_html_link(href="https://propertyquarry.com/tours/family-flat-near-augarten", label="Open hosted 360")}</p>'
+                    f'<p style="margin:0;">{_html_link(href="https://propertyquarry.com/app/research/run-42/family-flat-near-augarten", label="Open research packet")}</p>'
+                ),
+            ),
+        }
+    if normalized == "investment_research_ready":
+        return {
+            "template_key": normalized,
+            "subject": "Investment research ready: yield, risk, and missing facts",
+            "preheader": "The underwriting packet is ready for review.",
+            "text": (
+                "Hello,\n\n"
+                "PropertyQuarry prepared the investment review packet.\n\n"
+                "Current read:\n"
+                "- Recommendation: investigate further\n"
+                "- Gross yield: 4.14%\n"
+                "- Net yield: 2.8-3.2%\n"
+                "- Missing documents: operating costs, energy certificate\n\n"
+                "Open investment packet: https://propertyquarry.com/app/research/run-42/altbau-u6?investment=1\n"
+            ),
+            "html": _html_email_shell(
+                title="Investment research ready",
+                body_html=(
+                    '<div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;">Investment packet</div>'
+                    '<h1 style="margin:10px 0 12px 0;font-size:28px;line-height:1.2;color:#242321;">Investment research ready</h1>'
+                    '<p style="margin:0 0 16px 0;font-size:15px;line-height:1.65;color:#51493f;">PropertyQuarry prepared the underwriting read with yield, risk, and missing-document posture.</p>'
+                    '<ul style="margin:0 0 16px;padding-left:20px;"><li>Gross yield: 4.14%</li><li>Net yield: 2.8-3.2%</li><li>Missing documents: operating costs, energy certificate</li></ul>'
+                    f'<p style="margin:0;">{_html_link(href="https://propertyquarry.com/app/research/run-42/altbau-u6?investment=1", label="Open investment packet")}</p>'
+                ),
+            ),
+        }
+    raise ValueError("unsupported_property_notification_preview")
+
+
 def send_channel_digest_email(
     *,
     recipient_email: str,

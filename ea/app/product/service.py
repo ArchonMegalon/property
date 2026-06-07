@@ -6959,6 +6959,111 @@ def _property_feedback_reason_detail(reason_key: str) -> dict[str, object]:
     return dict(_property_feedback_reason_map().get(str(reason_key or "").strip(), {}))
 
 
+def _property_feedback_reason_agent_question(reason_key: str, *, property_facts: dict[str, object]) -> str:
+    normalized = str(reason_key or "").strip().lower()
+    facts = dict(property_facts or {})
+    question_map = {
+        "price_too_high": "Is there flexibility on price or are there recent comparable sales supporting the ask?",
+        "location_weak": "Can you clarify the exact micro-location tradeoff, including street exposure and daily errand radius?",
+        "underground_too_far": "What is the realistic walking time to the nearest underground or frequent transit stop?",
+        "supermarket_too_far": "Which grocery options are realistically walkable from the property?",
+        "pharmacy_too_far": "Which pharmacy is the nearest practical option and how long is the walk?",
+        "playground_too_far": "Which playgrounds or family amenities are the nearest everyday options?",
+        "gas_heating": "Can you confirm the heating source and share the latest energy certificate?",
+        "no_lift": "Can you confirm the exact floor, lift access, and whether there are any planned accessibility upgrades?",
+        "weak_floorplan": "Can you send the floorplan with room dimensions and indicate the room orientation?",
+        "too_small": "Can you confirm the usable living area and whether storage or additional rooms are included separately?",
+        "lease_too_short": "Can you confirm the remaining lease term and the options to renew or extend it?",
+        "outdoor_space_weak": "Can you confirm whether there is any balcony, terrace, courtyard, or shared outdoor access?",
+        "bike_access_weak": "How practical is bike storage and what is the nearest protected cycling access?",
+        "green_access_weak": "What are the nearest green or running routes people realistically use from this address?",
+        "style_not_right": "Are there more current interior photos or a recent walkthrough that shows the real condition more clearly?",
+        "kitchen_bad": "Can you share newer kitchen photos, appliance details, and any planned replacement timeline?",
+        "bathroom_bad": "Can you share updated bathroom photos and confirm renovation age and condition?",
+    }
+    if normalized in question_map:
+        return question_map[normalized]
+    if normalized == "family_fit_strong":
+        return "Can you confirm the school, playground, and family-errand radius around the property?"
+    if normalized == "tour_helpful":
+        return "Can you confirm whether additional hosted 360 material or a measured floorplan is available before a viewing?"
+    street_address = str(facts.get("street_address") or facts.get("address") or "").strip()
+    if street_address:
+        return f"Can you clarify the remaining open questions for {street_address} before a viewing?"
+    return "Can you clarify the key remaining questions before a viewing?"
+
+
+def _property_feedback_missing_fact_agent_questions(property_facts: dict[str, object]) -> list[str]:
+    facts = dict(property_facts or {})
+    research = dict(facts.get("missing_fact_research") or {}) if isinstance(facts.get("missing_fact_research"), dict) else {}
+    items = list(research.get("items") or []) if isinstance(research.get("items"), list) else []
+    questions: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("status") or "").strip().lower() == "filled":
+            continue
+        label = str(item.get("label") or item.get("field") or "missing detail").strip()
+        field_name = str(item.get("field") or "").strip().lower()
+        if field_name in {"operating_costs", "betriebskosten", "operating_cost_history"}:
+            questions.append("Can you share the operating-cost history for the last 24 months?")
+        elif field_name in {"floorplan", "rooms"}:
+            questions.append("Can you send the floorplan with room dimensions and room labels?")
+        elif field_name in {"heating", "heating_type"}:
+            questions.append("Can you confirm the heating source and provide the energy certificate?")
+        else:
+            questions.append(f"Can you confirm the missing detail for {label}?")
+    return questions
+
+
+def _property_feedback_agent_questions(
+    *,
+    property_facts: dict[str, object],
+    reason_keys: tuple[str, ...] = (),
+    assessment: dict[str, object] | None = None,
+) -> list[dict[str, object]]:
+    assessment_json = dict(assessment or {}) if isinstance(assessment, dict) else {}
+    suggested_reason_keys = tuple(reason_keys) or tuple(
+        str(row.get("key") or "").strip()
+        for row in _property_feedback_suggestion_groups(property_facts=property_facts, assessment=assessment_json).get("negative", [])
+        if str(row.get("key") or "").strip()
+    )
+    prompts = [
+        _property_feedback_reason_agent_question(key, property_facts=property_facts)
+        for key in suggested_reason_keys
+        if str(key or "").strip()
+    ]
+    prompts.extend(_property_feedback_missing_fact_agent_questions(property_facts))
+    seen: set[str] = set()
+    rows: list[dict[str, object]] = []
+    for prompt in prompts:
+        normalized = compact_text(prompt, fallback="", limit=240)
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        rows.append(
+            {
+                "question": normalized,
+                "status": "suggested",
+                "action": "ask_agent",
+            }
+        )
+        if len(rows) >= 5:
+            break
+    return rows
+
+
+def _property_feedback_decision_consequences() -> list[str]:
+    return [
+        "Update your future ranking",
+        "Keep missing-fact tasks visible",
+        "Contribute to market risk only after anonymization thresholds are met",
+    ]
+
+
 def _property_feedback_suggestion_groups(
     *,
     property_facts: dict[str, object],
@@ -7051,9 +7156,21 @@ def _property_feedback_suggestion_groups(
             seen.add(normalized)
         return deduped[:8]
 
+    negative_rows = _rows(suggestions)
+    positive_rows = _rows(positives)
     return {
-        "negative": _rows(suggestions),
-        "positive": _rows(positives),
+        "negative": negative_rows,
+        "positive": positive_rows,
+        "agent_questions": _property_feedback_agent_questions(
+            property_facts=facts,
+            assessment=assessment_json,
+            reason_keys=tuple(
+                str(row.get("key") or "").strip()
+                for row in negative_rows
+                if str(row.get("key") or "").strip()
+            ),
+        ),
+        "decision_consequences": _property_feedback_decision_consequences(),
     }
 
 

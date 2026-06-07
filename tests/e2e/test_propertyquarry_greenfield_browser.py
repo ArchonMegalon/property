@@ -342,8 +342,8 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert "360 review first" not in packet_content
         _assert_research_packet_360_first(page, min_stage_height=420)
         assert page.locator("body", has_text="OODA summary").is_visible()
-        assert page.locator("body", has_text="Preference feedback").is_visible()
-        assert page.get_by_role("button", name="Save feedback").is_visible()
+        assert page.locator("body", has_text="Decision feedback").is_visible()
+        assert page.get_by_role("button", name="Save decision").is_visible()
     finally:
         context.close()
 
@@ -372,8 +372,8 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
         page.wait_for_url(lambda url: "/app/research/" in str(url) and "run_id=run-42" in str(url), wait_until="domcontentloaded", timeout=5000)
         assert page.locator("body", has_text="OODA summary").is_visible()
-        assert page.locator("body", has_text="Preference feedback").is_visible()
-        review_action = page.get_by_role("button", name="Save feedback").bounding_box()
+        assert page.locator("body", has_text="Decision feedback").is_visible()
+        review_action = page.get_by_role("button", name="Save decision").bounding_box()
         assert review_action is not None and review_action["width"] <= 430
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
     finally:
@@ -704,7 +704,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
         page.wait_for_url(lambda url: "/app/research/" in str(url) and f"run_id={run_id}" in str(url), wait_until="domcontentloaded", timeout=5000)
         assert page.locator("body", has_text="OODA summary").is_visible()
-        assert page.locator("body", has_text="Preference feedback").is_visible()
+        assert page.locator("body", has_text="Decision feedback").is_visible()
     finally:
         context.close()
 

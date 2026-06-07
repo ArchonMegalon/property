@@ -256,6 +256,52 @@
       text-decoration: underline;
       text-underline-offset: 3px;
     }
+    .pqx-decision-copy {
+      color: var(--pq-muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .pqx-decision-row,
+    .pqx-decision-reasons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .pqx-decision-button,
+    .pqx-decision-chip {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 12px;
+      border: 1px solid var(--pq-line-strong);
+      border-radius: 999px;
+      background: var(--pq-paper);
+      color: var(--pq-ink);
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .pqx-decision-button.active,
+    .pqx-decision-chip.active {
+      border-color: var(--pq-charcoal);
+      background: var(--pq-charcoal);
+      color: #fff9ed;
+    }
+    .pqx-decision-note {
+      width: 100%;
+      min-height: 88px;
+      border: 1px solid var(--pq-line);
+      border-radius: 12px;
+      background: var(--pq-paper);
+      color: var(--pq-ink);
+      padding: 12px 14px;
+      resize: vertical;
+    }
+    .pqx-decision-status {
+      min-height: 20px;
+      color: var(--pq-muted);
+      font-size: 12px;
+    }
     .pqx-main {
       width: min(1760px, calc(100vw - 32px));
       margin: 0 auto;
@@ -1813,10 +1859,45 @@
               </div>
             </section>
             <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Top objections</h2><span class="pqx-pill">Feedback</span></div>
-              <div class="pqx-event-list">
-                <div class="pqx-event-card"><strong>Top objections</strong><span class="pqx-note">Structured packet feedback, dealbreakers, and disagreement signals should surface here.</span></div>
-                <div class="pqx-event-card"><strong>Stakeholder timeline</strong><span class="pqx-note">Property timeline and open loops should stay visible before the next follow-up.</span></div>
+              <div class="pqx-section-head"><h2>Decision feedback</h2><span class="pqx-pill">Learning</span></div>
+              <div class="pqx-decision-copy">Would you pursue this property? The answer updates future ranking, keeps missing-fact follow-up visible, and only later contributes to anonymized market risk signals.</div>
+              <div class="pqx-decision-row" aria-label="Property decision reaction">
+                <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="like">Yes</button>
+                <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="maybe">Maybe</button>
+                <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="dislike">No</button>
+                <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="hide">Hide</button>
+              </div>
+              <div class="pqx-decision-copy"><strong>What drove that?</strong> Pick the strongest reasons first. If the answer is No, these become the clearest suppressors for the next shortlist.</div>
+              <div class="pqx-decision-reasons" data-pw-feedback-reasons></div>
+              <div class="pqx-decision-copy"><strong>Ask agent next</strong></div>
+              <div class="pqx-event-list" data-pw-feedback-questions>
+                <div class="pqx-note">Loading the next suggested questions.</div>
+              </div>
+              <div class="pqx-decision-copy"><strong>This will</strong></div>
+              <div class="pqx-event-list" data-pw-feedback-consequences>
+                <div class="pqx-note">Update your future ranking and keep the next action visible.</div>
+              </div>
+              <textarea class="pqx-decision-note" rows="3" placeholder="What exactly worked, failed, or still needs proof?" data-pw-feedback-note></textarea>
+              <div class="pqx-actions">
+                <button class="pqx-button primary" type="button" data-pw-feedback-save>Save decision</button>
+                <a class="pqx-link-button subtle" href="/app/profile">Manage preferences</a>
+              </div>
+              <div class="pqx-decision-status" data-pw-feedback-status></div>
+            </section>
+            <section class="pqx-card">
+              <div class="pqx-section-head"><h2>Top objections</h2><span class="pqx-pill">Risk</span></div>
+              <div class="pqx-event-list" data-pw-objections>
+                {% for row in selected.get('objection_rows') or [] %}
+                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span></div>
+                {% endfor %}
+              </div>
+            </section>
+            <section class="pqx-card">
+              <div class="pqx-section-head"><h2>Stakeholder timeline</h2><span class="pqx-pill">Timeline</span></div>
+              <div class="pqx-event-list" data-pw-timeline>
+                {% for row in selected.get('timeline_rows') or [] %}
+                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span></div>
+                {% endfor %}
               </div>
             </section>
           </div>
@@ -1957,12 +2038,20 @@
     });
 
     const candidateByRef = new Map(candidates.map((candidate) => [String(candidate.candidate_ref || ''), candidate]));
+    const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
+    const propertyFeedbackSaveEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback`;
     const renderOoda = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
       <div class="pqx-ooda-item"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value)}</strong><small>${escapeHtml(row.detail)}</small></div>
     `).join('') || '<div class="pqx-note">No OODA detail captured yet.</div>';
     const renderMatch = (rows) => (Array.isArray(rows) ? rows : []).map((reason) => `
       <div class="pqx-event-card"><strong>For</strong><span class="pqx-note">${escapeHtml(reason)}</span></div>
     `).join('') || '<div class="pqx-note">No explicit match reason captured yet.</div>';
+    const renderTimeline = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
+      <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Update')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span></div>
+    `).join('') || '<div class="pqx-note">No decision timeline yet.</div>';
+    const renderObjections = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
+      <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Objection')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span></div>
+    `).join('') || '<div class="pqx-note">No objection captured yet.</div>';
     const actionMarkup = (candidate) => {
       const tour = candidate.tour || {};
       return [
@@ -1972,6 +2061,18 @@
         candidate.source_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.source_url)}">Source</a>` : '',
       ].filter(Boolean).join('');
     };
+    const feedbackPersonId = String(meta.feedback_person_id || 'self').trim() || 'self';
+    const feedbackStatusNode = root.querySelector('[data-pw-feedback-status]');
+    const feedbackReasonsNode = root.querySelector('[data-pw-feedback-reasons]');
+    const feedbackQuestionsNode = root.querySelector('[data-pw-feedback-questions]');
+    const feedbackConsequencesNode = root.querySelector('[data-pw-feedback-consequences]');
+    const feedbackNoteNode = root.querySelector('[data-pw-feedback-note]');
+    const feedbackReactionButtons = [...root.querySelectorAll('[data-pw-feedback-reaction]')];
+    const feedbackSaveButton = root.querySelector('[data-pw-feedback-save]');
+    const feedbackSuggestionCache = new Map();
+    let selectedFeedbackReaction = '';
+    let selectedFeedbackCandidateRef = '';
+    let selectedFeedbackReasonKeys = new Set();
     const candidatePropertyRef = (candidate) => String(
       candidate?.source_url ||
       candidate?.property_url ||
@@ -2009,6 +2110,117 @@
         }
       }
     };
+    const renderFeedbackReasonChips = (suggestions) => {
+      if (!feedbackReasonsNode) return;
+      const rows = []
+        .concat(Array.isArray(suggestions?.negative) ? suggestions.negative : [])
+        .concat(Array.isArray(suggestions?.positive) ? suggestions.positive : []);
+      feedbackReasonsNode.innerHTML = rows.map((row) => {
+        const key = String(row?.key || '').trim();
+        const label = String(row?.label || key || 'Reason').trim();
+        return `<button class="pqx-decision-chip" type="button" data-pw-feedback-reason="${escapeHtml(key)}">${escapeHtml(label)}</button>`;
+      }).join('');
+      feedbackReasonsNode.querySelectorAll('[data-pw-feedback-reason]').forEach((chip) => {
+        chip.addEventListener('click', () => {
+          const key = String(chip.getAttribute('data-pw-feedback-reason') || '').trim();
+          if (!key) return;
+          if (selectedFeedbackReasonKeys.has(key)) {
+            selectedFeedbackReasonKeys.delete(key);
+            chip.classList.remove('active');
+          } else {
+            selectedFeedbackReasonKeys.add(key);
+            chip.classList.add('active');
+          }
+        });
+      });
+    };
+    const renderFeedbackQuestions = (suggestions) => {
+      if (!feedbackQuestionsNode) return;
+      const rows = Array.isArray(suggestions?.agent_questions) ? suggestions.agent_questions : [];
+      feedbackQuestionsNode.innerHTML = rows.map((row, index) => `
+        <div class="pqx-event-card"><strong>Question ${index + 1}</strong><span class="pqx-note">${escapeHtml(row.question || '')}</span></div>
+      `).join('') || '<div class="pqx-note">No agent question generated yet.</div>';
+    };
+    const renderFeedbackConsequences = (suggestions) => {
+      if (!feedbackConsequencesNode) return;
+      const rows = Array.isArray(suggestions?.decision_consequences) ? suggestions.decision_consequences : [];
+      feedbackConsequencesNode.innerHTML = rows.map((line) => `
+        <div class="pqx-event-card"><strong>Next</strong><span class="pqx-note">${escapeHtml(line || '')}</span></div>
+      `).join('') || '<div class="pqx-note">Decision consequences will appear here.</div>';
+    };
+    const loadCandidateFeedbackSuggestions = async (candidate) => {
+      if (!candidate || !feedbackReasonsNode) return;
+      const ref = String(candidate.candidate_ref || '').trim();
+      if (!ref) return;
+      if (feedbackSuggestionCache.has(ref)) {
+        renderFeedbackReasonChips(feedbackSuggestionCache.get(ref));
+        renderFeedbackQuestions(feedbackSuggestionCache.get(ref));
+        renderFeedbackConsequences(feedbackSuggestionCache.get(ref));
+        return;
+      }
+      try {
+        const response = await fetch(propertyFeedbackReasonsEndpoint(feedbackPersonId), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            property_facts: candidate.property_facts || {},
+            assessment: candidate.assessment || {},
+          }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(String(body.detail || 'Could not load decision reasons.'));
+        feedbackSuggestionCache.set(ref, body);
+        renderFeedbackReasonChips(body);
+        renderFeedbackQuestions(body);
+        renderFeedbackConsequences(body);
+      } catch (_error) {
+        feedbackReasonsNode.innerHTML = '';
+        if (feedbackQuestionsNode) feedbackQuestionsNode.innerHTML = '';
+        if (feedbackConsequencesNode) feedbackConsequencesNode.innerHTML = '';
+      }
+    };
+    feedbackReactionButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        selectedFeedbackReaction = String(button.getAttribute('data-pw-feedback-reaction') || '').trim();
+        feedbackReactionButtons.forEach((candidateButton) => {
+          candidateButton.classList.toggle('active', candidateButton === button);
+        });
+      });
+    });
+    feedbackSaveButton?.addEventListener('click', async () => {
+      const candidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+      if (!feedbackStatusNode) return;
+      if (!candidate) return;
+      if (!selectedFeedbackReaction) {
+        feedbackStatusNode.textContent = 'Choose Yes, Maybe, No, or Hide first.';
+        return;
+      }
+      feedbackStatusNode.textContent = 'Saving decision...';
+      try {
+        const response = await fetch(propertyFeedbackSaveEndpoint(feedbackPersonId), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            property_slug: String(candidate.candidate_ref || '').trim(),
+            property_url: String(candidate.property_url || candidate.source_url || '').trim(),
+            property_title: String(candidate.title || '').trim(),
+            property_facts: candidate.property_facts || {},
+            reaction: selectedFeedbackReaction,
+            reason_keys: [...selectedFeedbackReasonKeys],
+            note: String(feedbackNoteNode?.value || '').trim(),
+          }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(body.detail || body.error || body, 'Could not save decision.'));
+        const likes = Array.isArray(body.learning_summary?.likes) ? body.learning_summary.likes.length : 0;
+        const dislikes = Array.isArray(body.learning_summary?.dislikes) ? body.learning_summary.dislikes.length : 0;
+        feedbackStatusNode.textContent = `Saved. Profile now has ${likes} positive signal(s) and ${dislikes} avoid signal(s).`;
+      } catch (error) {
+        feedbackStatusNode.textContent = error instanceof Error ? error.message : 'Could not save decision.';
+      }
+    });
     const updateResearchTaskCounts = (runPayload) => {
       const counts = runPayload?.research_task_counts || {
         open: runPayload?.open_research_task_total,
@@ -2084,6 +2296,12 @@
     const selectCandidate = (candidateRef, { updateUrl = true } = {}) => {
       const candidate = candidateByRef.get(String(candidateRef || '')) || candidates[0];
       if (!candidate) return;
+      selectedFeedbackCandidateRef = String(candidate.candidate_ref || '').trim();
+      selectedFeedbackReaction = '';
+      selectedFeedbackReasonKeys = new Set();
+      if (feedbackStatusNode) feedbackStatusNode.textContent = '';
+      if (feedbackNoteNode) feedbackNoteNode.value = '';
+      feedbackReactionButtons.forEach((button) => button.classList.remove('active'));
       root.querySelectorAll('[data-candidate-ref]').forEach((row) => {
         row.setAttribute('aria-selected', row.getAttribute('data-candidate-ref') === candidate.candidate_ref ? 'true' : 'false');
       });
@@ -2114,6 +2332,10 @@
       }
       const match = root.querySelector('[data-pw-match]');
       if (match) match.innerHTML = renderMatch(candidate.match_reasons);
+      const objections = root.querySelector('[data-pw-objections]');
+      if (objections) objections.innerHTML = renderObjections(candidate.objection_rows);
+      const timeline = root.querySelector('[data-pw-timeline]');
+      if (timeline) timeline.innerHTML = renderTimeline(candidate.timeline_rows);
       const risk = root.querySelector('[data-pw-risk]');
       if (risk) risk.innerHTML = `<strong>Risk</strong><span class="pqx-note">${escapeHtml(candidate.risk?.summary || 'No risk summary captured yet.')}</span>`;
       const riskLevel = root.querySelector('[data-pw-risk-level]');
@@ -2127,6 +2349,7 @@
       if (topActions && candidates.length) {
         topActions.innerHTML = actionMarkup(candidate);
       }
+      loadCandidateFeedbackSuggestions(candidate);
       if (updateUrl) {
         const url = new URL(window.location.href);
         url.searchParams.set('candidate', candidate.candidate_ref || '');

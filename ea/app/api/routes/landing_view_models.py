@@ -2371,6 +2371,68 @@ def property_workspace_payload(
             )
         return rows[:6]
 
+    def _candidate_objection_rows(candidate: dict[str, object], facts: dict[str, object]) -> list[dict[str, str]]:
+        mismatch_reasons = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
+        rows: list[dict[str, str]] = []
+        for reason in mismatch_reasons[:3]:
+            rows.append({"title": "Mismatch", "detail": reason, "tag": "Risk"})
+        if not str(candidate.get("tour_url") or "").strip():
+            rows.append({"title": "360 gap", "detail": _tour_source_gap_detail(candidate), "tag": "Review"})
+        for item in _missing_fact_items(facts)[:2]:
+            if str(item.get("status") or "").strip().lower() == "filled":
+                continue
+            rows.append(
+                {
+                    "title": str(item.get("label") or item.get("field") or "Missing fact").strip(),
+                    "detail": str(item.get("evidence") or item.get("display_value") or "Still under research.").strip(),
+                    "tag": "Research",
+                }
+            )
+        if not rows:
+            rows.append({"title": "No recorded objection yet", "detail": "This candidate has no explicit blocker captured yet.", "tag": "Clear"})
+        return rows[:4]
+
+    def _candidate_timeline_rows(candidate: dict[str, object], facts: dict[str, object]) -> list[dict[str, str]]:
+        rows = [
+            {
+                "title": "Found by provider",
+                "detail": str(candidate.get("source_label") or "Property provider").strip() or "Property provider",
+                "tag": "Found",
+            },
+            {
+                "title": "Ranked",
+                "detail": str(candidate.get("fit_summary") or candidate.get("recommendation") or "Candidate ranked for review.").strip(),
+                "tag": "Ranked",
+            },
+            {
+                "title": "360 state",
+                "detail": str(candidate.get("tour_url") or _tour_status_line(candidate)).strip(),
+                "tag": "360",
+            },
+        ]
+        pending_missing = [
+            str(item.get("label") or item.get("field") or "Missing fact").strip()
+            for item in _missing_fact_items(facts)
+            if str(item.get("status") or "").strip().lower() != "filled"
+        ]
+        if pending_missing:
+            rows.append(
+                {
+                    "title": "Missing facts queued",
+                    "detail": ", ".join(pending_missing[:3]),
+                    "tag": "Research",
+                }
+            )
+        if str(candidate.get("packet_url") or "").strip():
+            rows.append(
+                {
+                    "title": "Packet ready",
+                    "detail": "Review packet is ready for household or advisor follow-up.",
+                    "tag": "Packet",
+                }
+            )
+        return rows[:5]
+
     def _tour_payload(candidate: dict[str, object]) -> dict[str, str]:
         tour_url = str(candidate.get("tour_url") or "").strip()
         status = str(candidate.get("tour_status") or "").strip().lower()
@@ -2437,7 +2499,12 @@ def property_workspace_payload(
                 "mismatch_reasons": mismatch_reasons,
                 "packet_url": packet_url,
                 "review_url": str(candidate.get("review_url") or "").strip(),
+                "property_url": str(candidate.get("property_url") or "").strip(),
                 "source_url": str(candidate.get("property_url") or "").strip(),
+                "property_facts": facts,
+                "assessment": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
+                "objection_rows": _candidate_objection_rows(candidate, facts),
+                "timeline_rows": _candidate_timeline_rows(candidate, facts),
             }
         )
         results_table_rows.append(

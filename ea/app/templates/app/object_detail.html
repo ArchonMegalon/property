@@ -609,15 +609,16 @@
 	    {% endif %}
 	    {% if object_feedback %}
 	    <section class="object-feedback" data-object-feedback data-object-feedback-payload='{{ object_feedback|tojson|safe }}'>
-	      <div class="object-kicker">Preference feedback</div>
-	      <h2>Tune this search profile</h2>
-	      <p class="object-copy">Save a reaction and concrete reasons so future rankings can use the stored feedback profile.</p>
+	      <div class="object-kicker">Decision feedback</div>
+	      <h2>Would you pursue this property?</h2>
+	      <p class="object-copy">Record the decision here so the next shortlist learns from it and the missing-fact follow-up stays explicit.</p>
 	      <div class="object-feedback-row" aria-label="Property feedback reaction">
-	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="like">Like</button>
+	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="like">Yes</button>
 	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="maybe">Maybe</button>
-	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="dislike">Dislike</button>
+	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="dislike">No</button>
 	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="hide">Hide</button>
 	      </div>
+	      <p class="object-copy"><strong>What drove that?</strong> Select the clearest reasons first. If you reject the property, those reasons become the strongest future suppressors.</p>
 	      <div class="object-feedback-reasons" data-object-feedback-reasons>
 	        {% for row in (object_feedback.get('suggestions') or {}).get('negative') or [] %}
 	        <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}">{{ row.get('label') }}</button>
@@ -626,9 +627,36 @@
 	        <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}">{{ row.get('label') }}</button>
 	        {% endfor %}
 	      </div>
-	      <textarea data-object-feedback-note placeholder="Optional note"></textarea>
+	      {% if (object_feedback.get('suggestions') or {}).get('agent_questions') %}
+	      <div class="object-copy"><strong>Ask agent next</strong></div>
+	      <div class="object-list">
+	        {% for row in (object_feedback.get('suggestions') or {}).get('agent_questions') or [] %}
+	        <div class="object-row">
+	          <div>
+	            <strong>Question {{ loop.index }}</strong>
+	            <small>{{ row.get('question') }}</small>
+	          </div>
+	          <div class="object-tag">{{ row.get('status') or 'suggested' }}</div>
+	        </div>
+	        {% endfor %}
+	      </div>
+	      {% endif %}
+	      {% if (object_feedback.get('suggestions') or {}).get('decision_consequences') %}
+	      <p class="object-copy">This will:</p>
+	      <div class="object-list">
+	        {% for line in (object_feedback.get('suggestions') or {}).get('decision_consequences') or [] %}
+	        <div class="object-row">
+	          <div>
+	            <strong>{{ line }}</strong>
+	          </div>
+	          <div class="object-tag">Next</div>
+	        </div>
+	        {% endfor %}
+	      </div>
+	      {% endif %}
+	      <textarea data-object-feedback-note placeholder="What exactly worked, failed, or still needs proof?"></textarea>
 	      <div class="object-actions">
-	        <button class="console-action" type="button" data-object-feedback-save>Save feedback</button>
+	        <button class="console-action" type="button" data-object-feedback-save>Save decision</button>
 	        <a class="console-action" href="{{ object_feedback.get('profile_href') or '/app/profile' }}">Manage preferences</a>
 	      </div>
 	      <p class="object-copy" data-object-feedback-status></p>
@@ -789,10 +817,10 @@
   });
   root.querySelector('[data-object-feedback-save]')?.addEventListener('click', async () => {
     if (!reaction) {
-      if (status) status.textContent = 'Choose a reaction first.';
+      if (status) status.textContent = 'Choose Yes, Maybe, No, or Hide first.';
       return;
     }
-    if (status) status.textContent = 'Saving feedback...';
+    if (status) status.textContent = 'Saving decision...';
     try {
       const response = await fetch(String(payload.save_endpoint || ''), {
         method: 'POST',
@@ -812,7 +840,7 @@
       if (!response.ok) throw new Error(String(body.detail || 'Could not save feedback.'));
       const likes = Array.isArray(body.learning_summary?.likes) ? body.learning_summary.likes.length : 0;
       const dislikes = Array.isArray(body.learning_summary?.dislikes) ? body.learning_summary.dislikes.length : 0;
-      if (status) status.textContent = `Saved. Profile now has ${likes} like signal(s) and ${dislikes} avoid signal(s).`;
+      if (status) status.textContent = `Saved. Profile now has ${likes} positive signal(s) and ${dislikes} avoid signal(s).`;
     } catch (error) {
       if (status) status.textContent = error instanceof Error ? error.message : 'Could not save feedback.';
     }

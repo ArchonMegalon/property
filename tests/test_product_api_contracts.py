@@ -5715,6 +5715,8 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     suggestion_body = suggestions.json()
     assert any(item["key"] == "gas_heating" for item in suggestion_body["negative"])
     assert any(item["key"] == "floorplan_good" for item in suggestion_body["positive"])
+    assert any("heating source" in item["question"].lower() for item in suggestion_body["agent_questions"])
+    assert "Update your future ranking" in suggestion_body["decision_consequences"]
 
     feedback = client.post(
         "/app/api/people/self/preference-profile/property-feedback",
@@ -5744,6 +5746,12 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     assert any(item["key"] == "avoid_heating_types" for item in feedback_body["evidence"]["applied_nodes"])
     assert any(item["key"] == "prefer_lift" for item in feedback_body["evidence"]["applied_nodes"])
     assert feedback_body["updated_assessment"]["domain"] == "willhaben"
+    timeline = client.get(
+        "/app/api/properties/https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1180-waehring/waehring-flat-1/timeline"
+    )
+    assert timeline.status_code == 200
+    assert timeline.json()["total"] >= 1
+    assert any("Gas heating" in str(item["summary"]) for item in timeline.json()["items"])
 
     invalid_reaction = client.post(
         "/app/api/people/self/preference-profile/property-feedback",
@@ -5797,6 +5805,14 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     assert body["profile"]["display_name"] == "Tibor"
     assert any(item["key"] == "preferred_districts" for item in body["preference_nodes"])
     assert body["recent_decision_assessments"][0]["domain"] == "willhaben"
+
+    preview = client.get("/app/api/property/notifications/preview", params={"template": "property_match"})
+    assert preview.status_code == 200
+    preview_body = preview.json()
+    assert preview_body["template_key"] == "property_match"
+    assert "PropertyQuarry shortlisted a property match" in preview_body["text"]
+    assert "PropertyQuarry" in preview_body["html"]
+    assert "EA shortlisted" not in preview_body["text"]
 
     partial = client.post(
         "/app/api/people/self/preference-profile",

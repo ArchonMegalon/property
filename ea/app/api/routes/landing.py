@@ -79,7 +79,8 @@ from app.services.property_market_catalog import (
 )
 from app.services.public_branding import request_brand
 from app.services.public_clickrank import clickrank_head_snippet as _clickrank_head_snippet, request_hostname as _request_hostname
-from app.services.registration_email import email_delivery_enabled
+from app.services.registration_email import email_delivery_enabled, property_notification_preview
+from app.services.fliplink import build_fliplink_packet_service
 
 router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
@@ -119,6 +120,21 @@ def _form_value(form_data: dict[str, list[str]], key: str, default: str = "") ->
 
 def _form_values(form_data: dict[str, list[str]], key: str) -> tuple[str, ...]:
     return tuple(str(value).strip() for value in (form_data.get(key) or []) if str(value).strip())
+
+
+def _property_feedback_reference_candidates(candidate_ref: str, candidate: dict[str, object]) -> tuple[str, ...]:
+    refs: list[str] = []
+    for value in (
+        candidate_ref,
+        candidate.get("property_ref"),
+        candidate.get("listing_id"),
+        candidate.get("property_url"),
+        candidate.get("review_url"),
+    ):
+        normalized = str(value or "").strip()
+        if normalized and normalized not in refs:
+            refs.append(normalized)
+    return tuple(refs)
 
 
 
@@ -2240,6 +2256,73 @@ def property_research_packet(
         feedback_suggestions = dict(product.property_feedback_suggestions(property_facts=facts, assessment=assessment or candidate))
     except Exception:
         feedback_suggestions = {"negative": [], "positive": []}
+    packet_service = build_fliplink_packet_service(container)
+    feedback_summary: dict[str, object] = {}
+    property_timeline_rows: list[dict[str, object]] = []
+    for feedback_ref in _property_feedback_reference_candidates(str(candidate_ref or "").strip(), candidate):
+        try:
+            summary_candidate = dict(packet_service.feedback_summary(principal_id=context.principal_id, property_ref=feedback_ref))
+        except Exception:
+            summary_candidate = {}
+        try:
+            timeline_candidate = list(packet_service.property_timeline(principal_id=context.principal_id, property_ref=feedback_ref))
+        except Exception:
+            timeline_candidate = []
+        if summary_candidate and not feedback_summary:
+            feedback_summary = summary_candidate
+        if timeline_candidate and not property_timeline_rows:
+            property_timeline_rows = timeline_candidate
+        if feedback_summary and property_timeline_rows:
+            break
+    objection_clusters = [
+        _object_detail_row(
+            str(cluster.get("theme") or "feedback").replace("_", " ").title(),
+            str(cluster.get("summary") or "No detail yet.").strip(),
+            str(cluster.get("severity") or "medium").strip().title(),
+        )
+        for cluster in list(feedback_summary.get("clusters") or [])[:4]
+        if isinstance(cluster, dict)
+    ]
+    if not objection_clusters:
+        objection_clusters = [
+            _object_detail_row(
+                "No recorded objections yet",
+                "Stakeholder objections and reviewer disagreements will surface here once packet or decision feedback is captured.",
+                "Waiting",
+            )
+        ]
+    timeline_rows = [
+        _object_detail_row(
+            str(row.get("event_type") or "packet_update").replace("_", " ").title(),
+            str(row.get("summary") or "Property state updated.").strip(),
+            str(row.get("created_at") or "").replace("T", " ").replace("+00:00", " UTC")[:32] or "Timeline",
+        )
+        for row in property_timeline_rows[:6]
+        if isinstance(row, dict)
+    ]
+    if not timeline_rows:
+        timeline_rows = [
+            _object_detail_row("Shortlist state", "This packet is ready for a decision and agent follow-up.", "Now"),
+            _object_detail_row("Tour state", tour_url or _property_tour_source_gap_detail(candidate), "360"),
+            _object_detail_row("Feedback state", "No packet timeline events are recorded yet. The first saved decision will start the visible timeline.", "Waiting"),
+        ]
+    agent_question_rows = [
+        _object_detail_row(
+            f"Question {index + 1}",
+            str(row.get("question") or "").strip(),
+            str(row.get("status") or "suggested").replace("_", " ").title(),
+        )
+        for index, row in enumerate(list(feedback_suggestions.get("agent_questions") or [])[:5])
+        if isinstance(row, dict) and str(row.get("question") or "").strip()
+    ]
+    if not agent_question_rows:
+        agent_question_rows = [
+            _object_detail_row(
+                "No generated question yet",
+                "Save a decision or add missing-fact blockers to generate the next agent brief automatically.",
+                "Waiting",
+            )
+        ]
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -2388,6 +2471,21 @@ def property_research_packet(
                 ],
             },
             {
+                "eyebrow": "Ask agent next",
+                "title": "The next concrete questions PropertyQuarry would send now",
+                "items": agent_question_rows,
+            },
+            {
+                "eyebrow": "Decision timeline",
+                "title": "What changed, who reacted, and what follow-up exists now",
+                "items": timeline_rows,
+            },
+            {
+                "eyebrow": "Top objections",
+                "title": "The strongest blockers or disagreements visible so far",
+                "items": objection_clusters,
+            },
+            {
                 "eyebrow": "Compare next",
                 "title": "Keep the next-best shortlist candidates visible",
                 "table_headers": ["Candidate", "Fit", "Price", "Layout", "360", "Packet"],
@@ -2408,6 +2506,84 @@ def property_research_packet(
             "save_endpoint": f"/app/api/people/{urllib.parse.quote(preference_person_id, safe='')}/preference-profile/property-feedback",
         },
     )
+
+
+@router.get("/app/properties/notifications/preview", response_class=HTMLResponse)
+def property_notification_preview_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+    template: str = Query(default="search_results_ready"),
+) -> HTMLResponse:
+    del container, context
+    templates_available = (
+        "search_results_ready",
+        "property_match",
+        "tour_ready",
+        "investment_research_ready",
+    )
+    selected = str(template or "search_results_ready").strip().lower() or "search_results_ready"
+    if selected not in templates_available:
+        selected = "search_results_ready"
+    preview = property_notification_preview(selected)
+    options = "".join(
+        f'<option value="{html.escape(key)}" {"selected" if key == selected else ""}>{html.escape(key.replace("_", " "))}</option>'
+        for key in templates_available
+    )
+    body = f"""
+    <!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>PropertyQuarry notification preview</title>
+      {_clickrank_head_snippet(_request_hostname(request))}
+      <style>
+        body {{ margin:0; background:#f6f3ee; color:#242321; font:14px/1.6 Arial,Helvetica,sans-serif; }}
+        .wrap {{ max-width:1280px; margin:0 auto; padding:24px; display:grid; gap:18px; }}
+        .panel {{ background:#fffdf8; border:1px solid #ded6c8; border-radius:18px; padding:20px; }}
+        .grid {{ display:grid; grid-template-columns:320px 1fr; gap:18px; }}
+        .meta {{ color:#6c675f; font-size:12px; text-transform:uppercase; letter-spacing:.08em; }}
+        h1,h2 {{ margin:0 0 12px; }}
+        select {{ width:100%; min-height:42px; border:1px solid #b9ad9a; border-radius:10px; padding:0 12px; background:#fffdf8; }}
+        pre {{ white-space:pre-wrap; word-break:break-word; background:#fdf9f1; border:1px solid #ded6c8; border-radius:12px; padding:14px; }}
+        iframe {{ width:100%; min-height:720px; border:1px solid #ded6c8; border-radius:12px; background:#fff; }}
+        .actions a {{ color:#825818; text-decoration:underline; text-underline-offset:3px; font-weight:700; }}
+        @media (max-width: 980px) {{ .grid {{ grid-template-columns:1fr; }} iframe {{ min-height:560px; }} }}
+      </style>
+    </head>
+    <body>
+      <div class="wrap">
+        <div class="panel">
+          <div class="meta">PropertyQuarry notification system</div>
+          <h1>Email preview</h1>
+          <div class="actions"><a href="/app/alerts">Back to alerts</a></div>
+        </div>
+        <div class="grid">
+          <div class="panel">
+            <form method="get" action="/app/properties/notifications/preview">
+              <div class="meta">Template</div>
+              <select name="template">{options}</select>
+            </form>
+            <script>document.querySelector('select[name="template"]')?.addEventListener('change', (event) => event.target.form.submit());</script>
+            <div style="height:18px"></div>
+            <div class="meta">Subject</div>
+            <h2>{html.escape(str(preview.get("subject") or ""))}</h2>
+            <div class="meta">Preheader</div>
+            <p>{html.escape(str(preview.get("preheader") or ""))}</p>
+            <div class="meta">Plain text</div>
+            <pre>{html.escape(str(preview.get("text") or ""))}</pre>
+          </div>
+          <div class="panel">
+            <div class="meta">HTML render</div>
+            <iframe sandbox="" srcdoc="{html.escape(str(preview.get('html') or ''))}"></iframe>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(body)
 
 
 @router.get("/app/{section}", response_class=HTMLResponse)

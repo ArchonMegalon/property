@@ -1262,9 +1262,17 @@ class PropertyFeedbackSuggestionOut(BaseModel):
     explanation: str = ""
 
 
+class PropertyFeedbackAgentQuestionOut(BaseModel):
+    question: str
+    status: str = "suggested"
+    action: str = "ask_agent"
+
+
 class PropertyFeedbackSuggestionSetOut(BaseModel):
     negative: list[PropertyFeedbackSuggestionOut] = Field(default_factory=list)
     positive: list[PropertyFeedbackSuggestionOut] = Field(default_factory=list)
+    agent_questions: list[PropertyFeedbackAgentQuestionOut] = Field(default_factory=list)
+    decision_consequences: list[str] = Field(default_factory=list)
 
 
 class PreferenceLearningFeedbackEventOut(BaseModel):
