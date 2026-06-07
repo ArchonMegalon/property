@@ -649,6 +649,103 @@ def test_property_search_results_email_serializes_emailit_meta(monkeypatch: pyte
     assert receipt.message_id == "emailit-property-results-1"
 
 
+def test_property_tour_email_uses_propertyquarry_branding(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "property@propertyquarry.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "PropertyQuarry")
+
+    from app.services import registration_email as service
+
+    captured: dict[str, object] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "emailit-property-tour-1"}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return _Response()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", _fake_urlopen)
+
+    receipt = service.send_property_tour_email(
+        recipient_email="tibor.girschele@gmail.com",
+        property_title="Family flat near Augarten",
+        property_url="https://propertyquarry.com/source/property-1",
+        tour_url="https://propertyquarry.com/tours/family-flat-near-augarten",
+        variant_key="layout_first",
+        listing_id="listing-123",
+        area_label="84 m2",
+        rooms_label="3 rooms",
+        price_label="EUR 420,000",
+        decision_summary_json={"recommendation": "shortlist", "good_fit_reasons": ["Floorplan and family fit."]},
+    )
+
+    payload = dict(captured["payload"])
+    assert payload["from"] == "PropertyQuarry <property@propertyquarry.com>"
+    assert payload["subject"] == "Apartment tour ready: Family flat near Augarten · layout first"
+    assert "PropertyQuarry prepared a hosted 360 review for Family flat near Augarten:" in payload["text"]
+    assert "Open the hosted 360 review first" in payload["text"]
+    assert "EA prepared" not in payload["text"]
+    assert receipt.message_id == "emailit-property-tour-1"
+
+
+def test_property_match_email_uses_propertyquarry_branding(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "property@propertyquarry.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "PropertyQuarry")
+
+    from app.services import registration_email as service
+
+    captured: dict[str, object] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "emailit-property-match-1"}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return _Response()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", _fake_urlopen)
+
+    receipt = service.send_property_match_email(
+        recipient_email="tibor.girschele@gmail.com",
+        property_title="Altbau near U6",
+        property_url="https://www.immobilienscout24.de/expose/altbau-u6",
+        review_url="https://propertyquarry.com/app/research/run-42/altbau-u6",
+        tour_url="https://propertyquarry.com/tours/altbau-u6",
+        provider_label="ImmoScout24 Germany",
+        fit_summary="Personal fit 92/100 · shortlist · Lift and transit fit.",
+        decision_summary_json={
+            "good_fit_reasons": ["Lift and transit fit."],
+            "bad_fit_reasons": ["Street noise still unknown."],
+            "unknowns": ["Heating source still needs confirmation."],
+        },
+    )
+
+    payload = dict(captured["payload"])
+    assert payload["from"] == "PropertyQuarry <property@propertyquarry.com>"
+    assert payload["subject"] == "Property match: Altbau near U6"
+    assert "PropertyQuarry shortlisted a property match: Altbau near U6" in payload["text"]
+    assert "EA shortlisted" not in payload["text"]
+    assert "PropertyQuarry" in str(payload["html"])
+    assert "EA shortlisted" not in str(payload["html"])
+    assert receipt.message_id == "emailit-property-match-1"
+
+
 def test_channel_digest_email_payload_uses_compact_preview(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "kleinhirn@girschele.com")

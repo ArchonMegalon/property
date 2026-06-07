@@ -360,7 +360,9 @@ def _property_match_html(
     return _html_email_shell(
         title=f"Property match: {title}",
         body_html=(
-            f'<p style="margin:0 0 12px;">{_html_link(href=primary_link, label=title)}</p>'
+            '<div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;margin:0 0 8px;">PropertyQuarry shortlist</div>'
+            f'<h1 style="margin:0 0 10px;font-size:24px;line-height:1.25;color:#242321;">PropertyQuarry shortlisted a property match: {_html_escape(title)}</h1>'
+            f'<p style="margin:0 0 12px;color:#51493f;">{_html_link(href=primary_link, label=title)}</p>'
             '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
             'style="border-collapse:collapse;border:1px solid #ded6c8;background:#fffefa;">'
             f"{facts_html}</table>"
@@ -664,7 +666,7 @@ def send_property_tour_email(
     body = [
         "Hello,",
         "",
-        f"EA prepared a tour for {title}:",
+        f"PropertyQuarry prepared a hosted 360 review for {title}:",
         "",
         tour_url,
         "",
@@ -691,7 +693,7 @@ def send_property_tour_email(
     body.extend(
         [
             "",
-            "Open the tour link to review the space directly.",
+            "Open the hosted 360 review first, then continue into the research packet if needed.",
         ]
     )
     return _send_emailit_email(
@@ -729,7 +731,7 @@ def send_property_match_email(
     body = [
         "Hello,",
         "",
-        f"EA shortlisted a property match: {title}",
+        f"PropertyQuarry shortlisted a property match: {title}",
     ]
     if provider:
         body.append(f"Source: {provider}")
