@@ -59,11 +59,11 @@ jobs:
 
       - name: Run Bandit
         run: |
-          bandit -q ea/app/api/routes/public_tours.py ea/app/api/routes/product_api_contracts.py ea/app/api/routes/fliplink_integration.py ea/app/services/fliplink ea/app/repositories/property_packet_publications.py ea/app/repositories/property_packet_publications_postgres.py ea/app/api/app.py
+          bandit -q ea/app/api/routes/public_tours.py ea/app/api/routes/product_api.py ea/app/api/routes/product_api_contracts.py ea/app/api/routes/product_api_delivery.py ea/app/api/routes/fliplink_integration.py ea/app/services/fliplink ea/app/services/propertyquarry_teable_projection.py ea/app/repositories/property_packet_publications.py ea/app/repositories/property_packet_publications_postgres.py ea/app/api/app.py scripts/run_property_mailbox_import.sh
 
       - name: Run Semgrep Security Audit
         run: |
-          semgrep scan --config p/security-audit --error ea/app/api/routes/public_tours.py ea/app/api/routes/product_api_contracts.py ea/app/api/routes/fliplink_integration.py ea/app/services/fliplink ea/app/repositories/property_packet_publications.py ea/app/repositories/property_packet_publications_postgres.py ea/app/api/app.py
+          semgrep scan --config p/security-audit --error ea/app/api/routes/public_tours.py ea/app/api/routes/product_api.py ea/app/api/routes/product_api_contracts.py ea/app/api/routes/product_api_delivery.py ea/app/api/routes/fliplink_integration.py ea/app/services/fliplink ea/app/services/propertyquarry_teable_projection.py ea/app/repositories/property_packet_publications.py ea/app/repositories/property_packet_publications_postgres.py ea/app/api/app.py scripts/run_property_mailbox_import.sh
 
       - name: Run Broader Security Triage
         continue-on-error: true

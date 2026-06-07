@@ -631,6 +631,7 @@ def landing(
 ) -> HTMLResponse:
     principal_id, status = _load_status(container=container, access_identity=access_identity)
     brand = request_brand(request)
+    commercial = property_commercial_snapshot(None)
     return _render_public_template(
         request,
         "propertyquarry_home.html" if brand["key"] == "propertyquarry" else "marketing_home.html",
@@ -644,9 +645,12 @@ def landing(
             extra={
                 "feature_cards": FEATURE_CARDS,
                 "how_steps": HOW_STEPS,
+                "personas": PERSONAS,
+                "product_modules": PRODUCT_MODULES,
                 "trust_cards": TRUST_CARDS,
                 "landing_faqs": LANDING_FAQS,
                 "doc_links": DOC_LINKS,
+                "plan_catalog": tuple(commercial.get("plan_catalog") or ()),
             },
         ),
     )
@@ -785,6 +789,7 @@ def pricing_page(
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
     principal_id, status = _load_status(container=container, access_identity=access_identity)
+    commercial = property_commercial_snapshot(None)
     return _render_public_template(
         request,
         "pricing_page.html",
@@ -795,7 +800,10 @@ def pricing_page(
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
-            extra={"pricing_tiers": PRICING_TIERS},
+            extra={
+                "pricing_tiers": PRICING_TIERS,
+                "plan_catalog": tuple(commercial.get("plan_catalog") or ()),
+            },
         ),
     )
 

@@ -32,6 +32,7 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "EA_ALLOW_LOOPBACK_NO_AUTH",
         "EA_HOST_PORT",
         "PROPERTYQUARRY_COMPOSE_PROJECT_NAME",
+        "PROPERTYQUARRY_COMPOSE_PROBE_TIMEOUT_SECONDS",
         "PROPERTYQUARRY_API_CONTAINER_NAME",
         "PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME",
         "PROPERTYQUARRY_DB_CONTAINER_NAME",
@@ -55,6 +56,8 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
     assert re.search(r"EA_RUNTIME_MODE=prod requires EA_API_TOKEN or Cloudflare Access", script)
     assert re.search(r"EA_RUNTIME_MODE=prod forbids EA_ALLOW_LOOPBACK_NO_AUTH=1", script)
     assert re.search(r"Expected /app/properties to require auth", script)
+    assert "timeout" in script
+    assert "did not answer within" in script
 
 
 def test_propertyquarry_deploy_wrapper_stays_property_only() -> None:

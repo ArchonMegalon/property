@@ -906,6 +906,32 @@ def app_section_payload(
         property_plan_max_match_score = 45
     property_visible_max_match_score = 80
     property_visible_max_results_per_source = 10
+    property_plan_catalog = [
+        dict(plan)
+        for plan in list(property_state.get("commercial", {}).get("plan_catalog") or [])
+        if isinstance(plan, dict)
+    ]
+    property_current_plan_key = str(property_state.get("commercial", {}).get("current_plan_key") or "free").strip().lower() or "free"
+
+    def _property_upgrade_hint(metric_key: str, current_cap: int, visible_cap: int) -> str:
+        if current_cap >= visible_cap:
+            return ""
+        upgrade_parts: list[str] = []
+        for plan in property_plan_catalog:
+            plan_key = str(plan.get("plan_key") or "").strip().lower()
+            if not plan_key or plan_key == property_current_plan_key:
+                continue
+            try:
+                plan_cap = int(plan.get(metric_key) or 0)
+            except Exception:
+                continue
+            if plan_cap <= current_cap:
+                continue
+            upgrade_parts.append(f"{str(plan.get('display_name') or plan_key.title())} unlocks {plan_cap}")
+        if upgrade_parts:
+            return f"Current plan cap {current_cap}; " + ". ".join(upgrade_parts) + "."
+        return f"Current plan cap {current_cap}; visible ceiling {visible_cap}."
+
     def _positive_int(value: object, *, default: int = 0) -> int:
         try:
             parsed = int(float(str(value or "").strip()))
@@ -946,10 +972,10 @@ def app_section_payload(
         "Minimum personal fit score a listing must beat before it can enter the shortlist. "
         "Raising it usually improves precision, but can make searches much slower and increases backend crawl and scoring load."
     )
-    property_min_match_upgrade_hint = (
-        f"Current plan cap {property_plan_max_match_score}; Agent unlocks {property_visible_max_match_score}."
-        if property_plan_max_match_score < property_visible_max_match_score
-        else ""
+    property_min_match_upgrade_hint = _property_upgrade_hint(
+        "max_match_score",
+        property_plan_max_match_score,
+        property_visible_max_match_score,
     )
     profile_manage_href = f"/app/profile?run_id={active_run_id}" if active_run_id else "/app/profile"
     property_form = {
@@ -1565,10 +1591,10 @@ def app_section_payload(
                 "range_step": "1",
                 "format": "count",
                 "suffix": "",
-                "upgrade_hint": (
-                    f"Current plan cap {property_plan_max_results}; Agent unlocks {property_visible_max_results_per_source}."
-                    if property_plan_max_results < property_visible_max_results_per_source
-                    else ""
+                "upgrade_hint": _property_upgrade_hint(
+                    "max_results_per_source",
+                    property_plan_max_results,
+                    property_visible_max_results_per_source,
                 ),
                 "tooltip": "How many strong matches each provider may return. Higher values increase review depth and processing work.",
                 "step": "providers",
@@ -1903,9 +1929,9 @@ def app_section_payload(
                     or property_recent_matches
                     or [
                         row_item(
-                            "No shortlist candidates yet",
-                            "Run the first crawl to generate a ranked set of review packets and hosted 360 tours.",
-                            "Waiting",
+                            "First shortlist still pending",
+                            "Launch the first sweep to generate a ranked candidate lane with review packets, hosted tours, and visible fit reasons.",
+                            "First run",
                         )
                     ],
                 },
@@ -1917,9 +1943,9 @@ def app_section_payload(
                     or property_event_rows
                     or [
                         row_item(
-                            "No active crawl yet",
-                            "Save the defaults and start the first dedicated run from the right-side lane.",
-                            "Queued",
+                            "No live search in flight",
+                            "Save the brief, then launch the first dedicated run to expose source-by-source progress and shortlist formation here.",
+                            "Ready",
                         )
                     ],
                 },
@@ -1931,9 +1957,9 @@ def app_section_payload(
                     or property_recent_feedback_rows
                     or [
                         row_item(
-                            "No learned preferences yet",
-                            "Use the hosted review packets to record feedback. The learned likes, dislikes, and hard rules will surface here.",
-                            "Waiting",
+                            "Preference memory is still clean",
+                            "Record feedback on packets and shortlists to teach the ranking what to favor, what to suppress, and which rules should stay hard.",
+                            "Learning",
                         )
                     ],
                 },
@@ -1945,9 +1971,9 @@ def app_section_payload(
                     or property_event_rows
                     or [
                         row_item(
-                            "No hosted property follow-ups yet",
-                            "Once a high-fit listing yields a hosted page or review follow-up, it will appear here.",
-                            "Waiting",
+                            "No hosted follow-up has left the desk yet",
+                            "The first credible packet, hosted page, or review follow-up will appear here once a candidate is strong enough to share.",
+                            "Outbound",
                         )
                     ],
                 },
@@ -2568,11 +2594,17 @@ def property_workspace_payload(
     if not alerts_rows:
         alerts_rows = [
             row_item(
-                "No client alerts yet",
-                "Hosted pages and review packets will surface here once the first high-fit matches are ready.",
-                "Waiting",
+                "No client-facing alert has been sent yet",
+                "This lane will show the first hosted page, review packet, or run update once the shortlist is strong enough to notify.",
+                "Quiet",
             )
         ]
+    plan_catalog = [dict(plan) for plan in list(commercial.get("plan_catalog") or []) if isinstance(plan, dict)]
+    current_plan_key = str(commercial.get("current_plan_key") or "free").strip().lower() or "free"
+    current_plan_spec = next((plan for plan in plan_catalog if str(plan.get("plan_key") or "").strip().lower() == current_plan_key), {})
+    current_platform_cap = int(current_plan_spec.get("max_platforms") or commercial.get("max_platforms") or 0)
+    current_result_cap = int(current_plan_spec.get("max_results_per_source") or commercial.get("max_results_per_source") or 0)
+    current_match_cap = int(current_plan_spec.get("max_match_score") or commercial.get("max_match_score") or 0)
     billing_rows = [
         row_item(
             "Current plan",
@@ -2596,6 +2628,82 @@ def property_workspace_payload(
                 "Access window",
                 str(commercial.get("active_until") or "").strip(),
                 "Status",
+            )
+        )
+    billing_upgrade_rows = []
+    for plan in plan_catalog:
+        plan_key = str(plan.get("plan_key") or "").strip().lower()
+        if not plan_key or plan_key == current_plan_key:
+            continue
+        platform_cap = int(plan.get("max_platforms") or 0)
+        result_cap = int(plan.get("max_results_per_source") or 0)
+        match_cap = int(plan.get("max_match_score") or 0)
+        delta_parts = [
+            f"{platform_cap} platforms" if platform_cap else "",
+            f"{result_cap} results per source" if result_cap else "",
+            f"{match_cap}/100 match ceiling" if match_cap else "",
+            f"{str(plan.get('research_depth') or '').strip()} research".strip() if str(plan.get("research_depth") or "").strip() else "",
+        ]
+        improvement_parts = []
+        if platform_cap > current_platform_cap:
+            improvement_parts.append(f"+{platform_cap - current_platform_cap} platform breadth")
+        elif platform_cap < current_platform_cap:
+            improvement_parts.append(f"{current_platform_cap - platform_cap} fewer platforms, but a tighter working lane")
+        if result_cap > current_result_cap:
+            improvement_parts.append(f"+{result_cap - current_result_cap} more results per source")
+        if match_cap > current_match_cap:
+            improvement_parts.append(f"+{match_cap - current_match_cap} points of shortlist ceiling")
+        billing_upgrade_rows.append(
+            row_item(
+                str(plan.get("display_name") or "Plan"),
+                " | ".join(part for part in delta_parts if part) + (
+                    f" | {'; '.join(improvement_parts)}" if improvement_parts else ""
+                ),
+                str(plan.get("checkout_label") or "Plan"),
+            )
+        )
+    if not billing_upgrade_rows:
+        billing_upgrade_rows = [
+            row_item(
+                "No live upgrade catalog available",
+                "Checkout metadata is not loaded yet. The current plan still governs search breadth, shortlist density, and research depth.",
+                "Catalog",
+            )
+        ]
+    billing_decision_rows = [
+        row_item(
+            "Stay on the current tier",
+            "Use the current plan until the real bottleneck is clear: source breadth, shortlist density, or deeper research.",
+            "Decision",
+        ),
+        row_item(
+            "Move tiers for a concrete reason",
+            "Upgrade when the current caps block a real search run, not because the feature grid sounds bigger.",
+            "Decision",
+        ),
+    ]
+    if current_plan_key == "free":
+        billing_decision_rows.append(
+            row_item(
+                "First paid move",
+                "Plus buys a denser working shortlist; Agent is the lane for full-breadth, full-depth search.",
+                "Next tier",
+            )
+        )
+    elif current_plan_key == "plus":
+        billing_decision_rows.append(
+            row_item(
+                "When to jump to Agent",
+                "Move when the search needs both full provider coverage and the heaviest research posture at the same time.",
+                "Next tier",
+            )
+        )
+    else:
+        billing_decision_rows.append(
+            row_item(
+                "Agent posture",
+                "The focus here is not another upgrade. It is making sure the heavier research lane is actually being used productively.",
+                "Current tier",
             )
         )
     research_rows = []
@@ -2626,9 +2734,9 @@ def property_workspace_payload(
     if not research_rows:
         research_rows = list(recent_matches_card.get("items") or []) or [
             row_item(
-                "No research packets yet",
-                "The first finished run will promote the strongest matches into full review packets here.",
-                "Waiting",
+                "Research packets have not been opened yet",
+                "As soon as a run finishes with credible matches, the strongest candidates will be promoted into packets from this desk.",
+                "First packet",
             )
         ]
     saved_search_rows = [
@@ -2730,7 +2838,7 @@ def property_workspace_payload(
                     "eyebrow": "At a glance",
                     "title": "Compare the top shortlist before opening deeper packets",
                     "body": "The first scan should show which candidate looks strongest right now without forcing the user to open five pages.",
-                    "items": compare_rows or [row_item("No shortlisted candidates yet", "Finish a run to compare the first candidates here.", "Waiting")],
+                    "items": compare_rows or [row_item("No ranked shortlist yet", "Complete the next run and this panel becomes the first comparison desk for the leading candidates.", "First run")],
                 },
                 shortlist_card,
             ],
@@ -2835,18 +2943,16 @@ def property_workspace_payload(
             "secondary_cards": [
                 {
                     "eyebrow": "Upgrade impact",
-                    "title": "What changes with the next tier",
-                    "body": "Keep the plan delta legible before you open checkout.",
-                    "items": [
-                        row_item(
-                            str(plan.get("display_name") or "Plan"),
-                            ", ".join(str(feature).strip() for feature in list(plan.get("features") or [])[:3] if str(feature).strip()) or "No plan details available.",
-                            "Plan",
-                        )
-                        for plan in list(commercial.get("plan_catalog") or [])
-                        if isinstance(plan, dict)
-                    ] or [row_item("No upgrade catalog yet", "Plan metadata will appear here once the billing catalog is available.", "Waiting")],
-                }
+                    "title": "What actually changes with each tier",
+                    "body": "Show the numerical delta before the user opens checkout: provider breadth, shortlist density, threshold ceiling, and research depth.",
+                    "items": billing_upgrade_rows,
+                },
+                {
+                    "eyebrow": "Commercial decision",
+                    "title": "Upgrade only when the current lane is the bottleneck",
+                    "body": "The billing surface should help a serious buyer decide whether the next tier is justified by workload, not by generic SaaS pressure.",
+                    "items": billing_decision_rows,
+                },
             ],
             "console_form": property_form,
             "show_brief_form": False,

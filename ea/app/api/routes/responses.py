@@ -2494,6 +2494,7 @@ def _test_reset_responses_runtime_state() -> None:
     if isinstance(_MEMORY_RESPONSE_REPOSITORY, _MemoryResponseRecordRepository):
         with _MEMORY_RESPONSE_REPOSITORY._lock:
             _MEMORY_RESPONSE_REPOSITORY._records.clear()
+    os.environ.setdefault("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
 
 
 def _now_unix() -> int:

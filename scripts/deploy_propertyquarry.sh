@@ -153,20 +153,46 @@ fi
 compose_project_name="$(effective_env_value PROPERTYQUARRY_COMPOSE_PROJECT_NAME)"
 compose_project_name="${compose_project_name:-$(effective_env_value COMPOSE_PROJECT_NAME)}"
 
-if docker compose version >/dev/null 2>&1; then
+compose_probe_timeout="$(effective_env_value PROPERTYQUARRY_COMPOSE_PROBE_TIMEOUT_SECONDS)"
+compose_probe_timeout="${compose_probe_timeout:-10}"
+
+compose_probe() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "${compose_probe_timeout}s" "$@"
+  else
+    "$@"
+  fi
+}
+
+docker_compose_detected=0
+if command -v docker >/dev/null 2>&1; then
+  docker_compose_detected=1
+fi
+
+if compose_probe docker compose version >/dev/null 2>&1; then
   DC=(docker compose)
   if [[ -n "${compose_project_name}" ]]; then
     DC+=(-p "${compose_project_name}")
   fi
   DC+=(-f "${COMPOSE_FILE}")
 elif command -v docker-compose >/dev/null 2>&1; then
+  if ! compose_probe docker-compose version >/dev/null 2>&1; then
+    echo "docker-compose is installed but did not answer within ${compose_probe_timeout}s." >&2
+    echo "Repair Docker Compose on the host or set PROPERTYQUARRY_COMPOSE_PROBE_TIMEOUT_SECONDS to tune the probe." >&2
+    exit 2
+  fi
   DC=(docker-compose)
   if [[ -n "${compose_project_name}" ]]; then
     DC+=(-p "${compose_project_name}")
   fi
   DC+=(-f "${COMPOSE_FILE}")
 else
-  echo "Docker Compose is required: install docker compose or docker-compose." >&2
+  if [[ "${docker_compose_detected}" == "1" ]]; then
+    echo "docker compose is installed but did not answer within ${compose_probe_timeout}s." >&2
+    echo "Repair the Docker Compose plugin on the host or use a working docker-compose binary." >&2
+  else
+    echo "Docker Compose is required: install docker compose or docker-compose." >&2
+  fi
   exit 2
 fi
 

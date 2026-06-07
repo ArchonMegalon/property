@@ -153,7 +153,10 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert "internal_notes" not in records["propertyquarry_subscriptions"][0]["commercial_json"]
     assert "session_token" not in records["propertyquarry_subscriptions"][0]["commercial_json"]
     assert records["propertyquarry_preferences"][0]["min_area_m2"] == 80
+    assert "property_commercial" not in records["propertyquarry_preferences"][0]["preferences_json"]
+    assert "raw_preferences" not in records["propertyquarry_preferences"][0]["preferences_json"]
     assert records["propertyquarry_search_runs"][0]["run_id"] == "run-1"
+    assert "property_commercial" not in records["propertyquarry_search_runs"][0]["preferences_json"]
     assert records["propertyquarry_provider_sources"][0]["platform"] == "willhaben"
     assert records["propertyquarry_provider_sources"][0]["provider_cache_status"] == "hit"
     assert records["propertyquarry_provider_sources"][0]["provider_cache_key"] == "willhaben:rent:1020:min80"

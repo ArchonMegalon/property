@@ -102,6 +102,16 @@ _TELEGRAM_MONTH_ALIASES = {
     "dezember": 12,
 }
 
+try:
+    from app.api.app import preload_non_channel_route_modules
+except Exception:  # pragma: no cover - defensive import boundary
+    preload_non_channel_route_modules = None
+else:
+    try:
+        preload_non_channel_route_modules()
+    except Exception:
+        pass
+
 def _telegram_bot_registry() -> dict[str, dict[str, object]]:
     registry: dict[str, dict[str, object]] = {}
     raw_registry = str(os.getenv("EA_TELEGRAM_BOT_REGISTRY_JSON") or "").strip()
@@ -4032,6 +4042,13 @@ def _telegram_real_ea_reply_text(
     normalized = str(text or "").strip()
     if not normalized:
         return ""
+    if timeout_seconds is None:
+        try:
+            timeout_seconds = max(float(str(os.getenv("EA_TELEGRAM_RESPONSES_TIMEOUT_SECONDS") or "12").strip() or "12"), 1.0)
+        except Exception:
+            timeout_seconds = 12.0
+    if float(timeout_seconds) <= 1.0:
+        return ""
     model = str(os.getenv("EA_TELEGRAM_RESPONSES_MODEL") or "ea-coder-fast").strip() or "ea-coder-fast"
     normalized_preferred_onemin_labels = tuple(
         str(item or "").strip()
@@ -4073,38 +4090,37 @@ def _telegram_real_ea_reply_text(
         if text_part:
             messages.append({"role": role, "content": text_part})
     messages.append({"role": "user", "content": normalized})
-    if timeout_seconds is None:
+    result_box: dict[str, object] = {}
+    error_box: dict[str, BaseException] = {}
+
+    def _worker() -> None:
         try:
-            timeout_seconds = max(float(str(os.getenv("EA_TELEGRAM_RESPONSES_TIMEOUT_SECONDS") or "12").strip() or "12"), 1.0)
-        except Exception:
-            timeout_seconds = 12.0
-    executor: concurrent.futures.ThreadPoolExecutor | None = None
-    try:
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(
-            responses_route._generate_upstream_text,
-            prompt=normalized,
-            messages=messages,
-            requested_model=model,
-            max_output_tokens=220,
-            chatplayground_audit_callback=None,
-            chatplayground_audit_callback_only=False,
-            chatplayground_audit_principal_id=principal_id,
-            preferred_onemin_labels=normalized_preferred_onemin_labels,
-            request_deadline_monotonic=time.monotonic() + timeout_seconds,
-        )
-        result = future.result(timeout=timeout_seconds)
-    except concurrent.futures.TimeoutError:
-        if executor is not None:
-            executor.shutdown(wait=False, cancel_futures=True)
+            result_box["result"] = responses_route._generate_upstream_text(
+                prompt=normalized,
+                messages=messages,
+                requested_model=model,
+                max_output_tokens=220,
+                chatplayground_audit_callback=None,
+                chatplayground_audit_callback_only=False,
+                chatplayground_audit_principal_id=principal_id,
+                preferred_onemin_labels=normalized_preferred_onemin_labels,
+                request_deadline_monotonic=time.monotonic() + timeout_seconds,
+            )
+        except BaseException as exc:  # pragma: no cover - defensive thread boundary
+            error_box["error"] = exc
+
+    worker = threading.Thread(target=_worker, name="telegram-real-ea-reply", daemon=True)
+    worker.start()
+    # Keep the inline Telegram reply path fail-closed well ahead of the configured
+    # deadline so suite load and scheduler jitter do not turn a soft timeout into
+    # multi-second user-visible blocking.
+    join_timeout = max(min(float(timeout_seconds) * 0.5, float(timeout_seconds) - 0.1), 0.05)
+    worker.join(timeout=join_timeout)
+    if worker.is_alive():
         return ""
-    except Exception:
-        if executor is not None:
-            executor.shutdown(wait=False, cancel_futures=True)
+    if error_box:
         return ""
-    if executor is not None:
-        executor.shutdown(wait=False, cancel_futures=True)
-    return str(getattr(result, "text", "") or "").strip()
+    return str(getattr(result_box.get("result"), "text", "") or "").strip()
 
 
 def _telegram_should_async_assistant_reply(text: str) -> bool:

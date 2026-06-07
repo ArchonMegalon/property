@@ -2,21 +2,39 @@
 {% block content %}
 <style>
   .landing-grid,
-  .landing-outcomes,
-  .landing-steps,
-  .landing-plan-grid {
+  .landing-summary-grid,
+  .landing-grid-3,
+  .landing-grid-2,
+  .landing-plan-grid,
+  .faq-grid {
     display: grid;
     gap: 16px;
   }
   .landing-grid {
-    grid-template-columns: minmax(0, 1.04fr) minmax(340px, 0.96fr);
+    grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr);
     align-items: stretch;
+  }
+  .landing-summary-grid,
+  .landing-grid-3,
+  .landing-plan-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .landing-grid-2,
+  .faq-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .hero-panel,
   .mockup-panel,
-  .outcome-card,
+  .hero-proof,
+  .persona-card,
+  .feature-card,
+  .module-card,
   .step-card,
-  .plan-card {
+  .trust-card,
+  .plan-card,
+  .faq-card,
+  .doc-card,
+  .final-cta {
     border: 1px solid var(--line);
     border-radius: 16px;
     background: rgba(255,255,255,0.03);
@@ -24,12 +42,27 @@
   }
   .hero-panel,
   .mockup-panel,
-  .outcome-card,
+  .hero-proof,
+  .persona-card,
+  .feature-card,
+  .module-card,
   .step-card,
-  .plan-card {
+  .trust-card,
+  .plan-card,
+  .faq-card,
+  .doc-card,
+  .final-cta {
     padding: 24px;
   }
   .hero-panel { display: grid; gap: 18px; align-content: start; }
+  .hero-proof {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+    background:
+      radial-gradient(circle at top right, rgba(214, 166, 63, 0.15), transparent 19rem),
+      rgba(255,255,255,0.03);
+  }
   .eyebrow {
     display: inline-flex;
     align-items: center;
@@ -44,12 +77,32 @@
     text-transform: uppercase;
   }
   .hero-panel h1 {
-    max-width: 12ch;
-    font-size: clamp(2.3rem, 4.8vw, 4rem);
-    line-height: 0.98;
+    max-width: 11ch;
+    font-size: clamp(2.5rem, 5vw, 4.2rem);
+    line-height: 0.97;
     margin: 0;
   }
-  .lead { max-width: 36rem; }
+  .lead { max-width: 39rem; }
+  .microcopy {
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  .proof-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .proof-item {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 14px;
+    background: rgba(255,255,255,0.58);
+  }
+  .proof-item strong {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 1.1rem;
+  }
   .mockup-panel {
     display: grid;
     gap: 14px;
@@ -71,15 +124,11 @@
     justify-content: space-between;
     gap: 10px;
   }
-  .mockup-card ul {
+  .mockup-card ul,
+  .plan-card ul {
     margin: 0;
     padding-left: 18px;
     color: var(--text-soft);
-  }
-  .landing-outcomes,
-  .landing-steps,
-  .landing-plan-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .section-kicker {
     margin-bottom: 8px;
@@ -88,20 +137,57 @@
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
+  .persona-card,
+  .feature-card,
+  .module-card,
+  .step-card,
+  .trust-card,
+  .faq-card,
+  .doc-card {
+    display: grid;
+    gap: 10px;
+  }
+  .module-card .module-meta,
+  .plan-meta {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
   .plan-card.current {
     border-color: rgba(214, 166, 63, 0.32);
     background: rgba(214, 166, 63, 0.08);
   }
-  .plan-card ul {
-    margin: 0;
-    padding-left: 18px;
-    color: var(--text-soft);
+  .plan-price {
+    color: var(--accent);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .doc-card a {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .final-cta {
+    display: grid;
+    gap: 14px;
+    background:
+      linear-gradient(135deg, rgba(36, 35, 33, 0.98), rgba(61, 50, 32, 0.94));
+    color: #fff9ed;
+    border-color: rgba(36, 35, 33, 0.72);
+  }
+  .final-cta .copy,
+  .final-cta .microcopy {
+    color: rgba(255, 249, 237, 0.74);
   }
   @media (max-width: 1080px) {
     .landing-grid,
-    .landing-outcomes,
-    .landing-steps,
-    .landing-plan-grid {
+    .landing-summary-grid,
+    .landing-grid-3,
+    .landing-grid-2,
+    .landing-plan-grid,
+    .faq-grid,
+    .proof-strip {
       grid-template-columns: 1fr;
     }
   }
@@ -109,53 +195,106 @@
 
 <section class="landing-grid">
   <section class="hero-panel">
-    <div class="eyebrow">Property discovery</div>
+    <div class="eyebrow">Flagship property desk</div>
     <div>
       <h1>Search once. Rank hard. Research the shortlist.</h1>
-      <p class="lead">PropertyQuarry turns fragmented real-estate listings into ranked matches, research-backed review packets, and hosted 360 tour pages that stay on one domain.</p>
+      <p class="lead">PropertyQuarry turns fragmented real-estate listings into ranked matches, research-backed review packets, and hosted property pages that stay on one domain from first scan to final decision.</p>
     </div>
     <div class="cta-row">
       <a class="btn primary" href="/register">Create account</a>
       <a class="btn" href="/sign-in">Open existing workspace</a>
     </div>
-    <div class="microcopy">Free tier surfaces a narrow shortlist. Paid tiers unlock deeper search, more sources, and heavier research.</div>
+    <div class="microcopy">The product is built for serious property decisions: fewer tabs, stronger reasons, visible research posture, and a review surface you can return to.</div>
   </section>
 
-  <section class="mockup-panel">
-    <div class="mockup-card">
-      <header>
-        <strong>Ranked shortlist</strong>
-        <span class="pill good">4 strong</span>
-      </header>
-      <ul>
-        <li>Score each listing against heating, lift, playground, pharmacy, and transit preferences.</li>
-        <li>Keep weak portal noise out of the first screen.</li>
-        <li>Show why a listing matched instead of hiding the reasoning.</li>
-      </ul>
-    </div>
-    <div class="mockup-card">
-      <header>
-        <strong>Research packet</strong>
-        <span class="pill warn">Live crawl</span>
-      </header>
-      <ul>
-        <li>Investigate missing details such as lift, floor plan, and exact surroundings.</li>
-        <li>Map supermarkets, pharmacies, playgrounds, and subway access.</li>
-        <li>Package the result into one review page before Telegram delivery.</li>
-      </ul>
-    </div>
-    <div class="mockup-card">
-      <header>
-        <strong>Hosted review</strong>
-        <span class="pill">360 ready</span>
-      </header>
-      <ul>
-        <li>Open the branded PropertyQuarry page first, not the raw portal listing.</li>
-        <li>Embed hosted 360 tours when a real panorama source exists.</li>
-        <li>Keep feedback buttons close to each match so the ranking keeps learning.</li>
-      </ul>
+  <section class="hero-proof">
+    <div class="section-kicker">What the flagship surface proves</div>
+    <h2>One product, one review flow, no portal chaos.</h2>
+    <p class="copy">The public product story now matches the actual runtime: source breadth, shortlist density, research depth, hosted packets, feedback loops, and later commercial upgrades.</p>
+    <div class="proof-strip">
+      <div class="proof-item">
+        <strong>1 brief</strong>
+        <span class="copy">Capture the real property thesis once.</span>
+      </div>
+      <div class="proof-item">
+        <strong>1 shortlist</strong>
+        <span class="copy">Ranked candidates land in one review lane.</span>
+      </div>
+      <div class="proof-item">
+        <strong>1 domain</strong>
+        <span class="copy">Hosted packets keep context attached.</span>
+      </div>
     </div>
   </section>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="section-kicker">Review surface</div>
+      <h2>The product has to look decision-grade before the first shortlist is trusted.</h2>
+    </div>
+    <p>These are the first three surfaces a serious buyer notices: the shortlist, the research packet, and the hosted review page that keeps the reasoning attached.</p>
+  </div>
+  <div class="landing-summary-grid">
+    <section class="mockup-panel">
+      <div class="mockup-card">
+        <header>
+          <strong>Ranked shortlist</strong>
+          <span class="pill good">Fit reasons visible</span>
+        </header>
+        <ul>
+          <li>Score listings against heating, lift, playground, pharmacy, transit, and family constraints.</li>
+          <li>Keep weak portal noise out of the first screen.</li>
+          <li>Show why a listing matched instead of hiding the reasoning.</li>
+        </ul>
+      </div>
+    </section>
+    <section class="mockup-panel">
+      <div class="mockup-card">
+        <header>
+          <strong>Research packet</strong>
+          <span class="pill warn">Live enrichment</span>
+        </header>
+        <ul>
+          <li>Investigate missing details such as lift, floor plan, and surroundings.</li>
+          <li>Map supermarkets, pharmacies, playgrounds, and subway access.</li>
+          <li>Package verified facts, open questions, and next actions before delivery.</li>
+        </ul>
+      </div>
+    </section>
+    <section class="mockup-panel">
+      <div class="mockup-card">
+        <header>
+          <strong>Hosted review</strong>
+          <span class="pill">360 ready</span>
+        </header>
+        <ul>
+          <li>Open the branded PropertyQuarry packet first, not the raw portal listing.</li>
+          <li>Embed hosted 360 tours when a real panorama source exists.</li>
+          <li>Keep feedback near each match so the ranking keeps learning.</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="section-kicker">Who it is for</div>
+      <h2>Built for focused private search first, not generic lead capture.</h2>
+    </div>
+    <p>The first win is a useful shortlist with visible fit logic. Shared review, heavier research, and commercial depth can come after that proof.</p>
+  </div>
+  <div class="landing-grid-3">
+    {% for persona in personas %}
+    <section class="persona-card">
+      <strong>{{ persona.title }}</strong>
+      <p class="copy">{{ persona.body }}</p>
+    </section>
+    {% endfor %}
+  </div>
 </section>
 
 <section class="section">
@@ -164,21 +303,34 @@
       <div class="section-kicker">Why it exists</div>
       <h2>Property search is usually broad, repetitive, and unreasoned.</h2>
     </div>
-    <p>PropertyQuarry compresses the work into one flow: preference capture, cross-platform crawl, ranking, enrichment, hosted review, and feedback back into the profile.</p>
+    <p>PropertyQuarry compresses the work into one flow: preference capture, cross-platform sweep, ranking, enrichment, hosted review, and feedback back into the profile.</p>
   </div>
-  <div class="landing-outcomes">
-    <section class="outcome-card">
-      <strong>Personalized search</strong>
-      <p class="copy">Use saved preferences like heating type, family fit, transit access, and neighborhood posture as first-class ranking inputs.</p>
+  <div class="landing-grid-3">
+    {% for card in feature_cards %}
+    <section class="feature-card">
+      <strong>{{ card.title }}</strong>
+      <p class="copy">{{ card.body }}</p>
     </section>
-    <section class="outcome-card">
-      <strong>Explainable research</strong>
-      <p class="copy">The shortlisted property page shows what was verified, what is inferred, and what is still missing.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="section-kicker">Product modules</div>
+      <h2>The flagship flow covers the full property desk, not just the search box.</h2>
+    </div>
+    <p>Every core module should feel intentionally connected: the brief informs the sweep, the sweep informs the packet, and the packet teaches the next run.</p>
+  </div>
+  <div class="landing-grid-3">
+    {% for module in product_modules %}
+    <section class="module-card">
+      <div class="module-meta">Module {{ loop.index }}</div>
+      <strong>{{ module.title }}</strong>
+      <p class="copy">{{ module.body }}</p>
     </section>
-    <section class="outcome-card">
-      <strong>Hosted review surface</strong>
-      <p class="copy">Links should land on the branded packet with the research, not on the vendor portal with no context.</p>
-    </section>
+    {% endfor %}
   </div>
 </section>
 
@@ -186,65 +338,107 @@
   <div class="section-head">
     <div>
       <div class="section-kicker">How it works</div>
-      <h2>Onboarding, crawl, rank, review.</h2>
+      <h2>Onboard, sweep, rank, review.</h2>
     </div>
-    <p>The product stays legible while the crawl is running and while the research is still being enriched.</p>
+    <p>The product stays legible while the crawl is running and while the research packet is still being enriched.</p>
   </div>
-  <div class="landing-steps">
+  <div class="landing-grid-3">
+    {% for step in how_steps %}
     <section class="step-card">
-      <div class="section-kicker">Step 1</div>
-      <strong>Capture the real brief</strong>
-      <p class="copy">Collect the search envelope once, including hard filters and softer tradeoffs.</p>
+      <div class="section-kicker">Step {{ loop.index }}</div>
+      <strong>{{ step.title }}</strong>
+      <p class="copy">{{ step.body }}</p>
     </section>
-    <section class="step-card">
-      <div class="section-kicker">Step 2</div>
-      <strong>Search selected portals</strong>
-      <p class="copy">Run platform-specific crawls with visible progress instead of acting like one opaque request.</p>
-    </section>
-    <section class="step-card">
-      <div class="section-kicker">Step 3</div>
-      <strong>Deliver only worth-your-time results</strong>
-      <p class="copy">The best matches become hosted review packets with research, feedback hooks, and tours where possible.</p>
-    </section>
+    {% endfor %}
   </div>
 </section>
 
 <section class="section">
   <div class="section-head">
     <div>
-      <div class="section-kicker">Plans</div>
-      <h2>Free gets the first proof. Paid tiers do the heavy lifting.</h2>
+      <div class="section-kicker">Commercial lanes</div>
+      <h2>Pricing now mirrors the real runtime contract.</h2>
     </div>
-    <p>Search depth, source breadth, and research intensity increase with plan level.</p>
+    <p>Plans differ by shortlist density, match threshold, source breadth, and research intensity. The public page uses the live plan catalog instead of generic marketing drift.</p>
   </div>
   <div class="landing-plan-grid">
-    <section class="plan-card current">
-      <strong>Free</strong>
-      <p class="copy">Try the onboarding, run a narrow search, and inspect the first serious shortlist.</p>
+    {% for plan in plan_catalog %}
+    <section class="plan-card{% if plan.is_current %} current{% endif %}">
+      <div class="plan-price">{{ plan.checkout_label }}</div>
+      <strong>{{ plan.display_name }}</strong>
+      <p class="copy">
+        {% if plan.plan_key == "free" %}
+        Broad source access with a deliberately narrow shortlist, so the first proof is about fit quality rather than volume.
+        {% elif plan.plan_key == "plus" %}
+        A denser paid shortlist lane with a higher score ceiling and richer hosted review, even though the source set stays focused.
+        {% else %}
+        Full-breadth, full-depth search for the heaviest research and follow-up workload.
+        {% endif %}
+      </p>
+      <div class="plan-meta">{{ plan.max_platforms }} platforms · {{ plan.max_results_per_source }} results per source · {{ plan.research_depth }} research</div>
       <ul>
-        <li>All major platforms in one run</li>
-        <li>2 results per source</li>
-        <li>Deep research</li>
+        {% for feature in plan.features %}
+        <li>{{ feature }}</li>
+        {% endfor %}
       </ul>
     </section>
-    <section class="plan-card">
-      <strong>Plus</strong>
-      <p class="copy">For active search with more portals, more ranked matches, and a proper review surface.</p>
-      <ul>
-        <li>3 platforms per run</li>
-        <li>5 results per source</li>
-        <li>Standard research lane</li>
-      </ul>
-    </section>
-    <section class="plan-card">
-      <strong>Agent</strong>
-      <p class="copy">For deeper crawl coverage, heavier enrichment, and more agentic follow-up.</p>
-      <ul>
-        <li>8 platforms per run</li>
-        <li>10 results per source</li>
-        <li>Deep research lane</li>
-      </ul>
-    </section>
+    {% endfor %}
   </div>
+</section>
+
+<section class="section landing-grid-2">
+  <section>
+    <div class="section-head">
+      <div>
+        <div class="section-kicker">Trust posture</div>
+        <h2>Make the trust model visible.</h2>
+      </div>
+      <p>The product should show what was scanned, what was inferred, and what still needs verification before someone commits time or money.</p>
+    </div>
+    <div class="landing-grid-3">
+      {% for card in trust_cards %}
+      <section class="trust-card">
+        <strong>{{ card.title }}</strong>
+        <p class="copy">{{ card.body }}</p>
+      </section>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div>
+        <div class="section-kicker">Docs and answers</div>
+        <h2>Keep detail easy to reach.</h2>
+      </div>
+      <p>Buyers should get product clarity fast. Operators and developers should still be able to open the deeper references when needed.</p>
+    </div>
+    <div class="faq-grid">
+      {% for faq in landing_faqs %}
+      <section class="faq-card">
+        <strong>{{ faq.question }}</strong>
+        <p class="copy">{{ faq.answer }}</p>
+      </section>
+      {% endfor %}
+      {% for doc in doc_links %}
+      <section class="doc-card">
+        <strong>{{ doc.title }}</strong>
+        <p class="copy">{{ doc.body }}</p>
+        <a href="{{ doc.href }}">Open reference</a>
+      </section>
+      {% endfor %}
+    </div>
+  </section>
+</section>
+
+<section class="section final-cta">
+  <div class="section-kicker">Start the real proof</div>
+  <h2>Run one serious search, inspect one hosted shortlist, and decide from evidence instead of browser tabs.</h2>
+  <p class="copy">PropertyQuarry is strongest when the first session ends with an actual shortlist, visible reasons, and a review page worth returning to.</p>
+  <div class="cta-row">
+    <a class="btn primary" href="/register">Create your workspace</a>
+    <a class="btn ghost" href="/pricing">Inspect the live plan model</a>
+  </div>
+  <div class="microcopy">The public product now reflects the real workflow: search, rank, research, packetize, review, and learn.</div>
 </section>
 {% endblock %}

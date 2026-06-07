@@ -270,6 +270,43 @@ def _safe_teable_facts(payload: dict[str, Any] | None) -> dict[str, Any]:
     return result
 
 
+def _safe_teable_preferences(payload: dict[str, Any] | None) -> dict[str, Any]:
+    blocked_exact = {
+        "property_commercial",
+        "payer_email",
+        "billing_email",
+        "email",
+        "raw_notes",
+        "notes",
+        "consent_note",
+    }
+    blocked_markers = ("token", "secret", "cookie", "session", "oauth", "internal", "debug", "credential")
+    result: dict[str, Any] = {}
+    for key, value in dict(payload or {}).items():
+        normalized = str(key or "").strip()
+        lowered = normalized.lower()
+        if normalized in blocked_exact:
+            continue
+        if any(marker in lowered for marker in blocked_markers):
+            continue
+        if "email" in lowered:
+            continue
+        if isinstance(value, dict):
+            result[normalized] = _safe_teable_preferences(value)
+            continue
+        if isinstance(value, list):
+            items: list[Any] = []
+            for item in value[:50]:
+                if isinstance(item, dict):
+                    items.append(_safe_teable_preferences(item))
+                else:
+                    items.append(item)
+            result[normalized] = items
+            continue
+        result[normalized] = value
+    return result
+
+
 def _safe_review_artifact(candidate: dict[str, Any] | None, *, safe_facts: dict[str, Any]) -> dict[str, Any]:
     payload = dict(candidate or {})
     return {
@@ -396,6 +433,7 @@ def build_propertyquarry_teable_projection_records(
     preferences = dict(status.get("property_search_preferences") or {})
     raw_preferences = dict(preferences.get("raw_preferences") or {}) if isinstance(preferences.get("raw_preferences"), dict) else {}
     effective_preferences = raw_preferences or preferences
+    safe_preferences = _safe_teable_preferences(effective_preferences)
     commercial = _property_commercial_snapshot(effective_preferences)
     commercial_json = dict(commercial.get("property_commercial") or {})
     safe_commercial_json = _safe_commercial_json(commercial_json)
@@ -475,7 +513,7 @@ def build_propertyquarry_teable_projection_records(
             "max_results_per_source": _number(effective_preferences.get("max_results_per_source")),
             "use_stored_feedback_preferences": bool(effective_preferences.get("use_stored_feedback_preferences", True)),
             "alert_frequency": _text(effective_preferences.get("alert_frequency"), limit=80),
-            "preferences_json": effective_preferences,
+            "preferences_json": safe_preferences,
             "last_projected_at": projected_at,
         }
 
@@ -490,6 +528,7 @@ def build_propertyquarry_teable_projection_records(
             continue
         summary = dict(run.get("summary") or {})
         run_preferences = dict(run.get("property_search_preferences") or {})
+        safe_run_preferences = _safe_teable_preferences(run_preferences)
         search_run_rows[f"search_run:{run_id}"] = {
             "projection_id": f"search_run:{run_id}",
             "tenant_key": normalized_tenant,
@@ -498,7 +537,7 @@ def build_propertyquarry_teable_projection_records(
             "status": _text(run.get("status"), limit=80),
             "status_url": _text(run.get("status_url"), limit=240),
             "selected_platforms_json": list(run.get("selected_platforms") or []),
-            "preferences_json": run_preferences,
+            "preferences_json": safe_run_preferences,
             "created_at": _text(run.get("created_at"), limit=120),
             "updated_at": _text(run.get("updated_at"), limit=120),
             "generated_at": _text(run.get("generated_at"), limit=120),

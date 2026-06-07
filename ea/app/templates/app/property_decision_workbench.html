@@ -1700,9 +1700,9 @@
                 <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}">Create share packet</button>
                 <a class="pqx-link-button" href="/app/properties/packets">Track packet follow-up</a>
                 <a class="pqx-link-button" href="/app/properties/packets">Open feedback</a>
-                <a class="pqx-link-button" href="/app/properties/packets">Generate explanation</a>
-                <a class="pqx-link-button" href="/pricing">Premium next step</a>
-                <a class="pqx-link-button" href="/pricing">Checkout entry point</a>
+                <a class="pqx-link-button" href="/app/properties/packets">Open packet engagement</a>
+                <a class="pqx-link-button" href="/pricing">View plan tiers</a>
+                <a class="pqx-link-button" href="/app/billing">Open billing controls</a>
                 {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}">Source</a>{% endif %}
               </div>
             </div>
@@ -2541,8 +2541,8 @@
           commute_destination: fieldValue(form, 'commute_destination') || '',
           additional_reachability_targets: fieldValue(form, 'additional_reachability_targets') || '',
           preferred_reachability_modes: checkedValues(form, 'preferred_reachability_modes'),
-          school_stage_preferences: checkedValues(form, 'school_stage_preferences'),
-          school_quality_priority: fieldValue(form, 'school_quality_priority') || 'any',
+          school_stage_preferences: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? checkedValues(form, 'school_stage_preferences') : [],
+          school_quality_priority: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) && checkedValues(form, 'school_stage_preferences').length > 0 ? (fieldValue(form, 'school_quality_priority') || 'any') : 'any',
           university_name: fieldValue(form, 'university_name') || '',
           desired_project_stages: checkedValues(form, 'desired_project_stages'),
           apply_unknowns_penalty: Boolean(form.querySelector('input[name="apply_unknowns_penalty"]')?.checked),
@@ -2556,7 +2556,7 @@
           max_commute_minutes_drive: integerValue(form, 'max_commute_minutes_drive'),
           max_commute_minutes_bike: integerValue(form, 'max_commute_minutes_bike'),
           max_commute_minutes_walk: integerValue(form, 'max_commute_minutes_walk'),
-          max_distance_to_playground_m: integerValue(form, 'max_distance_to_playground_m'),
+          max_distance_to_playground_m: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? integerValue(form, 'max_distance_to_playground_m') : null,
           max_distance_to_university_m: integerValue(form, 'max_distance_to_university_m'),
           max_distance_to_starbucks_m: integerValue(form, 'max_distance_to_starbucks_m'),
           max_distance_to_fitness_center_m: integerValue(form, 'max_distance_to_fitness_center_m'),
@@ -2742,10 +2742,15 @@
       const listingModeField = form.querySelector('select[name="listing_mode"]');
       const investmentField = form.querySelector('[data-property-field-name=investment_research_mode] select');
       const investmentFieldWrap = form.querySelector('[data-property-field-name=investment_research_mode]');
+      const familyModeField = form.querySelector('input[name="enable_family_mode"]');
+      const schoolStageWrap = form.querySelector('[data-property-field-name="school_stage_preferences"]');
+      const schoolQualityWrap = form.querySelector('[data-property-field-name="school_quality_priority"]');
+      const playgroundDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_playground_m"]');
       const allViennaField = form.querySelector('input[name="all_of_vienna"]');
       const preferencePersonField = form.querySelector('[name="preference_person_id"]');
       const allViennaFieldWrap = form.querySelector('[data-property-field-name="all_of_vienna"]');
       const locationFieldWrap = form.querySelector('[data-property-field-name="location_query"]');
+      const planPlatformCap = Math.max(1, Number(meta?.commercial?.max_platforms || 3));
       const syncListingModeControls = () => {
         const isBuy = String(listingModeField?.value || 'rent').trim().toLowerCase() === 'buy';
         if (investmentFieldWrap) {
@@ -2771,6 +2776,30 @@
           locationFieldWrap.dataset.propertyCollapsedBy = shouldCollapseTargetAreas ? 'all_of_vienna' : '';
         }
       };
+      const syncFamilyModeControls = () => {
+        const activeStep = String(form.dataset.propertyActiveStep || '').trim();
+        const isChildrenStep = !activeStep || activeStep === 'children';
+        const familyModeEnabled = Boolean(familyModeField?.checked);
+        const selectedSchoolStages = checkedValues(form, 'school_stage_preferences');
+        const showSchoolDetails = isChildrenStep && familyModeEnabled;
+        const showSchoolPriority = showSchoolDetails && selectedSchoolStages.length > 0;
+        if (schoolStageWrap) {
+          schoolStageWrap.hidden = !showSchoolDetails;
+          schoolStageWrap.toggleAttribute('aria-hidden', schoolStageWrap.hidden);
+          schoolStageWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+        }
+        if (playgroundDistanceWrap) {
+          playgroundDistanceWrap.hidden = !showSchoolDetails;
+          playgroundDistanceWrap.toggleAttribute('aria-hidden', playgroundDistanceWrap.hidden);
+          playgroundDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+        }
+        if (schoolQualityWrap) {
+          schoolQualityWrap.hidden = !showSchoolPriority;
+          schoolQualityWrap.toggleAttribute('aria-hidden', schoolQualityWrap.hidden);
+          schoolQualityWrap.dataset.propertyCollapsedBy = showSchoolPriority ? '' : (familyModeEnabled ? 'school_stage_preferences' : 'enable_family_mode');
+        }
+      };
+      const applyPreferenceProfile = () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncViennaScopeControls).finally(syncFamilyModeControls);
       const refreshRegionAndLocationChoices = () => {
         const regionCatalog = meta.region_catalog_by_country || {};
         const locationCatalog = meta.location_catalog_by_country_region || {};
@@ -2797,7 +2826,7 @@
           countryField.value = nextCountry;
           const catalog = meta.platform_catalog_by_country || {};
           const options = Array.isArray(catalog[nextCountry]) ? catalog[nextCountry] : [];
-          const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, 4);
+          const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, planPlatformCap);
           renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
           refreshRegionAndLocationChoices();
         }
@@ -2811,7 +2840,7 @@
             countryField.value = normalizedIpCountry;
             const catalog = meta.platform_catalog_by_country || {};
             const options = Array.isArray(catalog[normalizedIpCountry]) ? catalog[normalizedIpCountry] : [];
-            const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, 4);
+            const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, planPlatformCap);
             renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
             refreshRegionAndLocationChoices();
           }
@@ -2834,22 +2863,26 @@
         const selectedCountry = String(countryField.value || '').trim();
         const catalog = meta.platform_catalog_by_country || {};
         const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
-        const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, 4);
+        const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, planPlatformCap);
         renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
         refreshRegionAndLocationChoices();
       });
-      preferencePersonField?.addEventListener('change', () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncViennaScopeControls));
-      preferencePersonField?.addEventListener('blur', () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncViennaScopeControls));
+      preferencePersonField?.addEventListener('change', applyPreferenceProfile);
+      preferencePersonField?.addEventListener('blur', applyPreferenceProfile);
       regionField?.addEventListener('change', refreshRegionAndLocationChoices);
       allViennaField?.addEventListener('change', syncViennaScopeControls);
       listingModeField?.addEventListener('change', syncListingModeControls);
+      familyModeField?.addEventListener('change', syncFamilyModeControls);
+      form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));
       form.addEventListener('propertyquarry:stepchange', () => {
         syncViennaScopeControls();
         syncListingModeControls();
+        syncFamilyModeControls();
       });
       syncViennaScopeControls();
       syncListingModeControls();
-      applyBrowserAndIpDefaults().finally(() => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncViennaScopeControls));
+      syncFamilyModeControls();
+      applyBrowserAndIpDefaults().finally(applyPreferenceProfile);
     }
     const savePreferences = async () => {
       if (!form) return;

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
 
 import yaml
 
@@ -30,6 +32,40 @@ def load_gate(filename: str) -> dict[str, object]:
     payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     assert isinstance(payload, dict), f"{path} must parse to a mapping"
     return payload
+
+
+def assert_test_modules_exist(paths: object) -> list[str]:
+    assert isinstance(paths, list) and paths, "test module list must be a non-empty list"
+    resolved: list[str] = []
+    for item in paths:
+        assert isinstance(item, str) and item.startswith("tests/"), f"invalid test module path: {item!r}"
+        path = ROOT / item
+        assert path.exists(), f"missing test module: {item}"
+        resolved.append(item)
+    return resolved
+
+
+def run_pytest_modules(paths: list[str]) -> None:
+    assert paths, "expected at least one pytest module"
+    command = [sys.executable, "-m", "pytest", "-q", *paths]
+    completed = subprocess.run(
+        command,
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        message = "\n".join(
+            part
+            for part in (
+                f"pytest command failed: {' '.join(command)}",
+                completed.stdout.strip(),
+                completed.stderr.strip(),
+            )
+            if part
+        )
+        raise AssertionError(message)
 
 
 def assert_contains_strings(values: object, expected: list[str], *, field_name: str) -> None:

@@ -737,7 +737,9 @@ def _memorial_chat_fallback_answer(
             "Zuerst musste fuer mich geklaert werden, wer wofuer einzustehen hat. Ohne diese Ordnung wird jedes Gespraech ueber Schuld nur weich und beliebig.",
         )
         body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
-    elif any(token in lowered for token in ("streit", "konflikt", "schuld", "kritik", "vorwurf", "querul", "rechthaber", "nachgeben", "nachgegeben")):
+    elif any(token in lowered for token in ("streit", "konflikt", "schuld", "kritik", "vorwurf", "querul", "rechthaber", "nachgeben", "nachgegeben")) and not (
+        private_notes and any(token in lowered for token in ("kritik", "schuld", "vater", "mutter", "kind", "adhs", "narz"))
+    ):
         variants = (
             "Wenn etwas in der Sache falsch war, habe ich nicht eingesehen, warum ich aus Bequemlichkeit nachgeben sollte. Dann nennt man einen eben streitbar oder querulatorisch. Mir war wichtiger, im Recht zu bleiben, als beliebt zu wirken.",
             "Nachgeben nur um des Friedens willen war nie meine Art. Wenn ich die Sache fuer falsch hielt, blieb ich dabei, und wenn das Streit bedeutete, dann war es eben Streit.",
@@ -802,9 +804,8 @@ def _memorial_chat_fallback_answer(
         )
     elif any(token in lowered for token in ("kritik", "schuld", "vater", "mutter", "kind", "adhs", "narz")) and private_notes:
         body = (
-            "Jetzt fang nicht wieder damit an, mir alles umzudrehen. Ich habe getan, was notwendig war, "
-            "und wenn jemand ein Problem damit hatte, dann haette er vielleicht einmal genauer hinschauen sollen, "
-            "was die anderen beigetragen haben. Kritik ist leicht, wenn man selber nicht in meiner Haut gesteckt ist. "
+            "Jetzt fang nicht wieder damit an, mir alles umzudrehen. "
+            "Kritik ist leicht, wenn man selber nicht in meiner Haut gesteckt ist. "
             "Ich lasse mir nicht einreden, dass immer ich schuld gewesen sein soll."
         )
     elif any(token in lowered for token in ("quelle", "belegt", "wahr", "original", "originalaufnahme")):
@@ -3053,7 +3054,7 @@ def _memorial_html(
               reject(error instanceof Error ? error : new Error(String(error || "speech_transcription_failed")));
             }}
           }};
-          recorder.start();
+          recorder.start(900);
           if (autoStopMs > 0) {{
             activeRecorderStopTimer = setTimeout(() => {{
               if (recorder.state === "recording") recorder.stop();
@@ -3144,7 +3145,7 @@ def _memorial_html(
         try {{
           const result = await captureServerTranscript({{
             autoStopMs: 4800,
-            listeningText: "Gespräch läuft. Sprich jetzt kurz und natürlich.",
+            listeningText: "Gespräch läuft. Ich transkribiere fortlaufend.",
             transcribingText: "Ich sende deine Frage live an Manfred..."
           }});
           const transcript = normalizeTranscriptText(result && result.transcript || "");

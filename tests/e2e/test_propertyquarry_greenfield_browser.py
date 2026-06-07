@@ -477,6 +477,28 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         page.locator('input[name="all_of_vienna"]').uncheck()
         assert page.locator('[data-property-field-name="location_query"]').is_visible()
 
+        page.locator('[data-property-step-trigger="children"]').click()
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'")
+        assert page.locator('[data-property-field-name="enable_family_mode"]').is_visible()
+        assert page.locator('[data-property-field-name="school_stage_preferences"]').is_hidden()
+        assert page.locator('[data-property-field-name="school_stage_preferences"]').get_attribute("data-property-collapsed-by") == "enable_family_mode"
+        assert page.locator('[data-property-field-name="school_quality_priority"]').is_hidden()
+        assert page.locator('[data-property-field-name="max_distance_to_playground_m"]').is_hidden()
+
+        page.locator('input[name="enable_family_mode"]').check()
+        assert page.locator('[data-property-field-name="school_stage_preferences"]').is_visible()
+        assert page.locator('[data-property-field-name="school_quality_priority"]').is_hidden()
+        assert page.locator('[data-property-field-name="school_quality_priority"]').get_attribute("data-property-collapsed-by") == "school_stage_preferences"
+        assert page.locator('[data-property-field-name="max_distance_to_playground_m"]').is_visible()
+
+        page.locator('input[name="school_stage_preferences"][value="volksschule"]').check()
+        assert page.locator('[data-property-field-name="school_quality_priority"]').is_visible()
+
+        page.locator('input[name="enable_family_mode"]').uncheck()
+        assert page.locator('[data-property-field-name="school_stage_preferences"]').is_hidden()
+        assert page.locator('[data-property-field-name="school_quality_priority"]').is_hidden()
+        assert page.locator('[data-property-field-name="max_distance_to_playground_m"]').is_hidden()
+
         page.locator('[data-property-step-trigger="providers"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
         match_slider = page.locator('input[name="min_match_score"]')

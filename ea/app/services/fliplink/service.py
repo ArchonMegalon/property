@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import hmac
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -33,6 +34,50 @@ from app.services.fliplink.webhooks import safe_custom_fields
 
 
 ACTIVE_PACKET_STATUSES = {"rendered", "published", "publish_requested", "queued_operator_assist"}
+ENGAGEMENT_METADATA_BLOCKED_MARKERS = ("token", "secret", "cookie", "session", "oauth", "internal", "debug", "credential")
+ENGAGEMENT_METADATA_ALLOWED_KEYS = {
+    "client_ts",
+    "dwell_seconds",
+    "feedback_channel",
+    "journey_step",
+    "page",
+    "share_context",
+    "source",
+    "surface",
+    "target",
+    "ui_surface",
+    "variant_key",
+    "viewport",
+}
+
+
+def _sanitize_engagement_metadata(payload: dict[str, object] | None) -> dict[str, object]:
+    raw_payload = dict(payload or {})
+    raw_encoded = json.dumps(raw_payload, ensure_ascii=True, sort_keys=True, default=str)
+    if len(raw_encoded.encode("utf-8")) > 4096:
+        raise ValueError("packet_engagement_metadata_too_large")
+    result: dict[str, object] = {}
+    for key, value in raw_payload.items():
+        normalized = str(key or "").strip()
+        lowered = normalized.lower()
+        if normalized not in ENGAGEMENT_METADATA_ALLOWED_KEYS:
+            continue
+        if any(marker in lowered for marker in ENGAGEMENT_METADATA_BLOCKED_MARKERS):
+            continue
+        if isinstance(value, dict):
+            result[normalized] = {
+                str(child_key)[:80]: str(child_value)[:240]
+                for child_key, child_value in list(value.items())[:20]
+                if not any(marker in str(child_key).lower() for marker in ENGAGEMENT_METADATA_BLOCKED_MARKERS)
+            }
+        elif isinstance(value, list):
+            result[normalized] = [str(item)[:240] for item in value[:20]]
+        elif isinstance(value, (str, int, float, bool)) or value is None:
+            result[normalized] = value if not isinstance(value, str) else value[:240]
+    encoded = json.dumps(result, ensure_ascii=True, sort_keys=True)
+    if len(encoded.encode("utf-8")) > 4096:
+        raise ValueError("packet_engagement_metadata_too_large")
+    return result
 
 
 class FlipLinkPacketService:
@@ -1037,13 +1082,14 @@ class FlipLinkPacketService:
             "no_activity_48h",
         }:
             raise ValueError("invalid_packet_engagement_event_type")
+        safe_metadata_json = _sanitize_engagement_metadata(metadata_json)
         payload = {
             "engagement_id": f"eng_{uuid4().hex}",
             "share_id": str(share_id or "").strip(),
             "recipient_id": str(recipient_id or "").strip(),
             "event_type": normalized_type,
             "event_value": str(event_value or "").strip()[:240],
-            "metadata_json": copy.deepcopy(metadata_json or {}),
+            "metadata_json": copy.deepcopy(safe_metadata_json),
             "occurred_at": now_utc_iso(),
         }
         return self._repo.record_event(

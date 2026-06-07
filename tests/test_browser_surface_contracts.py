@@ -73,11 +73,12 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     landing = client.get("/")
     assert "Search once. Rank hard. Research the shortlist." in landing.text
     assert "Create account" in landing.text
-    assert "Personalized search" in landing.text
+    assert "Built for focused private search first" in landing.text
+    assert "Pricing now mirrors the real runtime contract." in landing.text
 
     pricing = client.get("/pricing")
-    assert "Typical search path" in pricing.text
-    assert "Plus and Agent usually add" in pricing.text
+    assert "The public pricing page now renders from the runtime contract." in pricing.text
+    assert "How to pick the first paid lane" in pricing.text
     assert "Typical office path" not in pricing.text
 
     security = client.get("/security")

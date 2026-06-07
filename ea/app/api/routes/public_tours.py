@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 import re
 import socket
 import time
+import urllib.parse
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
@@ -2704,7 +2705,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         active_filter_html = "".join(f"<li>{html.escape(label)}</li>" for label in active_filter_labels[:8])
         filters_panel = ""
         feedback_panel = ""
-        if str(payload.get("principal_id") or "").strip():
+        if bool(payload.get("_feedback_enabled")) or str(payload.get("principal_id") or "").strip():
             feedback_panel = (
                 '<section id="feedback" class="panel">'
                 '<div class="eyebrow">Preference Feedback</div>'
@@ -4245,15 +4246,30 @@ def public_tour_page(
         rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
         rendered_facts, research_snapshot = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
         rendered_facts.pop("public_preference_snapshot", None)
+        feedback_context = _live_property_feedback_context(
+            container=container,
+            payload=payload,
+            slug=slug,
+        )
+        live_feedback_facts = dict(feedback_context.get("facts") or {}) if isinstance(feedback_context.get("facts"), dict) else {}
+        if live_feedback_facts:
+            rendered_facts.update(live_feedback_facts)
+        shortlist_compare = _public_shortlist_comparison_context(
+            container=container,
+            payload=payload,
+            slug=slug,
+            facts=rendered_facts,
+        )
         rendered_payload["facts"] = _redacted_public_tour_facts(
             payload,
             rendered_facts,
             privacy_mode=str(rendered_payload.get("tour_privacy_mode") or "anonymous_public"),
         )
         rendered_payload["_public_research_completed"] = bool(research_snapshot)
-        rendered_payload["_feedback_suggestions"] = {}
-        rendered_payload["_learning_summary"] = {}
-        rendered_payload["_shortlist_compare"] = {"current": {}, "items": [], "metric_specs": list(_shortlist_metric_labels())}
+        rendered_payload["_feedback_enabled"] = bool(str(payload.get("principal_id") or "").strip())
+        rendered_payload["_feedback_suggestions"] = dict(feedback_context.get("feedback_suggestions") or {})
+        rendered_payload["_learning_summary"] = dict(feedback_context.get("learning_summary") or {})
+        rendered_payload["_shortlist_compare"] = dict(shortlist_compare or {})
         return HTMLResponse(_tour_html(rendered_payload, hostname=hostname), headers=_public_tour_security_headers())
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()

@@ -28,13 +28,13 @@ def _poll_property_search_run_status(client, run_id: str) -> dict[str, object]:
     return latest_status
 
 
-def test_free_property_plan_keeps_agent_depth_but_stays_capped_per_provider() -> None:
+def test_free_property_plan_stays_narrower_than_paid_lanes() -> None:
     snapshot = property_commercial_snapshot({})
 
     assert snapshot["current_plan_key"] == "free"
-    assert snapshot["research_depth"] == "deep"
+    assert snapshot["research_depth"] == "standard"
     assert snapshot["investment_research_level"] == "none"
-    assert snapshot["max_platforms"] == 8
+    assert snapshot["max_platforms"] == 3
     assert snapshot["max_results_per_source"] == 2
     assert snapshot["max_match_score"] == 45
 
@@ -48,8 +48,12 @@ def test_property_plan_investment_research_levels_follow_tier() -> None:
     )
 
     assert plus["investment_research_level"] == "preview"
+    assert plus["research_depth"] == "deep"
+    assert plus["max_platforms"] == 5
     assert plus["max_match_score"] == 65
     assert agent["investment_research_level"] == "full"
+    assert agent["research_depth"] == "deep"
+    assert agent["max_platforms"] == 8
     assert agent["max_match_score"] == 80
 
 

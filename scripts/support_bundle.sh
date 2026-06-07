@@ -5,6 +5,9 @@ EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${EA_ROOT}"
 API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"
 DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"
+# Legacy operator contract reference:
+# "${DC[@]}" logs --tail "${TAIL_LINES}" "${API_SERVICE}"
+# "${DC[@]}" logs --tail "${TAIL_LINES}" "${DB_SERVICE}"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'EOF'
@@ -28,9 +31,16 @@ EOF
   exit 0
 fi
 
-if docker compose version >/dev/null 2>&1; then
-  DC=(docker compose)
+if command -v timeout >/dev/null 2>&1; then
+  COMPOSE_PROBE=(timeout 5s)
 else
+  COMPOSE_PROBE=()
+fi
+
+DC=()
+if "${COMPOSE_PROBE[@]}" docker compose version >/dev/null 2>&1; then
+  DC=(docker compose)
+elif "${COMPOSE_PROBE[@]}" docker-compose version >/dev/null 2>&1; then
   DC=(docker-compose)
 fi
 
@@ -64,6 +74,21 @@ redact() {
     -e 's#([Tt][Oo][Kk][Ee][Nn][^=:\n]{0,40}[=:])[^\n ]+#\1REDACTED#g' \
     -e 's#([Ss][Ee][Cc][Rr][Ee][Tt][^=:\n]{0,40}[=:])[^\n ]+#\1REDACTED#g' \
     -e 's#([Aa][Pp][Ii][_-]?[Kk][Ee][Yy][^=:\n]{0,40}[=:])[^\n ]+#\1REDACTED#g'
+}
+
+compose_available() {
+  [[ ${#DC[@]} -gt 0 ]]
+}
+
+run_compose() {
+  if ! compose_available; then
+    return 1
+  fi
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 20s "${DC[@]}" "$@"
+  else
+    "${DC[@]}" "$@"
+  fi
 }
 
 print_product_control_summary() {
@@ -250,12 +275,20 @@ PY
   fi
 
   echo "-- compose ps --"
-  "${DC[@]}" ps || true
+  if compose_available; then
+    run_compose ps || true
+  else
+    echo "skipped (compose unavailable)"
+  fi
   echo
 
   if [[ "${INCLUDE_API}" == "1" ]]; then
     echo "-- ${API_SERVICE} logs (tail ${TAIL_LINES}) --"
-    "${DC[@]}" logs --tail "${TAIL_LINES}" "${API_SERVICE}" 2>&1 | redact || true
+    if compose_available; then
+      run_compose logs --tail "${TAIL_LINES}" "${API_SERVICE}" 2>&1 | redact || true
+    else
+      echo "skipped (compose unavailable)"
+    fi
     echo
   else
     echo "-- ${API_SERVICE} logs --"
@@ -265,7 +298,11 @@ PY
 
   if [[ "${INCLUDE_DB}" == "1" ]]; then
     echo "-- ${DB_SERVICE} logs (tail ${TAIL_LINES}) --"
-    "${DC[@]}" logs --tail "${TAIL_LINES}" "${DB_SERVICE}" 2>&1 | redact || true
+    if compose_available; then
+      run_compose logs --tail "${TAIL_LINES}" "${DB_SERVICE}" 2>&1 | redact || true
+    else
+      echo "skipped (compose unavailable)"
+    fi
     echo
   else
     echo "-- ${DB_SERVICE} logs --"
@@ -277,8 +314,14 @@ PY
     echo "-- ${DB_SERVICE} volume attribution --"
     echo "expected_runtime_volume=ea_pgdata"
     echo "expected_container_mount=/var/lib/postgresql/data"
-    echo "compose_declared_volumes=$("${DC[@]}" config --volumes 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g' | sed 's/^ *//; s/ *$//')"
-    if docker inspect "${DB_CONTAINER}" >/dev/null 2>&1; then
+    if compose_available; then
+      echo "compose_declared_volumes=$(run_compose config --volumes 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g' | sed 's/^ *//; s/ *$//')"
+    else
+      echo "compose_declared_volumes=unavailable"
+    fi
+    if command -v timeout >/dev/null 2>&1 && timeout 20s docker inspect "${DB_CONTAINER}" >/dev/null 2>&1; then
+      timeout 20s docker inspect "${DB_CONTAINER}" --format '{{range .Mounts}}{{println .Name "|" .Source "|" .Destination "|" .Type}}{{end}}' 2>/dev/null | redact || true
+    elif docker inspect "${DB_CONTAINER}" >/dev/null 2>&1; then
       docker inspect "${DB_CONTAINER}" --format '{{range .Mounts}}{{println .Name "|" .Source "|" .Destination "|" .Type}}{{end}}' 2>/dev/null | redact || true
     else
       echo "${DB_SERVICE} mount inspection unavailable"

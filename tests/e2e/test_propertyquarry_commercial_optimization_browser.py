@@ -29,8 +29,8 @@ def test_workspace_and_packet_dashboard_show_commercial_and_optimization_languag
     install_property_run(monkeypatch, property_url="https://example.com/listing-phase6")
     workspace = client.get("/app/properties", params={"run_id": "run-phase6"})
     assert workspace.status_code == 200
-    assert "Premium next step" in workspace.text
-    assert "Checkout entry point" in workspace.text
+    assert "View plan tiers" in workspace.text
+    assert "Open billing controls" in workspace.text
 
     packets = client.get("/app/properties/packets")
     assert packets.status_code == 200

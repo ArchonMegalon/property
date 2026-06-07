@@ -5,13 +5,15 @@
   .pricing-summary,
   .tier-card,
   .comparison-card,
-  .pricing-row {
-    padding: 18px;
+  .pricing-row,
+  .pricing-note {
+    padding: 20px;
   }
   .pricing-strip,
   .tier-grid,
   .comparison-grid,
-  .pricing-table {
+  .pricing-table,
+  .pricing-notes {
     display: grid;
     gap: 14px;
   }
@@ -23,22 +25,39 @@
   .pricing-table {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .pricing-notes {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
   .pricing-summary,
   .tier-card,
   .comparison-card,
-  .pricing-row {
+  .pricing-row,
+  .pricing-note {
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: 14px;
     background: rgba(255,255,255,0.02);
   }
-  .tier-price {
-    color: var(--accent);
+  .tier-card {
+    display: grid;
+    gap: 12px;
+  }
+  .tier-card.current {
+    border-color: rgba(214, 166, 63, 0.34);
+    background: rgba(214, 166, 63, 0.08);
+  }
+  .tier-price,
+  .tier-meta {
+    color: var(--text-dim);
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    margin-bottom: 8px;
   }
-  .pricing-row strong {
+  .tier-price {
+    color: var(--accent);
+    margin-bottom: 2px;
+  }
+  .pricing-row strong,
+  .pricing-note strong {
     display: block;
     margin-bottom: 6px;
   }
@@ -46,7 +65,8 @@
     .pricing-strip,
     .tier-grid,
     .comparison-grid,
-    .pricing-table {
+    .pricing-table,
+    .pricing-notes {
       grid-template-columns: 1fr;
     }
   }
@@ -54,93 +74,118 @@
 
 <section class="section panel pricing-hero">
   <div class="kicker">Pricing</div>
-  <h1>Choose the plan that matches the search depth, review needs, and delivery posture.</h1>
-  <p class="lead">Plans scale with search breadth, research depth, and how much of the shortlist should be enriched and delivered automatically.</p>
+  <h1>Choose the lane that matches the real search workload, not the vague promise of “more”.</h1>
+  <p class="lead">PropertyQuarry plans scale on four concrete axes: how many platforms can be searched in one run, how dense the shortlist can become, how high the score ceiling goes, and how deep the research packet should run.</p>
 </section>
 
 <section class="section pricing-strip">
   <section class="pricing-summary">
-    <strong>Start with one real search</strong>
-    Prove the shortlist, ranking, and research packet with one real property workflow before expanding the product.
+    <strong>Free proves fit quality first</strong>
+    Free keeps broad provider reach but narrows the shortlist aggressively so the first proof is about signal quality, not browsing volume.
   </section>
   <section class="pricing-summary">
-    <strong>Move up when the shortlist becomes serious</strong>
-    Upgrade when you need more providers, deeper research, and reliable notifications on strong matches.
+    <strong>Plus buys denser review, not maximum breadth</strong>
+    Plus is the focused paid lane: more results per source, a higher threshold ceiling, and richer hosted review packets on a tighter provider set.
   </section>
   <section class="pricing-summary">
-    <strong>Pay for depth when the search gets heavier</strong>
-    Larger plans buy broader provider coverage, more enrichment, and stronger delivery around real property decisions.
+    <strong>Agent unlocks the full property desk</strong>
+    Agent restores full-breadth search while increasing shortlist volume and keeping deep research available for the heaviest workflows.
   </section>
 </section>
 
 <section class="section">
   <div class="section-head">
     <div>
-      <div class="kicker">Plans</div>
-      <h2>Pick the lane that matches the real workflow</h2>
+      <div class="kicker">Live plan catalog</div>
+      <h2>The public pricing page now renders from the runtime contract.</h2>
     </div>
-    <p>Choose the plan by provider coverage, search volume, enrichment depth, and how much automation the shortlist should receive.</p>
+    <p>These cards are sourced from the actual PropertyQuarry commercial model: the same plan limits and features the app enforces for search runs and shortlist generation.</p>
   </div>
   <div class="tier-grid">
-    {% for tier in pricing_tiers %}
-    <section class="tier-card">
-      <div class="tier-price">{{ tier.price }}</div>
-      <h2>{{ tier.title }}</h2>
-      <p class="copy">{{ tier.body }}</p>
-      {% if tier.facts %}
+    {% for plan in plan_catalog %}
+    <section class="tier-card{% if plan.is_current %} current{% endif %}">
+      <div class="tier-price">{{ plan.checkout_label }}</div>
+      <h2>{{ plan.display_name }}</h2>
+      <p class="copy">
+        {% if plan.plan_key == "free" %}
+        Start with a broad scan and a hard shortlist cap. Free is built to prove whether the ranking and research packet are credible before a paid lane is justified.
+        {% elif plan.plan_key == "plus" %}
+        Use Plus when you want a denser shortlist and richer review packets on a tighter set of sources. It is a more concentrated working lane, not the broadest crawl.
+        {% else %}
+        Use Agent when the search becomes an ongoing property desk: full platform coverage, fuller shortlists, deeper follow-up readiness, and heavier research value.
+        {% endif %}
+      </p>
+      <div class="tier-meta">{{ plan.max_platforms }} platforms · {{ plan.max_results_per_source }} results per source · {{ plan.max_match_score }}/100 match ceiling · {{ plan.research_depth }} research</div>
       <ul class="muted-list">
-        {% for fact in tier.facts %}
-        <li>{{ fact }}</li>
+        {% for feature in plan.features %}
+        <li>{{ feature }}</li>
         {% endfor %}
       </ul>
-      {% endif %}
-      <div class="cta-row"><a class="btn {% if loop.first %}primary{% else %}ghost{% endif %}" href="/get-started">{% if loop.first %}Start here{% else %}Upgrade later{% endif %}</a></div>
+      <div class="cta-row">
+        <a class="btn {% if plan.plan_key == 'free' %}primary{% else %}ghost{% endif %}" href="/register">
+          {% if plan.plan_key == "free" %}Start with Free{% elif plan.plan_key == "plus" %}Move to Plus later{% else %}Use Agent when needed{% endif %}
+        </a>
+      </div>
     </section>
     {% endfor %}
   </div>
 </section>
 
+<section class="section pricing-notes">
+  <section class="pricing-note">
+    <strong>Platform count is not the whole story</strong>
+    Provider breadth, shortlist density, and score ceiling are separate levers. The right plan depends on which one is your current bottleneck.
+  </section>
+  <section class="pricing-note">
+    <strong>Research depth stays explicit</strong>
+    The product should be clear about when a packet is deep, standard, or only a preview, instead of implying every plan gets the same research treatment.
+  </section>
+  <section class="pricing-note">
+    <strong>Hosted review matters</strong>
+    The value is not just the crawl. It is the hosted packet, the visible reasoning, and the feedback loop that sharpens the next search run.
+  </section>
+</section>
+
 <section class="section pricing-table">
   <section class="pricing-row">
-    <strong>Typical plan differences</strong>
+    <strong>How to pick the first paid lane</strong>
     <ul class="muted-list">
-      <li>Number of providers that can be searched in one run</li>
-      <li>How many results per source can be kept</li>
-      <li>How deep the research packet should go</li>
-      <li>Whether alerts and saved runs are enabled</li>
-      <li>How much follow-up and enrichment the agent can trigger</li>
-      <li>How much support and delivery priority the search needs</li>
+      <li>Stay on Free when the main question is whether the ranking model is useful at all.</li>
+      <li>Move to Plus when the first shortlist is too narrow and you need more candidates per source with stronger hosted review.</li>
+      <li>Move to Agent when the search needs full source breadth, denser shortlists, and deep research at the same time.</li>
+      <li>Upgrade because of a real workflow bottleneck, not because a generic feature grid says “more”.</li>
     </ul>
   </section>
   <section class="pricing-row">
-    <strong>Typical search path</strong>
+    <strong>What the plans really change</strong>
     <ul class="muted-list">
-      <li>Start with one buyer profile and one useful shortlist.</li>
-      <li>Move to Plus when provider breadth, alerts, and stronger review packets start to matter.</li>
-      <li>Use Agent when missing facts, follow-up research, and repeated reranking become the real bottleneck.</li>
-      <li>Keep the paid tier proportional to the actual search workload, not wishful future usage.</li>
+      <li>How many platforms can be scanned in one run</li>
+      <li>How many candidate listings per source can survive the sweep</li>
+      <li>How high the allowed shortlist threshold can go</li>
+      <li>How deep the packet and follow-up posture should be</li>
+      <li>How much work the hosted review surface can carry before the search becomes noisy again</li>
     </ul>
   </section>
 </section>
 
 <section class="section comparison-grid">
   <section class="comparison-card">
-    <strong>Pilot usually includes</strong>
+    <strong>Good first proof</strong>
     <ul class="muted-list">
       <li>One active workspace</li>
-      <li>One saved search profile</li>
-      <li>One ranked shortlist</li>
-      <li>Lightweight research packet</li>
-      <li>Review-first onboarding</li>
+      <li>One clear property brief</li>
+      <li>One shortlist worth reading end to end</li>
+      <li>One hosted review packet that shows real fit logic</li>
+      <li>One feedback cycle that changes the next search run</li>
     </ul>
   </section>
   <section class="comparison-card">
-    <strong>Plus and Agent usually add</strong>
+    <strong>What premium should buy</strong>
     <ul class="muted-list">
-      <li>Broader provider coverage</li>
-      <li>Deeper research packets</li>
-      <li>More delivery and alerting options</li>
-      <li>Closer support around search quality, follow-up, and delivery</li>
+      <li>More decision-grade candidates, not just more noise</li>
+      <li>Stronger fit thresholds and packet quality</li>
+      <li>Broader crawl coverage only when the search truly needs it</li>
+      <li>Clearer follow-up posture when research gaps are still material</li>
     </ul>
   </section>
 </section>

@@ -385,6 +385,25 @@ def property_packets_dashboard(
     ]
     inbox = service.feedback_inbox(principal_id=context.principal_id, limit=100)
     capacity = service.capacity_status(principal_id=context.principal_id)
+    published_total = sum(1 for row in rows if str(row.get("status") or "").strip().lower() == "published")
+    share_total = sum(1 for row in rows if list(dict(row.get("engagement") or {}).get("shares") or []))
+    optimization_open_total = sum(
+        1
+        for row in rows
+        for item in list(row.get("optimization") or [])
+        if isinstance(item, dict) and str(item.get("status") or "").strip().lower() not in {"acknowledged", "resolved", "done"}
+    )
+    followup_open_total = sum(
+        1
+        for row in rows
+        for item in list(dict(row.get("engagement") or {}).get("followups") or [])
+        if isinstance(item, dict) and str(item.get("status") or "").strip().lower() not in {"completed", "resolved", "done", "dismissed"}
+    )
+    feedback_pending_total = sum(
+        1
+        for item in list(inbox.get("items") or [])
+        if isinstance(item, dict) and str(item.get("status") or "").strip().lower() not in {"reviewed", "dismissed", "blocked"}
+    )
     webhook_url = f"{str(request.base_url).rstrip('/')}/v1/integrations/fliplink/webhook"
     return templates.TemplateResponse(
         request,
@@ -397,6 +416,13 @@ def property_packets_dashboard(
             "fliplink_capacity": capacity,
             "feedback_items": list(inbox.get("items") or []),
             "feedback_total": int(inbox.get("total") or 0),
+            "dashboard_summary": {
+                "published_total": published_total,
+                "share_total": share_total,
+                "optimization_open_total": optimization_open_total,
+                "followup_open_total": followup_open_total,
+                "feedback_pending_total": feedback_pending_total,
+            },
             "fliplink_webhook_url": webhook_url,
             "lead_capture_schema": {
                 "property_ref": "<property_ref>",

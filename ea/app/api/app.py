@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from functools import lru_cache
+from importlib import import_module
+
 from fastapi import APIRouter, Depends, FastAPI
 
 from app.api.dependencies import require_request_auth
@@ -65,7 +68,7 @@ def _include_authenticated_routes(
     images_router: APIRouter,
     google_oauth_router: APIRouter,
     channels_router: APIRouter,
-    memory_candidates_router: APIRouter,
+    memory_router: APIRouter,
     product_api_delivery_router: APIRouter,
     product_api_workspace_router: APIRouter,
     product_api_router: APIRouter,
@@ -80,7 +83,7 @@ def _include_authenticated_routes(
     app.include_router(images_router, dependencies=auth_dependency)
     app.include_router(google_oauth_router)
     app.include_router(channels_router, dependencies=auth_dependency)
-    app.include_router(memory_candidates_router, prefix="/v1/memory", dependencies=auth_dependency)
+    app.include_router(memory_router, dependencies=auth_dependency)
     app.include_router(product_api_delivery_router, dependencies=auth_dependency)
     app.include_router(product_api_workspace_router, dependencies=auth_dependency)
     app.include_router(product_api_router, dependencies=auth_dependency)
@@ -138,49 +141,94 @@ def _include_legacy_authenticated_routes(
     app.include_router(responses_router, dependencies=auth_dependency)
 
 
+@lru_cache(maxsize=1)
+def _load_route_modules() -> dict[str, object]:
+    modules = {
+        "connectors": import_module("app.api.routes.connectors"),
+        "delivery": import_module("app.api.routes.delivery"),
+        "evidence": import_module("app.api.routes.evidence"),
+        "fliplink_integration": import_module("app.api.routes.fliplink_integration"),
+        "google_oauth": import_module("app.api.routes.google_oauth"),
+        "health": import_module("app.api.routes.health"),
+        "images": import_module("app.api.routes.images"),
+        "landing_actions": import_module("app.api.routes.landing_actions"),
+        "landing_channel": import_module("app.api.routes.landing_channel"),
+        "public_documents": import_module("app.api.routes.public_documents"),
+        "human": import_module("app.api.routes.human"),
+        "landing": import_module("app.api.routes.landing"),
+        "landing_objects": import_module("app.api.routes.landing_objects"),
+        "landing_setup": import_module("app.api.routes.landing_setup"),
+        "landing_workspace": import_module("app.api.routes.landing_workspace"),
+        "ltd_runtime": import_module("app.api.routes.ltd_runtime"),
+        "memory": import_module("app.api.routes.memory"),
+        "observations": import_module("app.api.routes.observations"),
+        "onboarding": import_module("app.api.routes.onboarding"),
+        "plans": import_module("app.api.routes.plans"),
+        "policy": import_module("app.api.routes.policy"),
+        "providers": import_module("app.api.routes.providers"),
+        "product_api": import_module("app.api.routes.product_api"),
+        "product_api_delivery": import_module("app.api.routes.product_api_delivery"),
+        "product_api_workspace": import_module("app.api.routes.product_api_workspace"),
+        "rewrite": import_module("app.api.routes.rewrite"),
+        "runtime": import_module("app.api.routes.runtime"),
+        "skills": import_module("app.api.routes.skills"),
+        "task_contracts": import_module("app.api.routes.task_contracts"),
+        "tools": import_module("app.api.routes.tools"),
+        "responses": import_module("app.api.routes.responses"),
+    }
+    return modules
+
+
+def preload_non_channel_route_modules() -> None:
+    _load_route_modules()
+
+
 def create_app() -> FastAPI:
     s = get_settings()
     validate_startup_settings(s)
     if inline_sync_handlers_enabled():
         install_inline_threadpool_compat()
     from app.api.routes.channels import router as channels_router
-    from app.api.routes.connectors import router as connectors_router
-    from app.api.routes.delivery import router as delivery_router
-    from app.api.routes.evidence import router as evidence_router
-    from app.api.routes.fliplink_integration import authenticated_router as fliplink_authenticated_router
-    from app.api.routes.fliplink_integration import public_router as fliplink_public_router
-    from app.api.routes.google_oauth import router as google_oauth_router
-    from app.api.routes.health import router as health_router
-    from app.api.routes.images import router as images_router
-    from app.api.routes.landing_actions import router as landing_actions_router
-    from app.api.routes.landing_channel import router as landing_channel_router
-    from app.api.routes.public_documents import router as public_documents_router
-    from app.api.routes.human import router as human_router
-    from app.api.routes.landing import router as landing_router
-    from app.api.routes.landing_objects import router as landing_objects_router
-    from app.api.routes.landing_setup import router as landing_setup_router
-    from app.api.routes.landing_workspace import router as landing_workspace_router
-    from app.api.routes.ltd_runtime import router as ltd_runtime_router
-    from app.api.routes.memory_candidates import router as memory_candidates_router
-    from app.api.routes.memory import router as memory_router
-    from app.api.routes.observations import router as observations_router
-    from app.api.routes.onboarding import register_router, router as onboarding_router
-    from app.api.routes.plans import router as plans_router
-    from app.api.routes.policy import router as policy_router
-    from app.api.routes.providers import router as providers_router
-    from app.api.routes.product_api import router as product_api_router
-    from app.api.routes.product_api_delivery import router as product_api_delivery_router
-    from app.api.routes.product_api_workspace import router as product_api_workspace_router
-    from app.api.routes.rewrite import router as rewrite_router
-    from app.api.routes.runtime import router as runtime_router
-    from app.api.routes.skills import router as skills_router
-    from app.api.routes.task_contracts import router as task_contracts_router
-    from app.api.routes.tools import router as tools_router
+
+    route_modules = _load_route_modules()
+    connectors_router = route_modules["connectors"].router
+    delivery_router = route_modules["delivery"].router
+    evidence_router = route_modules["evidence"].router
+    fliplink_authenticated_router = route_modules["fliplink_integration"].authenticated_router
+    fliplink_public_router = route_modules["fliplink_integration"].public_router
+    google_oauth_router = route_modules["google_oauth"].router
+    health_router = route_modules["health"].router
+    images_router = route_modules["images"].router
+    landing_actions_router = route_modules["landing_actions"].router
+    landing_channel_router = route_modules["landing_channel"].router
+    public_documents_router = route_modules["public_documents"].router
+    human_router = route_modules["human"].router
+    landing_router = route_modules["landing"].router
+    landing_objects_router = route_modules["landing_objects"].router
+    landing_setup_router = route_modules["landing_setup"].router
+    landing_workspace_router = route_modules["landing_workspace"].router
+    ltd_runtime_router = route_modules["ltd_runtime"].router
+    memory_router = route_modules["memory"].router
+    observations_router = route_modules["observations"].router
+    register_router = route_modules["onboarding"].register_router
+    onboarding_router = route_modules["onboarding"].router
+    plans_router = route_modules["plans"].router
+    policy_router = route_modules["policy"].router
+    providers_router = route_modules["providers"].router
+    product_api_router = route_modules["product_api"].router
+    product_api_delivery_router = route_modules["product_api_delivery"].router
+    product_api_workspace_router = route_modules["product_api_workspace"].router
+    rewrite_router = route_modules["rewrite"].router
+    runtime_router = route_modules["runtime"].router
+    skills_router = route_modules["skills"].router
+    task_contracts_router = route_modules["task_contracts"].router
+    tools_router = route_modules["tools"].router
 
     app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
-    app.router.on_startup.append(_prewarm_provider_health_cache)
+    if s.legacy_runtime_surfaces_enabled:
+        app.router.on_startup.append(_prewarm_provider_health_cache)
     _include_public_routes(
         app,
         settings=s,
@@ -203,7 +251,7 @@ def create_app() -> FastAPI:
         images_router=images_router,
         google_oauth_router=google_oauth_router,
         channels_router=_router_without_paths(channels_router, excluded_paths={"/v1/channels/telegram/ingest"}),
-        memory_candidates_router=memory_candidates_router,
+        memory_router=memory_router,
         product_api_delivery_router=product_api_delivery_router,
         product_api_workspace_router=product_api_workspace_router,
         product_api_router=product_api_router,
@@ -219,7 +267,7 @@ def create_app() -> FastAPI:
         runtime_router=runtime_router,
     )
     if s.legacy_runtime_surfaces_enabled:
-        from app.api.routes.responses import router as responses_router
+        responses_router = route_modules["responses"].router
 
         _include_legacy_authenticated_routes(
             app,

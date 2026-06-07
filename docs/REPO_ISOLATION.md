@@ -14,6 +14,13 @@ The extraction still carries inherited archives from the broader EA and Chummer 
 - `.codex-studio/`
 - `feedback/`
 - `skills/`
+- `docs/black_ledger_newsroom/`
+- `docs/chummer5a_parity_lab/`
+- `docs/chummer_explain_narration_packs/`
+- `docs/chummer_governor_packets/`
+- `docs/chummer_launch_followthrough/`
+- `docs/chummer_operator_safe_packets/`
+- `docs/chummer_organizer_packets/`
 - `scripts/bootstrap_chummer6_guide_skill.py`
 
 If one of these directories is needed for future work, move that work to the owning repository first or add a dedicated migration issue. Do not wire it into the PropertyQuarry deploy path.

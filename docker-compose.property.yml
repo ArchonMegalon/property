@@ -27,14 +27,21 @@ services:
       PROPERTYQUARRY_ENABLE_PUBLIC_SIDE_SURFACES: "${PROPERTYQUARRY_ENABLE_PUBLIC_SIDE_SURFACES:-0}"
       PROPERTYQUARRY_ENABLE_PUBLIC_RESULTS: "${PROPERTYQUARRY_ENABLE_PUBLIC_RESULTS:-0}"
       PROPERTYQUARRY_ENABLE_PUBLIC_TOURS: "${PROPERTYQUARRY_ENABLE_PUBLIC_TOURS:-0}"
+      PROPERTYQUARRY_ENABLE_PUBLIC_MEMORIALS: "${PROPERTYQUARRY_ENABLE_PUBLIC_MEMORIALS:-0}"
       PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES: "${PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES:-0}"
+      EA_PUBLIC_MEMORIAL_DIR: "${EA_PUBLIC_MEMORIAL_DIR:-/mnt/pcloud/EA/public_memorials}"
       HOME: /home/ea
       TZ: Europe/Vienna
     ports:
       - "${EA_HOST_PORT:-8090}:8090"
+    networks:
+      default:
+        aliases:
+          - ea-api
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
+      - "${EA_PUBLIC_MEMORIAL_DIR:-/mnt/pcloud/EA/public_memorials}:/mnt/pcloud/EA/public_memorials:ro"
       - propertyquarry_artifacts:/data/artifacts
       - propertyquarry_public_tours:/data/public_property_tours
       - propertyquarry_provider_ledger:/data/provider-ledger

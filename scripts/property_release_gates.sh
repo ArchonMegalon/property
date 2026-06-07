@@ -21,6 +21,7 @@ Runs the focused PropertyQuarry release bundle:
   - FlipLink packet privacy, publication, and webhook contracts
   - MagicFit-only promo packet contracts
   - PropertyQuarry Teable tenant/projection contracts
+  - phase and master exit-gate specs plus flagship browser workflows
   - property workspace real-browser greenfield checks
   - property search run contracts
   - property market catalog contracts
@@ -41,10 +42,30 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_packet_publications.py \
   tests/test_fliplink_webhook_contracts.py \
   tests/test_property_missing_facts_ooda.py \
+  tests/test_property_packet_engagement_contracts.py \
+  tests/test_property_feedback_spine_contracts.py \
+  tests/test_property_summary_artifacts.py \
+  tests/test_property_packet_variant_contracts.py \
+  tests/test_propertyquarry_timeline_contracts.py \
+  tests/test_propertyquarry_offer_and_optimization_contracts.py \
+  tests/test_propertyquarry_phase1_exit_gate.py \
+  tests/test_propertyquarry_phase2_exit_gate.py \
+  tests/test_propertyquarry_phase3_exit_gate.py \
+  tests/test_propertyquarry_phase4_exit_gate.py \
+  tests/test_propertyquarry_phase5_exit_gate.py \
+  tests/test_propertyquarry_phase6_exit_gate.py \
+  tests/test_propertyquarry_master_regression_gate.py \
   tests/test_property_search_runs.py::test_property_search_run_surfaces_and_updates_missing_fact_research_tasks
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_propertyquarry_workspace_redesign.py \
-  tests/e2e/test_propertyquarry_greenfield_browser.py
+  tests/e2e/test_propertyquarry_greenfield_browser.py \
+  tests/e2e/test_propertyquarry_packet_engagement_browser.py \
+  tests/e2e/test_propertyquarry_feedback_browser.py \
+  tests/e2e/test_propertyquarry_summary_artifacts_browser.py \
+  tests/e2e/test_propertyquarry_packet_publishing_browser.py \
+  tests/e2e/test_propertyquarry_timeline_browser.py \
+  tests/e2e/test_propertyquarry_commercial_optimization_browser.py \
+  tests/e2e/test_propertyquarry_phase_regression_browser.py
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_search_runs.py \
   tests/test_property_market_catalog.py \
