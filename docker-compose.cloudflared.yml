@@ -1,5 +1,5 @@
 services:
-  ea-cloudflared:
+  propertyquarry-cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: propertyquarry-cloudflared
     restart: unless-stopped

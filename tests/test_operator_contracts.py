@@ -320,7 +320,7 @@ def test_cloudflared_tunnel_is_only_available_via_override() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "ea-cloudflared" not in base_compose
-    assert "ea-cloudflared" in tunnel_override
+    assert "propertyquarry-cloudflared" in tunnel_override
     assert "PROPERTYQUARRY_CF_TUNNEL_TOKEN" in tunnel_override
     assert "propertyquarry-api" in tunnel_override
     assert "ea-api" not in property_compose
