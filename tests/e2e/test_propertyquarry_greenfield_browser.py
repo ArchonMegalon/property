@@ -144,8 +144,8 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[d
                                 "property_url": "https://www.immobilienscout24.de/expose/altbau-u6",
                                 "fit_summary": "Personal fit 92/100 · shortlist · Lift and transit fit.",
                                 "recommendation": "shortlist",
-                                "review_url": "https://myexternalbrain.com/app/handoffs/human_task:review-1",
-                                "tour_url": "https://myexternalbrain.com/tours/altbau-u6",
+                                "review_url": "https://propertyquarry.com/app/handoffs/human_task:review-1",
+                                "tour_url": "https://propertyquarry.com/tours/altbau-u6",
                                 "match_reasons": ["Lift and transit fit."],
                                 "mismatch_reasons": [],
                                 "property_facts": {
@@ -165,7 +165,7 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[d
                                 "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
                                 "fit_summary": "Personal fit 87/100 · shortlist · Larger layout and quieter block.",
                                 "recommendation": "shortlist",
-                                "review_url": "https://myexternalbrain.com/app/handoffs/human_task:review-2",
+                                "review_url": "https://propertyquarry.com/app/handoffs/human_task:review-2",
                                 "tour_url": "",
                                 "match_reasons": ["Larger layout and quieter block."],
                                 "mismatch_reasons": ["No 360 tour yet."],
@@ -200,7 +200,7 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[d
                 task_type="property_tour_followup",
                 delivery_reason="Lift, playground and subway fit the profile.",
                 property_url="https://www.kalandra.at/objekt/14997053",
-                tour_url="https://myexternalbrain.com/tours/auhofstrasse-14997053",
+                tour_url="https://propertyquarry.com/tours/auhofstrasse-14997053",
             ),
         )
 
@@ -221,7 +221,7 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[d
     browser_base_url = f"http://propertyquarry.com:{port}"
     _wait_for_http(local_base_url)
     try:
-        yield {"base_url": browser_base_url}
+        yield {"base_url": browser_base_url, "client": test_client}
     finally:
         server.should_exit = True
         thread.join(timeout=10.0)
@@ -663,6 +663,12 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.locator('input[name="all_of_vienna"]').check()
         page.locator('[data-property-step-trigger="providers"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
+        providerCount = page.locator('input[name="selected_platforms"]').count()
+        page.locator('[data-checkbox-group-select-all="selected_platforms"]').click()
+        checkedProviderCount = page.locator('input[name="selected_platforms"]:checked').count()
+        assert providerCount > checkedProviderCount
+        assert checkedProviderCount == 3
+        assert page.locator('[data-property-inline-status]', has_text="allows up to 3 at once").is_visible()
         page.locator('input[name="min_match_score"]').evaluate(
             "(node) => { node.value = '45'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
         )
@@ -688,5 +694,86 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert preferences["location_query"] == "Vienna"
         assert preferences["min_match_score"] == 45
         assert preferences["require_floorplan"] is True
+        assert len(observed["selected_platforms"]) == 3
+        page.wait_for_function("document.querySelector('[data-pqx-run-status]')?.textContent.toLowerCase().includes('processed')")
+        assert page.locator("body", has_text="Altbau near U6").is_visible()
+        assert page.locator("body", has_text="Review packet").is_visible()
+        assert page.locator("body", has_text="Open 360").is_visible()
+        assert page.locator("body", has_text="Risk and investment").is_visible()
+        page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
+        page.wait_for_url(lambda url: "/app/research/" in str(url) and f"run_id={run_id}" in str(url), wait_until="domcontentloaded", timeout=5000)
+        assert page.locator("body", has_text="OODA summary").is_visible()
+        assert page.locator("body", has_text="Preference feedback").is_visible()
+    finally:
+        context.close()
+
+
+def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replication_actions(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    publication = client.post(
+        "/app/api/properties/listing-browser-packet/packets/render",
+        json={
+            "packet_kind": "family_review",
+            "privacy_mode": "family_review",
+            "fliplink_format": "flipbook_3d",
+            "property_payload": {
+                "title": "Family flat near Augarten",
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/demo",
+                "match_reasons": ["Floorplan and family fit."],
+                "floorplan_refs": ["https://packets.propertyquarry.com/assets/floorplan.pdf"],
+                "photo_refs": ["https://packets.propertyquarry.com/assets/photo.jpg"],
+                "property_facts": {
+                    "rooms": 3,
+                    "area_m2": 84,
+                    "street_address": "Private Street 4",
+                    "map_lat": 48.2,
+                    "map_lng": 16.3,
+                    "has_floorplan": True,
+                    "postal_name": "1020 Wien",
+                },
+                "public_preference_snapshot": {"prefer_balcony": True},
+            },
+        },
+    )
+    assert publication.status_code == 200, publication.text
+    publication_id = publication.json()["publication"]["publication_id"]
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties/packets", wait_until="networkidle")
+        assert response is not None and response.ok
+        assert page.locator("[data-property-packets-dashboard]").is_visible()
+        assert page.locator("body", has_text="Review packets ready for branded sharing.").is_visible()
+        page.locator('[data-packet-share-form] input[name="recipient_name"]').fill("Anna")
+        page.locator('[data-packet-share-form] input[name="recipient_email"]').fill("anna@example.com")
+        page.locator('[data-packet-share-form] input[name="relationship"]').fill("Sister")
+        with page.expect_response("**/app/api/properties/packets/*/shares") as share_response_info:
+            page.locator('[data-packet-share-form] button[type="submit"]').click()
+        share_response = share_response_info.value
+        assert share_response.ok, share_response.text()
+
+        page.locator('[data-fliplink-analytics-form] input[name="views"]').fill("8")
+        page.locator('[data-fliplink-analytics-form] input[name="unique_visitors"]').fill("2")
+        page.locator('[data-fliplink-analytics-form] input[name="average_time_seconds"]').fill("55")
+        with page.expect_response("**/app/api/properties/packets/*/fliplink/analytics-snapshot") as analytics_response_info:
+            page.locator('[data-fliplink-analytics-form] button[type="submit"]').click()
+        analytics_response = analytics_response_info.value
+        assert analytics_response.ok, analytics_response.text()
+
+        with page.expect_response("**/app/api/properties/packets/*/republish") as republish_response_info:
+            page.locator(f'[data-republish-publication][data-publication-id="{publication_id}"]').click()
+        republish_response = republish_response_info.value
+        assert republish_response.ok, republish_response.text()
+
+        page.reload(wait_until="networkidle")
+        assert page.locator("body", has_text="Anna · family · link").is_visible()
+        assert page.locator("[data-analytics-summary]", has_text="8 views").is_visible()
+        assert page.locator("[data-analytics-summary]", has_text="2 visitors").is_visible()
+        assert page.locator("body", has_text="Optimization recommendations").is_visible()
     finally:
         context.close()

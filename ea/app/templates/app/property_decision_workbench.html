@@ -2341,12 +2341,28 @@
         return `<label class="pqx-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${selected.has(optionValue) ? 'checked' : ''}><span><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</span></label>`;
       }).join('');
     };
-    const selectAllCheckboxValues = (form, name) => {
-      [...(form?.querySelectorAll(`input[name="${name}"]`) || [])].forEach((node) => {
-        if (node.checked) return;
+    const setCheckboxGroupStatus = (message) => {
+      const status = root.querySelector('[data-property-inline-status]');
+      const error = root.querySelector('[data-property-inline-error]');
+      if (status) status.textContent = String(message || '').trim();
+      if (error && message) error.textContent = '';
+    };
+    const selectAllCheckboxValues = (form, name, maxCount) => {
+      const inputs = [...(form?.querySelectorAll(`input[name="${name}"]`) || [])];
+      if (!inputs.length) return;
+      const normalizedMax = Number.isFinite(Number(maxCount)) ? Math.max(1, Number(maxCount)) : inputs.length;
+      let selectedCount = inputs.filter((node) => node.checked).length;
+      inputs.forEach((node) => {
+        if (node.checked || selectedCount >= normalizedMax) return;
         node.checked = true;
+        selectedCount += 1;
         node.dispatchEvent(new Event('change', { bubbles: true }));
       });
+      if (selectedCount < inputs.length) {
+        setCheckboxGroupStatus(`Selected ${selectedCount} providers. Your current plan allows up to ${normalizedMax} at once.`);
+        return;
+      }
+      setCheckboxGroupStatus(`Selected all ${selectedCount} providers.`);
     };
     const readableErrorDetail = (detail, fallback) => {
       if (Array.isArray(detail)) {
@@ -3019,7 +3035,7 @@
         const button = event.target?.closest?.('[data-checkbox-group-select-all]');
         if (!button) return;
         event.preventDefault();
-        selectAllCheckboxValues(form, String(button.getAttribute('data-checkbox-group-select-all') || '').trim());
+        selectAllCheckboxValues(form, String(button.getAttribute('data-checkbox-group-select-all') || '').trim(), planPlatformCap);
       });
       form.addEventListener('propertyquarry:stepchange', () => {
         syncViennaScopeControls();

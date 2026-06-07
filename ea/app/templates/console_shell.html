@@ -1336,14 +1336,6 @@
         </label>`;
     }).join('');
   };
-  const selectAllCheckboxValues = (form, name) => {
-    [...(form?.querySelectorAll(`input[name="${name}"]`) || [])].forEach((node) => {
-      if (node.checked) return;
-      node.checked = true;
-      node.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-  };
-
   const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
   const propertyFeedbackSaveEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback`;
 
@@ -1709,6 +1701,30 @@
     initPropertyWizard(form, meta);
     const countryField = form.querySelector('select[name="country_code"]');
     const regionField = form.querySelector('select[name="region_code"]');
+    const planPlatformCap = Math.max(1, Number(meta?.commercial?.max_platforms || 3));
+    const setCheckboxGroupStatus = (message) => {
+      const statusNode = form.querySelector('[data-property-inline-status]');
+      const errorNode = form.querySelector('[data-property-inline-error]');
+      if (statusNode) statusNode.textContent = String(message || '').trim();
+      if (errorNode && message) errorNode.textContent = '';
+    };
+    const selectAllCheckboxValues = (name, maxCount) => {
+      const inputs = [...(form?.querySelectorAll(`input[name="${name}"]`) || [])];
+      if (!inputs.length) return;
+      const normalizedMax = Number.isFinite(Number(maxCount)) ? Math.max(1, Number(maxCount)) : inputs.length;
+      let selectedCount = inputs.filter((node) => node.checked).length;
+      inputs.forEach((node) => {
+        if (node.checked || selectedCount >= normalizedMax) return;
+        node.checked = true;
+        selectedCount += 1;
+        node.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      if (selectedCount < inputs.length) {
+        setCheckboxGroupStatus(`Selected ${selectedCount} providers. Your current plan allows up to ${normalizedMax} at once.`);
+        return;
+      }
+      setCheckboxGroupStatus(`Selected all ${selectedCount} providers.`);
+    };
     const refreshRegionAndLocationChoices = () => {
       const regionCatalog = meta.region_catalog_by_country || {};
       const locationCatalog = meta.location_catalog_by_country_region || {};
@@ -1734,7 +1750,7 @@
         const defaultLanguageByCountry = meta.default_language_by_country || {};
         const selectedCountry = String(countryField.value || '').trim();
         const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
-        const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, 4);
+        const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, planPlatformCap);
         const languageField = form.querySelector('select[name="language_code"]');
         const nextLanguage = String(defaultLanguageByCountry[selectedCountry] || '').trim();
         renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
@@ -1754,8 +1770,8 @@
       const button = event.target?.closest?.('[data-checkbox-group-select-all]');
       if (!button) return;
       event.preventDefault();
-      selectAllCheckboxValues(form, String(button.getAttribute('data-checkbox-group-select-all') || '').trim());
-    });
+	      selectAllCheckboxValues(String(button.getAttribute('data-checkbox-group-select-all') || '').trim(), planPlatformCap);
+	    });
     renderRun(form, meta.initial_run || {});
 
     form.querySelector('[data-property-save]')?.addEventListener('click', async () => {

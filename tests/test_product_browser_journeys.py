@@ -121,8 +121,8 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
         "property_url": "https://www.immobilienscout24.de/expose/altbau-u6",
         "fit_summary": "Personal fit 92/100 · shortlist · Lift and transit fit.",
         "recommendation": "shortlist",
-        "review_url": "https://myexternalbrain.com/app/handoffs/human_task:review-1",
-        "tour_url": "https://myexternalbrain.com/tours/altbau-u6",
+        "review_url": "https://propertyquarry.com/app/handoffs/human_task:review-1",
+        "tour_url": "https://propertyquarry.com/tours/altbau-u6",
         "match_reasons": ["Lift and transit fit."],
         "mismatch_reasons": [],
         "property_facts": {
@@ -184,7 +184,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
                 task_type="property_tour_followup",
                 delivery_reason="Lift, playground and subway fit the profile.",
                 property_url="https://www.kalandra.at/objekt/14997053",
-                tour_url="https://myexternalbrain.com/tours/auhofstrasse-14997053",
+                tour_url="https://propertyquarry.com/tours/auhofstrasse-14997053",
             ),
         )
 
@@ -275,7 +275,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert research.status_code == 200
     assert "Inspect the evidence before you open the raw listing." in research.text
     assert "Hosted 3D page for Auhofstrasse shortlist" in research.text
-    assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in research.text
+    assert "https://propertyquarry.com/tours/auhofstrasse-14997053" in research.text
     packet_match = re.search(r'href="(/app/research/[^"?]+)\?run_id=run-42"', research.text)
     assert packet_match is not None
 
