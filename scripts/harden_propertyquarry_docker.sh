@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/docker/property"
+ROOT="${PROPERTYQUARRY_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 LOG_DIR="${ROOT}/artifacts"
 LOG_FILE="${LOG_DIR}/propertyquarry_docker_recovery.log"
 DOCKER_START_TIMEOUT_SECONDS="${DOCKER_START_TIMEOUT_SECONDS:-300}"
+PROPERTYQUARRY_HOST_RECOVERY_ALLOW="${PROPERTYQUARRY_HOST_RECOVERY_ALLOW:-0}"
+PROPERTYQUARRY_HOST_RECOVERY_DRY_RUN="${PROPERTYQUARRY_HOST_RECOVERY_DRY_RUN:-0}"
 
 mkdir -p "${LOG_DIR}"
+
+if [[ "${PROPERTYQUARRY_HOST_RECOVERY_ALLOW}" != "1" ]]; then
+  echo "Refusing host-level Docker recovery without PROPERTYQUARRY_HOST_RECOVERY_ALLOW=1" >&2
+  exit 2
+fi
 
 log() {
   printf '[propertyquarry-docker] %s\n' "$1" | tee -a "${LOG_FILE}"
@@ -14,6 +21,9 @@ log() {
 
 run() {
   log "running: $*"
+  if [[ "${PROPERTYQUARRY_HOST_RECOVERY_DRY_RUN}" == "1" ]]; then
+    return 0
+  fi
   "$@" 2>&1 | tee -a "${LOG_FILE}"
 }
 

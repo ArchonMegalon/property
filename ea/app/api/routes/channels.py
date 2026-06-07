@@ -13,6 +13,7 @@ import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timedelta
+from importlib import import_module
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Body, Depends, Request
@@ -21,7 +22,6 @@ from pydantic import BaseModel, Field
 
 from app.api.dependencies import RequestContext
 from app.api.dependencies import get_container
-from app.api.routes import responses as responses_route
 from app.channels.telegram.adapter import TelegramObservationAdapter
 from app.container import AppContainer
 from app.domain.models import ToolInvocationRequest
@@ -102,15 +102,8 @@ _TELEGRAM_MONTH_ALIASES = {
     "dezember": 12,
 }
 
-try:
-    from app.api.app import preload_non_channel_route_modules
-except Exception:  # pragma: no cover - defensive import boundary
-    preload_non_channel_route_modules = None
-else:
-    try:
-        preload_non_channel_route_modules()
-    except Exception:
-        pass
+def _responses_route_module():
+    return import_module("app.api.routes.responses")
 
 def _telegram_bot_registry() -> dict[str, dict[str, object]]:
     registry: dict[str, dict[str, object]] = {}
@@ -1251,7 +1244,7 @@ def _telegram_pocket_audio_semantic_candidates(
         },
     ]
     try:
-        result = responses_route._generate_upstream_text(
+        result = _responses_route_module()._generate_upstream_text(
             prompt=str(query or "").strip(),
             messages=messages,
             requested_model=str(os.getenv("EA_TELEGRAM_RESPONSES_MODEL") or "ea-coder-fast").strip() or "ea-coder-fast",
@@ -4095,7 +4088,7 @@ def _telegram_real_ea_reply_text(
 
     def _worker() -> None:
         try:
-            result_box["result"] = responses_route._generate_upstream_text(
+            result_box["result"] = _responses_route_module()._generate_upstream_text(
                 prompt=normalized,
                 messages=messages,
                 requested_model=model,

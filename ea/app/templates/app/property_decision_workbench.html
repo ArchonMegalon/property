@@ -457,6 +457,22 @@
       font-size: 12px;
       line-height: 1.45;
     }
+    .pqx-field-tools {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 8px;
+    }
+    .pqx-field-tools .pqx-field-action {
+      border: 0;
+      background: transparent;
+      color: var(--pq-gold-strong);
+      font-size: 12px;
+      font-weight: 760;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      cursor: pointer;
+      padding: 0;
+    }
     .pqx-check[data-school-stage-parent] {
       border-color: rgba(171, 77, 51, 0.3);
       background: rgba(255, 249, 241, 0.88);
@@ -583,17 +599,24 @@
       margin-top: 4px;
       accent-color: var(--pq-charcoal);
     }
+    .pqx-check > span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
     .pqx-check span span {
       display: block;
       color: var(--pq-ink);
       font-size: 13px;
       font-weight: 730;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
     }
     .pqx-check small {
       display: block;
       color: var(--pq-muted);
       font-size: 11px;
       line-height: 1.35;
+      overflow-wrap: anywhere;
     }
     .pqx-form-footer {
       display: flex;
@@ -1422,6 +1445,11 @@
               <div class="pqx-field" data-property-field-step="{{ field.get('step') or 'search' }}" data-property-field-name="{{ field.name }}"{% if field.get('hidden') %} hidden{% endif %}>
                 {% if field.type == 'checkbox_group' %}
                 <div class="pqx-field-title">{{ field.label }}</div>
+                {% if field.name == 'selected_platforms' %}
+                <div class="pqx-field-tools">
+                  <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select all</button>
+                </div>
+                {% endif %}
                 <div class="pqx-check-grid" data-pqx-check-grid="{{ field.name }}">
                   {% for option in field.options or [] %}
                   {% set option_value = option.get('value') or '' %}
@@ -2313,6 +2341,13 @@
         return `<label class="pqx-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${selected.has(optionValue) ? 'checked' : ''}><span><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</span></label>`;
       }).join('');
     };
+    const selectAllCheckboxValues = (form, name) => {
+      [...(form?.querySelectorAll(`input[name="${name}"]`) || [])].forEach((node) => {
+        if (node.checked) return;
+        node.checked = true;
+        node.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    };
     const readableErrorDetail = (detail, fallback) => {
       if (Array.isArray(detail)) {
         return detail.map((item) => readableErrorDetail(item, '')).filter(Boolean).join(' ');
@@ -2980,6 +3015,12 @@
       listingModeField?.addEventListener('change', syncListingModeControls);
       familyModeField?.addEventListener('change', syncFamilyModeControls);
       form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));
+      form.addEventListener('click', (event) => {
+        const button = event.target?.closest?.('[data-checkbox-group-select-all]');
+        if (!button) return;
+        event.preventDefault();
+        selectAllCheckboxValues(form, String(button.getAttribute('data-checkbox-group-select-all') || '').trim());
+      });
       form.addEventListener('propertyquarry:stepchange', () => {
         syncViennaScopeControls();
         syncListingModeControls();

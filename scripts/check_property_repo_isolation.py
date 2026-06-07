@@ -41,9 +41,15 @@ DOCKER_CONTEXT_EXCLUSIONS = (
 
 RUNTIME_RELEASE_FILES = (
     "docker-compose.property.yml",
+    "docker-compose.property-legacy-edge.yml",
     "ea/Dockerfile.property",
     "scripts/deploy_propertyquarry.sh",
     "scripts/property_release_gates.sh",
+)
+
+QUARANTINED_HOST_OPS_SCRIPTS = (
+    "scripts/harden_propertyquarry_docker.sh",
+    "scripts/recover_host_after_reboot.sh",
 )
 
 FORBIDDEN_RUNTIME_TOKENS = (
@@ -66,6 +72,10 @@ FORBIDDEN_RUNTIME_TOKENS = (
 
 def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
+
+
+def _script_path(path: str) -> Path:
+    return ROOT / path
 
 
 def _makefile_deploy_uses_property_compose(makefile: str) -> bool:
@@ -105,6 +115,17 @@ def main() -> int:
         for token in FORBIDDEN_RUNTIME_TOKENS:
             if token.lower() in lowered:
                 failures.append(f"{path} references inherited/non-property runtime token {token!r}")
+
+    for path in QUARANTINED_HOST_OPS_SCRIPTS:
+        if not _script_path(path).exists():
+            failures.append(f"{path} is listed as a quarantined host-ops script but does not exist")
+            continue
+        text = _read(path)
+        lowered = text.lower()
+        if "propertyquarry_host_recovery_allow" not in lowered:
+            failures.append(f"{path} must require PROPERTYQUARRY_HOST_RECOVERY_ALLOW=1 before host-level actions")
+        if "--dry-run" not in text and "PROPERTYQUARRY_HOST_RECOVERY_DRY_RUN" not in text:
+            failures.append(f"{path} must support a dry-run mode for host recovery actions")
 
     makefile = _read("Makefile")
     if not _makefile_deploy_uses_property_compose(makefile):

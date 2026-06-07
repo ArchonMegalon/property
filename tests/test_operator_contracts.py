@@ -315,14 +315,64 @@ def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
 def test_cloudflared_tunnel_is_only_available_via_override() -> None:
     base_compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     tunnel_override = (ROOT / "docker-compose.cloudflared.yml").read_text(encoding="utf-8")
+    legacy_edge_override = (ROOT / "docker-compose.property-legacy-edge.yml").read_text(encoding="utf-8")
+    property_compose = (ROOT / "docker-compose.property.yml").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    environment_matrix = (ROOT / "ENVIRONMENT_MATRIX.md").read_text(encoding="utf-8")
 
     assert "ea-cloudflared" not in base_compose
     assert "ea-cloudflared" in tunnel_override
-    assert "TUNNEL_TOKEN=${EA_CF_TUNNEL_TOKEN}" in tunnel_override
+    assert "PROPERTYQUARRY_CF_TUNNEL_TOKEN" in tunnel_override
+    assert "propertyquarry-api" in tunnel_override
+    assert "ea-api" not in property_compose
+    assert "ea-api" in legacy_edge_override
     assert "docker-compose.cloudflared.yml" in readme
-    assert "EA_CF_TUNNEL_TOKEN" in environment_matrix
+
+
+def test_deploy_propertyquarry_script_supports_dedicated_cloudflared_overlay() -> None:
+    deploy = (ROOT / "scripts" / "deploy_propertyquarry.sh").read_text(encoding="utf-8")
+
+    assert "PROPERTYQUARRY_ENABLE_CLOUDFLARED" in deploy
+    assert "PROPERTYQUARRY_CF_TUNNEL_TOKEN" in deploy
+    assert 'cloudflared_compose_file="docker-compose.cloudflared.yml"' in deploy
+    assert 'DC+=(-f "${cloudflared_compose_file}")' in deploy
+    assert "dedicated PropertyQuarry tunnel" in deploy
+
+
+def test_propertyquarry_cloudflared_bootstrap_script_help_and_contract() -> None:
+    result = subprocess.run(
+        ["python3", "scripts/bootstrap_propertyquarry_cloudflared_tunnel.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    script = (ROOT / "scripts" / "bootstrap_propertyquarry_cloudflared_tunnel.py").read_text(encoding="utf-8")
+
+    assert "dedicated PropertyQuarry Cloudflare tunnel" in result.stdout
+    assert "--tunnel-name" in result.stdout
+    assert "--property-env" in result.stdout
+    assert "--enable-cloudflared" in result.stdout
+    assert "--dry-run" in result.stdout
+    assert "CLOUDFLARE_GLOBAL_API_KEY" in script
+    assert "PROPERTYQUARRY_CF_TUNNEL_TOKEN" in script
+    assert '"/accounts/{account_id}/cfd_tunnel"' in script
+    assert '"/accounts/{account_id}/cfd_tunnel/{tunnel_id}/token"' in script
+    assert "isinstance(result, dict)" in script
+
+
+def test_host_recovery_scripts_are_guarded_and_classified() -> None:
+    isolation_check = (ROOT / "scripts" / "check_property_repo_isolation.py").read_text(encoding="utf-8")
+    harden_script = (ROOT / "scripts" / "harden_propertyquarry_docker.sh").read_text(encoding="utf-8")
+    recover_script = (ROOT / "scripts" / "recover_host_after_reboot.sh").read_text(encoding="utf-8")
+
+    assert "QUARANTINED_HOST_OPS_SCRIPTS" in isolation_check
+    assert "PROPERTYQUARRY_HOST_RECOVERY_ALLOW" in isolation_check
+    assert "PROPERTYQUARRY_HOST_RECOVERY_DRY_RUN" in isolation_check
+    assert "PROPERTYQUARRY_HOST_RECOVERY_ALLOW" in harden_script
+    assert "PROPERTYQUARRY_HOST_RECOVERY_DRY_RUN" in harden_script
+    assert 'ROOT="${PROPERTYQUARRY_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"' in harden_script
+    assert "PROPERTYQUARRY_HOST_RECOVERY_ALLOW" in recover_script
+    assert "PROPERTYQUARRY_HOST_RECOVERY_DRY_RUN" in recover_script
 
 
 def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
@@ -524,7 +574,8 @@ def test_db_operator_scripts_support_propertyquarry_service_aliases() -> None:
     db_size = (ROOT / "scripts/db_size.sh").read_text(encoding="utf-8")
 
     assert "PROPERTYQUARRY_API_SERVICE=propertyquarry-api" in env_example
-    assert "PROPERTYQUARRY_WORKER_SERVICE=ea-worker" in env_example
+    assert "PROPERTYQUARRY_WORKER_SERVICE=" in env_example
+    assert "No standalone worker is started by docker-compose.property.yml." in env_example
     assert "PROPERTYQUARRY_SCHEDULER_SERVICE=propertyquarry-scheduler" in env_example
     assert "PROPERTYQUARRY_DB_SERVICE=propertyquarry-db" in env_example
 

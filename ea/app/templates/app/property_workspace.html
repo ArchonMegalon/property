@@ -450,6 +450,22 @@
     font-size: 12px;
     line-height: 1.45;
   }
+  .pq-choice-tools {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+  }
+  .pq-choice-tools .pq-choice-action {
+    border: 0;
+    background: transparent;
+    color: var(--gold);
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+    padding: 0;
+  }
   .pq-choice {
     display: flex;
     gap: 10px;
@@ -474,16 +490,24 @@
     width: auto;
     margin-top: 2px;
   }
+  .pq-choice > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
   .pq-choice-label {
     display: block;
     font-weight: 620;
     color: var(--text);
+    line-height: 1.35;
+    overflow-wrap: anywhere;
   }
   .pq-choice-detail {
     display: block;
     margin-top: 3px;
     color: var(--text-dim);
     font-size: 12px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
   }
   .pq-field-link {
     width: fit-content;
@@ -1014,6 +1038,11 @@
                 {% elif field.type == 'checkbox' %}
                 <input type="checkbox" name="{{ field.name }}" value="{{ field.value or 'true' }}" {% if field.checked %}checked{% endif %}{% if field.tooltip %} title="{{ field.tooltip }}" aria-label="{{ field.label }}"{% endif %}>
                 {% elif field.type == 'checkbox_group' %}
+                {% if field.name == 'selected_platforms' %}
+                <div class="pq-choice-tools">
+                  <button class="pq-choice-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select all</button>
+                </div>
+                {% endif %}
                 <div class="pq-choice-grid">
                   {% for option in field.options or [] %}
                   {% set option_value = option.get('value') or '' %}
@@ -1650,6 +1679,13 @@
           </span>
         </label>`;
     }).join('');
+  };
+  const selectAllCheckboxValues = (form, name) => {
+    [...(form?.querySelectorAll(`input[name="${name}"]`) || [])].forEach((node) => {
+      if (node.checked) return;
+      node.checked = true;
+      node.dispatchEvent(new Event('change', { bubbles: true }));
+    });
   };
 
   const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
@@ -2580,6 +2616,12 @@
       if (listingModeField) listingModeField.addEventListener('change', syncListingModeControls);
       familyModeField?.addEventListener('change', syncFamilyModeControls);
       form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));
+      form.addEventListener('click', (event) => {
+        const button = event.target?.closest?.('[data-checkbox-group-select-all]');
+        if (!button) return;
+        event.preventDefault();
+        selectAllCheckboxValues(form, String(button.getAttribute('data-checkbox-group-select-all') || '').trim());
+      });
       if (preferencePersonField) {
         preferencePersonField.addEventListener('change', applyPreferenceProfile);
         preferencePersonField.addEventListener('blur', applyPreferenceProfile);

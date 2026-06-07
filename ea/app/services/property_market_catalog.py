@@ -209,14 +209,14 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
     ),
     PropertyProviderSpec(
         key="distressed_sales_at",
-        label="Notverkauf und Auktionen",
+        label="Notverkauf und Justiz",
         country_code="AT",
         host_markers=("edikte.justiz.gv.at", "edikte2.justiz.gv.at"),
         listing_path_markers=("/edikte/ex/exedi3.nsf/", "/ex/exedi3.nsf/alldoc/", "/alldoc/"),
         search_urls={
             "buy": "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/Suche!OpenForm",
         },
-        description="Austria judicial auctions, forced-sale, and distressed-disposition lanes.",
+        description="Austria judicial auctions, forced-sale, and distressed-sale lanes from court and insolvency publications.",
         family="distressed_sales",
         trust_tier="standard",
         supported_listing_modes=("buy",),
@@ -259,7 +259,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
     ),
     PropertyProviderSpec(
         key="justiz_edikte_at",
-        label="Justiz Edikte Auctions",
+        label="Justiz Edikte",
         country_code="AT",
         host_markers=("edikte.justiz.gv.at", "edikte2.justiz.gv.at"),
         listing_path_markers=(
@@ -1159,7 +1159,7 @@ GROUPED_PROVIDER_SOURCE_MAP: dict[str, tuple[dict[str, str], ...]] = {
     ),
     "distressed_sales_at": (
         {
-            "label": "Justiz Edikte Auktionen",
+            "label": "Justiz Edikte",
             "rent_url": "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/Suche!OpenForm",
             "buy_url": "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/Suche!OpenForm",
         },

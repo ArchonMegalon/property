@@ -4,6 +4,7 @@ PropertyQuarry is the standalone product runtime. The active release surface is 
 
 - `ea/` application runtime used by the property API and scheduler
 - `docker-compose.property.yml`
+- `docker-compose.property-legacy-edge.yml` only when an intentional legacy edge alias is still required
 - `ea/Dockerfile.property`
 - `config/`, `docs/`, `scripts/`, and `tests/` that are property-facing
 - `.github/workflows/smoke-runtime.yml`
@@ -24,5 +25,7 @@ The extraction still carries inherited archives from the broader EA and Chummer 
 - `scripts/bootstrap_chummer6_guide_skill.py`
 
 If one of these directories is needed for future work, move that work to the owning repository first or add a dedicated migration issue. Do not wire it into the PropertyQuarry deploy path.
+
+Host-level recovery scripts are quarantined operator artifacts. `scripts/harden_propertyquarry_docker.sh` and `scripts/recover_host_after_reboot.sh` must stay explicitly guarded behind `PROPERTYQUARRY_HOST_RECOVERY_ALLOW=1`, support dry runs, and must not be treated as normal release/runtime entrypoints.
 
 Use `python3 scripts/check_property_repo_isolation.py` or `make property-release-gates` before a public deploy.

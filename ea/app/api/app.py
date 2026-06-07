@@ -142,11 +142,8 @@ def _include_legacy_authenticated_routes(
 
 
 @lru_cache(maxsize=1)
-def _load_route_modules() -> dict[str, object]:
+def _load_core_route_modules() -> dict[str, object]:
     modules = {
-        "connectors": import_module("app.api.routes.connectors"),
-        "delivery": import_module("app.api.routes.delivery"),
-        "evidence": import_module("app.api.routes.evidence"),
         "fliplink_integration": import_module("app.api.routes.fliplink_integration"),
         "google_oauth": import_module("app.api.routes.google_oauth"),
         "health": import_module("app.api.routes.health"),
@@ -154,12 +151,10 @@ def _load_route_modules() -> dict[str, object]:
         "landing_actions": import_module("app.api.routes.landing_actions"),
         "landing_channel": import_module("app.api.routes.landing_channel"),
         "public_documents": import_module("app.api.routes.public_documents"),
-        "human": import_module("app.api.routes.human"),
         "landing": import_module("app.api.routes.landing"),
         "landing_objects": import_module("app.api.routes.landing_objects"),
         "landing_setup": import_module("app.api.routes.landing_setup"),
         "landing_workspace": import_module("app.api.routes.landing_workspace"),
-        "ltd_runtime": import_module("app.api.routes.ltd_runtime"),
         "memory": import_module("app.api.routes.memory"),
         "observations": import_module("app.api.routes.observations"),
         "onboarding": import_module("app.api.routes.onboarding"),
@@ -171,16 +166,30 @@ def _load_route_modules() -> dict[str, object]:
         "product_api_workspace": import_module("app.api.routes.product_api_workspace"),
         "rewrite": import_module("app.api.routes.rewrite"),
         "runtime": import_module("app.api.routes.runtime"),
-        "skills": import_module("app.api.routes.skills"),
-        "task_contracts": import_module("app.api.routes.task_contracts"),
-        "tools": import_module("app.api.routes.tools"),
-        "responses": import_module("app.api.routes.responses"),
     }
     return modules
 
 
-def preload_non_channel_route_modules() -> None:
-    _load_route_modules()
+@lru_cache(maxsize=1)
+def _load_legacy_route_modules() -> dict[str, object]:
+    modules = {
+        "connectors": import_module("app.api.routes.connectors"),
+        "delivery": import_module("app.api.routes.delivery"),
+        "evidence": import_module("app.api.routes.evidence"),
+        "human": import_module("app.api.routes.human"),
+        "ltd_runtime": import_module("app.api.routes.ltd_runtime"),
+        "responses": import_module("app.api.routes.responses"),
+        "skills": import_module("app.api.routes.skills"),
+        "task_contracts": import_module("app.api.routes.task_contracts"),
+        "tools": import_module("app.api.routes.tools"),
+    }
+    return modules
+
+
+def preload_non_channel_route_modules(*, include_legacy: bool = False) -> None:
+    _load_core_route_modules()
+    if include_legacy:
+        _load_legacy_route_modules()
 
 
 def create_app() -> FastAPI:
@@ -190,10 +199,7 @@ def create_app() -> FastAPI:
         install_inline_threadpool_compat()
     from app.api.routes.channels import router as channels_router
 
-    route_modules = _load_route_modules()
-    connectors_router = route_modules["connectors"].router
-    delivery_router = route_modules["delivery"].router
-    evidence_router = route_modules["evidence"].router
+    route_modules = _load_core_route_modules()
     fliplink_authenticated_router = route_modules["fliplink_integration"].authenticated_router
     fliplink_public_router = route_modules["fliplink_integration"].public_router
     google_oauth_router = route_modules["google_oauth"].router
@@ -202,14 +208,12 @@ def create_app() -> FastAPI:
     landing_actions_router = route_modules["landing_actions"].router
     landing_channel_router = route_modules["landing_channel"].router
     public_documents_router = route_modules["public_documents"].router
-    human_router = route_modules["human"].router
     landing_router = route_modules["landing"].router
     landing_objects_router = route_modules["landing_objects"].router
     landing_setup_router = route_modules["landing_setup"].router
     landing_workspace_router = route_modules["landing_workspace"].router
-    ltd_runtime_router = route_modules["ltd_runtime"].router
-    memory_router = route_modules["memory"].router
     observations_router = route_modules["observations"].router
+    memory_router = route_modules["memory"].router
     register_router = route_modules["onboarding"].register_router
     onboarding_router = route_modules["onboarding"].router
     plans_router = route_modules["plans"].router
@@ -220,10 +224,6 @@ def create_app() -> FastAPI:
     product_api_workspace_router = route_modules["product_api_workspace"].router
     rewrite_router = route_modules["rewrite"].router
     runtime_router = route_modules["runtime"].router
-    skills_router = route_modules["skills"].router
-    task_contracts_router = route_modules["task_contracts"].router
-    tools_router = route_modules["tools"].router
-
     app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
@@ -267,7 +267,16 @@ def create_app() -> FastAPI:
         runtime_router=runtime_router,
     )
     if s.legacy_runtime_surfaces_enabled:
-        responses_router = route_modules["responses"].router
+        legacy_route_modules = _load_legacy_route_modules()
+        connectors_router = legacy_route_modules["connectors"].router
+        delivery_router = legacy_route_modules["delivery"].router
+        evidence_router = legacy_route_modules["evidence"].router
+        human_router = legacy_route_modules["human"].router
+        ltd_runtime_router = legacy_route_modules["ltd_runtime"].router
+        responses_router = legacy_route_modules["responses"].router
+        skills_router = legacy_route_modules["skills"].router
+        task_contracts_router = legacy_route_modules["task_contracts"].router
+        tools_router = legacy_route_modules["tools"].router
 
         _include_legacy_authenticated_routes(
             app,

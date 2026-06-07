@@ -17,11 +17,16 @@ Deploys the standalone PropertyQuarry runtime with operator preflight checks:
   - rejects EA_ALLOW_LOOPBACK_NO_AUTH=1 in prod
   - checks EA_HOST_PORT for obvious conflicts before rebuilding
   - starts docker-compose.property.yml and waits for API, scheduler, and DB health
+  - can add docker-compose.cloudflared.yml only for a dedicated PropertyQuarry tunnel token
   - supports isolated blue/green deploys via configurable Compose project/container names
   - probes /health, /health/ready, /version, the landing page, and /app/properties auth
 
 Environment:
   PROPERTYQUARRY_COMPOSE_FILE     Compose file path, default docker-compose.property.yml.
+  PROPERTYQUARRY_ENABLE_CLOUDFLARED
+                                  1|0|auto. Adds docker-compose.cloudflared.yml only when explicitly enabled
+                                  or when PROPERTYQUARRY_CF_TUNNEL_TOKEN is present. Defaults to auto.
+  PROPERTYQUARRY_CF_TUNNEL_TOKEN  Dedicated PropertyQuarry Cloudflare tunnel token.
   PROPERTYQUARRY_COMPOSE_PROJECT_NAME
                                    Optional Compose project name override.
   PROPERTYQUARRY_*_CONTAINER_NAME Optional container names for isolated deploys.
@@ -152,6 +157,9 @@ fi
 
 compose_project_name="$(effective_env_value PROPERTYQUARRY_COMPOSE_PROJECT_NAME)"
 compose_project_name="${compose_project_name:-$(effective_env_value COMPOSE_PROJECT_NAME)}"
+enable_cloudflared="$(effective_env_value PROPERTYQUARRY_ENABLE_CLOUDFLARED)"
+enable_cloudflared="${enable_cloudflared:-auto}"
+cf_tunnel_token="$(effective_env_value PROPERTYQUARRY_CF_TUNNEL_TOKEN)"
 
 compose_probe_timeout="$(effective_env_value PROPERTYQUARRY_COMPOSE_PROBE_TIMEOUT_SECONDS)"
 compose_probe_timeout="${compose_probe_timeout:-10}"
@@ -194,6 +202,31 @@ else
     echo "Docker Compose is required: install docker compose or docker-compose." >&2
   fi
   exit 2
+fi
+
+cloudflared_compose_file="docker-compose.cloudflared.yml"
+should_enable_cloudflared=0
+case "$(printf '%s' "${enable_cloudflared}" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on)
+    should_enable_cloudflared=1
+    ;;
+  auto)
+    if [[ -n "${cf_tunnel_token}" ]]; then
+      should_enable_cloudflared=1
+    fi
+    ;;
+esac
+
+if (( should_enable_cloudflared )); then
+  if [[ -z "${cf_tunnel_token}" ]]; then
+    echo "PROPERTYQUARRY_ENABLE_CLOUDFLARED requires PROPERTYQUARRY_CF_TUNNEL_TOKEN for a dedicated PropertyQuarry tunnel." >&2
+    exit 2
+  fi
+  if [[ ! -f "${cloudflared_compose_file}" ]]; then
+    echo "Cloudflare overlay not found: ${cloudflared_compose_file}" >&2
+    exit 2
+  fi
+  DC+=(-f "${cloudflared_compose_file}")
 fi
 
 api_service="${PROPERTYQUARRY_API_SERVICE:-$(effective_env_value PROPERTYQUARRY_API_SERVICE)}"

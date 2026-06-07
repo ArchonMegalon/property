@@ -1119,10 +1119,10 @@ def app_section_payload(
             {
                 "type": "checkbox",
                 "name": "include_distressed_sale_signals",
-                "label": "Distressed and auction signals",
+                "label": "Notverkauf- und Justizsignale",
                 "value": "true",
                 "checked": bool(property_preferences.get("include_distressed_sale_signals")),
-                "tooltip": "Track forced-sale, insolvency, and other distressed-sale lanes as their own signal family.",
+                "tooltip": "Track forced-sale, court-published, insolvency, and other distressed-sale lanes as their own signal family.",
                 "step": "providers",
             },
             {

@@ -32,10 +32,6 @@ services:
       TZ: Europe/Vienna
     ports:
       - "${EA_HOST_PORT:-8090}:8090"
-    networks:
-      default:
-        aliases:
-          - ea-api
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro

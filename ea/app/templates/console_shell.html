@@ -419,6 +419,22 @@
     font-size: 12px;
     line-height: 1.45;
   }
+  .console-choice-tools {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+  }
+  .console-choice-tools .console-choice-action {
+    border: 0;
+    background: transparent;
+    color: var(--gold);
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+    padding: 0;
+  }
   .console-choice {
     display: flex;
     align-items: flex-start;
@@ -441,16 +457,24 @@
     width: auto;
     margin-top: 2px;
   }
+  .console-choice > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
   .console-choice-label {
     display: block;
     color: var(--text);
     font-size: 13px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
   }
   .console-choice-detail {
     display: block;
     color: var(--text-dim);
     font-size: 12px;
     margin-top: 2px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
   }
   .console-action-row {
     display: flex;
@@ -1062,6 +1086,11 @@
               {% if field.checked %}checked{% endif %}
             >
             {% elif field.type == 'checkbox_group' %}
+            {% if field.name == 'selected_platforms' %}
+            <div class="console-choice-tools">
+              <button class="console-choice-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select all</button>
+            </div>
+            {% endif %}
             <div class="console-choice-grid">
               {% for option in field.options or [] %}
               {% set option_value = option.get('value') or '' %}
@@ -1306,6 +1335,13 @@
           </span>
         </label>`;
     }).join('');
+  };
+  const selectAllCheckboxValues = (form, name) => {
+    [...(form?.querySelectorAll(`input[name="${name}"]`) || [])].forEach((node) => {
+      if (node.checked) return;
+      node.checked = true;
+      node.dispatchEvent(new Event('change', { bubbles: true }));
+    });
   };
 
   const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
@@ -1713,6 +1749,12 @@
     }
     form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => {
       node.addEventListener('change', () => syncSchoolStageVariantVisibility(form));
+    });
+    form.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('[data-checkbox-group-select-all]');
+      if (!button) return;
+      event.preventDefault();
+      selectAllCheckboxValues(form, String(button.getAttribute('data-checkbox-group-select-all') || '').trim());
     });
     renderRun(form, meta.initial_run || {});
 

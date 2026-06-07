@@ -5,8 +5,7 @@ services:
     restart: unless-stopped
     command: tunnel run
     environment:
-      - TUNNEL_TOKEN=${EA_CF_TUNNEL_TOKEN}
-      - TUNNEL_TOKEN=${PROPERTYQUARRY_CF_TUNNEL_TOKEN:-${EA_CF_TUNNEL_TOKEN}}
+      - TUNNEL_TOKEN=${PROPERTYQUARRY_CF_TUNNEL_TOKEN:?Set PROPERTYQUARRY_CF_TUNNEL_TOKEN for the dedicated PropertyQuarry tunnel}
     depends_on:
-      ea-api:
+      propertyquarry-api:
         condition: service_healthy

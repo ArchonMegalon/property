@@ -865,11 +865,11 @@ make release-preflight
 - `13`: runtime response missing an expected resource id (delivery or memory flow)
 
 Other transport failures (for example `curl`) return their native non-zero exit codes.
-PropertyQuarry operator scripts default to the standalone compose service keys (`propertyquarry-api`, `propertyquarry-scheduler`, `propertyquarry-db`) while still honoring the legacy worker alias (`ea-worker`). You can override them per environment with:
+PropertyQuarry operator scripts default to the standalone compose service keys (`propertyquarry-api`, `propertyquarry-scheduler`, `propertyquarry-db`). You can override them per environment with:
 
 - `PROPERTYQUARRY_API_SERVICE`
 - `PROPERTYQUARRY_WORKER_SERVICE`
 - `PROPERTYQUARRY_SCHEDULER_SERVICE`
 - `PROPERTYQUARRY_DB_SERVICE`
 
-That same alias layer is honored by `scripts/support_bundle.sh`, so support exports follow the standalone compose service mapping too.
+`PROPERTYQUARRY_WORKER_SERVICE` is left empty in `.env.example` because `docker-compose.property.yml` does not start a standalone worker by default. That same alias layer is honored by `scripts/support_bundle.sh`, so support exports follow the standalone compose service mapping too.

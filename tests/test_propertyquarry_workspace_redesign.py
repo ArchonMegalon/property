@@ -274,6 +274,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-school-stage-parent' in setup.text
     assert "Checked school types are treated as OR matches." in setup.text
     assert "Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants." in setup.text
+    assert 'data-checkbox-group-select-all="selected_platforms"' in setup.text
+    assert "Select all" in setup.text
+    assert "Notverkauf und Justiz" in setup.text
+    assert "Justiz Edikte" in setup.text
     assert 'name="school_stage_preferences"' in setup.text
     assert 'value="volksschule"' in setup.text
     assert 'value="ganztags_volksschule"' in setup.text

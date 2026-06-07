@@ -1,0 +1,6 @@
+services:
+  propertyquarry-api:
+    networks:
+      default:
+        aliases:
+          - ea-api

@@ -1,12 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PROPERTYQUARRY_HOST_RECOVERY_ALLOW="${PROPERTYQUARRY_HOST_RECOVERY_ALLOW:-0}"
+PROPERTYQUARRY_HOST_RECOVERY_DRY_RUN="${PROPERTYQUARRY_HOST_RECOVERY_DRY_RUN:-0}"
+
+if [[ "${PROPERTYQUARRY_HOST_RECOVERY_ALLOW}" != "1" ]]; then
+  echo "Refusing host-level Docker recovery without PROPERTYQUARRY_HOST_RECOVERY_ALLOW=1" >&2
+  exit 2
+fi
+
 log() {
   printf '[propertyquarry-postreboot] %s\n' "$1"
 }
 
 run() {
   log "running: $*"
+  if [[ "${PROPERTYQUARRY_HOST_RECOVERY_DRY_RUN}" == "1" ]]; then
+    return 0
+  fi
   "$@"
 }
 

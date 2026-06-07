@@ -100,6 +100,7 @@ def test_app_factory_omits_legacy_authenticated_runtime_routes_by_default() -> N
     assert "/v1/human/tasks" not in route_paths
     assert "/v1/channels/telegram/ingest" not in route_paths
     assert "/v1/providers/registry" not in route_paths
+    assert "/v1/memory/candidates" in route_paths
 
 
 def test_app_factory_mounts_legacy_authenticated_runtime_routes_when_enabled() -> None:
@@ -114,3 +115,12 @@ def test_app_factory_mounts_legacy_authenticated_runtime_routes_when_enabled() -
     assert "/v1/human/tasks" in route_paths
     assert "/v1/channels/telegram/ingest" in route_paths
     assert "/v1/providers/registry" in route_paths
+    assert "/v1/memory/entities" in route_paths
+
+
+def test_channels_route_lazy_loads_responses_module() -> None:
+    source = (REPO_ROOT / "ea/app/api/routes/channels.py").read_text(encoding="utf-8")
+
+    assert "def _responses_route_module():" in source
+    assert 'return import_module("app.api.routes.responses")' in source
+    assert "preload_non_channel_route_modules()" not in source
