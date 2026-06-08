@@ -12,6 +12,7 @@ from app.services.public_clickrank import clickrank_head_snippet, clickrank_site
 
 
 _MYEXTERNALBRAIN_SITE_ID = "33ff8f39-6213-4903-99d7-81048b5b3e1f"
+_PROPERTYQUARRY_RYBBIT_SITE_ID = "rybbit-property-site"
 
 
 def _client(*, principal_id: str = "exec-clickrank-contract", clickrank_enabled: bool = True) -> TestClient:
@@ -164,3 +165,34 @@ def test_public_landing_omits_clickrank_snippet_when_not_explicitly_enabled() ->
 
     assert response.status_code == 200
     assert "clickrank.ai" not in response.text
+
+
+def test_clickrank_head_snippet_can_include_rybbit_for_propertyquarry_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_RYBBIT", "1")
+    monkeypatch.setenv("RYBBIT_IO_PROPERTYQUARRY_SITE_ID", _PROPERTYQUARRY_RYBBIT_SITE_ID)
+    monkeypatch.delenv("EA_ENABLE_CLICKRANK", raising=False)
+
+    snippet = clickrank_head_snippet("propertyquarry.com")
+
+    assert 'https://app.rybbit.io/api/script.js' in snippet
+    assert f'data-site-id="{_PROPERTYQUARRY_RYBBIT_SITE_ID}"' in snippet
+    assert "clickrank.ai" not in snippet
+
+
+def test_public_landing_can_include_clickrank_and_rybbit_together(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_CLICKRANK", "1")
+    monkeypatch.setenv("CLICKRANK_AI_MYEXTERNALBRAIN_SITE_ID", _MYEXTERNALBRAIN_SITE_ID)
+    monkeypatch.setenv("EA_ENABLE_RYBBIT", "1")
+    monkeypatch.setenv("RYBBIT_IO_MYEXTERNALBRAIN_SITE_ID", "rybbit-meb-site")
+    client = _client()
+
+    response = client.get("/", headers={"host": "myexternalbrain.com"})
+
+    assert response.status_code == 200
+    assert f"https://js.clickrank.ai/seo/{_MYEXTERNALBRAIN_SITE_ID}/script?" in response.text
+    assert 'https://app.rybbit.io/api/script.js' in response.text
+    assert 'data-site-id="rybbit-meb-site"' in response.text

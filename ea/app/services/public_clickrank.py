@@ -11,6 +11,13 @@ _CLICKRANK_HOST_CONFIG = {
     "www.myexternalbrain.com": ("CLICKRANK_AI_MYEXTERNALBRAIN_SITE_ID", ""),
 }
 
+_RYBBIT_HOST_CONFIG = {
+    "propertyquarry.com": ("RYBBIT_IO_PROPERTYQUARRY_SITE_ID", ""),
+    "www.propertyquarry.com": ("RYBBIT_IO_PROPERTYQUARRY_SITE_ID", ""),
+    "myexternalbrain.com": ("RYBBIT_IO_MYEXTERNALBRAIN_SITE_ID", ""),
+    "www.myexternalbrain.com": ("RYBBIT_IO_MYEXTERNALBRAIN_SITE_ID", ""),
+}
+
 
 def _normalize_hostname(hostname: str | None) -> str:
     return str(hostname or "").strip().lower().rstrip(".")
@@ -18,6 +25,13 @@ def _normalize_hostname(hostname: str | None) -> str:
 
 def _clickrank_enabled() -> bool:
     for env_name in ("EA_ENABLE_CLICKRANK", "EA_PUBLIC_CLICKRANK_ENABLED"):
+        if str(os.getenv(env_name) or "").strip().lower() in {"1", "true", "yes", "on"}:
+            return True
+    return False
+
+
+def _rybbit_enabled() -> bool:
+    for env_name in ("EA_ENABLE_RYBBIT", "EA_PUBLIC_RYBBIT_ENABLED"):
         if str(os.getenv(env_name) or "").strip().lower() in {"1", "true", "yes", "on"}:
             return True
     return False
@@ -82,15 +96,35 @@ def clickrank_site_id_for_hostname(hostname: str | None) -> str:
     return str(os.getenv(env_name) or fallback).strip()
 
 
-def clickrank_head_snippet(hostname: str | None) -> str:
-    site_id = clickrank_site_id_for_hostname(hostname)
-    if not site_id:
+def rybbit_site_id_for_hostname(hostname: str | None) -> str:
+    if not _rybbit_enabled():
         return ""
-    return (
-        "<script>\n"
-        'var clickRankAi = document.createElement("script");\n'
-        f'clickRankAi.src = "https://js.clickrank.ai/seo/{site_id}/script?" + new Date().getTime();\n'
-        "clickRankAi.async = true;\n"
-        "document.head.appendChild(clickRankAi);\n"
-        "</script>"
-    )
+    normalized = _normalize_hostname(hostname)
+    config = _RYBBIT_HOST_CONFIG.get(normalized)
+    if config is None and _hostname_can_fallback_to_public_base_url(normalized):
+        configured_base_host = _configured_public_base_hostname()
+        config = _RYBBIT_HOST_CONFIG.get(configured_base_host)
+    if not config:
+        return ""
+    env_name, fallback = config
+    return str(os.getenv(env_name) or fallback).strip()
+
+
+def clickrank_head_snippet(hostname: str | None) -> str:
+    snippets: list[str] = []
+    clickrank_site_id = clickrank_site_id_for_hostname(hostname)
+    if clickrank_site_id:
+        snippets.append(
+            "<script>\n"
+            'var clickRankAi = document.createElement("script");\n'
+            f'clickRankAi.src = "https://js.clickrank.ai/seo/{clickrank_site_id}/script?" + new Date().getTime();\n'
+            "clickRankAi.async = true;\n"
+            "document.head.appendChild(clickRankAi);\n"
+            "</script>"
+        )
+    rybbit_site_id = rybbit_site_id_for_hostname(hostname)
+    if rybbit_site_id:
+        snippets.append(
+            f'<script src="https://app.rybbit.io/api/script.js" async defer data-site-id="{rybbit_site_id}"></script>'
+        )
+    return "\n".join(snippets)
