@@ -40,6 +40,7 @@ def test_propertyquarry_object_detail_template_exposes_opt_in_magic_fit_panel() 
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/object_detail.html"
     body = template_path.read_text(encoding="utf-8")
     assert "Open Magic Fit" in body
+    assert "Upload reference photos" in body
     assert "Use Google Photos Picker" in body
     assert "Attach the generated still to the packet PDF dossier" in body
 
@@ -107,6 +108,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
             "nearest_supermarket_lat": 52.532,
             "nearest_supermarket_lng": 13.385,
             "nearest_pharmacy_m": 410,
+            "nearest_library_m": 360,
+            "nearest_running_m": 640,
+            "nearest_tram_bus_m": 190,
             "nearest_playground_m": 520,
             "nearest_starbucks_m": 340,
             "nearest_fitness_center_m": 460,
@@ -484,8 +488,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "OODA summary" in packet.text
     assert "Why this was selected" in packet.text
     assert "Nearest supermarket" in packet.text
-    assert "https://www.google.com/maps/dir/" in packet.text
-    assert "Open navigation" in packet.text
+    assert "https://www.google.com/maps/dir/" not in packet.text
+    assert "Open navigation" not in packet.text
+    assert "Library" in packet.text
+    assert "Nearest run or green space" in packet.text
+    assert "Straßenbahn / Bus" in packet.text
+    assert "Underground" in packet.text
     assert "Nearest underground" in packet.text
     assert "Decision call" in packet.text
     assert "Why now" in packet.text

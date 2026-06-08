@@ -580,16 +580,25 @@ def _property_narrative(payload: dict[str, object]) -> list[str]:
     daily_life = []
     supermarket = _walk_minutes_phrase(facts.get("nearest_supermarket_m"))
     pharmacy = _walk_minutes_phrase(facts.get("nearest_pharmacy_m"))
+    library = _walk_minutes_phrase(facts.get("nearest_library_m"))
+    tram_bus = _walk_minutes_phrase(facts.get("nearest_tram_bus_m") or facts.get("nearest_transit_m"))
     subway = _walk_minutes_phrase(facts.get("nearest_subway_m"))
     playground = _walk_minutes_phrase(facts.get("nearest_playground_m"))
+    running = _walk_minutes_phrase(facts.get("nearest_running_m"))
     if supermarket:
         daily_life.append(f"the nearest supermarket is {supermarket}")
     if pharmacy:
         daily_life.append(f"the nearest pharmacy is {pharmacy}")
+    if library:
+        daily_life.append(f"the nearest library is {library}")
+    if tram_bus:
+        daily_life.append(f"the nearest tram or bus stop is {tram_bus}")
     if subway:
         daily_life.append(f"the nearest subway stop is {subway}")
     if playground:
         daily_life.append(f"the nearest playground is {playground}")
+    if running:
+        daily_life.append(f"the nearest realistic green or running route is {running}")
 
     intro_bits = [title]
     if district:

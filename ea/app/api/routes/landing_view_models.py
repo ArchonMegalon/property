@@ -2914,6 +2914,8 @@ def property_workspace_payload(
             ("Baumarkt", facts.get("nearest_hardware_store_m")),
             ("Starbucks", facts.get("nearest_starbucks_m")),
             ("Fitness", facts.get("nearest_fitness_center_m")),
+            ("Run", facts.get("nearest_running_m")),
+            ("Straßenbahn / Bus", facts.get("nearest_tram_bus_m") or facts.get("nearest_transit_m")),
             ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m")),
         )
         parts: list[str] = []
@@ -3022,6 +3024,8 @@ def property_workspace_payload(
             ("Baumarkt", facts.get("nearest_hardware_store_m")),
             ("Starbucks", facts.get("nearest_starbucks_m")),
             ("Fitness", facts.get("nearest_fitness_center_m")),
+            ("Run or green space", facts.get("nearest_running_m")),
+            ("Straßenbahn / Bus", facts.get("nearest_tram_bus_m") or facts.get("nearest_transit_m")),
             ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m")),
         ):
             if raw_value in (None, "", []):

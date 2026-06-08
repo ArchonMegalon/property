@@ -4362,6 +4362,10 @@ def _property_research_nearby_pois(lat: float, lon: float) -> dict[str, object]:
 (
   node["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
   way["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
+  node["shop"="convenience"](around:5000,{lat:.8f},{lon:.8f});
+  way["shop"="convenience"](around:5000,{lat:.8f},{lon:.8f});
+  node["shop"="greengrocer"](around:5000,{lat:.8f},{lon:.8f});
+  way["shop"="greengrocer"](around:5000,{lat:.8f},{lon:.8f});
   node["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
   way["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
   node["amenity"="library"](around:5000,{lat:.8f},{lon:.8f});
@@ -4390,6 +4394,10 @@ def _property_research_nearby_pois(lat: float, lon: float) -> dict[str, object]:
   way["amenity"="clinic"](around:7000,{lat:.8f},{lon:.8f});
   node["amenity"="hospital"](around:7000,{lat:.8f},{lon:.8f});
   way["amenity"="hospital"](around:7000,{lat:.8f},{lon:.8f});
+  node["railway"="tram_stop"](around:7000,{lat:.8f},{lon:.8f});
+  way["railway"="tram_stop"](around:7000,{lat:.8f},{lon:.8f});
+  node["highway"="bus_stop"](around:7000,{lat:.8f},{lon:.8f});
+  way["highway"="bus_stop"](around:7000,{lat:.8f},{lon:.8f});
   node["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
   way["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
 );
@@ -4420,7 +4428,7 @@ out center tags;
         if not isinstance(point_lat, (int, float)) or not isinstance(point_lon, (int, float)):
             continue
         distance_m = _property_research_distance_m(lat, lon, float(point_lat), float(point_lon))
-        if tags.get("shop") == "supermarket":
+        if tags.get("shop") in {"supermarket", "convenience", "greengrocer"}:
             metric_key, name_key = "nearest_supermarket_m", "nearest_supermarket_name"
         elif tags.get("amenity") == "pharmacy":
             metric_key, name_key = "nearest_pharmacy_m", "nearest_pharmacy_name"
@@ -4456,6 +4464,8 @@ out center tags;
             metric_key, name_key = "nearest_dog_park_m", "nearest_dog_park_name"
         elif tags.get("amenity") == "cafe":
             metric_key, name_key = "nearest_good_cafe_m", "nearest_good_cafe_name"
+        elif tags.get("railway") == "tram_stop" or tags.get("highway") == "bus_stop":
+            metric_key, name_key = "nearest_tram_bus_m", "nearest_tram_bus_name"
         elif tags.get("railway") == "subway_entrance":
             metric_key, name_key = "nearest_subway_m", "nearest_subway_name"
         else:

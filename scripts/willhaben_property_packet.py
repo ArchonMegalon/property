@@ -29,6 +29,7 @@ OVERPASS_FALLBACK_URLS = (
     "https://lz4.overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
 )
+GROCERY_SHOP_TAGS = frozenset({"supermarket", "convenience", "greengrocer"})
 DEFAULT_LIVABILITY_CACHE_FILE = "/data/property_livability_cache.json"
 LIVABILITY_CACHE_TTL_SECONDS = 7 * 24 * 3600
 LIVABILITY_CACHE_MAX_ENTRIES = 512
@@ -279,7 +280,7 @@ def _livability_cache_lock_file() -> Path:
 
 
 def _livability_cache_key(lat: float, lon: float) -> str:
-    return f"{lat:.5f},{lon:.5f}"
+    return f"v2:{lat:.5f},{lon:.5f}"
 
 
 def _livability_cache_ttl_seconds() -> float:
@@ -512,9 +513,12 @@ def nearby_livability_snapshot(lat: float, lon: float) -> dict[str, object]:
     (
       nwr(around:1800,%(lat).6f,%(lon).6f)[amenity=pharmacy];
       nwr(around:1800,%(lat).6f,%(lon).6f)[shop=supermarket];
+      nwr(around:1800,%(lat).6f,%(lon).6f)[shop=convenience];
+      nwr(around:1800,%(lat).6f,%(lon).6f)[shop=greengrocer];
       nwr(around:1800,%(lat).6f,%(lon).6f)[amenity=bicycle_parking];
       nwr(around:1800,%(lat).6f,%(lon).6f)[leisure=playground];
       way(around:1800,%(lat).6f,%(lon).6f)[highway=cycleway];
+      nwr(around:1800,%(lat).6f,%(lon).6f)[railway=tram_stop];
       nwr(around:1800,%(lat).6f,%(lon).6f)[railway=station];
       nwr(around:1800,%(lat).6f,%(lon).6f)[station=subway];
       nwr(around:1800,%(lat).6f,%(lon).6f)[public_transport=station];
@@ -541,6 +545,8 @@ def nearby_livability_snapshot(lat: float, lon: float) -> dict[str, object]:
         "playground": [],
         "school": [],
         "transit": [],
+        "tram_bus": [],
+        "subway": [],
         "running": [],
     }
     for raw in elements:
@@ -557,7 +563,7 @@ def nearby_livability_snapshot(lat: float, lon: float) -> dict[str, object]:
         natural = str(tags.get("natural") or "").strip().lower()
         if amenity == "pharmacy":
             grouped["pharmacy"].append(raw)
-        if shop == "supermarket":
+        if shop in GROCERY_SHOP_TAGS:
             grouped["supermarket"].append(raw)
         if amenity == "bicycle_parking":
             grouped["bicycle_parking"].append(raw)
@@ -569,7 +575,11 @@ def nearby_livability_snapshot(lat: float, lon: float) -> dict[str, object]:
             grouped["cycleway"].append(raw)
         if amenity == "school":
             grouped["school"].append(raw)
-        if railway == "station" or station == "subway" or public_transport == "station" or highway == "bus_stop":
+        if railway == "tram_stop" or highway == "bus_stop":
+            grouped["tram_bus"].append(raw)
+            grouped["transit"].append(raw)
+        if railway == "station" or station == "subway" or public_transport == "station":
+            grouped["subway"].append(raw)
             grouped["transit"].append(raw)
         if leisure in {"park", "track"} or natural == "wood":
             grouped["running"].append(raw)
@@ -582,6 +592,8 @@ def nearby_livability_snapshot(lat: float, lon: float) -> dict[str, object]:
         "nearest_playground_m": _nearest_distance_from_elements(lat, lon, grouped["playground"]),
         "nearest_school_m": _nearest_distance_from_elements(lat, lon, grouped["school"]),
         "nearest_transit_m": _nearest_distance_from_elements(lat, lon, grouped["transit"]),
+        "nearest_tram_bus_m": _nearest_distance_from_elements(lat, lon, grouped["tram_bus"]),
+        "nearest_subway_m": _nearest_distance_from_elements(lat, lon, grouped["subway"]),
         "nearest_running_m": _nearest_distance_from_elements(lat, lon, grouped["running"]),
     }
     fallback_queries = (
@@ -599,6 +611,18 @@ def nearby_livability_snapshot(lat: float, lon: float) -> dict[str, object]:
             lat,
             lon,
             queries=("subway station", "tram stop", "bus stop"),
+        )
+    if result.get("nearest_tram_bus_m") is None:
+        result["nearest_tram_bus_m"] = _nominatim_nearest_distance_any(
+            lat,
+            lon,
+            queries=("tram stop", "bus stop"),
+        )
+    if result.get("nearest_subway_m") is None:
+        result["nearest_subway_m"] = _nominatim_nearest_distance_any(
+            lat,
+            lon,
+            queries=("subway station", "u-bahn"),
         )
     _store_livability_snapshot(lat, lon, result)
     return result
@@ -635,9 +659,34 @@ def inspect_panorama_signal(url: str, description: str) -> dict[str, object]:
     width = None
     height = None
     aspect_ratio = None
+    floorplan_candidate = False
+    floorplan_reason = ""
     try:
         with Image.open(io.BytesIO(data)) as image:
-            width, height = image.size
+            rgb_image = image.convert("RGB")
+            width, height = rgb_image.size
+            if width and height:
+                aspect_ratio = round(width / height, 4)
+                if min(width, height) >= 700 and 0.75 <= (width / height) <= 1.4:
+                    probe = rgb_image.resize((220, 220))
+                    pixel_count = 0
+                    white_pixels = 0
+                    low_saturation_pixels = 0
+                    dark_pixels = 0
+                    for r, g, b in probe.getdata():
+                        pixel_count += 1
+                        if r >= 232 and g >= 232 and b >= 232:
+                            white_pixels += 1
+                        if max(r, g, b) > 0 and (max(r, g, b) - min(r, g, b)) / max(r, g, b) <= 0.10:
+                            low_saturation_pixels += 1
+                        if max(r, g, b) <= 90:
+                            dark_pixels += 1
+                    white_ratio = white_pixels / float(pixel_count or 1)
+                    low_saturation_ratio = low_saturation_pixels / float(pixel_count or 1)
+                    dark_ratio = dark_pixels / float(pixel_count or 1)
+                    if white_ratio >= 0.58 and low_saturation_ratio >= 0.72 and 0.005 <= dark_ratio <= 0.22:
+                        floorplan_candidate = True
+                        floorplan_reason = "plan_like_image"
     except Exception:
         width = None
         height = None
@@ -661,6 +710,8 @@ def inspect_panorama_signal(url: str, description: str) -> dict[str, object]:
         "width": width,
         "height": height,
         "aspect_ratio": aspect_ratio,
+        "floorplan_candidate": floorplan_candidate,
+        "floorplan_reason": floorplan_reason,
     }
 
 
@@ -681,11 +732,12 @@ def extract_media(
                 continue
             description = as_text(entry.get("description"))
             panorama_signal = inspect_panorama_signal(url, description)
+            role = "floorplan" if (looks_like_floorplan(description, url) or bool(panorama_signal.get("floorplan_candidate"))) else "photo"
             asset = {
                 "index": index,
                 "url": url,
                 "description": description,
-                "role": "floorplan" if looks_like_floorplan(description, url) else "photo",
+                "role": role,
                 **panorama_signal,
             }
             all_assets.append(asset)
@@ -847,6 +899,8 @@ def decision_signals(facts: dict[str, object]) -> dict[str, object]:
     nearest_bicycle_parking_m = livability_snapshot.get("nearest_bicycle_parking_m")
     nearest_cycleway_m = livability_snapshot.get("nearest_cycleway_m")
     nearest_transit_m = livability_snapshot.get("nearest_transit_m")
+    nearest_tram_bus_m = livability_snapshot.get("nearest_tram_bus_m")
+    nearest_subway_m = livability_snapshot.get("nearest_subway_m")
     nearest_running_m = livability_snapshot.get("nearest_running_m")
     nearest_playground_m = livability_snapshot.get("nearest_playground_m")
     nearest_school_m = livability_snapshot.get("nearest_school_m")
@@ -869,7 +923,21 @@ def decision_signals(facts: dict[str, object]) -> dict[str, object]:
     else:
         unknowns.append("Verify pharmacy and basic service access in the immediate area.")
 
-    if isinstance(nearest_transit_m, int):
+    if isinstance(nearest_tram_bus_m, int):
+        if nearest_tram_bus_m <= 500:
+            pros.append(f"Tram or bus access appears close at roughly {nearest_tram_bus_m} m, which supports everyday mobility.")
+            score += 1
+        elif nearest_tram_bus_m > 1000:
+            cons.append(f"Tram or bus access looks farther away at about {nearest_tram_bus_m} m.")
+            score -= 1
+    if isinstance(nearest_subway_m, int):
+        if nearest_subway_m <= 650:
+            pros.append(f"Underground access appears practical at roughly {nearest_subway_m} m.")
+            score += 1
+        elif nearest_subway_m > 1200:
+            cons.append(f"The nearest underground access looks farther away at about {nearest_subway_m} m.")
+            score -= 1
+    elif isinstance(nearest_transit_m, int):
         if nearest_transit_m <= 500:
             pros.append(f"Public transit appears close at roughly {nearest_transit_m} m, which supports commute flexibility.")
             score += 1
@@ -877,7 +945,7 @@ def decision_signals(facts: dict[str, object]) -> dict[str, object]:
             cons.append(f"Public transit looks farther away at about {nearest_transit_m} m.")
             score -= 1
     else:
-        unknowns.append("Verify the nearest U-Bahn, tram, or bus stop instead of trusting the district headline alone.")
+        unknowns.append("Verify tram, bus, and U-Bahn access separately instead of trusting the district headline alone.")
 
     if isinstance(nearest_running_m, int):
         if nearest_running_m <= 900:
