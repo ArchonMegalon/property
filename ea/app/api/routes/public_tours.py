@@ -3629,7 +3629,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       }}
       .pane {{ display: none; }}
       .pane.active {{ display: block; }}
-      #psv-viewer {{
+      #cube {{
         min-height: 72vh;
         height: 72vh;
         border-radius: 24px;
@@ -3775,6 +3775,15 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         display: grid;
         gap: 8px;
       }}
+      .brief-list {{
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        line-height: 1.5;
+      }}
+      .brief-list li + li {{
+        margin-top: 6px;
+      }}
       .scene-row {{
         display: flex;
         gap: 10px;
@@ -3807,13 +3816,52 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         border: 1px solid var(--line);
         color: var(--muted);
       }}
+      .plan-preview {{
+        border-radius: 20px;
+        overflow: hidden;
+        border: 1px solid rgba(31,28,24,0.1);
+        background: rgba(255,255,255,0.84);
+      }}
+      .plan-preview img {{
+        width: 100%;
+        height: 148px;
+        object-fit: cover;
+        display: block;
+        background: #fff;
+      }}
+      .plan-preview-doc {{
+        min-height: 148px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, rgba(255,255,255,0.97), rgba(240,233,218,0.92));
+        color: var(--ink);
+        font-weight: 800;
+        letter-spacing: 0.08em;
+      }}
+      .plan-preview-copy {{
+        padding: 12px 14px 14px;
+        display: grid;
+        gap: 8px;
+      }}
+      .plan-preview-copy strong {{
+        display: block;
+      }}
+      .plan-preview-copy button {{
+        min-height: 38px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--accent-soft);
+        color: var(--accent);
+        cursor: pointer;
+      }}
       @media (max-width: 1040px) {{
         .hero, .stage-grid {{ grid-template-columns: 1fr; }}
       }}
       @media (max-width: 640px) {{
         .shell {{ padding: 14px; }}
         .card {{ border-radius: 22px; }}
-        #psv-viewer, .doc-stage, .doc-stage iframe, .doc-stage img {{
+        #cube, .doc-stage, .doc-stage iframe, .doc-stage img {{
           min-height: 56vh;
           height: 56vh;
         }}
@@ -3826,7 +3874,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         <div class="card hero-main">
           <div class="eyebrow">PropertyQuarry <span>•</span> Hosted 360</div>
           <h1>{title_html}</h1>
-          <p class="sub">A white-label 360 review with an actual panorama viewer, a clear scene overview, and floorplan access on the same surface.</p>
+          <p class="sub">A white-label 360 review with an actual panorama viewer, a clear scene overview, and floorplan access on the same surface. Pure 360 hosted on {hosted_brand_html}.</p>
           <div class="actions">
             <a class="btn primary" href="#panorama-pane">Open panorama</a>
             {listing_link}
@@ -3835,6 +3883,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         <aside class="card hero-side">
           <div class="stack">
             <div class="kv"><b>Hosted by</b>{hosted_brand_html}</div>
+            <div class="kv"><b>Location</b>{address or district or 'Location under review'}</div>
             <div class="kv"><b>Scenes</b>{html.escape(str(len([scene for scene in scene_data if scene.get('cube_faces')])))} panorama positions</div>
             <div class="kv"><b>Floorplans</b>{html.escape(str(len([scene for scene in scene_data if str(scene.get('role') or '') == 'floorplan'])))} attached documents</div>
             <div class="kv"><b>Review mode</b>Panorama first, then layout and packet review.</div>
@@ -3853,7 +3902,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         <div class="stage-grid">
           <div class="card viewer-shell">
             <section id="panorama-pane" class="pane active">
-              <div id="psv-viewer"></div>
+              <div id="cube"></div>
             </section>
             <section id="overview-pane" class="pane">
               <div class="overview-grid" id="overview-grid"></div>
@@ -3867,12 +3916,26 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
           </div>
           <aside class="card sidebar">
             <h2 class="section-title">Scene navigation</h2>
-            <p class="note">Choose a room directly, use the panorama for spatial feel, then switch to floorplans for layout validation.</p>
+            <p class="note">Move through the panorama for spatial feel, validate the circulation on the plan, then return to the packet with a cleaner room-by-room read.</p>
+            <h2 class="section-title">Review route</h2>
+            <ol class="brief-list">
+              <li>Open the main panorama and get the room proportions.</li>
+              <li>Switch to the floorplan to validate doors, walls, and usable edges.</li>
+              <li>Return to the dossier for risks, questions, and decision context.</li>
+            </ol>
             <div class="actions">
-              <button class="btn" id="prev-scene" type="button">Previous</button>
-              <button class="btn" id="next-scene" type="button">Next</button>
+              <button class="btn" id="prev-link" type="button">Previous</button>
+              <button class="btn" id="next-link" type="button">Next</button>
             </div>
             <div class="scene-list" id="scene-list"></div>
+            <h2 class="section-title">Layout preview</h2>
+            <div id="layout-preview" class="plan-preview">
+              <div class="plan-preview-doc">No plan</div>
+              <div class="plan-preview-copy">
+                <strong>Layout preview unavailable</strong>
+                <p class="note">This tour currently has no stored floorplan document.</p>
+              </div>
+            </div>
             <h2 class="section-title">Media deck</h2>
             <div class="thumbs" id="thumbs"></div>
           </aside>
@@ -3901,6 +3964,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       const overviewGrid = document.getElementById("overview-grid");
       const floorplanImage = document.getElementById("floorplan-image");
       const floorplanFrame = document.getElementById("floorplan-frame");
+      const layoutPreview = document.getElementById("layout-preview");
       const modeButtons = [...document.querySelectorAll('#mode-toggle button[data-pane]')];
       const panes = [...document.querySelectorAll('.pane')];
       const floorplanButton = modeButtons.find((button) => button.dataset.pane === 'floorplan-pane');
@@ -3909,7 +3973,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       }}
       let activePanorama = 0;
       let activeFloorplan = 0;
-      const viewerContainer = document.querySelector('#psv-viewer');
+      const viewerContainer = document.querySelector('#cube');
       let viewer = null;
 
       function showPanoramaFallback(message) {{
@@ -4018,6 +4082,47 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         }});
       }}
 
+      function renderLayoutPreview() {{
+        if (!layoutPreview) return;
+        if (!floorplanScenes.length) {{
+          layoutPreview.innerHTML = `
+            <div class="plan-preview-doc">No plan</div>
+            <div class="plan-preview-copy">
+              <strong>Layout preview unavailable</strong>
+              <p class="note">This tour currently has no stored floorplan document.</p>
+            </div>
+          `;
+          return;
+        }}
+        const scene = floorplanScenes[0];
+        const url = String(scene.image_url || '');
+        const isPdf = String(scene.mime_type || '').includes('pdf') || /\\.pdf(?:$|[?#])/i.test(url);
+        layoutPreview.innerHTML = isPdf
+          ? `
+              <div class="plan-preview-doc">PDF</div>
+              <div class="plan-preview-copy">
+                <strong>${{scene.name || 'Attached floorplan'}}</strong>
+                <p class="note">Open the plan sheet to validate room flow, circulation, and usable edges.</p>
+                <button type="button" id="layout-preview-open">Open floorplan</button>
+              </div>
+            `
+          : `
+              <img src="${{url}}" alt="${{scene.name || 'Floorplan preview'}}" referrerpolicy="no-referrer">
+              <div class="plan-preview-copy">
+                <strong>${{scene.name || 'Attached floorplan'}}</strong>
+                <p class="note">Use the layout image as a quick map while reading the panorama.</p>
+                <button type="button" id="layout-preview-open">Open floorplan</button>
+              </div>
+            `;
+        const openButton = document.getElementById('layout-preview-open');
+        if (openButton) {{
+          openButton.addEventListener('click', () => {{
+            switchPane('floorplan-pane');
+            setFloorplan(0);
+          }});
+        }}
+      }}
+
       modeButtons.forEach((button) => {{
         button.addEventListener('click', () => {{
           if (button.disabled) return;
@@ -4025,8 +4130,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         }});
       }});
 
-      document.getElementById('prev-scene').addEventListener('click', () => setPanoramaScene(activePanorama - 1));
-      document.getElementById('next-scene').addEventListener('click', () => setPanoramaScene(activePanorama + 1));
+      document.getElementById('prev-link').addEventListener('click', () => setPanoramaScene(activePanorama - 1));
+      document.getElementById('next-link').addEventListener('click', () => setPanoramaScene(activePanorama + 1));
       window.addEventListener('keydown', (event) => {{
         if (event.key === 'ArrowLeft') setPanoramaScene(activePanorama - 1);
         if (event.key === 'ArrowRight') setPanoramaScene(activePanorama + 1);
@@ -4116,6 +4221,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       if (floorplanScenes.length) {{
         setFloorplan(0);
       }}
+      renderLayoutPreview();
     </script>
   </body>
 </html>"""
