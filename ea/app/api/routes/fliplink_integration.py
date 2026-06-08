@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -20,6 +23,7 @@ from app.domain.property_preference_events import (
     PROPERTY_PREFERENCE_DOMAIN,
 )
 from app.product.service import build_product_service
+from app.settings import get_settings, resolve_signing_secret
 from app.services.fliplink import build_fliplink_packet_service
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.public_branding import request_brand
@@ -173,6 +177,10 @@ def _publication_out(
     change_log: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     summary = dict(row.get("packet_summary_json") or {}) if isinstance(row.get("packet_summary_json"), dict) else {}
+    public_pdf_path = _public_packet_pdf_path(
+        publication_id=str(row.get("publication_id") or ""),
+        source_pdf_sha256=str(row.get("source_pdf_sha256") or ""),
+    )
     analytics_out = {
         "views": None,
         "unique_visitors": None,
@@ -205,7 +213,8 @@ def _publication_out(
         "published_at": str(row.get("published_at") or ""),
         "recommended_title": str(row.get("recommended_title") or ""),
         "recommended_format": str(row.get("recommended_format") or ""),
-        "artifact_download_path": str(row.get("artifact_download_path") or ""),
+        "artifact_download_path": public_pdf_path or str(row.get("artifact_download_path") or ""),
+        "public_pdf_path": public_pdf_path,
         "recommended_folder": str(summary.get("recommended_folder") or ""),
         "recommended_custom_domain": str(summary.get("recommended_custom_domain") or ""),
         "renderer_version": str(summary.get("renderer_version") or ""),
@@ -398,6 +407,66 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _packet_pdf_secret() -> str:
+    return resolve_signing_secret(get_settings(), purpose="property-packet-pdf")
+
+
+def _sign_public_packet_pdf_token(*, publication_id: str, source_pdf_sha256: str, expires_at: datetime | None = None) -> str:
+    normalized_publication_id = str(publication_id or "").strip()
+    normalized_sha = str(source_pdf_sha256 or "").strip().lower()
+    if not normalized_publication_id or not normalized_sha:
+        return ""
+    expiry = expires_at or (datetime.now(timezone.utc) + timedelta(days=30))
+    payload = {
+        "kind": "property_packet_pdf",
+        "publication_id": normalized_publication_id,
+        "source_pdf_sha256": normalized_sha,
+        "expires_at": expiry.astimezone(timezone.utc).isoformat(),
+    }
+    payload_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode("ascii").rstrip("=")
+    signature = hmac.new(_packet_pdf_secret().encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{payload_b64}.{signature}"
+
+
+def _verify_public_packet_pdf_token(token: str) -> dict[str, object] | None:
+    normalized = str(token or "").strip()
+    if not normalized or "." not in normalized:
+        return None
+    payload_b64, signature = normalized.rsplit(".", 1)
+    expected = hmac.new(_packet_pdf_secret().encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return None
+    padding = "=" * ((4 - len(payload_b64) % 4) % 4)
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(f"{payload_b64}{padding}".encode("ascii")).decode("utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict) or str(payload.get("kind") or "").strip() != "property_packet_pdf":
+        return None
+    expires_raw = str(payload.get("expires_at") or "").strip()
+    if expires_raw:
+        try:
+            expires_at = datetime.fromisoformat(expires_raw)
+        except ValueError:
+            return None
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            return None
+    return payload
+
+
+def _public_packet_pdf_path(*, publication_id: str, source_pdf_sha256: str) -> str:
+    token = _sign_public_packet_pdf_token(
+        publication_id=publication_id,
+        source_pdf_sha256=source_pdf_sha256,
+    )
+    if not token:
+        return ""
+    return f"/v1/integrations/fliplink/documents/property-packets/{token}"
 
 
 @authenticated_router.get("/app/properties/packets", response_class=HTMLResponse)
@@ -630,6 +699,39 @@ def download_property_packet_pdf(
         media_type="application/pdf",
         filename=f"{publication_id}.pdf",
         headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@public_router.get("/documents/property-packets/{token}")
+def download_public_property_packet_pdf(
+    token: str,
+    container: AppContainer = Depends(get_container),
+) -> FileResponse:
+    payload = _verify_public_packet_pdf_token(token)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="property_packet_pdf_not_found")
+    publication_id = str(payload.get("publication_id") or "").strip()
+    expected_sha = str(payload.get("source_pdf_sha256") or "").strip().lower()
+    if not publication_id or not expected_sha:
+        raise HTTPException(status_code=404, detail="property_packet_pdf_not_found")
+    service = build_fliplink_packet_service(container)
+    row = service.get_publication(publication_id=publication_id, principal_id=None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="property_packet_pdf_not_found")
+    actual_sha = str(row.get("source_pdf_sha256") or "").strip().lower()
+    if not actual_sha or not hmac.compare_digest(actual_sha, expected_sha):
+        raise HTTPException(status_code=404, detail="property_packet_pdf_not_found")
+    artifact_root = Path(str(container.settings.storage.artifacts_dir)).resolve()
+    pdf_path = Path(str(row.get("source_pdf_artifact_ref") or "")).resolve()
+    if (pdf_path != artifact_root and artifact_root not in pdf_path.parents) or not pdf_path.is_file():
+        raise HTTPException(status_code=404, detail="property_packet_pdf_not_found")
+    if _sha256_file(pdf_path) != expected_sha:
+        raise HTTPException(status_code=409, detail="property_packet_pdf_hash_mismatch")
+    return FileResponse(
+        str(pdf_path),
+        media_type="application/pdf",
+        filename=f"{publication_id}.pdf",
+        headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"},
     )
 
 

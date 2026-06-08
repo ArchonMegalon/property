@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app.repositories import property_packet_publications
 from app.repositories.property_packet_publications import build_property_packet_publication_repository
@@ -101,6 +102,11 @@ def test_fliplink_manual_packet_lane_and_url_validation(monkeypatch, tmp_path: P
     listed = next(item for item in listing.json()["items"] if item["publication_id"] == publication_id)
     assert listed["analytics"]["views"] == 14
     assert listed["renderer_version"] == "v5_agency_dossier_pdf"
+    assert "/v1/integrations/fliplink/documents/property-packets/" in listed["artifact_download_path"]
+    public_client = TestClient(client.app, base_url="https://propertyquarry.com")
+    public_pdf = public_client.get(listed["artifact_download_path"])
+    assert public_pdf.status_code == 200, public_pdf.text
+    assert public_pdf.content.startswith(b"%PDF-1.4")
 
     archived = client.post(
         f"/app/api/properties/packets/{publication_id}/archive",
