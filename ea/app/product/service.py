@@ -119,6 +119,8 @@ from app.services.registration_email import (
     send_workspace_access_email,
     send_workspace_invitation_email,
 )
+from app.services.fliplink import build_fliplink_packet_service
+from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.property_market_catalog import (
     country_label,
     default_platforms_for_country,
@@ -18229,6 +18231,12 @@ class ProductService:
         allow_floorplan_only: bool = False,
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        property_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
+        self._enforce_property_visual_quota(
+            principal_id=principal_id,
+            property_preferences=property_preferences,
+            quota_kind="video",
+        )
         if not _is_willhaben_property_url(normalized_url):
             return self.create_generic_property_tour(
                 principal_id=principal_id,
@@ -19038,6 +19046,12 @@ class ProductService:
         allow_floorplan_only: bool = False,
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        property_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
+        self._enforce_property_visual_quota(
+            principal_id=principal_id,
+            property_preferences=property_preferences,
+            quota_kind="video",
+        )
         if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
             raise ValueError("property_url_invalid")
         preview = _property_scout_page_preview(normalized_url)
@@ -22513,6 +22527,74 @@ class ProductService:
         payload.setdefault("status", "created")
         return payload
 
+    def _property_visual_quota_window_start(self, period: str) -> datetime | None:
+        normalized = str(period or "").strip().lower()
+        now = datetime.now(timezone.utc)
+        if normalized == "day":
+            return now - timedelta(days=1)
+        if normalized == "week":
+            return now - timedelta(days=7)
+        return None
+
+    def _property_visual_quota_usage(
+        self,
+        *,
+        principal_id: str,
+        event_types: tuple[str, ...],
+        period: str,
+    ) -> int:
+        window_start = self._property_visual_quota_window_start(period)
+        if window_start is None:
+            return 0
+        accepted = {str(value or "").strip() for value in event_types if str(value or "").strip()}
+        if not accepted:
+            return 0
+        total = 0
+        for row in self._container.channel_runtime.list_recent_observations(limit=4000, principal_id=principal_id):
+            if str(getattr(row, "channel", "") or "").strip() != "product":
+                continue
+            if str(getattr(row, "event_type", "") or "").strip() not in accepted:
+                continue
+            created_at = _parse_iso(str(getattr(row, "created_at", "") or "").strip())
+            if created_at is None or created_at < window_start:
+                continue
+            total += 1
+        return total
+
+    def _enforce_property_visual_quota(
+        self,
+        *,
+        principal_id: str,
+        property_preferences: dict[str, object] | None,
+        quota_kind: str,
+    ) -> None:
+        commercial = property_commercial_snapshot(dict(property_preferences or {}))
+        plan_key = str(commercial.get("current_plan_key") or "free").strip().lower() or "free"
+        if quota_kind == "scene":
+            limit = max(int(commercial.get("magic_fit_scene_limit") or 0), 0)
+            period = str(commercial.get("magic_fit_scene_period") or "none").strip().lower()
+            event_types = ("property_magic_fit_scene_created",)
+            error_prefix = "property_magic_fit_upgrade_required"
+        elif quota_kind == "video":
+            limit = max(int(commercial.get("magic_fit_video_limit") or 0), 0)
+            period = str(commercial.get("magic_fit_video_period") or "none").strip().lower()
+            event_types = ("willhaben_property_tour_created", "generic_property_tour_created")
+            error_prefix = "property_tour_upgrade_required"
+        else:
+            return
+        if limit <= 0 or period == "none":
+            return
+        usage = self._property_visual_quota_usage(
+            principal_id=principal_id,
+            event_types=event_types,
+            period=period,
+        )
+        if usage < limit:
+            return
+        if plan_key == "free":
+            raise ValueError(f"{error_prefix}:plus")
+        raise ValueError(f"{error_prefix}:agent")
+
     def _property_magic_fit_reference_urls(
         self,
         *,
@@ -22695,20 +22777,14 @@ class ProductService:
             raise ValueError("property_magic_fit_consent_required")
         if include_child_reference and not guardian_confirmed_for_children:
             raise ValueError("property_magic_fit_child_guardian_confirmation_required")
-        commercial = property_commercial_snapshot(
-            dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
+        property_preferences = dict(
+            self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {}
         )
-        scene_limit = max(int(commercial.get("magic_fit_scene_limit") or 0), 0)
-        existing_scene_total = sum(
-            1
-            for row in self._container.channel_runtime.list_recent_observations(limit=4000, principal_id=principal_id)
-            if str(getattr(row, "channel", "") or "").strip() == "product"
-            and str(getattr(row, "event_type", "") or "").strip() == "property_magic_fit_scene_created"
+        self._enforce_property_visual_quota(
+            principal_id=principal_id,
+            property_preferences=property_preferences,
+            quota_kind="scene",
         )
-        if scene_limit and existing_scene_total >= scene_limit:
-            if str(commercial.get("current_plan_key") or "free").strip() == "free":
-                raise ValueError("property_magic_fit_upgrade_required:plus")
-            raise ValueError("property_magic_fit_upgrade_required:agent")
         resolved_reference_urls = self._property_magic_fit_reference_urls(
             principal_id=principal_id,
             google_photos_session_id=google_photos_session_id,
@@ -24778,6 +24854,22 @@ class ProductService:
         tour_url = str(tour_payload.get("tour_url") or "").strip()
         review_url = str(review_url or "").strip()
         blocked_reason = str(tour_payload.get("blocked_reason") or "").strip()
+        dossier_render = self._render_property_scout_dossier(
+            principal_id=principal_id,
+            actor=actor,
+            title=title,
+            summary=summary,
+            counterparty=counterparty,
+            account_email=account_email,
+            property_url=property_url,
+            source_ref=source_ref,
+            assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
+            fit_score=float(fit_score or 0.0),
+            preference_person_id=preference_person_id,
+            review_url=review_url,
+            tour_result=tour_payload,
+            candidate_properties=candidate_properties,
+        )
         feedback_raw_signal = {
             "title": str(title or "").strip(),
             "summary": str(summary or "").strip(),
@@ -24863,6 +24955,60 @@ class ProductService:
             "telegram_chat_ref": str(telegram_receipt.chat_id or "").strip(),
             "telegram_message_ids": list(telegram_receipt.message_ids),
         }
+        if str(dossier_render.get("status") or "").strip() == "rendered":
+            try:
+                dossier_receipt = send_telegram_document_for_principal(
+                    self._container.tool_runtime,
+                    principal_id=principal_id,
+                    document_ref=str(dossier_render.get("pdf_path") or "").strip(),
+                    caption=str(dossier_render.get("caption") or "").strip(),
+                )
+            except Exception as exc:
+                dossier_payload = {
+                    "property_url": property_url,
+                    "source_ref": source_ref,
+                    "publication_id": str(dossier_render.get("publication_id") or "").strip(),
+                    "pdf_path": str(dossier_render.get("pdf_path") or "").strip(),
+                    "actor": str(actor or "").strip() or "property_scout",
+                    "error": compact_text(str(exc or ""), fallback="telegram_document_delivery_failed", limit=160),
+                }
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_scout_hit_telegram_dossier_failed",
+                    payload=dossier_payload,
+                    source_id=source_ref,
+                    dedupe_key=dedupe_key,
+                )
+                payload["dossier_delivery_status"] = "failed"
+                payload["dossier_delivery_error"] = dossier_payload["error"]
+                payload["dossier_publication_id"] = str(dossier_render.get("publication_id") or "").strip()
+                payload["dossier_pdf_path"] = str(dossier_render.get("pdf_path") or "").strip()
+            else:
+                dossier_message_ids = [str(item or "") for item in dossier_receipt.message_ids]
+                dossier_payload = {
+                    "property_url": property_url,
+                    "source_ref": source_ref,
+                    "publication_id": str(dossier_render.get("publication_id") or "").strip(),
+                    "pdf_path": str(dossier_render.get("pdf_path") or "").strip(),
+                    "telegram_chat_ref": str(dossier_receipt.chat_id or "").strip(),
+                    "telegram_message_ids": dossier_message_ids,
+                    "actor": str(actor or "").strip() or "property_scout",
+                }
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_scout_hit_telegram_dossier_sent",
+                    payload=dossier_payload,
+                    source_id=source_ref,
+                    dedupe_key=dedupe_key,
+                )
+                payload["dossier_delivery_status"] = "sent"
+                payload["dossier_publication_id"] = str(dossier_render.get("publication_id") or "").strip()
+                payload["dossier_pdf_path"] = str(dossier_render.get("pdf_path") or "").strip()
+                payload["dossier_telegram_chat_ref"] = str(dossier_receipt.chat_id or "").strip()
+                payload["dossier_telegram_message_ids"] = dossier_message_ids
+        else:
+            payload["dossier_delivery_status"] = str(dossier_render.get("status") or "").strip() or "skipped"
+            payload["dossier_delivery_error"] = str(dossier_render.get("reason") or "").strip()
         self._record_notification_feedback_prompt(
             principal_id=principal_id,
             prompt=feedback_prompt,
@@ -24878,6 +25024,129 @@ class ProductService:
             dedupe_key=dedupe_key,
         )
         return {"status": "sent", "tour_url": tour_url, "telegram_message_ids": list(telegram_receipt.message_ids)}
+
+    def _render_property_scout_dossier(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        title: str,
+        summary: str,
+        counterparty: str,
+        account_email: str,
+        property_url: str,
+        source_ref: str,
+        assessment: dict[str, object],
+        fit_score: float,
+        preference_person_id: str,
+        review_url: str = "",
+        tour_result: dict[str, object] | None = None,
+        candidate_properties: tuple[dict[str, object], ...] = (),
+    ) -> dict[str, object]:
+        normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        if not normalized_property_url:
+            return {"status": "skipped", "reason": "property_url_missing"}
+        tour_payload = dict(tour_result or {})
+        top_candidate = dict(candidate_properties[0] or {}) if candidate_properties else {}
+        top_facts = dict(top_candidate.get("property_facts") or top_candidate.get("property_facts_json") or {}) if isinstance(top_candidate, dict) else {}
+        top_assessment = dict(top_candidate.get("assessment") or {}) if isinstance(top_candidate.get("assessment"), dict) else {}
+        effective_assessment = dict(assessment or {}) if assessment else top_assessment
+        fit_summary = _property_alert_fit_summary(effective_assessment)
+        if fit_score > 0:
+            score_text = f"Personal fit {int(round(max(0.0, min(100.0, float(fit_score or 0.0))))):d}/100"
+            if fit_summary:
+                fit_summary = re.sub(r"Personal fit \d+/100", score_text, fit_summary)
+            else:
+                fit_summary = score_text
+        compare_reason = str(top_candidate.get("compare_reason") or "").strip()
+        property_title = str(top_candidate.get("listing_title") or title or "").strip() or "Property scout listing"
+        recommendation = str(
+            effective_assessment.get("recommendation")
+            or top_candidate.get("recommendation")
+            or tour_payload.get("status")
+            or "review"
+        ).strip()
+        question_lines = [str(item or "").strip() for item in list(effective_assessment.get("unknowns_json") or []) if str(item or "").strip()]
+        blocked_reason = str(tour_payload.get("blocked_reason") or "").strip()
+        if blocked_reason and not any(blocked_reason.lower() in item.lower() for item in question_lines):
+            question_lines.append(f"Tour lane blocked: {blocked_reason.replace('_', ' ')}.")
+        comparison_rows: list[dict[str, object]] = []
+        for row in candidate_properties[:3]:
+            if not isinstance(row, dict):
+                continue
+            row_facts = dict(row.get("property_facts") or row.get("property_facts_json") or {}) if isinstance(row, dict) else {}
+            comparison_rows.append(
+                {
+                    "title": str(row.get("listing_title") or row.get("title") or "").strip(),
+                    "price": row_facts.get("total_rent_eur") or row_facts.get("price_eur") or row.get("price"),
+                    "rooms": row_facts.get("rooms") or row.get("rooms"),
+                    "area_sqm": row_facts.get("area_sqm") or row.get("area_sqm"),
+                    "recommendation": str(row.get("recommendation") or "").strip(),
+                    "compare_reason": str(row.get("compare_reason") or "").strip(),
+                    "property_url": str(row.get("property_url") or "").strip(),
+                }
+            )
+        source_payload: dict[str, object] = {
+            "title": property_title,
+            "property_title": property_title,
+            "property_ref": f"property-scout:{hashlib.sha256(normalized_property_url.encode('utf-8')).hexdigest()[:16]}",
+            "property_url": normalized_property_url,
+            "source_url": normalized_property_url,
+            "source_label": str(counterparty or "Property scout").strip() or "Property scout",
+            "summary": compact_text(str(summary or "").strip(), fallback="", limit=900),
+            "fit_summary": fit_summary,
+            "compare_reason": compare_reason,
+            "recommendation": recommendation,
+            "match_reasons": list(effective_assessment.get("match_reasons_json") or []),
+            "mismatch_reasons": list(effective_assessment.get("mismatch_reasons_json") or []),
+            "unknowns": question_lines[:8],
+            "viewing_questions": list(effective_assessment.get("viewing_questions_json") or effective_assessment.get("questions") or []),
+            "review_url": str(review_url or top_candidate.get("review_url") or "").strip(),
+            "tour_url": str(tour_payload.get("tour_url") or top_candidate.get("tour_url") or "").strip(),
+            "vendor_tour_url": str(tour_payload.get("vendor_tour_url") or top_candidate.get("vendor_tour_url") or "").strip(),
+            "source_virtual_tour_url": str(top_facts.get("source_virtual_tour_url") or top_candidate.get("source_virtual_tour_url") or "").strip(),
+            "property_facts_json": top_facts,
+            "facts": top_facts,
+            "comparison_candidates": comparison_rows,
+        }
+        if top_facts:
+            source_payload.update(top_facts)
+        if preference_person_id and preference_person_id != "self":
+            source_payload["fit_summary"] = f"{source_payload['fit_summary']} · profile {preference_person_id}" if source_payload["fit_summary"] else f"profile {preference_person_id}"
+        try:
+            packet_service = build_fliplink_packet_service(self._container)
+            row = packet_service.render_packet(
+                principal_id=principal_id,
+                person_id=preference_person_id or "self",
+                property_ref=str(source_payload["property_ref"]),
+                packet_kind=PropertyPacketKind.OWNER_REVIEW,
+                privacy_mode=PacketPrivacyMode.OWNER_PRIVATE,
+                fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+                search_run_id=str(top_candidate.get("search_run_id") or "").strip(),
+                include_exact_address=False,
+                include_floorplan=True,
+                include_photos=True,
+                source_payload=source_payload,
+                actor=str(actor or "").strip() or "property_scout",
+            )
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "reason": compact_text(str(exc or ""), fallback="property_scout_dossier_render_failed", limit=180),
+            }
+        pdf_path = str(row.get("source_pdf_artifact_ref") or "").strip()
+        if not pdf_path or not Path(pdf_path).is_file():
+            return {"status": "failed", "reason": "property_scout_dossier_pdf_missing"}
+        caption_title = compact_text(property_title, fallback="PropertyQuarry dossier", limit=90)
+        return {
+            "status": "rendered",
+            "publication_id": str(row.get("publication_id") or "").strip(),
+            "pdf_path": pdf_path,
+            "caption": f"PropertyQuarry dossier · {caption_title}",
+            "property_ref": str(source_payload["property_ref"]),
+            "source_ref": str(source_ref or "").strip(),
+            "account_email": str(account_email or "").strip(),
+        }
 
     def _send_property_scout_hit_email(
         self,

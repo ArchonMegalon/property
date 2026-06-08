@@ -51,10 +51,90 @@ def test_property_plan_investment_research_levels_follow_tier() -> None:
     assert plus["research_depth"] == "deep"
     assert plus["max_platforms"] == 5
     assert plus["max_match_score"] == 65
+    assert plus["magic_fit_scene_period"] == "day"
+    assert plus["magic_fit_video_period"] == "day"
     assert agent["investment_research_level"] == "full"
     assert agent["research_depth"] == "deep"
     assert agent["max_platforms"] == 12
     assert agent["max_match_score"] == 80
+    assert agent["magic_fit_scene_period"] == "none"
+    assert agent["magic_fit_video_period"] == "none"
+
+
+def test_free_property_plan_uses_weekly_visual_generation_caps() -> None:
+    snapshot = property_commercial_snapshot({})
+
+    assert snapshot["magic_fit_scene_limit"] == 1
+    assert snapshot["magic_fit_video_limit"] == 1
+    assert snapshot["magic_fit_scene_period"] == "week"
+    assert snapshot["magic_fit_video_period"] == "week"
+
+
+class _QuotaRow:
+    def __init__(self, *, event_type: str, created_at: str, channel: str = "product") -> None:
+        self.channel = channel
+        self.event_type = event_type
+        self.created_at = created_at
+
+
+class _QuotaRuntime:
+    def __init__(self, rows: list[object]) -> None:
+        self._rows = rows
+
+    def list_recent_observations(self, limit: int = 4000, principal_id: str = "") -> list[object]:
+        return list(self._rows)[:limit]
+
+
+class _QuotaOnboarding:
+    def __init__(self, preferences: dict[str, object]) -> None:
+        self._preferences = preferences
+
+    def status(self, principal_id: str = "") -> dict[str, object]:
+        return {"property_search_preferences": dict(self._preferences)}
+
+
+class _QuotaContainer:
+    def __init__(self, preferences: dict[str, object], rows: list[object]) -> None:
+        self.onboarding = _QuotaOnboarding(preferences)
+        self.channel_runtime = _QuotaRuntime(rows)
+
+
+def test_property_visual_quota_enforces_free_weekly_magic_fit_limit() -> None:
+    service = ProductService.__new__(ProductService)
+    service._container = _QuotaContainer(
+        {},
+        [
+            _QuotaRow(
+                event_type="property_magic_fit_scene_created",
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+        ],
+    )
+
+    with pytest.raises(ValueError, match="property_magic_fit_upgrade_required:plus"):
+        service._enforce_property_visual_quota(
+            principal_id="cf-email:quota-free@example.test",
+            property_preferences={},
+            quota_kind="scene",
+        )
+
+
+def test_property_visual_quota_enforces_plus_daily_video_limit() -> None:
+    service = ProductService.__new__(ProductService)
+    service._container = _QuotaContainer(
+        {"property_commercial": {"active_plan_key": "plus", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"}},
+        [
+            _QuotaRow(event_type="generic_property_tour_created", created_at=datetime.now(timezone.utc).isoformat()),
+            _QuotaRow(event_type="willhaben_property_tour_created", created_at=datetime.now(timezone.utc).isoformat()),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="property_tour_upgrade_required:agent"):
+        service._enforce_property_visual_quota(
+            principal_id="cf-email:quota-plus@example.test",
+            property_preferences={"property_commercial": {"active_plan_key": "plus", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"}},
+            quota_kind="video",
+        )
 
 
 def test_propertyquarry_public_urls_do_not_inherit_external_brain_defaults(monkeypatch) -> None:

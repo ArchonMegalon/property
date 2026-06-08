@@ -47,6 +47,8 @@ class PropertyPlanSpec:
     investment_research_level: str
     magic_fit_scene_limit: int
     magic_fit_video_limit: int
+    magic_fit_scene_period: str
+    magic_fit_video_period: str
     auto_tour_policy: str
     features: tuple[str, ...]
 
@@ -64,13 +66,15 @@ _FREE_PLAN = PropertyPlanSpec(
     investment_research_level="none",
     magic_fit_scene_limit=1,
     magic_fit_video_limit=1,
+    magic_fit_scene_period="week",
+    magic_fit_video_period="week",
     auto_tour_policy="hero_only",
     features=(
         "up to 3 platforms per run",
         "up to 2 results per source",
         "match threshold up to 45/100",
         "standard research on the shortlisted results",
-        "one hero Magic Fit still and one hero video lane",
+        "one 3D reconstruction floor plan and one interior flythrough per week",
     ),
 )
 
@@ -86,15 +90,17 @@ _PAID_PLANS = {
         max_match_score=65,
         research_depth="deep",
         investment_research_level="preview",
-        magic_fit_scene_limit=8,
-        magic_fit_video_limit=3,
+        magic_fit_scene_limit=5,
+        magic_fit_video_limit=2,
+        magic_fit_scene_period="day",
+        magic_fit_video_period="day",
         auto_tour_policy="shortlist_opt_in",
         features=(
             "up to 5 platforms per run",
             "up to 5 results per source",
             "match threshold up to 65/100",
             "deep research with preview investment signals",
-            "Magic Fit stills across the shortlist and a few video lanes",
+            "multiple 3D reconstruction floor plans and interior flythroughs per day",
         ),
     ),
     "agent": PropertyPlanSpec(
@@ -108,15 +114,17 @@ _PAID_PLANS = {
         max_match_score=80,
         research_depth="deep",
         investment_research_level="full",
-        magic_fit_scene_limit=200,
-        magic_fit_video_limit=50,
+        magic_fit_scene_limit=0,
+        magic_fit_video_limit=0,
+        magic_fit_scene_period="none",
+        magic_fit_video_period="none",
         auto_tour_policy="all_opt_in",
         features=(
             "all Austria provider lanes in one run",
             "up to 10 results per source",
             "match threshold up to 80/100",
             "deep research and follow-up readiness",
-            "opt-in tours and Magic Fit stills for every found property",
+            "opt-in 3D reconstruction floor plans and interior flythroughs for every found property",
         ),
     ),
 }
@@ -184,6 +192,8 @@ def property_commercial_snapshot(property_preferences: dict[str, object] | None)
         "max_match_score": current_plan.max_match_score,
         "magic_fit_scene_limit": current_plan.magic_fit_scene_limit,
         "magic_fit_video_limit": current_plan.magic_fit_video_limit,
+        "magic_fit_scene_period": current_plan.magic_fit_scene_period,
+        "magic_fit_video_period": current_plan.magic_fit_video_period,
         "auto_tour_policy": current_plan.auto_tour_policy,
         "pending_plan_key": pending_plan.plan_key if pending_plan is not None else "",
         "pending_plan_label": pending_plan.display_name if pending_plan is not None else "",
@@ -202,6 +212,8 @@ def property_commercial_snapshot(property_preferences: dict[str, object] | None)
                 "investment_research_level": spec.investment_research_level,
                 "magic_fit_scene_limit": spec.magic_fit_scene_limit,
                 "magic_fit_video_limit": spec.magic_fit_video_limit,
+                "magic_fit_scene_period": spec.magic_fit_scene_period,
+                "magic_fit_video_period": spec.magic_fit_video_period,
                 "auto_tour_policy": spec.auto_tour_policy,
                 "features": list(spec.features),
                 "is_current": spec.plan_key == current_plan.plan_key,

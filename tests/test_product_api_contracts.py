@@ -656,6 +656,79 @@ def test_signal_ingest_property_alert_sends_telegram_review_summary(monkeypatch)
     assert observed_telegram["inline_buttons"]
 
 
+def test_signal_ingest_property_alert_sends_telegram_dossier_document(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Alert Dossier Office")
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
+
+    dossier_path = tmp_path / "property-scout-dossier.pdf"
+    dossier_path.write_bytes(b"%PDF-1.4\n% scout dossier test\n")
+    observed: dict[str, object] = {}
+
+    class _TelegramReceipt:
+        chat_id = "1354554303"
+        message_ids = ("778",)
+
+    class _DocumentReceipt:
+        chat_id = "1354554303"
+        message_ids = ("779",)
+
+    monkeypatch.setattr(
+        ProductService,
+        "_render_property_scout_dossier",
+        lambda self, **kwargs: {
+            "status": "rendered",
+            "publication_id": "pub_scout_test",
+            "pdf_path": str(dossier_path),
+            "caption": "PropertyQuarry dossier · Scout alert for 1050 Vienna",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None: observed.update(
+            {"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons}
+        ) or _TelegramReceipt(),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_document_for_principal",
+        lambda tool_runtime, *, principal_id, document_ref, caption="": observed.update(
+            {"document_principal_id": principal_id, "document_ref": document_ref, "document_caption": caption}
+        ) or _DocumentReceipt(),
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service._send_property_scout_hit_telegram(
+        principal_id=principal_id,
+        actor="test",
+        title="Scout alert for 1050 Vienna",
+        summary="New Neubau listing with lift and storage room.",
+        counterparty="IMMMO",
+        account_email="elisabeth.girschele@gmail.com",
+        property_url="https://www.immobilienscout24.at/expose/telegram-test-property-dossier",
+        source_ref="gmail-thread:elisabeth.girschele@gmail.com:test-telegram-property-alert-dossier",
+        assessment={"fit_score": 64.0, "recommendation": "ask_for_clarification"},
+        fit_score=64.0,
+        preference_person_id="self",
+    )
+    assert result["status"] == "sent"
+    assert observed["principal_id"] == principal_id
+    assert "Scout update." in str(observed["text"])
+    assert observed["document_principal_id"] == principal_id
+    assert observed["document_ref"] == str(dossier_path)
+    assert "PropertyQuarry dossier" in str(observed["document_caption"])
+
+
 def test_signal_ingest_property_alert_sends_workspace_review_link_for_cf_email_principal(monkeypatch) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
