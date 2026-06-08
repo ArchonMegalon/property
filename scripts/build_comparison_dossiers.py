@@ -22,6 +22,7 @@ ROOT = Path("/tmp/property_compare_delivery")
 ROOT.mkdir(parents=True, exist_ok=True)
 PDF_RENDER_VENV = Path("/tmp/pdfenv/bin/python")
 EA_APP_ROOT = Path("/docker/property/ea")
+DOCKER_PUBLIC_TOUR_VOLUME = Path("/var/lib/docker/volumes/property_propertyquarry_public_tours/_data")
 if str(EA_APP_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_APP_ROOT))
 
@@ -304,6 +305,11 @@ def main() -> int:
     args = parser.parse_args()
 
     os.environ.setdefault("EA_RUNTIME_PROFILE", os.getenv("EA_RUNTIME_PROFILE", "prod"))
+    try:
+        if DOCKER_PUBLIC_TOUR_VOLUME.exists():
+            os.environ.setdefault("EA_PUBLIC_TOUR_DIR", str(DOCKER_PUBLIC_TOUR_VOLUME))
+    except PermissionError:
+        pass
 
     from app.container import build_container
     from app.product.service import ProductService
