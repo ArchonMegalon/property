@@ -294,6 +294,29 @@ def _public_magic_fit_scene(source: dict[str, object], *, privacy_mode: PacketPr
     return scene
 
 
+def _public_diorama_scene(source: dict[str, object], *, privacy_mode: PacketPrivacyMode, removed: list[str]) -> dict[str, object]:
+    raw = dict(source.get("diorama_scene") or {}) if isinstance(source.get("diorama_scene"), dict) else {}
+    if privacy_mode not in {PacketPrivacyMode.OWNER_PRIVATE, PacketPrivacyMode.FAMILY_REVIEW, PacketPrivacyMode.AGENT_SHARE}:
+        if raw:
+            removed.append("diorama_scene.privacy_mode_omitted")
+        return {}
+    if not raw or not bool(raw.get("share_with_packet_pdf", True)):
+        return {}
+    scene = {
+        "scene_id": _text(raw.get("scene_id"), limit=120),
+        "scene_type": _text(raw.get("scene_type"), limit=80),
+        "summary": _text(raw.get("summary"), limit=240),
+        "image_url": _text(raw.get("image_url"), limit=2000),
+        "tour_url": _text(raw.get("tour_url"), limit=2000),
+        "video_url": _text(raw.get("video_url"), limit=2000),
+        "generated_at": _text(raw.get("generated_at"), limit=80),
+    }
+    if not scene["image_url"]:
+        removed.append("diorama_scene.image_url_missing")
+        return {}
+    return scene
+
+
 def _media_allowed_hosts() -> set[str]:
     raw = str(os.getenv("FLIPLINK_PACKET_MEDIA_ALLOWED_HOSTS") or "").strip()
     values = raw.split(",") if raw else list(DEFAULT_MEDIA_ALLOWED_HOSTS)
@@ -467,6 +490,7 @@ def redact_property_packet(
             "property_ref": str(source.get("property_ref") or "").strip(),
             "property_url": str(source.get("property_url") or source.get("source_url") or "").strip(),
             "tour_url": str(source.get("tour_url") or "").strip(),
+            "flythrough_url": str(source.get("flythrough_url") or "").strip(),
             "review_url": str(source.get("review_url") or "").strip(),
             "source_label": str(source.get("source_label") or "PropertyQuarry").strip(),
             "fit_summary": str(source.get("fit_summary") or source.get("summary") or "").strip(),
@@ -498,6 +522,9 @@ def redact_property_packet(
     magic_fit_scene = _public_magic_fit_scene(source, privacy_mode=privacy_mode, removed=removed)
     if magic_fit_scene:
         payload["magic_fit_scene"] = magic_fit_scene
+    diorama_scene = _public_diorama_scene(source, privacy_mode=privacy_mode, removed=removed)
+    if diorama_scene:
+        payload["diorama_scene"] = diorama_scene
     payload = _redact_value(payload, removed=removed, path="")
     if not isinstance(payload, dict):
         payload = {}

@@ -4044,6 +4044,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         modeButtons.forEach((button) => button.classList.toggle('active', button.dataset.pane === name));
         if (name === 'flythrough-pane') {{
           document.getElementById('tour-status').textContent = 'Flythrough · interior route';
+        }} else if (name === 'floorplan-pane' && floorplanScenes.length) {{
+          document.getElementById('tour-status').textContent = `Floorplan · ${{floorplanScenes[activeFloorplan]?.name || `Plan ${{activeFloorplan + 1}}`}}`;
         }}
       }}
 
@@ -4240,7 +4242,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         overviewGrid.appendChild(card);
       }});
 
-      const initialScene = new URLSearchParams(window.location.search).get('scene');
+      const initialParams = new URLSearchParams(window.location.search);
+      const initialScene = initialParams.get('scene');
+      const initialPane = initialParams.get('pane');
       const initialSceneIndex = panoramaScenes.findIndex((scene) => String(scene.scene_id || '').trim() === String(initialScene || '').trim());
       if (panoramaScenes.length && viewer) {{
         setPanoramaScene(initialSceneIndex >= 0 ? initialSceneIndex : 0);
@@ -4253,6 +4257,13 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         setFloorplan(0);
       }}
       renderLayoutPreview();
+      if (initialPane === 'flythrough-pane' && flythroughVideo) {{
+        switchPane('flythrough-pane');
+      }} else if (initialPane === 'floorplan-pane' && floorplanScenes.length) {{
+        switchPane('floorplan-pane');
+      }} else if (initialPane === 'overview-pane') {{
+        switchPane('overview-pane');
+      }}
     </script>
   </body>
 </html>"""

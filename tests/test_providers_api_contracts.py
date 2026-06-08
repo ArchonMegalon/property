@@ -62,6 +62,18 @@ def test_public_tour_security_headers_allow_rybbit_assets() -> None:
     assert "https://js.clickrank.ai" in csp
 
 
+def test_public_tour_surface_supports_initial_pane_query() -> None:
+    import inspect
+
+    from app.api.routes.public_tours import _tour_html
+
+    source = inspect.getsource(_tour_html)
+
+    assert "const initialPane = initialParams.get('pane');" in source
+    assert "initialPane === 'flythrough-pane'" in source
+    assert "initialPane === 'floorplan-pane'" in source
+
+
 def test_onemin_browseract_failure_code_detects_invalid_credentials() -> None:
     from app.api.routes import providers as providers_route
 

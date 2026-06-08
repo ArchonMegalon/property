@@ -19,7 +19,7 @@ from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, Prop
 from app.services.fliplink.privacy import REDACTION_POLICY_VERSION, redact_property_packet
 
 
-PDF_RENDERER_VERSION = "v6_office_dossier_pdf"
+PDF_RENDERER_VERSION = "v7_agency_comparison_dossier_pdf"
 PDF_RENDERER_FALLBACK_VERSION = "v4_visual_packet_pdf"
 PAGE_WIDTH = 612
 PAGE_HEIGHT = 842
@@ -207,6 +207,19 @@ def _safe_pdf_href(value: object) -> str:
     return raw[:1800]
 
 
+def _append_query_param(url: str, **params: str) -> str:
+    href = _safe_pdf_href(url)
+    if not href:
+        return ""
+    parsed = urllib.parse.urlparse(href)
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    current = [(key, value) for key, value in query if key not in params]
+    for key, value in params.items():
+        if str(value or "").strip():
+            current.append((key, str(value)))
+    return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(current)))
+
+
 def _resolve_pdf_primary_tour_url(*, source: dict[str, object], payload: dict[str, object]) -> str:
     facts = dict(payload.get("facts") or {}) if isinstance(payload.get("facts"), dict) else {}
     for value in (
@@ -224,6 +237,21 @@ def _resolve_pdf_primary_tour_url(*, source: dict[str, object], payload: dict[st
         href = _safe_pdf_href(value)
         if href:
             return href
+    return ""
+
+
+def _resolve_pdf_flythrough_url(*, source: dict[str, object], payload: dict[str, object]) -> str:
+    for value in (
+        payload.get("flythrough_url"),
+        source.get("flythrough_url"),
+        source.get("video_url"),
+    ):
+        href = _safe_pdf_href(value)
+        if href:
+            return href
+    primary_tour = _resolve_pdf_primary_tour_url(source=source, payload=payload)
+    if primary_tour:
+        return _append_query_param(primary_tour, pane="flythrough-pane")
     return ""
 
 
@@ -737,18 +765,23 @@ def _visual_pdf(
     media_counts: dict[str, int],
     media_refs: dict[str, list[str]],
     magic_fit_scene: dict[str, object],
+    diorama_scene: dict[str, object],
     comparison_rows: list[dict[str, str]],
     packet_facts: dict[str, object],
     sections: list[dict[str, object]],
     narrative_lines: list[str],
     tour_url: str,
+    flythrough_url: str,
     review_url: str,
 ) -> bytes:
     pages: list[dict[str, object]] = []
     redacted_tour_url = _safe_pdf_href(tour_url)
+    redacted_flythrough_url = _safe_pdf_href(flythrough_url)
     redacted_review_url = _safe_pdf_href(review_url)
     photo_refs = list(media_refs.get("photos") or [])
+    floorplan_refs = list(media_refs.get("floorplans") or [])
     cover_image = _load_pdf_image_resource(photo_refs[0]) if photo_refs else None
+    floorplan_image = _load_pdf_image_resource(floorplan_refs[0]) if floorplan_refs else None
     gallery_images = []
     for ref in photo_refs[:4]:
         image = _load_pdf_image_resource(str(ref or "").strip())
@@ -764,73 +797,61 @@ def _visual_pdf(
     district_value = _fact_value(packet_facts, "postal_name", "district", "city")
     office_label = _office_packet_label(packet_kind)
     privacy_label = _privacy_label(privacy_mode)
+    executive_lines = narrative_lines[:5] or [summary or "Review this property against the current PropertyQuarry brief."]
     ops = _new_page(page_number=1, privacy_mode=privacy_mode)
-    _draw_rect(ops, 0, 0, 15, PAGE_HEIGHT, fill=(0.15, 0.38, 0.30))
-    _draw_rect(ops, 15, 0, 5, PAGE_HEIGHT, fill=(0.74, 0.55, 0.18))
-    _draw_text(ops, "PropertyQuarry", x=MARGIN_X, y=778, size=20, font="F2", fill=(0.15, 0.38, 0.30))
-    _draw_text(ops, office_label, x=MARGIN_X, y=756, size=11, font="F2", fill=(0.43, 0.38, 0.29))
-    _draw_text(ops, privacy_label, x=MARGIN_X, y=739, size=9.4, fill=(0.52, 0.46, 0.35))
+    hero_height = 362
+    _draw_rect(ops, 0, PAGE_HEIGHT - hero_height, PAGE_WIDTH, hero_height, fill=(0.82, 0.83, 0.80))
     y = _draw_wrapped(
         ops,
         recommended_title,
         x=MARGIN_X,
-        y=708,
-        width_chars=34 if cover_image is not None else 44,
-        size=23,
-        leading=24,
+        y=PAGE_HEIGHT - 118,
+        width_chars=36 if cover_image is not None else 42,
+        size=26,
+        leading=26,
         font="F2",
-        fill=(0.13, 0.14, 0.13),
+        fill=(0.98, 0.98, 0.96) if cover_image is not None else (0.13, 0.14, 0.13),
     )
-    y -= 10
-    cover_kicker = "A structured review copy with visuals, next questions, and shortlist context."
-    y = _draw_wrapped(
+    cover_kicker = "Professional review dossier with shortlist reasoning, floorplan context, and next questions."
+    _draw_wrapped(
         ops,
         cover_kicker,
         x=MARGIN_X,
-        y=y,
+        y=y - 8,
         width_chars=42,
         size=9.4,
         leading=12,
-        fill=(0.36, 0.37, 0.36),
+        fill=(0.92, 0.94, 0.92) if cover_image is not None else (0.36, 0.37, 0.36),
     )
+    if redacted_tour_url:
+        redacted_tour_url = _append_query_param(redacted_tour_url, pane="floorplan-pane")
+    flythrough_candidate = _safe_pdf_href(diorama_scene.get("video_url") if isinstance(diorama_scene, dict) else "")
+    if not flythrough_candidate:
+        flythrough_candidate = redacted_flythrough_url
+    redacted_flythrough_url = flythrough_candidate
     cover_page_images: list[dict[str, object]] = []
     cover_page_annotations: list[dict[str, object]] = []
     if cover_image is not None:
-        hero_x = 330
-        hero_y = 410
-        hero_w = 238
-        hero_h = 292
-        _draw_rect(ops, hero_x - 6, hero_y - 6, hero_w + 12, hero_h + 12, fill=(0.96, 0.94, 0.90))
-        _draw_rect(ops, hero_x - 6, hero_y + hero_h - 28, hero_w + 12, 34, fill=(0.15, 0.38, 0.30))
-        _draw_text(ops, "Property preview", x=hero_x + 10, y=hero_y + hero_h - 18, size=9, font="F2", fill=(0.98, 0.98, 0.96))
         source_width = max(int(cover_image.get("width") or 1), 1)
         source_height = max(int(cover_image.get("height") or 1), 1)
-        scale = min(hero_w / float(source_width), hero_h / float(source_height))
+        hero_x = 0.0
+        hero_y = PAGE_HEIGHT - hero_height
+        hero_w = float(PAGE_WIDTH)
+        hero_h = float(hero_height)
+        scale = max(hero_w / float(source_width), hero_h / float(source_height))
         draw_width = max(1.0, float(source_width) * scale)
         draw_height = max(1.0, float(source_height) * scale)
         draw_x = hero_x + ((hero_w - draw_width) / 2.0)
         draw_y = hero_y + ((hero_h - draw_height) / 2.0)
         _draw_image(ops, name="Im1", x=draw_x, y=draw_y, width=draw_width, height=draw_height)
+        _draw_rect(ops, 0, PAGE_HEIGHT - hero_height, PAGE_WIDTH, hero_height, fill=(0.08, 0.12, 0.10))
+        _draw_rect(ops, 0, PAGE_HEIGHT - 156, PAGE_WIDTH, 156, fill=(0.12, 0.14, 0.13))
         cover_page_images.append({**cover_image, "name": "Im1"})
-    y -= 18 if cover_image is None else 16
-    summary_card_height = 204
-    _draw_rect(ops, MARGIN_X, y - summary_card_height, 270, summary_card_height, fill=(1.0, 0.995, 0.97))
-    _draw_rect(ops, MARGIN_X, y - summary_card_height, 6, summary_card_height, fill=(0.74, 0.55, 0.18))
-    _draw_text(ops, "Executive summary", x=MARGIN_X + 18, y=y - 20, size=13, font="F2", fill=(0.15, 0.38, 0.30))
-    prose_y = y - 42
-    for paragraph in (narrative_lines[:4] or [summary or "Review this property against the current PropertyQuarry brief."]):
-        prose_y = _draw_wrapped(
-            ops,
-            paragraph,
-            x=MARGIN_X + 18,
-            y=prose_y,
-            width_chars=40,
-            size=10.3,
-            leading=13,
-        )
-        prose_y -= 4
-    metric_y = 372
-    metric_width = (CARD_WIDTH - 36) / 4
+    _draw_text(ops, "PropertyQuarry", x=MARGIN_X, y=PAGE_HEIGHT - 42, size=18, font="F2", fill=(0.96, 0.97, 0.95) if cover_image is not None else (0.15, 0.38, 0.30))
+    _draw_text(ops, office_label, x=MARGIN_X, y=PAGE_HEIGHT - 60, size=10.8, font="F2", fill=(0.92, 0.94, 0.92) if cover_image is not None else (0.43, 0.38, 0.29))
+    _draw_text(ops, privacy_label, x=MARGIN_X, y=PAGE_HEIGHT - 76, size=9.2, fill=(0.85, 0.88, 0.85) if cover_image is not None else (0.52, 0.46, 0.35))
+    metric_y = 418
+    metric_width = (CARD_WIDTH - 30) / 4
     metrics = [
         ("Asking price", ask_value or "On request"),
         ("Rooms", rooms_value or "n/a"),
@@ -838,13 +859,30 @@ def _visual_pdf(
         ("Location", district_value or "n/a"),
     ]
     for index, (label, value) in enumerate(metrics):
-        x = MARGIN_X + (metric_width + 12) * index
-        _draw_rect(ops, x, metric_y - 68, metric_width, 76, fill=(0.93, 0.96, 0.94))
-        _draw_text(ops, value, x=x + 14, y=metric_y - 24, size=15 if len(str(value)) > 12 else 20, font="F2", fill=(0.15, 0.38, 0.30))
-        _draw_text(ops, label, x=x + 14, y=metric_y - 48, size=9.2, font="F2", fill=(0.30, 0.36, 0.32))
-    cta_y = 128
+        x = MARGIN_X + (metric_width + 10) * index
+        _draw_rect(ops, x, metric_y - 78, metric_width, 84, fill=(0.96, 0.95, 0.91))
+        _draw_rect(ops, x, metric_y - 78, metric_width, 8, fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, value, x=x + 14, y=metric_y - 34, size=15 if len(str(value)) > 14 else 19, font="F2", fill=(0.12, 0.14, 0.13))
+        _draw_text(ops, label, x=x + 14, y=metric_y - 58, size=8.9, font="F2", fill=(0.30, 0.36, 0.32))
+    summary_y_top = 314
+    _draw_rect(ops, MARGIN_X, summary_y_top - 128, CARD_WIDTH, 136, fill=(1.0, 0.995, 0.97))
+    _draw_rect(ops, MARGIN_X, summary_y_top - 128, 6, 136, fill=(0.74, 0.55, 0.18))
+    _draw_text(ops, "Executive summary", x=MARGIN_X + 18, y=summary_y_top - 20, size=13, font="F2", fill=(0.15, 0.38, 0.30))
+    prose_y = summary_y_top - 42
+    for paragraph in executive_lines[:3]:
+        prose_y = _draw_wrapped(
+            ops,
+            paragraph,
+            x=MARGIN_X + 18,
+            y=prose_y,
+            width_chars=88,
+            size=10.1,
+            leading=12.5,
+        )
+        prose_y -= 4
+    cta_y = 96
     if redacted_tour_url:
-        button_width = 246
+        button_width = 214
         button_height = 38
         _draw_rect(ops, MARGIN_X, cta_y, button_width, button_height, fill=(0.15, 0.38, 0.30))
         _draw_text(
@@ -859,8 +897,25 @@ def _visual_pdf(
         cover_page_annotations.append(
             {"url": redacted_tour_url, "rect": [MARGIN_X, cta_y, MARGIN_X + button_width, cta_y + button_height]}
         )
+    if redacted_flythrough_url:
+        fly_x = MARGIN_X + (226 if redacted_tour_url else 0)
+        fly_width = 164
+        fly_height = 38
+        _draw_rect(ops, fly_x, cta_y, fly_width, fly_height, fill=(0.74, 0.55, 0.18))
+        _draw_text(
+            ops,
+            "Play flythrough",
+            x=fly_x + 16,
+            y=cta_y + 14,
+            size=10,
+            font="F2",
+            fill=(0.98, 0.98, 0.96),
+        )
+        cover_page_annotations.append(
+            {"url": redacted_flythrough_url, "rect": [fly_x, cta_y, fly_x + fly_width, cta_y + fly_height]}
+        )
     if redacted_review_url:
-        review_x = MARGIN_X + (258 if redacted_tour_url else 0)
+        review_x = MARGIN_X + (402 if redacted_flythrough_url else (226 if redacted_tour_url else 0))
         review_width = 182
         review_height = 38
         _draw_rect(ops, review_x, cta_y, review_width, review_height, fill=(0.93, 0.96, 0.94))
@@ -881,60 +936,119 @@ def _visual_pdf(
     pages.append({"ops": ops, "images": cover_page_images, "annotations": cover_page_annotations})
 
     page_number = 2
+    ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
+    y = 786
+    _draw_text(ops, "Contents", x=MARGIN_X, y=y, size=15, font="F2", fill=(0.43, 0.38, 0.29))
+    toc_items = ["1. Executive summary"]
+    if comparison_rows:
+        toc_items.append("2. Comparison snapshot")
+    if floorplan_image is not None:
+        toc_items.append(f"{len(toc_items) + 1}. Floorplan")
+    toc_items.append(f"{len(toc_items) + 1}. Property brief")
+    if gallery_images:
+        toc_items.append(f"{len(toc_items) + 1}. Property gallery")
+    if diorama_scene and str(diorama_scene.get('image_url') or '').strip():
+        toc_items.append(f"{len(toc_items) + 1}. Diorama preview")
+    if magic_fit_scene and str(magic_fit_scene.get('image_url') or '').strip():
+        toc_items.append(f"{len(toc_items) + 1}. Lifestyle scene")
+    toc_y = y - 28
+    for item in toc_items:
+        _draw_text(ops, item, x=MARGIN_X + 8, y=toc_y, size=10.2, font="F2", fill=(0.16, 0.18, 0.17))
+        toc_y -= 18
+    _draw_rect(ops, MARGIN_X + 258, 558, CARD_WIDTH - 258, 184, fill=(1.0, 0.995, 0.97))
+    _draw_rect(ops, MARGIN_X + 258, 558, 6, 184, fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Lead recommendation", x=MARGIN_X + 276, y=718, size=13, font="F2", fill=(0.15, 0.38, 0.30))
+    lead_line = executive_lines[0] if executive_lines else (summary or "No executive recommendation available.")
+    _draw_wrapped(ops, lead_line, x=MARGIN_X + 276, y=694, width_chars=40, size=10.0, leading=12.2, fill=(0.16, 0.18, 0.17))
+    if len(executive_lines) > 1:
+        _draw_wrapped(ops, executive_lines[1], x=MARGIN_X + 276, y=648, width_chars=40, size=9.1, leading=11.2, fill=(0.35, 0.37, 0.35))
+    _draw_text(ops, "Recommendation basis", x=MARGIN_X, y=510, size=18, font="F2", fill=(0.15, 0.38, 0.30))
+    card_y = 478
+    for paragraph in executive_lines[:4]:
+        card_height = 56
+        _draw_rect(ops, MARGIN_X, card_y - card_height, CARD_WIDTH, card_height, fill=(1.0, 0.995, 0.97))
+        _draw_rect(ops, MARGIN_X, card_y - card_height, 6, card_height, fill=(0.74, 0.55, 0.18))
+        _draw_wrapped(ops, paragraph, x=MARGIN_X + 16, y=card_y - 22, width_chars=90, size=9.3, leading=11.4)
+        card_y -= card_height + 10
+    pages.append({"ops": ops, "images": []})
+    page_number += 1
+
     if comparison_rows:
         ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
-        y = 786
-        _draw_text(ops, "Contents", x=MARGIN_X, y=y, size=15, font="F2", fill=(0.43, 0.38, 0.29))
-        toc_items = [
-            "1. Executive summary",
-            "2. Comparison snapshot",
-            "3. Property brief",
-            "4. Visual references",
-        ]
-        toc_y = y - 28
-        for item in toc_items:
-            _draw_text(ops, item, x=MARGIN_X + 8, y=toc_y, size=10.2, font="F2", fill=(0.16, 0.18, 0.17))
-            toc_y -= 18
-        _draw_text(ops, "Comparison snapshot", x=MARGIN_X, y=652, size=18, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, "Comparison snapshot", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
         _draw_wrapped(
             ops,
             "This spread compares the lead option against the nearest alternatives so the shortlist reads like a recommendation rather than a loose bundle of links.",
             x=MARGIN_X,
-            y=630,
+            y=764,
             width_chars=86,
             size=9.6,
             leading=12,
             fill=(0.35, 0.37, 0.35),
         )
-        card_y = 582.0
-        for row in comparison_rows[:3]:
-            card_height = 118
-            _draw_rect(ops, MARGIN_X, card_y - card_height, CARD_WIDTH, card_height, fill=(1.0, 0.995, 0.97))
-            _draw_rect(ops, MARGIN_X, card_y - card_height, 6, card_height, fill=(0.15, 0.38, 0.30))
-            _draw_text(ops, row.get("title"), x=MARGIN_X + 18, y=card_y - 22, size=12, font="F2", fill=(0.12, 0.14, 0.13))
-            stat_line = " · ".join(
-                item for item in [
-                    row.get("price") or "",
-                    f"{row.get('rooms')} rooms" if row.get("rooms") else "",
-                    f"{row.get('area')} m2" if row.get("area") else "",
-                    row.get("recommendation") or "",
-                ] if item
-            )
-            if stat_line:
-                _draw_text(ops, stat_line, x=MARGIN_X + 18, y=card_y - 40, size=9.3, font="F2", fill=(0.30, 0.36, 0.32))
-            detail_y = card_y - 58
-            detail_y = _draw_wrapped(
+        card_width = (CARD_WIDTH - 24) / 3.0
+        base_x = MARGIN_X
+        card_top = 710.0
+        for index, row in enumerate(comparison_rows[:3]):
+            x = base_x + index * (card_width + 12)
+            card_height = 518
+            fill = (0.97, 0.98, 0.96) if index == 0 else (1.0, 0.995, 0.97)
+            accent = (0.15, 0.38, 0.30) if index == 0 else (0.74, 0.55, 0.18)
+            _draw_rect(ops, x, card_top - card_height, card_width, card_height, fill=fill)
+            _draw_rect(ops, x, card_top - card_height, card_width, 18, fill=accent)
+            _draw_text(ops, "Lead option" if index == 0 else f"Alternative {index}", x=x + 14, y=card_top - 36, size=8.7, font="F2", fill=(0.30, 0.36, 0.32))
+            title_y = _draw_wrapped(ops, row.get("title"), x=x + 14, y=card_top - 56, width_chars=22, size=11.5, leading=13.5, font="F2", fill=(0.12, 0.14, 0.13))
+            stat_y = title_y - 8
+            for stat in (
+                row.get("price") or "",
+                f"{row.get('rooms')} rooms" if row.get("rooms") else "",
+                f"{row.get('area')} m2" if row.get("area") else "",
+                row.get("recommendation") or "",
+            ):
+                if stat:
+                    _draw_text(ops, stat, x=x + 14, y=stat_y, size=8.8, font="F2", fill=(0.30, 0.36, 0.32))
+                    stat_y -= 13
+            _draw_text(ops, "Why it won" if index == 0 else "Why it trails", x=x + 14, y=stat_y - 8, size=9.4, font="F2", fill=(0.15, 0.38, 0.30))
+            _draw_wrapped(
                 ops,
                 row.get("compare_reason") or "No comparison reason was provided yet.",
-                x=MARGIN_X + 18,
-                y=detail_y,
-                width_chars=82,
-                size=9.2,
-                leading=11.5,
+                x=x + 14,
+                y=stat_y - 26,
+                width_chars=22,
+                size=8.8,
+                leading=10.8,
                 fill=(0.18, 0.19, 0.18),
             )
-            card_y -= card_height + 14
         pages.append({"ops": ops, "images": []})
+        page_number += 1
+
+    if floorplan_image is not None:
+        ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
+        _draw_text(ops, "Floorplan", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_wrapped(
+            ops,
+            "This plan is surfaced early so room flow, furniture logic, and storage questions can be reviewed before a viewing is booked.",
+            x=MARGIN_X,
+            y=764,
+            width_chars=86,
+            size=9.6,
+            leading=12,
+            fill=(0.35, 0.37, 0.35),
+        )
+        _draw_rect(ops, MARGIN_X, 122, CARD_WIDTH, 608, fill=(0.99, 0.99, 0.97))
+        _draw_rect(ops, MARGIN_X, 122, 6, 608, fill=(0.15, 0.38, 0.30))
+        source_width = max(int(floorplan_image.get("width") or 1), 1)
+        source_height = max(int(floorplan_image.get("height") or 1), 1)
+        available_width = CARD_WIDTH - 26
+        available_height = 560
+        scale = min(available_width / float(source_width), available_height / float(source_height))
+        draw_width = max(1.0, float(source_width) * scale)
+        draw_height = max(1.0, float(source_height) * scale)
+        draw_x = MARGIN_X + 13 + ((available_width - draw_width) / 2.0)
+        draw_y = 150 + ((available_height - draw_height) / 2.0)
+        _draw_image(ops, name="Im1", x=draw_x, y=draw_y, width=draw_width, height=draw_height)
+        _draw_text(ops, "Source floorplan", x=MARGIN_X + 18, y=700, size=11, font="F2", fill=(0.12, 0.14, 0.13))
+        pages.append({"ops": ops, "images": [{**floorplan_image, "name": "Im1"}]})
         page_number += 1
 
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
@@ -1017,6 +1131,44 @@ def _visual_pdf(
             _draw_text(ops, f"Listing view {index}", x=x + 10, y=y0 - 16, size=8.6, font="F2", fill=(0.30, 0.36, 0.32))
             gallery_page_images.append({**image, "name": image_name})
         pages.append({"ops": ops, "images": gallery_page_images})
+
+    diorama_image = _load_pdf_image_resource(str(diorama_scene.get("image_url") or "").strip()) if diorama_scene else None
+    if diorama_scene and diorama_image is not None:
+        page_number += 1
+        ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
+        y = 786
+        _draw_text(ops, "Diorama preview", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_wrapped(
+            ops,
+            str(diorama_scene.get("summary") or "A white-label diorama preview of the property route and occupied interior scene."),
+            x=MARGIN_X,
+            y=y - 24,
+            width_chars=82,
+            size=9.5,
+            leading=12,
+            fill=(0.36, 0.37, 0.36),
+        )
+        _draw_rect(ops, MARGIN_X, 162, CARD_WIDTH, 474, fill=(0.98, 0.97, 0.94))
+        available_width = CARD_WIDTH - 26
+        available_height = 416
+        source_width = max(int(diorama_image.get("width") or 1), 1)
+        source_height = max(int(diorama_image.get("height") or 1), 1)
+        scale = min(available_width / float(source_width), available_height / float(source_height))
+        draw_width = max(1.0, float(source_width) * scale)
+        draw_height = max(1.0, float(source_height) * scale)
+        draw_x = MARGIN_X + 13 + ((available_width - draw_width) / 2.0)
+        draw_y = 198 + ((available_height - draw_height) / 2.0)
+        _draw_image(ops, name="Im1", x=draw_x, y=draw_y, width=draw_width, height=draw_height)
+        annotations = []
+        if redacted_tour_url:
+            annotations.append({"url": redacted_tour_url, "rect": [MARGIN_X + 18, 142, MARGIN_X + 210, 176]})
+            _draw_rect(ops, MARGIN_X + 18, 142, 192, 34, fill=(0.15, 0.38, 0.30))
+            _draw_text(ops, "Open 3D reconstruction", x=MARGIN_X + 32, y=155, size=9.5, font="F2", fill=(0.98, 0.98, 0.96))
+        if redacted_flythrough_url:
+            annotations.append({"url": redacted_flythrough_url, "rect": [MARGIN_X + 224, 142, MARGIN_X + 392, 176]})
+            _draw_rect(ops, MARGIN_X + 224, 142, 168, 34, fill=(0.74, 0.55, 0.18))
+            _draw_text(ops, "Play flythrough", x=MARGIN_X + 250, y=155, size=9.5, font="F2", fill=(0.98, 0.98, 0.96))
+        pages.append({"ops": ops, "images": [{**diorama_image, "name": "Im1"}], "annotations": annotations})
 
     scene_image = _load_pdf_image_resource(str(magic_fit_scene.get("image_url") or "").strip()) if magic_fit_scene else None
     if magic_fit_scene and scene_image is not None:
@@ -1107,11 +1259,13 @@ def render_property_packet_pdf(
         media_counts=media_counts,
         media_refs=media_refs,
         magic_fit_scene=dict(redaction.payload.get("magic_fit_scene") or {}) if isinstance(redaction.payload.get("magic_fit_scene"), dict) else {},
+        diorama_scene=dict(redaction.payload.get("diorama_scene") or {}) if isinstance(redaction.payload.get("diorama_scene"), dict) else {},
         comparison_rows=_comparison_rows(redaction.payload.get("comparison_rows")),
         packet_facts=dict(redaction.payload.get("facts") or {}) if isinstance(redaction.payload.get("facts"), dict) else {},
         sections=sections,
         narrative_lines=_property_narrative(redaction.payload),
         tour_url=_resolve_pdf_primary_tour_url(source=source, payload=redaction.payload),
+        flythrough_url=_resolve_pdf_flythrough_url(source=source, payload=redaction.payload),
         review_url=_resolve_pdf_review_url(source=source, payload=redaction.payload),
     )
     pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
@@ -1124,10 +1278,14 @@ def render_property_packet_pdf(
     visual_elements = ["cover", "metric_cards", "section_cards", "privacy_footer"]
     if _comparison_rows(redaction.payload.get("comparison_rows")):
         visual_elements.insert(1, "comparison_snapshot")
+    if media_counts.get("floorplans"):
+        visual_elements.insert(2 if "comparison_snapshot" in visual_elements else 1, "floorplan_sheet")
     if media_counts.get("photos"):
         visual_elements.insert(3, "photo_gallery")
+    if isinstance(redaction.payload.get("diorama_scene"), dict):
+        visual_elements.insert(4 if "photo_gallery" in visual_elements else 3, "diorama_scene")
     if isinstance(redaction.payload.get("magic_fit_scene"), dict):
-        visual_elements.insert(4 if "photo_gallery" in visual_elements else 3, "magic_fit_scene")
+        visual_elements.insert(5 if "diorama_scene" in visual_elements or "photo_gallery" in visual_elements else 3, "magic_fit_scene")
     receipt = {
         **redaction.receipt,
         "renderer_version": PDF_RENDERER_VERSION,

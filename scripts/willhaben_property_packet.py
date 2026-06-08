@@ -60,6 +60,10 @@ PANORAMA_TOKEN_PATTERNS = tuple(
     else re.compile(re.escape(token), re.IGNORECASE)
     for token in PANORAMA_TOKENS
 )
+HTML_FLOORPLAN_IMAGE_RE = re.compile(
+    r'https://cache\.willhaben\.at/mmo/[0-9/._-]+\.jpg(?=[^>]{0,240}(?:Grundriss|grundriss))',
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -763,6 +767,25 @@ def extract_media(
     return photos, floorplans, all_assets, panoramas
 
 
+def extract_html_floorplan_refs(listing_html: str) -> list[dict[str, object]]:
+    refs: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for index, match in enumerate(HTML_FLOORPLAN_IMAGE_RE.finditer(str(listing_html or ""))):
+        url = html.unescape(match.group(0).strip())
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        refs.append(
+            {
+                "index": index,
+                "url": url,
+                "description": "HTML floorplan",
+                "role": "floorplan",
+            }
+        )
+    return refs
+
+
 def teaser_values(advert: dict[str, object]) -> tuple[float | None, float | None, list[str]]:
     teaser = advert.get("teaserAttributes")
     rooms = None
@@ -1079,9 +1102,23 @@ def build_variants(*, title: str, floorplan_count: int, photo_count: int, facts:
 
 
 def summarize_listing(url: str) -> dict[str, object]:
-    advert = load_advert(url)
+    listing_html = fetch_html(url)
+    next_data = extract_next_data(listing_html)
+    advert = deep_get(next_data, "props", "pageProps", "advertDetails")
+    if not isinstance(advert, dict):
+        raise RuntimeError("willhaben_advert_details_missing")
     attributes = extract_attributes(advert)
     photos, floorplans, assets, panoramas = extract_media(advert)
+    html_floorplans = extract_html_floorplan_refs(listing_html)
+    if html_floorplans:
+        existing_floorplans = {str(item.get("url") or "").strip() for item in floorplans}
+        for asset in html_floorplans:
+            url = str(asset.get("url") or "").strip()
+            if not url or url in existing_floorplans:
+                continue
+            floorplans.append(asset)
+            assets.append(asset)
+            existing_floorplans.add(url)
     source_virtual_tour_url, panorama_source = extract_virtual_tour(attributes)
     rooms, area, teaser_labels = teaser_values(advert)
     seo = deep_get(advert, "seoMetaData") or {}
