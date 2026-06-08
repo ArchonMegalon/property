@@ -181,6 +181,24 @@ def test_clickrank_head_snippet_can_include_rybbit_for_propertyquarry_host(
     assert "clickrank.ai" not in snippet
 
 
+def test_clickrank_head_snippet_can_include_optional_rybbit_attributes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_RYBBIT", "1")
+    monkeypatch.setenv("RYBBIT_IO_PROPERTYQUARRY_SITE_ID", _PROPERTYQUARRY_RYBBIT_SITE_ID)
+    monkeypatch.setenv("EA_PUBLIC_RYBBIT_TAG", "propertyquarry-public")
+    monkeypatch.setenv("EA_PUBLIC_RYBBIT_DEBOUNCE", "750")
+    monkeypatch.setenv("EA_PUBLIC_RYBBIT_SKIP_PATTERNS", '["/health","/ready"]')
+    monkeypatch.setenv("EA_PUBLIC_RYBBIT_MASK_PATTERNS", '["token","session"]')
+
+    snippet = clickrank_head_snippet("propertyquarry.com")
+
+    assert 'data-tag="propertyquarry-public"' in snippet
+    assert 'data-debounce="750"' in snippet
+    assert 'data-skip-patterns="[&quot;/health&quot;,&quot;/ready&quot;]"' in snippet
+    assert 'data-mask-patterns="[&quot;token&quot;,&quot;session&quot;]"' in snippet
+
+
 def test_public_landing_can_include_clickrank_and_rybbit_together(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -52,6 +52,16 @@ def _internal_links(html: str) -> list[str]:
     return [ref for ref in refs if ref.startswith("/") and not ref.startswith("//")]
 
 
+def test_public_tour_security_headers_allow_rybbit_assets() -> None:
+    from app.api.routes.public_tours import _public_tour_security_headers
+
+    headers = _public_tour_security_headers()
+    csp = headers["Content-Security-Policy"]
+
+    assert "https://app.rybbit.io" in csp
+    assert "https://js.clickrank.ai" in csp
+
+
 def test_onemin_browseract_failure_code_detects_invalid_credentials() -> None:
     from app.api.routes import providers as providers_route
 

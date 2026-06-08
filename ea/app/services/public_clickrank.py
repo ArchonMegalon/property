@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import html
 import ipaddress
+import json
 import os
 from typing import Any
 from urllib.parse import urlparse
@@ -110,6 +112,35 @@ def rybbit_site_id_for_hostname(hostname: str | None) -> str:
     return str(os.getenv(env_name) or fallback).strip()
 
 
+def _rybbit_script_attributes(site_id: str) -> list[str]:
+    script_src = str(os.getenv("EA_PUBLIC_RYBBIT_SCRIPT_SRC") or "https://app.rybbit.io/api/script.js").strip()
+    attributes = [
+        f'src="{html.escape(script_src, quote=True)}"',
+        "async",
+        "defer",
+        f'data-site-id="{html.escape(site_id, quote=True)}"',
+    ]
+    optional_map = {
+        "EA_PUBLIC_RYBBIT_TAG": "data-tag",
+        "EA_PUBLIC_RYBBIT_DEBOUNCE": "data-debounce",
+        "EA_PUBLIC_RYBBIT_SKIP_PATTERNS": "data-skip-patterns",
+        "EA_PUBLIC_RYBBIT_MASK_PATTERNS": "data-mask-patterns",
+    }
+    for env_name, attr_name in optional_map.items():
+        raw_value = str(os.getenv(env_name) or "").strip()
+        if not raw_value:
+            continue
+        if attr_name in {"data-skip-patterns", "data-mask-patterns"}:
+            try:
+                parsed = json.loads(raw_value)
+                if isinstance(parsed, list):
+                    raw_value = json.dumps([str(item) for item in parsed], ensure_ascii=True, separators=(",", ":"))
+            except json.JSONDecodeError:
+                pass
+        attributes.append(f'{attr_name}="{html.escape(raw_value, quote=True)}"')
+    return attributes
+
+
 def clickrank_head_snippet(hostname: str | None) -> str:
     snippets: list[str] = []
     clickrank_site_id = clickrank_site_id_for_hostname(hostname)
@@ -124,7 +155,5 @@ def clickrank_head_snippet(hostname: str | None) -> str:
         )
     rybbit_site_id = rybbit_site_id_for_hostname(hostname)
     if rybbit_site_id:
-        snippets.append(
-            f'<script src="https://app.rybbit.io/api/script.js" async defer data-site-id="{rybbit_site_id}"></script>'
-        )
+        snippets.append("<script " + " ".join(_rybbit_script_attributes(rybbit_site_id)) + "></script>")
     return "\n".join(snippets)

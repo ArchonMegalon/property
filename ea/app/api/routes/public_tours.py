@@ -4819,9 +4819,9 @@ def _public_tour_security_headers(*, cache_control: str = "no-store") -> dict[st
             "img-src 'self' data: https:; "
             "media-src 'self' https:; "
             "frame-src 'self' https:; "
-            "script-src 'self' 'unsafe-inline' https://js.clickrank.ai https://cdn.jsdelivr.net; "
+            "script-src 'self' 'unsafe-inline' https://js.clickrank.ai https://app.rybbit.io https://cdn.jsdelivr.net; "
             "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-            "connect-src 'self' https://cdn.jsdelivr.net"
+            "connect-src 'self' https://app.rybbit.io https://cdn.jsdelivr.net"
         ),
         "Referrer-Policy": "no-referrer",
         "X-Content-Type-Options": "nosniff",
