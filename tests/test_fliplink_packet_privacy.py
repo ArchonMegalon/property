@@ -15,6 +15,8 @@ def _source_payload() -> dict[str, object]:
         "title": "1020 Vienna apartment",
         "property_ref": "listing:vienna-1020",
         "property_url": "https://www.willhaben.at/iad/immobilien/d/demo",
+        "tour_url": "https://propertyquarry.com/tours/test-demo-tour",
+        "review_url": "https://propertyquarry.com/app/research/property-scout:test-demo?run_id=run-demo",
         "fit_summary": "Strong family fit near daily-life infrastructure.",
         "compare_reason": "Chosen ahead of the next option because it includes a floorplan and stays closer to the current brief.",
         "match_reasons": ["Floorplan, lift, and usable outdoor space."],
@@ -264,11 +266,32 @@ def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     assert b"https://packets.propertyquarry.com/assets/floorplan.pdf" not in pdf_bytes
     assert b"https://packets.propertyquarry.com/assets/photo.jpg" not in pdf_bytes
     assert b"Executive summary" in pdf_bytes
+    assert b"https://propertyquarry.com/tours/test-demo-tour" in pdf_bytes
     assert b"Chosen ahead" in pdf_bytes
     assert b"next option" in pdf_bytes
     assert b"includes a floorplan" in pdf_bytes
     assert b"roughly 4 minutes on foot" in pdf_bytes
     assert b" re f" in pdf_bytes
+
+
+def test_fliplink_pdf_uses_tour_fallback_when_redacted_payload_lacks_direct_tour_url(tmp_path: Path) -> None:
+    source = _source_payload()
+    source.pop("tour_url", None)
+    source["vendor_tour_url"] = "https://propertyquarry.com/tours/fallback-tour"
+
+    rendered = render_property_packet_pdf(
+        artifact_root=tmp_path,
+        publication_id="pub_tour_fallback",
+        principal_id="owner-1",
+        source=source,
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        fliplink_format=FlipLinkFormat.FLIPBOOK_3D,
+    )
+
+    pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
+    assert b"Open 3D reconstruction floor plan" in pdf_bytes
+    assert b"https://propertyquarry.com/tours/fallback-tour" in pdf_bytes
 
 
 def test_fliplink_pdf_can_embed_magic_fit_scene_for_private_packet(tmp_path: Path) -> None:

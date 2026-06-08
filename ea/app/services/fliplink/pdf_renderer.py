@@ -150,6 +150,38 @@ def _safe_pdf_href(value: object) -> str:
     return raw[:1800]
 
 
+def _resolve_pdf_primary_tour_url(*, source: dict[str, object], payload: dict[str, object]) -> str:
+    facts = dict(payload.get("facts") or {}) if isinstance(payload.get("facts"), dict) else {}
+    for value in (
+        payload.get("tour_url"),
+        source.get("tour_url"),
+        source.get("hosted_url"),
+        source.get("public_url"),
+        source.get("share_url"),
+        source.get("crezlo_public_url"),
+        source.get("vendor_tour_url"),
+        facts.get("tour_url"),
+        facts.get("source_virtual_tour_url"),
+        source.get("source_virtual_tour_url"),
+    ):
+        href = _safe_pdf_href(value)
+        if href:
+            return href
+    return ""
+
+
+def _resolve_pdf_review_url(*, source: dict[str, object], payload: dict[str, object]) -> str:
+    for value in (
+        payload.get("review_url"),
+        source.get("review_url"),
+        source.get("packet_url"),
+    ):
+        href = _safe_pdf_href(value)
+        if href:
+            return href
+    return ""
+
+
 def _draw_wrapped(
     ops: list[str],
     text: object,
@@ -955,8 +987,8 @@ def render_property_packet_pdf(
         magic_fit_scene=dict(redaction.payload.get("magic_fit_scene") or {}) if isinstance(redaction.payload.get("magic_fit_scene"), dict) else {},
         sections=sections,
         narrative_lines=_property_narrative(redaction.payload),
-        tour_url=str(redaction.payload.get("tour_url") or ""),
-        review_url=str(redaction.payload.get("review_url") or ""),
+        tour_url=_resolve_pdf_primary_tour_url(source=source, payload=redaction.payload),
+        review_url=_resolve_pdf_review_url(source=source, payload=redaction.payload),
     )
     pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
     principal_token = _safe_token(principal_id, "principal")
