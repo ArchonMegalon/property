@@ -1986,6 +1986,16 @@
               </div>
             </section>
             <section class="pqx-card">
+              <div class="pqx-section-head"><h2>Authority posture</h2><span class="pqx-pill">Proof</span></div>
+              <div class="pqx-event-list" data-pw-official-posture>
+                {% for row in selected.get('official_posture_rows') or [] %}
+                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
+                {% else %}
+                <div class="pqx-note">No authority posture has been attached yet for the selected property.</div>
+                {% endfor %}
+              </div>
+            </section>
+            <section class="pqx-card">
               <div class="pqx-section-head"><h2>Official risk evidence</h2><span class="pqx-pill">Authority</span></div>
               <div class="pqx-event-list" data-pw-official-evidence>
                 {% for row in selected.get('official_evidence_rows') or [] %}
@@ -2320,6 +2330,7 @@
     const householdLabelNode = root.querySelector('[data-pw-household-label]');
     const riskSignalsNode = root.querySelector('[data-pw-risk-signals]');
     const recentChangesNode = root.querySelector('[data-pw-recent-changes]');
+    const officialPostureNode = root.querySelector('[data-pw-official-posture]');
     const officialEvidenceNode = root.querySelector('[data-pw-official-evidence]');
     const clippyToggle = root.querySelector('[data-pw-clippy-toggle]');
     const clippyPanel = root.querySelector('[data-pw-clippy-panel]');
@@ -2750,6 +2761,14 @@
       if (householdLabelNode) householdLabelNode.textContent = String(candidate.household_alignment_label || 'waiting');
       if (riskSignalsNode) riskSignalsNode.innerHTML = renderRiskSignals(candidate.risk_signal_rows);
       if (recentChangesNode) recentChangesNode.innerHTML = renderRecentChanges(candidate.recent_change_rows);
+      if (officialPostureNode) {
+        const rows = Array.isArray(candidate.official_posture_rows) ? candidate.official_posture_rows : [];
+        officialPostureNode.innerHTML = rows.length
+          ? rows.map((row) => `
+            <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Authority posture')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
+          `).join('')
+          : '<div class="pqx-note">No authority posture has been attached yet for the selected property.</div>';
+      }
       if (officialEvidenceNode) {
         const rows = Array.isArray(candidate.official_evidence_rows) ? candidate.official_evidence_rows : [];
         officialEvidenceNode.innerHTML = rows.length

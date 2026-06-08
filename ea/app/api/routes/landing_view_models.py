@@ -174,6 +174,88 @@ def _provider_quality_rows(
     return rows
 
 
+def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, str]]:
+    rows = [dict(row) for row in list(official.get("sources") or []) if isinstance(row, dict)]
+    if not rows:
+        return []
+    total = len(rows)
+    official_total = 0
+    partial_total = 0
+    gap_total = 0
+    flagged_total = 0
+    review_total = 0
+    verified_total = 0
+    low_conf_total = 0
+    for row in rows:
+        availability = str(row.get("availability") or "").strip().lower()
+        verification_state = str(row.get("verification_state") or "").strip().lower()
+        confidence = str(row.get("confidence") or "").strip().lower()
+        if availability == "official_dataset":
+            official_total += 1
+        elif availability == "partial_official":
+            partial_total += 1
+        if availability in {"municipal_gap", "source_gap"} or verification_state == "source_gap":
+            gap_total += 1
+        if verification_state == "flagged":
+            flagged_total += 1
+        if verification_state in {"flagged", "needs_review", "source_gap", "stale"}:
+            review_total += 1
+        if verification_state in {"verified", "confirmed", "cleared"}:
+            verified_total += 1
+        if confidence == "low":
+            low_conf_total += 1
+    if gap_total:
+        headline = "Manual clearance required"
+        headline_detail = f"{gap_total} risk lane(s) still depend on municipality-specific or missing official evidence."
+        headline_tag = "Source gap"
+    elif flagged_total:
+        headline = "Official sources attached, risks still flagged"
+        headline_detail = f"{flagged_total} lane(s) remain flagged and still need manual clearance before this read is trustworthy."
+        headline_tag = "Flagged"
+    elif review_total:
+        headline = "Authority coverage attached, review still open"
+        headline_detail = f"{review_total} lane(s) still need a manual confirmation pass even though official sources are already attached."
+        headline_tag = "Review"
+    else:
+        headline = "Authority coverage in place"
+        headline_detail = "All active risk lanes already have attached authority coverage and no unresolved source-gap blockers."
+        headline_tag = "Ready"
+    next_steps: list[str] = []
+    for row in rows:
+        verification_state = str(row.get("verification_state") or "").strip().lower()
+        availability = str(row.get("availability") or "").strip().lower()
+        required_next_step = str(row.get("required_next_step") or "").strip()
+        if verification_state not in {"flagged", "needs_review", "source_gap", "stale"} and availability not in {"municipal_gap", "source_gap"}:
+            continue
+        if required_next_step and required_next_step not in next_steps:
+            next_steps.append(required_next_step)
+    coverage_parts = [f"{total} lanes attached", f"{official_total} official", f"{partial_total} partial", f"{gap_total} gaps"]
+    verification_parts = [f"{verified_total} verified", f"{flagged_total} flagged", f"{review_total} still open"]
+    response = [
+        {"title": headline, "detail": headline_detail, "tag": headline_tag},
+        {"title": "Coverage", "detail": " | ".join(coverage_parts), "tag": str(official.get("country_code") or "").strip() or "Market"},
+        {"title": "Verification", "detail": " | ".join(verification_parts), "tag": f"{low_conf_total} low confidence" if low_conf_total else "Confidence ok"},
+    ]
+    if next_steps:
+        response.append(
+            {
+                "title": "Next authority step",
+                "detail": " | ".join(next_steps[:2]),
+                "tag": "Manual proof",
+            }
+        )
+    updated_at = str(official.get("updated_at") or "").strip()
+    if updated_at:
+        response.append(
+            {
+                "title": "Evidence snapshot",
+                "detail": updated_at.replace("T", " ").replace("+00:00", " UTC"),
+                "tag": "Attached",
+            }
+        )
+    return response
+
+
 def _property_counterfactual_rows(
     *,
     preferences: dict[str, object],
@@ -3159,6 +3241,11 @@ def property_workspace_payload(
                     for row in list(dict(facts.get("official_risk_evidence") or {}).get("sources") or [])[:4]
                     if isinstance(row, dict)
                 ],
+                "official_posture_rows": _official_risk_posture_rows(
+                    dict(facts.get("official_risk_evidence") or {})
+                    if isinstance(facts.get("official_risk_evidence"), dict)
+                    else {}
+                ),
                 "household_alignment_score": int(dict(candidate.get("feedback_summary") or {}).get("household_alignment_score") or 0) if isinstance(candidate.get("feedback_summary"), dict) else 0,
                 "household_alignment_label": str(dict(candidate.get("feedback_summary") or {}).get("family_alignment") or "waiting") if isinstance(candidate.get("feedback_summary"), dict) else "waiting",
             }

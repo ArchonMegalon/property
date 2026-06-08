@@ -1130,6 +1130,7 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
         assert packet_path
         response = page.goto(f"{base_url}/app/properties?run_id=run-42&candidate={candidate_ref}", wait_until="networkidle")
         assert response is not None and response.ok
+        assert page.locator("body", has_text="Authority posture").is_visible()
         assert page.locator("body", has_text="Official risk evidence").is_visible()
         with page.expect_response("**/app/api/people/*/preference-profile/property-feedback") as save_response_info:
             page.get_by_role("button", name="No", exact=True).click()
@@ -1166,6 +1167,7 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
         separator = "&" if "?" in packet_url else "?"
         response = page.goto(f"{packet_url}{separator}run_id=run-42&decision=no&clippy=1&prompt=What%20is%20the%20strongest%20blocker%20here%3F", wait_until="networkidle")
         assert response is not None and response.ok
+        assert page.locator("body", has_text="Authority posture").is_visible()
         assert page.locator("body", has_text="Decision shortcut loaded from the email or shared link.").is_visible()
         assert page.locator("body", has_text="Clippy prompt loaded from the email or shared link.").is_visible()
         assert page.locator("body", has_text="Tracked follow-up").is_visible()

@@ -43,6 +43,7 @@ from app.api.routes.landing_view_models import (
     channel_cards as _channel_cards,
     humanize as _humanize,
     list_rows as _list_rows,
+    _official_risk_posture_rows,
     property_workspace_payload as _property_workspace_payload,
 )
 from app.api.routes.admin_view_models import build_admin_section_payload as _build_admin_section_payload
@@ -1801,6 +1802,20 @@ def _property_packet_official_evidence_rows(facts: dict[str, object]) -> list[di
     return rows
 
 
+def _property_packet_official_posture_rows(facts: dict[str, object]) -> list[dict[str, str]]:
+    official = dict(facts.get("official_risk_evidence") or {}) if isinstance(facts.get("official_risk_evidence"), dict) else {}
+    rows: list[dict[str, str]] = []
+    for row in _official_risk_posture_rows(official):
+        rows.append(
+            _object_detail_row(
+                str(row.get("title") or "Authority posture").strip(),
+                str(row.get("detail") or "").strip() or "Official-source authority posture is not attached yet.",
+                str(row.get("tag") or "Pending").strip() or "Pending",
+            )
+        )
+    return rows
+
+
 def _property_packet_future_research_rows(facts: dict[str, object]) -> list[dict[str, str]]:
     future = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
     rows: list[dict[str, str]] = []
@@ -2408,6 +2423,7 @@ def property_research_packet(
     )
     provenance_rows = _property_packet_provenance_rows(facts)
     official_evidence_rows = _property_packet_official_evidence_rows(facts)
+    official_posture_rows = _property_packet_official_posture_rows(facts)
     future_research_rows = _property_packet_future_research_rows(facts)
     compare_rows = _property_packet_compare_rows(
         property_context=property_context,
@@ -2738,6 +2754,12 @@ def property_research_packet(
                 "title": "Which facts came from the listing and which were researched",
                 "items": provenance_rows
                 or [_object_detail_row("No provenance rows yet", "Deeper enrichment will surface which facts were researched versus copied from the listing.", "Pending")],
+            },
+            {
+                "eyebrow": "Authority posture",
+                "title": "What is already authority-backed and what still blocks clearance",
+                "items": official_posture_rows
+                or [_object_detail_row("No official-source posture yet", "This packet has not yet attached enough authority metadata to say which risk lanes are truly covered.", "Pending")],
             },
             {
                 "eyebrow": "Official risk evidence",

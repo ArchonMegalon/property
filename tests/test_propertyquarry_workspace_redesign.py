@@ -119,22 +119,41 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
             },
             "official_risk_evidence": {
                 "country_code": "AT",
+                "updated_at": "2026-06-08T18:30:00+00:00",
                 "sources": [
                     {
                         "label": "Air quality",
+                        "authority_label": "Stadt Wien",
                         "provider": "data.gv.at / Stadt Wien",
                         "source_label": "Luftmessnetz: aktuelle Messdaten Wien",
                         "source_url": "https://www.data.gv.at/datasets/d9ae1245-158e-4d79-86a4-2d9b3defbedc?locale=de",
                         "availability": "official_dataset",
+                        "verification_state": "flagged",
+                        "confidence": "medium",
                         "summary": "Official city air-quality measurements should anchor the pollution read for this micro-location.",
+                        "required_next_step": "Cross-check the nearest station before treating air burden as resolved.",
                     },
                     {
                         "label": "Flood exposure",
+                        "authority_label": "Hochwasserrichtlinie",
                         "provider": "data.gv.at / Hochwasserrichtlinie",
                         "source_label": "Überflutungsflächen HQ30, HWRL",
                         "source_url": "https://www.data.gv.at/datasets/84372374-996a-4d7c-a7ee-9b063d9a7282?locale=de",
                         "availability": "official_dataset",
+                        "verification_state": "needs_review",
+                        "confidence": "high",
                         "summary": "Official HQ30 and flood-zone evidence should anchor the flood-risk read.",
+                    },
+                    {
+                        "label": "Parking pressure",
+                        "authority_label": "Municipal parking authority",
+                        "provider": "municipal parking data",
+                        "source_label": "Municipal parking-regulation evidence required",
+                        "availability": "municipal_gap",
+                        "verification_state": "source_gap",
+                        "confidence": "low",
+                        "summary": "A municipality-specific parking source is still missing for this micro-location.",
+                        "required_next_step": "Attach a municipality-specific parking-zone source before clearing parking pressure.",
                     },
                 ],
             },
@@ -373,6 +392,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Gymnasium path" in search.text
     assert "Decision reasons" in search.text
     assert "Risk and investment" in search.text
+    assert "Authority posture" in search.text
+    assert "Manual clearance required" in search.text
     assert "Decision pipeline" in search.text
     assert "Decision feedback" in search.text
     assert "Would you pursue this property?" in search.text
@@ -455,6 +476,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Missing-data severity" in packet.text
     assert "Decision scorecard" in packet.text
     assert "Evidence and provenance" in packet.text
+    assert "Authority posture" in packet.text
+    assert "Manual clearance required" in packet.text
     assert "Official risk evidence" in packet.text
     assert "Luftmessnetz: aktuelle Messdaten Wien" in packet.text
     assert "Alltagsfit" in packet.text

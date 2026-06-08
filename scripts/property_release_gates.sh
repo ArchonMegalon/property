@@ -18,6 +18,7 @@ Usage:
 
 Runs the focused PropertyQuarry release bundle:
   - property workspace redesign browser contracts
+  - notification email and action-surface contracts
   - FlipLink packet privacy, publication, and webhook contracts
   - MagicFit-only promo packet contracts
   - PropertyQuarry Teable tenant/projection contracts
@@ -36,6 +37,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_security_posture.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_repo_isolation.py
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_deploy_operator_contracts.py \
+  tests/test_property_notification_email_templates.py \
   tests/test_propertyquarry_teable_sync.py \
   tests/test_propertyquarry_magicfit_promo_contract.py \
   tests/test_fliplink_packet_privacy.py \
@@ -56,6 +58,8 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_propertyquarry_phase6_exit_gate.py \
   tests/test_propertyquarry_master_regression_gate.py \
   tests/test_property_search_runs.py::test_property_search_run_surfaces_and_updates_missing_fact_research_tasks
+PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
+  tests/test_product_api_contracts.py -k 'property_notification_preview or property_feedback'
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_propertyquarry_workspace_redesign.py \
   tests/e2e/test_propertyquarry_greenfield_browser.py \
