@@ -87,7 +87,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
         "recommendation": "shortlist",
         "review_url": "https://propertyquarry.com/app/handoffs/human_task:review-1",
         "tour_url": "https://propertyquarry.com/tours/altbau-u6",
-        "match_reasons": ["Lift and transit fit."],
+        "match_reasons": [
+            "Includes a live 360 source, which supports remote review after the core fit is already acceptable.",
+            "Lift and transit fit.",
+        ],
         "mismatch_reasons": [],
         "property_facts": {
             "price_display": "EUR 420,000",
@@ -427,6 +430,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-research-task-action="dismiss"' in search.text
     assert "EUR 5,385/m2" in search.text
     assert "Open 360" in search.text
+    assert "Preferred because: Lift and transit fit." in search.text
+    assert "Preferred because: Includes a live 360 source" not in search.text
     assert "Review packet" in search.text
     assert 'data-candidate-packet-url="/app/research/' in search.text
     assert "Launch search" not in search.text

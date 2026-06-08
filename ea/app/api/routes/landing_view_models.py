@@ -1014,6 +1014,23 @@ def app_section_payload(
         return packet_url
 
     enriched_sources: list[dict[str, object]] = []
+    def _candidate_priority_reason(match_reasons: list[str], mismatch_reasons: list[str], fit_summary: str) -> str:
+        def _is_tour_only(text: str) -> bool:
+            lowered = str(text or "").strip().lower()
+            return bool(lowered) and any(marker in lowered for marker in ("360", "panorama", "virtual tour", "remote review"))
+
+        preferred_match = next((item for item in match_reasons if item and not _is_tour_only(item)), "")
+        if preferred_match:
+            return f"Preferred because: {preferred_match}"
+        preferred_risk = next((item for item in mismatch_reasons if item and not _is_tour_only(item)), "")
+        if preferred_risk:
+            return f"Watch-out first: {preferred_risk}"
+        if fit_summary and not _is_tour_only(fit_summary):
+            return fit_summary
+        if match_reasons:
+            return "Preferred because it stayed closest to the current brief on the available facts; 3D evidence helps verification but was not decisive on its own."
+        return ""
+
     for source in list(property_summary.get("sources") or []):
         if not isinstance(source, dict):
             continue
@@ -1130,10 +1147,9 @@ def app_section_payload(
                 for item in list(candidate.get("mismatch_reasons") or [])
                 if str(item or "").strip()
             ]
-            if match_reasons:
-                detail_parts.append(f"Why it fits: {match_reasons[0]}")
-            elif mismatch_reasons:
-                detail_parts.append(f"Watch-out: {mismatch_reasons[0]}")
+            priority_reason = _candidate_priority_reason(match_reasons, mismatch_reasons, str(candidate.get("fit_summary") or "").strip())
+            if priority_reason:
+                detail_parts.append(priority_reason)
             row: dict[str, str] = {
                 "title": title,
                 "detail": " | ".join(part for part in detail_parts if part) or source_label,

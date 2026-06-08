@@ -6658,19 +6658,42 @@ def _property_alert_fit_summary(assessment: dict[str, object] | None) -> str:
         for item in list(upstream.get("matches") or [])
         if str(item or "").strip()
     ]
+    def _is_tour_only_reason(text: str) -> bool:
+        normalized = str(text or "").strip().lower()
+        if not normalized:
+            return False
+        return any(
+            marker in normalized
+            for marker in (
+                "360",
+                "panorama",
+                "remote review workflow",
+                "live tour",
+                "virtual tour",
+            )
+        )
+
+    def _best_reason(candidates: list[str], *, allow_tour_only: bool = False) -> str:
+        preferred = [item for item in candidates if item and not _is_tour_only_reason(item)]
+        if preferred:
+            return compact_text(preferred[0], fallback="", limit=110)
+        if candidates and allow_tour_only:
+            return compact_text(candidates[0], fallback="", limit=110)
+        return ""
+
     parts: list[str] = []
     if fit_score > 0.0:
         parts.append(f"Personal fit {int(round(fit_score)):d}/100")
     if recommendation:
         parts.append(recommendation)
     if learned_conflicts:
-        parts.append(compact_text(learned_conflicts[0], fallback="", limit=110))
+        parts.append(_best_reason(learned_conflicts, allow_tour_only=False))
     elif reasons:
-        parts.append(compact_text(reasons[0], fallback="", limit=110))
+        parts.append(_best_reason(reasons, allow_tour_only=False))
     elif learned_matches:
-        parts.append(compact_text(learned_matches[0], fallback="", limit=110))
+        parts.append(_best_reason(learned_matches, allow_tour_only=False))
     elif mismatches:
-        parts.append(compact_text(mismatches[0], fallback="", limit=110))
+        parts.append(_best_reason(mismatches, allow_tour_only=False))
     return " · ".join(part for part in parts if part).strip()
 
 
@@ -6828,11 +6851,11 @@ def _property_alert_upstream_personalization(
         elif key == "prefer_360_for_remote_review" and bool(value):
             learned_axes.append("360_remote_review")
             if has_360:
-                matches.append("Includes a live 360 source, which supports your remote review workflow.")
-                score_delta += 4.0
+                matches.append("Includes a live 360 source, which supports remote review after the core fit is already acceptable.")
+                score_delta += 1.0
             else:
-                conflicts.append("No live 360 source, which makes remote review weaker than you usually want.")
-                score_delta -= 5.0
+                conflicts.append("No live 360 source, which makes remote review slightly weaker but is not a core blocker on its own.")
+                score_delta -= 1.5
         elif key == "prefer_subway_nearby" and bool(value):
             learned_axes.append("subway_access")
             if isinstance(nearest_subway, float) and nearest_subway <= 650.0:

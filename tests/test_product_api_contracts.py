@@ -4758,6 +4758,42 @@ def test_property_alert_review_telegram_text_includes_top_candidate_summary() ->
     assert "Next: open the listing and generate a tour." in text
 
 
+def test_property_alert_fit_summary_does_not_lead_with_360_when_stronger_reason_exists() -> None:
+    summary = product_service._property_alert_fit_summary(
+        {
+            "fit_score": 71.0,
+            "recommendation": "view_if_compelling",
+            "match_reasons_json": [
+                "Includes a live 360 source, which supports remote review after the core fit is already acceptable.",
+                "The district matches established daily-life preferences.",
+            ],
+            "mismatch_reasons_json": [],
+        }
+    )
+
+    assert "Personal fit 71/100" in summary
+    assert "view if compelling" in summary
+    assert "district matches established daily-life preferences" in summary.lower()
+    assert "supports remote review" not in summary.lower()
+
+
+def test_property_alert_fit_summary_omits_360_when_it_is_the_only_positive_reason() -> None:
+    summary = product_service._property_alert_fit_summary(
+        {
+            "fit_score": 54.0,
+            "recommendation": "ask_for_clarification",
+            "match_reasons_json": [
+                "Includes a live 360 source, which supports remote review after the core fit is already acceptable.",
+            ],
+            "mismatch_reasons_json": [],
+        }
+    )
+
+    assert "Personal fit 54/100" in summary
+    assert "ask for clarification" in summary
+    assert "supports remote review" not in summary.lower()
+
+
 def test_property_alert_review_telegram_text_prefers_internal_tour_link() -> None:
     text = product_service._property_alert_review_telegram_text(
         title="Watch fit apartment",
