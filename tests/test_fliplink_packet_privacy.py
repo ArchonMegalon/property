@@ -252,16 +252,17 @@ def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     assert hashlib.sha256(pdf_bytes).hexdigest() == rendered["pdf_sha256"]
     assert rendered["receipt"]["pdf_sha256"] == rendered["pdf_sha256"]
     assert rendered["receipt"]["source_pdf_size_bytes"] == len(pdf_bytes)
-    assert rendered["receipt"]["renderer_version"] == "v4_visual_packet_pdf"
+    assert rendered["receipt"]["renderer_version"] == "v5_agency_dossier_pdf"
     assert rendered["receipt"]["renderer_kind"] == "branded_visual_pdf"
     assert "section_cards" in rendered["receipt"]["visual_elements"]
-    assert "media_appendix" in rendered["receipt"]["visual_elements"]
+    assert "photo_gallery" in rendered["receipt"]["visual_elements"]
     assert rendered["receipt"]["media_link_count"] == 2
-    assert rendered["receipt"]["media_appendix_refs"] == {"floorplans": 1, "photos": 1}
+    assert rendered["receipt"]["embedded_media_refs"] == {"floorplans": 1, "photos": 1}
     assert b"PropertyQuarry" in pdf_bytes
-    assert b"Media appendix" in pdf_bytes
-    assert b"https://packets.propertyquarry.com/assets/floorplan.pdf" in pdf_bytes
-    assert b"https://packets.propertyquarry.com/assets/photo.jpg" in pdf_bytes
+    assert b"Media appendix" not in pdf_bytes
+    assert b"https://packets.propertyquarry.com/assets/floorplan.pdf" not in pdf_bytes
+    assert b"https://packets.propertyquarry.com/assets/photo.jpg" not in pdf_bytes
+    assert b"Executive summary" in pdf_bytes
     assert b" re f" in pdf_bytes
 
 

@@ -100,7 +100,7 @@ def test_fliplink_manual_packet_lane_and_url_validation(monkeypatch, tmp_path: P
     assert listing.json()["capacity"]["cap"] >= 1
     listed = next(item for item in listing.json()["items"] if item["publication_id"] == publication_id)
     assert listed["analytics"]["views"] == 14
-    assert listed["renderer_version"] == "v4_visual_packet_pdf"
+    assert listed["renderer_version"] == "v5_agency_dossier_pdf"
 
     archived = client.post(
         f"/app/api/properties/packets/{publication_id}/archive",
