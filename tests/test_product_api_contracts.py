@@ -2570,6 +2570,16 @@ def test_generic_property_tour_floorplan_only_bypasses_legacy_360_requirement(mo
             "blocking_constraints_json": [],
         },
     )
+    monkeypatch.setattr(
+        product_service,
+        "_write_hosted_floorplan_property_tour_bundle",
+        lambda **kwargs: {
+            "slug": "floorplan-only-tour",
+            "hosted_url": "https://propertyquarry.com/tours/floorplan-only-tour",
+            "public_url": "https://propertyquarry.com/tours/floorplan-only-tour",
+            "creation_mode": "hosted_floorplan_tour",
+        },
+    )
     service = product_service.build_product_service(client.app.state.container)
 
     legacy_blocked = service.create_generic_property_tour(
@@ -2591,7 +2601,93 @@ def test_generic_property_tour_floorplan_only_bypasses_legacy_360_requirement(mo
 
     assert legacy_blocked["blocked_reason"] == "listing_360_media_missing"
     assert floorplan_allowed["blocked_reason"] != "listing_360_media_missing"
-    assert floorplan_allowed["blocked_reason"] == "browseract_connector_unconfigured"
+    assert floorplan_allowed["status"] == "created"
+    assert floorplan_allowed["creation_mode"] == "hosted_floorplan_tour"
+    assert floorplan_allowed["tour_media_mode"] == "floorplan_hosted"
+
+
+def test_generic_property_tour_without_browseract_binding_uses_pure_360_hosting_when_available(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    principal_id = "cf-email:pure360-nobinding@example.com"
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
+    monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property 360 Office")
+    service = product_service.build_product_service(client.app.state.container)
+    listing_url = "https://www.kalandra.at/objekt/no-binding-360"
+
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "no-binding-360",
+            "title": "Live 360 apartment",
+            "summary": "Apartment with direct provider panorama.",
+            "media_urls_json": ["https://storage.justimmo.at/thumb/photo-1.jpg"],
+            "floorplan_urls_json": [],
+            "panorama_media_urls_json": [],
+            "source_virtual_tour_url": "https://360.kalandra.at/view/portal/id/VZ8P1",
+            "property_facts_json": {
+                "property_type": "apartment",
+                "has_360": True,
+                "source_virtual_tour_url": "https://360.kalandra.at/view/portal/id/VZ8P1",
+                "panorama_source": "360.kalandra.at",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "fit_score": 75.0,
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Direct provider 360 is already available."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_merge_property_facts_with_source_research",
+        lambda *, property_url, property_facts, image_urls=(): {
+            **dict(property_facts),
+            "street_address": "Hameaustraße 34",
+            "address_lines": ["Hameaustraße 34", "1190 Wien"],
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_feelestate_json_rpc",
+        lambda method, params: {
+            ("getLocationWithAuthentication", None): {"tour": {"floors": [{"id": 85470}], "name": "Tour"}},
+            ("getAllFloorLocations", 85470): {"locations": [{"id": 847551, "name": "Living room"}]},
+            ("getLocationWithAuthentication", 847551): {
+                "location": {"id": 847551, "name": "Living room", "gotoYaw": 0, "gotoPitch": 0},
+            },
+        }[(method, params[2] if method == "getLocationWithAuthentication" else params[0])],
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_download_public_tour_asset",
+        lambda url, target: (target.parent.mkdir(parents=True, exist_ok=True), target.write_bytes(b"jpg")),
+    )
+
+    result = service.create_generic_property_tour(
+        principal_id=principal_id,
+        property_url=listing_url,
+        source_ref="property:no-binding-360",
+        auto_deliver=False,
+        actor="test",
+    )
+
+    assert result["status"] == "created"
+    assert result["creation_mode"] == "pure_hosted_360"
+    assert result["blocked_reason"] == ""
+    assert str(result["tour_url"]).startswith("https://propertyquarry.com/tours/")
 
 
 def test_property_scout_clamps_requested_match_score_to_free_plan_cap(monkeypatch) -> None:

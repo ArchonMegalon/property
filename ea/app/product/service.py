@@ -18972,6 +18972,113 @@ class ProductService:
             )
             return payload
         if not resolved_binding_id:
+            if source_virtual_tour_url:
+                try:
+                    structured_output = _write_hosted_feelestate_pure_360_property_tour_bundle(
+                        principal_id=principal_id,
+                        title=title,
+                        listing_id=listing_id,
+                        property_url=normalized_url,
+                        variant_key=resolved_variant_key,
+                        source_virtual_tour_url=source_virtual_tour_url,
+                        property_facts_json=property_facts_json,
+                        source_host=source_host,
+                        source_ref=resolved_source_ref,
+                        external_id=resolved_external_id,
+                        recipient_email=resolved_recipient_email,
+                    )
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    payload = {
+                        "generated_at": generated_at,
+                        "status": "created",
+                        "property_url": normalized_url,
+                        "title": title,
+                        "listing_id": listing_id,
+                        "variant_key": resolved_variant_key,
+                        "artifact_id": "",
+                        "execution_session_id": "",
+                        "connector_binding_id": "",
+                        "tour_url": tour_url,
+                        "vendor_tour_url": vendor_tour_url,
+                        "editor_url": "",
+                        "delivery_email": resolved_recipient_email,
+                        "delivery_status": "skipped" if not auto_deliver else "",
+                        "blocked_reason": "",
+                        "human_task_id": "",
+                        "source_ref": resolved_source_ref,
+                        "external_id": resolved_external_id,
+                        "tour_media_mode": "panorama_360",
+                        "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+                        "personal_fit_assessment": dict(personal_fit_assessment or {}),
+                        "creation_mode": "pure_hosted_360",
+                        "source_virtual_tour_url": "",
+                    }
+                    try:
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="generic_property_tour_created",
+                            payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                            source_id=resolved_source_ref,
+                            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-created",
+                        )
+                    except Exception:
+                        pass
+                    return payload
+                except Exception:
+                    pass
+            if source_floorplan_urls:
+                try:
+                    structured_output = _write_hosted_floorplan_property_tour_bundle(
+                        principal_id=principal_id,
+                        title=title,
+                        listing_id=listing_id,
+                        property_url=normalized_url,
+                        variant_key=resolved_variant_key,
+                        floorplan_urls=source_floorplan_urls,
+                        property_facts_json=property_facts_json,
+                        source_host=source_host,
+                        source_ref=resolved_source_ref,
+                        external_id=resolved_external_id,
+                        recipient_email=resolved_recipient_email,
+                    )
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    payload = {
+                        "generated_at": generated_at,
+                        "status": "created",
+                        "property_url": normalized_url,
+                        "title": title,
+                        "listing_id": listing_id,
+                        "variant_key": resolved_variant_key,
+                        "artifact_id": "",
+                        "execution_session_id": "",
+                        "connector_binding_id": "",
+                        "tour_url": tour_url,
+                        "vendor_tour_url": vendor_tour_url,
+                        "editor_url": "",
+                        "delivery_email": resolved_recipient_email,
+                        "delivery_status": "skipped" if not auto_deliver else "",
+                        "blocked_reason": "",
+                        "human_task_id": "",
+                        "source_ref": resolved_source_ref,
+                        "external_id": resolved_external_id,
+                        "tour_media_mode": "floorplan_hosted",
+                        "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+                        "personal_fit_assessment": dict(personal_fit_assessment or {}),
+                        "creation_mode": "hosted_floorplan_tour",
+                    }
+                    try:
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="generic_property_tour_created",
+                            payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                            source_id=resolved_source_ref,
+                            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-created",
+                        )
+                    except Exception:
+                        pass
+                    return payload
+                except Exception:
+                    pass
             followup = self._open_property_tour_followup(
                 principal_id=principal_id,
                 property_url=normalized_url,
