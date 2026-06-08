@@ -36,6 +36,14 @@ def test_propertyquarry_app_templates_do_not_reintroduce_legacy_dark_theme_token
             assert token not in body, f"{token!r} leaked into {template_path.relative_to(repo_root)}"
 
 
+def test_propertyquarry_object_detail_template_exposes_opt_in_magic_fit_panel() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/object_detail.html"
+    body = template_path.read_text(encoding="utf-8")
+    assert "Open Magic Fit" in body
+    assert "Use Google Photos Picker" in body
+    assert "Attach the generated still to the packet PDF dossier" in body
+
+
 def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch) -> None:
     principal_id = "pq-redesign-browser"
     client = build_property_client(principal_id=principal_id)

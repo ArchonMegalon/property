@@ -1322,6 +1322,51 @@ class PropertyDecisionCopilotOut(BaseModel):
     actions: list[PropertyDecisionCopilotActionOut] = Field(default_factory=list)
 
 
+class PropertyMagicFitSceneCreateIn(BaseModel):
+    property_ref: str = Field(min_length=1, max_length=500)
+    property_title: str = Field(default="", max_length=240)
+    property_url: str = Field(default="", max_length=2000)
+    scene_type: str = Field(default="breakfast", max_length=80)
+    room_hint: str = Field(default="", max_length=160)
+    styling_hint: str = Field(default="", max_length=240)
+    property_facts: dict[str, object] = Field(default_factory=dict)
+    reference_urls: list[str] = Field(default_factory=list, max_length=6)
+    google_photos_session_id: str = Field(default="", max_length=200)
+    google_photos_account_email: str = Field(default="", max_length=200)
+    household_roles: list[str] = Field(default_factory=list, max_length=6)
+    include_child_reference: bool = False
+    consent_personal_photos: bool = False
+    guardian_confirmed_for_children: bool = False
+    share_with_packet_pdf: bool = True
+    note: str = Field(default="", max_length=500)
+
+    @field_validator("reference_urls")
+    @classmethod
+    def _normalize_reference_urls(cls, value: list[str]) -> list[str]:
+        cleaned = [str(item or "").strip() for item in list(value or []) if str(item or "").strip()]
+        return cleaned[:6]
+
+
+class PropertyMagicFitSceneOut(BaseModel):
+    status: str = "created"
+    scene_id: str
+    property_ref: str
+    property_title: str = ""
+    scene_type: str
+    room_hint: str = ""
+    styling_hint: str = ""
+    image_url: str = ""
+    prompt: str = ""
+    summary: str = ""
+    reference_total: int = 0
+    google_photos_session_id: str = ""
+    household_roles: list[str] = Field(default_factory=list)
+    visual_simulation: bool = True
+    packet_pdf_enabled: bool = True
+    consent_confirmed: bool = True
+    generated_at: str = ""
+
+
 class PreferenceLearningFeedbackEventOut(BaseModel):
     event_type: str = ""
     recorded_at: str = ""

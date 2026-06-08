@@ -22106,6 +22106,304 @@ class ProductService:
             "media_items_set": session.media_items_set,
         }
 
+    def _property_magic_fit_scene_event_rows(
+        self,
+        *,
+        principal_id: str,
+        property_ref: str,
+        limit: int = 400,
+    ) -> list[object]:
+        normalized_ref = str(property_ref or "").strip()
+        if not normalized_ref:
+            return []
+        rows: list[object] = []
+        for row in self._container.channel_runtime.list_recent_observations(
+            limit=max(1, min(int(limit or 400), 4000)),
+            principal_id=principal_id,
+        ):
+            if str(getattr(row, "channel", "") or "").strip() != "product":
+                continue
+            if str(getattr(row, "event_type", "") or "").strip() != "property_magic_fit_scene_created":
+                continue
+            payload = dict(getattr(row, "payload", None) or {})
+            if str(payload.get("property_ref") or "").strip() != normalized_ref:
+                continue
+            rows.append(row)
+        rows.sort(key=lambda item: str(getattr(item, "created_at", "") or ""), reverse=True)
+        return rows
+
+    def latest_property_magic_fit_scene(
+        self,
+        *,
+        principal_id: str,
+        property_ref: str,
+    ) -> dict[str, object]:
+        rows = self._property_magic_fit_scene_event_rows(principal_id=principal_id, property_ref=property_ref, limit=400)
+        if not rows:
+            return {}
+        payload = dict(getattr(rows[0], "payload", None) or {})
+        payload.setdefault("generated_at", str(getattr(rows[0], "created_at", "") or ""))
+        payload.setdefault("status", "created")
+        return payload
+
+    def _property_magic_fit_reference_urls(
+        self,
+        *,
+        principal_id: str,
+        google_photos_session_id: str = "",
+        google_photos_account_email: str = "",
+        reference_urls: list[str] | tuple[str, ...] | None = None,
+    ) -> list[str]:
+        urls = [str(item or "").strip() for item in list(reference_urls or []) if str(item or "").strip()]
+        session_id = str(google_photos_session_id or "").strip()
+        if session_id:
+            packet = google_oauth_service.sync_google_photos_picker_session(
+                container=self._container,
+                principal_id=principal_id,
+                session_id=session_id,
+                account_email_filter=str(google_photos_account_email or "").strip().lower(),
+                max_items=3,
+            )
+            for row in list(packet.signals or []):
+                payload = dict(row.payload or {})
+                preview_url = str(payload.get("preview_url") or payload.get("content_url") or "").strip()
+                if preview_url:
+                    urls.append(preview_url)
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for url in urls:
+            if url in seen:
+                continue
+            seen.add(url)
+            deduped.append(url)
+        return deduped[:3]
+
+    def _property_magic_fit_scene_prompt(
+        self,
+        *,
+        property_title: str,
+        property_facts: dict[str, object],
+        scene_type: str,
+        room_hint: str,
+        styling_hint: str,
+        household_roles: list[str],
+        include_child_reference: bool,
+    ) -> tuple[str, str]:
+        facts = dict(property_facts or {})
+        title = compact_text(property_title, fallback="this property", limit=160)
+        room = compact_text(room_hint, fallback="main living area", limit=80)
+        style = compact_text(styling_hint, fallback="warm, realistic, lived-in, tasteful European staging", limit=160)
+        scene = compact_text(scene_type.replace("_", " "), fallback="breakfast", limit=60)
+        role_text = ", ".join(compact_text(value, fallback="", limit=40) for value in household_roles if compact_text(value, fallback="", limit=40))
+        feature_parts = [
+            compact_text(str(facts.get("rooms") or facts.get("room_count") or ""), fallback="", limit=40),
+            compact_text(str(facts.get("area_sqm") or facts.get("area_m2") or facts.get("living_area_m2") or ""), fallback="", limit=40),
+            "balcony" if bool(facts.get("balcony") or facts.get("terrace")) else "",
+            compact_text(str(facts.get("heating_type") or ""), fallback="", limit=40),
+        ]
+        feature_text = ", ".join(part for part in feature_parts if part)
+        summary = compact_text(
+            f"Visual simulation of {scene} in {room} for {title}. "
+            f"Use the reference portraits only as soft likeness guidance. "
+            f"Show the property fully furnished and believable, with a natural family-home atmosphere.",
+            fallback="Visual simulation for the property packet.",
+            limit=320,
+        )
+        prompt = (
+            f"Create a photorealistic interior lifestyle still for a property decision dossier. "
+            f"Scene: {scene}. Room: {room}. Property: {title}. "
+            f"Render the space fully staged, furnished, and coherent with the architecture. "
+            f"Style: {style}. "
+            f"{'Include a child in the family scene with guardian-approved soft likeness guidance. ' if include_child_reference else ''}"
+            f"{'Household roles present: ' + role_text + '. ' if role_text else ''}"
+            f"{'Known property cues: ' + feature_text + '. ' if feature_text else ''}"
+            f"Use reference photos as inspiration for family presence only, not as an exact face clone. "
+            f"Output must look like a premium architectural lifestyle editorial still, natural light, realistic proportions, no text, no watermark."
+        )
+        return prompt, summary
+
+    def _property_magic_fit_scene_image_url(
+        self,
+        *,
+        principal_id: str,
+        prompt: str,
+    ) -> tuple[str, str]:
+        def _asset_urls(output_json: dict[str, object]) -> list[str]:
+            urls: list[str] = []
+            raw = output_json.get("asset_urls")
+            if isinstance(raw, list):
+                urls.extend(str(item or "").strip() for item in raw if str(item or "").strip())
+            for key in ("image_url", "url"):
+                value = str(output_json.get(key) or "").strip()
+                if value:
+                    urls.append(value)
+            deduped: list[str] = []
+            seen: set[str] = set()
+            for url in urls:
+                if url in seen:
+                    continue
+                seen.add(url)
+                deduped.append(url)
+            return deduped
+
+        comfy_state = self._container.provider_registry.binding_state("comfyui", principal_id=principal_id)
+        comfy_eligible = comfy_state is not None and str(getattr(comfy_state, "state", "") or "").strip().lower() not in {
+            "catalog_only",
+            "disabled",
+            "unconfigured",
+        }
+        attempts: list[tuple[str, dict[str, object]]] = []
+        if comfy_eligible:
+            attempts.append(
+                (
+                    "provider.comfyui.image_generate",
+                    {
+                        "prompt": prompt,
+                        "width": 1536,
+                        "height": 1024,
+                        "steps": 30,
+                    },
+                )
+            )
+        attempts.append(
+            (
+                "provider.onemin.image_generate",
+                {
+                    "prompt": prompt,
+                    "n": 1,
+                    "size": "1536x1024",
+                    "quality": "high",
+                },
+            )
+        )
+        last_error = "image_generation_unavailable"
+        for tool_name, payload_json in attempts:
+            try:
+                invocation = ToolInvocationRequest(
+                    session_id=f"property-magic-fit:{uuid4()}",
+                    step_id=f"property-magic-fit-step:{uuid4()}",
+                    tool_name=tool_name,
+                    action_kind="image.generate",
+                    payload_json=payload_json,
+                    context_json={"principal_id": principal_id},
+                )
+                result = self._container.tool_execution.execute_invocation(invocation)
+                output_json = dict(result.output_json or {})
+                urls = _asset_urls(output_json)
+                if urls:
+                    provider_key = str((result.receipt_json or {}).get("provider_key") or output_json.get("provider_backend") or "").strip()
+                    if provider_key == "1min":
+                        provider_key = "onemin"
+                    return urls[0], provider_key or tool_name
+            except Exception as exc:
+                last_error = compact_text(str(exc or "image_generation_unavailable"), fallback="image_generation_unavailable", limit=220)
+        raise RuntimeError(last_error)
+
+    def create_property_magic_fit_scene(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        property_ref: str,
+        property_title: str = "",
+        property_url: str = "",
+        scene_type: str = "breakfast",
+        room_hint: str = "",
+        styling_hint: str = "",
+        property_facts: dict[str, object] | None = None,
+        reference_urls: list[str] | tuple[str, ...] | None = None,
+        google_photos_session_id: str = "",
+        google_photos_account_email: str = "",
+        household_roles: list[str] | tuple[str, ...] | None = None,
+        include_child_reference: bool = False,
+        consent_personal_photos: bool = False,
+        guardian_confirmed_for_children: bool = False,
+        share_with_packet_pdf: bool = True,
+        note: str = "",
+    ) -> dict[str, object]:
+        normalized_ref = str(property_ref or "").strip()
+        if not normalized_ref:
+            raise ValueError("property_magic_fit_property_ref_missing")
+        if not consent_personal_photos:
+            raise ValueError("property_magic_fit_consent_required")
+        if include_child_reference and not guardian_confirmed_for_children:
+            raise ValueError("property_magic_fit_child_guardian_confirmation_required")
+        commercial = property_commercial_snapshot(
+            dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
+        )
+        scene_limit = max(int(commercial.get("magic_fit_scene_limit") or 0), 0)
+        existing_scene_total = sum(
+            1
+            for row in self._container.channel_runtime.list_recent_observations(limit=4000, principal_id=principal_id)
+            if str(getattr(row, "channel", "") or "").strip() == "product"
+            and str(getattr(row, "event_type", "") or "").strip() == "property_magic_fit_scene_created"
+        )
+        if scene_limit and existing_scene_total >= scene_limit:
+            if str(commercial.get("current_plan_key") or "free").strip() == "free":
+                raise ValueError("property_magic_fit_upgrade_required:plus")
+            raise ValueError("property_magic_fit_upgrade_required:agent")
+        resolved_reference_urls = self._property_magic_fit_reference_urls(
+            principal_id=principal_id,
+            google_photos_session_id=google_photos_session_id,
+            google_photos_account_email=google_photos_account_email,
+            reference_urls=reference_urls,
+        )
+        if not resolved_reference_urls:
+            raise ValueError("property_magic_fit_reference_photo_required")
+        normalized_roles = [
+            compact_text(str(value or "").strip(), fallback="", limit=40)
+            for value in list(household_roles or [])
+            if compact_text(str(value or "").strip(), fallback="", limit=40)
+        ][:6]
+        prompt, summary = self._property_magic_fit_scene_prompt(
+            property_title=property_title,
+            property_facts=dict(property_facts or {}),
+            scene_type=scene_type,
+            room_hint=room_hint,
+            styling_hint=styling_hint,
+            household_roles=normalized_roles,
+            include_child_reference=include_child_reference,
+        )
+        image_url, provider_key = self._property_magic_fit_scene_image_url(
+            principal_id=principal_id,
+            prompt=prompt,
+        )
+        scene_id = f"magicfit_{uuid4().hex}"
+        payload = {
+            "scene_id": scene_id,
+            "property_ref": normalized_ref,
+            "property_title": compact_text(property_title, fallback="", limit=240),
+            "property_url": compact_text(property_url, fallback="", limit=2000),
+            "scene_type": compact_text(scene_type, fallback="breakfast", limit=80),
+            "room_hint": compact_text(room_hint, fallback="", limit=160),
+            "styling_hint": compact_text(styling_hint, fallback="", limit=240),
+            "image_url": image_url,
+            "prompt": compact_text(prompt, fallback="", limit=2000),
+            "summary": summary,
+            "reference_urls": resolved_reference_urls,
+            "reference_total": len(resolved_reference_urls),
+            "google_photos_session_id": compact_text(google_photos_session_id, fallback="", limit=200),
+            "google_photos_account_email": compact_text(google_photos_account_email, fallback="", limit=200),
+            "household_roles": normalized_roles,
+            "include_child_reference": bool(include_child_reference),
+            "consent_personal_photos": True,
+            "guardian_confirmed_for_children": bool(guardian_confirmed_for_children),
+            "share_with_packet_pdf": bool(share_with_packet_pdf),
+            "visual_simulation": True,
+            "note": compact_text(note, fallback="", limit=500),
+            "provider_key": provider_key,
+            "generated_at": _now_iso(),
+            "status": "created",
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="property_magic_fit_scene_created",
+            payload=payload,
+            source_id=f"{normalized_ref}:{scene_id}",
+            dedupe_key=f"{principal_id}|{normalized_ref}|{scene_id}",
+        )
+        return payload
+
     def get_google_photos_picker_session(
         self,
         *,

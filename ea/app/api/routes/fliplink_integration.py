@@ -19,6 +19,7 @@ from app.domain.property_preference_events import (
     PROPERTY_PACKET_FEEDBACK_SOURCE,
     PROPERTY_PREFERENCE_DOMAIN,
 )
+from app.product.service import build_product_service
 from app.services.fliplink import build_fliplink_packet_service
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.public_branding import request_brand
@@ -966,6 +967,14 @@ def render_property_packet(
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
     service = build_fliplink_packet_service(container)
+    product_service = build_product_service(container)
+    source_payload = dict(body.property_payload or {})
+    latest_scene = product_service.latest_property_magic_fit_scene(
+        principal_id=context.principal_id,
+        property_ref=property_ref,
+    )
+    if latest_scene and bool(latest_scene.get("share_with_packet_pdf")):
+        source_payload["magic_fit_scene"] = dict(latest_scene)
     try:
         row = service.render_packet(
             principal_id=context.principal_id,
@@ -978,7 +987,7 @@ def render_property_packet(
             include_exact_address=body.include_exact_address,
             include_floorplan=body.include_floorplan,
             include_photos=body.include_photos,
-            source_payload=body.property_payload,
+            source_payload=source_payload,
             actor=_actor(context),
         )
     except ValueError as exc:

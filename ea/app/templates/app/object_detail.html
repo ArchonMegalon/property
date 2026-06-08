@@ -356,9 +356,50 @@
     padding: 10px 12px;
     font: inherit;
   }
+  .object-magicfit-panel {
+    display: grid;
+    gap: 12px;
+    margin-top: 14px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel-2);
+  }
+  .object-magicfit-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .object-magicfit-preview {
+    display: grid;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .object-magicfit-preview img {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    display: block;
+    object-fit: cover;
+    background: var(--panel);
+  }
+  .object-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .object-check input {
+    margin-top: 3px;
+  }
   @media (max-width: 1080px) {
     .object-grid,
     .object-sections {
+      grid-template-columns: 1fr;
+    }
+    .object-magicfit-grid {
       grid-template-columns: 1fr;
     }
   }
@@ -705,6 +746,72 @@
 	        <div class="object-copy" data-object-clippy-status></div>
 	        <div class="object-list" data-object-clippy-answer></div>
 	      </div>
+	      <div class="object-actions" style="margin-top: 12px;">
+	        <button class="console-action" type="button" data-object-magicfit-toggle>Open Magic Fit</button>
+	      </div>
+	      <div class="object-magicfit-panel" data-object-magicfit-panel hidden>
+	        <div class="object-row">
+	          <div>
+	            <strong>Magic Fit lifestyle still</strong>
+	            <small>Opt-in only. PropertyQuarry uses selected reference photos as soft likeness guidance and renders a furnished scene for the dossier PDF. The output is always marked as a visual simulation.</small>
+	          </div>
+	          <div class="object-tag">Opt-in</div>
+	        </div>
+	        <div class="object-actions">
+	          <button class="console-action" type="button" data-object-magicfit-scene="breakfast">Breakfast</button>
+	          <button class="console-action" type="button" data-object-magicfit-scene="kids_play">Kids play</button>
+	          <button class="console-action" type="button" data-object-magicfit-scene="balcony_evening">Balcony evening</button>
+	          <button class="console-action" type="button" data-object-magicfit-scene="homeoffice">Homeoffice</button>
+	        </div>
+	        <div class="object-magicfit-grid">
+	          <label class="object-field">
+	            <span>Scene type</span>
+	            <input type="text" data-object-magicfit-scene-type value="breakfast">
+	          </label>
+	          <label class="object-field">
+	            <span>Room hint</span>
+	            <input type="text" data-object-magicfit-room-hint value="living and dining area">
+	          </label>
+	          <label class="object-field">
+	            <span>Styling hint</span>
+	            <input type="text" data-object-magicfit-styling-hint value="warm, realistic, tasteful family-home staging">
+	          </label>
+	          <label class="object-field">
+	            <span>Household roles</span>
+	            <input type="text" data-object-magicfit-household-roles placeholder="e.g. mother, father, child">
+	          </label>
+	        </div>
+	        <label class="object-field">
+	          <span>Reference image URLs</span>
+	          <textarea data-object-magicfit-reference-urls placeholder="Paste 1 to 3 reference image URLs, one per line, or use Google Photos Picker below."></textarea>
+	        </label>
+	        <div class="object-actions">
+	          <button class="console-action" type="button" data-object-magicfit-google-start>Use Google Photos Picker</button>
+	          <button class="console-action" type="button" data-object-magicfit-google-check>Check Google selection</button>
+	        </div>
+	        <div class="object-copy" data-object-magicfit-google-status></div>
+	        <label class="object-check">
+	          <input type="checkbox" data-object-magicfit-consent>
+	          <span>I confirm these personal photos were explicitly selected for this visual simulation.</span>
+	        </label>
+	        <label class="object-check">
+	          <input type="checkbox" data-object-magicfit-include-child>
+	          <span>Include a child reference in the family scene.</span>
+	        </label>
+	        <label class="object-check">
+	          <input type="checkbox" data-object-magicfit-child-consent>
+	          <span>I confirm guardian approval exists for any child likeness used here.</span>
+	        </label>
+	        <label class="object-check">
+	          <input type="checkbox" data-object-magicfit-share checked>
+	          <span>Attach the generated still to the packet PDF dossier when rendered.</span>
+	        </label>
+	        <div class="object-actions">
+	          <button class="console-action" type="button" data-object-magicfit-generate>Generate still</button>
+	        </div>
+	        <div class="object-copy" data-object-magicfit-status></div>
+	        <div class="object-magicfit-preview" data-object-magicfit-preview></div>
+	      </div>
 	    </section>
 	    {% endif %}
 	  </aside>
@@ -857,10 +964,42 @@
   const clippyQuestion = root.querySelector('[data-object-clippy-question]');
   const clippyStatus = root.querySelector('[data-object-clippy-status]');
   const clippyAnswer = root.querySelector('[data-object-clippy-answer]');
+  const magicFitToggle = root.querySelector('[data-object-magicfit-toggle]');
+  const magicFitPanel = root.querySelector('[data-object-magicfit-panel]');
+  const magicFitPreview = root.querySelector('[data-object-magicfit-preview]');
+  const magicFitStatus = root.querySelector('[data-object-magicfit-status]');
+  const magicFitGoogleStatus = root.querySelector('[data-object-magicfit-google-status]');
   const followupsNode = root.querySelector('[data-object-followups]');
   const followupStatus = root.querySelector('[data-object-followup-status]');
   const structuredFeedbackEndpoint = String(payload.structured_feedback_endpoint || '/app/api/property-feedback');
   const followupStatusEndpointTemplate = String(payload.followup_status_endpoint_template || '/app/api/property-feedback/__FEEDBACK_ID__/followup-status');
+  const magicFitCreateEndpoint = String(payload.magic_fit_create_endpoint || '/app/api/property/magic-fit-scenes');
+  const googlePhotosSessionEndpoint = String(payload.google_photos_session_endpoint || '/app/api/signals/google/photos/session');
+  const googlePhotosSessionStatusTemplate = String(payload.google_photos_session_status_endpoint_template || '/app/api/signals/google/photos/session/__SESSION_ID__');
+  let magicFitSessionId = '';
+  let magicFitPollingTimer = null;
+  const renderMagicFitPreview = (scene) => {
+    if (!magicFitPreview) return;
+    const imageUrl = String(scene?.image_url || '').trim();
+    const summary = String(scene?.summary || '').trim();
+    const sceneType = String(scene?.scene_type || 'visual simulation').replaceAll('_', ' ');
+    if (!imageUrl) {
+      magicFitPreview.innerHTML = '';
+      return;
+    }
+    magicFitPreview.innerHTML = `
+      <div class="object-row">
+        <div>
+          <strong>${sceneType}</strong>
+          <small>${summary || 'Visual simulation ready for the dossier PDF.'}</small>
+        </div>
+        <div class="object-tag">Ready</div>
+      </div>
+      <img src="${imageUrl.replaceAll('&', '&amp;')}" alt="Magic Fit visual simulation" loading="lazy">
+      <div class="object-copy">Visual simulation only. This is generated guidance for the decision dossier, not listing photography.</div>
+    `;
+  };
+  renderMagicFitPreview(payload.magic_fit_scene || {});
   const renderFollowups = (rows) => {
     if (!followupsNode) return;
     const safeRows = Array.isArray(rows) ? rows : [];
@@ -1035,6 +1174,117 @@
     const open = Boolean(clippyPanel?.hidden);
     if (clippyPanel) clippyPanel.hidden = !open;
     clippyToggle.textContent = open ? 'Hide Clippy' : 'Open Clippy';
+  });
+  magicFitToggle?.addEventListener('click', () => {
+    const open = Boolean(magicFitPanel?.hidden);
+    if (magicFitPanel) magicFitPanel.hidden = !open;
+    magicFitToggle.textContent = open ? 'Hide Magic Fit' : 'Open Magic Fit';
+  });
+  root.querySelectorAll('[data-object-magicfit-scene]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const field = root.querySelector('[data-object-magicfit-scene-type]');
+      if (field) field.value = String(button.getAttribute('data-object-magicfit-scene') || '').trim();
+    });
+  });
+  const pollMagicFitGoogleSelection = async () => {
+    if (!magicFitSessionId) {
+      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Start a Google Photos Picker session first.';
+      return false;
+    }
+    try {
+      const response = await fetch(googlePhotosSessionStatusTemplate.replace('__SESSION_ID__', encodeURIComponent(magicFitSessionId)), {
+        credentials: 'same-origin',
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not check the Google selection.'));
+      if (body.media_items_set) {
+        if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Google photo selection is ready. You can generate the still now.';
+        return true;
+      }
+      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Waiting for Google photo selection...';
+      return false;
+    } catch (error) {
+      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = error instanceof Error ? error.message : 'Could not check the Google selection.';
+      return false;
+    }
+  };
+  root.querySelector('[data-object-magicfit-google-start]')?.addEventListener('click', async () => {
+    if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Opening Google Photos Picker...';
+    try {
+      const response = await fetch(googlePhotosSessionEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ max_item_count: 3 }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not start the Google Photos Picker.'));
+      magicFitSessionId = String(body.session_id || '').trim();
+      const pickerUri = String(body.picker_uri || '').trim();
+      if (pickerUri) window.open(pickerUri, '_blank', 'noopener');
+      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Google Photos Picker opened. Select up to 3 reference photos, then return here.';
+      if (magicFitPollingTimer) window.clearInterval(magicFitPollingTimer);
+      magicFitPollingTimer = window.setInterval(async () => {
+        const ready = await pollMagicFitGoogleSelection();
+        if (ready && magicFitPollingTimer) {
+          window.clearInterval(magicFitPollingTimer);
+          magicFitPollingTimer = null;
+        }
+      }, 5000);
+    } catch (error) {
+      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = error instanceof Error ? error.message : 'Could not start the Google Photos Picker.';
+    }
+  });
+  root.querySelector('[data-object-magicfit-google-check]')?.addEventListener('click', async () => {
+    await pollMagicFitGoogleSelection();
+  });
+  root.querySelector('[data-object-magicfit-generate]')?.addEventListener('click', async () => {
+    const sceneType = String(root.querySelector('[data-object-magicfit-scene-type]')?.value || '').trim() || 'breakfast';
+    const roomHint = String(root.querySelector('[data-object-magicfit-room-hint]')?.value || '').trim();
+    const stylingHint = String(root.querySelector('[data-object-magicfit-styling-hint]')?.value || '').trim();
+    const householdRoles = String(root.querySelector('[data-object-magicfit-household-roles]')?.value || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const referenceUrls = String(root.querySelector('[data-object-magicfit-reference-urls]')?.value || '')
+      .split('\n')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const consent = Boolean(root.querySelector('[data-object-magicfit-consent]')?.checked);
+    const includeChild = Boolean(root.querySelector('[data-object-magicfit-include-child]')?.checked);
+    const childConsent = Boolean(root.querySelector('[data-object-magicfit-child-consent]')?.checked);
+    const shareWithPacket = Boolean(root.querySelector('[data-object-magicfit-share]')?.checked);
+    if (magicFitStatus) magicFitStatus.textContent = 'Generating visual simulation...';
+    try {
+      const response = await fetch(magicFitCreateEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          property_ref: String(payload.property_slug || payload.property_url || payload.property_title || 'property'),
+          property_title: String(payload.property_title || ''),
+          property_url: String(payload.property_url || ''),
+          scene_type: sceneType,
+          room_hint: roomHint,
+          styling_hint: stylingHint,
+          property_facts: payload.property_facts || {},
+          reference_urls: referenceUrls,
+          google_photos_session_id: magicFitSessionId,
+          household_roles: householdRoles,
+          include_child_reference: includeChild,
+          consent_personal_photos: consent,
+          guardian_confirmed_for_children: childConsent,
+          share_with_packet_pdf: shareWithPacket,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not generate the visual simulation.'));
+      payload.magic_fit_scene = body;
+      renderMagicFitPreview(body);
+      if (magicFitStatus) magicFitStatus.textContent = 'Visual simulation ready. The next dossier PDF render can include this still.';
+    } catch (error) {
+      if (magicFitStatus) magicFitStatus.textContent = error instanceof Error ? error.message : 'Could not generate the visual simulation.';
+    }
   });
   root.querySelectorAll('[data-object-clippy-prompt]').forEach((button) => {
     button.addEventListener('click', () => {

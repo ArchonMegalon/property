@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import io
 import json
 import re
 import urllib.parse
+import urllib.request
 from pathlib import Path
 from textwrap import wrap
+
+try:
+    from PIL import Image
+except Exception:  # pragma: no cover - optional image appendix support
+    Image = None
 
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.fliplink.privacy import REDACTION_POLICY_VERSION, redact_property_packet
@@ -86,6 +94,23 @@ def _draw_text(
     )
 
 
+def _draw_image(
+    ops: list[str],
+    *,
+    name: str,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+) -> None:
+    ops.append(
+        "q "
+        f"{_num(width)} 0 0 {_num(height)} {_num(x)} {_num(y)} cm "
+        f"/{name} Do "
+        "Q"
+    )
+
+
 def _draw_wrapped(
     ops: list[str],
     text: object,
@@ -104,7 +129,50 @@ def _draw_wrapped(
     return y
 
 
-def _build_pdf(pages: list[list[str]]) -> bytes:
+def _data_url_bytes(value: str) -> bytes:
+    match = re.match(r"^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,(.+)$", value, re.IGNORECASE | re.DOTALL)
+    if match is None:
+        return b""
+    try:
+        return base64.b64decode(match.group(2), validate=False)
+    except Exception:
+        return b""
+
+
+def _load_pdf_image_resource(url: str) -> dict[str, object] | None:
+    if not url or Image is None:
+        return None
+    raw_bytes = b""
+    if url.startswith("data:image/"):
+        raw_bytes = _data_url_bytes(url)
+    else:
+        request = urllib.request.Request(str(url), method="GET")
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                raw_bytes = bytes(response.read() or b"")
+        except Exception:
+            return None
+    if not raw_bytes:
+        return None
+    try:
+        with Image.open(io.BytesIO(raw_bytes)) as image:
+            rgb_image = image.convert("RGB")
+            width, height = rgb_image.size
+            target = io.BytesIO()
+            rgb_image.save(target, format="JPEG", quality=86, optimize=True)
+    except Exception:
+        return None
+    return {
+        "width": width,
+        "height": height,
+        "bytes": target.getvalue(),
+        "filter": "/DCTDecode",
+        "color_space": "/DeviceRGB",
+        "bits_per_component": 8,
+    }
+
+
+def _build_pdf(pages: list[dict[str, object]]) -> bytes:
     objects: list[bytes] = []
 
     def add(obj: bytes) -> int:
@@ -116,13 +184,39 @@ def _build_pdf(pages: list[list[str]]) -> bytes:
     font_id = add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
     bold_font_id = add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>")
     page_ids: list[int] = []
-    for page_ops in pages or [[]]:
+    for page in pages or [{"ops": [], "images": []}]:
+        page_ops = list(page.get("ops") or []) if isinstance(page, dict) else []
+        page_images = list(page.get("images") or []) if isinstance(page, dict) else []
+        xobject_entries: list[str] = []
+        for index, image in enumerate(page_images, start=1):
+            image_bytes = bytes(image.get("bytes") or b"")
+            if not image_bytes:
+                continue
+            width = int(image.get("width") or 0)
+            height = int(image.get("height") or 0)
+            if width <= 0 or height <= 0:
+                continue
+            filter_name = str(image.get("filter") or "/DCTDecode").strip() or "/DCTDecode"
+            color_space = str(image.get("color_space") or "/DeviceRGB").strip() or "/DeviceRGB"
+            bits_per_component = int(image.get("bits_per_component") or 8)
+            image_id = add(
+                (
+                    f"<< /Type /XObject /Subtype /Image /Width {width} /Height {height} "
+                    f"/ColorSpace {color_space} /BitsPerComponent {bits_per_component} /Filter {filter_name} "
+                    f"/Length {len(image_bytes)} >>\nstream\n"
+                ).encode("ascii")
+                + image_bytes
+                + b"\nendstream"
+            )
+            image_name = str(image.get("name") or f"Im{index}").strip() or f"Im{index}"
+            xobject_entries.append(f"/{image_name} {image_id} 0 R")
         content = "\n".join(page_ops).encode("latin-1", errors="replace")
         content_id = add(b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n" + content + b"\nendstream")
+        xobject_resource = f" /XObject << {' '.join(xobject_entries)} >>" if xobject_entries else ""
         page_id = add(
             (
                 f"<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 {PAGE_WIDTH} {PAGE_HEIGHT}] "
-                f"/Resources << /Font << /F1 {font_id} 0 R /F2 {bold_font_id} 0 R >> >> /Contents {content_id} 0 R >>"
+                f"/Resources << /Font << /F1 {font_id} 0 R /F2 {bold_font_id} 0 R >>{xobject_resource} >> /Contents {content_id} 0 R >>"
             ).encode("ascii")
         )
         page_ids.append(page_id)
@@ -363,9 +457,10 @@ def _visual_pdf(
     summary: str,
     media_counts: dict[str, int],
     media_refs: dict[str, list[str]],
+    magic_fit_scene: dict[str, object],
     sections: list[dict[str, object]],
 ) -> bytes:
-    pages: list[list[str]] = []
+    pages: list[dict[str, object]] = []
     ops = _new_page(page_number=1, privacy_mode=privacy_mode)
     _draw_rect(ops, 0, 0, 15, PAGE_HEIGHT, fill=(0.15, 0.38, 0.30))
     _draw_rect(ops, 15, 0, 5, PAGE_HEIGHT, fill=(0.74, 0.55, 0.18))
@@ -425,7 +520,7 @@ def _visual_pdf(
         _draw_text(ops, label, x=x + 14, y=y - 48, size=9.5, font="F2", fill=(0.30, 0.36, 0.32))
     _draw_text(ops, "Title", x=MARGIN_X, y=128, size=9, font="F2", fill=(0.43, 0.38, 0.29))
     _draw_wrapped(ops, title, x=MARGIN_X, y=112, width_chars=84, size=10, leading=12)
-    pages.append(ops)
+    pages.append({"ops": ops, "images": []})
 
     page_number = 2
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
@@ -441,7 +536,7 @@ def _visual_pdf(
         wrapped_count = sum(max(1, len(_wrap_line(item, 76))) for item in items[:8])
         card_height = max(74, 38 + wrapped_count * 12)
         if y - card_height < 64:
-            pages.append(ops)
+            pages.append({"ops": ops, "images": []})
             page_number += 1
             ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
             y = 786
@@ -452,7 +547,56 @@ def _visual_pdf(
         for item in items[:8] or ["No source item supplied."]:
             item_y = _draw_wrapped(ops, item, x=MARGIN_X + 20, y=item_y, width_chars=76, size=9.5, leading=12)
         y -= card_height + 16
-    pages.append(ops)
+    pages.append({"ops": ops, "images": []})
+
+    scene_image = _load_pdf_image_resource(str(magic_fit_scene.get("image_url") or "").strip()) if magic_fit_scene else None
+    if magic_fit_scene and scene_image is not None:
+        page_number += 1
+        ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
+        y = 786
+        _draw_text(ops, "Lifestyle scene", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
+        y = _draw_wrapped(
+            ops,
+            str(magic_fit_scene.get("summary") or "Visual simulation for the property packet."),
+            x=MARGIN_X,
+            y=y - 24,
+            width_chars=80,
+            size=9.5,
+            leading=12,
+            fill=(0.36, 0.37, 0.36),
+        )
+        _draw_rect(ops, MARGIN_X, 164, CARD_WIDTH, 470, fill=(0.98, 0.97, 0.94))
+        _draw_rect(ops, MARGIN_X, 164, 6, 470, fill=(0.74, 0.55, 0.18))
+        available_width = CARD_WIDTH - 28
+        available_height = 420
+        source_width = max(int(scene_image.get("width") or 1), 1)
+        source_height = max(int(scene_image.get("height") or 1), 1)
+        scale = min(available_width / float(source_width), available_height / float(source_height))
+        draw_width = max(1.0, float(source_width) * scale)
+        draw_height = max(1.0, float(source_height) * scale)
+        draw_x = MARGIN_X + 14 + ((available_width - draw_width) / 2.0)
+        draw_y = 196 + ((available_height - draw_height) / 2.0)
+        _draw_image(ops, name="Im1", x=draw_x, y=draw_y, width=draw_width, height=draw_height)
+        _draw_text(ops, "Visual simulation", x=MARGIN_X + 18, y=610, size=11.5, font="F2", fill=(0.12, 0.14, 0.13))
+        _draw_text(
+            ops,
+            str(magic_fit_scene.get("scene_type") or "scene").replace("_", " "),
+            x=MARGIN_X + 18,
+            y=592,
+            size=9,
+            fill=(0.43, 0.38, 0.29),
+        )
+        _draw_wrapped(
+            ops,
+            "This image is a generated lifestyle simulation for decision-making only. It is not listing photography and should not be treated as factual evidence.",
+            x=MARGIN_X + 18,
+            y=145,
+            width_chars=82,
+            size=8.8,
+            leading=11,
+            fill=(0.36, 0.37, 0.36),
+        )
+        pages.append({"ops": ops, "images": [{**scene_image, "name": "Im1"}]})
 
     appendix_items = [
         ("Floorplan", "floorplans", (0.15, 0.38, 0.30)),
@@ -480,7 +624,7 @@ def _visual_pdf(
                 ref_lines = _wrap_media_ref(display_ref)
                 card_height = max(70, 44 + len(ref_lines) * 11)
                 if y - card_height < 64:
-                    pages.append(ops)
+                    pages.append({"ops": ops, "images": []})
                     page_number += 1
                     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
                     y = 786
@@ -496,7 +640,7 @@ def _visual_pdf(
                     _draw_text(ops, line, x=MARGIN_X + 20, y=ref_y, size=8.7, fill=(0.17, 0.18, 0.18))
                     ref_y -= 11
                 y -= card_height + 14
-        pages.append(ops)
+        pages.append({"ops": ops, "images": []})
     return _build_pdf(pages)
 
 
@@ -535,6 +679,7 @@ def render_property_packet_pdf(
         summary=str(redaction.payload.get("fit_summary") or redaction.payload.get("recommendation") or ""),
         media_counts=_media_counts(redaction.payload),
         media_refs=media_refs,
+        magic_fit_scene=dict(redaction.payload.get("magic_fit_scene") or {}) if isinstance(redaction.payload.get("magic_fit_scene"), dict) else {},
         sections=sections,
     )
     pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
@@ -545,8 +690,10 @@ def render_property_packet_pdf(
     receipt_path = target_dir / f"{_safe_token(publication_id)}.receipt.json"
     pdf_path.write_bytes(pdf_bytes)
     visual_elements = ["cover", "metric_cards", "section_cards", "privacy_footer"]
+    if isinstance(redaction.payload.get("magic_fit_scene"), dict):
+        visual_elements.insert(3, "magic_fit_scene")
     if media_link_count:
-        visual_elements.insert(3, "media_appendix")
+        visual_elements.insert(4 if "magic_fit_scene" in visual_elements else 3, "media_appendix")
     receipt = {
         **redaction.receipt,
         "renderer_version": PDF_RENDERER_VERSION,

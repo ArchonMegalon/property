@@ -243,3 +243,33 @@ def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     assert b"https://packets.propertyquarry.com/assets/floorplan.pdf" in pdf_bytes
     assert b"https://packets.propertyquarry.com/assets/photo.jpg" in pdf_bytes
     assert b" re f" in pdf_bytes
+
+
+def test_fliplink_pdf_can_embed_magic_fit_scene_for_private_packet(tmp_path: Path) -> None:
+    source = _source_payload()
+    source["magic_fit_scene"] = {
+        "scene_id": "magicfit-1",
+        "scene_type": "breakfast",
+        "room_hint": "living room",
+        "summary": "Family breakfast scene in the staged living and dining area.",
+        "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5Wm1cAAAAASUVORK5CYII=",
+        "visual_simulation": True,
+        "share_with_packet_pdf": True,
+        "generated_at": "2026-06-08T09:00:00+00:00",
+    }
+    rendered = render_property_packet_pdf(
+        artifact_root=tmp_path,
+        publication_id="pub_magicfit",
+        principal_id="owner-1",
+        source=source,
+        packet_kind=PropertyPacketKind.OWNER_REVIEW,
+        privacy_mode=PacketPrivacyMode.OWNER_PRIVATE,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        include_exact_address=True,
+    )
+
+    pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
+    assert b"Lifestyle scene" in pdf_bytes
+    assert b"Visual simulation" in pdf_bytes
+    assert "magic_fit_scene" in rendered["receipt"]["visual_elements"]
+    assert rendered["redacted_payload"]["magic_fit_scene"]["scene_type"] == "breakfast"

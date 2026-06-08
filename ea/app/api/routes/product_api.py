@@ -48,6 +48,8 @@ from app.api.routes.product_api_contracts import (
     PropertyFeedbackRecordOut,
     PropertyDecisionCopilotIn,
     PropertyDecisionCopilotOut,
+    PropertyMagicFitSceneCreateIn,
+    PropertyMagicFitSceneOut,
     PropertyFeedbackSuggestionRequestIn,
     PropertyFeedbackSuggestionSetOut,
     PreferenceProfileUpsertIn,
@@ -1040,6 +1042,58 @@ def property_decision_copilot(
             investment_context=[dict(row) for row in list(body.investment_context or []) if isinstance(row, dict)],
         )
     )
+
+
+@router.post("/property/magic-fit-scenes", response_model=PropertyMagicFitSceneOut)
+def create_property_magic_fit_scene(
+    body: PropertyMagicFitSceneCreateIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyMagicFitSceneOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    try:
+        payload = service.create_property_magic_fit_scene(
+            principal_id=context.principal_id,
+            actor=actor,
+            property_ref=body.property_ref,
+            property_title=body.property_title,
+            property_url=body.property_url,
+            scene_type=body.scene_type,
+            room_hint=body.room_hint,
+            styling_hint=body.styling_hint,
+            property_facts=dict(body.property_facts or {}),
+            reference_urls=list(body.reference_urls or []),
+            google_photos_session_id=body.google_photos_session_id,
+            google_photos_account_email=body.google_photos_account_email,
+            household_roles=list(body.household_roles or []),
+            include_child_reference=body.include_child_reference,
+            consent_personal_photos=body.consent_personal_photos,
+            guardian_confirmed_for_children=body.guardian_confirmed_for_children,
+            share_with_packet_pdf=body.share_with_packet_pdf,
+            note=body.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return PropertyMagicFitSceneOut(**payload)
+
+
+@router.get("/properties/{property_ref:path}/magic-fit-scene", response_model=PropertyMagicFitSceneOut | None)
+def get_property_magic_fit_scene(
+    property_ref: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyMagicFitSceneOut | None:
+    service = build_product_service(container)
+    payload = service.latest_property_magic_fit_scene(
+        principal_id=context.principal_id,
+        property_ref=property_ref,
+    )
+    if not payload:
+        return None
+    return PropertyMagicFitSceneOut(**payload)
 
 
 @router.post("/property-feedback")

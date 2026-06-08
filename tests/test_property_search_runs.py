@@ -53,7 +53,7 @@ def test_property_plan_investment_research_levels_follow_tier() -> None:
     assert plus["max_match_score"] == 65
     assert agent["investment_research_level"] == "full"
     assert agent["research_depth"] == "deep"
-    assert agent["max_platforms"] == 8
+    assert agent["max_platforms"] == 12
     assert agent["max_match_score"] == 80
 
 

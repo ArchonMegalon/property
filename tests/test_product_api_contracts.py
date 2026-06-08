@@ -2251,7 +2251,7 @@ def test_property_result_carries_source_family_and_trust_metadata(monkeypatch) -
                 "provider_trust_tier": "watch",
                 "source_access_level": "member_only",
                 "verification_required": True,
-                "url": "https://www.flatbee.at/wohnung-mieten",
+                "url": "https://www.flatbee.at/properties/property_search",
                 "label": "Community Signals",
                 "max_results": 1,
                 "provider_filter_pushdown": {},
@@ -2322,7 +2322,7 @@ def test_property_flatbee_reputation_penalty_applies_by_default(monkeypatch) -> 
         lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results, **kwargs: (
             {
                 "platform": "flatbee",
-                "url": "https://www.flatbee.at/wohnung-mieten?wohnflache_ab=60",
+                "url": "https://www.flatbee.at/properties/property_search?wohnflache_ab=60",
                 "label": "Flatbee",
                 "max_results": 2,
                 "provider_filter_pushdown": {"requested": {"min_area_m2": 60}, "applied": {"min_area_m2": 60}},
@@ -13130,6 +13130,73 @@ def test_google_photos_sync_ingests_analyzed_photo_signals(monkeypatch) -> None:
     product_events = client.get("/app/api/events", params={"channel": "product"})
     assert product_events.status_code == 200
     assert any(item["event_type"] == "google_photos_sync_telegram_sent" for item in product_events.json()["items"])
+
+
+def test_property_magic_fit_scene_create_and_fetch(monkeypatch) -> None:
+    principal_id = "exec-product-magic-fit"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    from app.product.service import ProductService
+
+    monkeypatch.setattr(
+        ProductService,
+        "_property_magic_fit_scene_image_url",
+        lambda self, *, principal_id, prompt: ("https://assets.propertyquarry.com/magic-fit/family-breakfast.jpg", "comfyui"),
+    )
+
+    created = client.post(
+        "/app/api/property/magic-fit-scenes",
+        json={
+            "property_ref": "candidate-123",
+            "property_title": "Family flat near Augarten",
+            "property_url": "https://example.test/property/123",
+            "scene_type": "breakfast",
+            "room_hint": "living and dining area",
+            "styling_hint": "bright family breakfast scene",
+            "property_facts": {"rooms": 3, "area_sqm": 82, "balcony": True},
+            "reference_urls": [
+                "https://example.test/family-1.jpg",
+                "https://example.test/family-2.jpg",
+            ],
+            "household_roles": ["mother", "father", "child"],
+            "include_child_reference": True,
+            "consent_personal_photos": True,
+            "guardian_confirmed_for_children": True,
+            "share_with_packet_pdf": True,
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "created"
+    assert body["property_ref"] == "candidate-123"
+    assert body["image_url"] == "https://assets.propertyquarry.com/magic-fit/family-breakfast.jpg"
+    assert body["packet_pdf_enabled"] is True
+    assert body["visual_simulation"] is True
+
+    latest = client.get("/app/api/properties/candidate-123/magic-fit-scene")
+    assert latest.status_code == 200
+    latest_body = latest.json()
+    assert latest_body["property_ref"] == "candidate-123"
+    assert latest_body["scene_type"] == "breakfast"
+
+
+def test_property_magic_fit_scene_requires_consent(monkeypatch) -> None:
+    principal_id = "exec-product-magic-fit-no-consent"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    created = client.post(
+        "/app/api/property/magic-fit-scenes",
+        json={
+            "property_ref": "candidate-123",
+            "reference_urls": ["https://example.test/family-1.jpg"],
+            "consent_personal_photos": False,
+        },
+    )
+    assert created.status_code == 422
+    body = created.json()
+    assert body["error"]["code"] == "property_magic_fit_consent_required"
 
 
 def test_channel_loop_approvals_digest_counts_reviewable_candidates_not_rejected_history() -> None:

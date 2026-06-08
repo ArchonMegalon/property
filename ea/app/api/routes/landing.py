@@ -2550,6 +2550,27 @@ def property_research_packet(
             "Waiting",
         )
     ]
+    latest_magic_fit_scene = product.latest_property_magic_fit_scene(
+        principal_id=context.principal_id,
+        property_ref=str(candidate_ref or "").strip(),
+    )
+    magic_fit_rows = [
+        _object_detail_row(
+            str(latest_magic_fit_scene.get("scene_type") or "Lifestyle scene").replace("_", " ").title(),
+            str(latest_magic_fit_scene.get("summary") or "A generated family-in-space still is ready for the packet and PDF.").strip(),
+            "Visual simulation",
+            href=str(latest_magic_fit_scene.get("image_url") or "").strip(),
+            secondary_action_href=str(latest_magic_fit_scene.get("image_url") or "").strip(),
+            secondary_action_label="Open still" if str(latest_magic_fit_scene.get("image_url") or "").strip() else "",
+            secondary_action_method="get" if str(latest_magic_fit_scene.get("image_url") or "").strip() else "",
+        )
+    ] if latest_magic_fit_scene else [
+        _object_detail_row(
+            "No scene generated yet",
+            "Opt in to create a furnished family-life still for the packet. It stays clearly marked as a visual simulation and can be attached to the PDF dossier.",
+            "Opt-in",
+        )
+    ]
     agent_question_rows = [
         _object_detail_row(
             f"Question {index + 1}",
@@ -2777,6 +2798,11 @@ def property_research_packet(
                 "items": timeline_rows,
             },
             {
+                "eyebrow": "Magic Fit",
+                "title": "Lifestyle still for the dossier",
+                "items": magic_fit_rows,
+            },
+            {
                 "eyebrow": "Top objections",
                 "title": "The strongest blockers or disagreements visible so far",
                 "items": objection_clusters,
@@ -2806,9 +2832,13 @@ def property_research_packet(
             "assessment": assessment or candidate,
             "investment_context": investment_rows + investment_risk_rows,
             "followup_rows": followup_rows,
+            "magic_fit_scene": latest_magic_fit_scene,
             "property_slug": str(candidate_ref or "").strip(),
             "save_endpoint": f"/app/api/people/{urllib.parse.quote(preference_person_id, safe='')}/preference-profile/property-feedback",
             "clippy_endpoint": "/app/api/property/decision-copilot",
+            "magic_fit_create_endpoint": "/app/api/property/magic-fit-scenes",
+            "google_photos_session_endpoint": "/app/api/signals/google/photos/session",
+            "google_photos_session_status_endpoint_template": "/app/api/signals/google/photos/session/__SESSION_ID__",
             "structured_feedback_endpoint": "/app/api/property-feedback",
             "followup_status_endpoint_template": "/app/api/property-feedback/__FEEDBACK_ID__/followup-status",
         },

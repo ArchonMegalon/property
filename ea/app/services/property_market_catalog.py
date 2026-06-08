@@ -232,8 +232,8 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
             "/searchengine_property_detail/",
         ),
         search_urls={
-            "rent": "https://www.flatbee.at/wohnung-mieten",
-            "buy": "https://www.flatbee.at/wohnung-kaufen",
+            "rent": "https://www.flatbee.at/properties/property_search",
+            "buy": "https://www.flatbee.at/properties/property_search",
         },
         description="Austria Facebook groups, Telegram leads, Flatbee-style community surfaces, and other weakly verified off-market sources that require stronger manual validation.",
         family="community_signals",
@@ -250,8 +250,8 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
             "/searchengine_property_detail/",
         ),
         search_urls={
-            "rent": "https://www.flatbee.at/wohnung-mieten",
-            "buy": "https://www.flatbee.at/wohnung-kaufen",
+            "rent": "https://www.flatbee.at/properties/property_search",
+            "buy": "https://www.flatbee.at/properties/property_search",
         },
         description="Austria commission-free meta search with broad long-tail coverage, but lower trust quality than the primary AT sources.",
         family="community_meta",
@@ -1167,8 +1167,8 @@ GROUPED_PROVIDER_SOURCE_MAP: dict[str, tuple[dict[str, str], ...]] = {
     "community_signals_at": (
         {
             "label": "Flatbee Community Meta",
-            "rent_url": "https://www.flatbee.at/wohnung-mieten",
-            "buy_url": "https://www.flatbee.at/wohnung-kaufen",
+            "rent_url": "https://www.flatbee.at/properties/property_search",
+            "buy_url": "https://www.flatbee.at/properties/property_search",
         },
     ),
 }
@@ -1827,7 +1827,7 @@ def _build_provider_search_url(
             query_items["zimmer_ab"] = str(min_rooms)
         if min_area_m2:
             query_items["wohnflache_ab"] = str(min_area_m2)
-        return _append_query(base_url or "https://www.flatbee.at/wohnung-mieten", query_items)
+        return _append_query(base_url or "https://www.flatbee.at/properties/property_search", query_items)
     if provider.key == "immoscout_de" and location_slug:
         suffix = "wohnung-kaufen" if listing_mode == "buy" else "wohnung-mieten"
         query_items = {}

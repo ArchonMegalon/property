@@ -254,6 +254,29 @@ def _market_scope_label(source: dict[str, object], facts: dict[str, object]) -> 
     return ", ".join(part for part in parts if part)
 
 
+def _public_magic_fit_scene(source: dict[str, object], *, privacy_mode: PacketPrivacyMode, removed: list[str]) -> dict[str, object]:
+    raw = dict(source.get("magic_fit_scene") or {}) if isinstance(source.get("magic_fit_scene"), dict) else {}
+    if privacy_mode not in {PacketPrivacyMode.OWNER_PRIVATE, PacketPrivacyMode.FAMILY_REVIEW, PacketPrivacyMode.AGENT_SHARE}:
+        if raw:
+            removed.append("magic_fit_scene.privacy_mode_omitted")
+        return {}
+    if not raw or not bool(raw.get("share_with_packet_pdf")):
+        return {}
+    scene = {
+        "scene_id": _text(raw.get("scene_id"), limit=120),
+        "scene_type": _text(raw.get("scene_type"), limit=80),
+        "room_hint": _text(raw.get("room_hint"), limit=160),
+        "summary": _text(raw.get("summary"), limit=240),
+        "image_url": _text(raw.get("image_url"), limit=2000),
+        "visual_simulation": bool(raw.get("visual_simulation", True)),
+        "generated_at": _text(raw.get("generated_at"), limit=80),
+    }
+    if not scene["image_url"]:
+        removed.append("magic_fit_scene.image_url_missing")
+        return {}
+    return scene
+
+
 def _media_allowed_hosts() -> set[str]:
     raw = str(os.getenv("FLIPLINK_PACKET_MEDIA_ALLOWED_HOSTS") or "").strip()
     values = raw.split(",") if raw else list(DEFAULT_MEDIA_ALLOWED_HOSTS)
@@ -397,6 +420,9 @@ def redact_property_packet(
     if privacy_mode == PacketPrivacyMode.ANONYMOUS_PUBLIC:
         payload.pop("fit_summary", None)
         payload["recommendation"] = "public_summary"
+    magic_fit_scene = _public_magic_fit_scene(source, privacy_mode=privacy_mode, removed=removed)
+    if magic_fit_scene:
+        payload["magic_fit_scene"] = magic_fit_scene
     payload = _redact_value(payload, removed=removed, path="")
     if not isinstance(payload, dict):
         payload = {}
