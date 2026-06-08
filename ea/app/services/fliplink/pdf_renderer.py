@@ -168,10 +168,59 @@ def _data_url_bytes(value: str) -> bytes:
         return b""
 
 
+def _pdf_image_host(value: str) -> str:
+    if value.startswith("data:image/"):
+        return ""
+    try:
+        return str(urllib.parse.urlparse(value).hostname or "").strip().lower()
+    except Exception:
+        return ""
+
+
+def _white_ratio(image: Image.Image) -> float:
+    rgb = image.convert("RGB")
+    width, height = rgb.size
+    if width <= 0 or height <= 0:
+        return 0.0
+    total = width * height
+    white = 0
+    for r, g, b in rgb.getdata():
+        if r >= 236 and g >= 236 and b >= 236:
+            white += 1
+    return white / float(total)
+
+
+def _looks_like_broker_logo(image: Image.Image) -> bool:
+    width, height = image.size
+    if width <= 0 or height <= 0:
+        return False
+    aspect = width / float(height)
+    if not 0.75 <= aspect <= 1.35:
+        return False
+    if min(width, height) < 200:
+        return False
+    return _white_ratio(image) >= 0.34
+
+
+def _crop_broker_watermark(image: Image.Image, *, host: str) -> Image.Image:
+    normalized_host = str(host or "").strip().lower()
+    if not normalized_host or not any(marker in normalized_host for marker in ("justimmo", "kalandra")):
+        return image
+    width, height = image.size
+    if width < 900 or height < 640:
+        return image
+    right_crop = max(int(round(width * 0.09)), 72)
+    cropped_width = width - right_crop
+    if cropped_width < int(width * 0.72):
+        return image
+    return image.crop((0, 0, cropped_width, height))
+
+
 def _load_pdf_image_resource(url: str) -> dict[str, object] | None:
     if not url or Image is None:
         return None
     raw_bytes = b""
+    image_host = _pdf_image_host(url)
     if url.startswith("data:image/"):
         raw_bytes = _data_url_bytes(url)
     else:
@@ -185,7 +234,11 @@ def _load_pdf_image_resource(url: str) -> dict[str, object] | None:
         return None
     try:
         with Image.open(io.BytesIO(raw_bytes)) as image:
-            rgb_image = image.convert("RGB")
+            prepared = image.convert("RGB")
+            if _looks_like_broker_logo(prepared):
+                return None
+            prepared = _crop_broker_watermark(prepared, host=image_host)
+            rgb_image = prepared.convert("RGB")
             width, height = rgb_image.size
             target = io.BytesIO()
             rgb_image.save(target, format="JPEG", quality=86, optimize=True)
