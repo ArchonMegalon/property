@@ -7493,7 +7493,7 @@ def test_public_tour_routes_render_pure_360_cube_with_continuing_links(
     assert "scene-01-f.jpg" in page.text
 
 
-def test_public_tour_routes_embed_provider_ui_for_pure_360_when_origin_present(
+def test_public_tour_routes_keep_pure_360_white_labeled_when_origin_present(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7582,34 +7582,15 @@ def test_public_tour_routes_embed_provider_ui_for_pure_360_when_origin_present(
     page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
 
     assert page.status_code == 200
-    assert 'src="https://360.kalandra.at/view/portal/id/VZ8P1"' in page.text
-    assert "Property Decision Workstation" in page.text
-    assert "Decision Summary" in page.text
-    assert "Preference-to-Property Matrix" in page.text
-    assert "Tune what future properties should pass" not in page.text
-    assert "Hard blocks and must-haves" not in page.text
-    assert "Soft ranking signals" not in page.text
-    assert "Research Log" in page.text
-    assert "How this property compares to the current brief" in page.text
-    assert "The district matches your preferred areas" not in page.text
-    assert "Fernwaerme avoids your excluded heating types." not in page.text
-    assert "Playground" in page.text
-    assert "about 140 m" in page.text
-    assert "Request deeper research" not in page.text
-    assert "Open the authenticated PropertyQuarry review packet to request deeper research." in page.text
-    assert "tour-action-tokens" not in page.text
-    assert '"feedback":' not in page.text
-    assert '"filters":' not in page.text
-    assert "Search Filters" not in page.text
-    assert "What the system has learned from you" not in page.text
-    assert 'data-label="Requirement"' in page.text
-    assert ".section-nav .ghost" in page.text
-    assert "Supermarket" in page.text
-    assert "Source Links" not in page.text
-    assert "Nothing provided" not in page.text
-    assert "Tour Summary" not in page.text
+    assert 'src="https://360.kalandra.at/view/portal/id/VZ8P1"' not in page.text
+    assert "Pure 360 hosted on My External Brain" in page.text
+    assert 'id="prev-link"' in page.text
+    assert 'id="next-link"' in page.text
+    assert '"scene_id": "living"' in page.text
+    assert 'id="scene-data"' in page.text
+    assert 'id="cube"' in page.text
+    assert "Live Panorama Viewer" not in page.text
     assert "Hosted tour page with the original 360 viewer embedded." not in page.text
-    assert 'id="prev-link"' not in page.text
 
 
 def test_public_tour_request_details_requires_authenticated_workspace(

@@ -10567,7 +10567,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
             "source_virtual_tour_url": "",
             "panorama_source": "feelestate_mirrored",
             "address_lines": existing_address_lines or ([source_host] if source_host else []),
-            "teaser_attributes": existing_teasers or ["Pure My External Brain 360 tour", f"{len(scenes)} mirrored panorama locations"],
+            "teaser_attributes": existing_teasers or ["Hosted white-label 360 tour", f"{len(scenes)} mirrored panorama locations"],
         }
     )
     display_title = compact_text(title, fallback="Pure 360 Property Tour", limit=180)
@@ -10596,7 +10596,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
             "theme_name": "clean_light",
             "tour_style": "pure_mirrored_360_cube",
             "audience": "tenant_screening",
-            "creative_brief": "Render mirrored 360 cube assets directly from My External Brain without embedding the source provider.",
+            "creative_brief": "Render mirrored 360 cube assets directly inside the hosted PropertyQuarry tour without embedding the source provider.",
             "call_to_action": "Open pure 360 tour.",
         },
         "editor_url": "",

@@ -819,6 +819,8 @@ def _safe_live_360_url(value: object) -> str:
 
 def _embedded_live_360_url(payload: dict[str, object]) -> str:
     normalized = dict(payload or {})
+    if str(normalized.get("scene_strategy") or "").strip() == "pure_360_cube":
+        return _safe_live_360_url(normalized.get("source_virtual_tour_url"))
     return _safe_live_360_url(
         normalized.get("source_virtual_tour_url")
         or normalized.get("source_virtual_tour_origin")
