@@ -62,6 +62,8 @@ DEFAULT_MEDIA_ALLOWED_HOSTS = (
     "*.immowelt.de",
 )
 SENSITIVE_MEDIA_QUERY_MARKERS = ("token=", "secret=", "session=", "cookie=", "signature=", "signed=")
+PHOTO_MEDIA_EXTENSIONS = {".jpg", ".jpeg", ".webp", ".avif"}
+FLOORPLAN_MEDIA_HINTS = ("floorplan", "floor-plan", "grundriss", "plan", "layout", "pdf")
 
 BASE_PUBLIC_FACT_KEYS = {
     "rooms",
@@ -310,9 +312,37 @@ def _media_host_allowed(host: str, allowed_hosts: set[str]) -> bool:
     return False
 
 
+def _normalized_media_extension(parsed: urllib.parse.ParseResult) -> str:
+    suffix = os.path.splitext(str(parsed.path or "").strip().lower())[1]
+    return suffix
+
+
+def _photo_media_ref_allowed(url: str) -> bool:
+    parsed = urllib.parse.urlparse(url)
+    suffix = _normalized_media_extension(parsed)
+    lowered = url.lower()
+    if any(marker in lowered for marker in FLOORPLAN_MEDIA_HINTS):
+        return False
+    return suffix in PHOTO_MEDIA_EXTENSIONS
+
+
+def _dedupe_media_key(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    host = str(parsed.hostname or "").strip().lower()
+    path = str(parsed.path or "").strip().lower()
+    if "/thumb/" in path:
+        path = path.split("/thumb/", 1)[1]
+    elif "/file/" in path:
+        path = path.split("/file/", 1)[1]
+    stem = os.path.splitext(os.path.basename(path))[0]
+    return f"{host}|{stem or path}"
+
+
 def _public_media_refs(source: dict[str, object], keys: set[str], *, removed: list[str], limit: int = 16) -> list[str]:
     refs: list[str] = []
+    seen: set[str] = set()
     allowed_hosts = _media_allowed_hosts()
+    photo_mode = keys == PHOTO_REF_KEYS
     for key in keys:
         raw = source.get(key)
         values = raw if isinstance(raw, list) else ([raw] if raw else [])
@@ -333,6 +363,14 @@ def _public_media_refs(source: dict[str, object], keys: set[str], *, removed: li
             if not _media_host_allowed(parsed.hostname, allowed_hosts):
                 removed.append(f"{key}[{index}].host_not_allowed:{str(parsed.hostname or '').lower()}")
                 continue
+            if photo_mode and not _photo_media_ref_allowed(text):
+                removed.append(f"{key}[{index}].non_photo_asset")
+                continue
+            dedupe_key = _dedupe_media_key(text)
+            if dedupe_key in seen:
+                removed.append(f"{key}[{index}].duplicate_media_ref")
+                continue
+            seen.add(dedupe_key)
             refs.append(text[:1000])
             if len(refs) >= limit:
                 return refs

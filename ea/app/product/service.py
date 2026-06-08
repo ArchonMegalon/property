@@ -10524,6 +10524,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     property_url: str,
     variant_key: str,
     source_virtual_tour_url: str,
+    floorplan_urls: list[str] | tuple[str, ...] = (),
     property_facts_json: dict[str, object],
     source_host: str,
     source_ref: str = "",
@@ -10676,6 +10677,37 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
             scene["next_scene_index"] = next_index
     if not scenes:
         raise RuntimeError("pure_360_scenes_missing")
+    normalized_floorplan_urls = [
+        _safe_live_property_tour_url(value)
+        for value in list(floorplan_urls or [])
+        if _safe_live_property_tour_url(value)
+    ]
+    for ordinal, asset_url in enumerate(normalized_floorplan_urls[:8], start=1):
+        try:
+            rel_dir = "floorplans"
+            suffix = _hosted_property_tour_asset_suffix(url=asset_url, content_type="")
+            if suffix.lower() not in _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS:
+                suffix = ".pdf"
+            relpath = f"{rel_dir}/floorplan-{ordinal:02d}{suffix}"
+            content_type = _download_public_tour_asset_with_type(asset_url, bundle_dir / relpath)
+            corrected_suffix = _hosted_property_tour_asset_suffix(url=asset_url, content_type=content_type)
+            if corrected_suffix and not relpath.endswith(corrected_suffix):
+                corrected_relpath = f"{rel_dir}/floorplan-{ordinal:02d}{corrected_suffix}"
+                (bundle_dir / relpath).rename(bundle_dir / corrected_relpath)
+                relpath = corrected_relpath
+            scenes.append(
+                {
+                    "ordinal": len(scenes) + 1,
+                    "name": f"Floorplan {ordinal}",
+                    "role": "floorplan",
+                    "asset_relpath": relpath,
+                    "source_url": asset_url,
+                    "property_url": property_url,
+                    "mime_type": content_type or mimetypes.guess_type(relpath)[0] or "application/octet-stream",
+                }
+            )
+        except Exception:
+            continue
     facts = dict(property_facts_json or {})
     existing_address_lines = [str(value or "").strip() for value in list(facts.get("address_lines") or []) if str(value or "").strip()]
     existing_teasers = [str(value or "").strip() for value in list(facts.get("teaser_attributes") or []) if str(value or "").strip()]
@@ -10685,8 +10717,15 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
             "tour_media_mode": "panorama_360",
             "source_virtual_tour_url": "",
             "panorama_source": "feelestate_mirrored",
+            "has_floorplan": bool(facts.get("has_floorplan") or normalized_floorplan_urls),
+            "floorplan_count": max(int(facts.get("floorplan_count") or 0), len(normalized_floorplan_urls)),
+            "floorplan_urls_json": normalized_floorplan_urls or list(facts.get("floorplan_urls_json") or []),
             "address_lines": existing_address_lines or ([source_host] if source_host else []),
-            "teaser_attributes": existing_teasers or ["Hosted white-label 360 tour", f"{len(scenes)} mirrored panorama locations"],
+            "teaser_attributes": existing_teasers or [
+                "Hosted white-label 360 tour",
+                f"{len([scene for scene in scenes if str(scene.get('role') or '') == 'pure_360'])} mirrored panorama locations",
+                f"{len(normalized_floorplan_urls)} floorplan document(s)" if normalized_floorplan_urls else "",
+            ],
         }
     )
     display_title = compact_text(title, fallback="Pure 360 Property Tour", limit=180)
@@ -18314,6 +18353,7 @@ class ProductService:
                         property_url=normalized_url,
                         variant_key=resolved_variant_key,
                         source_virtual_tour_url=source_virtual_tour_url,
+                        floorplan_urls=source_floorplan_urls,
                         property_facts_json=property_facts_json,
                         source_host=source_host,
                         source_ref=resolved_source_ref,
@@ -18472,6 +18512,7 @@ class ProductService:
                         property_url=normalized_url,
                         variant_key=resolved_variant_key,
                         source_virtual_tour_url=source_virtual_tour_url,
+                        floorplan_urls=source_floorplan_urls,
                         property_facts_json=property_facts_json,
                         source_host=source_host,
                         source_ref=resolved_source_ref,
@@ -19100,6 +19141,7 @@ class ProductService:
                         property_url=normalized_url,
                         variant_key=resolved_variant_key,
                         source_virtual_tour_url=source_virtual_tour_url,
+                        floorplan_urls=source_floorplan_urls,
                         property_facts_json=property_facts_json,
                         source_host=source_host,
                         source_ref=resolved_source_ref,
@@ -19292,6 +19334,7 @@ class ProductService:
                         property_url=normalized_url,
                         variant_key=resolved_variant_key,
                         source_virtual_tour_url=source_virtual_tour_url,
+                        floorplan_urls=source_floorplan_urls,
                         property_facts_json=property_facts_json,
                         source_host=source_host,
                         source_ref=resolved_source_ref,

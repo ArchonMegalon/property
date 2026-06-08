@@ -3470,139 +3470,574 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title_html}</title>
     {clickrank_head_snippet(hostname)}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@photo-sphere-viewer/core/index.min.css">
     <style>
-      html, body {{ margin: 0; height: 100%; overflow: hidden; background: #111; color: #f8f4eb; font-family: Inter, Arial, sans-serif; }}
-      .topbar {{ position: fixed; z-index: 5; top: 0; left: 0; right: 0; display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 16px; background: linear-gradient(rgba(0,0,0,.72), rgba(0,0,0,0)); }}
-      .title {{ min-width: 0; }}
-      .title b {{ display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 72vw; }}
-      .title span {{ display: block; margin-top: 3px; color: rgba(248,244,235,.72); font-size: 12px; }}
-      .controls {{ display: flex; gap: 8px; align-items: center; }}
-      button, a.btn {{ min-height: 38px; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; color: #fff; background: rgba(255,255,255,.12); padding: 0 13px; cursor: pointer; text-decoration: none; }}
-      .viewer {{ position: fixed; inset: 0; perspective: 900px; cursor: grab; overflow: hidden; touch-action: none; }}
-      .viewer.dragging {{ cursor: grabbing; }}
-      .cube {{ position: absolute; left: 50%; top: 50%; width: 1024px; height: 1024px; margin-left: -512px; margin-top: -512px; transform-style: preserve-3d; }}
-      .face {{ position: absolute; width: 1024px; height: 1024px; background-size: cover; background-position: center; backface-visibility: hidden; }}
-      .f {{ transform: translateZ(-512px) rotateY(180deg); }}
-      .b {{ transform: translateZ(512px); }}
-      .r {{ transform: rotateY(-90deg) translateZ(512px); }}
-      .l {{ transform: rotateY(90deg) translateZ(512px); }}
-      .u {{ transform: rotateX(-90deg) translateZ(512px); }}
-      .d {{ transform: rotateX(90deg) translateZ(512px); }}
-      .scene-links {{ position: absolute; inset: 0; z-index: 4; pointer-events: none; }}
-      .scene-link {{ position: absolute; top: 50%; transform: translateY(-50%); min-width: 114px; padding: 10px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.25); background: rgba(0,0,0,.64); color: #fffaf2; font: 600 14px/1.2 Inter, Arial, sans-serif; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; pointer-events: auto; }}
-      .scene-link.prev {{ left: 14px; }}
-      .scene-link.next {{ right: 14px; }}
-      .scene-link.disabled {{ opacity: .45; pointer-events: none; }}
-      .filmstrip {{ position: fixed; z-index: 6; left: 0; right: 0; bottom: 0; display: flex; gap: 8px; padding: 12px; overflow-x: auto; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.78)); }}
-      .thumb {{ flex: 0 0 112px; height: 70px; border: 2px solid transparent; border-radius: 8px; background-size: cover; background-position: center; opacity: .78; }}
-      .thumb.active {{ border-color: #fff; opacity: 1; }}
-      @media (max-width: 720px) {{ .cube {{ transform-origin: center center; }} .title b {{ max-width: 56vw; }} .thumb {{ flex-basis: 92px; height: 58px; }} }}
+      :root {{
+        --bg: #f5efe3;
+        --panel: rgba(255,255,255,0.82);
+        --ink: #1f1c18;
+        --muted: #6f665a;
+        --line: rgba(31,28,24,0.12);
+        --accent: #1f5f51;
+        --accent-soft: rgba(31,95,81,0.10);
+      }}
+      * {{ box-sizing: border-box; }}
+      body {{
+        margin: 0;
+        color: var(--ink);
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+        background:
+          radial-gradient(circle at top left, rgba(31,95,81,0.14), transparent 32%),
+          radial-gradient(circle at bottom right, rgba(183,132,40,0.16), transparent 28%),
+          linear-gradient(160deg, #f8f4ec 0%, #efe8db 100%);
+      }}
+      .shell {{
+        max-width: 1380px;
+        margin: 0 auto;
+        padding: 24px;
+      }}
+      .hero {{
+        display: grid;
+        grid-template-columns: 1.25fr 0.75fr;
+        gap: 18px;
+        align-items: start;
+      }}
+      .card {{
+        border-radius: 28px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        backdrop-filter: blur(14px);
+        box-shadow: 0 18px 48px rgba(31,28,24,0.08);
+      }}
+      .hero-main {{ padding: 28px; }}
+      .hero-side {{ padding: 22px; }}
+      .eyebrow {{
+        display: inline-flex;
+        gap: 10px;
+        align-items: center;
+        font-size: 12px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }}
+      h1 {{
+        margin: 14px 0 10px;
+        font-size: clamp(2rem, 4vw, 4rem);
+        line-height: 0.95;
+      }}
+      .sub {{
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.55;
+        max-width: 66ch;
+      }}
+      .actions {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }}
+      .btn {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 18px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255,255,255,0.72);
+        color: var(--ink);
+        text-decoration: none;
+        cursor: pointer;
+      }}
+      .btn.primary {{
+        background: var(--ink);
+        color: #fff9f0;
+        border-color: transparent;
+      }}
+      .stack {{
+        display: grid;
+        gap: 12px;
+      }}
+      .kv {{
+        padding: 12px 14px;
+        border-radius: 18px;
+        background: rgba(255,255,255,0.68);
+        border: 1px solid rgba(31,28,24,0.08);
+      }}
+      .kv b {{
+        display: block;
+        margin-bottom: 4px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--muted);
+      }}
+      .stage {{
+        margin-top: 18px;
+        display: grid;
+        gap: 18px;
+      }}
+      .toolbar {{
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+      }}
+      .toggle {{
+        display: inline-flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }}
+      .toggle button {{
+        min-height: 42px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255,255,255,0.74);
+        color: var(--ink);
+        cursor: pointer;
+      }}
+      .toggle button.active {{
+        background: var(--ink);
+        color: #fff8ef;
+        border-color: var(--ink);
+      }}
+      .toggle button:disabled {{
+        opacity: .4;
+        cursor: not-allowed;
+      }}
+      .stage-grid {{
+        display: grid;
+        grid-template-columns: minmax(0, 1.22fr) minmax(320px, 0.78fr);
+        gap: 18px;
+      }}
+      .viewer-shell {{
+        padding: 16px;
+      }}
+      .pane {{ display: none; }}
+      .pane.active {{ display: block; }}
+      #psv-viewer {{
+        min-height: 72vh;
+        height: 72vh;
+        border-radius: 24px;
+        overflow: hidden;
+        background: #111;
+        border: 1px solid rgba(31,28,24,0.14);
+      }}
+      .overview-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }}
+      .overview-card {{
+        padding: 16px;
+        border-radius: 22px;
+        border: 1px solid rgba(31,28,24,0.09);
+        background: rgba(255,255,255,0.74);
+      }}
+      .overview-card strong {{
+        display: block;
+        margin-bottom: 8px;
+      }}
+      .overview-card p {{
+        margin: 0 0 14px;
+        color: var(--muted);
+        line-height: 1.5;
+      }}
+      .overview-card button {{
+        min-height: 38px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--accent-soft);
+        color: var(--accent);
+        cursor: pointer;
+      }}
+      .doc-stage {{
+        border-radius: 24px;
+        overflow: hidden;
+        border: 1px solid rgba(31,28,24,0.12);
+        background: rgba(255,255,255,0.88);
+        min-height: 72vh;
+      }}
+      .doc-stage iframe,
+      .doc-stage img {{
+        width: 100%;
+        height: 72vh;
+        min-height: 72vh;
+        display: block;
+        border: 0;
+        background: #fff;
+      }}
+      .doc-stage img {{
+        object-fit: contain;
+      }}
+      .sidebar {{
+        padding: 18px;
+        display: grid;
+        gap: 14px;
+        align-content: start;
+      }}
+      .section-title {{
+        margin: 0;
+        font-size: 1rem;
+      }}
+      .note {{
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }}
+      .thumbs {{
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+        gap: 10px;
+      }}
+      .thumb {{
+        position: relative;
+        overflow: hidden;
+        border-radius: 18px;
+        border: 2px solid transparent;
+        background: rgba(255,255,255,0.62);
+        cursor: pointer;
+      }}
+      .thumb.active {{ border-color: var(--accent); }}
+      .thumb img {{
+        width: 100%;
+        height: 108px;
+        object-fit: cover;
+        display: block;
+      }}
+      .thumb-doc {{
+        min-height: 108px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(240,233,218,0.92));
+        color: var(--ink);
+        font-weight: 800;
+        letter-spacing: 0.08em;
+      }}
+      .thumb-badge {{
+        position: absolute;
+        left: 8px;
+        top: 8px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: rgba(14,14,13,0.72);
+        color: #fffaf2;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }}
+      .scene-list {{
+        display: grid;
+        gap: 8px;
+      }}
+      .scene-row {{
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 12px;
+        border-radius: 16px;
+        border: 1px solid rgba(31,28,24,0.08);
+        background: rgba(255,255,255,0.68);
+      }}
+      .scene-row.active {{
+        background: rgba(31,95,81,0.10);
+        border-color: rgba(31,95,81,0.28);
+      }}
+      .scene-row button {{
+        min-height: 34px;
+        padding: 0 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: #fff;
+        cursor: pointer;
+      }}
+      .status-pill {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.74);
+        border: 1px solid var(--line);
+        color: var(--muted);
+      }}
+      @media (max-width: 1040px) {{
+        .hero, .stage-grid {{ grid-template-columns: 1fr; }}
+      }}
+      @media (max-width: 640px) {{
+        .shell {{ padding: 14px; }}
+        .card {{ border-radius: 22px; }}
+        #psv-viewer, .doc-stage, .doc-stage iframe, .doc-stage img {{
+          min-height: 56vh;
+          height: 56vh;
+        }}
+      }}
     </style>
   </head>
   <body>
-    <div class="topbar">
-      <div class="title"><b>{title_html}</b><span>Pure 360 hosted on {hosted_brand_html} · {html.escape(str(payload.get("scene_count") or len(scene_data)))} locations</span></div>
-      <div class="controls">
-        <button id="prev" type="button">Prev</button>
-        <button id="next" type="button">Next</button>
-        {listing_link}
-      </div>
+    <div class="shell">
+      <section class="hero">
+        <div class="card hero-main">
+          <div class="eyebrow">PropertyQuarry <span>•</span> Hosted 360</div>
+          <h1>{title_html}</h1>
+          <p class="sub">A white-label 360 review with an actual panorama viewer, a clear scene overview, and floorplan access on the same surface.</p>
+          <div class="actions">
+            <a class="btn primary" href="#panorama-pane">Open panorama</a>
+            {listing_link}
+          </div>
+        </div>
+        <aside class="card hero-side">
+          <div class="stack">
+            <div class="kv"><b>Hosted by</b>{hosted_brand_html}</div>
+            <div class="kv"><b>Scenes</b>{html.escape(str(len([scene for scene in scene_data if scene.get('cube_faces')])))} panorama positions</div>
+            <div class="kv"><b>Floorplans</b>{html.escape(str(len([scene for scene in scene_data if str(scene.get('role') or '') == 'floorplan'])))} attached documents</div>
+            <div class="kv"><b>Review mode</b>Panorama first, then layout and packet review.</div>
+          </div>
+        </aside>
+      </section>
+      <section class="stage">
+        <div class="toolbar">
+          <div class="toggle" id="mode-toggle">
+            <button type="button" class="active" data-pane="panorama-pane">Panorama</button>
+            <button type="button" data-pane="overview-pane">Overview</button>
+            <button type="button" data-pane="floorplan-pane">Floorplans</button>
+          </div>
+          <div class="status-pill" id="tour-status">Hosted white-label 360 review</div>
+        </div>
+        <div class="stage-grid">
+          <div class="card viewer-shell">
+            <section id="panorama-pane" class="pane active">
+              <div id="psv-viewer"></div>
+            </section>
+            <section id="overview-pane" class="pane">
+              <div class="overview-grid" id="overview-grid"></div>
+            </section>
+            <section id="floorplan-pane" class="pane">
+              <div class="doc-stage" id="floorplan-stage">
+                <img id="floorplan-image" alt="Floorplan preview" hidden referrerpolicy="no-referrer">
+                <iframe id="floorplan-frame" title="Floorplan document" hidden referrerpolicy="no-referrer"></iframe>
+              </div>
+            </section>
+          </div>
+          <aside class="card sidebar">
+            <h2 class="section-title">Scene navigation</h2>
+            <p class="note">Choose a room directly, use the panorama for spatial feel, then switch to floorplans for layout validation.</p>
+            <div class="actions">
+              <button class="btn" id="prev-scene" type="button">Previous</button>
+              <button class="btn" id="next-scene" type="button">Next</button>
+            </div>
+            <div class="scene-list" id="scene-list"></div>
+            <h2 class="section-title">Media deck</h2>
+            <div class="thumbs" id="thumbs"></div>
+          </aside>
+        </div>
+      </section>
     </div>
-    <div id="viewer" class="viewer">
-      <div id="cube" class="cube">
-        <div class="face f"></div><div class="face b"></div><div class="face r"></div>
-        <div class="face l"></div><div class="face u"></div><div class="face d"></div>
-      </div>
-      <div id="scene-links" class="scene-links">
-        <a id="prev-link" class="scene-link prev" href="#"></a>
-        <a id="next-link" class="scene-link next" href="#"></a>
-      </div>
-    </div>
-    <div id="filmstrip" class="filmstrip"></div>
     <script id="scene-data" type="application/json">{data_json}</script>
-    <script>
-      const scenes = JSON.parse(document.getElementById("scene-data").textContent).filter(s => s.cube_faces && s.cube_faces.f);
-      const viewer = document.getElementById("viewer");
-      const cube = document.getElementById("cube");
-      const filmstrip = document.getElementById("filmstrip");
-      const prevLink = document.getElementById("prev-link");
-      const nextLink = document.getElementById("next-link");
-      let active = 0, yaw = 0, pitch = 0, dragging = false, lastX = 0, lastY = 0;
-      const clampSceneIndex = (value) => ((value % scenes.length) + scenes.length) % scenes.length;
-      function clamp(value, min, max) {{ return Math.max(min, Math.min(max, value)); }}
-      function applyRotation() {{ cube.style.transform = `rotateX(${{pitch}}deg) rotateY(${{yaw}}deg)`; }}
-      function resolveSceneIndex(rawIndex, fallback) {{
-        const index = Number.parseInt(String(rawIndex), 10);
-        if (Number.isInteger(index)) return clampSceneIndex(index);
-        return fallback;
+    <script type="importmap">
+      {{
+        "imports": {{
+          "three": "https://cdn.jsdelivr.net/npm/three/build/three.module.js",
+          "@photo-sphere-viewer/core": "https://cdn.jsdelivr.net/npm/@photo-sphere-viewer/core/index.module.js",
+          "@photo-sphere-viewer/cubemap-adapter": "https://cdn.jsdelivr.net/npm/@photo-sphere-viewer/cubemap-adapter/index.module.js"
+        }}
       }}
-      function makeSceneHref(index) {{
+    </script>
+    <script type="module">
+      import {{ Viewer }} from '@photo-sphere-viewer/core';
+      import {{ CubemapAdapter }} from '@photo-sphere-viewer/cubemap-adapter';
+
+      const sceneData = JSON.parse(document.getElementById("scene-data").textContent);
+      const panoramaScenes = sceneData.filter((scene) => scene.cube_faces && scene.cube_faces.f);
+      const floorplanScenes = sceneData.filter((scene) => String(scene.role || "").trim() === "floorplan");
+      const thumbs = document.getElementById("thumbs");
+      const sceneList = document.getElementById("scene-list");
+      const overviewGrid = document.getElementById("overview-grid");
+      const floorplanImage = document.getElementById("floorplan-image");
+      const floorplanFrame = document.getElementById("floorplan-frame");
+      const modeButtons = [...document.querySelectorAll('#mode-toggle button[data-pane]')];
+      const panes = [...document.querySelectorAll('.pane')];
+      const floorplanButton = modeButtons.find((button) => button.dataset.pane === 'floorplan-pane');
+      if (floorplanButton && floorplanScenes.length === 0) {{
+        floorplanButton.disabled = true;
+      }}
+      let activePanorama = 0;
+      let activeFloorplan = 0;
+      const viewer = panoramaScenes.length
+        ? new Viewer({{
+            container: document.querySelector('#psv-viewer'),
+            adapter: CubemapAdapter,
+            navbar: ['zoom', 'move', 'fullscreen'],
+            mousewheel: true,
+            touchmoveTwoFingers: false,
+            defaultZoomLvl: 42,
+            panorama: {{
+              left: panoramaScenes[0].cube_faces.l,
+              front: panoramaScenes[0].cube_faces.f,
+              right: panoramaScenes[0].cube_faces.r,
+              back: panoramaScenes[0].cube_faces.b,
+              top: panoramaScenes[0].cube_faces.u,
+              bottom: panoramaScenes[0].cube_faces.d,
+            }},
+          }})
+        : null;
+
+      function switchPane(name) {{
+        panes.forEach((pane) => pane.classList.toggle('active', pane.id === name));
+        modeButtons.forEach((button) => button.classList.toggle('active', button.dataset.pane === name));
+      }}
+
+      function setPanoramaScene(index) {{
+        if (!panoramaScenes.length || !viewer) return;
+        activePanorama = ((index % panoramaScenes.length) + panoramaScenes.length) % panoramaScenes.length;
+        const scene = panoramaScenes[activePanorama];
+        viewer.setPanorama({{
+          left: scene.cube_faces.l,
+          front: scene.cube_faces.f,
+          right: scene.cube_faces.r,
+          back: scene.cube_faces.b,
+          top: scene.cube_faces.u,
+          bottom: scene.cube_faces.d,
+        }});
+        [...sceneList.children].forEach((node, sceneIndex) => node.classList.toggle('active', sceneIndex === activePanorama));
+        [...thumbs.children].forEach((node) => {{
+          const role = String(node.dataset.role || '');
+          const sceneIndex = Number.parseInt(String(node.dataset.index || '-1'), 10);
+          node.classList.toggle('active', role === 'pure_360' && sceneIndex === activePanorama);
+        }});
         const target = new URL(window.location.href);
-        const sceneId = scenes[index]?.scene_id || "";
-        if (sceneId && sceneId !== "1") {{
-          target.searchParams.set("scene", sceneId);
+        const sceneId = scene.scene_id || String(activePanorama + 1);
+        if (sceneId && sceneId !== '1') target.searchParams.set('scene', sceneId);
+        else target.searchParams.delete('scene');
+        target.hash = '';
+        history.replaceState({{}}, '', target.pathname + (target.search || ''));
+        document.getElementById('tour-status').textContent = `Panorama · ${{scene.name || `Scene ${{activePanorama + 1}}`}}`;
+      }}
+
+      function setFloorplan(index) {{
+        if (!floorplanScenes.length) return;
+        activeFloorplan = ((index % floorplanScenes.length) + floorplanScenes.length) % floorplanScenes.length;
+        const scene = floorplanScenes[activeFloorplan];
+        const url = String(scene.image_url || '');
+        const isPdf = String(scene.mime_type || '').includes('pdf') || /\\.pdf(?:$|[?#])/i.test(url);
+        if (isPdf) {{
+          floorplanImage.hidden = true;
+          floorplanFrame.hidden = false;
+          floorplanFrame.src = url;
         }} else {{
-          target.searchParams.delete("scene");
+          floorplanFrame.hidden = true;
+          floorplanFrame.src = '';
+          floorplanImage.hidden = false;
+          floorplanImage.src = url;
         }}
-        target.hash = "";
-        return target.pathname + (target.search || "");
+        [...thumbs.children].forEach((node) => {{
+          const role = String(node.dataset.role || '');
+          const sceneIndex = Number.parseInt(String(node.dataset.index || '-1'), 10);
+          node.classList.toggle('active', role === 'floorplan' && sceneIndex === activeFloorplan);
+        }});
       }}
-      function setLinkState(link, index, labelSuffix) {{
-        if (!link || scenes.length === 0) return;
-        if (index < 0 || index >= scenes.length) {{
-          link.classList.add("disabled");
-          link.removeAttribute("href");
-          link.textContent = "";
-          return;
-        }}
-        link.classList.remove("disabled");
-        link.dataset.index = String(index);
-        link.href = makeSceneHref(index);
-        const label = scenes[index].name || `Location ${{index + 1}}`;
-        link.textContent = `${{labelSuffix}}${{label}}`;
-      }}
-      function setScene(index) {{
-        if (!scenes.length) return;
-        active = clampSceneIndex(index);
-        const faces = scenes[active].cube_faces;
-        for (const key of ["f","b","r","l","u","d"]) {{
-          const node = cube.querySelector("." + key);
-          node.style.backgroundImage = `url("${{faces[key]}}")`;
-        }}
-        [...filmstrip.children].forEach((node, i) => node.classList.toggle("active", i === active));
-        const prevIndex = resolveSceneIndex(scenes[active].prev_scene_index, clampSceneIndex(active - 1));
-        const nextIndex = resolveSceneIndex(scenes[active].next_scene_index, clampSceneIndex(active + 1));
-        setLinkState(prevLink, prevIndex, "◀ ");
-        setLinkState(nextLink, nextIndex, "");
-        const currentUrl = new URL(window.location.href);
-        const sceneId = scenes[active].scene_id || String(active + 1);
-        if (sceneId && sceneId !== "1") currentUrl.searchParams.set("scene", sceneId);
-        else currentUrl.searchParams.delete("scene");
-        currentUrl.hash = "";
-        history.replaceState({{}}, "", currentUrl.pathname + (currentUrl.search || ""));
-      }}
-      scenes.forEach((scene, index) => {{
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "thumb";
-        button.style.backgroundImage = `url("${{scene.image_url || scene.cube_faces.f}}")`;
-        button.title = scene.name || `Location ${{index + 1}}`;
-        button.addEventListener("click", () => setScene(index));
-        filmstrip.appendChild(button);
+
+      modeButtons.forEach((button) => {{
+        button.addEventListener('click', () => {{
+          if (button.disabled) return;
+          switchPane(String(button.dataset.pane || 'panorama-pane'));
+        }});
       }});
-      viewer.addEventListener("pointerdown", (event) => {{ dragging = true; lastX = event.clientX; lastY = event.clientY; viewer.classList.add("dragging"); viewer.setPointerCapture(event.pointerId); }});
-      viewer.addEventListener("pointermove", (event) => {{ if (!dragging) return; yaw += (event.clientX - lastX) * .12; pitch = clamp(pitch - (event.clientY - lastY) * .12, -80, 80); lastX = event.clientX; lastY = event.clientY; applyRotation(); }});
-      viewer.addEventListener("pointerup", () => {{ dragging = false; viewer.classList.remove("dragging"); }});
-      viewer.addEventListener("pointercancel", () => {{ dragging = false; viewer.classList.remove("dragging"); }});
-      prevLink.addEventListener("click", (event) => {{ event.preventDefault(); const index = Number.parseInt(String(prevLink.dataset.index || ""), 10); if (Number.isInteger(index)) setScene(index); }});
-      nextLink.addEventListener("click", (event) => {{ event.preventDefault(); const index = Number.parseInt(String(nextLink.dataset.index || ""), 10); if (Number.isInteger(index)) setScene(index); }});
-      document.getElementById("prev").addEventListener("click", () => setScene(active - 1));
-      document.getElementById("next").addEventListener("click", () => setScene(active + 1));
-      window.addEventListener("keydown", (event) => {{ if (event.key === "ArrowLeft") setScene(active - 1); if (event.key === "ArrowRight") setScene(active + 1); }});
-      const initialScene = new URLSearchParams(window.location.search).get("scene");
-      const initialSceneIndex = scenes.findIndex((scene) => String(scene.scene_id || "").trim() === String(initialScene || "").trim());
-      setScene(initialSceneIndex >= 0 ? initialSceneIndex : 0);
-      applyRotation();
+
+      document.getElementById('prev-scene').addEventListener('click', () => setPanoramaScene(activePanorama - 1));
+      document.getElementById('next-scene').addEventListener('click', () => setPanoramaScene(activePanorama + 1));
+      window.addEventListener('keydown', (event) => {{
+        if (event.key === 'ArrowLeft') setPanoramaScene(activePanorama - 1);
+        if (event.key === 'ArrowRight') setPanoramaScene(activePanorama + 1);
+      }});
+
+      panoramaScenes.forEach((scene, index) => {{
+        const row = document.createElement('div');
+        row.className = 'scene-row';
+        row.innerHTML = `
+          <div>
+            <strong>${{scene.name || `Scene ${{index + 1}}`}}</strong>
+            <div class="note">Panorama position ${{index + 1}}</div>
+          </div>
+          <button type="button">Open</button>
+        `;
+        row.querySelector('button').addEventListener('click', () => {{
+          switchPane('panorama-pane');
+          setPanoramaScene(index);
+        }});
+        sceneList.appendChild(row);
+
+        const card = document.createElement('article');
+        card.className = 'overview-card';
+        card.innerHTML = `
+          <strong>${{scene.name || `Scene ${{index + 1}}`}}</strong>
+          <p>Use this viewpoint for the spatial read before switching into the packet and floorplan review.</p>
+          <button type="button">View panorama</button>
+        `;
+        card.querySelector('button').addEventListener('click', () => {{
+          switchPane('panorama-pane');
+          setPanoramaScene(index);
+        }});
+        overviewGrid.appendChild(card);
+
+        const thumb = document.createElement('button');
+        thumb.type = 'button';
+        thumb.className = 'thumb';
+        thumb.dataset.role = 'pure_360';
+        thumb.dataset.index = String(index);
+        thumb.innerHTML = `<span class="thumb-badge">360</span><img src="${{scene.image_url || scene.cube_faces.f}}" alt="${{scene.name || `Scene ${{index + 1}}`}}" referrerpolicy="no-referrer">`;
+        thumb.addEventListener('click', () => {{
+          switchPane('panorama-pane');
+          setPanoramaScene(index);
+        }});
+        thumbs.appendChild(thumb);
+      }});
+
+      floorplanScenes.forEach((scene, index) => {{
+        const thumb = document.createElement('button');
+        thumb.type = 'button';
+        thumb.className = 'thumb';
+        thumb.dataset.role = 'floorplan';
+        thumb.dataset.index = String(index);
+        const isPdf = String(scene.mime_type || '').includes('pdf') || /\\.pdf(?:$|[?#])/i.test(String(scene.image_url || ''));
+        thumb.innerHTML = isPdf
+          ? `<span class="thumb-badge">Plan</span><div class="thumb-doc">PDF</div>`
+          : `<span class="thumb-badge">Plan</span><img src="${{scene.image_url || ''}}" alt="${{scene.name || `Floorplan ${{index + 1}}`}}" referrerpolicy="no-referrer">`;
+        thumb.addEventListener('click', () => {{
+          switchPane('floorplan-pane');
+          setFloorplan(index);
+        }});
+        thumbs.appendChild(thumb);
+
+        const card = document.createElement('article');
+        card.className = 'overview-card';
+        card.innerHTML = `
+          <strong>${{scene.name || `Floorplan ${{index + 1}}`}}</strong>
+          <p>Use the layout sheet to validate room flow, circulation, and usable edges before a viewing.</p>
+          <button type="button">Open floorplan</button>
+        `;
+        card.querySelector('button').addEventListener('click', () => {{
+          switchPane('floorplan-pane');
+          setFloorplan(index);
+        }});
+        overviewGrid.appendChild(card);
+      }});
+
+      const initialScene = new URLSearchParams(window.location.search).get('scene');
+      const initialSceneIndex = panoramaScenes.findIndex((scene) => String(scene.scene_id || '').trim() === String(initialScene || '').trim());
+      if (panoramaScenes.length) {{
+        setPanoramaScene(initialSceneIndex >= 0 ? initialSceneIndex : 0);
+      }} else {{
+        document.getElementById('tour-status').textContent = 'No panorama scenes stored';
+      }}
+      if (floorplanScenes.length) {{
+        setFloorplan(0);
+      }}
     </script>
   </body>
 </html>"""
