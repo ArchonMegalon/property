@@ -3703,6 +3703,21 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         background: rgba(255,255,255,0.88);
         min-height: 72vh;
       }}
+      .video-stage {{
+        border-radius: 24px;
+        overflow: hidden;
+        border: 1px solid rgba(31,28,24,0.12);
+        background: #0f1012;
+        min-height: 72vh;
+      }}
+      .video-stage video {{
+        width: 100%;
+        height: 72vh;
+        min-height: 72vh;
+        display: block;
+        object-fit: cover;
+        background: #0f1012;
+      }}
       .doc-stage iframe,
       .doc-stage img {{
         width: 100%;
@@ -3861,7 +3876,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       @media (max-width: 640px) {{
         .shell {{ padding: 14px; }}
         .card {{ border-radius: 22px; }}
-        #cube, .doc-stage, .doc-stage iframe, .doc-stage img {{
+        #cube, .doc-stage, .doc-stage iframe, .doc-stage img, .video-stage, .video-stage video {{
           min-height: 56vh;
           height: 56vh;
         }}
@@ -3896,6 +3911,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             <button type="button" class="active" data-pane="panorama-pane">Panorama</button>
             <button type="button" data-pane="overview-pane">Overview</button>
             <button type="button" data-pane="floorplan-pane">Floorplans</button>
+            {"<button type=\"button\" data-pane=\"flythrough-pane\">Flythrough</button>" if video_url else ""}
           </div>
           <div class="status-pill" id="tour-status">Hosted white-label 360 review</div>
         </div>
@@ -3913,6 +3929,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                 <iframe id="floorplan-frame" title="Floorplan document" hidden referrerpolicy="no-referrer"></iframe>
               </div>
             </section>
+            {"<section id=\"flythrough-pane\" class=\"pane\"><div class=\"video-stage\"><video id=\"flythrough-video\" controls playsinline preload=\"metadata\"><source src=\"" + html.escape(video_url) + "\" type=\"video/mp4\"></video></div></section>" if video_url else ""}
           </div>
           <aside class="card sidebar">
             <h2 class="section-title">Scene navigation</h2>
@@ -3926,6 +3943,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             <div class="actions">
               <button class="btn" id="prev-link" type="button">Previous</button>
               <button class="btn" id="next-link" type="button">Next</button>
+              {"<button class=\"btn\" id=\"open-flythrough\" type=\"button\">Play flythrough</button>" if video_url else ""}
             </div>
             <div class="scene-list" id="scene-list"></div>
             <h2 class="section-title">Layout preview</h2>
@@ -3965,6 +3983,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       const floorplanImage = document.getElementById("floorplan-image");
       const floorplanFrame = document.getElementById("floorplan-frame");
       const layoutPreview = document.getElementById("layout-preview");
+      const flythroughVideo = document.getElementById("flythrough-video");
       const modeButtons = [...document.querySelectorAll('#mode-toggle button[data-pane]')];
       const panes = [...document.querySelectorAll('.pane')];
       const floorplanButton = modeButtons.find((button) => button.dataset.pane === 'floorplan-pane');
@@ -4023,6 +4042,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       function switchPane(name) {{
         panes.forEach((pane) => pane.classList.toggle('active', pane.id === name));
         modeButtons.forEach((button) => button.classList.toggle('active', button.dataset.pane === name));
+        if (name === 'flythrough-pane') {{
+          document.getElementById('tour-status').textContent = 'Flythrough · interior route';
+        }}
       }}
 
       function setPanoramaScene(index) {{
@@ -4132,6 +4154,15 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
 
       document.getElementById('prev-link').addEventListener('click', () => setPanoramaScene(activePanorama - 1));
       document.getElementById('next-link').addEventListener('click', () => setPanoramaScene(activePanorama + 1));
+      const openFlythrough = document.getElementById('open-flythrough');
+      if (openFlythrough) {{
+        openFlythrough.addEventListener('click', () => {{
+          switchPane('flythrough-pane');
+          if (flythroughVideo && typeof flythroughVideo.play === 'function') {{
+            flythroughVideo.play().catch(() => null);
+          }}
+        }});
+      }}
       window.addEventListener('keydown', (event) => {{
         if (event.key === 'ArrowLeft') setPanoramaScene(activePanorama - 1);
         if (event.key === 'ArrowRight') setPanoramaScene(activePanorama + 1);

@@ -7412,6 +7412,7 @@ def test_public_tour_routes_render_pure_360_cube_with_continuing_links(
     (bundle_dir / "scene-02-u.jpg").write_bytes(b"fake-jpeg-data")
     (bundle_dir / "scene-02-d.jpg").write_bytes(b"fake-jpeg-data")
     (bundle_dir / "scene-02-b.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "tour.mp4").write_bytes(b"fake-video-data")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
@@ -7422,6 +7423,7 @@ def test_public_tour_routes_render_pure_360_cube_with_continuing_links(
                 "hosted_url": f"https://ea.example/tours/{slug}",
                 "scene_strategy": "pure_360_cube",
                 "scene_count": 2,
+                "video_relpath": "tour.mp4",
                 "facts": {
                     "rooms": 3,
                     "area_sqm": 81,
@@ -7487,6 +7489,8 @@ def test_public_tour_routes_render_pure_360_cube_with_continuing_links(
     assert "Pure 360 hosted on My External Brain" in page.text
     assert 'id="prev-link"' in page.text
     assert 'id="next-link"' in page.text
+    assert "Flythrough" in page.text
+    assert 'id="flythrough-video"' in page.text
     assert "Location" in page.text
     assert '"scene_id": "living"' in page.text
     assert '"scene_id": "bedroom"' in page.text
