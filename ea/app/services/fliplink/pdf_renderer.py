@@ -140,6 +140,16 @@ def _draw_image(
     )
 
 
+def _safe_pdf_href(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = urllib.parse.urlparse(raw)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return raw[:1800]
+
+
 def _draw_wrapped(
     ops: list[str],
     text: object,
@@ -269,6 +279,7 @@ def _build_pdf(pages: list[dict[str, object]]) -> bytes:
     for page in pages or [{"ops": [], "images": []}]:
         page_ops = list(page.get("ops") or []) if isinstance(page, dict) else []
         page_images = list(page.get("images") or []) if isinstance(page, dict) else []
+        page_annotations = list(page.get("annotations") or []) if isinstance(page, dict) else []
         xobject_entries: list[str] = []
         for index, image in enumerate(page_images, start=1):
             image_bytes = bytes(image.get("bytes") or b"")
@@ -292,13 +303,35 @@ def _build_pdf(pages: list[dict[str, object]]) -> bytes:
             )
             image_name = str(image.get("name") or f"Im{index}").strip() or f"Im{index}"
             xobject_entries.append(f"/{image_name} {image_id} 0 R")
+        annotation_ids: list[int] = []
+        for annotation in page_annotations:
+            if not isinstance(annotation, dict):
+                continue
+            href = _safe_pdf_href(annotation.get("url"))
+            rect = annotation.get("rect")
+            if not href or not isinstance(rect, (list, tuple)) or len(rect) != 4:
+                continue
+            try:
+                x1, y1, x2, y2 = [float(value) for value in rect]
+            except Exception:
+                continue
+            annotation_id = add(
+                (
+                    "<< /Type /Annot /Subtype /Link "
+                    f"/Rect [{_num(x1)} {_num(y1)} {_num(x2)} {_num(y2)}] "
+                    "/Border [0 0 0] "
+                    f"/A << /S /URI /URI ({_pdf_escape(href)}) >> >>"
+                ).encode("latin-1", errors="replace")
+            )
+            annotation_ids.append(annotation_id)
         content = "\n".join(page_ops).encode("latin-1", errors="replace")
         content_id = add(b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n" + content + b"\nendstream")
         xobject_resource = f" /XObject << {' '.join(xobject_entries)} >>" if xobject_entries else ""
+        annots_resource = f" /Annots [{' '.join(f'{annotation_id} 0 R' for annotation_id in annotation_ids)}]" if annotation_ids else ""
         page_id = add(
             (
                 f"<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 {PAGE_WIDTH} {PAGE_HEIGHT}] "
-                f"/Resources << /Font << /F1 {font_id} 0 R /F2 {bold_font_id} 0 R >>{xobject_resource} >> /Contents {content_id} 0 R >>"
+                f"/Resources << /Font << /F1 {font_id} 0 R /F2 {bold_font_id} 0 R >>{xobject_resource} >>{annots_resource} /Contents {content_id} 0 R >>"
             ).encode("ascii")
         )
         page_ids.append(page_id)
@@ -608,8 +641,12 @@ def _visual_pdf(
     magic_fit_scene: dict[str, object],
     sections: list[dict[str, object]],
     narrative_lines: list[str],
+    tour_url: str,
+    review_url: str,
 ) -> bytes:
     pages: list[dict[str, object]] = []
+    redacted_tour_url = _safe_pdf_href(tour_url)
+    redacted_review_url = _safe_pdf_href(review_url)
     photo_refs = list(media_refs.get("photos") or [])
     cover_image = _load_pdf_image_resource(photo_refs[0]) if photo_refs else None
     gallery_images = []
@@ -650,6 +687,7 @@ def _visual_pdf(
             chip_x = MARGIN_X
             y -= 28
     cover_page_images: list[dict[str, object]] = []
+    cover_page_annotations: list[dict[str, object]] = []
     if cover_image is not None:
         hero_x = 358
         hero_y = 448
@@ -697,9 +735,43 @@ def _visual_pdf(
         _draw_rect(ops, x, metric_y - 70, metric_width, 78, fill=(0.93, 0.96, 0.94))
         _draw_text(ops, value, x=x + 14, y=metric_y - 24, size=24, font="F2", fill=(0.15, 0.38, 0.30))
         _draw_text(ops, label, x=x + 14, y=metric_y - 46, size=9.2, font="F2", fill=(0.30, 0.36, 0.32))
+    cta_y = 152
+    if redacted_tour_url:
+        button_width = 246
+        button_height = 38
+        _draw_rect(ops, MARGIN_X, cta_y, button_width, button_height, fill=(0.15, 0.38, 0.30))
+        _draw_text(
+            ops,
+            "Open 3D reconstruction floor plan",
+            x=MARGIN_X + 16,
+            y=cta_y + 14,
+            size=10.2,
+            font="F2",
+            fill=(0.98, 0.98, 0.96),
+        )
+        cover_page_annotations.append(
+            {"url": redacted_tour_url, "rect": [MARGIN_X, cta_y, MARGIN_X + button_width, cta_y + button_height]}
+        )
+    if redacted_review_url:
+        review_x = MARGIN_X + (258 if redacted_tour_url else 0)
+        review_width = 182
+        review_height = 38
+        _draw_rect(ops, review_x, cta_y, review_width, review_height, fill=(0.93, 0.96, 0.94))
+        _draw_text(
+            ops,
+            "Open review packet",
+            x=review_x + 16,
+            y=cta_y + 14,
+            size=10,
+            font="F2",
+            fill=(0.15, 0.38, 0.30),
+        )
+        cover_page_annotations.append(
+            {"url": redacted_review_url, "rect": [review_x, cta_y, review_x + review_width, cta_y + review_height]}
+        )
     _draw_text(ops, "Property title", x=MARGIN_X, y=116, size=9, font="F2", fill=(0.43, 0.38, 0.29))
     _draw_wrapped(ops, title, x=MARGIN_X, y=100, width_chars=84, size=10, leading=12)
-    pages.append({"ops": ops, "images": cover_page_images})
+    pages.append({"ops": ops, "images": cover_page_images, "annotations": cover_page_annotations})
 
     page_number = 2
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
@@ -874,6 +946,8 @@ def render_property_packet_pdf(
         magic_fit_scene=dict(redaction.payload.get("magic_fit_scene") or {}) if isinstance(redaction.payload.get("magic_fit_scene"), dict) else {},
         sections=sections,
         narrative_lines=_property_narrative(redaction.payload),
+        tour_url=str(redaction.payload.get("tour_url") or ""),
+        review_url=str(redaction.payload.get("review_url") or ""),
     )
     pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
     principal_token = _safe_token(principal_id, "principal")

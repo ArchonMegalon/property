@@ -449,6 +449,8 @@ def redact_property_packet(
             "title": str(source.get("title") or source.get("property_title") or "PropertyQuarry packet").strip(),
             "property_ref": str(source.get("property_ref") or "").strip(),
             "property_url": str(source.get("property_url") or source.get("source_url") or "").strip(),
+            "tour_url": str(source.get("tour_url") or "").strip(),
+            "review_url": str(source.get("review_url") or "").strip(),
             "source_label": str(source.get("source_label") or "PropertyQuarry").strip(),
             "fit_summary": str(source.get("fit_summary") or source.get("summary") or "").strip(),
             "compare_reason": str(source.get("compare_reason") or "").strip(),

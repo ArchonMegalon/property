@@ -3626,6 +3626,36 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         background: #111;
         border: 1px solid rgba(31,28,24,0.14);
       }}
+      .viewer-empty {{
+        min-height: 72vh;
+        height: 72vh;
+        display: grid;
+        place-items: center;
+        padding: 28px;
+        text-align: center;
+        color: #fff8ef;
+        background: radial-gradient(circle at top, rgba(31,95,81,0.42), rgba(12,12,12,0.94));
+      }}
+      .viewer-empty strong {{
+        display: block;
+        margin-bottom: 10px;
+        font-size: 1.1rem;
+      }}
+      .viewer-empty p {{
+        max-width: 32rem;
+        margin: 0 auto 16px;
+        line-height: 1.55;
+        color: rgba(255,248,239,0.82);
+      }}
+      .viewer-empty button {{
+        min-height: 40px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.18);
+        background: rgba(255,255,255,0.10);
+        color: #fff8ef;
+        cursor: pointer;
+      }}
       .overview-grid {{
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -3868,9 +3898,33 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       }}
       let activePanorama = 0;
       let activeFloorplan = 0;
-      const viewer = panoramaScenes.length
-        ? new Viewer({{
-            container: document.querySelector('#psv-viewer'),
+      const viewerContainer = document.querySelector('#psv-viewer');
+      let viewer = null;
+
+      function showPanoramaFallback(message) {{
+        if (!viewerContainer) return;
+        viewerContainer.innerHTML = `
+          <div class="viewer-empty">
+            <div>
+              <strong>Panorama preview unavailable on this device right now</strong>
+              <p>${{message || 'Use the overview and floorplan tabs to keep the layout review moving, then reopen the panorama after the connection or browser stabilizes.'}}</p>
+              <button type="button" id="panorama-fallback-overview">Open overview instead</button>
+            </div>
+          </div>
+        `;
+        const fallbackButton = document.getElementById('panorama-fallback-overview');
+        if (fallbackButton) {{
+          fallbackButton.addEventListener('click', () => switchPane(floorplanScenes.length ? 'floorplan-pane' : 'overview-pane'));
+        }}
+        if (panoramaScenes.length) {{
+          document.getElementById('tour-status').textContent = 'Panorama unavailable · using white-label fallback';
+        }}
+      }}
+
+      if (panoramaScenes.length) {{
+        try {{
+          viewer = new Viewer({{
+            container: viewerContainer,
             adapter: CubemapAdapter,
             navbar: ['zoom', 'move', 'fullscreen'],
             mousewheel: true,
@@ -3884,8 +3938,12 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
               top: panoramaScenes[0].cube_faces.u,
               bottom: panoramaScenes[0].cube_faces.d,
             }},
-          }})
-        : null;
+          }});
+        }} catch (error) {{
+          console.error('PropertyQuarry panorama init failed', error);
+          showPanoramaFallback('The white-label panorama viewer could not initialize here. The overview and floorplan lanes stay available so the dossier remains usable on mobile.');
+        }}
+      }}
 
       function switchPane(name) {{
         panes.forEach((pane) => pane.classList.toggle('active', pane.id === name));
@@ -3896,14 +3954,21 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         if (!panoramaScenes.length || !viewer) return;
         activePanorama = ((index % panoramaScenes.length) + panoramaScenes.length) % panoramaScenes.length;
         const scene = panoramaScenes[activePanorama];
-        viewer.setPanorama({{
-          left: scene.cube_faces.l,
-          front: scene.cube_faces.f,
-          right: scene.cube_faces.r,
-          back: scene.cube_faces.b,
-          top: scene.cube_faces.u,
-          bottom: scene.cube_faces.d,
-        }});
+        try {{
+          viewer.setPanorama({{
+            left: scene.cube_faces.l,
+            front: scene.cube_faces.f,
+            right: scene.cube_faces.r,
+            back: scene.cube_faces.b,
+            top: scene.cube_faces.u,
+            bottom: scene.cube_faces.d,
+          }});
+        }} catch (error) {{
+          console.error('PropertyQuarry panorama scene switch failed', error);
+          showPanoramaFallback('This panorama scene could not be rendered cleanly on the current device. Use the scene overview or floorplan lane for the layout-first review.');
+          switchPane(floorplanScenes.length ? 'floorplan-pane' : 'overview-pane');
+          return;
+        }}
         [...sceneList.children].forEach((node, sceneIndex) => node.classList.toggle('active', sceneIndex === activePanorama));
         [...thumbs.children].forEach((node) => {{
           const role = String(node.dataset.role || '');
@@ -4030,8 +4095,10 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
 
       const initialScene = new URLSearchParams(window.location.search).get('scene');
       const initialSceneIndex = panoramaScenes.findIndex((scene) => String(scene.scene_id || '').trim() === String(initialScene || '').trim());
-      if (panoramaScenes.length) {{
+      if (panoramaScenes.length && viewer) {{
         setPanoramaScene(initialSceneIndex >= 0 ? initialSceneIndex : 0);
+      }} else if (panoramaScenes.length) {{
+        showPanoramaFallback('The white-label panorama viewer is currently unavailable here. Use the overview and floorplan lanes while the 3D scene is unavailable.');
       }} else {{
         document.getElementById('tour-status').textContent = 'No panorama scenes stored';
       }}
@@ -4604,9 +4671,9 @@ def _public_tour_security_headers(*, cache_control: str = "no-store") -> dict[st
             "img-src 'self' data: https:; "
             "media-src 'self' https:; "
             "frame-src 'self' https:; "
-            "script-src 'self' 'unsafe-inline' https://js.clickrank.ai; "
-            "style-src 'self' 'unsafe-inline'; "
-            "connect-src 'self'"
+            "script-src 'self' 'unsafe-inline' https://js.clickrank.ai https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "connect-src 'self' https://cdn.jsdelivr.net"
         ),
         "Referrer-Policy": "no-referrer",
         "X-Content-Type-Options": "nosniff",
