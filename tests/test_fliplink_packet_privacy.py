@@ -16,6 +16,7 @@ def _source_payload() -> dict[str, object]:
         "property_ref": "listing:vienna-1020",
         "property_url": "https://www.willhaben.at/iad/immobilien/d/demo",
         "fit_summary": "Strong family fit near daily-life infrastructure.",
+        "compare_reason": "Chosen ahead of the next option because it includes a floorplan and stays closer to the current brief.",
         "match_reasons": ["Floorplan, lift, and usable outdoor space."],
         "floorplan_refs": ["https://packets.propertyquarry.com/assets/floorplan.pdf"],
         "photo_refs": ["https://packets.propertyquarry.com/assets/photo.jpg"],
@@ -263,6 +264,9 @@ def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     assert b"https://packets.propertyquarry.com/assets/floorplan.pdf" not in pdf_bytes
     assert b"https://packets.propertyquarry.com/assets/photo.jpg" not in pdf_bytes
     assert b"Executive summary" in pdf_bytes
+    assert b"Chosen ahead" in pdf_bytes
+    assert b"next option" in pdf_bytes
+    assert b"includes a floorplan" in pdf_bytes
     assert b"roughly 4 minutes on foot" in pdf_bytes
     assert b" re f" in pdf_bytes
 

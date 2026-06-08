@@ -532,13 +532,14 @@ def _property_narrative(payload: dict[str, object]) -> list[str]:
     evidence = _clean_sentence(", and ".join(evidence_parts))
 
     fit = _clean_sentence(payload.get("fit_summary"))
+    compare_reason = _clean_sentence(payload.get("compare_reason"))
     if not fit and match_reasons:
         fit = _clean_sentence("Why it stands out: " + "; ".join(match_reasons))
     neighborhood = _clean_sentence("For daily life, " + ", and ".join(daily_life)) if daily_life else ""
     risk = _clean_sentence("Open points still worth checking: " + "; ".join(risks)) if risks else ""
     next_step = _clean_sentence("Suggested next questions: " + "; ".join(questions)) if questions else ""
 
-    return [item for item in [intro, fit, evidence, neighborhood, risk, next_step] if item]
+    return [item for item in [intro, compare_reason, fit, neighborhood, evidence, risk, next_step] if item]
 
 
 def _visual_pdf(

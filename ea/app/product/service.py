@@ -20251,6 +20251,11 @@ class ProductService:
                             fallback=f"Personal fit {fit_score:.0f}/100" if fit_score else "",
                             limit=160,
                         ),
+                        "compare_reason": compact_text(
+                            str(candidate.get("compare_reason") or "").strip(),
+                            fallback="",
+                            limit=220,
+                        ),
                         "review_url": _secure_workspace_link(review_url or click_url),
                         "tour_url": _secure_workspace_link(tour_url),
                         "property_url": _secure_workspace_link(property_url),

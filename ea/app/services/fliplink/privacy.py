@@ -413,6 +413,7 @@ def redact_property_packet(
             "property_url": str(source.get("property_url") or source.get("source_url") or "").strip(),
             "source_label": str(source.get("source_label") or "PropertyQuarry").strip(),
             "fit_summary": str(source.get("fit_summary") or source.get("summary") or "").strip(),
+            "compare_reason": str(source.get("compare_reason") or "").strip(),
             "recommendation": str(source.get("recommendation") or "").strip(),
             "match_reasons": _list_text(source.get("match_reasons")),
             "mismatch_reasons": _list_text(source.get("mismatch_reasons")),

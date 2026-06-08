@@ -47,3 +47,13 @@ def test_property_notification_preview_html_contains_action_surface_links() -> N
         html = str(property_notification_preview(key).get("html") or "")
         for action in expected_actions:
             assert action in html, f"{action!r} missing from {key}"
+
+
+def test_search_results_ready_preview_includes_compare_reason() -> None:
+    preview = property_notification_preview("search_results_ready")
+    text = str(preview.get("text") or "")
+    html = str(preview.get("html") or "")
+
+    assert "Why it won:" in text
+    assert "Why it won" in html
+    assert "scored 5 points higher" in text or "includes a floorplan" in text
