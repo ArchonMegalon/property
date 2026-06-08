@@ -56,6 +56,55 @@ def _split_known_and_custom_values(
     return known, custom
 
 
+def _group_property_provider_options(options: list[dict[str, object]]) -> list[dict[str, object]]:
+    family_order = {
+        "marketplace": 0,
+        "broker_direct": 1,
+        "cooperative": 2,
+        "public_housing": 3,
+        "developer_projects": 4,
+        "distressed_sales": 5,
+        "community_signals": 6,
+        "community_meta": 7,
+    }
+    family_headings = {
+        "marketplace": ("Core marketplaces", "Primary broad-market search lanes for this country."),
+        "broker_direct": ("Broker direct", "Broker-owned inventory and direct source lanes."),
+        "cooperative": ("Cooperatives", "Genossenschaften and cooperative housing sources."),
+        "public_housing": ("Public housing", "Municipal and public-housing-adjacent sources."),
+        "developer_projects": ("Developer projects", "New-build and launch pipeline sources."),
+        "distressed_sales": ("Distressed and judicial", "Auction, forced-sale, and judicial lanes."),
+        "community_signals": ("Community signals", "Facebook, Telegram, and other weakly verified off-market hints."),
+        "community_meta": ("Watch-tier meta", "Long-tail meta or watch-tier sources with lower trust."),
+    }
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for option in options:
+        family = str(option.get("family") or "marketplace").strip() or "marketplace"
+        grouped.setdefault(family, []).append(option)
+    rows: list[dict[str, object]] = []
+    for family, items in sorted(grouped.items(), key=lambda pair: (family_order.get(pair[0], 99), pair[0])):
+        title, detail = family_headings.get(
+            family,
+            (str(family).replace("_", " ").title(), "Grouped by source family for a cleaner market setup."),
+        )
+        rows.append(
+            {
+                "key": family,
+                "title": title,
+                "detail": detail,
+                "options": sorted(
+                    items,
+                    key=lambda item: (
+                        str(item.get("trust_tier") or "").strip() != "trusted",
+                        str(item.get("trust_tier") or "").strip() == "watch",
+                        str(item.get("label") or "").strip().lower(),
+                    ),
+                ),
+            }
+        )
+    return rows
+
+
 def _property_counterfactual_rows(
     *,
     preferences: dict[str, object],
@@ -1200,6 +1249,7 @@ def app_section_payload(
                 "name": "selected_platforms",
                 "label": "Search sources",
                 "options": platform_options,
+                "option_groups": _group_property_provider_options(platform_options),
                 "values": list(selected_platforms),
                 "step": "providers",
             },
@@ -1353,6 +1403,7 @@ def app_section_payload(
                 ],
                 "values": list(property_preferences.get("school_stage_preferences") or []),
                 "step": "children",
+                "advanced_panel": "children",
             },
             {
                 "type": "select",
@@ -1365,6 +1416,7 @@ def app_section_payload(
                     {"value": "very_important", "label": "Very important"},
                 ],
                 "step": "children",
+                "advanced_panel": "children",
             },
             {
                 "type": "range",
@@ -1381,6 +1433,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Only keep listings within this distance of a playground or similar children's outdoor space.",
                 "step": "children",
+                "advanced_panel": "children",
             },
             {
                 "type": "range",
@@ -1415,6 +1468,7 @@ def app_section_payload(
                 "value": str(property_preferences.get("commute_destination") or ""),
                 "placeholder": "Workplace, university, Oma, or another key address",
                 "step": "reachability",
+                "advanced_panel": "commute",
             },
             {
                 "type": "text",
@@ -1423,6 +1477,7 @@ def app_section_payload(
                 "value": str(property_preferences.get("additional_reachability_targets") or ""),
                 "placeholder": "Comma-separated: office, grandma, club, doctor",
                 "step": "reachability",
+                "advanced_panel": "commute",
             },
             {
                 "type": "checkbox_group",
@@ -1436,6 +1491,7 @@ def app_section_payload(
                 ],
                 "values": list(property_preferences.get("preferred_reachability_modes") or []),
                 "step": "reachability",
+                "advanced_panel": "commute",
             },
             {
                 "type": "range",
@@ -1452,6 +1508,7 @@ def app_section_payload(
                 "scale_max_label": "180 min",
                 "tooltip": "Maximum acceptable public-transit commute time.",
                 "step": "reachability",
+                "advanced_panel": "commute",
             },
             {
                 "type": "range",
@@ -1468,6 +1525,7 @@ def app_section_payload(
                 "scale_max_label": "180 min",
                 "tooltip": "Maximum acceptable driving commute time.",
                 "step": "reachability",
+                "advanced_panel": "commute",
             },
             {
                 "type": "range",
@@ -1484,6 +1542,7 @@ def app_section_payload(
                 "scale_max_label": "180 min",
                 "tooltip": "Maximum acceptable cycling commute time.",
                 "step": "reachability",
+                "advanced_panel": "commute",
             },
             {
                 "type": "range",
@@ -1500,6 +1559,7 @@ def app_section_payload(
                 "scale_max_label": "180 min",
                 "tooltip": "Maximum acceptable walking time for adult destinations.",
                 "step": "reachability",
+                "advanced_panel": "commute",
             },
             {
                 "type": "checkbox_group",

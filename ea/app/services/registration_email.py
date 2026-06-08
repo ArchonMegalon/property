@@ -201,6 +201,29 @@ def _html_link(*, href: object, label: object) -> str:
     return f'<a href="{_html_escape(url)}" style="{_EMAIL_LINK_STYLE}">{_html_escape(text)}</a>'
 
 
+def _email_footer_html(*, reason: str = "You are receiving this because you started or were invited into a PropertyQuarry workflow.") -> str:
+    return (
+        '<div style="margin-top:22px;padding-top:16px;border-top:1px solid #e7dece;">'
+        f'<div style="font-size:12px;line-height:1.6;color:#6c675f;">{_html_escape(reason)}</div>'
+        '<div style="font-size:12px;line-height:1.6;color:#6c675f;">'
+        'PropertyQuarry treats these links as secure workflow continuations, not public listing broadcasts.'
+        "</div>"
+        "</div>"
+    )
+
+
+def _email_button(*, href: object, label: object, kind: str = "primary") -> str:
+    url = str(href or "").strip()
+    text = str(label or "").strip()
+    if not url or not text:
+        return ""
+    if kind == "secondary":
+        style = "display:inline-block;padding:12px 16px;border-radius:999px;border:1px solid #d7c7ad;color:#1f1d19;text-decoration:none;font-weight:700;"
+    else:
+        style = "display:inline-block;padding:12px 16px;border-radius:999px;background:#276b53;color:#fffdf8;text-decoration:none;font-weight:700;"
+    return f'<a href="{_html_escape(url)}" style="{style}">{_html_escape(text)}</a>'
+
+
 def _html_email_shell(*, title: str, body_html: str, preheader: str = "") -> str:
     preheader_html = (
         f'<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">{_html_escape(preheader)}</div>'
@@ -212,8 +235,9 @@ def _html_email_shell(*, title: str, body_html: str, preheader: str = "") -> str
         'font-family:Arial,Helvetica,sans-serif;color:#191714;">'
         f"{preheader_html}"
         '<div style="max-width:760px;margin:0 auto;padding:24px;">'
-        '<div style="border:1px solid #ded6c8;border-radius:10px;background:#fffdf8;padding:20px;">'
-        f'<h1 style="margin:0 0 14px;font-size:22px;line-height:1.2;">{_html_escape(title)}</h1>'
+        '<div style="border:1px solid #ded6c8;border-radius:18px;background:#fffdf8;padding:20px;box-shadow:0 10px 28px rgba(36,35,33,0.06);">'
+        '<div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#a37a2c;font-weight:700;margin:0 0 8px;">PropertyQuarry</div>'
+        f'<h1 style="margin:0 0 14px;font-size:22px;line-height:1.2;color:#242321;">{_html_escape(title)}</h1>'
         f"{body_html}"
         "</div></div></body></html>"
     )
@@ -263,6 +287,7 @@ def _workspace_email_shell(
             )
             + (f'<div style="margin:0 0 14px;">{" &nbsp; ".join(actions)}</div>' if actions else "")
             + '<p style="margin:0;font-size:13px;line-height:1.6;color:#6c675f;">PropertyQuarry only uses this link to continue the exact workspace flow described above.</p>'
+            + _email_footer_html(reason="You are receiving this because a PropertyQuarry workspace flow needs your action or confirmation.")
         ),
     )
 
@@ -361,6 +386,7 @@ def _property_search_results_ready_html(
         body_html=(
             '<p style="margin:0 0 14px;color:#383633;">Your ranked shortlist is ready.</p>'
             f"{metric_table}{properties_table}{results_link}"
+            + _email_footer_html(reason="You are receiving this because PropertyQuarry finished a search run for your workspace.")
         ),
     )
 
@@ -422,6 +448,7 @@ def _property_match_html(
             f"{facts_html}</table>"
             f'<p style="margin:14px 0 0;">{" &nbsp; ".join(link for link in links if link)}</p>'
             + "".join(reason_sections)
+            + _email_footer_html(reason="You are receiving this because PropertyQuarry shortlisted a property for your workspace.")
         ),
     )
 
@@ -810,7 +837,9 @@ def send_property_tour_email(
     html_body = (
         '<div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;margin:0 0 10px;">Hosted review</div>'
         '<p style="margin:0 0 16px;font-size:15px;line-height:1.65;color:#51493f;">PropertyQuarry prepared a hosted 360 review for this property. Open the space first, then continue into the research packet and the decision desk.</p>'
-        f'<p style="margin:0 0 14px;">{_html_link(href=tour_url, label="Open hosted 360")}</p>'
+        f'<div style="margin:0 0 14px;">{_email_button(href=tour_url, label="Open hosted 360")}'
+        + (f' &nbsp; {_email_button(href=property_url, label="Open research packet", kind="secondary")}' if str(property_url or "").strip() else "")
+        + '</div>'
     )
     if str(property_url or "").strip():
         html_body += f'<p style="margin:0 0 14px;">{_html_link(href=property_url, label="Open research packet or listing context")}</p>'
@@ -820,6 +849,7 @@ def send_property_tour_email(
             + facts_table_html
             + "</table>"
         )
+    html_body += _email_footer_html(reason="You are receiving this because PropertyQuarry prepared a hosted review for a property in your workspace.")
     return _send_emailit_email(
         recipient_email=recipient_email,
         subject=subject[:220],
@@ -1041,17 +1071,11 @@ def send_property_search_results_ready_email(
         property_url = html.escape(str(row.get("property_url") or "").strip())
         actions = []
         if review_url:
-            actions.append(
-                f'<a href="{review_url}" style="display:inline-block;padding:10px 14px;border-radius:999px;background:#bd8b2f;color:#1f1d19;text-decoration:none;font-weight:700;">Open review packet</a>'
-            )
+            actions.append(_email_button(href=review_url, label="Open review packet", kind="secondary"))
         if tour_url:
-            actions.append(
-                f'<a href="{tour_url}" style="display:inline-block;padding:10px 14px;border-radius:999px;border:1px solid #d7c7ad;color:#1f1d19;text-decoration:none;font-weight:700;">Open 360</a>'
-            )
+            actions.append(_email_button(href=tour_url, label="Open 360"))
         elif property_url:
-            actions.append(
-                f'<a href="{property_url}" style="display:inline-block;padding:10px 14px;border-radius:999px;border:1px solid #d7c7ad;color:#1f1d19;text-decoration:none;font-weight:700;">Open source</a>'
-            )
+            actions.append(_email_button(href=property_url, label="Open source", kind="secondary"))
         cards.append(
             """
             <tr>
@@ -1092,7 +1116,7 @@ def send_property_search_results_ready_email(
                 {f'<div style="font-size:13px;line-height:1.5;color:#7d7468;margin-top:10px;">{html.escape(best_facts)}</div>' if best_facts else ''}
               </div>
               <div style="padding-top:18px;">
-                <a href="{html.escape(str(results_url or '').strip())}" style="display:inline-block;padding:12px 16px;border-radius:999px;background:#276b53;color:#fffdf8;text-decoration:none;font-weight:700;">Open full search desk</a>
+                {_email_button(href=str(results_url or '').strip(), label="Open full search desk")}
               </div>
             </div>
             <div style="padding:24px 28px 12px;">
@@ -1102,6 +1126,7 @@ def send_property_search_results_ready_email(
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 {''.join(cards)}
               </table>
+              {_email_footer_html(reason="You are receiving this because PropertyQuarry finished a search run for your workspace.")}
             </div>
           </div>
         </div>

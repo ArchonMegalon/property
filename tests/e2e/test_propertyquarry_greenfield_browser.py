@@ -633,15 +633,17 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
+        page.set_default_timeout(10000)
+        response = page.goto(f"{base_url}/app/properties", wait_until="domcontentloaded")
         assert response is not None and response.ok
-        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'search'")
+        page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
+        page.locator('[data-property-field-name="country_code"]').wait_for(state="visible")
         assert page.locator('[data-property-field-name="country_code"]').is_visible()
         assert page.locator('[data-property-field-name="location_query"]').is_hidden()
 
         page.select_option('select[name="country_code"]', "AT")
         page.locator("[data-property-step-next]").click()
-        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'areas'")
+        page.locator('[data-property-field-name="region_code"]').wait_for(state="visible")
         assert page.locator('[data-property-field-name="region_code"]').is_visible()
         assert page.locator('[data-property-field-name="country_code"]').is_hidden()
         assert page.locator('[data-property-field-name="location_query"]').is_visible()
@@ -654,9 +656,9 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('[data-property-field-name="location_query"]').is_visible()
 
         page.locator('[data-property-step-trigger="children"]').click()
-        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'")
+        page.locator('[data-property-field-name="enable_family_mode"]').wait_for(state="visible")
         assert page.locator('[data-property-field-name="enable_family_mode"]').is_visible()
-        assert page.locator('details[data-property-advanced-panel="children"]').evaluate("(node) => node.hasAttribute('open')") is False
+        assert page.locator('details[data-property-advanced-panel="children"]').is_hidden()
         assert page.locator('[data-property-field-name="school_stage_preferences"]').is_hidden()
         assert page.locator('[data-property-field-name="school_stage_preferences"]').get_attribute("data-property-collapsed-by") == "enable_family_mode"
         assert page.locator('[data-property-field-name="school_quality_priority"]').is_hidden()
@@ -664,12 +666,16 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('[data-property-field-name="max_distance_to_library_m"]').is_hidden()
 
         page.locator('input[name="enable_family_mode"]').check()
-        assert page.locator('[data-property-field-name="school_stage_preferences"]').is_visible()
+        assert page.locator('details[data-property-advanced-panel="children"]').is_visible()
+        assert page.locator('details[data-property-advanced-panel="children"]').evaluate("(node) => node.hasAttribute('open')") is False
+        assert page.locator('[data-property-field-name="school_stage_preferences"]').is_hidden()
         assert page.locator('[data-property-field-name="school_quality_priority"]').is_hidden()
         assert page.locator('[data-property-field-name="school_quality_priority"]').get_attribute("data-property-collapsed-by") == "school_stage_preferences"
-        assert page.locator('[data-property-field-name="max_distance_to_playground_m"]').is_visible()
         page.locator('details[data-property-advanced-panel="children"] summary').click()
         assert page.locator('details[data-property-advanced-panel="children"]').evaluate("(node) => node.hasAttribute('open')") is True
+        page.locator('[data-property-field-name="school_stage_preferences"]').wait_for(state="visible")
+        assert page.locator('[data-property-field-name="school_stage_preferences"]').is_visible()
+        assert page.locator('[data-property-field-name="max_distance_to_playground_m"]').is_visible()
         assert page.locator('[data-property-field-name="max_distance_to_library_m"]').is_visible()
         assert page.locator('[data-school-stage-note]').is_visible()
         assert "OR matches" in (page.locator('[data-school-stage-note]').text_content() or "")
@@ -681,23 +687,41 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('[data-property-field-name="school_quality_priority"]').is_visible()
 
         page.locator('input[name="enable_family_mode"]').uncheck()
+        assert page.locator('details[data-property-advanced-panel="children"]').is_hidden()
         assert page.locator('[data-property-field-name="school_stage_preferences"]').is_hidden()
         assert page.locator('[data-property-field-name="school_quality_priority"]').is_hidden()
         assert page.locator('[data-property-field-name="max_distance_to_playground_m"]').is_hidden()
         assert page.locator('[data-property-field-name="max_distance_to_library_m"]').is_hidden()
 
+        page.locator('[data-property-step-trigger="reachability"]').click()
+        page.locator('input[name="enable_commute_research"]').wait_for(state="visible")
+        assert page.locator('input[name="enable_commute_research"]').is_visible()
+        assert page.locator('details[data-property-advanced-panel="commute"]').is_hidden()
+        page.locator('input[name="enable_commute_research"]').check()
+        assert page.locator('details[data-property-advanced-panel="commute"]').is_visible()
+        page.locator('details[data-property-advanced-panel="commute"] summary').click()
+        assert page.locator('[data-property-field-name="commute_destination"]').is_visible()
+        assert page.locator('[data-property-field-name="preferred_reachability_modes"]').is_visible()
+        page.locator('input[name="enable_commute_research"]').uncheck()
+        assert page.locator('details[data-property-advanced-panel="commute"]').is_hidden()
+
         page.locator('[data-property-step-trigger="areas"]').click()
-        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'areas'")
+        assert page.locator('details[data-property-advanced-panel="location_research"]').is_visible()
+        assert page.locator('[data-property-field-name="max_distance_to_market_m"]').is_hidden()
         assert page.locator('details[data-property-advanced-panel="location_research"]').evaluate("(node) => node.hasAttribute('open')") is False
         page.locator('details[data-property-advanced-panel="location_research"] summary').click()
         assert page.locator('details[data-property-advanced-panel="location_research"]').evaluate("(node) => node.hasAttribute('open')") is True
+        page.locator('[data-property-field-name="max_distance_to_market_m"]').wait_for(state="visible")
         assert page.locator('[data-property-field-name="max_distance_to_market_m"]').is_visible()
         assert page.locator('[data-property-field-name="max_distance_to_hardware_store_m"]').is_visible()
         assert page.locator('[data-property-field-name="prefer_good_air_quality"]').is_visible()
         assert page.locator('[data-property-field-name="avoid_flood_risk_area"]').is_visible()
 
         page.locator('[data-property-step-trigger="providers"]').click()
-        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
+        page.locator('input[name="min_match_score"]').wait_for(state="visible")
+        assert page.locator('label', has_text="Willhaben").count() >= 1
+        assert page.locator('label', has_text="ImmoScout24 Austria").count() >= 1
+        assert page.locator('label', has_text="Zillow").count() == 0
         match_slider = page.locator('input[name="min_match_score"]')
         assert match_slider.is_visible()
         assert match_slider.get_attribute("max") == "80"
@@ -880,10 +904,19 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.locator('[data-property-step-trigger="providers"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
         providerCount = page.locator('input[name="selected_platforms"]').count()
+        expectedProviderCap = page.locator('[data-console-form-variant="property_search"]').evaluate(
+            """(form) => {
+              const raw = String(form.getAttribute('data-console-form-meta') || '').trim();
+              const meta = raw ? JSON.parse(raw) : {};
+              return Number(meta?.commercial?.max_platforms || 0);
+            }"""
+        )
+        assert isinstance(expectedProviderCap, int)
+        assert expectedProviderCap > 0
         page.locator('[data-checkbox-group-select-all="selected_platforms"]').click()
         checkedProviderCount = page.locator('input[name="selected_platforms"]:checked').count()
         assert providerCount > checkedProviderCount
-        assert checkedProviderCount == 3
+        assert checkedProviderCount == expectedProviderCap
         assert page.locator('[data-property-inline-status]', has_text="allows up to 3 at once").is_visible()
         page.locator('input[name="min_match_score"]').evaluate(
             "(node) => { node.value = '45'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
@@ -1044,5 +1077,10 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
         assert response is not None and response.ok
         assert page.locator("body", has_text="Email preview").is_visible()
         assert page.locator("body", has_text="PropertyQuarry prepared a hosted 360 review").is_visible()
+
+        response = page.goto(f"{base_url}/app/properties/notifications/preview?template=workspace_invitation", wait_until="networkidle")
+        assert response is not None and response.ok
+        assert page.locator("body", has_text="Mara invited you to PropertyQuarry").is_visible()
+        assert page.frame_locator("iframe").locator("body", has_text="Review workspace invite").is_visible()
     finally:
         context.close()

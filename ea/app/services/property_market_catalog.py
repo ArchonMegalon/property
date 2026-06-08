@@ -1251,11 +1251,19 @@ def provider_options(*, country_code: str | None = None) -> list[dict[str, str]]
         if normalized_country and provider.country_code != normalized_country:
             continue
         country_label = _COUNTRY_INDEX.get(provider.country_code).label if provider.country_code in _COUNTRY_INDEX else provider.country_code
+        family_label = provider.family.replace("_", " ").title()
+        trust_label = provider.trust_tier.title()
         rows.append(
             {
                 "value": provider.key,
                 "label": provider.label,
-                "description": f"{country_label} | {provider.family.replace('_', ' ').title()} | Trust {provider.trust_tier.title()} | {provider.description}",
+                "description": f"{country_label} | {family_label} | Trust {trust_label} | {provider.description}",
+                "country_code": provider.country_code,
+                "country_label": country_label,
+                "family": provider.family,
+                "family_label": family_label,
+                "trust_tier": provider.trust_tier,
+                "trust_label": trust_label,
             }
         )
     return rows

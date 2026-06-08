@@ -308,6 +308,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Notverkauf und Justiz" in setup.text
     assert "Justiz Edikte" in setup.text
     assert 'data-property-advanced-panel="children"' in setup.text
+    assert 'data-property-advanced-panel="commute"' in setup.text
     assert 'data-property-advanced-panel="location_research"' in setup.text
     assert "Erweiterte Kinder- und Familienfilter" in setup.text
     assert "Erweiterte Lage- und Researchfilter" in setup.text
@@ -516,6 +517,11 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Email preview" in notifications_preview.text
     assert "Property match: Altbau near U6" in notifications_preview.text
     assert "PropertyQuarry shortlisted a property match" in notifications_preview.text
+
+    workspace_preview = client.get("/app/properties/notifications/preview", params={"template": "workspace_invitation"}, headers=headers)
+    assert workspace_preview.status_code == 200
+    assert "Mara invited you to PropertyQuarry" in workspace_preview.text
+    assert "Review workspace invite" in workspace_preview.text
 
     billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=headers)
     assert billing.status_code == 200

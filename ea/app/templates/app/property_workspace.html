@@ -1014,6 +1014,8 @@
               <summary>
                 {% if advanced_panel == 'children' %}
                 Erweiterte Kinder- und Familienfilter
+                {% elif advanced_panel == 'commute' %}
+                Pendelziele und Zeitlimits
                 {% else %}
                 Erweiterte Lage- und Researchfilter
                 {% endif %}
@@ -1021,7 +1023,7 @@
               <div class="pq-advanced-panel-grid">
             {% endif %}
             {% set is_wide = field.type == 'checkbox_group' or field.name in ('location_query', 'keywords') %}
-            <div class="pq-field{% if is_wide %} pq-field-wide{% endif %}" {% if is_wide %}data-wide="true"{% endif %} data-property-field-step="{{ field.get('step') or 'search' }}"{% if field.get('hidden') %} hidden{% endif %}>
+            <div class="pq-field{% if is_wide %} pq-field-wide{% endif %}" {% if is_wide %}data-wide="true"{% endif %} data-property-field-step="{{ field.get('step') or 'search' }}" data-property-field-name="{{ field.name }}"{% if field.get('hidden') %} hidden{% endif %}>
               {% if field.type == 'range' %}
               {% set range_value = field.get('value') if field.get('value') not in (none, '') else (field.get('min') or '1') %}
               {% set range_display = field.get('display_value') or (field.get('empty_label') if (range_value|string == '0' and field.get('empty_label')) else (range_value ~ (field.get('suffix') or ''))) %}
@@ -1087,6 +1089,32 @@
                   <button class="pq-choice-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select all</button>
                 </div>
                 {% endif %}
+                {% if field.name == 'selected_platforms' and field.get('option_groups') %}
+                <div data-pq-check-grid="{{ field.name }}">
+                {% for group in field.get('option_groups') or [] %}
+                <section class="pq-advanced-panel" style="margin-top:12px;">
+                  <div style="margin-bottom:10px;">
+                    <strong>{{ group.get('title') }}</strong>
+                    <div class="pq-note">{{ group.get('detail') }}</div>
+                  </div>
+                  <div class="pq-choice-grid">
+                    {% for option in group.get('options') or [] %}
+                    {% set option_value = option.get('value') or '' %}
+                    <label class="pq-choice">
+                      <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}>
+                      <span>
+                        <span class="pq-choice-label">{{ option.get('label') }}</span>
+                        {% if option.get('detail') or option.get('description') %}
+                        <span class="pq-choice-detail">{{ option.get('detail') or option.get('description') }}</span>
+                        {% endif %}
+                      </span>
+                    </label>
+                    {% endfor %}
+                  </div>
+                </section>
+                {% endfor %}
+                </div>
+                {% else %}
                 <div class="pq-choice-grid">
                   {% for option in field.options or [] %}
                   {% set option_value = option.get('value') or '' %}
@@ -1101,6 +1129,7 @@
                   </label>
                   {% endfor %}
                 </div>
+                {% endif %}
                 {% if field.name == 'school_stage_preferences' %}
                 <div class="pq-choice-note" data-school-stage-note>Checked school types are treated as OR matches. Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants.</div>
                 {% endif %}
@@ -1411,9 +1440,10 @@
               </datalist>
             </label>
             <label>
-              Value
+              Value <button type="button" class="pq-tooltip" title="Examples: true for a yes/no rule, 70 for a minimum area, or 1020 Wien, 1200 Wien for district lists." aria-label="Examples: true for a yes/no rule, 70 for a minimum area, or 1020 Wien, 1200 Wien for district lists." aria-expanded="false" data-tooltip-trigger>?</button>
               <input name="value" placeholder="true, 70, or 1020 Wien, 1200 Wien" autocomplete="off">
             </label>
+            <div class="pq-copy" data-preference-value-help>Examples: <code>true</code> for yes/no, <code>70</code> for a threshold, or <code>1020 Wien, 1200 Wien</code> for a district list.</div>
             <label>
               Strength
               <select name="strength">
@@ -1572,7 +1602,12 @@
     return 'AT';
   };
   const hasConfiguredLocations = (form) => selectedValuesForForm(form, 'location_query').length > 0 || checkedValue(form, 'all_of_vienna');
-  const shouldApplyBrowserDefaults = (form) => !hasConfiguredLocations(form) && !String(new URL(window.location.href).searchParams.get('run_id') || '').trim();
+  const shouldApplyBrowserDefaults = (form) => {
+    const url = new URL(window.location.href);
+    return String(url.searchParams.get('autolocate') || '').trim() === '1'
+      && !hasConfiguredLocations(form)
+      && !String(url.searchParams.get('run_id') || '').trim();
+  };
   const locationFromIpAddress = async () => {
     if (!window.fetch) return null;
     try {
@@ -1745,11 +1780,20 @@
   };
 
   const renderCheckboxOptions = (form, name, options, selectedValues) => {
-    const inputs = [...(form?.querySelectorAll(`input[name="${name}"]`) || [])];
-    const grid = inputs[0]?.closest('.pq-choice-grid');
+    const grid = form?.querySelector(`[data-pq-check-grid="${name}"]`) || [...(form?.querySelectorAll(`input[name="${name}"]`) || [])][0]?.closest('.pq-choice-grid');
     if (!grid) return;
     const nextSelected = new Set((selectedValues || []).filter(Boolean));
-    grid.innerHTML = (Array.isArray(options) ? options : []).map((option) => {
+    const familyHeadings = {
+      marketplace: ['Core marketplaces', 'Primary broad-market search lanes for this country.'],
+      broker_direct: ['Broker direct', 'Broker-owned inventory and direct source lanes.'],
+      cooperative: ['Cooperatives', 'Genossenschaften and cooperative housing sources.'],
+      public_housing: ['Public housing', 'Municipal and public-housing-adjacent sources.'],
+      developer_projects: ['Developer projects', 'New-build and launch pipeline sources.'],
+      distressed_sales: ['Distressed and judicial', 'Auction, forced-sale, and judicial lanes.'],
+      community_signals: ['Community signals', 'Facebook, Telegram, and other weakly verified off-market hints.'],
+      community_meta: ['Watch-tier meta', 'Long-tail meta or watch-tier sources with lower trust.'],
+    };
+    const renderOption = (option) => {
       const value = String(option.value || '').trim();
       const label = String(option.label || value || 'Provider').trim();
       const detail = String(option.detail || option.description || '').trim();
@@ -1761,7 +1805,26 @@
             ${detail ? `<span class="pq-choice-detail">${detail}</span>` : ''}
           </span>
         </label>`;
-    }).join('');
+    };
+    const optionRows = Array.isArray(options) ? options : [];
+    if (name === 'selected_platforms' && optionRows.some((option) => String(option?.family || '').trim())) {
+      const grouped = new Map();
+      optionRows.forEach((option) => {
+        const family = String(option.family || 'marketplace').trim() || 'marketplace';
+        if (!grouped.has(family)) grouped.set(family, []);
+        grouped.get(family).push(option);
+      });
+      const familyOrder = ['marketplace', 'broker_direct', 'cooperative', 'public_housing', 'developer_projects', 'distressed_sales', 'community_signals', 'community_meta'];
+      grid.innerHTML = [...grouped.entries()]
+        .sort((a, b) => familyOrder.indexOf(a[0]) - familyOrder.indexOf(b[0]))
+        .map(([family, items]) => {
+          const [title, detail] = familyHeadings[family] || [String(family).replaceAll('_', ' '), 'Grouped provider lane.'];
+          return `<section class="pq-advanced-panel" style="margin-top:12px;"><div style="margin-bottom:10px;"><strong>${title}</strong><div class="pq-note">${detail}</div></div><div class="pq-choice-grid">${items.map(renderOption).join('')}</div></section>`;
+        })
+        .join('');
+      return;
+    }
+    grid.innerHTML = optionRows.map(renderOption).join('');
   };
   const setCheckboxGroupStatus = (root, message) => {
     const statusNode = root?.querySelector?.('[data-property-inline-status]');
@@ -1995,6 +2058,7 @@
       currentIndex = Math.max(0, Math.min(steps.length - 1, nextIndex));
       const step = steps[currentIndex] || {};
       const stepKey = String(step.key || '').trim();
+      form.dataset.propertyActiveStep = stepKey;
       for (const node of fieldNodes) {
         node.hidden = String(node.getAttribute('data-property-field-step') || '').trim() !== stepKey;
       }
@@ -2012,6 +2076,7 @@
         nextNode.textContent = currentIndex === steps.length - 2 ? 'Review launch' : 'Next';
       }
       if (actionsNode) actionsNode.hidden = currentIndex !== steps.length - 1;
+      form.dispatchEvent(new CustomEvent('propertyquarry:stepchange', { detail: { step: stepKey } }));
     };
 
     triggerNodes.forEach((node, index) => node.addEventListener('click', () => applyStep(index)));
@@ -2064,9 +2129,9 @@
         enable_location_risk_research: checkedValue(form, 'enable_location_risk_research'),
         enable_family_mode: checkedValue(form, 'enable_family_mode'),
         enable_commute_research: checkedValue(form, 'enable_commute_research'),
-        commute_destination: fieldValue(form, 'commute_destination') || '',
-        additional_reachability_targets: fieldValue(form, 'additional_reachability_targets') || '',
-        preferred_reachability_modes: selectedValuesForForm(form, 'preferred_reachability_modes'),
+        commute_destination: checkedValue(form, 'enable_commute_research') ? (fieldValue(form, 'commute_destination') || '') : '',
+        additional_reachability_targets: checkedValue(form, 'enable_commute_research') ? (fieldValue(form, 'additional_reachability_targets') || '') : '',
+        preferred_reachability_modes: checkedValue(form, 'enable_commute_research') ? selectedValuesForForm(form, 'preferred_reachability_modes') : [],
         school_stage_preferences: checkedValue(form, 'enable_family_mode') ? selectedValuesForForm(form, 'school_stage_preferences') : [],
         school_quality_priority: checkedValue(form, 'enable_family_mode') && selectedValuesForForm(form, 'school_stage_preferences').length > 0 ? (fieldValue(form, 'school_quality_priority') || 'any') : 'any',
         university_name: fieldValue(form, 'university_name') || '',
@@ -2079,10 +2144,10 @@
         min_rooms: integerValue(form, 'min_rooms'),
         min_area_m2: integerValue(form, 'min_area_m2'),
         available_within_years: integerValue(form, 'available_within_years'),
-        max_commute_minutes_transit: integerValue(form, 'max_commute_minutes_transit'),
-        max_commute_minutes_drive: integerValue(form, 'max_commute_minutes_drive'),
-        max_commute_minutes_bike: integerValue(form, 'max_commute_minutes_bike'),
-        max_commute_minutes_walk: integerValue(form, 'max_commute_minutes_walk'),
+        max_commute_minutes_transit: checkedValue(form, 'enable_commute_research') ? integerValue(form, 'max_commute_minutes_transit') : null,
+        max_commute_minutes_drive: checkedValue(form, 'enable_commute_research') ? integerValue(form, 'max_commute_minutes_drive') : null,
+        max_commute_minutes_bike: checkedValue(form, 'enable_commute_research') ? integerValue(form, 'max_commute_minutes_bike') : null,
+        max_commute_minutes_walk: checkedValue(form, 'enable_commute_research') ? integerValue(form, 'max_commute_minutes_walk') : null,
         max_distance_to_playground_m: checkedValue(form, 'enable_family_mode') ? integerValue(form, 'max_distance_to_playground_m') : null,
         max_distance_to_library_m: checkedValue(form, 'enable_family_mode') ? integerValue(form, 'max_distance_to_library_m') : null,
         max_distance_to_university_m: integerValue(form, 'max_distance_to_university_m'),
@@ -2613,25 +2678,60 @@
       const investmentField = form.querySelector('[data-property-field-name=investment_research_mode] select');
       const investmentFieldWrap = investmentField?.closest('[data-property-field-step]');
       const familyModeField = form.querySelector('input[name="enable_family_mode"]');
+      const commuteResearchField = form.querySelector('input[name="enable_commute_research"]');
       const schoolStageWrap = form.querySelector('[data-property-field-name="school_stage_preferences"]');
       const schoolQualityWrap = form.querySelector('[data-property-field-name="school_quality_priority"]');
       const playgroundDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_playground_m"]');
       const libraryDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_library_m"]');
+      const commuteDetailWraps = [
+        form.querySelector('[data-property-field-name="commute_destination"]'),
+        form.querySelector('[data-property-field-name="additional_reachability_targets"]'),
+        form.querySelector('[data-property-field-name="preferred_reachability_modes"]'),
+        form.querySelector('[data-property-field-name="max_commute_minutes_transit"]'),
+        form.querySelector('[data-property-field-name="max_commute_minutes_drive"]'),
+        form.querySelector('[data-property-field-name="max_commute_minutes_bike"]'),
+        form.querySelector('[data-property-field-name="max_commute_minutes_walk"]'),
+      ].filter(Boolean);
       const allViennaField = form.querySelector('input[name="all_of_vienna"]');
       const preferencePersonField = form.querySelector('[name="preference_person_id"]');
       const allViennaFieldWrap = allViennaField?.closest('[data-property-field-step]');
       const locationFieldWrap = form.querySelector('input[name="location_query"]')?.closest('[data-property-field-step]');
       const planPlatformCap = Math.max(1, Number(meta?.commercial?.max_platforms || 3));
+      const syncAdvancedPanels = () => {
+        form.querySelectorAll('details[data-property-advanced-panel]').forEach((panel) => {
+          const panelKey = String(panel.getAttribute('data-property-advanced-panel') || '').trim();
+          const visibleFields = [...panel.querySelectorAll('.pq-field')].filter((node) => !node.hidden);
+          const shouldShow = panelKey === 'children'
+            ? Boolean(familyModeField?.checked) && visibleFields.length > 0
+            : panelKey === 'commute'
+              ? Boolean(commuteResearchField?.checked) && visibleFields.length > 0
+              : visibleFields.length > 0;
+          panel.hidden = !shouldShow;
+          panel.toggleAttribute('aria-hidden', !shouldShow);
+          if (!shouldShow) panel.removeAttribute('open');
+        });
+      };
       const syncListingModeControls = () => {
         const isBuy = String(listingModeField?.value || 'rent').trim().toLowerCase() === 'buy';
         if (investmentFieldWrap) investmentFieldWrap.hidden = !isBuy;
         if (!isBuy && investmentField) investmentField.value = 'off';
+        syncAdvancedPanels();
       };
       const syncViennaScopeControls = () => {
         const isViennaScope = String(countryField?.value || '').trim() === 'AT' && String(regionField?.value || '').trim() === 'vienna';
         if (allViennaFieldWrap) allViennaFieldWrap.hidden = !isViennaScope;
         if (!isViennaScope && allViennaField) allViennaField.checked = false;
         if (locationFieldWrap) locationFieldWrap.hidden = isViennaScope && Boolean(allViennaField?.checked);
+        syncAdvancedPanels();
+      };
+      const syncCommuteControls = () => {
+        const commuteEnabled = Boolean(commuteResearchField?.checked);
+        commuteDetailWraps.forEach((wrap) => {
+          wrap.hidden = !commuteEnabled;
+          if (!commuteEnabled) wrap.setAttribute('data-property-collapsed-by', 'enable_commute_research');
+          else wrap.removeAttribute('data-property-collapsed-by');
+        });
+        syncAdvancedPanels();
       };
       const syncFamilyModeControls = () => {
         const familyModeEnabled = Boolean(familyModeField?.checked);
@@ -2659,6 +2759,7 @@
           if (!showSchoolPriority) schoolQualityWrap.setAttribute('data-property-collapsed-by', familyModeEnabled ? 'school_stage_preferences' : 'enable_family_mode');
           else schoolQualityWrap.removeAttribute('data-property-collapsed-by');
         }
+        syncAdvancedPanels();
       };
       const applyPreferenceProfile = () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncViennaScopeControls).finally(syncFamilyModeControls);
       const refreshRegionAndLocationChoices = () => {
@@ -2734,6 +2835,7 @@
       if (regionField) regionField.addEventListener('change', refreshRegionAndLocationChoices);
       if (allViennaField) allViennaField.addEventListener('change', syncViennaScopeControls);
       if (listingModeField) listingModeField.addEventListener('change', syncListingModeControls);
+      commuteResearchField?.addEventListener('change', syncCommuteControls);
       familyModeField?.addEventListener('change', syncFamilyModeControls);
       form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));
       form.addEventListener('click', (event) => {
@@ -2748,6 +2850,7 @@
       }
       syncViennaScopeControls();
       syncListingModeControls();
+      syncCommuteControls();
       syncFamilyModeControls();
       applyBrowserAndIpDefaults().finally(applyPreferenceProfile);
       root.querySelector('[data-property-edit-brief]')?.addEventListener('click', () => {

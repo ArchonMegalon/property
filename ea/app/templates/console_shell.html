@@ -1074,6 +1074,8 @@
             <summary>
               {% if advanced_panel == 'children' %}
               Erweiterte Kinder- und Familienfilter
+              {% elif advanced_panel == 'commute' %}
+              Pendelziele und Zeitlimits
               {% else %}
               Erweiterte Lage- und Researchfilter
               {% endif %}
@@ -1135,6 +1137,37 @@
               <button class="console-choice-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select all</button>
             </div>
             {% endif %}
+            {% if field.name == 'selected_platforms' and field.get('option_groups') %}
+            <div data-console-check-grid="{{ field.name }}">
+            {% for group in field.get('option_groups') or [] %}
+            <section class="console-advanced-panel" style="margin-top:12px;">
+              <div style="margin-bottom:10px;">
+                <strong>{{ group.get('title') }}</strong>
+                <div class="console-note">{{ group.get('detail') }}</div>
+              </div>
+              <div class="console-choice-grid">
+                {% for option in group.get('options') or [] %}
+                {% set option_value = option.get('value') or '' %}
+                <label class="console-choice">
+                  <input
+                    type="checkbox"
+                    name="{{ field.name }}"
+                    value="{{ option_value }}"
+                    {% if option_value in (field.get('values') or []) %}checked{% endif %}
+                  >
+                  <span>
+                    <span class="console-choice-label">{{ option.get('label') }}</span>
+                    {% if option.get('detail') or option.get('description') %}
+                    <span class="console-choice-detail">{{ option.get('detail') or option.get('description') }}</span>
+                    {% endif %}
+                  </span>
+                </label>
+                {% endfor %}
+              </div>
+            </section>
+            {% endfor %}
+            </div>
+            {% else %}
             <div class="console-choice-grid">
               {% for option in field.options or [] %}
               {% set option_value = option.get('value') or '' %}
@@ -1154,6 +1187,7 @@
               </label>
               {% endfor %}
             </div>
+            {% endif %}
             {% if field.name == 'school_stage_preferences' %}
             <div class="console-choice-note" data-school-stage-note>Checked school types are treated as OR matches. Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants.</div>
             {% endif %}
@@ -1367,11 +1401,20 @@
   const selectedPlatformsForForm = (form) => selectedValuesForForm(form, 'selected_platforms');
 
   const renderCheckboxOptions = (form, name, options, selectedValues) => {
-    const inputs = [...form.querySelectorAll(`input[name="${name}"]`)];
-    const grid = inputs[0]?.closest('.console-choice-grid');
+    const grid = form?.querySelector(`[data-console-check-grid="${name}"]`) || [...form.querySelectorAll(`input[name="${name}"]`)][0]?.closest('.console-choice-grid');
     if (!grid) return;
     const nextSelected = new Set((selectedValues || []).filter(Boolean));
-    grid.innerHTML = (Array.isArray(options) ? options : []).map((option) => {
+    const familyHeadings = {
+      marketplace: ['Core marketplaces', 'Primary broad-market search lanes for this country.'],
+      broker_direct: ['Broker direct', 'Broker-owned inventory and direct source lanes.'],
+      cooperative: ['Cooperatives', 'Genossenschaften and cooperative housing sources.'],
+      public_housing: ['Public housing', 'Municipal and public-housing-adjacent sources.'],
+      developer_projects: ['Developer projects', 'New-build and launch pipeline sources.'],
+      distressed_sales: ['Distressed and judicial', 'Auction, forced-sale, and judicial lanes.'],
+      community_signals: ['Community signals', 'Facebook, Telegram, and other weakly verified off-market hints.'],
+      community_meta: ['Watch-tier meta', 'Long-tail meta or watch-tier sources with lower trust.'],
+    };
+    const renderOption = (option) => {
       const value = String(option.value || '').trim();
       const label = String(option.label || value || 'Provider').trim();
       const detail = String(option.detail || option.description || '').trim();
@@ -1383,7 +1426,26 @@
             ${detail ? `<span class="console-choice-detail">${detail}</span>` : ''}
           </span>
         </label>`;
-    }).join('');
+    };
+    const optionRows = Array.isArray(options) ? options : [];
+    if (name === 'selected_platforms' && optionRows.some((option) => String(option?.family || '').trim())) {
+      const grouped = new Map();
+      optionRows.forEach((option) => {
+        const family = String(option.family || 'marketplace').trim() || 'marketplace';
+        if (!grouped.has(family)) grouped.set(family, []);
+        grouped.get(family).push(option);
+      });
+      const familyOrder = ['marketplace', 'broker_direct', 'cooperative', 'public_housing', 'developer_projects', 'distressed_sales', 'community_signals', 'community_meta'];
+      grid.innerHTML = [...grouped.entries()]
+        .sort((a, b) => familyOrder.indexOf(a[0]) - familyOrder.indexOf(b[0]))
+        .map(([family, items]) => {
+          const [title, detail] = familyHeadings[family] || [String(family).replaceAll('_', ' '), 'Grouped provider lane.'];
+          return `<section class="console-advanced-panel" style="margin-top:12px;"><div style="margin-bottom:10px;"><strong>${title}</strong><div class="console-note">${detail}</div></div><div class="console-choice-grid">${items.map(renderOption).join('')}</div></section>`;
+        })
+        .join('');
+      return;
+    }
+    grid.innerHTML = optionRows.map(renderOption).join('');
   };
   const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
   const propertyFeedbackSaveEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback`;
@@ -1550,6 +1612,9 @@
         school_stage_preferences: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? selectedValuesForForm(form, 'school_stage_preferences') : [],
         school_quality_priority: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) && selectedValuesForForm(form, 'school_stage_preferences').length > 0 ? (fieldValue(form, 'school_quality_priority') || 'any') : 'any',
         enable_commute_research: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked),
+        commute_destination: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? (fieldValue(form, 'commute_destination') || '') : '',
+        additional_reachability_targets: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? (fieldValue(form, 'additional_reachability_targets') || '') : '',
+        preferred_reachability_modes: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? selectedValuesForForm(form, 'preferred_reachability_modes') : [],
         enable_location_risk_research: Boolean(form.querySelector('input[name="enable_location_risk_research"]')?.checked),
         enable_lifestyle_research: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked),
         enable_building_risk_research: Boolean(form.querySelector('input[name="enable_building_risk_research"]')?.checked),
@@ -1571,6 +1636,10 @@
         avoid_cesspit_or_septic_risk: Boolean(form.querySelector('input[name="avoid_cesspit_or_septic_risk"]')?.checked),
         require_winter_access_research: Boolean(form.querySelector('input[name="require_winter_access_research"]')?.checked),
         avoid_flood_risk_area: Boolean(form.querySelector('input[name="avoid_flood_risk_area"]')?.checked),
+        max_commute_minutes_transit: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? integerValue(form, 'max_commute_minutes_transit') : null,
+        max_commute_minutes_drive: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? integerValue(form, 'max_commute_minutes_drive') : null,
+        max_commute_minutes_bike: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? integerValue(form, 'max_commute_minutes_bike') : null,
+        max_commute_minutes_walk: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? integerValue(form, 'max_commute_minutes_walk') : null,
         max_price_eur: integerValue(form, 'max_price_eur'),
         min_rooms: integerValue(form, 'min_rooms'),
         min_area_m2: integerValue(form, 'min_area_m2'),
@@ -1775,7 +1844,53 @@
     initPropertyWizard(form, meta);
     const countryField = form.querySelector('select[name="country_code"]');
     const regionField = form.querySelector('select[name="region_code"]');
+    const familyModeField = form.querySelector('input[name="enable_family_mode"]');
+    const commuteResearchField = form.querySelector('input[name="enable_commute_research"]');
+    const schoolStageWrap = form.querySelector('input[name="school_stage_preferences"]')?.closest('.console-field');
+    const schoolQualityWrap = form.querySelector('[name="school_quality_priority"]')?.closest('.console-field');
+    const playgroundDistanceWrap = form.querySelector('[name="max_distance_to_playground_m"]')?.closest('.console-field');
+    const libraryDistanceWrap = form.querySelector('[name="max_distance_to_library_m"]')?.closest('.console-field');
+    const commuteDetailWraps = [
+      form.querySelector('[name="commute_destination"]')?.closest('.console-field'),
+      form.querySelector('[name="additional_reachability_targets"]')?.closest('.console-field'),
+      form.querySelector('input[name="preferred_reachability_modes"]')?.closest('.console-field'),
+      form.querySelector('[name="max_commute_minutes_transit"]')?.closest('.console-field'),
+      form.querySelector('[name="max_commute_minutes_drive"]')?.closest('.console-field'),
+      form.querySelector('[name="max_commute_minutes_bike"]')?.closest('.console-field'),
+      form.querySelector('[name="max_commute_minutes_walk"]')?.closest('.console-field'),
+    ].filter(Boolean);
     const planPlatformCap = Math.max(1, Number(meta?.commercial?.max_platforms || 3));
+    const syncAdvancedPanels = () => {
+      form.querySelectorAll('details[data-property-advanced-panel]').forEach((panel) => {
+        const panelKey = String(panel.getAttribute('data-property-advanced-panel') || '').trim();
+        const visibleFields = [...panel.querySelectorAll('.console-field')].filter((node) => !node.hidden);
+        const shouldShow = panelKey === 'children'
+          ? Boolean(familyModeField?.checked) && visibleFields.length > 0
+          : panelKey === 'commute'
+            ? Boolean(commuteResearchField?.checked) && visibleFields.length > 0
+            : visibleFields.length > 0;
+        panel.hidden = !shouldShow;
+        panel.toggleAttribute('aria-hidden', !shouldShow);
+        if (!shouldShow) panel.removeAttribute('open');
+      });
+    };
+    const syncFamilyModeControls = () => {
+      const familyModeEnabled = Boolean(familyModeField?.checked);
+      const selectedSchoolStages = selectedValuesForForm(form, 'school_stage_preferences');
+      const showSchoolDetails = familyModeEnabled;
+      const showSchoolPriority = familyModeEnabled && selectedSchoolStages.length > 0;
+      if (schoolStageWrap) schoolStageWrap.hidden = !showSchoolDetails;
+      if (playgroundDistanceWrap) playgroundDistanceWrap.hidden = !showSchoolDetails;
+      if (libraryDistanceWrap) libraryDistanceWrap.hidden = !showSchoolDetails;
+      if (schoolQualityWrap) schoolQualityWrap.hidden = !showSchoolPriority;
+      syncSchoolStageVariantVisibility(form);
+      syncAdvancedPanels();
+    };
+    const syncCommuteControls = () => {
+      const commuteEnabled = Boolean(commuteResearchField?.checked);
+      commuteDetailWraps.forEach((wrap) => { wrap.hidden = !commuteEnabled; });
+      syncAdvancedPanels();
+    };
     const setCheckboxGroupStatus = (message) => {
       const statusNode = form.querySelector('[data-property-inline-status]');
       const errorNode = form.querySelector('[data-property-inline-error]');
@@ -1837,8 +1952,10 @@
     if (regionField) {
       regionField.addEventListener('change', refreshRegionAndLocationChoices);
     }
+    familyModeField?.addEventListener('change', syncFamilyModeControls);
+    commuteResearchField?.addEventListener('change', syncCommuteControls);
     form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => {
-      node.addEventListener('change', () => syncSchoolStageVariantVisibility(form));
+      node.addEventListener('change', syncFamilyModeControls);
     });
     form.addEventListener('click', (event) => {
       const button = event.target?.closest?.('[data-checkbox-group-select-all]');
@@ -1847,6 +1964,8 @@
 	      selectAllCheckboxValues(String(button.getAttribute('data-checkbox-group-select-all') || '').trim(), planPlatformCap);
 	    });
     renderRun(form, meta.initial_run || {});
+    syncFamilyModeControls();
+    syncCommuteControls();
 
     form.querySelector('[data-property-save]')?.addEventListener('click', async () => {
       const payload = collectPayload(form);
