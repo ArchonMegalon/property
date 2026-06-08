@@ -1073,14 +1073,21 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
         assert page.locator("body", has_text="What changed").is_visible()
         assert page.locator("body", has_text="Street noise is a blocker.").is_visible()
 
-        response = page.goto(f"{base_url}/app/properties/notifications/preview?template=tour_ready", wait_until="networkidle")
-        assert response is not None and response.ok
-        assert page.locator("body", has_text="Email preview").is_visible()
-        assert page.locator("body", has_text="PropertyQuarry prepared a hosted 360 review").is_visible()
-
-        response = page.goto(f"{base_url}/app/properties/notifications/preview?template=workspace_invitation", wait_until="networkidle")
-        assert response is not None and response.ok
-        assert page.locator("body", has_text="Mara invited you to PropertyQuarry").is_visible()
-        assert page.frame_locator("iframe").locator("body", has_text="Review workspace invite").is_visible()
+        preview_expectations = {
+            "search_results_ready": ("PropertyQuarry found 2 strong matches", "Open 360"),
+            "property_match": ("Property match: Altbau near U6", "Open 360"),
+            "tour_ready": ("Apartment tour ready: Family flat near Augarten", "Open hosted 360"),
+            "investment_research_ready": ("Investment research ready", "Open investment packet"),
+            "workspace_invitation": ("Mara invited you to PropertyQuarry", "Review workspace invite"),
+            "workspace_access": ("Your access link for PropertyQuarry Workspace", "Open access link"),
+            "google_connect": ("Connect Google to PropertyQuarry Workspace", "Connect Google"),
+            "market_ready": ("PropertyQuarry market ready: Vienna", "Open PropertyQuarry"),
+        }
+        for template_key, (subject_text, cta_text) in preview_expectations.items():
+            response = page.goto(f"{base_url}/app/properties/notifications/preview?template={template_key}", wait_until="networkidle")
+            assert response is not None and response.ok
+            assert page.locator("body", has_text="Email preview").is_visible()
+            assert page.locator("body", has_text=subject_text).is_visible()
+            assert page.frame_locator("iframe").locator("body", has_text=cta_text).is_visible()
     finally:
         context.close()
