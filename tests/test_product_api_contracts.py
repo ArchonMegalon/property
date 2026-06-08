@@ -729,6 +729,51 @@ def test_signal_ingest_property_alert_sends_telegram_dossier_document(monkeypatc
     assert "PropertyQuarry dossier" in str(observed["document_caption"])
 
 
+def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Alert Mail Office")
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+
+    observed: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        ProductService,
+        "_render_property_scout_dossier",
+        lambda self, **kwargs: {
+            "status": "rendered",
+            "publication_id": "pub_mail_test",
+            "pdf_path": "/tmp/property-scout-mail.pdf",
+            "public_pdf_url": "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/test-token",
+            "caption": "PropertyQuarry dossier · Mail test",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_property_match_email",
+        lambda **kwargs: observed.update(kwargs) or SimpleNamespace(provider="emailit", message_id="emailit-property-match-mail-test"),
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service._send_property_scout_hit_email(
+        principal_id=principal_id,
+        actor="test",
+        title="Scout alert for 1050 Vienna",
+        summary="New Neubau listing with lift and storage room.",
+        counterparty="ImmoScout24 Austria",
+        property_url="https://www.immobilienscout24.at/expose/telegram-test-property-dossier",
+        source_ref="gmail-thread:elisabeth.girschele@gmail.com:test-property-alert-email-dossier",
+        assessment={"fit_score": 64.0, "recommendation": "ask_for_clarification"},
+        review_url="",
+        tour_result={"status": "blocked", "blocked_reason": "browseract_connector_unconfigured"},
+    )
+
+    assert result["status"] == "sent"
+    assert observed["review_url"] == "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/test-token"
+    assert observed["property_url"] == "https://www.immobilienscout24.at/expose/telegram-test-property-dossier"
+
+
 def test_signal_ingest_property_alert_sends_workspace_review_link_for_cf_email_principal(monkeypatch) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)

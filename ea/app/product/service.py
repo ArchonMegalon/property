@@ -25144,10 +25144,48 @@ class ProductService:
             "publication_id": str(row.get("publication_id") or "").strip(),
             "pdf_path": pdf_path,
             "caption": f"PropertyQuarry dossier · {caption_title}",
+            "public_pdf_url": self._public_property_packet_pdf_url(
+                publication_id=str(row.get("publication_id") or "").strip(),
+                source_pdf_sha256=str(row.get("source_pdf_sha256") or "").strip(),
+            ),
             "property_ref": str(source_payload["property_ref"]),
             "source_ref": str(source_ref or "").strip(),
             "account_email": str(account_email or "").strip(),
         }
+
+    def _sign_public_property_packet_pdf_token(
+        self,
+        *,
+        publication_id: str,
+        source_pdf_sha256: str,
+        expires_at: datetime | None = None,
+    ) -> str:
+        normalized_publication_id = str(publication_id or "").strip()
+        normalized_sha = str(source_pdf_sha256 or "").strip().lower()
+        if not normalized_publication_id or not normalized_sha:
+            return ""
+        expiry = expires_at or (datetime.now(timezone.utc) + timedelta(days=30))
+        payload = {
+            "kind": "property_packet_pdf",
+            "publication_id": normalized_publication_id,
+            "source_pdf_sha256": normalized_sha,
+            "expires_at": expiry.astimezone(timezone.utc).isoformat(),
+        }
+        payload_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode("ascii").rstrip("=")
+        secret = resolve_signing_secret(self._container.settings, purpose="property-packet-pdf")
+        signature = hmac.new(secret.encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+        return f"{payload_b64}.{signature}"
+
+    def _public_property_packet_pdf_url(self, *, publication_id: str, source_pdf_sha256: str) -> str:
+        token = self._sign_public_property_packet_pdf_token(
+            publication_id=publication_id,
+            source_pdf_sha256=source_pdf_sha256,
+        )
+        if not token:
+            return ""
+        base_url = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "https://propertyquarry.com").strip().rstrip("/")
+        return f"{base_url}/v1/integrations/fliplink/documents/property-packets/{token}"
 
     def _send_property_scout_hit_email(
         self,
@@ -25176,7 +25214,23 @@ class ProductService:
             return {"status": "suppressed", "reason": "already_emailed_today"}
         tour_payload = dict(tour_result or {})
         tour_url = str(tour_payload.get("tour_url") or "").strip()
-        review_href = str(review_url or "").strip()
+        dossier_render = self._render_property_scout_dossier(
+            principal_id=principal_id,
+            actor=actor,
+            title=title,
+            summary=summary,
+            counterparty=counterparty,
+            account_email=recipient_email,
+            property_url=property_url,
+            source_ref=source_ref,
+            assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
+            fit_score=_property_alert_fit_score(dict(assessment or {}) if isinstance(assessment, dict) else {}),
+            preference_person_id="self",
+            review_url=review_url,
+            tour_result=tour_payload,
+            candidate_properties=(),
+        )
+        review_href = str(dossier_render.get("public_pdf_url") or review_url or "").strip()
         try:
             receipt = send_property_match_email(
                 recipient_email=recipient_email,
@@ -25215,6 +25269,8 @@ class ProductService:
             "recipient_email": recipient_email,
             "provider": str(receipt.provider or "").strip(),
             "message_id": str(receipt.message_id or "").strip(),
+            "dossier_publication_id": str(dossier_render.get("publication_id") or "").strip(),
+            "dossier_public_pdf_url": str(dossier_render.get("public_pdf_url") or "").strip(),
         }
         self._record_product_event(
             principal_id=principal_id,
