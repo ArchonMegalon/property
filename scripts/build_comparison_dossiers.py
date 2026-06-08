@@ -461,7 +461,6 @@ def main() -> int:
         intro_lines = ["PropertyQuarry delivery", ""]
         for row in output_rows:
             intro_lines.append(f"{row['title']}")
-            intro_lines.append(f"PDF: {row['public_pdf_url']}")
             if row.get("tour_url"):
                 intro_lines.append(f"3D tour: {row['tour_url']}")
             if row.get("flythrough_url"):
