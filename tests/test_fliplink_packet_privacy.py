@@ -263,6 +263,7 @@ def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     assert b"https://packets.propertyquarry.com/assets/floorplan.pdf" not in pdf_bytes
     assert b"https://packets.propertyquarry.com/assets/photo.jpg" not in pdf_bytes
     assert b"Executive summary" in pdf_bytes
+    assert b"roughly 4 minutes on foot" in pdf_bytes
     assert b" re f" in pdf_bytes
 
 

@@ -77,6 +77,16 @@ def _money_phrase(value: object) -> str:
     return str(value or "").strip()
 
 
+def _walk_minutes_phrase(value: object) -> str:
+    if not isinstance(value, (int, float)):
+        return ""
+    meters = float(value)
+    if meters <= 0:
+        return ""
+    minutes = max(1, round(meters / 80.0))
+    return f"about {int(meters)} m away, roughly {minutes} minutes on foot"
+
+
 def _num(value: float) -> str:
     return f"{value:.2f}".rstrip("0").rstrip(".")
 
@@ -482,14 +492,18 @@ def _property_narrative(payload: dict[str, object]) -> list[str]:
     risks = [*_text_items(payload.get("mismatch_reasons"), limit=2), *_text_items(payload.get("unknowns"), limit=2)]
     questions = _text_items(payload.get("viewing_questions"), limit=3)
     daily_life = []
-    if facts.get("nearest_supermarket_m"):
-        daily_life.append(f"the nearest supermarket is about {facts.get('nearest_supermarket_m')} m away")
-    if facts.get("nearest_pharmacy_m"):
-        daily_life.append(f"the nearest pharmacy is about {facts.get('nearest_pharmacy_m')} m away")
-    if facts.get("nearest_subway_m"):
-        daily_life.append(f"the nearest subway stop is about {facts.get('nearest_subway_m')} m away")
-    if facts.get("nearest_playground_m"):
-        daily_life.append(f"the nearest playground is about {facts.get('nearest_playground_m')} m away")
+    supermarket = _walk_minutes_phrase(facts.get("nearest_supermarket_m"))
+    pharmacy = _walk_minutes_phrase(facts.get("nearest_pharmacy_m"))
+    subway = _walk_minutes_phrase(facts.get("nearest_subway_m"))
+    playground = _walk_minutes_phrase(facts.get("nearest_playground_m"))
+    if supermarket:
+        daily_life.append(f"the nearest supermarket is {supermarket}")
+    if pharmacy:
+        daily_life.append(f"the nearest pharmacy is {pharmacy}")
+    if subway:
+        daily_life.append(f"the nearest subway stop is {subway}")
+    if playground:
+        daily_life.append(f"the nearest playground is {playground}")
 
     intro_bits = [title]
     if district:
