@@ -1724,12 +1724,33 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "status_detail": status_detail,
         "embed_href": embed_href,
         "primary_href": tour_url or vendor_tour_url or review_url,
-        "primary_label": "Open 360" if (tour_url or vendor_tour_url) else ("Open packet" if review_url else ""),
+        "primary_label": (
+            "Open 3D reconstruction floor plan"
+            if tour_url
+            else ("Open source 360" if vendor_tour_url else ("Open packet" if review_url else ""))
+        ),
         "secondary_href": review_url,
         "secondary_label": "Open hosted review" if review_url else "",
         "tertiary_href": vendor_tour_url if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
         "tertiary_label": "Vendor 360" if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
     }
+
+
+def _property_tour_detail_line(candidate: dict[str, object]) -> str:
+    tour_url = str(candidate.get("tour_url") or "").strip()
+    vendor_tour_url = str(candidate.get("vendor_tour_url") or "").strip()
+    if tour_url:
+        return "Open the white-label 3D reconstruction floor plan on PropertyQuarry."
+    if vendor_tour_url:
+        return "A source 360 exists, but the preferred PropertyQuarry-hosted tour is not ready yet."
+    return _property_tour_source_gap_detail(candidate)
+
+
+def _property_review_detail_line(candidate: dict[str, object]) -> str:
+    review_url = str(candidate.get("review_url") or "").strip()
+    if review_url:
+        return "Open the hosted review packet on PropertyQuarry."
+    return "No hosted review page exists for this candidate yet."
 
 
 def _property_packet_provenance_rows(facts: dict[str, object]) -> list[dict[str, str]]:
@@ -2567,7 +2588,7 @@ def property_research_packet(
     if not timeline_rows:
         timeline_rows = [
             _object_detail_row("Shortlist state", "This packet is ready for a decision and agent follow-up.", "Now"),
-            _object_detail_row("Tour state", tour_url or _property_tour_source_gap_detail(candidate), "360"),
+            _object_detail_row("Tour state", _property_tour_detail_line(candidate), "360"),
             _object_detail_row("Feedback state", "No packet timeline events are recorded yet. The first saved decision will start the visible timeline.", "Waiting"),
         ]
     changed_rows = timeline_rows[:3] or [
@@ -2667,7 +2688,7 @@ def property_research_packet(
             ),
             _object_detail_row(
                 "Hosted review",
-                review_url or "No hosted review page exists for this candidate yet.",
+                _property_review_detail_line(candidate),
                 "Review",
                 href=review_url,
                 secondary_action_href=review_url,
@@ -2676,11 +2697,11 @@ def property_research_packet(
             ),
             _object_detail_row(
                 "Hosted 360",
-                tour_url or _property_tour_source_gap_detail(candidate),
+                _property_tour_detail_line(candidate),
                 "Tour",
                 href=tour_url,
                 secondary_action_href=tour_url,
-                secondary_action_label="Open 360" if tour_url else "",
+                secondary_action_label="Open 3D reconstruction floor plan" if tour_url else "",
                 secondary_action_method="get" if tour_url else "",
             ),
             _object_detail_row(
