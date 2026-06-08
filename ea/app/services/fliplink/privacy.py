@@ -445,6 +445,23 @@ def redact_property_packet(
             if key in source:
                 removed.append(f"{key}.paid_market_report_omitted")
     else:
+        comparison_source = source.get("comparison_rows") or source.get("comparison_candidates")
+        comparison_rows: list[dict[str, object]] = []
+        if isinstance(comparison_source, list):
+            for row in comparison_source[:6]:
+                if not isinstance(row, dict):
+                    continue
+                item = {
+                    "title": str(row.get("title") or row.get("property_title") or "").strip(),
+                    "price": row.get("price") if isinstance(row.get("price"), (int, float)) else str(row.get("price") or "").strip(),
+                    "rooms": row.get("rooms") if isinstance(row.get("rooms"), (int, float)) else str(row.get("rooms") or "").strip(),
+                    "area_sqm": row.get("area_sqm") if isinstance(row.get("area_sqm"), (int, float)) else row.get("area"),
+                    "recommendation": str(row.get("recommendation") or "").strip(),
+                    "compare_reason": str(row.get("compare_reason") or "").strip(),
+                    "property_url": str(row.get("property_url") or row.get("source_url") or "").strip(),
+                }
+                if item["title"]:
+                    comparison_rows.append(item)
         payload = {
             "title": str(source.get("title") or source.get("property_title") or "PropertyQuarry packet").strip(),
             "property_ref": str(source.get("property_ref") or "").strip(),
@@ -461,6 +478,8 @@ def redact_property_packet(
             "viewing_questions": _list_text(source.get("viewing_questions") or source.get("questions")),
             "facts": redacted_facts,
         }
+        if comparison_rows:
+            payload["comparison_rows"] = comparison_rows
     if include_floorplan and not paid_market_report:
         floorplans = _public_media_refs(source, FLOORPLAN_REF_KEYS, removed=removed, limit=8)
         if floorplans:

@@ -58,6 +58,17 @@ def _joined(value: object) -> str:
     return str(value or "").strip()
 
 
+def _fact_value(facts: dict[str, object], *keys: str) -> str:
+    for key in keys:
+        value = facts.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
 def _clean_sentence(value: object) -> str:
     text = " ".join(str(value or "").split()).strip()
     if not text:
@@ -65,6 +76,29 @@ def _clean_sentence(value: object) -> str:
     if text[-1] not in ".!?":
         text = f"{text}."
     return text
+
+
+def _comparison_rows(value: object, *, limit: int = 6) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    rows: list[dict[str, str]] = []
+    for row in value[:limit]:
+        if not isinstance(row, dict):
+            continue
+        title = str(row.get("title") or row.get("property_title") or "").strip()
+        if not title:
+            continue
+        rows.append(
+            {
+                "title": title,
+                "price": _money_phrase(row.get("price") or row.get("rent")),
+                "rooms": str(row.get("rooms") or "").strip(),
+                "area": str(row.get("area_sqm") or row.get("area") or "").strip(),
+                "recommendation": str(row.get("recommendation") or "").strip(),
+                "compare_reason": str(row.get("compare_reason") or "").strip(),
+            }
+        )
+    return rows
 
 
 def _money_phrase(value: object) -> str:
@@ -680,6 +714,8 @@ def _visual_pdf(
     media_counts: dict[str, int],
     media_refs: dict[str, list[str]],
     magic_fit_scene: dict[str, object],
+    comparison_rows: list[dict[str, str]],
+    packet_facts: dict[str, object],
     sections: list[dict[str, object]],
     narrative_lines: list[str],
     tour_url: str,
@@ -695,6 +731,14 @@ def _visual_pdf(
         image = _load_pdf_image_resource(str(ref or "").strip())
         if image is not None:
             gallery_images.append(image)
+    ask_value = _fact_value(packet_facts, "price_display", "price", "rent_display", "rent")
+    if not ask_value:
+        ask_value = _money_phrase(packet_facts.get("price_eur") or packet_facts.get("purchase_price_eur") or packet_facts.get("rent_eur"))
+    rooms_value = _fact_value(packet_facts, "room_count", "rooms")
+    area_value = _fact_value(packet_facts, "area_m2", "area_sqm")
+    if area_value and not area_value.endswith("m2"):
+        area_value = f"{area_value} m2"
+    district_value = _fact_value(packet_facts, "postal_name", "district", "city")
     ops = _new_page(page_number=1, privacy_mode=privacy_mode)
     _draw_rect(ops, 0, 0, 15, PAGE_HEIGHT, fill=(0.15, 0.38, 0.30))
     _draw_rect(ops, 15, 0, 5, PAGE_HEIGHT, fill=(0.74, 0.55, 0.18))
@@ -815,6 +859,62 @@ def _visual_pdf(
     pages.append({"ops": ops, "images": cover_page_images, "annotations": cover_page_annotations})
 
     page_number = 2
+    if comparison_rows:
+        ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
+        y = 786
+        _draw_text(ops, "Contents", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
+        toc_items = [
+            "1. Executive summary",
+            "2. Comparison snapshot",
+            "3. Decision brief",
+            "4. Visual references and review links",
+        ]
+        toc_y = y - 28
+        for item in toc_items:
+            _draw_text(ops, item, x=MARGIN_X + 8, y=toc_y, size=10.2, font="F2", fill=(0.16, 0.18, 0.17))
+            toc_y -= 18
+        _draw_text(ops, "Comparison snapshot", x=MARGIN_X, y=652, size=17, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_wrapped(
+            ops,
+            "This page compares the active property against the nearest alternatives so the shortlist can be read as a decision, not just a stack of packets.",
+            x=MARGIN_X,
+            y=630,
+            width_chars=86,
+            size=9.6,
+            leading=12,
+            fill=(0.35, 0.37, 0.35),
+        )
+        card_y = 582.0
+        for row in comparison_rows[:3]:
+            card_height = 118
+            _draw_rect(ops, MARGIN_X, card_y - card_height, CARD_WIDTH, card_height, fill=(1.0, 0.995, 0.97))
+            _draw_rect(ops, MARGIN_X, card_y - card_height, 6, card_height, fill=(0.15, 0.38, 0.30))
+            _draw_text(ops, row.get("title"), x=MARGIN_X + 18, y=card_y - 22, size=12, font="F2", fill=(0.12, 0.14, 0.13))
+            stat_line = " · ".join(
+                item for item in [
+                    row.get("price") or "",
+                    f"{row.get('rooms')} rooms" if row.get("rooms") else "",
+                    f"{row.get('area')} m2" if row.get("area") else "",
+                    row.get("recommendation") or "",
+                ] if item
+            )
+            if stat_line:
+                _draw_text(ops, stat_line, x=MARGIN_X + 18, y=card_y - 40, size=9.3, font="F2", fill=(0.30, 0.36, 0.32))
+            detail_y = card_y - 58
+            detail_y = _draw_wrapped(
+                ops,
+                row.get("compare_reason") or "No comparison reason was provided yet.",
+                x=MARGIN_X + 18,
+                y=detail_y,
+                width_chars=82,
+                size=9.2,
+                leading=11.5,
+                fill=(0.18, 0.19, 0.18),
+            )
+            card_y -= card_height + 14
+        pages.append({"ops": ops, "images": []})
+        page_number += 1
+
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
     y = 786
     _draw_text(ops, "Decision brief", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
@@ -985,6 +1085,8 @@ def render_property_packet_pdf(
         media_counts=media_counts,
         media_refs=media_refs,
         magic_fit_scene=dict(redaction.payload.get("magic_fit_scene") or {}) if isinstance(redaction.payload.get("magic_fit_scene"), dict) else {},
+        comparison_rows=_comparison_rows(redaction.payload.get("comparison_rows")),
+        packet_facts=dict(redaction.payload.get("facts") or {}) if isinstance(redaction.payload.get("facts"), dict) else {},
         sections=sections,
         narrative_lines=_property_narrative(redaction.payload),
         tour_url=_resolve_pdf_primary_tour_url(source=source, payload=redaction.payload),
@@ -998,6 +1100,8 @@ def render_property_packet_pdf(
     receipt_path = target_dir / f"{_safe_token(publication_id)}.receipt.json"
     pdf_path.write_bytes(pdf_bytes)
     visual_elements = ["cover", "metric_cards", "section_cards", "privacy_footer"]
+    if _comparison_rows(redaction.payload.get("comparison_rows")):
+        visual_elements.insert(1, "comparison_snapshot")
     if media_counts.get("photos"):
         visual_elements.insert(3, "photo_gallery")
     if isinstance(redaction.payload.get("magic_fit_scene"), dict):

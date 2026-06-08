@@ -119,7 +119,6 @@ from app.services.registration_email import (
     send_workspace_access_email,
     send_workspace_invitation_email,
 )
-from app.services.fliplink import build_fliplink_packet_service
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.property_market_catalog import (
     country_label,
@@ -25114,6 +25113,8 @@ class ProductService:
         if preference_person_id and preference_person_id != "self":
             source_payload["fit_summary"] = f"{source_payload['fit_summary']} · profile {preference_person_id}" if source_payload["fit_summary"] else f"profile {preference_person_id}"
         try:
+            from app.services.fliplink.service import build_fliplink_packet_service
+
             packet_service = build_fliplink_packet_service(self._container)
             row = packet_service.render_packet(
                 principal_id=principal_id,

@@ -258,6 +258,57 @@ def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     assert rendered["receipt"]["renderer_version"] == "v5_agency_dossier_pdf"
     assert rendered["receipt"]["renderer_kind"] == "branded_visual_pdf"
     assert "section_cards" in rendered["receipt"]["visual_elements"]
+
+
+def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
+    source = {
+        **_source_payload(),
+        "comparison_rows": [
+            {
+                "title": "Pärchenhit 2-Zimmer Wohnung, 68 m², U-Bahn Nähe in 1200 Wien",
+                "price": 285000,
+                "rooms": 2,
+                "area_sqm": 68.46,
+                "recommendation": "Benchmark buy-side alternative",
+                "compare_reason": "Bigger footprint and buy-side upside, but it sits in a different affordability lane than the active rental brief.",
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/eigentumswohnung/wien/wien-1200-brigittenau/paerchenhit-2-zimmer-wohnung-68-m-u-bahn-naehe-in-1200-wien-1335192243",
+            },
+            {
+                "title": "Donaustadt market benchmark",
+                "price": "district overview",
+                "rooms": "2-3",
+                "area_sqm": "district level",
+                "recommendation": "Market context only",
+                "compare_reason": "Used as district-level context because the provided Donaustadt URL is a market overview rather than a single comparable unit.",
+                "property_url": "https://www.willhaben.at/iad/immobilien/eigentumswohnung/wien/wien-1220-donaustadt/?fromExpiredAdId=2004425961",
+            },
+        ],
+    }
+
+    redacted = redact_property_packet(
+        source=source,
+        privacy_mode=PacketPrivacyMode.OWNER_PRIVATE,
+        include_exact_address=False,
+    )
+
+    assert len(redacted.payload["comparison_rows"]) == 2
+    assert redacted.payload["comparison_rows"][0]["title"].startswith("Pärchenhit")
+
+    rendered = render_property_packet_pdf(
+        artifact_root=tmp_path,
+        publication_id="pub_compare",
+        principal_id="owner-1",
+        source=source,
+        packet_kind=PropertyPacketKind.OWNER_REVIEW,
+        privacy_mode=PacketPrivacyMode.OWNER_PRIVATE,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+    )
+
+    pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
+    assert b"Contents" in pdf_bytes
+    assert b"Comparison snapshot" in pdf_bytes
+    assert rendered["redacted_payload"]["comparison_rows"][0]["title"].startswith("Pärchenhit")
+    assert "comparison_snapshot" in rendered["receipt"]["visual_elements"]
     assert "photo_gallery" in rendered["receipt"]["visual_elements"]
     assert rendered["receipt"]["media_link_count"] == 2
     assert rendered["receipt"]["embedded_media_refs"] == {"floorplans": 1, "photos": 1}
