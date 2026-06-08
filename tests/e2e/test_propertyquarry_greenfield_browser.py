@@ -1162,7 +1162,9 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
         no_link = page.frame_locator("iframe").get_by_role("link", name="No — tell us why")
         href = no_link.get_attribute("href")
         assert href and "decision=no" in href and "clippy=1" in href
-        response = page.goto(f"{base_url}{packet_path}?run_id=run-42&decision=no&clippy=1&prompt=What%20is%20the%20strongest%20blocker%20here%3F", wait_until="networkidle")
+        packet_url = f"{base_url}{packet_path}"
+        separator = "&" if "?" in packet_url else "?"
+        response = page.goto(f"{packet_url}{separator}run_id=run-42&decision=no&clippy=1&prompt=What%20is%20the%20strongest%20blocker%20here%3F", wait_until="networkidle")
         assert response is not None and response.ok
         assert page.locator("body", has_text="Decision shortcut loaded from the email or shared link.").is_visible()
         assert page.locator("body", has_text="Clippy prompt loaded from the email or shared link.").is_visible()
