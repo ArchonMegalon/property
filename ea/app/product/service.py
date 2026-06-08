@@ -4368,6 +4368,8 @@ def _property_research_nearby_pois(lat: float, lon: float) -> dict[str, object]:
   way["amenity"="library"](around:5000,{lat:.8f},{lon:.8f});
   node["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
   way["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
+  node["tourism"="zoo"](around:7000,{lat:.8f},{lon:.8f});
+  way["tourism"="zoo"](around:7000,{lat:.8f},{lon:.8f});
   node["shop"="doityourself"](around:7000,{lat:.8f},{lon:.8f});
   way["shop"="doityourself"](around:7000,{lat:.8f},{lon:.8f});
   node["shop"="hardware"](around:7000,{lat:.8f},{lon:.8f});
@@ -4426,6 +4428,8 @@ out center tags;
             metric_key, name_key = "nearest_library_m", "nearest_library_name"
         elif tags.get("leisure") == "playground":
             metric_key, name_key = "nearest_playground_m", "nearest_playground_name"
+        elif tags.get("tourism") == "zoo":
+            metric_key, name_key = "nearest_zoo_m", "nearest_zoo_name"
         elif tags.get("shop") in {"doityourself", "hardware"}:
             metric_key, name_key = "nearest_hardware_store_m", "nearest_hardware_store_name"
         elif tags.get("amenity") == "marketplace":
@@ -6749,6 +6753,7 @@ def _property_alert_upstream_personalization(
     nearest_pharmacy = _float_or_none(facts.get("nearest_pharmacy_m"))
     nearest_playground = _float_or_none(facts.get("nearest_playground_m"))
     nearest_library = _float_or_none(facts.get("nearest_library_m"))
+    nearest_zoo = _float_or_none(facts.get("nearest_zoo_m"))
     nearest_market = _float_or_none(facts.get("nearest_market_m"))
     nearest_hardware_store = _float_or_none(facts.get("nearest_hardware_store_m"))
     nearest_shopping_street = _float_or_none(facts.get("nearest_shopping_street_m"))
@@ -6870,6 +6875,14 @@ def _property_alert_upstream_personalization(
             elif isinstance(nearest_library, float) and nearest_library > 1300.0:
                 conflicts.append(f"Library access is about {int(nearest_library)} m away, which is weaker than you usually want.")
                 score_delta -= 3.0
+        elif key == "prefer_zoos_nearby" and bool(value):
+            learned_axes.append("zoo_access")
+            if isinstance(nearest_zoo, float) and nearest_zoo <= 2200.0:
+                matches.append(f"Zoo access is about {int(nearest_zoo)} m away, which supports family weekend routines.")
+                score_delta += 1.8
+            elif isinstance(nearest_zoo, float) and nearest_zoo > 4500.0:
+                conflicts.append(f"Zoo access is about {int(nearest_zoo)} m away, which is weaker than you usually want.")
+                score_delta -= 2.2
         elif key == "prefer_markets_nearby" and bool(value):
             learned_axes.append("market_access")
             if isinstance(nearest_market, float) and nearest_market <= 900.0:
@@ -7159,6 +7172,7 @@ _PROPERTY_FEEDBACK_REASON_LIBRARY: tuple[dict[str, object], ...] = (
     {"key": "pharmacy_too_far", "sentiment": "negative", "label": "Pharmacy too far", "category": "location"},
     {"key": "playground_too_far", "sentiment": "negative", "label": "Playground too far", "category": "location"},
     {"key": "library_too_far", "sentiment": "negative", "label": "Library too far", "category": "location"},
+    {"key": "zoo_too_far", "sentiment": "negative", "label": "Zoo too far", "category": "location"},
     {"key": "medical_care_too_far", "sentiment": "negative", "label": "Medical care too far", "category": "location"},
     {"key": "market_too_far", "sentiment": "negative", "label": "Market too far", "category": "location"},
     {"key": "hardware_store_too_far", "sentiment": "negative", "label": "Baumarkt too far", "category": "location"},
@@ -7168,6 +7182,7 @@ _PROPERTY_FEEDBACK_REASON_LIBRARY: tuple[dict[str, object], ...] = (
     {"key": "theatre_too_far", "sentiment": "negative", "label": "Theatre too far", "category": "location"},
     {"key": "transit_strong", "sentiment": "positive", "label": "Transit is strong", "category": "location"},
     {"key": "library_strong", "sentiment": "positive", "label": "Library access is strong", "category": "family"},
+    {"key": "zoo_strong", "sentiment": "positive", "label": "Zoo access is strong", "category": "family"},
     {"key": "medical_care_strong", "sentiment": "positive", "label": "Medical care is strong", "category": "family"},
     {"key": "gas_heating", "sentiment": "negative", "label": "Gas heating", "category": "building"},
     {"key": "no_lift", "sentiment": "negative", "label": "No lift", "category": "building"},
@@ -7217,6 +7232,7 @@ def _property_feedback_reason_agent_question(reason_key: str, *, property_facts:
         "pharmacy_too_far": "Which pharmacy is the nearest practical option and how long is the walk?",
         "playground_too_far": "Which playgrounds or family amenities are the nearest everyday options?",
         "library_too_far": "Which library or Bücherei is the nearest practical option for children, study, or errands?",
+        "zoo_too_far": "Which zoo, Tiergarten, or comparable animal park is the nearest realistic family option from this address?",
         "medical_care_too_far": "Which doctors, clinics, or hospitals are the nearest realistic care options from this address?",
         "market_too_far": "Which market is realistically used from this address and how often is it practical on foot?",
         "hardware_store_too_far": "Which Baumarkt or DIY store is the nearest practical option and how easy is the trip?",
@@ -7584,6 +7600,7 @@ def _property_feedback_suggestion_groups(
     nearest_pharmacy = _float_or_none(facts.get("nearest_pharmacy_m"))
     nearest_playground = _float_or_none(facts.get("nearest_playground_m"))
     nearest_library = _float_or_none(facts.get("nearest_library_m"))
+    nearest_zoo = _float_or_none(facts.get("nearest_zoo_m"))
     nearest_market = _float_or_none(facts.get("nearest_market_m"))
     nearest_hardware_store = _float_or_none(facts.get("nearest_hardware_store_m"))
     nearest_shopping_street = _float_or_none(facts.get("nearest_shopping_street_m"))
@@ -7630,6 +7647,10 @@ def _property_feedback_suggestion_groups(
         suggestions.append("library_too_far")
     elif isinstance(nearest_library, float) and nearest_library <= 700.0:
         positives.append("library_strong")
+    if isinstance(nearest_zoo, float) and nearest_zoo > 4500.0:
+        suggestions.append("zoo_too_far")
+    elif isinstance(nearest_zoo, float) and nearest_zoo <= 2200.0:
+        positives.append("zoo_strong")
     if isinstance(nearest_market, float) and nearest_market > 1800.0:
         suggestions.append("market_too_far")
     if isinstance(nearest_hardware_store, float) and nearest_hardware_store > 3500.0:
@@ -21492,6 +21513,20 @@ class ProductService:
                         _report(
                             step="source_family_filter",
                             message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the library radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
+                max_distance_to_zoo_m = int(request_preferences.get("max_distance_to_zoo_m") or 0) if enable_family_mode else 0
+                if enable_family_mode and max_distance_to_zoo_m > 0:
+                    try:
+                        nearest_zoo_m = float(detailed_facts.get("nearest_zoo_m") or 0.0)
+                    except Exception:
+                        nearest_zoo_m = 0.0
+                    if nearest_zoo_m <= 0.0 or nearest_zoo_m > float(max_distance_to_zoo_m):
+                        _report(
+                            step="source_family_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the zoo radius for {source_label}.",
                             status="in_progress",
                             steps_delta=0,
                         )

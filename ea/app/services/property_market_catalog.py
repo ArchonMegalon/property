@@ -1387,6 +1387,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         "max_distance_to_bouldering_m",
         "max_distance_to_dog_park_m",
         "max_distance_to_good_cafe_m",
+        "max_distance_to_zoo_m",
     ):
         try:
             numeric_value = int(float(str(payload.get(numeric_key) or "").strip()))
@@ -1411,6 +1412,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
                 "max_distance_to_bouldering_m",
                 "max_distance_to_dog_park_m",
                 "max_distance_to_good_cafe_m",
+                "max_distance_to_zoo_m",
             }:
                 payload[numeric_key] = max(50, min(5000, numeric_value))
             else:
@@ -1475,6 +1477,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
             for current in dict.fromkeys(str(item or "").strip().lower() for item in raw_school_stages)
             if current in {
                 "kindergarten",
+                "public_kindergarten",
                 "private_kindergarten",
                 "volksschule",
                 "ganztags_volksschule",
@@ -1491,6 +1494,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
             )
             if current in {
                 "kindergarten",
+                "public_kindergarten",
                 "private_kindergarten",
                 "volksschule",
                 "ganztags_volksschule",
@@ -1498,6 +1502,8 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
                 "gymnasium",
             }
         ]
+    if any(current in {"public_kindergarten", "private_kindergarten"} for current in school_stage_preferences) and "kindergarten" not in school_stage_preferences:
+        school_stage_preferences = ["kindergarten", *school_stage_preferences]
     payload["school_stage_preferences"] = school_stage_preferences
     raw_reachability_modes = payload.get("preferred_reachability_modes")
     if isinstance(raw_reachability_modes, (list, tuple, set)):

@@ -45,7 +45,22 @@ EXACT_ADDRESS_KEYS = {
 
 FLOORPLAN_REF_KEYS = {"floorplan_refs", "floorplans", "floorplan_urls", "floorplan_url", "floorplan_pdf_url"}
 PHOTO_REF_KEYS = {"photo_refs", "photos", "image_urls", "images", "photo_urls", "primary_image_url"}
-DEFAULT_MEDIA_ALLOWED_HOSTS = ("propertyquarry.com", "*.propertyquarry.com")
+DEFAULT_MEDIA_ALLOWED_HOSTS = (
+    "propertyquarry.com",
+    "*.propertyquarry.com",
+    "storage.justimmo.at",
+    "*.justimmo.at",
+    "kalandra.at",
+    "*.kalandra.at",
+    "willhaben.at",
+    "*.willhaben.at",
+    "immobilienscout24.at",
+    "*.immobilienscout24.at",
+    "immobilienscout24.de",
+    "*.immobilienscout24.de",
+    "immowelt.de",
+    "*.immowelt.de",
+)
 SENSITIVE_MEDIA_QUERY_MARKERS = ("token=", "secret=", "session=", "cookie=", "signature=", "signed=")
 
 BASE_PUBLIC_FACT_KEYS = {

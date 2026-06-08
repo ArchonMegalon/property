@@ -1023,9 +1023,12 @@
                 {% endif %}
               </summary>
               <div class="pq-advanced-panel-grid">
+                <div class="pq-note" data-property-unavailable-toggle-wrap hidden>
+                  <label><input type="checkbox" data-property-show-unavailable> Show unavailable filters</label>
+                </div>
             {% endif %}
             {% set is_wide = field.type == 'checkbox_group' or field.name in ('location_query', 'keywords') %}
-            <div class="pq-field{% if is_wide %} pq-field-wide{% endif %}" {% if is_wide %}data-wide="true"{% endif %} data-property-field-step="{{ field.get('step') or 'search' }}" data-property-field-name="{{ field.name }}"{% if field.get('hidden') %} hidden{% endif %}>
+            <div class="pq-field{% if is_wide %} pq-field-wide{% endif %}" {% if is_wide %}data-wide="true"{% endif %} data-property-field-step="{{ field.get('step') or 'search' }}" data-property-field-name="{{ field.name }}"{% if field.get('availability_key') %} data-property-availability-key="{{ field.get('availability_key') }}"{% endif %}{% if field.get('disabled_reason') %} data-property-disabled-reason="{{ field.get('disabled_reason') }}"{% endif %}{% if field.get('hidden') %} hidden{% endif %}>
               {% if field.type == 'range' %}
               {% set range_value = field.get('value') if field.get('value') not in (none, '') else (field.get('min') or '1') %}
               {% set range_display = field.get('display_value') or (field.get('empty_label') if (range_value|string == '0' and field.get('empty_label')) else (range_value ~ (field.get('suffix') or ''))) %}
@@ -1067,6 +1070,7 @@
                 {% endif %}
                 {% if field.upgrade_hint %}<span class="pq-range-upgrade">{{ field.upgrade_hint }}</span>{% endif %}
               </label>
+              {% if field.get('disabled_reason') %}<span class="pq-note" data-property-unavailable-note hidden>{{ field.get('disabled_reason') }}</span>{% endif %}
               {% else %}
               <label>{{ field.label }}{% if field.tooltip %} <button type="button" class="pq-tooltip" title="{{ field.tooltip }}" aria-label="{{ field.tooltip }}" aria-expanded="false" data-tooltip-trigger>?</button>{% endif %}
                 {% if field.type == 'number' %}
@@ -1120,7 +1124,7 @@
                 <div class="pq-choice-grid">
                   {% for option in field.options or [] %}
                   {% set option_value = option.get('value') or '' %}
-                  <label class="pq-choice"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}>
+                  <label class="pq-choice"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}{% if field.name == 'school_stage_preferences' and option_value == 'kindergarten' %} data-kindergarten-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('public_kindergarten', 'private_kindergarten') %} data-kindergarten-variant{% endif %}>
                     <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}>
                     <span>
                       <span class="pq-choice-label">{{ option.get('label') }}</span>
@@ -1133,7 +1137,7 @@
                 </div>
                 {% endif %}
                 {% if field.name == 'school_stage_preferences' %}
-                <div class="pq-choice-note" data-school-stage-note>Checked school types are treated as OR matches. Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants.</div>
+                <div class="pq-choice-note" data-school-stage-note>Checked school types are treated as OR matches. Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants. Select Kindergarten to reveal public and private kindergarten options.</div>
                 {% endif %}
                 {% else %}
                 <input
@@ -1145,6 +1149,7 @@
                 {% endif %}
                 {% if field.manage_href %}<a class="pq-field-link" href="{{ field.manage_href }}">{{ field.manage_label or 'Manage' }}</a>{% endif %}
               </label>
+              {% if field.get('disabled_reason') %}<span class="pq-note" data-property-unavailable-note hidden>{{ field.get('disabled_reason') }}</span>{% endif %}
               {% endif %}
             </div>
             {% endfor %}
@@ -2152,6 +2157,7 @@
         max_commute_minutes_walk: checkedValue(form, 'enable_commute_research') ? integerValue(form, 'max_commute_minutes_walk') : null,
         max_distance_to_playground_m: checkedValue(form, 'enable_family_mode') ? integerValue(form, 'max_distance_to_playground_m') : null,
         max_distance_to_library_m: checkedValue(form, 'enable_family_mode') ? integerValue(form, 'max_distance_to_library_m') : null,
+        max_distance_to_zoo_m: checkedValue(form, 'enable_family_mode') ? integerValue(form, 'max_distance_to_zoo_m') : null,
         max_distance_to_university_m: integerValue(form, 'max_distance_to_university_m'),
         max_distance_to_starbucks_m: integerValue(form, 'max_distance_to_starbucks_m'),
         max_distance_to_fitness_center_m: integerValue(form, 'max_distance_to_fitness_center_m'),
@@ -2279,23 +2285,77 @@
   };
 
   const syncSchoolStageVariantVisibility = (form) => {
-    const parent = form?.querySelector('input[name="school_stage_preferences"][value="volksschule"]');
-    const variants = [...(form?.querySelectorAll('[data-school-stage-variant]') || [])];
+    const schoolParent = form?.querySelector('input[name="school_stage_preferences"][value="volksschule"]');
+    const schoolVariants = [...(form?.querySelectorAll('[data-school-stage-variant]') || [])];
+    const kindergartenParent = form?.querySelector('input[name="school_stage_preferences"][value="kindergarten"]');
+    const kindergartenVariants = [...(form?.querySelectorAll('[data-kindergarten-variant]') || [])];
     const note = form?.querySelector('[data-school-stage-note]');
-    const enabled = Boolean(parent?.checked);
-    variants.forEach((row) => {
-      row.hidden = !enabled;
-      row.toggleAttribute('aria-hidden', !enabled);
-      if (!enabled) {
+    const schoolEnabled = Boolean(schoolParent?.checked);
+    const kindergartenEnabled = Boolean(kindergartenParent?.checked);
+    schoolVariants.forEach((row) => {
+      row.hidden = !schoolEnabled;
+      row.toggleAttribute('aria-hidden', !schoolEnabled);
+      if (!schoolEnabled) {
+        const input = row.querySelector('input[name="school_stage_preferences"]');
+        if (input) input.checked = false;
+      }
+    });
+    kindergartenVariants.forEach((row) => {
+      row.hidden = !kindergartenEnabled;
+      row.toggleAttribute('aria-hidden', !kindergartenEnabled);
+      if (!kindergartenEnabled) {
         const input = row.querySelector('input[name="school_stage_preferences"]');
         if (input) input.checked = false;
       }
     });
     if (note) {
-      note.textContent = enabled
-        ? 'Checked school types are treated as OR matches. If both Volksschule variants are checked, listings matching either variant stay in.'
-        : 'Checked school types are treated as OR matches. Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants.';
+      note.textContent = 'Checked school types are treated as OR matches.'
+        + (schoolEnabled ? ' If both Volksschule variants are checked, listings matching either variant stay in.' : ' Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants.')
+        + (kindergartenEnabled ? ' Public and private kindergarten refine the Kindergarten choice.' : ' Select Kindergarten to reveal public and private kindergarten options.');
     }
+  };
+  const currentMarketFilterCapabilities = (meta, countryCode, regionCode) => {
+    const country = String(countryCode || 'AT').trim();
+    const region = String(regionCode || '').trim();
+    const byCountry = meta?.market_filter_capabilities_by_country_region || {};
+    return byCountry?.[country]?.[region] || meta?.market_filter_capabilities || {};
+  };
+  const syncMarketAwareFields = (form, meta) => {
+    const countryCode = form?.querySelector('select[name="country_code"]')?.value || 'AT';
+    const regionCode = form?.querySelector('select[name="region_code"]')?.value || '';
+    const capabilities = currentMarketFilterCapabilities(meta || {}, countryCode, regionCode);
+    form?.querySelectorAll('details[data-property-advanced-panel]').forEach((panel) => {
+      const unavailableFields = [...panel.querySelectorAll('[data-property-availability-key]')].filter((wrap) => {
+        const key = String(wrap.getAttribute('data-property-availability-key') || '').trim();
+        return key && capabilities[key] === false;
+      });
+      const toggleWrap = panel.querySelector('[data-property-unavailable-toggle-wrap]');
+      if (toggleWrap) toggleWrap.hidden = unavailableFields.length === 0;
+      const showUnavailable = Boolean(panel.querySelector('[data-property-show-unavailable]')?.checked);
+      unavailableFields.forEach((wrap) => {
+        const reasonNode = wrap.querySelector('[data-property-unavailable-note]');
+        wrap.dataset.propertyUnavailable = 'true';
+        wrap.querySelectorAll('input, select, textarea, button').forEach((node) => { node.disabled = !showUnavailable; });
+        if (reasonNode) reasonNode.hidden = !showUnavailable;
+        if (!showUnavailable) {
+          wrap.hidden = true;
+          if (!String(wrap.dataset.propertyCollapsedBy || '').trim()) wrap.dataset.propertyCollapsedBy = 'market_availability';
+        } else if (String(wrap.dataset.propertyCollapsedBy || '').trim() === 'market_availability') {
+          wrap.hidden = false;
+          wrap.dataset.propertyCollapsedBy = '';
+        }
+      });
+      [...panel.querySelectorAll('[data-property-availability-key]')].filter((wrap) => {
+        const key = String(wrap.getAttribute('data-property-availability-key') || '').trim();
+        return key && capabilities[key] !== false;
+      }).forEach((wrap) => {
+        const reasonNode = wrap.querySelector('[data-property-unavailable-note]');
+        delete wrap.dataset.propertyUnavailable;
+        if (String(wrap.dataset.propertyCollapsedBy || '').trim() === 'market_availability') wrap.dataset.propertyCollapsedBy = '';
+        wrap.querySelectorAll('input, select, textarea, button').forEach((node) => { node.disabled = false; });
+        if (reasonNode) reasonNode.hidden = true;
+      });
+    });
   };
 
   const renderRun = (root, payload) => {
@@ -2685,6 +2745,7 @@
       const schoolQualityWrap = form.querySelector('[data-property-field-name="school_quality_priority"]');
       const playgroundDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_playground_m"]');
       const libraryDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_library_m"]');
+      const zooDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_zoo_m"]');
       const commuteDetailWraps = [
         form.querySelector('[data-property-field-name="commute_destination"]'),
         form.querySelector('[data-property-field-name="additional_reachability_targets"]'),
@@ -2734,6 +2795,7 @@
           else wrap.removeAttribute('data-property-collapsed-by');
         });
         syncAdvancedPanels();
+        syncMarketAwareFields(form, meta);
       };
       const syncFamilyModeControls = () => {
         const familyModeEnabled = Boolean(familyModeField?.checked);
@@ -2756,12 +2818,18 @@
           if (!showSchoolDetails) libraryDistanceWrap.setAttribute('data-property-collapsed-by', 'enable_family_mode');
           else libraryDistanceWrap.removeAttribute('data-property-collapsed-by');
         }
+        if (zooDistanceWrap) {
+          zooDistanceWrap.hidden = !showSchoolDetails;
+          if (!showSchoolDetails) zooDistanceWrap.setAttribute('data-property-collapsed-by', 'enable_family_mode');
+          else zooDistanceWrap.removeAttribute('data-property-collapsed-by');
+        }
         if (schoolQualityWrap) {
           schoolQualityWrap.hidden = !showSchoolPriority;
           if (!showSchoolPriority) schoolQualityWrap.setAttribute('data-property-collapsed-by', familyModeEnabled ? 'school_stage_preferences' : 'enable_family_mode');
           else schoolQualityWrap.removeAttribute('data-property-collapsed-by');
         }
         syncAdvancedPanels();
+        syncMarketAwareFields(form, meta);
       };
       const applyPreferenceProfile = () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncViennaScopeControls).finally(syncFamilyModeControls);
       const refreshRegionAndLocationChoices = () => {
@@ -2832,14 +2900,19 @@
           const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, planPlatformCap);
           renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
           refreshRegionAndLocationChoices();
+          syncMarketAwareFields(form, meta);
         });
       }
-      if (regionField) regionField.addEventListener('change', refreshRegionAndLocationChoices);
+      if (regionField) regionField.addEventListener('change', () => {
+        refreshRegionAndLocationChoices();
+        syncMarketAwareFields(form, meta);
+      });
       if (allViennaField) allViennaField.addEventListener('change', syncViennaScopeControls);
       if (listingModeField) listingModeField.addEventListener('change', syncListingModeControls);
       commuteResearchField?.addEventListener('change', syncCommuteControls);
       familyModeField?.addEventListener('change', syncFamilyModeControls);
       form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));
+      form.querySelectorAll('[data-property-show-unavailable]').forEach((node) => node.addEventListener('change', () => syncMarketAwareFields(form, meta)));
       form.addEventListener('click', (event) => {
         const button = event.target?.closest?.('[data-checkbox-group-select-all]');
         if (!button) return;
@@ -2854,6 +2927,7 @@
       syncListingModeControls();
       syncCommuteControls();
       syncFamilyModeControls();
+      syncMarketAwareFields(form, meta);
       applyBrowserAndIpDefaults().finally(applyPreferenceProfile);
       root.querySelector('[data-property-edit-brief]')?.addEventListener('click', () => {
         root.querySelector('[data-property-brief-panel]')?.removeAttribute('hidden');

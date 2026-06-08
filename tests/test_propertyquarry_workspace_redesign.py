@@ -320,8 +320,11 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Set a hard budget ceiling. Leave it at Any budget when you want PropertyQuarry to rank first and filter price later." in setup.text
     assert 'data-school-stage-variant' in setup.text
     assert 'data-school-stage-parent' in setup.text
+    assert 'data-kindergarten-parent' in setup.text
+    assert 'data-kindergarten-variant' in setup.text
     assert "Checked school types are treated as OR matches." in setup.text
     assert "Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants." in setup.text
+    assert "Select Kindergarten to reveal public and private kindergarten options." in setup.text
     assert 'data-checkbox-group-select-all="selected_platforms"' in setup.text
     assert "Select all" in setup.text
     assert "Notverkauf und Justiz" in setup.text
@@ -332,6 +335,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Erweiterte Kinder- und Familienfilter" in setup.text
     assert "Erweiterte Lage- und Researchfilter" in setup.text
     assert 'name="max_distance_to_library_m"' in setup.text
+    assert 'name="max_distance_to_zoo_m"' in setup.text
     assert 'name="max_distance_to_market_m"' in setup.text
     assert 'name="max_distance_to_hardware_store_m"' in setup.text
     assert 'name="max_distance_to_shopping_center_m"' in setup.text
@@ -348,8 +352,13 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'name="avoid_flood_risk_area"' in setup.text
     assert 'name="school_stage_preferences"' in setup.text
     assert 'value="volksschule"' in setup.text
+    assert 'value="kindergarten"' in setup.text
+    assert 'value="public_kindergarten"' in setup.text
+    assert 'value="private_kindergarten"' in setup.text
     assert 'value="ganztags_volksschule"' in setup.text
     assert 'value="halbtags_volksschule"' in setup.text
+    assert 'data-property-show-unavailable' in setup.text
+    assert 'No practical zoo or Tiergarten signal is configured for this market yet.' in setup.text
     assert "Min area" in setup.text
 
     search = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)

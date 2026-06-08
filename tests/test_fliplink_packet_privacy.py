@@ -121,6 +121,26 @@ def test_fliplink_packet_media_refs_are_host_allowlisted(monkeypatch) -> None:
     assert custom.payload["photo_refs"] == ["https://cdn.example/photo.jpg"]
 
 
+def test_fliplink_packet_media_refs_allow_common_listing_cdn_hosts() -> None:
+    redacted = redact_property_packet(
+        source={
+            "title": "Kalandra listing",
+            "property_url": "https://www.kalandra.at/objekt/16465915",
+            "photo_urls": [
+                "https://storage.justimmo.at/thumb/photo-1.jpg",
+                "https://storage.justimmo.at/thumb/photo-2.jpg",
+            ],
+        },
+        privacy_mode=PacketPrivacyMode.OWNER_PRIVATE,
+    )
+
+    assert redacted.payload["photo_refs"] == [
+        "https://storage.justimmo.at/thumb/photo-1.jpg",
+        "https://storage.justimmo.at/thumb/photo-2.jpg",
+    ]
+    assert "storage.justimmo.at" in redacted.receipt["media_allowed_hosts"]
+
+
 def test_paid_market_report_redaction_is_market_level_only(tmp_path: Path) -> None:
     source = {
         "title": "Exact Street 12 investment flat",

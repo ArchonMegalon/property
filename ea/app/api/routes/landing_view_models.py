@@ -105,6 +105,37 @@ def _group_property_provider_options(options: list[dict[str, object]]) -> list[d
     return rows
 
 
+def _property_market_filter_capabilities(country_code: str, region_code: str) -> dict[str, bool]:
+    country = str(country_code or "").strip().upper() or "AT"
+    region = str(region_code or "").strip().lower()
+    defaults: dict[str, bool] = {"family_zoo": True}
+    if country == "AT":
+        regional = {
+            "vienna": {"family_zoo": True},
+            "salzburg": {"family_zoo": True},
+            "styria": {"family_zoo": True},
+            "upper_austria": {"family_zoo": False},
+            "lower_austria": {"family_zoo": False},
+            "burgenland": {"family_zoo": False},
+            "carinthia": {"family_zoo": False},
+            "tyrol": {"family_zoo": False},
+            "vorarlberg": {"family_zoo": False},
+        }
+        return {**defaults, **regional.get(region, {"family_zoo": False})}
+    if country == "DE":
+        regional = {
+            "berlin": {"family_zoo": True},
+            "hamburg": {"family_zoo": True},
+            "munich": {"family_zoo": True},
+            "cologne": {"family_zoo": True},
+            "frankfurt": {"family_zoo": True},
+        }
+        return {**defaults, **regional.get(region, defaults)}
+    if country in {"UK", "FR", "ES", "IT", "NL", "BE", "CH"}:
+        return defaults
+    return defaults
+
+
 def _provider_quality_rows(
     source_rows: list[dict[str, object]],
     provider_options: list[dict[str, object]],
@@ -1299,6 +1330,10 @@ def app_section_payload(
     property_min_rooms_value = min(8, _positive_int(property_preferences.get("min_rooms")))
     property_min_area_value = min(250, _positive_int(property_preferences.get("min_area_m2")))
     property_available_within_years_value = min(10, _positive_int(property_preferences.get("available_within_years")))
+    market_filter_capabilities = _property_market_filter_capabilities(
+        str(property_preferences.get("country_code") or "AT"),
+        selected_region_code,
+    )
     try:
         property_results_value = int(property_preferences.get("max_results_per_source") or property_plan_max_results)
     except Exception:
@@ -1553,7 +1588,8 @@ def app_section_payload(
                 "label": "Children and school needs",
                 "options": [
                     {"value": "kindergarten", "label": "Kindergarten"},
-                    {"value": "private_kindergarten", "label": "Private kindergarten"},
+                    {"value": "public_kindergarten", "label": "Öffentlicher Kindergarten"},
+                    {"value": "private_kindergarten", "label": "Privater Kindergarten"},
                     {"value": "volksschule", "label": "Volksschule"},
                     {"value": "ganztags_volksschule", "label": "Ganztagsvolksschule"},
                     {"value": "halbtags_volksschule", "label": "Halbtagsvolksschule"},
@@ -1609,6 +1645,25 @@ def app_section_payload(
                 "tooltip": "Optional family and study signal. Only keep listings within this distance of a public library or comparable Bücherei.",
                 "step": "children",
                 "advanced_panel": "children",
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_zoo_m",
+                "label": "Max distance to zoo",
+                "value": str(property_preferences.get("max_distance_to_zoo_m") or 0),
+                "min": "0",
+                "max": "7000",
+                "visual_max": "7000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any zoo distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "7 km",
+                "tooltip": "Optional family and weekend-life signal. Only keep listings within this distance of a zoo or Tiergarten.",
+                "step": "children",
+                "advanced_panel": "children",
+                "availability_key": "family_zoo",
+                "disabled_reason": "No practical zoo or Tiergarten signal is configured for this market yet.",
             },
             {
                 "type": "checkbox",
@@ -2208,6 +2263,18 @@ def app_section_payload(
                 for option in country_options
                 if str(option.get("value") or "").strip()
             },
+            "market_filter_capabilities_by_country_region": {
+                str(option.get("value") or ""): {
+                    str(region.get("value") or ""): _property_market_filter_capabilities(
+                        str(option.get("value") or ""),
+                        str(region.get("value") or ""),
+                    )
+                    for region in _property_region_options(str(option.get("value") or ""))
+                }
+                for option in country_options
+                if str(option.get("value") or "").strip()
+            },
+            "market_filter_capabilities": market_filter_capabilities,
             "location_catalog_by_country_region": {
                 str(option.get("value") or ""): {
                     str(region.get("value") or ""): _property_location_options(str(option.get("value") or ""), str(region.get("value") or ""))
@@ -2820,6 +2887,7 @@ def property_workspace_payload(
         specs = (
             ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m")),
             ("Library", facts.get("nearest_library_m")),
+            ("Zoo", facts.get("nearest_zoo_m")),
             ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m")),
             ("Medical", facts.get("nearest_medical_care_m")),
             ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m")),
@@ -2927,6 +2995,7 @@ def property_workspace_payload(
         for label, raw_value in (
             ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m")),
             ("Library", facts.get("nearest_library_m")),
+            ("Zoo", facts.get("nearest_zoo_m")),
             ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m")),
             ("Medical care", facts.get("nearest_medical_care_m")),
             ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m")),

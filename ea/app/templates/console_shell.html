@@ -1083,8 +1083,11 @@
               {% endif %}
             </summary>
             <div class="console-advanced-panel-grid">
+              <div class="console-note" data-property-unavailable-toggle-wrap hidden>
+                <label><input type="checkbox" data-property-show-unavailable> Show unavailable filters</label>
+              </div>
           {% endif %}
-          <label class="console-field" {% if field.get('step') %}data-property-field-step="{{ field.get('step') }}"{% endif %}>
+          <label class="console-field" {% if field.get('step') %}data-property-field-step="{{ field.get('step') }}"{% endif %} data-property-field-name="{{ field.name }}"{% if field.get('availability_key') %} data-property-availability-key="{{ field.get('availability_key') }}"{% endif %}{% if field.get('disabled_reason') %} data-property-disabled-reason="{{ field.get('disabled_reason') }}"{% endif %}>
             <span>{{ field.label }}</span>
             {% if field.type == 'number' %}
             <input
@@ -1173,7 +1176,7 @@
             <div class="console-choice-grid">
               {% for option in field.options or [] %}
               {% set option_value = option.get('value') or '' %}
-              <label class="console-choice"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}>
+              <label class="console-choice"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}{% if field.name == 'school_stage_preferences' and option_value == 'kindergarten' %} data-kindergarten-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('public_kindergarten', 'private_kindergarten') %} data-kindergarten-variant{% endif %}>
                 <input
                   type="checkbox"
                   name="{{ field.name }}"
@@ -1191,7 +1194,7 @@
             </div>
             {% endif %}
             {% if field.name == 'school_stage_preferences' %}
-            <div class="console-choice-note" data-school-stage-note>Checked school types are treated as OR matches. Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants.</div>
+            <div class="console-choice-note" data-school-stage-note>Checked school types are treated as OR matches. Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants. Select Kindergarten to reveal public and private kindergarten options.</div>
             {% endif %}
             {% else %}
             <input
@@ -1201,6 +1204,7 @@
               {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}
             >
             {% endif %}
+            {% if field.get('disabled_reason') %}<span class="console-note" data-property-unavailable-note hidden>{{ field.get('disabled_reason') }}</span>{% endif %}
           </label>
           {% endfor %}
           {% if panel.open %}
@@ -1624,6 +1628,7 @@
         enable_trust_risk_scoring: Boolean(form.querySelector('input[name="enable_trust_risk_scoring"]')?.checked),
         max_distance_to_playground_m: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? integerValue(form, 'max_distance_to_playground_m') : null,
         max_distance_to_library_m: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? integerValue(form, 'max_distance_to_library_m') : null,
+        max_distance_to_zoo_m: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? integerValue(form, 'max_distance_to_zoo_m') : null,
         max_distance_to_market_m: integerValue(form, 'max_distance_to_market_m'),
         max_distance_to_hardware_store_m: integerValue(form, 'max_distance_to_hardware_store_m'),
         max_distance_to_shopping_center_m: integerValue(form, 'max_distance_to_shopping_center_m'),
@@ -1709,23 +1714,73 @@
   };
 
   const syncSchoolStageVariantVisibility = (form) => {
-    const parent = form?.querySelector('input[name="school_stage_preferences"][value="volksschule"]');
-    const variants = [...(form?.querySelectorAll('[data-school-stage-variant]') || [])];
+    const schoolParent = form?.querySelector('input[name="school_stage_preferences"][value="volksschule"]');
+    const schoolVariants = [...(form?.querySelectorAll('[data-school-stage-variant]') || [])];
+    const kindergartenParent = form?.querySelector('input[name="school_stage_preferences"][value="kindergarten"]');
+    const kindergartenVariants = [...(form?.querySelectorAll('[data-kindergarten-variant]') || [])];
     const note = form?.querySelector('[data-school-stage-note]');
-    const enabled = Boolean(parent?.checked);
-    variants.forEach((row) => {
-      row.hidden = !enabled;
-      row.toggleAttribute('aria-hidden', !enabled);
-      if (!enabled) {
+    const schoolEnabled = Boolean(schoolParent?.checked);
+    const kindergartenEnabled = Boolean(kindergartenParent?.checked);
+    schoolVariants.forEach((row) => {
+      row.hidden = !schoolEnabled;
+      row.toggleAttribute('aria-hidden', !schoolEnabled);
+      if (!schoolEnabled) {
+        const input = row.querySelector('input[name="school_stage_preferences"]');
+        if (input) input.checked = false;
+      }
+    });
+    kindergartenVariants.forEach((row) => {
+      row.hidden = !kindergartenEnabled;
+      row.toggleAttribute('aria-hidden', !kindergartenEnabled);
+      if (!kindergartenEnabled) {
         const input = row.querySelector('input[name="school_stage_preferences"]');
         if (input) input.checked = false;
       }
     });
     if (note) {
-      note.textContent = enabled
-        ? 'Checked school types are treated as OR matches. If both Volksschule variants are checked, listings matching either variant stay in.'
-        : 'Checked school types are treated as OR matches. Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants.';
+      note.textContent = 'Checked school types are treated as OR matches.'
+        + (schoolEnabled ? ' If both Volksschule variants are checked, listings matching either variant stay in.' : ' Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants.')
+        + (kindergartenEnabled ? ' Public and private kindergarten refine the Kindergarten choice.' : ' Select Kindergarten to reveal public and private kindergarten options.');
     }
+  };
+  const currentMarketFilterCapabilities = (meta, countryCode, regionCode) => {
+    const country = String(countryCode || 'AT').trim();
+    const region = String(regionCode || '').trim();
+    const byCountry = meta?.market_filter_capabilities_by_country_region || {};
+    return byCountry?.[country]?.[region] || meta?.market_filter_capabilities || {};
+  };
+  const syncMarketAwareFields = (form, meta) => {
+    const countryCode = form?.querySelector('select[name="country_code"]')?.value || 'AT';
+    const regionCode = form?.querySelector('select[name="region_code"]')?.value || '';
+    const capabilities = currentMarketFilterCapabilities(meta || {}, countryCode, regionCode);
+    form?.querySelectorAll('details[data-property-advanced-panel]').forEach((panel) => {
+      const unavailableFields = [...panel.querySelectorAll('[data-property-availability-key]')].filter((wrap) => {
+        const key = String(wrap.getAttribute('data-property-availability-key') || '').trim();
+        return key && capabilities[key] === false;
+      });
+      const toggleWrap = panel.querySelector('[data-property-unavailable-toggle-wrap]');
+      if (toggleWrap) toggleWrap.hidden = unavailableFields.length === 0;
+      const showUnavailable = Boolean(panel.querySelector('[data-property-show-unavailable]')?.checked);
+      unavailableFields.forEach((wrap) => {
+        const reasonNode = wrap.querySelector('[data-property-unavailable-note]');
+        wrap.dataset.propertyUnavailable = 'true';
+        wrap.querySelectorAll('input, select, textarea, button').forEach((node) => { node.disabled = !showUnavailable; });
+        if (reasonNode) reasonNode.hidden = !showUnavailable;
+        wrap.hidden = !showUnavailable;
+        if (!showUnavailable) wrap.dataset.propertyCollapsedBy = 'market_availability';
+        else if (String(wrap.dataset.propertyCollapsedBy || '').trim() === 'market_availability') wrap.dataset.propertyCollapsedBy = '';
+      });
+      [...panel.querySelectorAll('[data-property-availability-key]')].filter((wrap) => {
+        const key = String(wrap.getAttribute('data-property-availability-key') || '').trim();
+        return key && capabilities[key] !== false;
+      }).forEach((wrap) => {
+        const reasonNode = wrap.querySelector('[data-property-unavailable-note]');
+        delete wrap.dataset.propertyUnavailable;
+        if (String(wrap.dataset.propertyCollapsedBy || '').trim() === 'market_availability') wrap.dataset.propertyCollapsedBy = '';
+        wrap.querySelectorAll('input, select, textarea, button').forEach((node) => { node.disabled = false; });
+        if (reasonNode) reasonNode.hidden = true;
+      });
+    });
   };
 
   const renderRun = (form, payload) => {
@@ -1852,6 +1907,7 @@
     const schoolQualityWrap = form.querySelector('[name="school_quality_priority"]')?.closest('.console-field');
     const playgroundDistanceWrap = form.querySelector('[name="max_distance_to_playground_m"]')?.closest('.console-field');
     const libraryDistanceWrap = form.querySelector('[name="max_distance_to_library_m"]')?.closest('.console-field');
+    const zooDistanceWrap = form.querySelector('[name="max_distance_to_zoo_m"]')?.closest('.console-field');
     const commuteDetailWraps = [
       form.querySelector('[name="commute_destination"]')?.closest('.console-field'),
       form.querySelector('[name="additional_reachability_targets"]')?.closest('.console-field'),
@@ -1884,14 +1940,17 @@
       if (schoolStageWrap) schoolStageWrap.hidden = !showSchoolDetails;
       if (playgroundDistanceWrap) playgroundDistanceWrap.hidden = !showSchoolDetails;
       if (libraryDistanceWrap) libraryDistanceWrap.hidden = !showSchoolDetails;
+      if (zooDistanceWrap) zooDistanceWrap.hidden = !showSchoolDetails;
       if (schoolQualityWrap) schoolQualityWrap.hidden = !showSchoolPriority;
       syncSchoolStageVariantVisibility(form);
       syncAdvancedPanels();
+      syncMarketAwareFields(form, meta);
     };
     const syncCommuteControls = () => {
       const commuteEnabled = Boolean(commuteResearchField?.checked);
       commuteDetailWraps.forEach((wrap) => { wrap.hidden = !commuteEnabled; });
       syncAdvancedPanels();
+      syncMarketAwareFields(form, meta);
     };
     const setCheckboxGroupStatus = (message) => {
       const statusNode = form.querySelector('[data-property-inline-status]');
@@ -1949,15 +2008,22 @@
           languageField.value = nextLanguage;
         }
         refreshRegionAndLocationChoices();
+        syncMarketAwareFields(form, meta);
       });
     }
     if (regionField) {
-      regionField.addEventListener('change', refreshRegionAndLocationChoices);
+      regionField.addEventListener('change', () => {
+        refreshRegionAndLocationChoices();
+        syncMarketAwareFields(form, meta);
+      });
     }
     familyModeField?.addEventListener('change', syncFamilyModeControls);
     commuteResearchField?.addEventListener('change', syncCommuteControls);
     form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => {
       node.addEventListener('change', syncFamilyModeControls);
+    });
+    form.querySelectorAll('[data-property-show-unavailable]').forEach((node) => {
+      node.addEventListener('change', () => syncMarketAwareFields(form, meta));
     });
     form.addEventListener('click', (event) => {
       const button = event.target?.closest?.('[data-checkbox-group-select-all]');
@@ -1968,6 +2034,7 @@
     renderRun(form, meta.initial_run || {});
     syncFamilyModeControls();
     syncCommuteControls();
+    syncMarketAwareFields(form, meta);
 
     form.querySelector('[data-property-save]')?.addEventListener('click', async () => {
       const payload = collectPayload(form);

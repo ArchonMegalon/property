@@ -461,17 +461,24 @@ def _visual_pdf(
     sections: list[dict[str, object]],
 ) -> bytes:
     pages: list[dict[str, object]] = []
+    photo_refs = list(media_refs.get("photos") or [])
+    cover_image = _load_pdf_image_resource(photo_refs[0]) if photo_refs else None
+    gallery_images = []
+    for ref in photo_refs[:4]:
+        image = _load_pdf_image_resource(str(ref or "").strip())
+        if image is not None:
+            gallery_images.append(image)
     ops = _new_page(page_number=1, privacy_mode=privacy_mode)
     _draw_rect(ops, 0, 0, 15, PAGE_HEIGHT, fill=(0.15, 0.38, 0.30))
     _draw_rect(ops, 15, 0, 5, PAGE_HEIGHT, fill=(0.74, 0.55, 0.18))
     _draw_text(ops, "PropertyQuarry", x=MARGIN_X, y=774, size=20, font="F2", fill=(0.15, 0.38, 0.30))
-    _draw_text(ops, "Decision packet", x=MARGIN_X, y=752, size=11, fill=(0.43, 0.38, 0.29))
+    _draw_text(ops, "Owner dossier", x=MARGIN_X, y=752, size=11, fill=(0.43, 0.38, 0.29))
     y = _draw_wrapped(
         ops,
         recommended_title,
         x=MARGIN_X,
         y=705,
-        width_chars=42,
+        width_chars=36 if cover_image is not None else 42,
         size=24,
         leading=28,
         font="F2",
@@ -493,7 +500,25 @@ def _visual_pdf(
         if chip_x > PAGE_WIDTH - MARGIN_X - 90:
             chip_x = MARGIN_X
             y -= 31
-    y -= 72
+    cover_page_images: list[dict[str, object]] = []
+    if cover_image is not None:
+        hero_x = 358
+        hero_y = 432
+        hero_w = 210
+        hero_h = 286
+        _draw_rect(ops, hero_x - 6, hero_y - 6, hero_w + 12, hero_h + 12, fill=(0.96, 0.94, 0.90))
+        _draw_rect(ops, hero_x - 6, hero_y + hero_h - 24, hero_w + 12, 30, fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, "Property preview", x=hero_x + 10, y=hero_y + hero_h - 16, size=9, font="F2", fill=(0.98, 0.98, 0.96))
+        source_width = max(int(cover_image.get("width") or 1), 1)
+        source_height = max(int(cover_image.get("height") or 1), 1)
+        scale = min(hero_w / float(source_width), hero_h / float(source_height))
+        draw_width = max(1.0, float(source_width) * scale)
+        draw_height = max(1.0, float(source_height) * scale)
+        draw_x = hero_x + ((hero_w - draw_width) / 2.0)
+        draw_y = hero_y + ((hero_h - draw_height) / 2.0)
+        _draw_image(ops, name="Im1", x=draw_x, y=draw_y, width=draw_width, height=draw_height)
+        cover_page_images.append({**cover_image, "name": "Im1"})
+    y -= 72 if cover_image is None else 34
     _draw_rect(ops, MARGIN_X, y - 104, CARD_WIDTH, 126, fill=(1.0, 0.995, 0.97))
     _draw_rect(ops, MARGIN_X, y + 13, CARD_WIDTH, 9, fill=(0.74, 0.55, 0.18))
     _draw_text(ops, "Decision snapshot", x=MARGIN_X + 18, y=y - 8, size=14, font="F2", fill=(0.15, 0.38, 0.30))
@@ -507,11 +532,12 @@ def _visual_pdf(
         leading=14,
     )
     y -= 160
-    metric_width = (CARD_WIDTH - 24) / 3
+    metric_width = (CARD_WIDTH - 36) / 4
     metrics = [
         ("Floorplans", str(media_counts.get("floorplans") or 0)),
         ("Photos", str(media_counts.get("photos") or 0)),
         ("Sections", str(len(sections))),
+        ("Format", "PDF"),
     ]
     for index, (label, value) in enumerate(metrics):
         x = MARGIN_X + (metric_width + 12) * index
@@ -520,12 +546,12 @@ def _visual_pdf(
         _draw_text(ops, label, x=x + 14, y=y - 48, size=9.5, font="F2", fill=(0.30, 0.36, 0.32))
     _draw_text(ops, "Title", x=MARGIN_X, y=128, size=9, font="F2", fill=(0.43, 0.38, 0.29))
     _draw_wrapped(ops, title, x=MARGIN_X, y=112, width_chars=84, size=10, leading=12)
-    pages.append({"ops": ops, "images": []})
+    pages.append({"ops": ops, "images": cover_page_images})
 
     page_number = 2
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
     y = 786
-    _draw_text(ops, "Packet sections", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Dossier sections", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
     y -= 34
     for section in sections:
         title_text = str(section.get("title") or "").strip()
@@ -548,6 +574,44 @@ def _visual_pdf(
             item_y = _draw_wrapped(ops, item, x=MARGIN_X + 20, y=item_y, width_chars=76, size=9.5, leading=12)
         y -= card_height + 16
     pages.append({"ops": ops, "images": []})
+
+    if gallery_images:
+        page_number += 1
+        ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
+        y = 786
+        _draw_text(ops, "Property gallery", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_wrapped(
+            ops,
+            "Selected source visuals from the listing, embedded for a more agency-style dossier read.",
+            x=MARGIN_X,
+            y=y - 24,
+            width_chars=82,
+            size=9.5,
+            leading=12,
+            fill=(0.36, 0.37, 0.36),
+        )
+        placements = [
+            (MARGIN_X, 430, 250, 180),
+            (MARGIN_X + 274, 430, 250, 180),
+            (MARGIN_X, 188, 250, 180),
+            (MARGIN_X + 274, 188, 250, 180),
+        ]
+        gallery_page_images: list[dict[str, object]] = []
+        for index, image in enumerate(gallery_images[:4], start=1):
+            x, y0, w, h = placements[index - 1]
+            _draw_rect(ops, x - 4, y0 - 4, w + 8, h + 28, fill=(0.96, 0.94, 0.90))
+            source_width = max(int(image.get("width") or 1), 1)
+            source_height = max(int(image.get("height") or 1), 1)
+            scale = min(w / float(source_width), h / float(source_height))
+            draw_width = max(1.0, float(source_width) * scale)
+            draw_height = max(1.0, float(source_height) * scale)
+            draw_x = x + ((w - draw_width) / 2.0)
+            draw_y = y0 + ((h - draw_height) / 2.0)
+            image_name = f"Im{index}"
+            _draw_image(ops, name=image_name, x=draw_x, y=draw_y, width=draw_width, height=draw_height)
+            _draw_text(ops, f"Listing view {index}", x=x + 10, y=y0 - 18, size=8.8, font="F2", fill=(0.30, 0.36, 0.32))
+            gallery_page_images.append({**image, "name": image_name})
+        pages.append({"ops": ops, "images": gallery_page_images})
 
     scene_image = _load_pdf_image_resource(str(magic_fit_scene.get("image_url") or "").strip()) if magic_fit_scene else None
     if magic_fit_scene and scene_image is not None:
