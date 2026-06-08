@@ -1261,6 +1261,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("use_flatbee_reputation_penalty", True)),
                 "tooltip": "Flatbee stays available in all-provider sweeps, but this modifier heavily discounts its results because the source has a weak trust reputation and frequent duplicate-quality issues.",
                 "step": "providers",
+                "advanced_panel": "provider_policies",
             },
             {
                 "type": "checkbox",
@@ -1270,6 +1271,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("include_broker_direct_sources")),
                 "tooltip": "Track Makler-direkt lanes such as Kalandra and other broker-owned pages as a distinct source family, separate from marketplaces and cooperatives.",
                 "step": "providers",
+                "advanced_panel": "provider_policies",
             },
             {
                 "type": "checkbox",
@@ -1279,6 +1281,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("include_community_signals")),
                 "tooltip": "Include Facebook groups, Telegram hints, Flatbee-style community leads, and other off-market signals, but keep them separately verifiable.",
                 "step": "providers",
+                "advanced_panel": "provider_policies",
             },
             {
                 "type": "checkbox",
@@ -1288,6 +1291,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("require_manual_validation_for_community")),
                 "tooltip": "Community-sourced hits should be treated as unverified until a human confirms identity, freshness, and legitimacy.",
                 "step": "providers",
+                "advanced_panel": "provider_policies",
             },
             {
                 "type": "checkbox",
@@ -1297,6 +1301,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("include_developer_project_signals")),
                 "tooltip": "Track early-stage project and launch signals from Bauträger and premarket project sites.",
                 "step": "providers",
+                "advanced_panel": "provider_policies",
             },
             {
                 "type": "checkbox",
@@ -1306,6 +1311,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("include_public_housing_signals")),
                 "tooltip": "Track municipal, public housing, and Wohnservice-like lanes separately from commercial marketplaces.",
                 "step": "providers",
+                "advanced_panel": "provider_policies",
             },
             {
                 "type": "checkbox",
@@ -1315,6 +1321,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("include_distressed_sale_signals")),
                 "tooltip": "Track forced-sale, court-published, insolvency, and other distressed-sale lanes as their own signal family.",
                 "step": "providers",
+                "advanced_panel": "provider_policies",
             },
             {
                 "type": "checkbox_group",

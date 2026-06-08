@@ -1526,6 +1526,8 @@
                   Erweiterte Kinder- und Familienfilter
                   {% elif advanced_panel == 'commute' %}
                   Pendelziele und Zeitlimits
+                  {% elif advanced_panel == 'provider_policies' %}
+                  Signal- und Quellenpolitik
                   {% else %}
                   Erweiterte Lage- und Researchfilter
                   {% endif %}
@@ -1648,14 +1650,16 @@
             <div class="pqx-inline-error" data-property-inline-error></div>
           </form>
           {% set preference_manager = preference_manager or {} %}
-          <section
-            class="pqx-pref-manager"
+          <details
+            class="pqx-advanced-panel pqx-pref-manager"
             data-property-preference-manager
             data-preference-person-id="{{ preference_manager.get('person_id') or 'self' }}"
             data-preference-node-endpoint="{{ preference_manager.get('node_endpoint') or '/app/api/people/self/preference-profile/nodes' }}"
             data-preference-archive-endpoint-template="{{ preference_manager.get('archive_endpoint_template') or '/app/api/people/self/preference-profile/nodes/__NODE_ID__/archive' }}"
             data-preference-schema='{{ (preference_manager.get("schema") or {})|tojson|safe }}'
           >
+            <summary>Stored search profile</summary>
+            <div class="pqx-advanced-panel-grid">
             <div class="pqx-section-head">
               <div>
                 <h2>Search profile</h2>
@@ -1749,7 +1753,8 @@
                 <span class="pqx-inline-error" data-preference-error></span>
               </div>
             </form>
-          </section>
+            </div>
+          </details>
           {% else %}
           <div class="pqx-empty">The search brief is not editable while this run is active or completed.</div>
           {% endif %}
