@@ -753,9 +753,16 @@
 	        <div class="object-row">
 	          <div>
 	            <strong>Magic Fit lifestyle still</strong>
-	            <small>Opt-in only. PropertyQuarry uses selected reference photos as soft likeness guidance and renders a furnished scene for the dossier PDF. The output is always marked as a visual simulation.</small>
+	            <small>Opt-in only. Choose Google Photos, direct upload, or manual image links. PropertyQuarry uses the selected references as soft likeness guidance and renders a furnished dossier scene that always stays marked as a visual simulation.</small>
 	          </div>
 	          <div class="object-tag">Opt-in</div>
+	        </div>
+	        <div class="object-row">
+	          <div>
+	            <strong>Choose how to personalize</strong>
+	            <small>Upload 1 to 3 portraits directly if you do not want to connect Google Photos. Child references remain gated behind guardian confirmation.</small>
+	          </div>
+	          <div class="object-tag">Private</div>
 	        </div>
 	        <div class="object-actions">
 	          <button class="console-action" type="button" data-object-magicfit-scene="breakfast">Breakfast</button>
@@ -781,13 +788,20 @@
 	            <input type="text" data-object-magicfit-household-roles placeholder="e.g. mother, father, child">
 	          </label>
 	        </div>
-	        <label class="object-field">
-	          <span>Reference image URLs</span>
-	          <textarea data-object-magicfit-reference-urls placeholder="Paste 1 to 3 reference image URLs, one per line, or use Google Photos Picker below."></textarea>
-	        </label>
 	        <div class="object-actions">
+	          <button class="console-action" type="button" data-object-magicfit-upload-start>Upload reference photos</button>
 	          <button class="console-action" type="button" data-object-magicfit-google-start>Use Google Photos Picker</button>
 	          <button class="console-action" type="button" data-object-magicfit-google-check>Check Google selection</button>
+	        </div>
+	        <input type="file" accept="image/*" multiple hidden data-object-magicfit-upload-input>
+	        <div class="object-copy" data-object-magicfit-upload-status></div>
+	        <div class="object-list" data-object-magicfit-reference-list></div>
+	        <label class="object-field">
+	          <span>Manual reference image URLs</span>
+	          <textarea data-object-magicfit-reference-urls placeholder="Optional fallback: paste 1 to 3 reference image URLs, one per line."></textarea>
+	        </label>
+	        <div class="object-actions">
+	          <span class="object-copy">Selected uploads and Google Photos picks can be combined. PropertyQuarry will use at most 3 reference photos.</span>
 	        </div>
 	        <div class="object-copy" data-object-magicfit-google-status></div>
 	        <label class="object-check">
@@ -974,8 +988,13 @@
   const structuredFeedbackEndpoint = String(payload.structured_feedback_endpoint || '/app/api/property-feedback');
   const followupStatusEndpointTemplate = String(payload.followup_status_endpoint_template || '/app/api/property-feedback/__FEEDBACK_ID__/followup-status');
   const magicFitCreateEndpoint = String(payload.magic_fit_create_endpoint || '/app/api/property/magic-fit-scenes');
+  const magicFitUploadEndpoint = String(payload.magic_fit_upload_endpoint || '/app/api/property/magic-fit-reference-files');
   const googlePhotosSessionEndpoint = String(payload.google_photos_session_endpoint || '/app/api/signals/google/photos/session');
   const googlePhotosSessionStatusTemplate = String(payload.google_photos_session_status_endpoint_template || '/app/api/signals/google/photos/session/__SESSION_ID__');
+  const magicFitUploadStatus = root.querySelector('[data-object-magicfit-upload-status]');
+  const magicFitReferenceList = root.querySelector('[data-object-magicfit-reference-list]');
+  const magicFitUploadInput = root.querySelector('[data-object-magicfit-upload-input]');
+  let magicFitUploadedReferenceUrls = [];
   let magicFitSessionId = '';
   let magicFitPollingTimer = null;
   const renderMagicFitPreview = (scene) => {
@@ -999,7 +1018,29 @@
       <div class="object-copy">Visual simulation only. This is generated guidance for the decision dossier, not listing photography.</div>
     `;
   };
+  const renderMagicFitReferenceList = () => {
+    if (!magicFitReferenceList) return;
+    const manualUrls = String(root.querySelector('[data-object-magicfit-reference-urls]')?.value || '')
+      .split('\n')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const rows = [
+      ...magicFitUploadedReferenceUrls.map((url, index) => ({ title: `Uploaded reference ${index + 1}`, detail: url, tag: 'Upload' })),
+      ...manualUrls.map((url, index) => ({ title: `Manual reference ${index + 1}`, detail: url, tag: 'URL' })),
+      ...(magicFitSessionId ? [{ title: 'Google Photos session', detail: magicFitSessionId, tag: 'Picker' }] : []),
+    ];
+    magicFitReferenceList.innerHTML = rows.map((row) => `
+      <div class="object-row">
+        <div>
+          <strong>${String(row.title || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</strong>
+          <small>${String(row.detail || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</small>
+        </div>
+        <div class="object-tag">${String(row.tag || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</div>
+      </div>
+    `).join('') || '<div class="object-row"><div><strong>No references selected yet</strong><small>Upload 1 to 3 portraits, start Google Photos Picker, or paste image URLs.</small></div><div class="object-tag">Waiting</div></div>';
+  };
   renderMagicFitPreview(payload.magic_fit_scene || {});
+  renderMagicFitReferenceList();
   const renderFollowups = (rows) => {
     if (!followupsNode) return;
     const safeRows = Array.isArray(rows) ? rows : [];
@@ -1223,6 +1264,7 @@
       const pickerUri = String(body.picker_uri || '').trim();
       if (pickerUri) window.open(pickerUri, '_blank', 'noopener');
       if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Google Photos Picker opened. Select up to 3 reference photos, then return here.';
+      renderMagicFitReferenceList();
       if (magicFitPollingTimer) window.clearInterval(magicFitPollingTimer);
       magicFitPollingTimer = window.setInterval(async () => {
         const ready = await pollMagicFitGoogleSelection();
@@ -1237,6 +1279,47 @@
   });
   root.querySelector('[data-object-magicfit-google-check]')?.addEventListener('click', async () => {
     await pollMagicFitGoogleSelection();
+    renderMagicFitReferenceList();
+  });
+  root.querySelector('[data-object-magicfit-upload-start]')?.addEventListener('click', () => {
+    magicFitUploadInput?.click();
+  });
+  root.querySelector('[data-object-magicfit-reference-urls]')?.addEventListener('input', () => {
+    renderMagicFitReferenceList();
+  });
+  magicFitUploadInput?.addEventListener('change', async () => {
+    const selected = [...(magicFitUploadInput.files || [])].slice(0, 3);
+    if (!selected.length) return;
+    if (magicFitUploadStatus) magicFitUploadStatus.textContent = 'Uploading reference photos...';
+    try {
+      const items = await Promise.all(selected.map((file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({
+          file_name: file.name,
+          mime_type: file.type || 'image/jpeg',
+          data_url: String(reader.result || ''),
+        });
+        reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+        reader.readAsDataURL(file);
+      })));
+      const response = await fetch(magicFitUploadEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ items }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not upload the reference photos.'));
+      magicFitUploadedReferenceUrls = Array.isArray(body.items)
+        ? body.items.map((row) => String(row.reference_url || '').trim()).filter(Boolean).slice(0, 3)
+        : [];
+      renderMagicFitReferenceList();
+      if (magicFitUploadStatus) magicFitUploadStatus.textContent = `${magicFitUploadedReferenceUrls.length} reference photo${magicFitUploadedReferenceUrls.length === 1 ? '' : 's'} uploaded.`;
+    } catch (error) {
+      if (magicFitUploadStatus) magicFitUploadStatus.textContent = error instanceof Error ? error.message : 'Could not upload the reference photos.';
+    } finally {
+      if (magicFitUploadInput) magicFitUploadInput.value = '';
+    }
   });
   root.querySelector('[data-object-magicfit-generate]')?.addEventListener('click', async () => {
     const sceneType = String(root.querySelector('[data-object-magicfit-scene-type]')?.value || '').trim() || 'breakfast';
@@ -1246,10 +1329,11 @@
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean);
-    const referenceUrls = String(root.querySelector('[data-object-magicfit-reference-urls]')?.value || '')
+    const manualReferenceUrls = String(root.querySelector('[data-object-magicfit-reference-urls]')?.value || '')
       .split('\n')
       .map((value) => value.trim())
       .filter(Boolean);
+    const referenceUrls = [...magicFitUploadedReferenceUrls, ...manualReferenceUrls].slice(0, 6);
     const consent = Boolean(root.querySelector('[data-object-magicfit-consent]')?.checked);
     const includeChild = Boolean(root.querySelector('[data-object-magicfit-include-child]')?.checked);
     const childConsent = Boolean(root.querySelector('[data-object-magicfit-child-consent]')?.checked);
@@ -1281,6 +1365,7 @@
       if (!response.ok) throw new Error(String(body.detail || 'Could not generate the visual simulation.'));
       payload.magic_fit_scene = body;
       renderMagicFitPreview(body);
+      renderMagicFitReferenceList();
       if (magicFitStatus) magicFitStatus.textContent = 'Visual simulation ready. The next dossier PDF render can include this still.';
     } catch (error) {
       if (magicFitStatus) magicFitStatus.textContent = error instanceof Error ? error.message : 'Could not generate the visual simulation.';

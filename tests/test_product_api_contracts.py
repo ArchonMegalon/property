@@ -13372,6 +13372,37 @@ def test_property_magic_fit_scene_create_and_fetch(monkeypatch) -> None:
     assert latest_body["scene_type"] == "breakfast"
 
 
+def test_property_magic_fit_reference_upload_route_returns_urls(tmp_path) -> None:
+    principal_id = "exec-product-magic-fit-upload"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    uploaded = client.post(
+        "/app/api/property/magic-fit-reference-files",
+        json={
+            "items": [
+                {
+                    "file_name": "family-ref.jpg",
+                    "mime_type": "image/jpeg",
+                    "data_url": "data:image/jpeg;base64,ZmFrZS1qcGVnLWJpdHM=",
+                }
+            ]
+        },
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    body = uploaded.json()
+    assert body["status"] == "uploaded"
+    assert len(body["items"]) == 1
+    item = body["items"][0]
+    assert item["file_name"] == "family-ref.jpg"
+    assert item["mime_type"] == "image/jpeg"
+    assert item["reference_url"].startswith("/app/api/property/magic-fit-reference-files/")
+
+    fetched = client.get(item["reference_url"])
+    assert fetched.status_code == 200
+    assert fetched.content == b"fake-jpeg-bits"
+
+
 def test_property_magic_fit_scene_requires_consent(monkeypatch) -> None:
     principal_id = "exec-product-magic-fit-no-consent"
     client = build_product_client(principal_id=principal_id)

@@ -1367,6 +1367,29 @@ class PropertyMagicFitSceneOut(BaseModel):
     generated_at: str = ""
 
 
+class PropertyMagicFitReferenceAssetOut(BaseModel):
+    reference_id: str
+    file_name: str = ""
+    mime_type: str = ""
+    size_bytes: int = 0
+    reference_url: str = ""
+
+
+class PropertyMagicFitReferenceUploadOut(BaseModel):
+    status: str = "uploaded"
+    items: list[PropertyMagicFitReferenceAssetOut] = Field(default_factory=list)
+
+
+class PropertyMagicFitReferenceUploadItemIn(BaseModel):
+    file_name: str = Field(default="", max_length=240)
+    mime_type: str = Field(default="", max_length=120)
+    data_url: str = Field(min_length=1, max_length=12_000_000)
+
+
+class PropertyMagicFitReferenceUploadIn(BaseModel):
+    items: list[PropertyMagicFitReferenceUploadItemIn] = Field(default_factory=list, max_length=3)
+
+
 class PreferenceLearningFeedbackEventOut(BaseModel):
     event_type: str = ""
     recorded_at: str = ""

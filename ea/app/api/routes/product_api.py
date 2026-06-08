@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+import json
+import mimetypes
+import re
+import base64
+from pathlib import Path
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, require_operator_context
@@ -49,6 +57,9 @@ from app.api.routes.product_api_contracts import (
     PropertyDecisionCopilotIn,
     PropertyDecisionCopilotOut,
     PropertyMagicFitSceneCreateIn,
+    PropertyMagicFitReferenceAssetOut,
+    PropertyMagicFitReferenceUploadIn,
+    PropertyMagicFitReferenceUploadOut,
     PropertyMagicFitSceneOut,
     PropertyFeedbackSuggestionRequestIn,
     PropertyFeedbackSuggestionSetOut,
@@ -100,6 +111,16 @@ from app.services.fliplink import build_fliplink_packet_service
 from app.services.registration_email import property_notification_preview
 
 router = APIRouter(prefix="/app/api", tags=["product"])
+
+
+def _api_safe_token(value: object, fallback: str = "ref") -> str:
+    token = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(value or "").strip()).strip("-._")
+    return token[:120] or fallback
+
+
+def _magic_fit_reference_root(container: AppContainer, *, principal_id: str) -> Path:
+    base = Path(str(container.settings.storage.artifacts_dir)).resolve() / "magic_fit_refs"
+    return base / _api_safe_token(principal_id, "principal")
 
 
 class StructuredPropertyFeedbackIn(BaseModel):
@@ -1078,6 +1099,93 @@ def create_property_magic_fit_scene(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return PropertyMagicFitSceneOut(**payload)
+
+
+@router.post("/property/magic-fit-reference-files", response_model=PropertyMagicFitReferenceUploadOut)
+def upload_property_magic_fit_reference_files(
+    body: PropertyMagicFitReferenceUploadIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyMagicFitReferenceUploadOut:
+    items: list[PropertyMagicFitReferenceAssetOut] = []
+    root = _magic_fit_reference_root(container, principal_id=context.principal_id)
+    root.mkdir(parents=True, exist_ok=True)
+    accepted = list(body.items or [])[:3]
+    if not accepted:
+        raise HTTPException(status_code=422, detail="property_magic_fit_reference_photo_required")
+    for upload in accepted:
+        mime_type = str(upload.mime_type or "").strip().lower()
+        if not mime_type.startswith("image/"):
+            raise HTTPException(status_code=422, detail="property_magic_fit_reference_image_required")
+        data_url = str(upload.data_url or "").strip()
+        match = re.match(r"^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,(.+)$", data_url, re.IGNORECASE | re.DOTALL)
+        if match is None:
+            raise HTTPException(status_code=422, detail="property_magic_fit_reference_image_required")
+        try:
+            data = base64.b64decode(match.group(2), validate=False)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="property_magic_fit_reference_image_required") from exc
+        if not data:
+            raise HTTPException(status_code=422, detail="property_magic_fit_reference_image_required")
+        if len(data) > 8 * 1024 * 1024:
+            raise HTTPException(status_code=422, detail="property_magic_fit_reference_file_too_large")
+        suffix = Path(str(upload.file_name or "")).suffix.lower()
+        if not suffix:
+            suffix = mimetypes.guess_extension(mime_type) or ".jpg"
+        reference_id = f"magicfitref_{uuid4().hex}"
+        file_path = root / f"{reference_id}{suffix}"
+        meta_path = root / f"{reference_id}.json"
+        file_path.write_bytes(data)
+        meta_path.write_text(
+            json.dumps(
+                {
+                    "reference_id": reference_id,
+                    "file_name": str(upload.file_name or "").strip()[:240],
+                    "mime_type": mime_type[:120],
+                    "size_bytes": len(data),
+                    "file_name_on_disk": file_path.name,
+                },
+                ensure_ascii=True,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        items.append(
+            PropertyMagicFitReferenceAssetOut(
+                reference_id=reference_id,
+                file_name=str(upload.file_name or "").strip()[:240],
+                mime_type=mime_type[:120],
+                size_bytes=len(data),
+                reference_url=f"/app/api/property/magic-fit-reference-files/{reference_id}",
+            )
+        )
+    return PropertyMagicFitReferenceUploadOut(items=items)
+
+
+@router.get("/property/magic-fit-reference-files/{reference_id}")
+def get_property_magic_fit_reference_file(
+    reference_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> FileResponse:
+    root = _magic_fit_reference_root(container, principal_id=context.principal_id)
+    meta_path = root / f"{_api_safe_token(reference_id)}.json"
+    if not meta_path.exists():
+        raise HTTPException(status_code=404, detail="property_magic_fit_reference_not_found")
+    try:
+        metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="property_magic_fit_reference_not_found") from exc
+    file_name_on_disk = str(metadata.get("file_name_on_disk") or "").strip()
+    file_path = root / file_name_on_disk
+    if not file_name_on_disk or not file_path.exists():
+        raise HTTPException(status_code=404, detail="property_magic_fit_reference_not_found")
+    return FileResponse(
+        file_path,
+        media_type=str(metadata.get("mime_type") or "application/octet-stream"),
+        filename=str(metadata.get("file_name") or file_path.name),
+        headers={"Cache-Control": "private, max-age=3600", "X-Robots-Tag": "noindex, nofollow"},
+    )
 
 
 @router.get("/properties/{property_ref:path}/magic-fit-scene", response_model=PropertyMagicFitSceneOut | None)
