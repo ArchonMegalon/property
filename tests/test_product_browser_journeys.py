@@ -746,6 +746,29 @@ def test_google_settings_surface_connect_action_and_browser_connect_route(monkey
     assert "https://accounts.google.com/o/oauth2/v2/auth" in started_head.headers["location"]
 
 
+def test_google_settings_surface_accepts_google_photos_bundle(monkeypatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+    principal_id = "exec-browser-google-photos-connect"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+
+    started = client.get(
+        "/app/actions/google/connect",
+        params={"return_to": "/app/properties", "scope_bundle": "photos"},
+        follow_redirects=False,
+    )
+    assert started.status_code == 303
+    assert "https://accounts.google.com/o/oauth2/v2/auth" in started.headers["location"]
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(started.headers["location"]).query)
+    state = read_google_oauth_state(query["state"][0])
+    assert state["return_to"] == "/app/properties"
+    assert state["scope_bundle"] == "photos"
+
+
 def test_google_settings_surface_can_email_full_access_connect_link(monkeypatch) -> None:
     principal_id = "cf-email:browser.office@example.com"
     client = build_property_client(principal_id=principal_id)

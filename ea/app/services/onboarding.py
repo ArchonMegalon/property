@@ -50,7 +50,10 @@ GOOGLE_ONBOARDING_BUNDLE_ALIASES = {
     "verify": "verify",
     "all": "all",
     "core": "core",
+    "photos": "photos",
+    "core_photos": "core_photos",
     "full_workspace": "full_workspace",
+    "full_workspace_photos": "full_workspace_photos",
 }
 
 _GOOGLE_OAUTH_MISSING_CONFIG_HELP: dict[str, str] = {
