@@ -386,7 +386,12 @@
                 <input class="pq-pack-input" type="text" name="relationship" placeholder="Family / agent" autocomplete="off">
               </div>
               <div class="pq-pack-inline">
-                <input class="pq-pack-input" type="text" name="audience_type" placeholder="family" value="family" autocomplete="off">
+                <select class="pq-pack-input" name="audience_type" aria-label="Audience type">
+                  <option value="family">Family</option>
+                  <option value="advisor">Advisor</option>
+                  <option value="agent">Agent</option>
+                  <option value="investor">Investor</option>
+                </select>
                 <input class="pq-pack-input" type="text" name="variant_key" placeholder="family-v1" value="default" autocomplete="off">
                 <button class="pq-pack-button small" type="submit">Share packet</button>
               </div>

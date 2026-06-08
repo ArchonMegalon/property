@@ -1372,6 +1372,24 @@
       if (status) status.textContent = error instanceof Error ? error.message : 'Could not save feedback.';
     }
   });
+  const urlParams = new URL(window.location.href).searchParams;
+  const presetDecision = String(urlParams.get('decision') || '').trim().toLowerCase();
+  const presetPrompt = String(urlParams.get('prompt') || '').trim();
+  const shouldOpenClippy = String(urlParams.get('clippy') || '').trim() === '1' || Boolean(presetPrompt);
+  const decisionMap = { yes: 'like', maybe: 'maybe', no: 'dislike', hide: 'hide' };
+  if (decisionMap[presetDecision]) {
+    reaction = decisionMap[presetDecision];
+    root.querySelectorAll('[data-object-feedback-reaction]').forEach((candidate) => {
+      candidate.classList.toggle('active', candidate.getAttribute('data-object-feedback-reaction') === reaction);
+    });
+    if (status) status.textContent = 'Decision shortcut loaded from the email or shared link. Save when ready.';
+  }
+  if (shouldOpenClippy) {
+    if (clippyPanel) clippyPanel.hidden = false;
+    if (clippyToggle) clippyToggle.textContent = 'Hide Clippy';
+    if (clippyQuestion && presetPrompt) clippyQuestion.value = presetPrompt;
+    if (clippyStatus && presetPrompt) clippyStatus.textContent = 'Clippy prompt loaded from the email or shared link.';
+  }
 })();
 </script>
 {% endif %}

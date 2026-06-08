@@ -475,6 +475,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Original listing" in packet.text
     assert "Decision feedback" in packet.text
     assert "Decision pipeline" in packet.text
+    assert "Official risk evidence" in packet.text
     assert "Would you pursue this property?" in packet.text
     assert "Viewing requested" in packet.text
     assert "Documents requested" in packet.text
@@ -517,6 +518,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Email preview" in notifications_preview.text
     assert "Property match: Altbau near U6" in notifications_preview.text
     assert "PropertyQuarry shortlisted a property match" in notifications_preview.text
+    assert "No — tell us why" in notifications_preview.text
 
     workspace_preview = client.get("/app/properties/notifications/preview", params={"template": "workspace_invitation"}, headers=headers)
     assert workspace_preview.status_code == 200
@@ -684,6 +686,16 @@ def test_propertyquarry_workspace_hides_investment_research_for_rent() -> None:
     search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert search.status_code == 200
     assert 'name="investment_research_mode"' not in search.text
+
+
+def test_propertyquarry_workspace_provider_quality_surface_is_visible() -> None:
+    principal_id = "pq-provider-quality"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    response = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)
+    assert response.status_code == 200
+    assert "Provider quality" in response.text
 
 
 def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> None:

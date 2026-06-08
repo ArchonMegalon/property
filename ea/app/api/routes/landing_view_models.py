@@ -105,6 +105,75 @@ def _group_property_provider_options(options: list[dict[str, object]]) -> list[d
     return rows
 
 
+def _provider_quality_rows(
+    source_rows: list[dict[str, object]],
+    provider_options: list[dict[str, object]],
+) -> list[dict[str, str]]:
+    option_map = {
+        str(option.get("value") or "").strip().lower(): dict(option)
+        for option in provider_options
+        if str(option.get("value") or "").strip()
+    }
+    best_use_labels = {
+        "marketplace": "broad market coverage",
+        "broker_direct": "high-signal direct inventory",
+        "cooperative": "cooperative and family housing",
+        "public_housing": "municipal and public lanes",
+        "developer_projects": "new-build pipeline",
+        "distressed_sales": "auction and forced-sale scans",
+        "community_signals": "weak-signal off-market leads",
+        "community_meta": "watch-tier long tail",
+    }
+    rows: list[dict[str, str]] = []
+    for raw in source_rows[:8]:
+        if not isinstance(raw, dict):
+            continue
+        platform = str(raw.get("platform") or "").strip().lower()
+        option = option_map.get(platform, {})
+        label = str(option.get("label") or raw.get("source_label") or platform or "Provider").strip() or "Provider"
+        family = str(raw.get("provider_family") or option.get("family") or "marketplace").strip().lower() or "marketplace"
+        trust = str(raw.get("provider_trust_tier") or option.get("trust_tier") or "standard").strip().lower() or "standard"
+        scanned_total = 0
+        shortlist_total = 0
+        floorplan_filtered_total = 0
+        review_total = 0
+        tour_total = 0
+        try:
+            scanned_total = max(int(float(raw.get("scanned_listing_total") or raw.get("listing_total") or 0)), 0)
+            shortlist_total = max(int(float(raw.get("high_fit_total") or 0)), 0)
+            floorplan_filtered_total = max(int(float(raw.get("filtered_floorplan_total") or 0)), 0)
+            review_total = max(int(float(raw.get("review_created_total") or 0)) + int(float(raw.get("review_existing_total") or 0)), 0)
+            tour_total = max(int(float(raw.get("tour_created_total") or 0)) + int(float(raw.get("tour_existing_total") or 0)), 0)
+        except Exception:
+            pass
+        high_fit_rate = f"{round((shortlist_total / scanned_total) * 100)}%" if scanned_total else "n/a"
+        floorplan_completeness = f"{round(max(0.0, 1.0 - (floorplan_filtered_total / scanned_total)) * 100)}%" if scanned_total else "n/a"
+        tour_success = f"{round((tour_total / review_total) * 100)}%" if review_total else ("0%" if shortlist_total else "n/a")
+        detail_parts = [
+            f"{shortlist_total} shortlisted",
+            f"{high_fit_rate} high-fit rate",
+            f"{floorplan_completeness} floorplan completeness",
+            f"{tour_success} tour readiness",
+            f"best for {best_use_labels.get(family, family.replace('_', ' '))}",
+        ]
+        rows.append(
+            {
+                "title": label,
+                "detail": " | ".join(detail_parts),
+                "tag": f"{trust.title()} · {family.replace('_', ' ').title()}",
+            }
+        )
+    if not rows:
+        rows.append(
+            {
+                "title": "Provider quality will appear after the first run",
+                "detail": "Search at least one provider lane before PropertyQuarry can compare shortlist yield, floorplan completeness, and tour readiness.",
+                "tag": "Waiting",
+            }
+        )
+    return rows
+
+
 def _property_counterfactual_rows(
     *,
     preferences: dict[str, object],
@@ -2462,10 +2531,12 @@ def property_workspace_payload(
     run_payload = dict(property_state.get("run") or {})
     run_events = list(run_payload.get("events") or [])
     run_summary = dict(run_payload.get("summary") or {})
+    run_sources = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
     raw_research_tasks = list(run_payload.get("research_tasks") or run_summary.get("research_tasks") or [])
     selected_locations = _csv_values(property_preferences.get("location_query"))
     selected_keywords = _csv_values(property_preferences.get("keywords"))
     selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
+    provider_quality_rows = _provider_quality_rows(run_sources, provider_options)
     selected_candidate_ref = str(property_state.get("selected_candidate_ref") or "").strip()
     run_id = str(run_payload.get("run_id") or "").strip()
     run_suffix = f"?run_id={run_id}" if run_id else ""
@@ -3063,6 +3134,31 @@ def property_workspace_payload(
                 "risk_signal_rows": _candidate_risk_signal_rows(candidate),
                 "followup_rows": _candidate_followup_rows(candidate),
                 "recent_change_rows": _candidate_recent_change_rows(candidate),
+                "official_evidence_rows": [
+                    {
+                        "title": str(row.get("label") or row.get("risk_key") or "Official evidence").strip(),
+                        "detail": " | ".join(
+                            part
+                            for part in (
+                                str(row.get("source_label") or row.get("provider") or "").strip(),
+                                str(row.get("summary") or "").strip(),
+                                f"Next: {str(row.get('required_next_step') or '').strip()}" if str(row.get("required_next_step") or "").strip() else "",
+                            )
+                            if part
+                        ) or "Official source linked for this risk lane.",
+                        "tag": " · ".join(
+                            part
+                            for part in (
+                                str(row.get("availability") or "").replace("_", " ").title(),
+                                str(row.get("verification_state") or "").replace("_", " ").title(),
+                                str(row.get("confidence") or "").replace("_", " ").title(),
+                            )
+                            if part
+                        ),
+                    }
+                    for row in list(dict(facts.get("official_risk_evidence") or {}).get("sources") or [])[:4]
+                    if isinstance(row, dict)
+                ],
                 "household_alignment_score": int(dict(candidate.get("feedback_summary") or {}).get("household_alignment_score") or 0) if isinstance(candidate.get("feedback_summary"), dict) else 0,
                 "household_alignment_label": str(dict(candidate.get("feedback_summary") or {}).get("family_alignment") or "waiting") if isinstance(candidate.get("feedback_summary"), dict) else "waiting",
             }
@@ -3715,6 +3811,7 @@ def property_workspace_payload(
             if isinstance(item, dict)
         ],
         "results": workbench_results,
+        "provider_quality_rows": provider_quality_rows,
         "research_tasks": research_tasks[:50],
         "research_task_counts": {
             "total": research_task_total,

@@ -224,6 +224,50 @@ def _email_button(*, href: object, label: object, kind: str = "primary") -> str:
     return f'<a href="{_html_escape(url)}" style="{style}">{_html_escape(text)}</a>'
 
 
+def _append_query_params(href: object, **params: object) -> str:
+    url = str(href or "").strip()
+    if not url:
+        return ""
+    parsed = urllib.parse.urlsplit(url)
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    merged: dict[str, str] = {str(key): str(value) for key, value in query}
+    for key, value in params.items():
+        normalized_key = str(key or "").strip()
+        if not normalized_key:
+            continue
+        normalized_value = str(value or "").strip()
+        if not normalized_value:
+            merged.pop(normalized_key, None)
+        else:
+            merged[normalized_key] = normalized_value
+    encoded_query = urllib.parse.urlencode(list(merged.items()))
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, encoded_query, parsed.fragment))
+
+
+def _email_button_row(buttons: list[str]) -> str:
+    clean = [str(button or "").strip() for button in buttons if str(button or "").strip()]
+    if not clean:
+        return ""
+    return f'<div style="margin:0 0 14px;">{" &nbsp; ".join(clean)}</div>'
+
+
+def _property_decision_action_urls(
+    *,
+    packet_url: object = "",
+    tour_url: object = "",
+    property_url: object = "",
+) -> dict[str, str]:
+    review_url = str(packet_url or tour_url or property_url or "").strip()
+    return {
+        "review": review_url,
+        "yes": _append_query_params(review_url, decision="yes"),
+        "maybe": _append_query_params(review_url, decision="maybe"),
+        "no": _append_query_params(review_url, decision="no", clippy="1", prompt="What is the strongest blocker here?"),
+        "ask_agent": _append_query_params(review_url, clippy="1", prompt="What should I ask the agent next?"),
+        "investment_risk": _append_query_params(review_url, clippy="1", prompt="What is the biggest investment risk here?"),
+    }
+
+
 def _html_email_shell(*, title: str, body_html: str, preheader: str = "") -> str:
     preheader_html = (
         f'<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">{_html_escape(preheader)}</div>'
@@ -423,6 +467,21 @@ def _property_match_html(
         _html_link(href=tour_url, label="Open 360") if tour_url else "",
         _html_link(href=property_url, label="Source") if property_url else "",
     ]
+    action_urls = _property_decision_action_urls(packet_url=review_url or primary_link, tour_url=tour_url, property_url=property_url)
+    decision_buttons = _email_button_row(
+        [
+            _email_button(href=action_urls["yes"], label="Yes, shortlist"),
+            _email_button(href=action_urls["maybe"], label="Maybe, keep watching", kind="secondary"),
+            _email_button(href=action_urls["no"], label="No — tell us why", kind="secondary"),
+        ]
+    )
+    followup_buttons = _email_button_row(
+        [
+            _email_button(href=review_url or primary_link, label="Open review packet"),
+            _email_button(href=tour_url, label="Open 360", kind="secondary"),
+            _email_button(href=action_urls["ask_agent"], label="Ask agent", kind="secondary"),
+        ]
+    )
     reason_sections: list[str] = []
     for heading, values in (
         ("Why it stands out", good_fit_reasons[:4]),
@@ -446,6 +505,7 @@ def _property_match_html(
             '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
             'style="border-collapse:collapse;border:1px solid #ded6c8;background:#fffefa;">'
             f"{facts_html}</table>"
+            f"{decision_buttons}{followup_buttons}"
             f'<p style="margin:14px 0 0;">{" &nbsp; ".join(link for link in links if link)}</p>'
             + "".join(reason_sections)
             + _email_footer_html(reason="You are receiving this because PropertyQuarry shortlisted a property for your workspace.")
@@ -837,9 +897,16 @@ def send_property_tour_email(
     html_body = (
         '<div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;margin:0 0 10px;">Hosted review</div>'
         '<p style="margin:0 0 16px;font-size:15px;line-height:1.65;color:#51493f;">PropertyQuarry prepared a hosted 360 review for this property. Open the space first, then continue into the research packet and the decision desk.</p>'
-        f'<div style="margin:0 0 14px;">{_email_button(href=tour_url, label="Open hosted 360")}'
-        + (f' &nbsp; {_email_button(href=property_url, label="Open research packet", kind="secondary")}' if str(property_url or "").strip() else "")
-        + '</div>'
+    )
+    action_urls = _property_decision_action_urls(packet_url=property_url, tour_url=tour_url, property_url=property_url)
+    html_body += _email_button_row(
+        [
+            _email_button(href=tour_url, label="Open hosted 360"),
+            _email_button(href=property_url, label="Open research packet", kind="secondary") if str(property_url or "").strip() else "",
+            _email_button(href=action_urls["yes"], label="Yes, shortlist", kind="secondary"),
+            _email_button(href=action_urls["no"], label="No — tell us why", kind="secondary"),
+            _email_button(href=action_urls["ask_agent"], label="Ask agent", kind="secondary"),
+        ]
     )
     if str(property_url or "").strip():
         html_body += f'<p style="margin:0 0 14px;">{_html_link(href=property_url, label="Open research packet or listing context")}</p>'
@@ -1239,6 +1306,11 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
             ),
         }
     if normalized == "tour_ready":
+        action_urls = _property_decision_action_urls(
+            packet_url="https://propertyquarry.com/app/research/run-42/family-flat-near-augarten",
+            tour_url="https://propertyquarry.com/tours/family-flat-near-augarten",
+            property_url="https://propertyquarry.com/source/property-1",
+        )
         return {
             "template_key": normalized,
             "subject": "Apartment tour ready: Family flat near Augarten · layout first",
@@ -1256,12 +1328,23 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                     '<div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;">Hosted review</div>'
                     '<h1 style="margin:10px 0 12px 0;font-size:28px;line-height:1.2;color:#242321;">Hosted 360 review ready: Family flat near Augarten</h1>'
                     '<p style="margin:0 0 16px 0;font-size:15px;line-height:1.65;color:#51493f;">PropertyQuarry prepared a hosted 360 review for this property. Open the space first, then review the risks and missing facts.</p>'
-                    f'<p style="margin:0 0 12px;">{_html_link(href="https://propertyquarry.com/tours/family-flat-near-augarten", label="Open hosted 360")}</p>'
-                    f'<p style="margin:0;">{_html_link(href="https://propertyquarry.com/app/research/run-42/family-flat-near-augarten", label="Open research packet")}</p>'
+                    + _email_button_row(
+                        [
+                            _email_button(href="https://propertyquarry.com/tours/family-flat-near-augarten", label="Open hosted 360"),
+                            _email_button(href="https://propertyquarry.com/app/research/run-42/family-flat-near-augarten", label="Open research packet", kind="secondary"),
+                            _email_button(href=action_urls["yes"], label="Yes, shortlist", kind="secondary"),
+                            _email_button(href=action_urls["no"], label="No — tell us why", kind="secondary"),
+                        ]
+                    )
+                    + f'<p style="margin:0;">{_html_link(href=action_urls["ask_agent"], label="Ask agent about blockers or missing facts")}</p>'
                 ),
             ),
         }
     if normalized == "investment_research_ready":
+        action_urls = _property_decision_action_urls(
+            packet_url="https://propertyquarry.com/app/research/run-42/altbau-u6?investment=1",
+            property_url="https://propertyquarry.com/app/research/run-42/altbau-u6?investment=1",
+        )
         return {
             "template_key": normalized,
             "subject": "Investment research ready: yield, risk, and missing facts",
@@ -1283,7 +1366,14 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                     '<h1 style="margin:10px 0 12px 0;font-size:28px;line-height:1.2;color:#242321;">Investment research ready</h1>'
                     '<p style="margin:0 0 16px 0;font-size:15px;line-height:1.65;color:#51493f;">PropertyQuarry prepared the underwriting read with yield, risk, and missing-document posture.</p>'
                     '<ul style="margin:0 0 16px;padding-left:20px;"><li>Gross yield: 4.14%</li><li>Net yield: 2.8-3.2%</li><li>Missing documents: operating costs, energy certificate</li></ul>'
-                    f'<p style="margin:0;">{_html_link(href="https://propertyquarry.com/app/research/run-42/altbau-u6?investment=1", label="Open investment packet")}</p>'
+                    + _email_button_row(
+                        [
+                            _email_button(href="https://propertyquarry.com/app/research/run-42/altbau-u6?investment=1", label="Open investment packet"),
+                            _email_button(href=action_urls["ask_agent"], label="Ask for documents", kind="secondary"),
+                            _email_button(href=action_urls["no"], label="Pass — too risky", kind="secondary"),
+                        ]
+                    )
+                    + f'<p style="margin:0;">{_html_link(href=action_urls["investment_risk"], label="Open the biggest investment-risk explanation")}</p>'
                 ),
             ),
         }

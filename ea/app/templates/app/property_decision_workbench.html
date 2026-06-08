@@ -1986,6 +1986,16 @@
               </div>
             </section>
             <section class="pqx-card">
+              <div class="pqx-section-head"><h2>Official risk evidence</h2><span class="pqx-pill">Authority</span></div>
+              <div class="pqx-event-list" data-pw-official-evidence>
+                {% for row in selected.get('official_evidence_rows') or [] %}
+                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
+                {% else %}
+                <div class="pqx-note">No authoritative risk-evidence row is attached yet for the selected property.</div>
+                {% endfor %}
+              </div>
+            </section>
+            <section class="pqx-card">
               <div class="pqx-section-head"><h2>Decision feedback</h2><span class="pqx-pill">Learning</span></div>
               <div class="pqx-decision-copy">Would you pursue this property? The answer updates future ranking, keeps missing-fact follow-up visible, and only later contributes to anonymized market risk signals.</div>
               <div class="pqx-decision-row" aria-label="Property decision reaction">
@@ -2085,6 +2095,16 @@
               <div class="pqx-event-list" data-pw-recent-changes>
                 {% for row in selected.get('recent_change_rows') or [] %}
                 <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
+                {% endfor %}
+              </div>
+            </section>
+            <section class="pqx-card">
+              <div class="pqx-section-head"><h2>Provider quality</h2><span class="pqx-pill">Operator read</span></div>
+              <div class="pqx-event-list" data-pw-provider-quality>
+                {% for row in workbench.get('provider_quality_rows') or [] %}
+                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
+                {% else %}
+                <div class="pqx-note">Provider quality will appear after the first run completes.</div>
                 {% endfor %}
               </div>
             </section>
@@ -2300,6 +2320,7 @@
     const householdLabelNode = root.querySelector('[data-pw-household-label]');
     const riskSignalsNode = root.querySelector('[data-pw-risk-signals]');
     const recentChangesNode = root.querySelector('[data-pw-recent-changes]');
+    const officialEvidenceNode = root.querySelector('[data-pw-official-evidence]');
     const clippyToggle = root.querySelector('[data-pw-clippy-toggle]');
     const clippyPanel = root.querySelector('[data-pw-clippy-panel]');
     const clippyQuestionNode = root.querySelector('[data-pw-clippy-question]');
@@ -2729,6 +2750,14 @@
       if (householdLabelNode) householdLabelNode.textContent = String(candidate.household_alignment_label || 'waiting');
       if (riskSignalsNode) riskSignalsNode.innerHTML = renderRiskSignals(candidate.risk_signal_rows);
       if (recentChangesNode) recentChangesNode.innerHTML = renderRecentChanges(candidate.recent_change_rows);
+      if (officialEvidenceNode) {
+        const rows = Array.isArray(candidate.official_evidence_rows) ? candidate.official_evidence_rows : [];
+        officialEvidenceNode.innerHTML = rows.length
+          ? rows.map((row) => `
+            <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Official evidence')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
+          `).join('')
+          : '<div class="pqx-note">No authoritative risk-evidence row is attached yet for the selected property.</div>';
+      }
       if (followupsNode) {
         followupsNode.innerHTML = renderFollowups(candidate.followup_rows);
         followupsNode.querySelectorAll('[data-pw-followup-action]').forEach((button) => {
@@ -3906,6 +3935,24 @@
       if (statusUrl && status && !terminalStates.has(status)) {
         pollRun(statusUrl);
       }
+    }
+    const urlParams = new URL(window.location.href).searchParams;
+    const presetDecision = String(urlParams.get('decision') || '').trim().toLowerCase();
+    const presetPrompt = String(urlParams.get('prompt') || '').trim();
+    const shouldOpenClippy = String(urlParams.get('clippy') || '').trim() === '1' || Boolean(presetPrompt);
+    const decisionMap = { yes: 'like', maybe: 'maybe', no: 'dislike', hide: 'hide' };
+    if (decisionMap[presetDecision]) {
+      selectedFeedbackReaction = decisionMap[presetDecision];
+      feedbackReactionButtons.forEach((button) => {
+        button.classList.toggle('active', button.getAttribute('data-pw-feedback-reaction') === selectedFeedbackReaction);
+      });
+      if (feedbackStatusNode) feedbackStatusNode.textContent = 'Decision shortcut loaded from the email or shared link. Save when ready.';
+    }
+    if (shouldOpenClippy) {
+      if (clippyPanel) clippyPanel.hidden = false;
+      if (clippyToggle) clippyToggle.textContent = 'Hide Clippy';
+      if (clippyQuestionNode && presetPrompt) clippyQuestionNode.value = presetPrompt;
+      if (clippyStatusNode && presetPrompt) clippyStatusNode.textContent = 'Clippy prompt loaded from the email or shared link.';
     }
     initPreferenceManager();
   })();

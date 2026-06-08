@@ -1780,14 +1780,21 @@ def _property_packet_official_evidence_rows(facts: dict[str, object]) -> list[di
             continue
         title = str(row.get("label") or row.get("risk_key") or "Official evidence").strip()
         source_label = str(row.get("source_label") or row.get("provider") or "Official dataset").strip()
+        authority = str(row.get("authority_label") or row.get("provider") or "").strip()
         summary = str(row.get("summary") or "").strip()
         availability = str(row.get("availability") or "official_dataset").replace("_", " ").title()
-        detail = " | ".join(part for part in (source_label, summary) if part)
+        verification = str(row.get("verification_state") or "needs_review").replace("_", " ").title()
+        confidence = str(row.get("confidence") or "").replace("_", " ").title()
+        next_step = str(row.get("required_next_step") or "").strip()
+        scope = str(row.get("coverage_scope") or "").replace("_", " ").strip()
+        detail = " | ".join(part for part in (authority, source_label, summary, f"Scope: {scope}" if scope else "") if part)
+        if next_step:
+            detail = f"{detail} | Next: {next_step}" if detail else next_step
         rows.append(
             _object_detail_row(
                 title,
                 detail or "Official source attached for this risk lane.",
-                availability,
+                " · ".join(part for part in (availability, verification, confidence) if part),
                 href=str(row.get("source_url") or "").strip(),
             )
         )

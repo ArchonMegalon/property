@@ -5,6 +5,7 @@ import re
 import socket
 import threading
 import time
+import urllib.parse
 import urllib.request
 from collections.abc import Iterator
 
@@ -1075,9 +1076,9 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
 
         preview_expectations = {
             "search_results_ready": ("PropertyQuarry found 2 strong matches", "Open 360"),
-            "property_match": ("Property match: Altbau near U6", "Open 360"),
-            "tour_ready": ("Apartment tour ready: Family flat near Augarten", "Open hosted 360"),
-            "investment_research_ready": ("Investment research ready", "Open investment packet"),
+            "property_match": ("Property match: Altbau near U6", "No — tell us why"),
+            "tour_ready": ("Apartment tour ready: Family flat near Augarten", "No — tell us why"),
+            "investment_research_ready": ("Investment research ready", "Pass — too risky"),
             "workspace_invitation": ("Mara invited you to PropertyQuarry", "Review workspace invite"),
             "workspace_access": ("Your access link for PropertyQuarry Workspace", "Open access link"),
             "google_connect": ("Connect Google to PropertyQuarry Workspace", "Connect Google"),
@@ -1089,5 +1090,82 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
             assert page.locator("body", has_text="Email preview").is_visible()
             assert page.locator("body", has_text=subject_text).is_visible()
             assert page.frame_locator("iframe").locator("body", has_text=cta_text).is_visible()
+    finally:
+        context.close()
+
+
+def test_propertyquarry_flagship_operating_loop_in_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    property_ref = "https://www.immobilienscout24.de/expose/altbau-u6"
+    seeded = client.post(
+        "/app/api/property-feedback",
+        json={
+            "stakeholder_id": "advisor-anna",
+            "stakeholder_label": "Anna",
+            "property_ref": property_ref,
+            "category": "concern",
+            "sentiment": "negative",
+            "importance": 4,
+            "text": "Operating costs still need proof before a viewing.",
+            "source": "advisor_packet_review",
+            "decision_state": "documents_requested",
+        },
+    )
+    assert seeded.status_code == 200, seeded.text
+
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
+        assert response is not None and response.ok
+        assert page.locator("body", has_text="Provider quality").is_visible()
+        candidate_ref = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-ref")
+        packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
+        assert candidate_ref
+        assert packet_path
+        response = page.goto(f"{base_url}/app/properties?run_id=run-42&candidate={candidate_ref}", wait_until="networkidle")
+        assert response is not None and response.ok
+        assert page.locator("body", has_text="Official risk evidence").is_visible()
+        with page.expect_response("**/app/api/people/*/preference-profile/property-feedback") as save_response_info:
+            page.get_by_role("button", name="No", exact=True).click()
+            page.get_by_role("button", name="Save decision").click()
+        assert save_response_info.value.ok
+        page.get_by_role("button", name="Open Clippy").click()
+        page.get_by_role("button", name="Ask agent next").click()
+        with page.expect_response("**/app/api/property/decision-copilot") as clippy_response_info:
+            page.get_by_role("button", name="Ask Clippy").click()
+        assert clippy_response_info.value.ok
+        with page.expect_response("**/app/api/property-feedback") as followup_response_info:
+            page.get_by_role("button", name=re.compile(r"Ask agent:")).first.click()
+        assert followup_response_info.value.ok
+        with page.expect_response("**/app/api/properties/*/packets/render") as packet_response_info:
+            page.get_by_role("button", name="Create share packet").first.click()
+        assert packet_response_info.value.ok
+        page.wait_for_url(lambda url: "/app/properties/packets" in str(url), wait_until="networkidle", timeout=5000)
+        assert page.locator("body", has_text="Household review").is_visible()
+        assert page.locator("body", has_text="What changed").is_visible()
+        share_form = page.locator('[data-packet-share-form]').first
+        share_form.locator('input[name="recipient_name"]').fill("Anna")
+        share_form.locator('input[name="recipient_email"]').fill("anna@example.com")
+        share_form.locator('input[name="relationship"]').fill("Advisor")
+        share_form.locator('select[name="audience_type"]').select_option("advisor")
+        with page.expect_response("**/app/api/properties/packets/*/shares") as share_response_info:
+            share_form.locator('button[type="submit"]').click()
+        assert share_response_info.value.ok
+        response = page.goto(f"{base_url}/app/properties/notifications/preview?template=property_match", wait_until="networkidle")
+        assert response is not None and response.ok
+        no_link = page.frame_locator("iframe").get_by_role("link", name="No — tell us why")
+        href = no_link.get_attribute("href")
+        assert href and "decision=no" in href and "clippy=1" in href
+        response = page.goto(f"{base_url}{packet_path}?run_id=run-42&decision=no&clippy=1&prompt=What%20is%20the%20strongest%20blocker%20here%3F", wait_until="networkidle")
+        assert response is not None and response.ok
+        assert page.locator("body", has_text="Decision shortcut loaded from the email or shared link.").is_visible()
+        assert page.locator("body", has_text="Clippy prompt loaded from the email or shared link.").is_visible()
+        assert page.locator("body", has_text="Tracked follow-up").is_visible()
     finally:
         context.close()
