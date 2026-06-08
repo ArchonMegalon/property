@@ -25204,6 +25204,10 @@ class ProductService:
         recipient_email = _principal_email_hint(principal_id)
         if not recipient_email or not email_delivery_enabled():
             return {"status": "suppressed", "reason": "email_delivery_not_configured"}
+        gmail_binding_candidates = self._google_delivery_binding_candidates(
+            principal_id=principal_id,
+            account_email=recipient_email,
+        )
         dedupe_suffix = datetime.now(timezone.utc).strftime("%Y%m%d")
         dedupe_key = f"{principal_id}|{source_ref}|property-scout-hit-email|{dedupe_suffix}"
         if self._recent_product_event_exists(
@@ -25242,24 +25246,83 @@ class ProductService:
                 fit_summary=_property_alert_fit_summary(dict(assessment or {})),
                 decision_summary_json=dict(assessment or {}),
             )
+            provider = str(receipt.provider or "").strip()
+            message_id = str(receipt.message_id or "").strip()
         except Exception as exc:
-            payload = {
-                "property_url": property_url,
-                "source_ref": source_ref,
-                "tour_url": tour_url,
-                "review_url": review_href,
-                "actor": str(actor or "").strip() or "property_scout",
-                "recipient_email": recipient_email,
-                "error": compact_text(str(exc or ""), fallback="email_delivery_failed", limit=160),
-            }
-            self._record_product_event(
-                principal_id=principal_id,
-                event_type="property_scout_hit_email_failed",
-                payload=payload,
-                source_id=source_ref,
-                dedupe_key=dedupe_key,
-            )
-            return {"status": "failed", "reason": payload["error"], "recipient_email": recipient_email}
+            normalized_error = compact_text(str(exc or ""), fallback="email_delivery_failed", limit=300)
+            if "Domain not verified" in normalized_error and gmail_binding_candidates:
+                gmail_subject = f"PropertyQuarry found a new match · {compact_text(title, fallback='Property scout update', limit=90)}"
+                lines = [
+                    str(summary or "").strip() or "PropertyQuarry found a new property match.",
+                    "",
+                    f"Listing: {property_url}",
+                ]
+                if review_href:
+                    lines.append(f"Dossier: {review_href}")
+                if tour_url:
+                    lines.append(f"Tour: {tour_url}")
+                recommendation = str(dict(assessment or {}).get("recommendation") or "").strip()
+                if recommendation:
+                    lines.extend(["", f"Recommendation: {recommendation}"])
+                last_gmail_error: Exception | None = None
+                for candidate_binding_id, candidate_sender_email, candidate_principal_id in gmail_binding_candidates:
+                    try:
+                        gmail_receipt = google_oauth_service.send_google_gmail_message(
+                            container=self._container,
+                            principal_id=candidate_principal_id,
+                            recipient_email=recipient_email,
+                            subject=gmail_subject,
+                            body_text="\n".join(line for line in lines if line is not None).strip(),
+                            binding_id=candidate_binding_id,
+                        )
+                        provider = "google_gmail"
+                        message_id = str(
+                            getattr(gmail_receipt, "gmail_message_id", "")
+                            or getattr(gmail_receipt, "message_id", "")
+                            or ""
+                        ).strip()
+                        break
+                    except Exception as gmail_exc:
+                        last_gmail_error = gmail_exc
+                        continue
+                else:
+                    exc = last_gmail_error or exc
+                    normalized_error = compact_text(str(exc or ""), fallback="email_delivery_failed", limit=160)
+                    payload = {
+                        "property_url": property_url,
+                        "source_ref": source_ref,
+                        "tour_url": tour_url,
+                        "review_url": review_href,
+                        "actor": str(actor or "").strip() or "property_scout",
+                        "recipient_email": recipient_email,
+                        "error": normalized_error,
+                    }
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="property_scout_hit_email_failed",
+                        payload=payload,
+                        source_id=source_ref,
+                        dedupe_key=dedupe_key,
+                    )
+                    return {"status": "failed", "reason": payload["error"], "recipient_email": recipient_email}
+            else:
+                payload = {
+                    "property_url": property_url,
+                    "source_ref": source_ref,
+                    "tour_url": tour_url,
+                    "review_url": review_href,
+                    "actor": str(actor or "").strip() or "property_scout",
+                    "recipient_email": recipient_email,
+                    "error": compact_text(str(exc or ""), fallback="email_delivery_failed", limit=160),
+                }
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_scout_hit_email_failed",
+                    payload=payload,
+                    source_id=source_ref,
+                    dedupe_key=dedupe_key,
+                )
+                return {"status": "failed", "reason": payload["error"], "recipient_email": recipient_email}
         payload = {
             "property_url": property_url,
             "source_ref": source_ref,
@@ -25267,8 +25330,8 @@ class ProductService:
             "review_url": review_href,
             "actor": str(actor or "").strip() or "property_scout",
             "recipient_email": recipient_email,
-            "provider": str(receipt.provider or "").strip(),
-            "message_id": str(receipt.message_id or "").strip(),
+            "provider": provider,
+            "message_id": message_id,
             "dossier_publication_id": str(dossier_render.get("publication_id") or "").strip(),
             "dossier_public_pdf_url": str(dossier_render.get("public_pdf_url") or "").strip(),
         }
@@ -25279,7 +25342,7 @@ class ProductService:
             source_id=source_ref,
             dedupe_key=dedupe_key,
         )
-        return {"status": "sent", "recipient_email": recipient_email, "message_id": str(receipt.message_id or "").strip()}
+        return {"status": "sent", "recipient_email": recipient_email, "message_id": message_id}
 
     def property_alert_policy(self, *, principal_id: str) -> dict[str, object]:
         event = self._latest_product_event(

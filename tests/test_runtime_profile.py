@@ -36,6 +36,7 @@ def _clear_env() -> None:
         "EA_REGISTRATION_EMAIL_FROM_FALLBACK",
         "EA_EMAIL_DEFAULT_FROM",
         "EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER",
+        "EA_ALLOWED_EMAIL_SENDER_DOMAINS",
         "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER",
         "EA_CF_ACCESS_TEAM_DOMAIN",
         "EA_CF_ACCESS_AUD",
@@ -60,6 +61,7 @@ def _isolated_env() -> None:
         "EA_REGISTRATION_EMAIL_FROM_FALLBACK": os.environ.get("EA_REGISTRATION_EMAIL_FROM_FALLBACK"),
         "EA_EMAIL_DEFAULT_FROM": os.environ.get("EA_EMAIL_DEFAULT_FROM"),
         "EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER": os.environ.get("EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER"),
+        "EA_ALLOWED_EMAIL_SENDER_DOMAINS": os.environ.get("EA_ALLOWED_EMAIL_SENDER_DOMAINS"),
         "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER": os.environ.get("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"),
         "EA_CF_ACCESS_TEAM_DOMAIN": os.environ.get("EA_CF_ACCESS_TEAM_DOMAIN"),
         "EA_CF_ACCESS_AUD": os.environ.get("EA_CF_ACCESS_AUD"),
@@ -187,6 +189,18 @@ def test_prod_allows_registration_sender_domain_override() -> None:
     os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
     os.environ["EA_REGISTRATION_EMAIL_FROM"] = "concierge@chummer.run"
     os.environ["EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER"] = "1"
+    profile = validate_startup_settings(get_settings())
+    assert profile.storage_backend == "postgres"
+
+
+def test_prod_allows_registration_sender_domain_allowlist() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    os.environ["EA_SIGNING_SECRET"] = "signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_REGISTRATION_EMAIL_FROM"] = "office@girschele.com"
+    os.environ["EA_ALLOWED_EMAIL_SENDER_DOMAINS"] = "girschele.com"
     profile = validate_startup_settings(get_settings())
     assert profile.storage_backend == "postgres"
 

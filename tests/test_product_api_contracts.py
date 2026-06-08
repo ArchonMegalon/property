@@ -774,6 +774,65 @@ def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> No
     assert observed["property_url"] == "https://www.immobilienscout24.at/expose/telegram-test-property-dossier"
 
 
+def test_property_scout_hit_email_falls_back_to_google_gmail_on_unverified_sender(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Alert Gmail Fallback Office")
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+
+    monkeypatch.setattr(
+        ProductService,
+        "_render_property_scout_dossier",
+        lambda self, **kwargs: {
+            "status": "rendered",
+            "publication_id": "pub_mail_gmail_test",
+            "pdf_path": "/tmp/property-scout-mail-gmail.pdf",
+            "public_pdf_url": "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/test-token-gmail",
+            "caption": "PropertyQuarry dossier · Mail gmail fallback test",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_property_match_email",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError('registration_email_send_failed:422:{"error":"Domain not verified"}')),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_google_delivery_binding_candidates",
+        lambda self, *, principal_id, account_email="": [("binding-1", "office@girschele.com", principal_id)],
+    )
+
+    observed_gmail: dict[str, object] = {}
+
+    class _GmailReceipt:
+        gmail_message_id = "gmail-message-1"
+
+    monkeypatch.setattr(
+        product_service.google_oauth_service,
+        "send_google_gmail_message",
+        lambda **kwargs: observed_gmail.update(kwargs) or _GmailReceipt(),
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service._send_property_scout_hit_email(
+        principal_id=principal_id,
+        actor="test",
+        title="Scout alert for 1050 Vienna",
+        summary="New Neubau listing with lift and storage room.",
+        counterparty="ImmoScout24 Austria",
+        property_url="https://www.immobilienscout24.at/expose/telegram-test-property-dossier",
+        source_ref="gmail-thread:elisabeth.girschele@gmail.com:test-property-alert-email-gmail-fallback",
+        assessment={"fit_score": 64.0, "recommendation": "ask_for_clarification"},
+        review_url="",
+        tour_result={"status": "blocked", "blocked_reason": "browseract_connector_unconfigured"},
+    )
+
+    assert result["status"] == "sent"
+    assert result["message_id"] == "gmail-message-1"
+    assert observed_gmail["recipient_email"] == "tibor.girschele@gmail.com"
+    assert "Dossier: https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/test-token-gmail" in str(observed_gmail["body_text"])
+
+
 def test_signal_ingest_property_alert_sends_workspace_review_link_for_cf_email_principal(monkeypatch) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
