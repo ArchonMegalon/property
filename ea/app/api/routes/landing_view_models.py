@@ -1148,6 +1148,9 @@ def app_section_payload(
                 if str(item or "").strip()
             ]
             priority_reason = _candidate_priority_reason(match_reasons, mismatch_reasons, str(candidate.get("fit_summary") or "").strip())
+            compare_reason = str(candidate.get("compare_reason") or "").strip()
+            if compare_reason:
+                detail_parts.append(compare_reason)
             if priority_reason:
                 detail_parts.append(priority_reason)
             row: dict[str, str] = {

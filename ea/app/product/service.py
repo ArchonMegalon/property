@@ -6709,6 +6709,89 @@ def _property_alert_fit_score(assessment: dict[str, object] | None) -> float:
         return 0.0
 
 
+def _property_candidate_float(value: object) -> float | None:
+    try:
+        parsed = float(value)
+    except Exception:
+        return None
+    if math.isnan(parsed) or math.isinf(parsed):
+        return None
+    return parsed
+
+
+def _property_candidate_choice_reason(
+    candidate: dict[str, object] | None,
+    peers: tuple[dict[str, object], ...] = (),
+    *,
+    top_choice: bool = False,
+) -> str:
+    if not isinstance(candidate, dict):
+        return ""
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    score = _property_candidate_float(candidate.get("fit_score"))
+    comparison_peer = next((item for item in peers if isinstance(item, dict)), None)
+    if comparison_peer is None:
+        if top_choice and score is not None:
+            return f"Chosen because it stayed closest to the current brief with a {int(round(score))}/100 personal fit."
+        return ""
+
+    peer_facts = (
+        dict(comparison_peer.get("property_facts") or {})
+        if isinstance(comparison_peer.get("property_facts"), dict)
+        else {}
+    )
+    peer_score = _property_candidate_float(comparison_peer.get("fit_score"))
+    reasons: list[str] = []
+    if score is not None and peer_score is not None:
+        score_gap = score - peer_score
+        if score_gap >= 3.0:
+            reasons.append(f"it scored {int(round(score_gap))} points higher on the current brief")
+
+    has_floorplan = bool(facts.get("has_floorplan")) or int(facts.get("floorplan_count") or 0) > 0
+    peer_has_floorplan = bool(peer_facts.get("has_floorplan")) or int(peer_facts.get("floorplan_count") or 0) > 0
+    if has_floorplan and not peer_has_floorplan:
+        reasons.append("it includes a floorplan while the next option does not")
+
+    rooms = _property_candidate_float(facts.get("rooms"))
+    peer_rooms = _property_candidate_float(peer_facts.get("rooms"))
+    if rooms is not None and peer_rooms is not None and rooms - peer_rooms >= 1.0:
+        reasons.append("it offers more usable room count")
+
+    area = _property_candidate_float(
+        facts.get("area_sqm") if facts.get("area_sqm") not in (None, "") else facts.get("area_m2")
+    )
+    peer_area = _property_candidate_float(
+        peer_facts.get("area_sqm") if peer_facts.get("area_sqm") not in (None, "") else peer_facts.get("area_m2")
+    )
+    if area is not None and peer_area is not None and area - peer_area >= 8.0:
+        reasons.append("it offers noticeably more usable area")
+
+    cost = _property_candidate_float(
+        facts.get("total_rent_eur")
+        if facts.get("total_rent_eur") not in (None, "")
+        else facts.get("price_eur")
+    )
+    peer_cost = _property_candidate_float(
+        peer_facts.get("total_rent_eur")
+        if peer_facts.get("total_rent_eur") not in (None, "")
+        else peer_facts.get("price_eur")
+    )
+    if cost is not None and peer_cost is not None and peer_cost - cost >= 100.0:
+        reasons.append("it stays meaningfully cheaper than the next option")
+
+    has_360 = bool(facts.get("has_360")) or bool(str(facts.get("source_virtual_tour_url") or "").strip())
+    peer_has_360 = bool(peer_facts.get("has_360")) or bool(str(peer_facts.get("source_virtual_tour_url") or "").strip())
+    if has_360 and not peer_has_360:
+        reasons.append("it also has better remote-review evidence once the core fit is close")
+
+    if not reasons:
+        if top_choice:
+            return "Chosen because it stayed closest to the current brief on the available facts."
+        return ""
+    lead = "Chosen ahead of the next option because" if top_choice else "Ranked ahead of the next option because"
+    return f"{lead} {compact_text('; '.join(reasons[:3]), fallback='', limit=220)}."
+
+
 def _property_alert_facts_for_url(property_url: str) -> tuple[dict[str, object], str]:
     normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
     if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
@@ -7115,7 +7198,17 @@ def _property_alert_ranked_candidates(
             }
         )
     rows.sort(key=lambda item: (float(item.get("fit_score") or 0.0), str(item.get("recommendation") or "")), reverse=True)
-    return tuple(rows[: max(1, limit)])
+    trimmed = rows[: max(1, limit)]
+    annotated: list[dict[str, object]] = []
+    for index, row in enumerate(trimmed):
+        enriched = dict(row)
+        enriched["compare_reason"] = _property_candidate_choice_reason(
+            enriched,
+            tuple(trimmed[index + 1 :]),
+            top_choice=index == 0,
+        )
+        annotated.append(enriched)
+    return tuple(annotated)
 
 
 def _default_property_alert_policy() -> dict[str, object]:
@@ -8347,12 +8440,15 @@ def _property_alert_review_telegram_text(
         if total > 1:
             extra_lines.append(f"EA found {total} concrete listings in this alert.")
         top_summary = str(top.get('fit_summary') or '').strip()
+        compare_reason = str(top.get("compare_reason") or "").strip()
         top_url = str(top.get('property_url') or '').strip()
         listing_title = str(top.get('listing_title') or '').strip()
         if listing_title and listing_title != headline:
             extra_lines.append(f"Top listing title: {compact_text(listing_title, fallback='', limit=140)}")
         if top_summary:
             extra_lines.append(f"Top candidate: {top_summary}")
+        if compare_reason:
+            extra_lines.append(f"Why it won: {compact_text(compare_reason, fallback='', limit=220)}")
         if top_url and top_url != str(property_url or '').strip() and not str(tour_url or "").strip() and not str(review_url or "").strip():
             extra_lines.append(f"Top listing: {top_url}")
         top_assessment = dict(top.get("assessment") or {}) if isinstance(top.get("assessment"), dict) else {}
@@ -22030,6 +22126,18 @@ class ProductService:
                     }
                 )
 
+            sorted_top_candidates_for_source = sorted(
+                top_candidates_for_source,
+                key=lambda item: float(item.get("fit_score") or 0.0),
+                reverse=True,
+            )
+            for index, candidate in enumerate(sorted_top_candidates_for_source):
+                candidate["compare_reason"] = _property_candidate_choice_reason(
+                    candidate,
+                    tuple(sorted_top_candidates_for_source[index + 1 :]),
+                    top_choice=index == 0,
+                )
+
             if (
                 notify_telegram
                 and high_fit_for_source == 0
@@ -22138,8 +22246,8 @@ class ProductService:
                     "high_fit_total": high_fit_for_source,
                     "watch_notified_total": watch_notified_for_source,
                     "top_fit_score": max((_property_alert_fit_score(dict(item.get("assessment") or {})) for item in ranked_rows), default=0.0),
-                    "top_candidates": top_candidates_for_source[:5],
-                    "research_candidates": top_candidates_for_source,
+                    "top_candidates": sorted_top_candidates_for_source[:5],
+                    "research_candidates": sorted_top_candidates_for_source,
                 }
             )
             _report(

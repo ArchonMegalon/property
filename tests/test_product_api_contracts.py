@@ -4794,6 +4794,41 @@ def test_property_alert_fit_summary_omits_360_when_it_is_the_only_positive_reaso
     assert "supports remote review" not in summary.lower()
 
 
+def test_property_candidate_choice_reason_prefers_brief_gap_over_tour_presence() -> None:
+    reason = product_service._property_candidate_choice_reason(
+        {
+            "fit_score": 67.0,
+            "property_facts": {
+                "has_floorplan": True,
+                "floorplan_count": 2,
+                "rooms": 3,
+                "area_sqm": 93.0,
+                "total_rent_eur": 2299.0,
+                "has_360": True,
+            },
+        },
+        (
+            {
+                "fit_score": 61.0,
+                "property_facts": {
+                    "has_floorplan": False,
+                    "floorplan_count": 0,
+                    "rooms": 2,
+                    "area_sqm": 78.0,
+                    "total_rent_eur": 2499.0,
+                    "has_360": False,
+                },
+            },
+        ),
+        top_choice=True,
+    )
+
+    assert "Chosen ahead of the next option because" in reason
+    assert "scored 6 points higher" in reason
+    assert "includes a floorplan" in reason
+    assert "remote-review evidence" not in reason
+
+
 def test_property_alert_review_telegram_text_prefers_internal_tour_link() -> None:
     text = product_service._property_alert_review_telegram_text(
         title="Watch fit apartment",
@@ -4818,6 +4853,30 @@ def test_property_alert_review_telegram_text_prefers_internal_tour_link() -> Non
     assert "3D tour: https://myexternalbrain.com/tours/watch-fit-1" in text
     assert "Listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
     assert "Top listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
+
+
+def test_property_alert_review_telegram_text_includes_compare_reason() -> None:
+    text = product_service._property_alert_review_telegram_text(
+        title="Watch fit apartment",
+        summary="Recent scout hit.",
+        counterparty="IMMMO",
+        account_email="elisabeth.girschele@gmail.com",
+        property_url="https://www.immobilienscout24.at/expose/watch-fit-1",
+        personal_fit_assessment={"fit_score": 54.0, "recommendation": "ask_for_clarification"},
+        candidate_properties=(
+            {
+                "property_url": "https://www.immobilienscout24.at/expose/watch-fit-1",
+                "listing_title": "Watch fit apartment",
+                "fit_score": 54.0,
+                "recommendation": "ask_for_clarification",
+                "fit_summary": "Personal fit 54/100 · ask for clarification",
+                "compare_reason": "Chosen ahead of the next option because it scored 6 points higher on the current brief.",
+                "assessment": {"fit_score": 54.0, "recommendation": "ask_for_clarification"},
+            },
+        ),
+    )
+
+    assert "Why it won: Chosen ahead of the next option because it scored 6 points higher on the current brief." in text
 
 
 def test_property_alert_review_telegram_text_prefers_review_link_over_listing() -> None:

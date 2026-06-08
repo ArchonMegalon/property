@@ -84,6 +84,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
         "title": "Altbau near U6",
         "property_url": "https://www.immobilienscout24.de/expose/altbau-u6",
         "fit_summary": "Personal fit 92/100 · shortlist · Lift and transit fit.",
+        "compare_reason": "Chosen ahead of the next option because it scored 5 points higher on the current brief; it includes a floorplan while the next option does not.",
         "recommendation": "shortlist",
         "review_url": "https://propertyquarry.com/app/handoffs/human_task:review-1",
         "tour_url": "https://propertyquarry.com/tours/altbau-u6",
@@ -430,6 +431,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-research-task-action="dismiss"' in search.text
     assert "EUR 5,385/m2" in search.text
     assert "Open 360" in search.text
+    assert "Chosen ahead of the next option because it scored 5 points higher on the current brief" in search.text
     assert "Preferred because: Lift and transit fit." in search.text
     assert "Preferred because: Includes a live 360 source" not in search.text
     assert "Review packet" in search.text
