@@ -255,7 +255,7 @@ def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     assert hashlib.sha256(pdf_bytes).hexdigest() == rendered["pdf_sha256"]
     assert rendered["receipt"]["pdf_sha256"] == rendered["pdf_sha256"]
     assert rendered["receipt"]["source_pdf_size_bytes"] == len(pdf_bytes)
-    assert rendered["receipt"]["renderer_version"] == "v5_agency_dossier_pdf"
+    assert rendered["receipt"]["renderer_version"] == "v6_office_dossier_pdf"
     assert rendered["receipt"]["renderer_kind"] == "branded_visual_pdf"
     assert "section_cards" in rendered["receipt"]["visual_elements"]
 
@@ -314,6 +314,8 @@ def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
     assert rendered["receipt"]["embedded_media_refs"] == {"floorplans": 1, "photos": 1}
     assert b"PropertyQuarry" in pdf_bytes
     assert b"Media appendix" not in pdf_bytes
+    assert b"v5_agency_dossier_pdf" not in pdf_bytes
+    assert b"flipbook_3d" not in pdf_bytes
     assert b"https://packets.propertyquarry.com/assets/floorplan.pdf" not in pdf_bytes
     assert b"https://packets.propertyquarry.com/assets/photo.jpg" not in pdf_bytes
     assert b"Executive summary" in pdf_bytes
@@ -321,7 +323,9 @@ def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
     assert b"Chosen ahead" in pdf_bytes
     assert b"next option" in pdf_bytes
     assert b"includes a floorplan" in pdf_bytes
-    assert b"roughly 4 minutes on foot" in pdf_bytes
+    assert b"roughly" in pdf_bytes
+    assert b"4 minutes" in pdf_bytes
+    assert b"on foot" in pdf_bytes
     assert b" re f" in pdf_bytes
 
 

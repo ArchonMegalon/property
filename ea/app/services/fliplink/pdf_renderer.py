@@ -19,7 +19,7 @@ from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, Prop
 from app.services.fliplink.privacy import REDACTION_POLICY_VERSION, redact_property_packet
 
 
-PDF_RENDERER_VERSION = "v5_agency_dossier_pdf"
+PDF_RENDERER_VERSION = "v6_office_dossier_pdf"
 PDF_RENDERER_FALLBACK_VERSION = "v4_visual_packet_pdf"
 PAGE_WIDTH = 612
 PAGE_HEIGHT = 842
@@ -109,6 +109,29 @@ def _money_phrase(value: object) -> str:
         except Exception:
             return str(value)
     return str(value or "").strip()
+
+
+def _office_packet_label(packet_kind: PropertyPacketKind) -> str:
+    labels = {
+        PropertyPacketKind.FAMILY_REVIEW: "Family dossier",
+        PropertyPacketKind.OWNER_REVIEW: "Owner review dossier",
+        PropertyPacketKind.AGENT_BRIEF: "Agent-ready dossier",
+        PropertyPacketKind.SHORTLIST_BROCHURE: "Shortlist brochure",
+        PropertyPacketKind.PAID_MARKET_REPORT: "Market report dossier",
+        PropertyPacketKind.OPEN_HOUSE_QR: "Open house dossier",
+    }
+    return labels.get(packet_kind, "Property dossier")
+
+
+def _privacy_label(privacy_mode: PacketPrivacyMode) -> str:
+    labels = {
+        PacketPrivacyMode.ANONYMOUS_PUBLIC: "Public summary",
+        PacketPrivacyMode.PAID_CUSTOMER: "Client copy",
+        PacketPrivacyMode.AGENT_SHARE: "Shareable review",
+        PacketPrivacyMode.FAMILY_REVIEW: "Private family review",
+        PacketPrivacyMode.OWNER_PRIVATE: "Private working copy",
+    }
+    return labels.get(privacy_mode, "Private review")
 
 
 def _walk_minutes_phrase(value: object) -> str:
@@ -739,48 +762,47 @@ def _visual_pdf(
     if area_value and not area_value.endswith("m2"):
         area_value = f"{area_value} m2"
     district_value = _fact_value(packet_facts, "postal_name", "district", "city")
+    office_label = _office_packet_label(packet_kind)
+    privacy_label = _privacy_label(privacy_mode)
     ops = _new_page(page_number=1, privacy_mode=privacy_mode)
     _draw_rect(ops, 0, 0, 15, PAGE_HEIGHT, fill=(0.15, 0.38, 0.30))
     _draw_rect(ops, 15, 0, 5, PAGE_HEIGHT, fill=(0.74, 0.55, 0.18))
-    _draw_text(ops, "PropertyQuarry", x=MARGIN_X, y=774, size=20, font="F2", fill=(0.15, 0.38, 0.30))
-    _draw_text(ops, "Property dossier", x=MARGIN_X, y=752, size=11, fill=(0.43, 0.38, 0.29))
+    _draw_text(ops, "PropertyQuarry", x=MARGIN_X, y=778, size=20, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, office_label, x=MARGIN_X, y=756, size=11, font="F2", fill=(0.43, 0.38, 0.29))
+    _draw_text(ops, privacy_label, x=MARGIN_X, y=739, size=9.4, fill=(0.52, 0.46, 0.35))
     y = _draw_wrapped(
         ops,
         recommended_title,
         x=MARGIN_X,
-        y=716,
-        width_chars=36 if cover_image is not None else 42,
-        size=22,
-        leading=25,
+        y=708,
+        width_chars=34 if cover_image is not None else 44,
+        size=23,
+        leading=24,
         font="F2",
         fill=(0.13, 0.14, 0.13),
     )
-    y -= 12
-    chips = [
-        packet_kind.value.replace("_", " "),
-        privacy_mode.value.replace("_", " "),
-        fliplink_format.value.replace("_", " "),
-        PDF_RENDERER_VERSION,
-    ]
-    chip_x = MARGIN_X
-    for chip in chips:
-        chip_width = min(156, max(72, 7.0 * len(chip) + 20))
-        _draw_rect(ops, chip_x, y - 5, chip_width, 24, fill=(0.99, 0.98, 0.94))
-        _draw_text(ops, chip, x=chip_x + 9, y=y + 2, size=8.5, font="F2", fill=(0.25, 0.28, 0.26))
-        chip_x += chip_width + 8
-        if chip_x > PAGE_WIDTH - MARGIN_X - 90:
-            chip_x = MARGIN_X
-            y -= 28
+    y -= 10
+    cover_kicker = "A structured review copy with visuals, next questions, and shortlist context."
+    y = _draw_wrapped(
+        ops,
+        cover_kicker,
+        x=MARGIN_X,
+        y=y,
+        width_chars=42,
+        size=9.4,
+        leading=12,
+        fill=(0.36, 0.37, 0.36),
+    )
     cover_page_images: list[dict[str, object]] = []
     cover_page_annotations: list[dict[str, object]] = []
     if cover_image is not None:
-        hero_x = 358
-        hero_y = 448
-        hero_w = 210
-        hero_h = 256
+        hero_x = 330
+        hero_y = 410
+        hero_w = 238
+        hero_h = 292
         _draw_rect(ops, hero_x - 6, hero_y - 6, hero_w + 12, hero_h + 12, fill=(0.96, 0.94, 0.90))
-        _draw_rect(ops, hero_x - 6, hero_y + hero_h - 24, hero_w + 12, 30, fill=(0.15, 0.38, 0.30))
-        _draw_text(ops, "Property preview", x=hero_x + 10, y=hero_y + hero_h - 16, size=9, font="F2", fill=(0.98, 0.98, 0.96))
+        _draw_rect(ops, hero_x - 6, hero_y + hero_h - 28, hero_w + 12, 34, fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, "Property preview", x=hero_x + 10, y=hero_y + hero_h - 18, size=9, font="F2", fill=(0.98, 0.98, 0.96))
         source_width = max(int(cover_image.get("width") or 1), 1)
         source_height = max(int(cover_image.get("height") or 1), 1)
         scale = min(hero_w / float(source_width), hero_h / float(source_height))
@@ -790,9 +812,9 @@ def _visual_pdf(
         draw_y = hero_y + ((hero_h - draw_height) / 2.0)
         _draw_image(ops, name="Im1", x=draw_x, y=draw_y, width=draw_width, height=draw_height)
         cover_page_images.append({**cover_image, "name": "Im1"})
-    y -= 28 if cover_image is None else 20
-    summary_card_height = 176
-    _draw_rect(ops, MARGIN_X, y - summary_card_height, 294, summary_card_height, fill=(1.0, 0.995, 0.97))
+    y -= 18 if cover_image is None else 16
+    summary_card_height = 204
+    _draw_rect(ops, MARGIN_X, y - summary_card_height, 270, summary_card_height, fill=(1.0, 0.995, 0.97))
     _draw_rect(ops, MARGIN_X, y - summary_card_height, 6, summary_card_height, fill=(0.74, 0.55, 0.18))
     _draw_text(ops, "Executive summary", x=MARGIN_X + 18, y=y - 20, size=13, font="F2", fill=(0.15, 0.38, 0.30))
     prose_y = y - 42
@@ -802,25 +824,25 @@ def _visual_pdf(
             paragraph,
             x=MARGIN_X + 18,
             y=prose_y,
-            width_chars=44,
+            width_chars=40,
             size=10.3,
             leading=13,
         )
-        prose_y -= 6
-    metric_y = y - 4
+        prose_y -= 4
+    metric_y = 372
     metric_width = (CARD_WIDTH - 36) / 4
     metrics = [
-        ("Floorplans", str(media_counts.get("floorplans") or 0)),
-        ("Photos", str(media_counts.get("photos") or 0)),
-        ("Sections", str(len(sections))),
-        ("Format", "PDF"),
+        ("Asking price", ask_value or "On request"),
+        ("Rooms", rooms_value or "n/a"),
+        ("Area", area_value or "n/a"),
+        ("Location", district_value or "n/a"),
     ]
     for index, (label, value) in enumerate(metrics):
         x = MARGIN_X + (metric_width + 12) * index
-        _draw_rect(ops, x, metric_y - 70, metric_width, 78, fill=(0.93, 0.96, 0.94))
-        _draw_text(ops, value, x=x + 14, y=metric_y - 24, size=24, font="F2", fill=(0.15, 0.38, 0.30))
-        _draw_text(ops, label, x=x + 14, y=metric_y - 46, size=9.2, font="F2", fill=(0.30, 0.36, 0.32))
-    cta_y = 152
+        _draw_rect(ops, x, metric_y - 68, metric_width, 76, fill=(0.93, 0.96, 0.94))
+        _draw_text(ops, value, x=x + 14, y=metric_y - 24, size=15 if len(str(value)) > 12 else 20, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, label, x=x + 14, y=metric_y - 48, size=9.2, font="F2", fill=(0.30, 0.36, 0.32))
+    cta_y = 128
     if redacted_tour_url:
         button_width = 246
         button_height = 38
@@ -854,29 +876,29 @@ def _visual_pdf(
         cover_page_annotations.append(
             {"url": redacted_review_url, "rect": [review_x, cta_y, review_x + review_width, cta_y + review_height]}
         )
-    _draw_text(ops, "Property title", x=MARGIN_X, y=116, size=9, font="F2", fill=(0.43, 0.38, 0.29))
-    _draw_wrapped(ops, title, x=MARGIN_X, y=100, width_chars=84, size=10, leading=12)
+    _draw_text(ops, "Listing title", x=MARGIN_X, y=92, size=9, font="F2", fill=(0.43, 0.38, 0.29))
+    _draw_wrapped(ops, title, x=MARGIN_X, y=76, width_chars=84, size=10, leading=12)
     pages.append({"ops": ops, "images": cover_page_images, "annotations": cover_page_annotations})
 
     page_number = 2
     if comparison_rows:
         ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
         y = 786
-        _draw_text(ops, "Contents", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, "Contents", x=MARGIN_X, y=y, size=15, font="F2", fill=(0.43, 0.38, 0.29))
         toc_items = [
             "1. Executive summary",
             "2. Comparison snapshot",
-            "3. Decision brief",
-            "4. Visual references and review links",
+            "3. Property brief",
+            "4. Visual references",
         ]
         toc_y = y - 28
         for item in toc_items:
             _draw_text(ops, item, x=MARGIN_X + 8, y=toc_y, size=10.2, font="F2", fill=(0.16, 0.18, 0.17))
             toc_y -= 18
-        _draw_text(ops, "Comparison snapshot", x=MARGIN_X, y=652, size=17, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, "Comparison snapshot", x=MARGIN_X, y=652, size=18, font="F2", fill=(0.15, 0.38, 0.30))
         _draw_wrapped(
             ops,
-            "This page compares the active property against the nearest alternatives so the shortlist can be read as a decision, not just a stack of packets.",
+            "This spread compares the lead option against the nearest alternatives so the shortlist reads like a recommendation rather than a loose bundle of links.",
             x=MARGIN_X,
             y=630,
             width_chars=86,
@@ -917,10 +939,10 @@ def _visual_pdf(
 
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
     y = 786
-    _draw_text(ops, "Decision brief", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Property brief", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
     _draw_wrapped(
         ops,
-        summary or "A structured agency-style brief for review, risk checks, and next questions.",
+        summary or "A structured property brief for review, risk checks, and the next agent questions.",
         x=MARGIN_X,
         y=y - 22,
         width_chars=82,
@@ -965,7 +987,7 @@ def _visual_pdf(
         _draw_text(ops, "Property gallery", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
         _draw_wrapped(
             ops,
-            "Selected listing visuals, embedded directly into the dossier instead of being pushed into a raw link appendix.",
+            "Selected listing visuals embedded directly into the dossier so the review reads like a real property presentation rather than a media dump.",
             x=MARGIN_X,
             y=y - 24,
             width_chars=82,
