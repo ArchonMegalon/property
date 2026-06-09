@@ -111,6 +111,74 @@ def _money_phrase(value: object) -> str:
     return str(value or "").strip()
 
 
+def _display_price(value: object) -> str:
+    phrase = _money_phrase(value)
+    return phrase or "On request"
+
+
+def _display_number(value: object, *, suffix: str = "", decimals: int = 0) -> str:
+    if isinstance(value, (int, float)):
+        rendered = f"{float(value):.{decimals}f}"
+        if decimals > 0:
+            rendered = rendered.rstrip("0").rstrip(".")
+        return f"{rendered}{suffix}"
+    text = str(value or "").strip()
+    return f"{text}{suffix}" if text and suffix and not text.endswith(suffix.strip()) else text
+
+
+def _bool_label(value: object, *, yes: str = "Confirmed", no: str = "No", unknown: str = "Unclear") -> str:
+    if isinstance(value, bool):
+        return yes if value else no
+    text = str(value or "").strip()
+    if not text:
+        return unknown
+    lowered = text.lower()
+    if lowered in {"true", "yes", "ja", "1"}:
+        return yes
+    if lowered in {"false", "no", "nein", "0"}:
+        return no
+    return text
+
+
+def _fallback_match_reasons(facts: dict[str, object]) -> list[str]:
+    rows: list[str] = []
+    if facts.get("floorplan_count") or facts.get("has_floorplan"):
+        rows.append("A usable floorplan is already available, which makes remote review materially more reliable.")
+    if facts.get("balcony") or facts.get("terrace") or facts.get("garden") or "loggia" in str(facts.get("title") or "").lower():
+        rows.append("Outdoor space is part of the current offer, which improves day-to-day usability beyond the interior alone.")
+    tram_bus = _walk_minutes_phrase(facts.get("nearest_tram_bus_m"))
+    if tram_bus:
+        rows.append(f"Public transport starts well before the underground because the nearest tram or bus stop is {tram_bus}.")
+    supermarket = _walk_minutes_phrase(facts.get("nearest_supermarket_m"))
+    if supermarket:
+        rows.append(f"Errands look practical at first glance because the nearest supermarket is {supermarket}.")
+    return rows
+
+
+def _fallback_risks(facts: dict[str, object]) -> list[str]:
+    rows: list[str] = []
+    if not (facts.get("heating_type") or "").strip():
+        rows.append("The heating system is still not explicitly confirmed in the source material.")
+    if not facts.get("operating_cost_history_available"):
+        rows.append("Operating-cost history is not in hand yet, so the monthly burden still needs confirmation.")
+    if not facts.get("lift") and not facts.get("has_lift"):
+        rows.append("Lift availability is not yet confirmed in a way that should be relied upon without a viewing or agent answer.")
+    if not facts.get("epc") and not facts.get("energy_certificate"):
+        rows.append("The current energy certificate is still missing from the working packet.")
+    return rows
+
+
+def _fallback_questions(facts: dict[str, object]) -> list[str]:
+    rows = [
+        "Can you send the floorplan with room dimensions and balcony or loggia depth?",
+        "Can you confirm the heating type and the latest available energy certificate?",
+        "Can you send the last operating-cost statement and clarify any recurring monthly extras?",
+    ]
+    if facts.get("nearest_school_m") or facts.get("school_atlas_selected_school"):
+        rows.append("Is the route to the nearest Volksschule and onward public transport realistically child-safe without a dangerous street crossing?")
+    return rows
+
+
 def _office_packet_label(packet_kind: PropertyPacketKind) -> str:
     labels = {
         PropertyPacketKind.FAMILY_REVIEW: "Family dossier",
@@ -842,9 +910,9 @@ def _property_narrative(payload: dict[str, object]) -> list[str]:
     if rooms or area:
         shape = []
         if rooms:
-            shape.append(f"{rooms} rooms")
+            shape.append(f"{_display_number(rooms, decimals=0)} rooms")
         if area:
-            shape.append(f"around {area} m2")
+            shape.append(f"around {_display_number(area, decimals=0)} m2")
         intro_bits.append("offers " + " and ".join(shape))
     pricing = _money_phrase(price or rent)
     if pricing:
@@ -866,18 +934,25 @@ def _property_narrative(payload: dict[str, object]) -> list[str]:
     compare_reason = _clean_sentence(payload.get("compare_reason"))
     if not fit and match_reasons:
         fit = _clean_sentence("Why it stands out: " + "; ".join(match_reasons))
+    elif not fit:
+        fallback = _fallback_match_reasons(facts)
+        if fallback:
+            fit = _clean_sentence("Why it stands out: " + "; ".join(fallback[:3]))
     neighborhood = _clean_sentence("For everyday living, " + ", and ".join(daily_life)) if daily_life else ""
     school_quality = str(facts.get("school_atlas_quality_summary") or "").strip()
     school_progression = str(facts.get("school_atlas_progression_summary") or "").strip()
-    school = _clean_sentence("For a family read, " + "; ".join(item for item in [school_route, school_quality, school_progression] if item)) if any(
-        item for item in [school_route, school_quality, school_progression]
-    ) else ""
+    school_items = [item for item in [school_route, school_quality, school_progression] if item]
+    school = _clean_sentence("For a family read, " + "; ".join(school_items)) if school_items else ""
     official_risk = _clean_sentence("Risk context: " + "; ".join(_official_risk_lines(facts)[:3])) if _official_risk_lines(facts) else ""
     future_change = _clean_sentence("Area outlook: " + "; ".join(_future_change_lines(facts)[:3])) if _future_change_lines(facts) else ""
+    if not risks:
+        risks = _fallback_risks(facts)
     risk = _clean_sentence("Points that still need hard confirmation: " + "; ".join(risks)) if risks else ""
+    if not questions:
+        questions = _fallback_questions(facts)
     next_step = _clean_sentence("Recommended next questions for the agent or viewing: " + "; ".join(questions)) if questions else ""
 
-    return [item for item in [intro, compare_reason, fit, neighborhood, school, evidence, official_risk, future_change, risk, next_step] if item]
+    return [item for item in [intro, compare_reason, fit, neighborhood, evidence, school, official_risk, future_change, risk, next_step] if item]
 
 
 def _visual_pdf(
@@ -916,10 +991,15 @@ def _visual_pdf(
             gallery_images.append(image)
     ask_value = _fact_value(packet_facts, "price_display", "price", "rent_display", "rent")
     if not ask_value:
-        ask_value = _money_phrase(packet_facts.get("price_eur") or packet_facts.get("purchase_price_eur") or packet_facts.get("rent_eur"))
-    rooms_value = _fact_value(packet_facts, "room_count", "rooms")
-    area_value = _fact_value(packet_facts, "area_m2", "area_sqm")
-    if area_value and not area_value.endswith("m2"):
+        ask_value = _display_price(packet_facts.get("total_rent_eur") or packet_facts.get("price_eur") or packet_facts.get("purchase_price_eur") or packet_facts.get("rent_eur"))
+    rooms_value = _fact_value(packet_facts, "room_count", "rooms_label")
+    if not rooms_value:
+        rooms_value = _display_number(packet_facts.get("room_count") or packet_facts.get("rooms"), decimals=0)
+    area_value = _fact_value(packet_facts, "area_label")
+    if not area_value:
+        area_raw = packet_facts.get("area_m2") or packet_facts.get("area_sqm") or packet_facts.get("living_area_m2")
+        area_value = _display_number(area_raw, decimals=0)
+    if area_value and "m2" not in area_value.lower():
         area_value = f"{area_value} m2"
     district_value = _fact_value(packet_facts, "postal_name", "district", "city")
     office_label = _office_packet_label(packet_kind)
@@ -933,8 +1013,10 @@ def _visual_pdf(
     except Exception:
         fit_score_label = "Not scored"
     mismatch_reasons = [*_text_items(payload.get("mismatch_reasons"), limit=5), *_text_items(payload.get("unknowns"), limit=5)]
-    match_reasons = _text_items(payload.get("match_reasons"), limit=5)
-    viewing_questions = _text_items(payload.get("viewing_questions"), limit=6)
+    match_reasons = _text_items(payload.get("match_reasons"), limit=5) or _fallback_match_reasons(packet_facts)
+    if not mismatch_reasons:
+        mismatch_reasons = _fallback_risks(packet_facts)
+    viewing_questions = _text_items(payload.get("viewing_questions"), limit=6) or _fallback_questions(packet_facts)
     household_review = dict(payload.get("household_review") or {}) if isinstance(payload.get("household_review"), dict) else {}
     household_stakeholders = [
         str(row.get("label") or row.get("name") or row.get("stakeholder") or "").strip()
@@ -1006,31 +1088,12 @@ def _visual_pdf(
     if magic_fit_scene and str(magic_fit_scene.get("image_url") or "").strip():
         packet_contents.append("Lifestyle scene")
     packet_contents.extend(["Provenance and privacy", "Legal notice"])
+    if cover_image is None and floorplan_image is not None:
+        cover_image = floorplan_image
     ops = _new_page(page_number=1, privacy_mode=privacy_mode)
-    hero_height = 362
-    _draw_rect(ops, 0, PAGE_HEIGHT - hero_height, PAGE_WIDTH, hero_height, fill=(0.82, 0.83, 0.80))
-    y = _draw_wrapped(
-        ops,
-        recommended_title,
-        x=MARGIN_X,
-        y=PAGE_HEIGHT - 118,
-        width_chars=36 if cover_image is not None else 42,
-        size=26,
-        leading=26,
-        font="F2",
-        fill=(0.98, 0.98, 0.96) if cover_image is not None else (0.13, 0.14, 0.13),
-    )
-    cover_kicker = "Professional review dossier with shortlist reasoning, floorplan context, and next questions."
-    _draw_wrapped(
-        ops,
-        cover_kicker,
-        x=MARGIN_X,
-        y=y - 8,
-        width_chars=42,
-        size=9.4,
-        leading=12,
-        fill=(0.92, 0.94, 0.92) if cover_image is not None else (0.36, 0.37, 0.36),
-    )
+    hero_height = PAGE_HEIGHT
+    _draw_rect(ops, 0, 0, PAGE_WIDTH, PAGE_HEIGHT, fill=(0.82, 0.83, 0.80))
+    cover_kicker = "A brochure-style review dossier with hosted tour access, neighbourhood research, and concrete next actions."
     if redacted_tour_url:
         redacted_tour_url = _append_query_param(redacted_tour_url, pane="floorplan-pane")
     flythrough_candidate = _safe_pdf_href(diorama_scene.get("video_url") if isinstance(diorama_scene, dict) else "")
@@ -1052,43 +1115,46 @@ def _visual_pdf(
         draw_x = hero_x + ((hero_w - draw_width) / 2.0)
         draw_y = hero_y + ((hero_h - draw_height) / 2.0)
         _draw_image(ops, name="Im1", x=draw_x, y=draw_y, width=draw_width, height=draw_height)
-        _draw_rect(ops, 0, PAGE_HEIGHT - hero_height, PAGE_WIDTH, hero_height, fill=(0.08, 0.12, 0.10))
-        _draw_rect(ops, 0, PAGE_HEIGHT - 156, PAGE_WIDTH, 156, fill=(0.12, 0.14, 0.13))
+        _draw_rect(ops, 0, 0, PAGE_WIDTH, 178, fill=(0.08, 0.09, 0.09))
         cover_page_images.append({**cover_image, "name": "Im1"})
     _draw_text(ops, "PropertyQuarry", x=MARGIN_X, y=PAGE_HEIGHT - 42, size=18, font="F2", fill=(0.96, 0.97, 0.95) if cover_image is not None else (0.15, 0.38, 0.30))
     _draw_text(ops, office_label, x=MARGIN_X, y=PAGE_HEIGHT - 60, size=10.8, font="F2", fill=(0.92, 0.94, 0.92) if cover_image is not None else (0.43, 0.38, 0.29))
     _draw_text(ops, privacy_label, x=MARGIN_X, y=PAGE_HEIGHT - 76, size=9.2, fill=(0.85, 0.88, 0.85) if cover_image is not None else (0.52, 0.46, 0.35))
-    metric_y = 418
-    metric_width = (CARD_WIDTH - 30) / 4
-    metrics = [
-        ("Asking price", ask_value or "On request"),
-        ("Rooms", rooms_value or "n/a"),
-        ("Area", area_value or "n/a"),
-        ("Location", district_value or "n/a"),
-    ]
-    for index, (label, value) in enumerate(metrics):
-        x = MARGIN_X + (metric_width + 10) * index
-        _draw_rect(ops, x, metric_y - 78, metric_width, 84, fill=(0.96, 0.95, 0.91))
-        _draw_rect(ops, x, metric_y - 78, metric_width, 8, fill=(0.15, 0.38, 0.30))
-        _draw_text(ops, value, x=x + 14, y=metric_y - 34, size=15 if len(str(value)) > 14 else 19, font="F2", fill=(0.12, 0.14, 0.13))
-        _draw_text(ops, label, x=x + 14, y=metric_y - 58, size=8.9, font="F2", fill=(0.30, 0.36, 0.32))
-    summary_y_top = 314
-    _draw_rect(ops, MARGIN_X, summary_y_top - 128, CARD_WIDTH, 136, fill=(1.0, 0.995, 0.97))
-    _draw_rect(ops, MARGIN_X, summary_y_top - 128, 6, 136, fill=(0.74, 0.55, 0.18))
-    _draw_text(ops, "Executive summary", x=MARGIN_X + 18, y=summary_y_top - 20, size=13, font="F2", fill=(0.15, 0.38, 0.30))
-    prose_y = summary_y_top - 42
-    for paragraph in executive_lines[:3]:
-        prose_y = _draw_wrapped(
+    title_y = 146
+    title_fill = (0.98, 0.98, 0.96) if cover_image is not None else (0.13, 0.14, 0.13)
+    kicker_fill = (0.92, 0.94, 0.92) if cover_image is not None else (0.36, 0.37, 0.36)
+    y = _draw_wrapped(
+        ops,
+        title,
+        x=MARGIN_X,
+        y=title_y,
+        width_chars=30 if cover_image is not None else 38,
+        size=22,
+        leading=22,
+        font="F2",
+        fill=title_fill,
+    )
+    if cover_image is None:
+        _draw_text(
             ops,
-            paragraph,
-            x=MARGIN_X + 18,
-            y=prose_y,
-            width_chars=88,
-            size=10.1,
-            leading=12.5,
+            district_value or "Vienna review packet",
+            x=MARGIN_X,
+            y=86,
+            size=10.0,
+            font="F2",
+            fill=(0.43, 0.38, 0.29),
         )
-        prose_y -= 4
-    cta_y = 96
+        _draw_wrapped(
+            ops,
+            cover_kicker,
+            x=MARGIN_X,
+            y=70,
+            width_chars=46,
+            size=8.6,
+            leading=10.6,
+            fill=(0.36, 0.37, 0.36),
+        )
+    cta_y = 28
     if redacted_tour_url:
         button_width = 214
         button_height = 38
@@ -1139,50 +1205,52 @@ def _visual_pdf(
         cover_page_annotations.append(
             {"url": redacted_review_url, "rect": [review_x, cta_y, review_x + review_width, cta_y + review_height]}
         )
-    _draw_text(ops, "Listing title", x=MARGIN_X, y=92, size=9, font="F2", fill=(0.43, 0.38, 0.29))
-    _draw_wrapped(ops, title, x=MARGIN_X, y=76, width_chars=84, size=10, leading=12)
     pages.append({"ops": ops, "images": cover_page_images, "annotations": cover_page_annotations})
 
     page_number = 2
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
     y = 786
     _draw_text(ops, "Executive decision", x=MARGIN_X, y=y, size=18, font="F2", fill=(0.15, 0.38, 0.30))
-    _draw_rect(ops, MARGIN_X, 566, 250, 168, fill=(1.0, 0.995, 0.97))
-    _draw_rect(ops, MARGIN_X, 566, 8, 168, fill=(0.15, 0.38, 0.30))
-    _draw_text(ops, "Current read", x=MARGIN_X + 20, y=704, size=11, font="F2", fill=(0.43, 0.38, 0.29))
-    _draw_text(ops, recommendation_label, x=MARGIN_X + 20, y=674, size=22, font="F2", fill=(0.12, 0.14, 0.13))
-    _draw_text(ops, f"Fit score: {fit_score_label}", x=MARGIN_X + 20, y=645, size=10.2, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_rect(ops, MARGIN_X, 528, 204, 190, fill=(1.0, 0.995, 0.97))
+    _draw_rect(ops, MARGIN_X, 528, 8, 190, fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Current read", x=MARGIN_X + 18, y=688, size=10.8, font="F2", fill=(0.43, 0.38, 0.29))
+    _draw_text(ops, recommendation_label, x=MARGIN_X + 18, y=656, size=21, font="F2", fill=(0.12, 0.14, 0.13))
     confidence_label = "Medium"
     if not risk_lines and match_reasons:
         confidence_label = "High"
     elif len(risk_lines) >= 3 or len(mismatch_reasons) >= 3:
         confidence_label = "Guarded"
-    _draw_text(ops, f"Confidence: {confidence_label}", x=MARGIN_X + 20, y=627, size=10.2, font="F2", fill=(0.35, 0.37, 0.35))
+    _draw_text(ops, f"Fit score: {fit_score_label}", x=MARGIN_X + 18, y=626, size=10.2, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, f"Confidence: {confidence_label}", x=MARGIN_X + 18, y=608, size=10.0, font="F2", fill=(0.35, 0.37, 0.35))
     next_action = viewing_questions[0] if viewing_questions else "Ask the agent for the missing operating facts and room orientation."
-    _draw_text(ops, "Next action", x=MARGIN_X + 20, y=598, size=10.4, font="F2", fill=(0.43, 0.38, 0.29))
-    _draw_wrapped(ops, _clean_sentence(next_action), x=MARGIN_X + 20, y=580, width_chars=32, size=9.4, leading=11.2)
-    _draw_rect(ops, MARGIN_X + 272, 566, CARD_WIDTH - 272, 168, fill=(0.98, 0.97, 0.94))
-    _draw_rect(ops, MARGIN_X + 272, 566, 8, 168, fill=(0.74, 0.55, 0.18))
-    _draw_text(ops, "Packet contents", x=MARGIN_X + 292, y=704, size=11, font="F2", fill=(0.43, 0.38, 0.29))
-    toc_y = 680
-    for index, item in enumerate(packet_contents[:9], start=1):
-        _draw_text(ops, f"{index}. {item}", x=MARGIN_X + 292, y=toc_y, size=9.4, font="F2", fill=(0.16, 0.18, 0.17))
-        toc_y -= 16
-    _draw_text(ops, "Top reasons", x=MARGIN_X, y=516, size=15, font="F2", fill=(0.15, 0.38, 0.30))
-    _draw_text(ops, "Main blockers", x=MARGIN_X + 308, y=516, size=15, font="F2", fill=(0.62, 0.29, 0.26))
-    left_y = 490
-    for row in (match_reasons[:4] or ["Floorplan, daily-life fit, and first-pass evidence still need to be reviewed."]):
-        left_y = _draw_wrapped(ops, f"• {row}", x=MARGIN_X, y=left_y, width_chars=40, size=10.0, leading=13)
-    right_y = 490
-    for row in (mismatch_reasons[:4] or ["No explicit blocker was supplied. Treat the agent brief as the next proof layer."]):
-        right_y = _draw_wrapped(ops, f"• {row}", x=MARGIN_X + 308, y=right_y, width_chars=38, size=10.0, leading=13)
-    _draw_rect(ops, MARGIN_X, 144, CARD_WIDTH, 108, fill=(1.0, 0.995, 0.97))
-    _draw_rect(ops, MARGIN_X, 144, 6, 108, fill=(0.15, 0.38, 0.30))
-    _draw_text(ops, "Decision note", x=MARGIN_X + 18, y=228, size=12, font="F2", fill=(0.15, 0.38, 0.30))
-    prose_y = 206
-    for paragraph in executive_lines[:3]:
-        prose_y = _draw_wrapped(ops, paragraph, x=MARGIN_X + 18, y=prose_y, width_chars=88, size=9.8, leading=12.2)
-        prose_y -= 2
+    _draw_text(ops, "Next action", x=MARGIN_X + 18, y=578, size=10.4, font="F2", fill=(0.43, 0.38, 0.29))
+    _draw_wrapped(ops, _clean_sentence(next_action), x=MARGIN_X + 18, y=560, width_chars=28, size=9.4, leading=11.2)
+    _draw_rect(ops, MARGIN_X + 224, 528, CARD_WIDTH - 224, 190, fill=(1.0, 0.995, 0.97))
+    _draw_rect(ops, MARGIN_X + 224, 528, 6, 190, fill=(0.74, 0.55, 0.18))
+    _draw_text(ops, "Why it deserves attention", x=MARGIN_X + 242, y=688, size=11.2, font="F2", fill=(0.43, 0.38, 0.29))
+    prose_y = 664
+    for paragraph in executive_lines[:4]:
+        prose_y = _draw_wrapped(ops, paragraph, x=MARGIN_X + 242, y=prose_y, width_chars=47, size=9.6, leading=11.8)
+        prose_y -= 3
+        if prose_y < 548:
+            break
+    _draw_text(ops, "Why it matches your brief", x=MARGIN_X, y=478, size=15, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Why it may fail", x=MARGIN_X + 308, y=478, size=15, font="F2", fill=(0.62, 0.29, 0.26))
+    left_y = 450
+    for row in match_reasons[:4]:
+        left_y = _draw_wrapped(ops, f"- {row}", x=MARGIN_X, y=left_y, width_chars=40, size=10.0, leading=13)
+    right_y = 450
+    for row in mismatch_reasons[:4]:
+        right_y = _draw_wrapped(ops, f"- {row}", x=MARGIN_X + 308, y=right_y, width_chars=38, size=10.0, leading=13)
+    _draw_rect(ops, MARGIN_X, 132, CARD_WIDTH, 206, fill=(1.0, 0.995, 0.97))
+    _draw_rect(ops, MARGIN_X, 132, 6, 206, fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Executive summary", x=MARGIN_X + 18, y=308, size=12, font="F2", fill=(0.15, 0.38, 0.30))
+    prose_y = 284
+    for paragraph in narrative_lines[:6]:
+        prose_y = _draw_wrapped(ops, paragraph, x=MARGIN_X + 18, y=prose_y, width_chars=88, size=9.8, leading=12.0)
+        prose_y -= 3
+        if prose_y < 156:
+            break
     pages.append({"ops": ops, "images": []})
     page_number += 1
 
@@ -1193,9 +1261,9 @@ def _visual_pdf(
         ("Area", area_value or "n/a"),
         ("Rooms", rooms_value or "n/a"),
         ("District", district_value or "n/a"),
-        ("Floorplan", "Available" if packet_facts.get("has_floorplan") else "Missing"),
+        ("Floorplan", "Available" if (packet_facts.get("has_floorplan") or packet_facts.get("floorplan_count") or floorplan_refs) else "Missing"),
         ("Heating", _fact_value(packet_facts, "heating_type") or "Unknown"),
-        ("Lift", "Confirmed" if packet_facts.get("lift") or packet_facts.get("has_lift") else "Unclear"),
+        ("Lift", _bool_label(packet_facts.get("lift") if "lift" in packet_facts else packet_facts.get("has_lift"), yes="Confirmed", no="No lift")),
         ("Outdoor space", _fact_value(packet_facts, "balcony", "terrace", "garden", "outdoor_space") or "Not confirmed"),
         ("Energy / EPC", _fact_value(packet_facts, "epc", "energy_class", "energy_certificate") or "Not confirmed"),
     ]
@@ -1214,10 +1282,10 @@ def _visual_pdf(
     _draw_text(ops, "Why it may fail", x=MARGIN_X + 308, y=308, size=14, font="F2", fill=(0.62, 0.29, 0.26))
     left_y = 282
     for row in (match_reasons[:4] or ["No explicit match reason was supplied."]):
-        left_y = _draw_wrapped(ops, f"• {row}", x=MARGIN_X, y=left_y, width_chars=38, size=9.8, leading=12.2)
+        left_y = _draw_wrapped(ops, f"- {row}", x=MARGIN_X, y=left_y, width_chars=38, size=9.8, leading=12.2)
     right_y = 282
     for row in (mismatch_reasons[:4] or ["No blocker was surfaced in the source packet."]):
-        right_y = _draw_wrapped(ops, f"• {row}", x=MARGIN_X + 308, y=right_y, width_chars=38, size=9.8, leading=12.2)
+        right_y = _draw_wrapped(ops, f"- {row}", x=MARGIN_X + 308, y=right_y, width_chars=38, size=9.8, leading=12.2)
     pages.append({"ops": ops, "images": []})
     page_number += 1
 
@@ -1320,7 +1388,7 @@ def _visual_pdf(
     _draw_text(ops, "Agent questions / next actions", x=lower_left_x, y=220, size=13, font="F2", fill=(0.15, 0.38, 0.30))
     qy = 196
     for row in (viewing_questions[:4] or ["Can you send the floorplan with room dimensions and the latest operating-cost history?"]):
-        qy = _draw_wrapped(ops, f"• {row}", x=lower_left_x, y=qy, width_chars=36, size=9.4, leading=11.5)
+        qy = _draw_wrapped(ops, f"- {row}", x=lower_left_x, y=qy, width_chars=36, size=9.4, leading=11.5)
     _draw_text(ops, "Household review" if household_stakeholders else "Decision consequences", x=lower_right_x, y=220, size=13, font="F2", fill=(0.43, 0.38, 0.29))
     hy = 196
     if household_stakeholders:
@@ -1329,7 +1397,7 @@ def _visual_pdf(
         if household_score != "":
             hy = _draw_wrapped(ops, f"Alignment score: {household_score}", x=lower_right_x, y=hy, width_chars=34, size=9.4, leading=11.5)
         for row in household_stakeholders[:3]:
-            hy = _draw_wrapped(ops, f"• {row}", x=lower_right_x, y=hy, width_chars=34, size=9.2, leading=11.2)
+            hy = _draw_wrapped(ops, f"- {row}", x=lower_right_x, y=hy, width_chars=34, size=9.2, leading=11.2)
         if household_question:
             _draw_wrapped(ops, "Next question: " + household_question, x=lower_right_x, y=max(112, hy - 8), width_chars=34, size=9.2, leading=11.2)
     else:

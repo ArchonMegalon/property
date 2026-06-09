@@ -43,8 +43,8 @@ EXACT_ADDRESS_KEYS = {
     "lng",
 }
 
-FLOORPLAN_REF_KEYS = {"floorplan_refs", "floorplans", "floorplan_urls", "floorplan_url", "floorplan_pdf_url"}
-PHOTO_REF_KEYS = {"photo_refs", "photos", "image_urls", "images", "photo_urls", "primary_image_url"}
+FLOORPLAN_REF_KEYS = {"floorplan_refs", "floorplans", "floorplan_urls", "floorplan_url", "floorplan_pdf_url", "floorplan_urls_json"}
+PHOTO_REF_KEYS = {"photo_refs", "photos", "image_urls", "images", "photo_urls", "primary_image_url", "media_urls_json", "panorama_media_urls_json"}
 DEFAULT_MEDIA_ALLOWED_HOSTS = (
     "propertyquarry.com",
     "*.propertyquarry.com",
@@ -453,7 +453,8 @@ def redact_property_packet(
     for key in source:
         if _key_private(key):
             removed.append(str(key or "").strip())
-    facts = dict(source.get("property_facts") or source.get("facts") or {}) if isinstance(source.get("property_facts") or source.get("facts"), dict) else {}
+    fact_source = source.get("property_facts") or source.get("property_facts_json") or source.get("facts") or {}
+    facts = dict(fact_source) if isinstance(fact_source, dict) else {}
     redacted_facts = _redact_facts(
         facts,
         privacy_mode=privacy_mode,

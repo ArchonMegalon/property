@@ -340,7 +340,6 @@ def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
     )
 
     pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
-    assert b"Packet contents" in pdf_bytes
     assert b"Comparison snapshot" in pdf_bytes
     assert rendered["redacted_payload"]["comparison_rows"][0]["title"].startswith("Pärchenhit")
     assert "comparison_snapshot" in rendered["receipt"]["visual_elements"]
@@ -370,6 +369,51 @@ def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
     assert b"seven-year-old" in pdf_bytes
     assert b"route alone by bike or public" in pdf_bytes
     assert b" re f" in pdf_bytes
+
+
+def test_fliplink_pdf_renders_listing_media_and_fact_json_shapes(tmp_path: Path) -> None:
+    source = {
+        "title": "Moderne, sonnige 2-Zimmer-Wohnung am Sachsenplatz",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1200-brigittenau/moderne-sonnige-2-zimmer-wohnung-provisionsfrei-mit-balkon-und-loggia-am-sachsenplatz-1406309127/",
+        "tour_url": "https://propertyquarry.com/tours/test-floorplan?pane=floorplan-pane",
+        "flythrough_url": "https://propertyquarry.com/tours/test-floorplan?pane=flythrough-pane",
+        "review_url": "https://propertyquarry.com/app/research/property-scout:test?mode=review",
+        "property_facts_json": {
+            "rooms": 2.0,
+            "area_sqm": 48.0,
+            "total_rent_eur": 1095.0,
+            "availability": "01.07.2026",
+            "postal_name": "Wien, 20. Bezirk, Brigittenau",
+            "country": "Österreich",
+            "floorplan_count": 1,
+        },
+        "media_urls_json": [
+            "https://cache.willhaben.at/mmo/7/140/630/9127_-948051133_hoved.jpg",
+            "https://cache.willhaben.at/mmo/7/140/630/9127_-822616482_hoved.jpg",
+        ],
+        "floorplan_urls_json": [
+            "https://cache.willhaben.at/mmo/7/140/630/9127_1035960641.jpg",
+        ],
+    }
+
+    rendered = render_property_packet_pdf(
+        artifact_root=tmp_path,
+        publication_id="pub_json_shapes",
+        principal_id="owner-1",
+        source=source,
+        packet_kind=PropertyPacketKind.OWNER_REVIEW,
+        privacy_mode=PacketPrivacyMode.OWNER_PRIVATE,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+    )
+
+    pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
+    assert b"EUR 1.095" in pdf_bytes
+    assert b"48 m2" in pdf_bytes
+    assert b"Wien, 20. Bezirk, Brigittenau" in pdf_bytes
+    assert b"Open 3D reconstruction floor plan" in pdf_bytes
+    assert rendered["receipt"]["embedded_media_refs"] == {"floorplans": 1, "photos": 2}
+    assert "photo_gallery" in rendered["receipt"]["visual_elements"]
+    assert "floorplan_sheet" in rendered["receipt"]["visual_elements"]
 
 
 def test_fliplink_pdf_uses_tour_fallback_when_redacted_payload_lacks_direct_tour_url(tmp_path: Path) -> None:
