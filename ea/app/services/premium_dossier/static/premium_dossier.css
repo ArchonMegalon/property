@@ -1,0 +1,24 @@
+@page { size: A4; margin: 0; }
+html, body { margin: 0; padding: 0; color: #242321; font-family: "Segoe UI", Arial, sans-serif; background: #f6f3ee; }
+.page { width: 210mm; height: 297mm; page-break-after: always; position: relative; overflow: hidden; background: #fffdf8; }
+.page-inner { padding: 18mm; }
+.cover { background: #151515; color: #fffdf8; }
+.cover-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cover-gradient { position: absolute; inset: auto 0 0 0; height: 42%; background: linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,.78)); }
+.cover-copy { position: absolute; left: 18mm; right: 18mm; bottom: 18mm; z-index: 2; }
+.wordmark { letter-spacing: 0.18em; text-transform: uppercase; font-size: 11px; color: #e6d5a7; }
+.eyebrow, .section-kicker { letter-spacing: 0.12em; text-transform: uppercase; font-size: 11px; color: #8b7550; margin-bottom: 8px; }
+h1 { font-size: 28px; line-height: 1.12; margin: 8px 0 12px; }
+h2 { font-size: 24px; margin: 4px 0 16px; color: #1f241f; }
+h3 { font-size: 14px; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.08em; color: #42513f; }
+p, li { font-size: 11px; line-height: 1.55; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12mm; }
+.fact-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6mm; }
+.fact-card { border: 1px solid #e7dfcf; border-radius: 5mm; padding: 5mm; background: #fffdfa; min-height: 26mm; }
+.fact-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: #7a705f; margin-bottom: 4px; }
+.fact-value { font-size: 15px; font-weight: 600; color: #1e231d; }
+.gallery-hero { width: 100%; height: 130mm; object-fit: cover; border-radius: 6mm; }
+.action-rail { display: flex; flex-direction: column; gap: 5mm; }
+.cta { display: inline-block; padding: 4mm 5mm; border-radius: 999px; background: #1d3128; color: #fffdf8; text-decoration: none; font-size: 11px; }
+.risk-list { columns: 1; }
+.legal { margin-top: 12mm; color: #5e5b54; font-size: 10px; }

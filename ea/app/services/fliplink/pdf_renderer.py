@@ -1764,7 +1764,7 @@ def _visual_pdf(
     return _build_pdf(pages)
 
 
-def render_property_packet_pdf(
+def render_property_packet_pdf_legacy(
     *,
     artifact_root: Path,
     publication_id: str,
@@ -1851,3 +1851,33 @@ def render_property_packet_pdf(
         "redacted_payload": redaction.payload,
         "recommended_title": recommended_title,
     }
+
+
+def render_property_packet_pdf(
+    *,
+    artifact_root: Path,
+    publication_id: str,
+    principal_id: str,
+    source: dict[str, object],
+    packet_kind: PropertyPacketKind,
+    privacy_mode: PacketPrivacyMode,
+    fliplink_format: FlipLinkFormat,
+    include_exact_address: bool = False,
+    include_floorplan: bool = True,
+    include_photos: bool = True,
+) -> dict[str, object]:
+    from app.services.premium_dossier import render_property_packet_pdf_via_premium_pipeline
+
+    return render_property_packet_pdf_via_premium_pipeline(
+        artifact_root=artifact_root,
+        publication_id=publication_id,
+        principal_id=principal_id,
+        source=source,
+        packet_kind=packet_kind,
+        privacy_mode=privacy_mode,
+        fliplink_format=fliplink_format,
+        include_exact_address=include_exact_address,
+        include_floorplan=include_floorplan,
+        include_photos=include_photos,
+        legacy_renderer=render_property_packet_pdf_legacy,
+    )

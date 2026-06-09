@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <title>{{ dossier.title }}</title>
+    <style>{{ css_text }}</style>
+  </head>
+  <body>
+    <section class="page cover">
+      {% if dossier.hero_image_url %}<img class="cover-image" src="{{ dossier.hero_image_url }}" alt="Hero">{% endif %}
+      <div class="cover-gradient"></div>
+      <div class="cover-copy">
+        <div class="wordmark">PropertyQuarry</div>
+        <div class="eyebrow">{{ dossier.packet_kind.value.replace('_', ' ') }} · {{ dossier.privacy_mode.value.replace('_', ' ') }}</div>
+        <h1>{{ dossier.title }}</h1>
+        <p>{{ dossier.fit_summary or dossier.recommendation }}</p>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="section-kicker">Executive decision</div>
+        <h2>{{ dossier.recommendation }}</h2>
+        <div class="two-col">
+          <div>
+            <p><strong>Confidence:</strong> {{ dossier.confidence_label }}</p>
+            {% if dossier.compare_reason %}<p>{{ dossier.compare_reason }}</p>{% endif %}
+            {% if dossier.next_action %}<p><strong>Next action:</strong> {{ dossier.next_action }}</p>{% endif %}
+          </div>
+          <div>
+            <h3>Why it matches</h3>
+            <ul>{% for line in dossier.why_match %}<li>{{ line }}</li>{% endfor %}</ul>
+            <h3>Why it may fail</h3>
+            <ul>{% for line in dossier.why_fail %}<li>{{ line }}</li>{% endfor %}</ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="section-kicker">Key facts and metrics</div>
+        <div class="fact-grid">
+          {% for card in dossier.fact_cards %}
+          <article class="fact-card">
+            <div class="fact-label">{{ card.label }}</div>
+            <div class="fact-value">{{ card.value }}</div>
+          </article>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="section-kicker">Hosted 360 and media</div>
+        <div class="two-col">
+          <div>
+            {% if dossier.gallery_urls %}
+            <img class="gallery-hero" src="{{ dossier.gallery_urls[0] }}" alt="Preview">
+            {% endif %}
+          </div>
+          <div class="action-rail">
+            {% if dossier.tour_url %}<a class="cta" href="{{ dossier.tour_url }}">Open 3D reconstruction</a>{% endif %}
+            {% if dossier.flythrough_url %}<a class="cta" href="{{ dossier.flythrough_url }}">Play flythrough</a>{% endif %}
+            {% if dossier.review_url %}<a class="cta" href="{{ dossier.review_url }}">Open review packet</a>{% endif %}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="section-kicker">Location and daily-life radius</div>
+        <div class="two-col">
+          <div><ul>{% for line in dossier.daily_life %}<li>{{ line }}</li>{% endfor %}</ul></div>
+          <div><ul>{% for line in dossier.family_route %}<li>{{ line }}</li>{% endfor %}</ul></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="section-kicker">Risk register and next proof</div>
+        <ul class="risk-list">{% for line in dossier.risk_register %}<li>{{ line }}</li>{% endfor %}</ul>
+        <h3>Agent brief</h3>
+        <ul>{% for line in dossier.agent_questions %}<li>{{ line }}</li>{% endfor %}</ul>
+      </div>
+    </section>
+
+    {% if dossier.investment_lines %}
+    <section class="page">
+      <div class="page-inner">
+        <div class="section-kicker">Investment read</div>
+        <ul>{% for line in dossier.investment_lines %}<li>{{ line }}</li>{% endfor %}</ul>
+      </div>
+    </section>
+    {% endif %}
+
+    <section class="page">
+      <div class="page-inner">
+        <div class="section-kicker">Provenance, privacy, and legal notice</div>
+        <ul>{% for line in dossier.provenance_lines %}<li>{{ line }}</li>{% endfor %}</ul>
+        <p class="legal">This packet supports decision-making and does not replace legal, technical, surveying, tax, or investment advice.</p>
+      </div>
+    </section>
+  </body>
+  </html>
