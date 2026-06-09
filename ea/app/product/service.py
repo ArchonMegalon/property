@@ -10843,6 +10843,22 @@ def _property_link_bundle_preview_image_url(
     return _matterport_thumb_url(source_virtual_tour_url)
 
 
+def _property_tour_deep_link(tour_url: str, *, pane: str, autoplay: bool = False) -> str:
+    normalized = str(tour_url or "").strip()
+    if not normalized:
+        return ""
+    try:
+        parsed = urllib.parse.urlparse(normalized)
+        query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+        filtered = [(key, value) for key, value in query if key not in {"pane", "autoplay"}]
+        filtered.append(("pane", pane))
+        if autoplay:
+            filtered.append(("autoplay", "1"))
+        return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(filtered)))
+    except Exception:
+        return normalized
+
+
 def _willhaben_property_packet_script_path() -> Path:
     explicit = str(os.getenv("EA_WILLHABEN_PROPERTY_PACKET_SCRIPT") or "").strip()
     if explicit:
@@ -19927,10 +19943,28 @@ class ProductService:
         summary_lines.append("Flythrough: sent below when a hosted video lane is available.")
         if str(dossier_render.get("status") or "").strip() == "rendered":
             summary_lines.append("Dossier: attached as PDF.")
+        feedback_prompt = self._prepare_notification_feedback_prompt(
+            principal_id=principal_id,
+            notification_kind="telegram_property_link_bundle",
+            person_id="self",
+            domain="property_scout",
+            object_type="property_listing",
+            object_id=normalized_url,
+            source_ref=resolved_source_ref,
+            raw_signal_json={
+                "title": title,
+                "property_url": normalized_url,
+                "fit_score": float(fit_score or 0.0),
+                "tour_url": primary_tour_url,
+            },
+            interpreted_signal_json={},
+        )
         url_buttons: list[list[tuple[str, str]]] = []
         first_row: list[tuple[str, str]] = []
         if primary_tour_url:
-            first_row.append(("Open 3D Tour", primary_tour_url))
+            first_row.append(("Open 3D Tour", _property_tour_deep_link(primary_tour_url, pane="panorama-pane")))
+        if video_url and primary_tour_url:
+            first_row.append(("Open Flythrough", _property_tour_deep_link(primary_tour_url, pane="flythrough-pane", autoplay=True)))
         if public_pdf_url:
             first_row.append(("Open Dossier PDF", public_pdf_url))
         if first_row:
@@ -19950,6 +19984,7 @@ class ProductService:
                 principal_id=principal_id,
                 photo_ref=preview_image_url,
                 caption="\n".join(summary_lines),
+                inline_buttons=list(feedback_prompt.get("button_rows") or []),
                 url_buttons=url_buttons,
             )
         else:
@@ -19957,8 +19992,16 @@ class ProductService:
                 self._container.tool_runtime,
                 principal_id=principal_id,
                 text="\n".join(summary_lines),
+                inline_buttons=list(feedback_prompt.get("button_rows") or []),
                 url_buttons=url_buttons,
             )
+        self._record_notification_feedback_prompt(
+            principal_id=principal_id,
+            prompt=feedback_prompt,
+            delivery_channel="telegram",
+            telegram_chat_ref=str(message_receipt.chat_id or "").strip(),
+            telegram_message_ids=list(message_receipt.message_ids),
+        )
         video_delivery_status = "skipped"
         video_delivery_error = ""
         video_message_ids: list[str] = []
@@ -24772,6 +24815,23 @@ class ProductService:
     ) -> list[dict[str, object]]:
         normalized_kind = str(notification_kind or "").strip().lower()
         normalized_domain = str(domain or "").strip().lower()
+        if normalized_kind == "telegram_property_link_bundle":
+            return [
+                {
+                    "key": "like_property",
+                    "label": "I like it",
+                    "event_type": "listing_saved",
+                    "reply_text": "Noted. What do you like most about it? Reply with one short phrase.",
+                    "followup_kind": "like",
+                },
+                {
+                    "key": "dislike_property",
+                    "label": "I don't like it",
+                    "event_type": "listing_dismissed",
+                    "reply_text": "Noted. What do you dislike most about it? Reply with one short phrase.",
+                    "followup_kind": "dislike",
+                },
+            ]
         if normalized_kind == "property_scout_hit" or normalized_domain == "willhaben":
             options = [
                 {
@@ -24965,6 +25025,80 @@ class ProductService:
             return payload
         return None
 
+    def _record_notification_feedback_followup_prompt(
+        self,
+        *,
+        principal_id: str,
+        prompt: dict[str, object],
+        feedback_key: str,
+        followup_kind: str,
+        chat_id: str,
+    ) -> None:
+        notification_key = str(prompt.get("notification_key") or "").strip()
+        if not notification_key or not str(chat_id or "").strip():
+            return
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="notification_feedback_followup_prompted",
+            payload={
+                "notification_key": notification_key,
+                "feedback_key": str(feedback_key or "").strip(),
+                "followup_kind": str(followup_kind or "").strip(),
+                "chat_id": str(chat_id or "").strip(),
+                "notification_kind": str(prompt.get("notification_kind") or "").strip(),
+                "person_id": str(prompt.get("person_id") or "").strip(),
+                "domain": str(prompt.get("domain") or "").strip(),
+                "object_type": str(prompt.get("object_type") or "").strip(),
+                "object_id": str(prompt.get("object_id") or "").strip(),
+                "source_ref": str(prompt.get("source_ref") or "").strip(),
+                "raw_signal_json": dict(prompt.get("raw_signal_json") or {}),
+                "interpreted_signal_json": dict(prompt.get("interpreted_signal_json") or {}),
+            },
+            source_id=str(prompt.get("source_ref") or notification_key).strip() or notification_key,
+            dedupe_key=f"{principal_id}|{notification_key}|{feedback_key}|notification-feedback-followup-prompt",
+        )
+
+    def _pending_notification_feedback_followup(
+        self,
+        *,
+        principal_id: str,
+        chat_id: str,
+    ) -> dict[str, object] | None:
+        normalized_chat_id = str(chat_id or "").strip()
+        if not normalized_chat_id:
+            return None
+        received_pairs: set[tuple[str, str]] = set()
+        prompted: list[dict[str, object]] = []
+        for row in self._container.channel_runtime.list_recent_observations(
+            limit=_POCKET_SYNC_EVENT_LOOKBACK,
+            principal_id=principal_id,
+        ):
+            if str(getattr(row, "channel", "") or "").strip() != "product":
+                continue
+            event_type = str(getattr(row, "event_type", "") or "").strip()
+            payload = dict(getattr(row, "payload", {}) or {})
+            if event_type == "notification_feedback_followup_received":
+                received_pairs.add(
+                    (
+                        str(payload.get("notification_key") or "").strip(),
+                        str(payload.get("feedback_key") or "").strip(),
+                    )
+                )
+                continue
+            if event_type != "notification_feedback_followup_prompted":
+                continue
+            if str(payload.get("chat_id") or "").strip() != normalized_chat_id:
+                continue
+            prompted.append(payload)
+        for payload in prompted:
+            pair = (
+                str(payload.get("notification_key") or "").strip(),
+                str(payload.get("feedback_key") or "").strip(),
+            )
+            if pair[0] and pair not in received_pairs:
+                return payload
+        return None
+
     def record_notification_feedback(
         self,
         *,
@@ -25055,9 +25189,94 @@ class ProductService:
             source_id=str(prompt.get("source_ref") or notification_key).strip() or str(notification_key or "").strip(),
             dedupe_key=dedupe_key,
         )
+        followup_kind = str(option.get("followup_kind") or "").strip().lower()
+        if followup_kind and str(chat_id or "").strip():
+            self._record_notification_feedback_followup_prompt(
+                principal_id=principal_id,
+                prompt=prompt,
+                feedback_key=str(feedback_key or "").strip(),
+                followup_kind=followup_kind,
+                chat_id=str(chat_id or "").strip(),
+            )
         return {
             "status": "recorded",
             "reply_text": str(option.get("reply_text") or "Noted.").strip() or "Noted.",
+            "teable_sync_status": str(dict(teable_sync or {}).get("sync_result") or dict(teable_sync or {}).get("status") or "").strip(),
+        }
+
+    def record_notification_feedback_followup_response(
+        self,
+        *,
+        principal_id: str,
+        chat_id: str,
+        text: str,
+        actor: str = "",
+    ) -> dict[str, object]:
+        pending = self._pending_notification_feedback_followup(
+            principal_id=principal_id,
+            chat_id=chat_id,
+        )
+        if pending is None:
+            return {"status": "missing"}
+        normalized_text = compact_text(str(text or "").strip(), fallback="", limit=600)
+        if not normalized_text:
+            return {"status": "empty", "reply_text": "Send one short phrase so I can sharpen the property profile."}
+        notification_key = str(pending.get("notification_key") or "").strip()
+        feedback_key = str(pending.get("feedback_key") or "").strip()
+        dedupe_key = f"{principal_id}|{notification_key}|{feedback_key}|notification-feedback-followup-received"
+        if self._recent_product_event_exists(
+            principal_id=principal_id,
+            event_type="notification_feedback_followup_received",
+            dedupe_key=dedupe_key,
+        ):
+            return {"status": "duplicate", "reply_text": "Already noted. I’ll use that to sharpen future property matches."}
+        followup_kind = str(pending.get("followup_kind") or "").strip().lower()
+        interpreted_signal_json = dict(pending.get("interpreted_signal_json") or {})
+        interpreted_signal_json["followup_kind"] = followup_kind
+        interpreted_signal_json["preference_note"] = normalized_text
+        evidence_result = self.record_preference_evidence(
+            principal_id=principal_id,
+            person_id=str(pending.get("person_id") or "self").strip() or "self",
+            domain=str(pending.get("domain") or "").strip(),
+            event_type="listing_positive_detail" if followup_kind == "like" else "listing_negative_detail",
+            object_type=str(pending.get("object_type") or "").strip(),
+            object_id=str(pending.get("object_id") or "").strip(),
+            source_ref=str(pending.get("source_ref") or "").strip(),
+            raw_signal_json={
+                **dict(pending.get("raw_signal_json") or {}),
+                "followup_response": normalized_text,
+            },
+            interpreted_signal_json=interpreted_signal_json,
+            signal_strength=1.0,
+            reversible=True,
+        )
+        teable_sync = None
+        if evidence_result:
+            try:
+                teable_sync = self.request_preference_teable_sync(
+                    principal_id=principal_id,
+                    person_id=str(pending.get("person_id") or "self").strip() or "self",
+                )
+            except Exception as exc:
+                teable_sync = {"status": "failed", "blocked_reason": compact_text(str(exc or ""), fallback="teable_sync_failed", limit=160)}
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="notification_feedback_followup_received",
+            payload={
+                "notification_key": notification_key,
+                "feedback_key": feedback_key,
+                "followup_kind": followup_kind,
+                "chat_id": str(chat_id or "").strip(),
+                "response_text": normalized_text,
+                "actor": str(actor or "").strip() or "telegram_feedback_followup",
+                "teable_sync_status": str(dict(teable_sync or {}).get("sync_result") or dict(teable_sync or {}).get("status") or "").strip(),
+            },
+            source_id=str(pending.get("source_ref") or notification_key).strip() or notification_key,
+            dedupe_key=dedupe_key,
+        )
+        return {
+            "status": "recorded",
+            "reply_text": "Noted. I’ll use that to sharpen future property matches.",
             "teable_sync_status": str(dict(teable_sync or {}).get("sync_result") or dict(teable_sync or {}).get("status") or "").strip(),
         }
 

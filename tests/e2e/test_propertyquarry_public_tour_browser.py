@@ -312,22 +312,13 @@ def test_public_tour_flythrough_video_decodes_and_advances_in_real_browser(
     page = context.new_page()
     console_errors: list[str] = []
     page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
-    url = f"{public_tour_browser_server['base_url']}/tours/{public_tour_browser_server['slug']}?pane=flythrough-pane"
+    url = f"{public_tour_browser_server['base_url']}/tours/{public_tour_browser_server['slug']}?pane=flythrough-pane&autoplay=1"
 
     page.goto(url, wait_until="networkidle")
     video = page.locator("#flythrough-video")
     video.wait_for()
     assert video.is_visible()
-    page.wait_for_timeout(500)
-    page.evaluate(
-        """() => {
-            const video = document.getElementById('flythrough-video');
-            if (!video) return;
-            video.muted = true;
-            video.play().catch(() => null);
-        }"""
-    )
-    page.wait_for_timeout(1500)
+    page.wait_for_timeout(1800)
     state = page.evaluate(
         """() => {
             const video = document.getElementById('flythrough-video');
@@ -359,20 +350,12 @@ def test_public_tour_flythrough_video_decodes_on_mobile_viewport(
     page = context.new_page()
     console_errors: list[str] = []
     page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
-    url = f"{public_tour_browser_server['base_url']}/tours/{public_tour_browser_server['slug']}?pane=flythrough-pane"
+    url = f"{public_tour_browser_server['base_url']}/tours/{public_tour_browser_server['slug']}?pane=flythrough-pane&autoplay=1"
 
     page.goto(url, wait_until="networkidle")
     video = page.locator("#flythrough-video")
     video.wait_for()
     assert video.is_visible()
-    page.evaluate(
-        """() => {
-            const video = document.getElementById('flythrough-video');
-            if (!video) return;
-            video.muted = true;
-            video.play().catch(() => null);
-        }"""
-    )
     page.wait_for_timeout(1800)
     state = page.evaluate(
         """() => {

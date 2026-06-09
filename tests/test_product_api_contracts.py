@@ -821,8 +821,14 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
     monkeypatch.setattr(
         product_service,
         "send_telegram_photo_for_principal",
-        lambda tool_runtime, *, principal_id, photo_ref, caption="", url_buttons=None: observed.update(
-            {"message_principal_id": principal_id, "photo_ref": photo_ref, "message_text": caption, "url_buttons": url_buttons}
+        lambda tool_runtime, *, principal_id, photo_ref, caption="", inline_buttons=None, url_buttons=None: observed.update(
+            {
+                "message_principal_id": principal_id,
+                "photo_ref": photo_ref,
+                "message_text": caption,
+                "inline_buttons": inline_buttons,
+                "url_buttons": url_buttons,
+            }
         ) or _MessageReceipt(),
     )
     monkeypatch.setattr(
@@ -856,7 +862,11 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
     assert observed["message_principal_id"] == principal_id
     assert observed["photo_ref"] == "https://cache.willhaben.at/example-photo.jpg"
     assert "PropertyQuarry Review Packet" in str(observed["message_text"])
-    assert observed["url_buttons"][0][0] == ("Open 3D Tour", "https://propertyquarry.com/tours/test-telegram-bundle?pane=floorplan-pane")
+    assert observed["url_buttons"][0][0] == ("Open 3D Tour", "https://propertyquarry.com/tours/test-telegram-bundle?pane=panorama-pane")
+    assert observed["url_buttons"][0][1] == ("Open Flythrough", "https://propertyquarry.com/tours/test-telegram-bundle?pane=flythrough-pane&autoplay=1")
+    button_labels = [button[0] for row in list(observed.get("inline_buttons") or []) for button in row]
+    assert "I like it" in button_labels
+    assert "I don't like it" in button_labels
     assert observed["video_principal_id"] == principal_id
     assert observed["video_ref"] == "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4"
     assert observed["video_caption"] == "Telegram Test Listing\nPropertyQuarry flythrough"
@@ -3927,6 +3937,104 @@ def test_telegram_feedback_callback_records_generic_notification_preference(monk
         if str(row.get("domain") or "") == "assistant_nudge" and str(row.get("event_type") or "") == "notification_useful"
     ]
     assert evidence_rows
+
+
+def test_telegram_property_feedback_callback_prompts_for_followup_and_captures_reply(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Telegram Property Feedback Followup Office")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "telegram-secret-test")
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={
+            "default_chat_ref": "1354554303",
+            "bot_key": "default",
+            "bot_handle": "tibor_concierge_bot",
+        },
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    product = ProductService(client.app.state.container)
+    prompt = product._prepare_notification_feedback_prompt(
+        principal_id=principal_id,
+        notification_kind="telegram_property_link_bundle",
+        person_id="self",
+        domain="property_scout",
+        object_type="property_listing",
+        object_id="https://example.com/property-1",
+        source_ref="property-link:https://example.com/property-1",
+        raw_signal_json={"title": "Property One", "property_url": "https://example.com/property-1"},
+        interpreted_signal_json={},
+    )
+    product._record_notification_feedback_prompt(
+        principal_id=principal_id,
+        prompt=prompt,
+        delivery_channel="telegram",
+        telegram_chat_ref="1354554303",
+        telegram_message_ids=["992"],
+    )
+    callback_data = str(prompt["button_rows"][0][0][1])
+    answered: list[dict[str, object]] = []
+    replies: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        channel_routes,
+        "_telegram_answer_callback_query",
+        lambda *, bot_token, callback_query_id, text="": answered.append(
+            {"bot_token": bot_token, "callback_query_id": callback_query_id, "text": text}
+        ),
+    )
+    monkeypatch.setattr(
+        channel_routes,
+        "_telegram_send_and_record_reply",
+        lambda **kwargs: replies.append({"reply_text": kwargs.get("reply_text"), "dedupe_key": kwargs.get("dedupe_key")}) or True,
+    )
+
+    callback_response = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"x-telegram-bot-api-secret-token": "telegram-secret-test"},
+        json={
+            "update": {
+                "callback_query": {
+                    "id": "cb-followup-1",
+                    "data": callback_data,
+                    "message": {
+                        "message_id": 992,
+                        "text": "Property One",
+                        "chat": {"id": "1354554303"},
+                    },
+                }
+            }
+        },
+    )
+    assert callback_response.status_code == 200
+    assert callback_response.json()["reply_text"] == "Noted. What do you like most about it? Reply with one short phrase."
+    assert answered and answered[0]["callback_query_id"] == "cb-followup-1"
+
+    followup_response = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"x-telegram-bot-api-secret-token": "telegram-secret-test"},
+        json={
+            "update": {
+                "message": {
+                    "message_id": 993,
+                    "text": "The balcony and the quieter street.",
+                    "chat": {"id": "1354554303"},
+                }
+            }
+        },
+    )
+    assert followup_response.status_code == 200
+    assert followup_response.json()["reply_text"] == "Noted. I’ll use that to sharpen future property matches."
+    followup_events = client.get("/app/api/events", params={"channel": "product", "event_type": "notification_feedback_followup_received"})
+    assert followup_events.status_code == 200
+    payloads = [item["payload"] for item in followup_events.json()["items"]]
+    matched = next(item for item in payloads if item["notification_key"] == prompt["notification_key"])
+    assert matched["followup_kind"] == "like"
+    assert matched["response_text"] == "The balcony and the quieter street."
 
 
 def test_property_alert_preference_scoring_flows_through_queue_and_telegram(monkeypatch) -> None:

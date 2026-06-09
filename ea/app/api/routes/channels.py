@@ -4554,6 +4554,24 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
     return TelegramTurnDecision()
 
 
+def _telegram_notification_feedback_followup_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
+    if str(ctx.payload.get("kind") or "").strip().lower() == "callback_query":
+        return TelegramTurnDecision()
+    normalized = str(ctx.normalized or "").strip()
+    if not normalized:
+        return TelegramTurnDecision()
+    service = build_product_service(ctx.container)
+    result = service.record_notification_feedback_followup_response(
+        principal_id=ctx.principal_id,
+        chat_id=ctx.chat_id,
+        text=normalized,
+        actor="telegram_feedback_followup",
+    )
+    if str(result.get("status") or "").strip().lower() in {"recorded", "duplicate", "empty"}:
+        return TelegramTurnDecision(reply_text=str(result.get("reply_text") or "").strip() or "Noted.")
+    return TelegramTurnDecision()
+
+
 def _telegram_link_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
     if "http://" not in ctx.normalized and "https://" not in ctx.normalized:
         return TelegramTurnDecision()
@@ -5228,6 +5246,9 @@ def _telegram_session_turn(
     callback_decision = _telegram_callback_turn_decision(ctx)
     if callback_decision.reply_text or callback_decision.schedule_async:
         return callback_decision
+    feedback_followup_decision = _telegram_notification_feedback_followup_turn_decision(ctx)
+    if feedback_followup_decision.reply_text or feedback_followup_decision.schedule_async:
+        return feedback_followup_decision
     return TelegramTurnDecision(reply_text=reply_text, schedule_async=schedule_async)
 
 

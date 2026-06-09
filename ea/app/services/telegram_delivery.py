@@ -423,6 +423,7 @@ def send_telegram_photo_for_principal(
     principal_id: str,
     photo_ref: str,
     caption: str = "",
+    inline_buttons: list[list[tuple[str, str]]] | None = None,
     url_buttons: list[list[tuple[str, str]]] | None = None,
 ) -> TelegramDeliveryReceipt:
     binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
@@ -444,6 +445,14 @@ def send_telegram_photo_for_principal(
     if not normalized_photo_ref:
         raise RuntimeError("telegram_photo_ref_missing")
     keyboard_rows: list[list[dict[str, str]]] = []
+    for row in list(inline_buttons or []):
+        buttons = [
+            {"text": str(label or "").strip(), "callback_data": str(callback_data or "").strip()}
+            for label, callback_data in row
+            if str(label or "").strip() and str(callback_data or "").strip()
+        ]
+        if buttons:
+            keyboard_rows.append(buttons)
     for row in list(url_buttons or []):
         buttons = [
             {"text": str(label or "").strip(), "url": str(url or "").strip()}

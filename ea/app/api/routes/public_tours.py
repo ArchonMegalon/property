@@ -4050,6 +4050,17 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         }}
       }}
 
+      async function autoplayFlythrough() {{
+        if (!flythroughVideo || typeof flythroughVideo.play !== 'function') return;
+        flythroughVideo.muted = true;
+        flythroughVideo.autoplay = true;
+        try {{
+          await flythroughVideo.play();
+        }} catch (_error) {{
+          flythroughVideo.controls = true;
+        }}
+      }}
+
       function setPanoramaScene(index) {{
         if (!panoramaScenes.length || !viewer) return;
         activePanorama = ((index % panoramaScenes.length) + panoramaScenes.length) % panoramaScenes.length;
@@ -4246,6 +4257,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       const initialParams = new URLSearchParams(window.location.search);
       const initialScene = initialParams.get('scene');
       const initialPane = initialParams.get('pane');
+      const initialAutoplay = initialParams.get('autoplay');
       const initialSceneIndex = panoramaScenes.findIndex((scene) => String(scene.scene_id || '').trim() === String(initialScene || '').trim());
       if (panoramaScenes.length && viewer) {{
         setPanoramaScene(initialSceneIndex >= 0 ? initialSceneIndex : 0);
@@ -4260,6 +4272,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       renderLayoutPreview();
       if (initialPane === 'flythrough-pane' && flythroughVideo) {{
         switchPane('flythrough-pane');
+        if (initialAutoplay === '1') {{
+          autoplayFlythrough();
+        }}
       }} else if (initialPane === 'floorplan-pane' && floorplanScenes.length) {{
         switchPane('floorplan-pane');
       }} else if (initialPane === 'overview-pane') {{
