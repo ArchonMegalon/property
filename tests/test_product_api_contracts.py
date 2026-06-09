@@ -9176,6 +9176,20 @@ def test_repo_root_supports_container_layout(monkeypatch, tmp_path: Path) -> Non
     assert product_service._repo_root() == container_root.resolve()
 
 
+def test_runtime_python_executable_falls_back_to_sys_python(monkeypatch, tmp_path: Path) -> None:
+    container_root = tmp_path / "app"
+    service_path = container_root / "app" / "product" / "service.py"
+    service_path.parent.mkdir(parents=True)
+    service_path.write_text("# container service stub\n", encoding="utf-8")
+    (container_root / "scripts").mkdir(parents=True)
+
+    monkeypatch.delenv("EA_REPO_ROOT", raising=False)
+    monkeypatch.setattr(product_service, "__file__", str(service_path))
+
+    runtime_python = Path(product_service.sys.executable).resolve()
+    assert product_service._runtime_python_executable() == str(runtime_python)
+
+
 def test_willhaben_property_tour_route_blocks_with_handoff_when_connector_missing(monkeypatch) -> None:
     monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")

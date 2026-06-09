@@ -16,6 +16,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import threading
@@ -10037,6 +10038,22 @@ def _repo_root() -> Path:
     return candidate
 
 
+def _runtime_python_executable() -> str:
+    venv_python = (_repo_root() / ".venv" / "bin" / "python").resolve()
+    if venv_python.exists():
+        return str(venv_python)
+    sys_python = Path(sys.executable).resolve()
+    if sys_python.exists():
+        return str(sys_python)
+    which_python3 = shutil.which("python3")
+    if which_python3:
+        return which_python3
+    which_python = shutil.which("python")
+    if which_python:
+        return which_python
+    return "python3"
+
+
 def _resolve_repo_path(raw: str, *, default: Path) -> Path:
     normalized = str(raw or "").strip()
     if not normalized:
@@ -10955,7 +10972,7 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
         tmp_video = Path(tmp_dir) / "tour.mp4"
         tmp_sidecar = Path(tmp_dir) / "tour.magicfit.json"
         command = [
-            str((_repo_root() / ".venv" / "bin" / "python").resolve()),
+            _runtime_python_executable(),
             str(script_path),
             "--prompt",
             prompt,
