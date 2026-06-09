@@ -9236,7 +9236,7 @@ def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_ava
             "total_rent_eur": 1690.0,
         },
         "media_urls_json": ["https://cdn.example.com/apartment-c/photo-1.jpg"],
-        "floorplan_urls_json": ["https://cdn.example.com/apartment-c/floorplan-1.jpg"],
+        "floorplan_urls_json": [],
         "tour_variants_json": [
             {
                 "variant_key": "layout_first",
@@ -9329,7 +9329,7 @@ def test_willhaben_property_tour_block_followup_sends_telegram_scout_update(monk
         "listing_uuid": "listing-followup-telegram-uuid-001",
         "property_facts_json": {},
         "media_urls_json": ["https://cdn.example.com/apartment-c/photo-1.jpg"],
-        "floorplan_urls_json": ["https://cdn.example.com/apartment-c/floorplan-1.jpg"],
+        "floorplan_urls_json": [],
         "tour_variants_json": [
             {
                 "variant_key": "layout_first",
@@ -9368,6 +9368,57 @@ def test_willhaben_property_tour_block_followup_sends_telegram_scout_update(monk
     )
     assert events.status_code == 200
     assert any(item["payload"]["telegram_chat_ref"] == "1354554303" for item in events.json()["items"])
+
+
+def test_willhaben_property_tour_without_browseract_binding_uses_hosted_floorplan_when_available(monkeypatch) -> None:
+    monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    packet = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/apartment-floorplan-fallback-001",
+        "listing_id": "listing-floorplan-fallback-001",
+        "title": "Quiet district apartment",
+        "listing_uuid": "listing-floorplan-fallback-uuid-001",
+        "property_facts_json": {},
+        "media_urls_json": ["https://cdn.example.com/apartment-c/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cdn.example.com/apartment-c/floorplan-1.jpg"],
+        "tour_variants_json": [
+            {
+                "variant_key": "layout_first",
+                "scene_strategy": "layout_first",
+                "theme_name": "clean_light",
+                "tour_style": "guided_layout_walkthrough",
+                "audience": "tenant_screening",
+            }
+        ],
+    }
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
+    monkeypatch.setattr(
+        product_service,
+        "_write_hosted_floorplan_property_tour_bundle",
+        lambda **kwargs: {
+            "slug": "willhaben-floorplan-tour",
+            "hosted_url": "https://propertyquarry.com/tours/willhaben-floorplan-tour",
+            "public_url": "https://propertyquarry.com/tours/willhaben-floorplan-tour",
+            "creation_mode": "hosted_floorplan_tour",
+        },
+    )
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": packet["property_url"],
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "created"
+    assert body["tour_media_mode"] == "floorplan_hosted"
+    assert body["blocked_reason"] == ""
+    assert body["tour_url"] == "https://propertyquarry.com/tours/willhaben-floorplan-tour"
 
 
 def test_office_signal_can_auto_create_willhaben_property_tour(monkeypatch) -> None:
