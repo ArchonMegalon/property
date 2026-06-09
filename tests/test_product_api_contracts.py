@@ -820,6 +820,11 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
     )
     monkeypatch.setattr(
         product_service,
+        "_property_link_bundle_preview_image_url",
+        lambda **kwargs: "https://propertyquarry.com/tours/test-telegram-bundle/../files/test-telegram-bundle/scene-01.png",
+    )
+    monkeypatch.setattr(
+        product_service,
         "send_telegram_photo_for_principal",
         lambda tool_runtime, *, principal_id, photo_ref, caption="", inline_buttons=None, url_buttons=None: observed.update(
             {
@@ -860,8 +865,9 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
 
     assert result["status"] == "sent"
     assert observed["message_principal_id"] == principal_id
-    assert observed["photo_ref"] == "https://cache.willhaben.at/example-photo.jpg"
-    assert "PropertyQuarry Review Packet" in str(observed["message_text"])
+    assert observed["photo_ref"] == "https://propertyquarry.com/tours/test-telegram-bundle/../files/test-telegram-bundle/scene-01.png"
+    assert "Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF." in str(observed["message_text"])
+    assert "Most important facts: 2 rooms · 48 m2 · EUR 1.095 · Floorplan" in str(observed["message_text"])
     assert observed["url_buttons"][0][0] == ("Open 3D Tour", "https://propertyquarry.com/tours/test-telegram-bundle?pane=panorama-pane")
     assert observed["url_buttons"][0][1] == ("Open Flythrough", "https://propertyquarry.com/tours/test-telegram-bundle?pane=flythrough-pane&autoplay=1")
     button_labels = [button[0] for row in list(observed.get("inline_buttons") or []) for button in row]

@@ -10835,12 +10835,95 @@ def _property_link_bundle_preview_image_url(
     *,
     media_urls: list[str] | tuple[str, ...],
     source_virtual_tour_url: str = "",
+    tour_url: str = "",
 ) -> str:
+    hosted_preview = _hosted_property_tour_preview_image_url(tour_url)
+    if hosted_preview:
+        return hosted_preview
     for candidate in list(media_urls or []):
         normalized = _safe_live_property_tour_url(candidate)
         if normalized and normalized.lower().split("?", 1)[0].endswith((".jpg", ".jpeg", ".png", ".webp")):
             return normalized
     return _matterport_thumb_url(source_virtual_tour_url)
+
+
+def _hosted_property_tour_preview_image_url(tour_url: str) -> str:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return ""
+    parsed = urllib.parse.urlparse(normalized_url)
+    path_parts = [part for part in str(parsed.path or "").split("/") if part]
+    if len(path_parts) < 2 or path_parts[-2] != "tours":
+        return ""
+    slug = str(path_parts[-1] or "").strip()
+    if not slug:
+        return ""
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    bundle_dir = public_dir / slug
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists():
+        return ""
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+
+    role_priority = {
+        "diorama": 0,
+        "generated_overview": 1,
+        "overview": 2,
+        "floorplan": 3,
+        "panorama_360": 4,
+    }
+    scenes = list(payload.get("scenes") or []) if isinstance(payload.get("scenes"), list) else []
+    ranked_scenes = sorted(
+        (scene for scene in scenes if isinstance(scene, dict)),
+        key=lambda scene: (
+            role_priority.get(str(scene.get("role") or "").strip().lower(), 10),
+            int(scene.get("ordinal") or 9999),
+        ),
+    )
+    for scene in ranked_scenes:
+        image_url = _safe_live_property_tour_url(str(scene.get("image_url") or "").strip())
+        if image_url and image_url.lower().split("?", 1)[0].endswith((".jpg", ".jpeg", ".png", ".webp")):
+            return image_url
+        asset_relpath = str(scene.get("asset_relpath") or "").strip()
+        if asset_relpath and asset_relpath.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+            asset_path = (bundle_dir / asset_relpath).resolve()
+            if bundle_dir.resolve() in asset_path.parents and asset_path.exists() and asset_path.is_file():
+                return urllib.parse.urljoin(f"{normalized_url.rstrip('/')}/", f"../files/{slug}/{asset_relpath}")
+    return ""
+
+
+def _property_link_bundle_key_facts_lines(property_facts: dict[str, object]) -> list[str]:
+    facts = dict(property_facts or {})
+    chips: list[str] = []
+    rooms = facts.get("rooms")
+    if isinstance(rooms, (int, float)) and float(rooms) > 0:
+        chips.append(f"{int(rooms) if float(rooms).is_integer() else rooms} rooms")
+    area = facts.get("area_sqm") or facts.get("usable_area_sqm") or facts.get("living_area_sqm")
+    if isinstance(area, (int, float)) and float(area) > 0:
+        chips.append(f"{int(round(float(area)))} m2")
+    price = (
+        facts.get("total_rent_eur")
+        or facts.get("price_eur")
+        or facts.get("purchase_price_eur")
+        or facts.get("rent_eur")
+    )
+    if isinstance(price, (int, float)) and float(price) > 0:
+        chips.append(f"EUR {int(round(float(price))):,}".replace(",", "."))
+    district = str(facts.get("district") or facts.get("city_district") or "").strip()
+    if district:
+        chips.append(district.replace("_", " ").title())
+    if bool(facts.get("lift")):
+        chips.append("Lift")
+    if bool(facts.get("has_floorplan")):
+        chips.append("Floorplan")
+    if not chips:
+        return []
+    return ["Most important facts: " + " · ".join(chips[:6])]
 
 
 def _property_tour_deep_link(tour_url: str, *, pane: str, autoplay: bool = False) -> str:
@@ -19927,22 +20010,14 @@ class ProductService:
                 "video_status": "skipped",
                 "pending_reasons": pending_reasons,
             }
-        summary_lines = [f"PropertyQuarry Review Packet\n{title}"]
+        summary_lines = [title]
+        summary_lines.append("Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF.")
         if fit_summary:
             summary_lines.append(fit_summary)
         elif fit_score > 0:
             summary_lines.append(f"Personal fit {int(round(max(0.0, min(100.0, float(fit_score or 0.0))))):d}/100")
-        if primary_tour_url:
-            summary_lines.append("Included: 3D tour")
-        else:
-            blocked_reason = str(tour_result.get("blocked_reason") or "").strip()
-            summary_lines.append(
-                "3D tour pending"
-                + (f" · {blocked_reason.replace('_', ' ')}" if blocked_reason else "")
-            )
-        summary_lines.append("Flythrough: sent below when a hosted video lane is available.")
-        if str(dossier_render.get("status") or "").strip() == "rendered":
-            summary_lines.append("Dossier: attached as PDF.")
+        summary_lines.extend(_property_link_bundle_key_facts_lines(property_facts_json))
+        summary_lines.append("Open 3D Tour goes directly into the interactive tour. Open Flythrough starts the video immediately.")
         feedback_prompt = self._prepare_notification_feedback_prompt(
             principal_id=principal_id,
             notification_kind="telegram_property_link_bundle",
@@ -19977,6 +20052,7 @@ class ProductService:
         preview_image_url = _property_link_bundle_preview_image_url(
             media_urls=media_urls_json,
             source_virtual_tour_url=source_tour_url,
+            tour_url=tour_url,
         )
         if preview_image_url:
             message_receipt = send_telegram_photo_for_principal(
