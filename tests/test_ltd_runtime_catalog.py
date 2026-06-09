@@ -28,6 +28,7 @@ Updated: 2026-05-02
 | `Documentation.AI` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Owned for operator docs and cited answers. |
 | `FlipLink.me` | `Tier 10` | `1 account` | `Owned` |  | `Tier 2` | Local `.env` credentials plus bounded PropertyQuarry review-packet flipbook lane | Use only for shareable redacted review packets downstream of PropertyQuarry. |
 | `MarkupGo` | `7x code-based` | `7 codes` | `Activated` |  | `Tier 3` | None | BrowserAct workspace reader exists even though the direct provider lane is not executable. |
+| `Poppy AI` | `Tier 6` | `1 account / 5 seats` | `Owned` |  | `Tier 3` | BrowserAct workspace-reader candidate plus local API-key placeholders only | Candidate research-board and content-intelligence lane after provider verification. |
 """.strip()
 
 
@@ -58,6 +59,10 @@ def test_browseract_ui_service_aliases_resolve_inventory_service_names() -> None
     documentation = browseract_ui_service_by_alias("Documentation.AI")
     assert documentation is not None
     assert documentation.service_key == "documentation_ai_workspace_reader"
+
+    poppy = browseract_ui_service_by_alias("Poppy AI")
+    assert poppy is not None
+    assert poppy.service_key == "poppy_workspace_reader"
 
     apixdrive = browseract_ui_service_by_alias("ApiX-Drive")
     assert apixdrive is not None
@@ -97,6 +102,16 @@ def test_ltd_runtime_catalog_derives_provider_ui_and_runtime_managed_profiles(tm
     assert markupgo.runtime_state == "browseract_ui_ready"
     assert markupgo.matched_provider_key == "markupgo"
     assert {action.action_key for action in markupgo.actions} == {
+        "discover_account",
+        "inspect_workspace",
+    }
+
+    poppy = catalog.get_profile("Poppy AI")
+    assert poppy is not None
+    assert poppy.runtime_state == "browseract_ui_ready"
+    assert poppy.browseract_ui_service_key == "poppy_workspace_reader"
+    assert poppy.matched_provider_key == "poppy_ai"
+    assert {action.action_key for action in poppy.actions} == {
         "discover_account",
         "inspect_workspace",
     }

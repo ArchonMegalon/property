@@ -108,6 +108,7 @@ from app.api.routes.product_api_contracts import (
 from app.container import AppContainer
 from app.product.service import _property_feedback_reason_map, build_product_service
 from app.services.fliplink import build_fliplink_packet_service
+from app.services import poppy_ai as poppy_ai_service
 from app.services.registration_email import property_notification_preview
 
 router = APIRouter(prefix="/app/api", tags=["product"])
@@ -218,6 +219,52 @@ def search_workspace(
             metadata={"query": str(q or "").strip()[:80], "result_total": len(items)},
         )
     return SearchResponse(generated_at=now_iso(), items=[SearchResultOut(**item) for item in items], total=len(items))
+
+
+@router.get("/providers/poppy/verify")
+def verify_poppy_provider(
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    require_operator_context(context)
+    return poppy_ai_service.poppy_verify_account()
+
+
+@router.get("/providers/poppy/boards")
+def list_poppy_boards(
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    require_operator_context(context)
+    return poppy_ai_service.poppy_list_boards()
+
+
+@router.get("/providers/poppy/boards/{board_id}/chats")
+def list_poppy_board_chats(
+    board_id: str,
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    require_operator_context(context)
+    return poppy_ai_service.poppy_list_chats(board_id=board_id)
+
+
+@router.get("/providers/poppy/ask")
+def ask_poppy_knowledge_base(
+    board_id: str = Query(min_length=1),
+    chat_id: str = Query(min_length=1),
+    prompt: str = Query(min_length=1),
+    model: str = Query(default=""),
+    additional_context: str = Query(default=""),
+    plaintext: bool = Query(default=True),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    require_operator_context(context)
+    return poppy_ai_service.poppy_ask_knowledge_base(
+        board_id=board_id,
+        chat_id=chat_id,
+        prompt=prompt,
+        model=model,
+        additional_context=additional_context,
+        plaintext=plaintext,
+    )
 
 
 @router.get("/decisions", response_model=DecisionResponse)

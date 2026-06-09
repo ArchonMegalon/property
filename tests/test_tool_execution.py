@@ -4472,6 +4472,21 @@ def test_browseract_ui_template_spec_omits_runtime_only_open_tool_node() -> None
     assert spec["meta"]["runtime_input_name"] == "page_url"
 
 
+def test_browseract_ui_template_spec_supports_poppy_workspace_reader() -> None:
+    spec = browseract_ui_template_spec("poppy_workspace_reader")
+    node_ids = [str(node.get("id") or "") for node in spec["nodes"]]
+    assert spec["meta"]["authorized_credential_queries"] == ["getpoppy.ai", "app.getpoppy.ai", "poppy.ai"]
+    assert spec["meta"]["runtime_input_name"] == "page_url"
+    open_login = next(node for node in spec["nodes"] if node.get("id") == "open_login")
+    assert open_login["config"]["url"] == "https://app.getpoppy.ai/login"
+    assert "wait_login_form" in node_ids
+    assert "wait_dismiss_01" in node_ids
+    assert "dismiss_01" in node_ids
+    assert "open_tool" not in node_ids
+    submit_node = next(node for node in spec["nodes"] if node.get("id") == "submit")
+    assert submit_node["config"]["selector"].startswith('form button:has-text("Continue")')
+
+
 def test_tool_execution_service_prefers_local_worker_for_template_backed_ui_service_even_with_workflow_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -362,7 +362,20 @@ class BrowserActUiTemplateDefinition:
                 last_node = "open_tool"
             if self.include_dismiss_nodes:
                 for index, selector in enumerate(self.dismiss_selectors, start=1):
+                    wait_id = f"wait_dismiss_{index:02d}"
                     node_id = f"dismiss_{index:02d}"
+                    nodes.append(
+                        {
+                            "id": wait_id,
+                            "type": "wait",
+                            "label": f"Wait Dismiss Overlay {index}",
+                            "config": {
+                                "selector": selector,
+                                "timeout_ms": 8000,
+                                "optional": True,
+                            },
+                        }
+                    )
                     nodes.append(
                         {
                             "id": node_id,
@@ -372,7 +385,8 @@ class BrowserActUiTemplateDefinition:
                         }
                     )
                     if last_node:
-                        edges.append([last_node, node_id])
+                        edges.append([last_node, wait_id])
+                    edges.append([wait_id, node_id])
                     last_node = node_id
             nodes.append(
                 {
@@ -994,6 +1008,29 @@ _TEMPLATES: tuple[BrowserActUiTemplateDefinition, ...] = (
         authorized_credential_queries=("google.com",),
         wait_selector="main, article, [role='main'], body",
         result_selector="main, article, [role='main'], body",
+    ),
+    BrowserActUiTemplateDefinition(
+        template_key="poppy_workspace_reader",
+        workflow_name="Poppy AI Workspace Reader",
+        description="Open the logged-in Poppy AI workspace or board surface and extract the visible board, sources, and synthesis state for operator review.",
+        login_url="https://app.getpoppy.ai/login",
+        tool_url="",
+        workflow_kind="page_extract",
+        runtime_input_name="page_url",
+        authorized_credential_queries=("getpoppy.ai", "app.getpoppy.ai", "poppy.ai"),
+        direct_email_selector="input[name=identifier], input[type=email], input[placeholder*='email' i], input[autocomplete='email'], input[autocomplete='username']",
+        direct_password_selector="input[name=password], input[type=password], input[autocomplete='current-password'], input[placeholder*='password' i]",
+        direct_submit_selector='form button:has-text("Continue"), form button[type=submit], form input[type=submit], button:has-text("Sign In"), button:has-text("Log In"), button:has-text("Login"), button:has-text("LOG IN")',
+        include_dismiss_nodes=True,
+        dismiss_selectors=(
+            'text="Skip for now, I\'m a pro at Poppy"',
+            'text="Skip for now"',
+            'text="I\'m a pro at Poppy"',
+            'button:has-text("Skip for now, I\'m a pro at Poppy")',
+            'button:has-text("Skip")',
+        ),
+        wait_selector="main, [role='main'], body",
+        result_selector="main, [role='main'], body",
     ),
     BrowserActUiTemplateDefinition(
         template_key="apixdrive_workspace_reader",

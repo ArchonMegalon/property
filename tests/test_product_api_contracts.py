@@ -896,6 +896,71 @@ def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> No
     assert observed["property_url"] == "https://www.immobilienscout24.at/expose/telegram-test-property-dossier"
 
 
+def test_poppy_provider_operator_routes_verify_and_list(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_operator_product_client(principal_id=principal_id)
+
+    monkeypatch.setattr(
+        "app.api.routes.product_api.poppy_ai_service.poppy_verify_account",
+        lambda: {
+            "service": "Poppy AI",
+            "status": "pending",
+            "runtime_status": "manual_board_only",
+            "api_enabled": False,
+            "api_key_present": False,
+            "chatbot_enabled": False,
+            "manual_boards_enabled": True,
+            "account_email": "the.girscheles@gmail.com",
+            "base_url": "https://app.poppy.ai",
+            "reason": "poppy_api_not_verified",
+        },
+    )
+    monkeypatch.setattr(
+        "app.api.routes.product_api.poppy_ai_service.poppy_list_boards",
+        lambda: {
+            "status": "ok",
+            "boards": [{"id": "board-1", "name": "Property Dossier Board", "board_url": "https://app.poppy.ai/boards/board-1"}],
+        },
+    )
+    monkeypatch.setattr(
+        "app.api.routes.product_api.poppy_ai_service.poppy_list_chats",
+        lambda *, board_id: {
+            "status": "ok",
+            "board_id": board_id,
+            "chats": [{"id": "chat-1", "conversations": [{"id": "conv-1", "name": "Main"}]}],
+        },
+    )
+    monkeypatch.setattr(
+        "app.api.routes.product_api.poppy_ai_service.poppy_ask_knowledge_base",
+        lambda **kwargs: {
+            "status": "ok",
+            "board_id": kwargs["board_id"],
+            "chat_id": kwargs["chat_id"],
+            "text": "Draft summary from Poppy",
+            "credits_used": 2,
+            "credits_remaining": 9998,
+        },
+    )
+
+    verify = client.get("/app/api/providers/poppy/verify")
+    boards = client.get("/app/api/providers/poppy/boards")
+    chats = client.get("/app/api/providers/poppy/boards/board-1/chats")
+    ask = client.get(
+        "/app/api/providers/poppy/ask",
+        params={"board_id": "board-1", "chat_id": "chat-1", "prompt": "Summarize this board"},
+    )
+
+    assert verify.status_code == 200
+    assert verify.json()["service"] == "Poppy AI"
+    assert verify.json()["runtime_status"] == "manual_board_only"
+    assert boards.status_code == 200
+    assert boards.json()["boards"][0]["board_url"] == "https://app.poppy.ai/boards/board-1"
+    assert chats.status_code == 200
+    assert chats.json()["chats"][0]["conversations"][0]["id"] == "conv-1"
+    assert ask.status_code == 200
+    assert ask.json()["text"] == "Draft summary from Poppy"
+
+
 def test_property_scout_hit_email_falls_back_to_google_gmail_on_unverified_sender(monkeypatch) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
