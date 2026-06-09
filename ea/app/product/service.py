@@ -10018,7 +10018,23 @@ def _extract_pocket_assistant_commands(transcript_text: str) -> list[dict[str, s
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+    explicit_root = str(os.getenv("EA_REPO_ROOT") or "").strip()
+    if explicit_root:
+        candidate = Path(explicit_root).expanduser().resolve()
+        if candidate.exists():
+            return candidate
+    service_path = Path(__file__).resolve()
+    if len(service_path.parents) >= 3:
+        container_like_root = service_path.parents[2]
+        if (container_like_root / "app").exists() and (container_like_root / "scripts").exists():
+            return container_like_root
+    candidate = service_path.parents[3]
+    if (candidate / "scripts").exists() or (candidate / ".codex-design").exists():
+        return candidate
+    container_root = Path("/app")
+    if (container_root / "app").exists() and (container_root / "scripts").exists():
+        return container_root
+    return candidate
 
 
 def _resolve_repo_path(raw: str, *, default: Path) -> Path:
