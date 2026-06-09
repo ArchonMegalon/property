@@ -10806,6 +10806,12 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
     video_relpath = str(payload.get("video_relpath") or payload.get("video_fallback_relpath") or "").strip()
     if not video_relpath:
         return {}
+    video_provider = str(
+        payload.get("video_provider")
+        or payload.get("video_provider_key")
+        or payload.get("video_render_provider")
+        or ""
+    ).strip().lower()
     local_video_path = (bundle_dir / video_relpath).resolve()
     if bundle_dir.resolve() not in local_video_path.parents:
         return {}
@@ -10817,6 +10823,7 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
         "video_url": public_video_url,
         "video_file_path": str(local_video_path),
         "audio_probe_ref": str(local_video_path),
+        "provider_key": video_provider,
     }
 
 
@@ -20098,8 +20105,10 @@ class ProductService:
 
         video_delivery = _hosted_property_tour_video_delivery(tour_url) if tour_url else {}
         video_url = str(video_delivery.get("video_url") or "").strip()
+        video_provider_key = str(video_delivery.get("provider_key") or "").strip().lower()
+        magicfit_video_ready = bool(video_url and video_provider_key == "magicfit")
         dossier_ready = str(dossier_render.get("status") or "").strip() == "rendered"
-        bundle_ready = bool(primary_tour_url and dossier_ready and video_url)
+        bundle_ready = bool(primary_tour_url and dossier_ready and magicfit_video_ready)
         if not bundle_ready:
             pending_reasons: list[str] = []
             if not primary_tour_url:
@@ -20109,6 +20118,8 @@ class ProductService:
                 )
             if not video_url:
                 pending_reasons.append("flythrough video missing")
+            elif video_provider_key != "magicfit":
+                pending_reasons.append("flythrough not rendered by MagicFit")
             if not dossier_ready:
                 pending_reasons.append("dossier not rendered")
             pending_binding = resolve_primary_telegram_binding(self._container.tool_runtime, principal_id=principal_id)
@@ -20129,6 +20140,7 @@ class ProductService:
                 "telegram_chat_ref": pending_chat_ref,
                 "telegram_video_delivery_status": "skipped",
                 "telegram_video_url": video_url,
+                "telegram_video_provider_key": video_provider_key,
                 "telegram_video_message_ids": [],
                 "telegram_video_delivery_error": "",
                 "dossier_delivery_status": "skipped",
@@ -20307,6 +20319,7 @@ class ProductService:
             "telegram_chat_ref": str(message_receipt.chat_id or "").strip(),
             "telegram_video_delivery_status": video_delivery_status,
             "telegram_video_url": video_url,
+            "telegram_video_provider_key": video_provider_key,
             "telegram_video_message_ids": list(video_message_ids),
             "telegram_video_delivery_error": video_delivery_error,
             "dossier_delivery_status": dossier_delivery_status,
@@ -25936,6 +25949,12 @@ class ProductService:
             "facts": top_facts,
             "comparison_candidates": comparison_rows,
         }
+        latest_magic_fit_scene = self.latest_property_magic_fit_scene(
+            principal_id=principal_id,
+            property_ref=str(source_payload["property_ref"]),
+        )
+        if isinstance(latest_magic_fit_scene, dict) and latest_magic_fit_scene and bool(latest_magic_fit_scene.get("share_with_packet_pdf")):
+            source_payload["magic_fit_scene"] = dict(latest_magic_fit_scene)
         if top_facts:
             source_payload.update(top_facts)
         if preference_person_id and preference_person_id != "self":

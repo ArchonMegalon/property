@@ -101,3 +101,26 @@ def test_premium_pipeline_uses_configured_playwright_before_legacy(monkeypatch, 
     )
     assert Path(str(rendered["pdf_path"])).is_file()
     assert rendered["receipt"]["renderer_provider"] == "playwright"
+
+
+def test_premium_dossier_html_can_embed_personal_magicfit_scene() -> None:
+    source = _sample_source()
+    source["magic_fit_scene"] = {
+        "scene_id": "magicfit-1",
+        "scene_type": "breakfast",
+        "summary": "Personal morning scene for the packet.",
+        "image_url": "https://propertyquarry.com/static/magicfit-scene.jpg",
+        "share_with_packet_pdf": True,
+        "visual_simulation": True,
+    }
+    compiled = compile_premium_dossier(
+        source=source,
+        redacted_payload=source,
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        renderer_version="v1_premium_markupgo_dossier",
+    )
+    html = render_premium_dossier_html(compiled)
+    assert "Personal lifestyle scene" in html
+    assert "https://propertyquarry.com/static/magicfit-scene.jpg" in html

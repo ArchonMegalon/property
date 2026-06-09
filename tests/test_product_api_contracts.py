@@ -826,7 +826,7 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
     monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_video_delivery",
-        lambda tour_url: {"video_url": "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4", "audio_probe_ref": "https://propertyquarry.com/tours/test-telegram-bundle/audio.mp3"},
+        lambda tour_url: {"video_url": "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4", "audio_probe_ref": "https://propertyquarry.com/tours/test-telegram-bundle/audio.mp3", "provider_key": "magicfit"},
     )
     monkeypatch.setattr(
         product_service,
@@ -974,7 +974,7 @@ def test_deliver_telegram_property_link_bundle_falls_back_to_text_when_preview_p
     monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_video_delivery",
-        lambda tour_url: {"video_url": "https://propertyquarry.com/tours/test-photo-fallback-bundle/video.mp4", "audio_probe_ref": "https://propertyquarry.com/tours/test-photo-fallback-bundle/audio.mp3"},
+        lambda tour_url: {"video_url": "https://propertyquarry.com/tours/test-photo-fallback-bundle/video.mp4", "audio_probe_ref": "https://propertyquarry.com/tours/test-photo-fallback-bundle/audio.mp3", "provider_key": "magicfit"},
     )
     monkeypatch.setattr(
         product_service,
@@ -1149,7 +1149,7 @@ def test_deliver_telegram_property_link_bundle_shortens_pdf_button_through_works
     monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_video_delivery",
-        lambda tour_url: {"video_url": "https://propertyquarry.com/tours/test-long-url-bundle/video.mp4", "audio_probe_ref": "https://propertyquarry.com/tours/test-long-url-bundle/audio.mp3"},
+        lambda tour_url: {"video_url": "https://propertyquarry.com/tours/test-long-url-bundle/video.mp4", "audio_probe_ref": "https://propertyquarry.com/tours/test-long-url-bundle/audio.mp3", "provider_key": "magicfit"},
     )
     monkeypatch.setattr(
         product_service,
@@ -1287,6 +1287,105 @@ def test_deliver_telegram_property_link_bundle_waits_for_full_bundle_before_send
     assert observed["actions"] == [(principal_id, "typing")]
     assert result["telegram_message_ids"] == []
     assert "flythrough video missing" in str(result["pending_reasons"])
+
+
+def test_deliver_telegram_property_link_bundle_requires_magicfit_flythrough_provider(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle MagicFit Office")
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
+
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(
+        ProductService,
+        "create_generic_property_tour",
+        lambda self, **kwargs: {
+            "status": "created",
+            "tour_url": "https://propertyquarry.com/tours/test-non-magicfit-bundle",
+            "vendor_tour_url": "",
+            "blocked_reason": "",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda property_url: {
+            "title": "Pending MagicFit Bundle Listing",
+            "listing_id": "tg-link-magicfit-1",
+            "description": "A bundle with a non-MagicFit flythrough.",
+            "media_urls_json": ["https://cache.willhaben.at/example-photo.jpg"],
+            "floorplan_urls_json": [],
+            "source_virtual_tour_url": "",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_candidate_payload_from_preview",
+        lambda *, property_url, preview: {"listing_id": "tg-link-magicfit-1"},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_merge_property_facts_with_source_research",
+        lambda **kwargs: dict(kwargs.get("property_facts") or {}),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_render_property_scout_dossier",
+        lambda self, **kwargs: {
+            "status": "rendered",
+            "publication_id": "pub_magicfit_pending_bundle",
+            "pdf_path": str(tmp_path / "magicfit-pending-bundle.pdf"),
+            "public_pdf_url": "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/magicfit-pending-token",
+            "caption": "PropertyQuarry dossier · Pending MagicFit Bundle Listing",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_video_delivery",
+        lambda tour_url: {
+            "video_url": "https://propertyquarry.com/tours/files/test-non-magicfit-bundle/tour.mp4",
+            "provider_key": "matterport",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_chat_action_for_principal",
+        lambda tool_runtime, *, principal_id, action="typing": observed.setdefault("actions", []).append((principal_id, action)) or SimpleNamespace(chat_id="1354554303", message_ids=()),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_photo_for_principal",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("bundle should not send before MagicFit flythrough is ready")),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_video_for_principal",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("video should not send before MagicFit flythrough is ready")),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_document_for_principal",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("dossier should not send before MagicFit flythrough is ready")),
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service.deliver_telegram_property_link_bundle(
+        principal_id=principal_id,
+        property_url="https://www.immobilienscout24.at/expose/telegram-property-link-magicfit",
+        actor="test",
+    )
+
+    assert result["status"] == "pending"
+    assert observed["actions"] == [(principal_id, "typing")]
+    assert "flythrough not rendered by MagicFit" in str(result["pending_reasons"])
 
 
 def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> None:

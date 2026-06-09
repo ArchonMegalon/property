@@ -88,6 +88,28 @@
       </div>
     </section>
 
+    {% if payload.magic_fit_scene and payload.magic_fit_scene.image_url %}
+    <section class="page image-spread">
+      <div class="page-inner">
+        <div class="section-kicker">Personal lifestyle scene</div>
+        <div class="image-layout single-visual-layout">
+          <div class="image-main">
+            <img class="gallery-hero" src="{{ payload.magic_fit_scene.image_url }}" alt="Personal lifestyle scene">
+          </div>
+          <div class="panel">
+            <h3>Personal visual simulation</h3>
+            <p>{{ payload.magic_fit_scene.summary or "Personal visual simulation for the packet." }}</p>
+            <ul>
+              <li>Scene type: {{ (payload.magic_fit_scene.scene_type or 'scene')|replace('_', ' ') }}</li>
+              <li>Visual simulation: yes</li>
+              <li>Shared into packet with consent</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
     <section class="page">
       <div class="page-inner">
         <div class="section-kicker">Location and daily-life radius</div>
