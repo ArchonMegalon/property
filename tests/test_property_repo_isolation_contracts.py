@@ -41,6 +41,7 @@ def test_property_release_gates_include_phase_and_master_regressions() -> None:
         "tests/test_propertyquarry_phase6_exit_gate.py",
         "tests/test_propertyquarry_phase7_exit_gate.py",
         "tests/test_propertyquarry_master_regression_gate.py",
+        "tests/test_propertyquarry_tester_gold_gate.py",
         "tests/e2e/test_propertyquarry_phase_regression_browser.py",
         "tests/e2e/test_propertyquarry_packet_engagement_browser.py",
         "tests/e2e/test_propertyquarry_feedback_browser.py",
