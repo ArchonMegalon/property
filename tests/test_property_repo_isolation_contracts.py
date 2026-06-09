@@ -39,6 +39,7 @@ def test_property_release_gates_include_phase_and_master_regressions() -> None:
         "tests/test_propertyquarry_phase4_exit_gate.py",
         "tests/test_propertyquarry_phase5_exit_gate.py",
         "tests/test_propertyquarry_phase6_exit_gate.py",
+        "tests/test_propertyquarry_phase7_exit_gate.py",
         "tests/test_propertyquarry_master_regression_gate.py",
         "tests/e2e/test_propertyquarry_phase_regression_browser.py",
         "tests/e2e/test_propertyquarry_packet_engagement_browser.py",
@@ -47,5 +48,6 @@ def test_property_release_gates_include_phase_and_master_regressions() -> None:
         "tests/e2e/test_propertyquarry_packet_publishing_browser.py",
         "tests/e2e/test_propertyquarry_timeline_browser.py",
         "tests/e2e/test_propertyquarry_commercial_optimization_browser.py",
+        "tests/e2e/test_propertyquarry_public_tour_browser.py",
     ):
         assert required in script

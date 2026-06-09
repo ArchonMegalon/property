@@ -144,6 +144,83 @@ def _walk_minutes_phrase(value: object) -> str:
     return f"about {int(meters)} m away, roughly {minutes} minutes on foot"
 
 
+def _distance_label(value: object, *, name: object = "") -> str:
+    phrase = _walk_minutes_phrase(value)
+    title = str(name or "").strip()
+    if phrase and title:
+        return f"{title}, {phrase}"
+    return phrase or title
+
+
+def _future_change_lines(facts: dict[str, object]) -> list[str]:
+    future = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
+    rows: list[str] = []
+    projects = _text_items(future.get("planned_infrastructure_projects"), limit=3)
+    drivers = _text_items(future.get("future_value_drivers"), limit=3)
+    risks = _text_items(future.get("future_value_risks"), limit=3)
+    confidence = str(future.get("planning_confidence") or "").strip()
+    if projects:
+        rows.append("Planned infrastructure nearby: " + "; ".join(projects))
+    if drivers:
+        rows.append("Potential long-term support factors: " + "; ".join(drivers))
+    if risks:
+        rows.append("Potential long-term pressure points: " + "; ".join(risks))
+    if confidence:
+        rows.append("Planning confidence: " + confidence)
+    return [_clean_sentence(row) for row in rows if row]
+
+
+def _official_risk_lines(facts: dict[str, object]) -> list[str]:
+    evidence = dict(facts.get("official_risk_evidence") or {}) if isinstance(facts.get("official_risk_evidence"), dict) else {}
+    rows = evidence.get("sources")
+    if not isinstance(rows, list):
+        rows = []
+    items: list[str] = []
+    for row in rows[:4]:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("label") or row.get("risk_key") or "Risk").strip()
+        summary = str(row.get("summary") or row.get("required_next_step") or "").strip()
+        verification = str(row.get("verification_state") or "").strip().replace("_", " ")
+        parts = [label]
+        if verification:
+            parts.append(verification)
+        if summary:
+            parts.append(summary)
+        text = ": ".join([parts[0], " · ".join(parts[1:])]) if len(parts) > 1 else parts[0]
+        if text:
+            items.append(_clean_sentence(text))
+    return items
+
+
+def _school_route_line(facts: dict[str, object]) -> str:
+    selected_school = dict(facts.get("school_atlas_selected_school") or {}) if isinstance(facts.get("school_atlas_selected_school"), dict) else {}
+    school_name = str(selected_school.get("name") or facts.get("nearest_school_name") or "").strip()
+    school_type = str(selected_school.get("type") or "").strip()
+    school_distance = _distance_label(selected_school.get("distance_m") or facts.get("nearest_school_m"), name=school_name)
+    tram_bus = _distance_label(facts.get("nearest_tram_bus_m"), name=facts.get("nearest_tram_bus_name"))
+    subway = _distance_label(facts.get("nearest_subway_m"), name=facts.get("nearest_subway_name"))
+    cycleway = _distance_label(facts.get("nearest_cycleway_m"), name=facts.get("nearest_cycleway_name"))
+    route_posture = []
+    if cycleway:
+        route_posture.append(f"protected or explicit cycling access is {cycleway}")
+    else:
+        route_posture.append("safe child-cycle access still needs explicit verification")
+    if tram_bus:
+        route_posture.append(f"the nearest tram or bus stop is {tram_bus}")
+    if subway:
+        route_posture.append(f"the nearest underground stop is {subway}")
+    school_bits = []
+    if school_type:
+        school_bits.append(school_type)
+    if school_distance:
+        school_bits.append(school_distance)
+    school_prefix = f"The nearest relevant school route is towards {school_name}" if school_name else "The school route"
+    if school_bits:
+        school_prefix += f" ({', '.join(school_bits)})"
+    return _clean_sentence(school_prefix + "; " + "; ".join(route_posture))
+
+
 def _num(value: float) -> str:
     return f"{value:.2f}".rstrip("0").rstrip(".")
 
@@ -615,13 +692,39 @@ def _packet_sections(
         row("Outdoor space", facts.get("balcony") or facts.get("terrace") or facts.get("garden") or facts.get("outdoor_space")),
         row("Heating", facts.get("heating_type")),
         row("Availability", facts.get("availability")),
+        row("Building type", facts.get("building_type") or facts.get("building_style")),
+        row("Year built", facts.get("year_built") or facts.get("construction_year") or facts.get("building_year")),
     ]
     radius = [
         row("Supermarket", facts.get("nearest_supermarket_m") or facts.get("nearest_supermarket_name")),
         row("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("nearest_pharmacy_name")),
+        row("Library", facts.get("nearest_library_m") or facts.get("nearest_library_name")),
+        row("Medical care", facts.get("nearest_medical_care_m") or facts.get("nearest_medical_care_name")),
+        row("Hospital", facts.get("nearest_hospital_m") or facts.get("nearest_hospital_name")),
+        row("Straßenbahn / Bus", facts.get("nearest_tram_bus_m") or facts.get("nearest_tram_bus_name")),
         row("Subway", facts.get("nearest_subway_m") or facts.get("nearest_subway_name")),
         row("Playground", facts.get("nearest_playground_m") or facts.get("nearest_playground_name")),
+        row("Run or green space", facts.get("nearest_running_m") or facts.get("nearest_running_name")),
     ]
+    school_and_family = []
+    school_quality = str(facts.get("school_atlas_quality_summary") or "").strip()
+    school_progression = str(facts.get("school_atlas_progression_summary") or "").strip()
+    school_route = _school_route_line(facts)
+    if school_quality:
+        school_and_family.append(_clean_sentence("School quality read: " + school_quality))
+    if school_progression:
+        school_and_family.append(_clean_sentence("School progression read: " + school_progression))
+    if school_route:
+        school_and_family.append(school_route)
+    building_context = [
+        row("Building type", facts.get("building_type") or facts.get("building_style")),
+        row("Year built", facts.get("year_built") or facts.get("construction_year") or facts.get("building_year")),
+        row("Heating", facts.get("heating_type")),
+        row("Lift", facts.get("lift") or facts.get("has_lift")),
+        row("Availability", facts.get("availability")),
+    ]
+    future_change = _future_change_lines(facts)
+    risk_context = _official_risk_lines(facts)
     match_reasons = _text_items(payload.get("match_reasons"), limit=8)
     risks = [*_text_items(payload.get("mismatch_reasons"), limit=6), *_text_items(payload.get("unknowns"), limit=6)]
     viewing_questions = _text_items(payload.get("viewing_questions"), limit=10)
@@ -632,6 +735,14 @@ def _packet_sections(
     ]
     if any(item for item in radius):
         sections.append(_section("Daily-life radius", [item for item in radius if item], accent=(0.19, 0.36, 0.53)))
+    if school_and_family:
+        sections.append(_section("Family and school route", school_and_family, accent=(0.18, 0.41, 0.44)))
+    if any(item for item in building_context):
+        sections.append(_section("Building and house context", [item for item in building_context if item], accent=(0.43, 0.38, 0.29)))
+    if future_change:
+        sections.append(_section("Area change and future infrastructure", future_change, accent=(0.42, 0.25, 0.48)))
+    if risk_context:
+        sections.append(_section("Official risk and safety context", risk_context, accent=(0.62, 0.29, 0.26)))
     sections.extend(
         [
             _section("Why it matched", match_reasons or ["No explicit match reason was included in the source packet."], accent=(0.17, 0.45, 0.37)),
@@ -698,16 +809,23 @@ def _property_narrative(payload: dict[str, object]) -> list[str]:
     supermarket = _walk_minutes_phrase(facts.get("nearest_supermarket_m"))
     pharmacy = _walk_minutes_phrase(facts.get("nearest_pharmacy_m"))
     library = _walk_minutes_phrase(facts.get("nearest_library_m"))
+    medical_care = _walk_minutes_phrase(facts.get("nearest_medical_care_m"))
+    hospital = _walk_minutes_phrase(facts.get("nearest_hospital_m"))
     tram_bus = _walk_minutes_phrase(facts.get("nearest_tram_bus_m") or facts.get("nearest_transit_m"))
     subway = _walk_minutes_phrase(facts.get("nearest_subway_m"))
     playground = _walk_minutes_phrase(facts.get("nearest_playground_m"))
     running = _walk_minutes_phrase(facts.get("nearest_running_m"))
+    school_route = _school_route_line(facts)
     if supermarket:
         daily_life.append(f"the nearest supermarket is {supermarket}")
     if pharmacy:
         daily_life.append(f"the nearest pharmacy is {pharmacy}")
     if library:
         daily_life.append(f"the nearest library is {library}")
+    if medical_care:
+        daily_life.append(f"the nearest medical care is {medical_care}")
+    if hospital:
+        daily_life.append(f"the nearest hospital is {hospital}")
     if tram_bus:
         daily_life.append(f"the nearest tram or bus stop is {tram_bus}")
     if subway:
@@ -748,10 +866,17 @@ def _property_narrative(payload: dict[str, object]) -> list[str]:
     if not fit and match_reasons:
         fit = _clean_sentence("Why it stands out: " + "; ".join(match_reasons))
     neighborhood = _clean_sentence("For daily life, " + ", and ".join(daily_life)) if daily_life else ""
+    school_quality = str(facts.get("school_atlas_quality_summary") or "").strip()
+    school_progression = str(facts.get("school_atlas_progression_summary") or "").strip()
+    school = _clean_sentence("School and family route: " + "; ".join(item for item in [school_route, school_quality, school_progression] if item)) if any(
+        item for item in [school_route, school_quality, school_progression]
+    ) else ""
+    official_risk = _clean_sentence("Risk context: " + "; ".join(_official_risk_lines(facts)[:3])) if _official_risk_lines(facts) else ""
+    future_change = _clean_sentence("Area and infrastructure outlook: " + "; ".join(_future_change_lines(facts)[:3])) if _future_change_lines(facts) else ""
     risk = _clean_sentence("Open points still worth checking: " + "; ".join(risks)) if risks else ""
     next_step = _clean_sentence("Suggested next questions: " + "; ".join(questions)) if questions else ""
 
-    return [item for item in [intro, compare_reason, fit, neighborhood, evidence, risk, next_step] if item]
+    return [item for item in [intro, compare_reason, fit, neighborhood, school, evidence, official_risk, future_change, risk, next_step] if item]
 
 
 def _visual_pdf(

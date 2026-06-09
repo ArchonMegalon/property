@@ -56,6 +56,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_propertyquarry_phase4_exit_gate.py \
   tests/test_propertyquarry_phase5_exit_gate.py \
   tests/test_propertyquarry_phase6_exit_gate.py \
+  tests/test_propertyquarry_phase7_exit_gate.py \
   tests/test_propertyquarry_master_regression_gate.py \
   tests/test_property_search_runs.py::test_property_search_run_surfaces_and_updates_missing_fact_research_tasks
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
@@ -63,6 +64,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_propertyquarry_workspace_redesign.py \
   tests/e2e/test_propertyquarry_greenfield_browser.py \
+  tests/e2e/test_propertyquarry_public_tour_browser.py \
   tests/e2e/test_propertyquarry_packet_engagement_browser.py \
   tests/e2e/test_propertyquarry_feedback_browser.py \
   tests/e2e/test_propertyquarry_summary_artifacts_browser.py \

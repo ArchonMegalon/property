@@ -1,0 +1,63 @@
+phase: 7
+name: premium_dossier_and_hosted_tour_gold
+objective: >
+  Prove that PropertyQuarry ships a white-label hosted tour lane and a dossier
+  lane that read like a professional agency product rather than a thin export.
+status_values:
+  - pass
+  - fail
+  - watch
+  - blocked
+required_test_modules:
+  contract:
+    - tests/test_fliplink_packet_privacy.py
+    - tests/test_fliplink_webhook_contracts.py
+  browser:
+    - tests/e2e/test_propertyquarry_public_tour_browser.py
+  gate:
+    - tests/test_propertyquarry_phase7_exit_gate.py
+required_contract_coverage:
+  - dossier_redaction_keeps_family_risk_and_future_context
+  - dossier_renderer_embeds_comparison_snapshot
+  - dossier_renderer_embeds_3d_and_flythrough_ctas
+  - hosted_tour_bundle_supports_floorplan_and_flythrough_lanes
+  - hosted_tour_bundle_remains_white_labeled
+required_browser_workflows:
+  - name: hosted_tour_opens_white_labeled
+    checks:
+      - user can open hosted tour page
+      - panorama or explicit white-label fallback is visible
+      - floorplan lane opens from the same hosted surface
+  - name: flythrough_decodes_without_black_frame
+    checks:
+      - flythrough pane opens in a real browser
+      - video currentTime advances after play
+      - decoded frame is not visually black
+      - mobile viewport also decodes a visible frame
+  - name: dossier_carries_context_beyond_object_facts
+    checks:
+      - dossier includes family and school route context
+      - dossier includes official risk and safety context
+      - dossier includes future infrastructure or area-change context
+required_persistence_assertions:
+  - rendered dossier keeps the same renderer version and public artifact path
+  - hosted tour bundle survives reload with the same pane routes
+required_ui_affordances:
+  - Open 3D reconstruction floor plan
+  - Play flythrough
+  - Family and school route section
+  - Official risk and safety context section
+  - Area change and future infrastructure section
+fail_closed_conditions:
+  - hosted tour opens to a broken or non-white-label surface
+  - flythrough renders as audio-only or black video
+  - dossier remains a thin fact sheet with no neighbourhood or risk context
+exit_criteria:
+  - all required test modules pass
+  - all required browser workflows pass
+  - all persistence assertions pass
+  - all required UI affordances are present
+  - no fail_closed_conditions are true
+evidence_artifacts:
+  - browser output proving hosted tour and flythrough lanes passed
+  - PDF output proving family, risk, and future-area context is present

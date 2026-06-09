@@ -4,6 +4,7 @@ objective: >
   packet, operator, and settings flows.
 required_test_modules:
   - tests/e2e/test_propertyquarry_phase_regression_browser.py
+  - tests/e2e/test_propertyquarry_public_tour_browser.py
 required_browser_workflows:
   - shortlist_page_loads
   - research_packet_opens
@@ -11,9 +12,12 @@ required_browser_workflows:
   - workspace_loads
   - operator_surface_loads
   - settings_and_billing_surfaces_load
+  - hosted_tour_white_label_opens
+  - hosted_flythrough_decodes_without_black_frame
 fail_closed_conditions:
   - any core product route fails to render
   - any prior-phase primary affordance disappears
   - visual or interaction regression breaks core PQ loop
+  - hosted tour or flythrough lane regresses while the rest of the packet flow stays green
 exit_criteria:
   - browser regression suite passes after every phase

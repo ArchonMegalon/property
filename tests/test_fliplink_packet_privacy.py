@@ -33,6 +33,38 @@ def _source_payload() -> dict[str, object]:
             "postal_name": "1020 Wien",
             "has_floorplan": True,
             "nearest_supermarket_m": 300,
+            "nearest_library_m": 420,
+            "nearest_medical_care_m": 650,
+            "nearest_hospital_m": 1100,
+            "nearest_tram_bus_m": 210,
+            "nearest_running_m": 540,
+            "nearest_cycleway_m": 180,
+            "building_type": "Altbau apartment building",
+            "year_built": 1912,
+            "crime_risk": True,
+            "official_risk_evidence": {
+                "sources": [
+                    {
+                        "risk_key": "crime_risk",
+                        "label": "Crime burden",
+                        "verification_state": "needs_review",
+                        "summary": "Official crime statistics should still be checked before treating quarter-level safety as solved.",
+                    }
+                ]
+            },
+            "future_change_research": {
+                "planned_infrastructure_projects": ["Tram corridor capacity upgrade around the quarter."],
+                "future_value_drivers": ["Public-space and station-area upgrades are under discussion."],
+                "future_value_risks": ["Construction disruption may temporarily affect calm and access."],
+                "planning_confidence": "Medium",
+            },
+            "school_atlas_quality_summary": "Nearest transition-capable school is within practical reach and has a stable public-school profile.",
+            "school_atlas_progression_summary": "A visible share of children continue into Gymnasium, but the exact route burden still needs on-site review.",
+            "school_atlas_selected_school": {
+                "name": "Volksschule Sachsenplatz",
+                "type": "Volksschule",
+                "distance_m": 480,
+            },
             "internal_source_diagnostics": {"cookie": "secret"},
         },
     }
@@ -51,6 +83,9 @@ def test_fliplink_packet_redacts_private_keys_and_exact_address_by_default() -> 
     assert facts["rooms"] == 3
     assert facts["has_floorplan"] is True
     assert facts["nearest_supermarket_m"] == 300
+    assert facts["nearest_medical_care_m"] == 650
+    assert facts["crime_risk"] is True
+    assert facts["school_atlas_selected_school"]["name"] == "Volksschule Sachsenplatz"
     assert "street_address" not in facts
     assert "map_lat" not in facts
     assert "internal_source_diagnostics" not in facts
@@ -326,6 +361,11 @@ def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
     assert b"roughly" in pdf_bytes
     assert b"4 minutes" in pdf_bytes
     assert b"on foot" in pdf_bytes
+    assert b"Family and school route" in pdf_bytes
+    assert b"Official risk and safety context" in pdf_bytes
+    assert b"Crime burden" in pdf_bytes
+    assert b"Medical care" in pdf_bytes
+    assert b"Area change and future infrastructure" in pdf_bytes
     assert b" re f" in pdf_bytes
 
 
