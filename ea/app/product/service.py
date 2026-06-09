@@ -20057,20 +20057,36 @@ class ProductService:
             source_virtual_tour_url=source_tour_url,
             tour_url=tour_url,
         )
+        message_text = "\n".join(summary_lines)
         if preview_image_url:
-            message_receipt = send_telegram_photo_for_principal(
-                self._container.tool_runtime,
-                principal_id=principal_id,
-                photo_ref=preview_image_url,
-                caption="\n".join(summary_lines),
-                inline_buttons=list(feedback_prompt.get("button_rows") or []),
-                url_buttons=url_buttons,
-            )
+            try:
+                with contextlib.suppress(Exception):
+                    send_telegram_chat_action_for_principal(
+                        self._container.tool_runtime,
+                        principal_id=principal_id,
+                        action="upload_photo",
+                    )
+                message_receipt = send_telegram_photo_for_principal(
+                    self._container.tool_runtime,
+                    principal_id=principal_id,
+                    photo_ref=preview_image_url,
+                    caption=message_text,
+                    inline_buttons=list(feedback_prompt.get("button_rows") or []),
+                    url_buttons=url_buttons,
+                )
+            except Exception:
+                message_receipt = send_telegram_message_for_principal(
+                    self._container.tool_runtime,
+                    principal_id=principal_id,
+                    text=message_text,
+                    inline_buttons=list(feedback_prompt.get("button_rows") or []),
+                    url_buttons=url_buttons,
+                )
         else:
             message_receipt = send_telegram_message_for_principal(
                 self._container.tool_runtime,
                 principal_id=principal_id,
-                text="\n".join(summary_lines),
+                text=message_text,
                 inline_buttons=list(feedback_prompt.get("button_rows") or []),
                 url_buttons=url_buttons,
             )

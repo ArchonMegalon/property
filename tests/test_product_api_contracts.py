@@ -880,6 +880,139 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
     assert observed["document_ref"] == str(dossier_path)
 
 
+def test_deliver_telegram_property_link_bundle_falls_back_to_text_when_preview_photo_fails(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Photo Fallback Office")
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
+    dossier_path = tmp_path / "telegram-bundle-photo-fallback.pdf"
+    dossier_path.write_bytes(b"%PDF-1.4\nfallback")
+
+    observed: dict[str, object] = {}
+
+    class _MessageReceipt:
+        chat_id = "1354554303"
+        message_ids = ("9201",)
+
+    class _VideoReceipt:
+        chat_id = "1354554303"
+        message_ids = ("9202",)
+
+    class _DocumentReceipt:
+        chat_id = "1354554303"
+        message_ids = ("9203",)
+
+    monkeypatch.setattr(
+        ProductService,
+        "create_generic_property_tour",
+        lambda self, **kwargs: {
+            "status": "created",
+            "tour_url": "https://propertyquarry.com/tours/test-photo-fallback-bundle",
+            "vendor_tour_url": "",
+            "blocked_reason": "",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda property_url: {
+            "title": "Fallback Bundle Listing",
+            "listing_id": "tg-link-fallback-1",
+            "description": "A bundle whose preview image should fall back to text.",
+            "media_urls_json": ["https://cache.willhaben.at/example-photo.jpg"],
+            "floorplan_urls_json": [],
+            "source_virtual_tour_url": "",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_candidate_payload_from_preview",
+        lambda *, property_url, preview: {"listing_id": "tg-link-fallback-1", "rooms": 2},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_merge_property_facts_with_source_research",
+        lambda **kwargs: dict(kwargs.get("property_facts") or {}),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_render_property_scout_dossier",
+        lambda self, **kwargs: {
+            "status": "rendered",
+            "publication_id": "pub_tg_bundle_fallback",
+            "pdf_path": str(dossier_path),
+            "caption": "PropertyQuarry dossier · Fallback Bundle Listing",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_video_delivery",
+        lambda tour_url: {"video_url": "https://propertyquarry.com/tours/test-photo-fallback-bundle/video.mp4", "audio_probe_ref": "https://propertyquarry.com/tours/test-photo-fallback-bundle/audio.mp3"},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_link_bundle_preview_image_url",
+        lambda **kwargs: "https://propertyquarry.com/tours/test-photo-fallback-bundle/scene-01.png",
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_chat_action_for_principal",
+        lambda *args, **kwargs: SimpleNamespace(chat_id="1354554303", message_ids=()),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_photo_for_principal",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("telegram_photo_unreachable")),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None: observed.update(
+            {
+                "message_principal_id": principal_id,
+                "message_text": text,
+                "inline_buttons": inline_buttons,
+                "url_buttons": url_buttons,
+            }
+        ) or _MessageReceipt(),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_video_for_principal",
+        lambda tool_runtime, *, principal_id, video_ref, audio_probe_ref="", caption="": observed.update(
+            {"video_principal_id": principal_id, "video_ref": video_ref}
+        ) or _VideoReceipt(),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_document_for_principal",
+        lambda tool_runtime, *, principal_id, document_ref, caption="": observed.update(
+            {"document_principal_id": principal_id, "document_ref": document_ref}
+        ) or _DocumentReceipt(),
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service.deliver_telegram_property_link_bundle(
+        principal_id=principal_id,
+        property_url="https://www.immobilienscout24.at/expose/telegram-property-link-fallback",
+        actor="test",
+    )
+
+    assert result["status"] == "sent"
+    assert observed["message_principal_id"] == principal_id
+    assert "Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF." in str(observed["message_text"])
+    assert observed["video_principal_id"] == principal_id
+    assert observed["document_principal_id"] == principal_id
+
+
 def test_deliver_telegram_property_link_bundle_waits_for_full_bundle_before_sending_assets(monkeypatch, tmp_path: Path) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
