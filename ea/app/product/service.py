@@ -23560,6 +23560,59 @@ class ProductService:
                 break
         return urls
 
+    def _property_magic_fit_reference_sheet_data_url(
+        self,
+        *,
+        principal_id: str,
+        reference_urls: list[str] | tuple[str, ...],
+    ) -> str:
+        if Image is None:
+            return ""
+        token = "".join(ch if ch.isalnum() or ch in "._-" else "-" for ch in str(principal_id or "").strip()).strip("-._")[:120] or "principal"
+        root = Path(str(self._container.settings.storage.artifacts_dir)).resolve() / "magic_fit_refs" / token
+        images: list[Image.Image] = []
+        try:
+            for url in list(reference_urls or [])[:3]:
+                parsed = urllib.parse.urlparse(str(url or "").strip())
+                reference_id = str((parsed.path or "").rsplit("/", 1)[-1] or "").strip()
+                if not reference_id:
+                    continue
+                meta_path = root / f"{reference_id}.json"
+                if not meta_path.exists():
+                    continue
+                metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+                file_name_on_disk = str(metadata.get("file_name_on_disk") or "").strip()
+                file_path = root / file_name_on_disk if file_name_on_disk else None
+                if file_path is None or not file_path.exists():
+                    continue
+                with Image.open(file_path) as image:
+                    images.append(image.convert("RGB").copy())
+        except Exception:
+            return ""
+        if not images:
+            return ""
+        canvas = Image.new("RGB", (1400, 900), "#f4efe7")
+        if len(images) == 1:
+            tile = images[0].copy()
+            tile.thumbnail((1120, 760), Image.Resampling.LANCZOS)
+            canvas.paste(tile, ((canvas.width - tile.width) // 2, (canvas.height - tile.height) // 2))
+        elif len(images) == 2:
+            slots = [(90, 110, 560, 680), (750, 110, 560, 680)]
+            for image, (x, y, w, h) in zip(images, slots):
+                tile = image.copy()
+                tile.thumbnail((w, h), Image.Resampling.LANCZOS)
+                canvas.paste(tile, (x + (w - tile.width) // 2, y + (h - tile.height) // 2))
+        else:
+            slots = [(70, 120, 650, 660), (820, 95, 480, 300), (820, 505, 480, 300)]
+            for image, (x, y, w, h) in zip(images[:3], slots):
+                tile = image.copy()
+                tile.thumbnail((w, h), Image.Resampling.LANCZOS)
+                canvas.paste(tile, (x + (w - tile.width) // 2, y + (h - tile.height) // 2))
+        buffer = io.BytesIO()
+        canvas.save(buffer, format="JPEG", quality=88, optimize=True)
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return f"data:image/jpeg;base64,{encoded}"
+
     def _maybe_auto_create_property_magic_fit_scene_for_packet(
         self,
         *,
@@ -26289,8 +26342,6 @@ class ProductService:
             "comparison_candidates": comparison_rows,
         }
         personal_reference_urls = self._recent_property_magic_fit_reference_urls(principal_id=principal_id, limit=3)
-        if personal_reference_urls:
-            source_payload["personal_reference_urls"] = list(personal_reference_urls)
         latest_magic_fit_scene = self._maybe_auto_create_property_magic_fit_scene_for_packet(
             principal_id=principal_id,
             actor=str(actor or "").strip() or "property_scout",
@@ -26300,6 +26351,21 @@ class ProductService:
             property_facts=top_facts,
             reference_urls=personal_reference_urls,
         )
+        if (not isinstance(latest_magic_fit_scene, dict) or not latest_magic_fit_scene) and personal_reference_urls:
+            reference_sheet = self._property_magic_fit_reference_sheet_data_url(
+                principal_id=principal_id,
+                reference_urls=personal_reference_urls,
+            )
+            if reference_sheet:
+                latest_magic_fit_scene = {
+                    "scene_id": f"magicfitrefsheet_{uuid4().hex}",
+                    "scene_type": "resident_reference_sheet",
+                    "image_url": reference_sheet,
+                    "summary": "Private resident reference board attached to this packet.",
+                    "share_with_packet_pdf": True,
+                    "visual_simulation": False,
+                    "provider_key": "propertyquarry",
+                }
         if isinstance(latest_magic_fit_scene, dict) and latest_magic_fit_scene and bool(latest_magic_fit_scene.get("share_with_packet_pdf")):
             source_payload["magic_fit_scene"] = dict(latest_magic_fit_scene)
         if diorama_preview_url:

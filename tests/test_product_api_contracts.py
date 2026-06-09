@@ -1166,7 +1166,7 @@ def test_render_property_scout_dossier_promotes_media_and_visuals_into_packet(mo
     assert payload["flythrough_url"] == "https://propertyquarry.com/tours/files/test-hosted-tour/tour.mp4"
     assert payload["diorama_scene"]["image_url"] == "https://propertyquarry.com/tours/files/test-hosted-tour/telegram-preview.png"
     assert payload["magic_fit_scene"]["image_url"] == "https://cdn.example.com/magicfit-scene.jpg"
-    assert payload["personal_reference_urls"] == ["/app/api/property/magic-fit-reference-files/magicfitref_test"]
+    assert "personal_reference_urls" not in payload
 
 
 def test_deliver_telegram_property_link_bundle_renders_dossier_after_magicfit_video_is_ready(monkeypatch, tmp_path: Path) -> None:
