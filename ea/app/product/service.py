@@ -10815,6 +10815,7 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
     return {
         "slug": slug,
         "video_url": public_video_url,
+        "video_file_path": str(local_video_path),
         "audio_probe_ref": str(local_video_path),
     }
 
@@ -20210,7 +20211,7 @@ class ProductService:
                 video_receipt = send_telegram_video_for_principal(
                     self._container.tool_runtime,
                     principal_id=principal_id,
-                    video_ref=video_url,
+                    video_ref=str(video_delivery.get("video_file_path") or "").strip() or video_url,
                     audio_probe_ref=str(video_delivery.get("audio_probe_ref") or "").strip(),
                     caption=f"{title}\nPropertyQuarry flythrough",
                 )

@@ -23,6 +23,11 @@ _VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv")
 _AUDIO_SUFFIXES = (".mp3", ".m4a", ".wav", ".ogg", ".flac", ".aac", ".opus")
 _DOCUMENT_SUFFIXES = (".pdf", ".txt", ".md", ".json", ".csv", ".rtf", ".doc", ".docx")
 _TELEGRAM_REMOTE_MEDIA_TIMEOUT = 30
+_TELEGRAM_FEEDBACK_KEY_ALIASES = {
+    "like_property": "lp",
+    "dislike_property": "dp",
+}
+_TELEGRAM_FEEDBACK_KEY_BY_ALIAS = {value: key for key, value in _TELEGRAM_FEEDBACK_KEY_ALIASES.items()}
 
 
 def _telegram_max_attempts() -> int:
@@ -595,14 +600,15 @@ def build_telegram_feedback_callback_data_for_principal(
     secret = _telegram_feedback_secret(bot_token=token)
     if not secret or not chat_id:
         return ""
+    encoded_feedback_key = str(_TELEGRAM_FEEDBACK_KEY_ALIASES.get(str(feedback_key or "").strip(), str(feedback_key or "").strip())).strip()
     signature = _telegram_feedback_signature(
         secret=secret,
         notification_key=notification_key,
-        feedback_key=feedback_key,
+        feedback_key=encoded_feedback_key,
         chat_id=chat_id,
         expires_at=int(expires_at),
     )
-    return f"fb|{str(notification_key or '').strip()}|{str(feedback_key or '').strip()}|{chat_id}|{int(expires_at)}|{signature}"
+    return f"fb|{str(notification_key or '').strip()}|{encoded_feedback_key}|{chat_id}|{int(expires_at)}|{signature}"
 
 
 def decode_telegram_feedback_callback_data(
@@ -615,7 +621,7 @@ def decode_telegram_feedback_callback_data(
     parts = normalized.split("|")
     if len(parts) != 6 or parts[0] != "fb":
         return {"ok": False, "reason": "invalid_format"}
-    _, notification_key, feedback_key, encoded_chat_id, expires_at_raw, signature = parts
+    _, notification_key, encoded_feedback_key, encoded_chat_id, expires_at_raw, signature = parts
     if str(encoded_chat_id or "").strip() != str(chat_id or "").strip():
         return {"ok": False, "reason": "chat_mismatch"}
     try:
@@ -630,12 +636,13 @@ def decode_telegram_feedback_callback_data(
     expected_signature = _telegram_feedback_signature(
         secret=secret,
         notification_key=notification_key,
-        feedback_key=feedback_key,
+        feedback_key=encoded_feedback_key,
         chat_id=str(chat_id or "").strip(),
         expires_at=expires_at,
     )
     if not hmac.compare_digest(str(signature or "").strip(), expected_signature):
         return {"ok": False, "reason": "invalid_signature"}
+    feedback_key = str(_TELEGRAM_FEEDBACK_KEY_BY_ALIAS.get(str(encoded_feedback_key or "").strip(), str(encoded_feedback_key or "").strip())).strip()
     return {
         "ok": True,
         "notification_key": str(notification_key or "").strip(),
