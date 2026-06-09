@@ -19847,6 +19847,70 @@ class ProductService:
         public_pdf_url = str(dossier_render.get("public_pdf_url") or "").strip()
         source_tour_url = str(source_virtual_tour_url or "").strip()
         primary_tour_url = str(tour_url or vendor_tour_url or source_tour_url).strip()
+        video_delivery = _hosted_property_tour_video_delivery(tour_url) if tour_url else {}
+        video_url = str(video_delivery.get("video_url") or "").strip()
+        dossier_ready = str(dossier_render.get("status") or "").strip() == "rendered"
+        bundle_ready = bool(primary_tour_url and dossier_ready and video_url)
+        if not bundle_ready:
+            pending_reasons: list[str] = []
+            if not primary_tour_url:
+                blocked_reason = str(tour_result.get("blocked_reason") or "").strip()
+                pending_reasons.append(
+                    "3D tour missing" + (f" ({blocked_reason.replace('_', ' ')})" if blocked_reason else "")
+                )
+            if not video_url:
+                pending_reasons.append("flythrough video missing")
+            if not dossier_ready:
+                pending_reasons.append("dossier not rendered")
+            pending_lines = [f"PropertyQuarry bundle pending\n{title}"]
+            if fit_summary:
+                pending_lines.append(fit_summary)
+            pending_lines.append("I will only send the full package once all three are ready: 3D tour, flythrough video, and dossier.")
+            if pending_reasons:
+                pending_lines.append("Still missing: " + "; ".join(pending_reasons))
+            pending_receipt = send_telegram_message_for_principal(
+                self._container.tool_runtime,
+                principal_id=principal_id,
+                text="\n".join(pending_lines),
+            )
+            payload = {
+                "property_url": normalized_url,
+                "title": title,
+                "source_ref": resolved_source_ref,
+                "external_id": resolved_external_id,
+                "actor": resolved_actor,
+                "tour_url": tour_url,
+                "telegram_message_ids": list(pending_receipt.message_ids),
+                "telegram_chat_ref": str(pending_receipt.chat_id or "").strip(),
+                "telegram_video_delivery_status": "skipped",
+                "telegram_video_url": video_url,
+                "telegram_video_message_ids": [],
+                "telegram_video_delivery_error": "",
+                "dossier_delivery_status": "skipped",
+                "dossier_delivery_error": "",
+                "dossier_pdf_path": str(dossier_render.get("pdf_path") or "").strip(),
+                "dossier_publication_id": str(dossier_render.get("publication_id") or "").strip(),
+                "dossier_telegram_message_ids": [],
+                "fit_score": float(fit_score or 0.0),
+                "pending_reasons": pending_reasons,
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_link_bundle_pending",
+                payload=payload,
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-link-bundle-pending",
+            )
+            return {
+                "status": "pending",
+                "tour_url": tour_url,
+                "telegram_message_ids": list(pending_receipt.message_ids),
+                "telegram_video_message_ids": [],
+                "dossier_telegram_message_ids": [],
+                "dossier_status": "skipped",
+                "video_status": "skipped",
+                "pending_reasons": pending_reasons,
+            }
         summary_lines = [f"PropertyQuarry Review Packet\n{title}"]
         if fit_summary:
             summary_lines.append(fit_summary)
@@ -19898,27 +19962,20 @@ class ProductService:
         video_delivery_status = "skipped"
         video_delivery_error = ""
         video_message_ids: list[str] = []
-        video_url = ""
-        if tour_url:
-            video_delivery = _hosted_property_tour_video_delivery(tour_url)
-            if video_delivery:
-                video_url = str(video_delivery.get("video_url") or "").strip()
-                if video_url:
-                    try:
-                        video_receipt = send_telegram_video_for_principal(
-                            self._container.tool_runtime,
-                            principal_id=principal_id,
-                            video_ref=video_url,
-                            audio_probe_ref=str(video_delivery.get("audio_probe_ref") or "").strip(),
-                            caption=f"{title}\nPropertyQuarry flythrough",
-                        )
-                        video_delivery_status = "sent"
-                        video_message_ids = list(video_receipt.message_ids)
-                    except Exception as exc:
-                        video_delivery_status = "failed"
-                        video_delivery_error = compact_text(str(exc or ""), fallback="telegram_video_delivery_failed", limit=180)
-                else:
-                    video_delivery_status = "skipped"
+        if video_url:
+            try:
+                video_receipt = send_telegram_video_for_principal(
+                    self._container.tool_runtime,
+                    principal_id=principal_id,
+                    video_ref=video_url,
+                    audio_probe_ref=str(video_delivery.get("audio_probe_ref") or "").strip(),
+                    caption=f"{title}\nPropertyQuarry flythrough",
+                )
+                video_delivery_status = "sent"
+                video_message_ids = list(video_receipt.message_ids)
+            except Exception as exc:
+                video_delivery_status = "failed"
+                video_delivery_error = compact_text(str(exc or ""), fallback="telegram_video_delivery_failed", limit=180)
         dossier_delivery_status = "skipped"
         dossier_delivery_error = ""
         dossier_message_ids: list[str] = []
