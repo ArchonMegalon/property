@@ -1388,6 +1388,158 @@ def test_deliver_telegram_property_link_bundle_requires_magicfit_flythrough_prov
     assert "flythrough not rendered by MagicFit" in str(result["pending_reasons"])
 
 
+def test_deliver_telegram_property_link_bundle_auto_renders_magicfit_flythrough(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Auto MagicFit Office")
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+
+    dossier_path = tmp_path / "telegram-property-bundle-auto-magicfit.pdf"
+    dossier_path.write_bytes(b"%PDF-1.4\n% telegram bundle dossier\n")
+    observed: dict[str, object] = {"video_calls": 0}
+
+    class _MessageReceipt:
+        chat_id = "1354554303"
+        message_ids = ("9101",)
+
+    class _VideoReceipt:
+        chat_id = "1354554303"
+        message_ids = ("9102",)
+
+    class _DocumentReceipt:
+        chat_id = "1354554303"
+        message_ids = ("9103",)
+
+    monkeypatch.setattr(
+        ProductService,
+        "create_generic_property_tour",
+        lambda self, **kwargs: {
+            "status": "created",
+            "tour_url": "https://propertyquarry.com/tours/test-auto-magicfit-bundle",
+            "vendor_tour_url": "",
+            "blocked_reason": "",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda property_url: {
+            "title": "Telegram Auto MagicFit Listing",
+            "listing_id": "tg-link-auto-magicfit-1",
+            "description": "A bundle that should auto-render a MagicFit flythrough.",
+            "media_urls_json": ["https://cache.willhaben.at/example-photo.jpg"],
+            "floorplan_urls_json": [],
+            "source_virtual_tour_url": "",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_candidate_payload_from_preview",
+        lambda *, property_url, preview: {"listing_id": "tg-link-auto-magicfit-1", "rooms": 2, "area_sqm": 48},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_merge_property_facts_with_source_research",
+        lambda **kwargs: dict(kwargs.get("property_facts") or {}),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_render_property_scout_dossier",
+        lambda self, **kwargs: {
+            "status": "rendered",
+            "publication_id": "pub_auto_magicfit_bundle",
+            "pdf_path": str(dossier_path),
+            "public_pdf_url": "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/auto-magicfit-token",
+            "caption": "PropertyQuarry dossier · Telegram Auto MagicFit Listing",
+        },
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "issue_workspace_access_session",
+        lambda self, **kwargs: {"access_launch_url": "/workspace-access/launch-auto-magicfit"},
+    )
+
+    def _video_delivery(tour_url: str) -> dict[str, str]:
+        observed["video_calls"] = int(observed.get("video_calls") or 0) + 1
+        if observed["video_calls"] == 1:
+            return {"video_url": "", "provider_key": ""}
+        return {
+            "video_url": "https://propertyquarry.com/tours/files/test-auto-magicfit-bundle/tour.mp4",
+            "audio_probe_ref": "/tmp/test-auto-magicfit-bundle/tour.mp4",
+            "video_file_path": "/tmp/test-auto-magicfit-bundle/tour.mp4",
+            "provider_key": "magicfit",
+        }
+
+    monkeypatch.setattr(product_service, "_hosted_property_tour_video_delivery", _video_delivery)
+    monkeypatch.setattr(
+        product_service,
+        "_render_magicfit_property_flythrough_into_hosted_tour",
+        lambda **kwargs: observed.update({"magicfit_render": kwargs}) or {"status": "rendered", "provider_key": "magicfit"},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_direct_360_url",
+        lambda tour_url: "",
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_link_bundle_preview_image_url",
+        lambda **kwargs: "https://propertyquarry.com/tours/files/test-auto-magicfit-bundle/scene-01.png",
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_photo_for_principal",
+        lambda tool_runtime, *, principal_id, photo_ref, caption="", inline_buttons=None, url_buttons=None: observed.update(
+            {
+                "message_principal_id": principal_id,
+                "photo_ref": photo_ref,
+                "message_text": caption,
+                "url_buttons": url_buttons,
+            }
+        ) or _MessageReceipt(),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_video_for_principal",
+        lambda tool_runtime, *, principal_id, video_ref, audio_probe_ref="", caption="": observed.update(
+            {"video_principal_id": principal_id, "video_ref": video_ref, "video_caption": caption}
+        ) or _VideoReceipt(),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_document_for_principal",
+        lambda tool_runtime, *, principal_id, document_ref, caption="": observed.update(
+            {"document_principal_id": principal_id, "document_ref": document_ref, "document_caption": caption}
+        ) or _DocumentReceipt(),
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service.deliver_telegram_property_link_bundle(
+        principal_id=principal_id,
+        property_url="https://www.immobilienscout24.at/expose/telegram-property-link-auto-magicfit",
+        actor="test",
+    )
+
+    assert result["status"] == "sent"
+    assert observed["video_calls"] == 2
+    assert observed["magicfit_render"]["tour_url"] == "https://propertyquarry.com/tours/test-auto-magicfit-bundle"
+    assert observed["video_ref"] == "/tmp/test-auto-magicfit-bundle/tour.mp4"
+    assert observed["url_buttons"][0][1] == (
+        "Open Flythrough",
+        "https://propertyquarry.com/tours/files/test-auto-magicfit-bundle/tour.mp4",
+    )
+    assert observed["document_ref"] == str(dossier_path)
+
+
 def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)

@@ -10827,6 +10827,172 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
     }
 
 
+def _hosted_property_tour_bundle_dir(tour_url: str) -> tuple[str, Path] | tuple[str, None]:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return ("", None)
+    parsed = urllib.parse.urlparse(normalized_url)
+    path_parts = [part for part in str(parsed.path or "").split("/") if part]
+    if len(path_parts) < 2 or path_parts[-2] != "tours":
+        return ("", None)
+    slug = str(path_parts[-1] or "").strip()
+    if not slug:
+        return ("", None)
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    bundle_dir = public_dir / slug
+    if not bundle_dir.exists() or not bundle_dir.is_dir():
+        return (slug, None)
+    return (slug, bundle_dir)
+
+
+def _update_hosted_property_tour_magicfit_video_manifest(
+    *,
+    tour_url: str,
+    video_relpath: str,
+    sidecar_relpath: str,
+) -> dict[str, object]:
+    slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
+    if not slug or bundle_dir is None:
+        raise RuntimeError("hosted_property_tour_bundle_missing")
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists():
+        raise RuntimeError("hosted_property_tour_manifest_missing")
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError("hosted_property_tour_manifest_invalid") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("hosted_property_tour_manifest_invalid")
+    normalized_video_relpath = str(video_relpath or "").strip().lstrip("/")
+    normalized_sidecar_relpath = str(sidecar_relpath or "").strip().lstrip("/")
+    if not normalized_video_relpath:
+        raise RuntimeError("hosted_property_tour_video_relpath_missing")
+    payload["video_relpath"] = normalized_video_relpath
+    payload["video_fallback_relpath"] = normalized_video_relpath
+    payload["video_provider_key"] = "magicfit"
+    payload["video_provider"] = "magicfit"
+    payload["video_render_provider"] = "magicfit"
+    payload["video_source"] = "magicfit"
+    if normalized_sidecar_relpath:
+        payload["video_sidecar_relpath"] = normalized_sidecar_relpath
+    payload["flythrough_url"] = _property_tour_deep_link(tour_url, pane="flythrough-pane", autoplay=True)
+    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def _default_magicfit_property_flythrough_prompt(*, title: str, property_facts: dict[str, object] | None = None) -> str:
+    facts = dict(property_facts or {})
+    room_text = compact_text(str(facts.get("rooms") or facts.get("room_count") or "").strip(), fallback="", limit=32)
+    area_text = compact_text(str(facts.get("area_sqm") or facts.get("living_area_sqm") or "").strip(), fallback="", limit=32)
+    location_text = compact_text(
+        _first_non_empty_text(
+            facts.get("district"),
+            facts.get("city"),
+            facts.get("location_label"),
+            facts.get("street_name"),
+        ),
+        fallback="Vienna",
+        limit=60,
+    )
+    descriptor_parts = [part for part in (room_text and f"{room_text}-room", area_text and f"{area_text} m2") if part]
+    descriptor = ", ".join(descriptor_parts)
+    descriptor_clause = f" of a {descriptor}" if descriptor else ""
+    title_text = compact_text(str(title or "modern Vienna apartment").strip(), fallback="modern Vienna apartment", limit=140)
+    return (
+        f"Photorealistic lived-in flythrough{descriptor_clause} in {location_text}. "
+        f"Based on the listing '{title_text}'. "
+        "Single smooth first-person indoor drone glide from entry through hall into living area and toward the balcony or loggia. "
+        "Realistic family home styling with tasteful clutter, coats, plants, books, toys, breakfast traces, warm natural daylight, coherent walls and doors, "
+        "premium real-estate cinematography, no people visible."
+    )
+
+
+def _render_magicfit_property_flythrough_into_hosted_tour(
+    *,
+    tour_url: str,
+    title: str,
+    property_facts: dict[str, object] | None = None,
+    actor: str = "",
+) -> dict[str, object]:
+    slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
+    if not slug or bundle_dir is None:
+        return {"status": "missing", "reason": "hosted_tour_bundle_missing"}
+    script_path = (_repo_root() / "scripts" / "render_magicfit_property_flythrough.py").resolve()
+    if not script_path.exists():
+        return {"status": "missing", "reason": "magicfit_render_script_missing"}
+    video_relpath = "tour.mp4"
+    sidecar_relpath = "tour.magicfit.json"
+    bundle_video_path = (bundle_dir / video_relpath).resolve()
+    bundle_sidecar_path = (bundle_dir / sidecar_relpath).resolve()
+    if bundle_dir.resolve() not in bundle_video_path.parents or bundle_dir.resolve() not in bundle_sidecar_path.parents:
+        return {"status": "missing", "reason": "hosted_tour_bundle_invalid"}
+    prompt = _default_magicfit_property_flythrough_prompt(title=title, property_facts=property_facts)
+    render_log: dict[str, object] = {
+        "status": "pending",
+        "tour_url": str(tour_url or "").strip(),
+        "slug": slug,
+        "actor": str(actor or "").strip(),
+        "video_relpath": video_relpath,
+        "sidecar_relpath": sidecar_relpath,
+    }
+    with tempfile.TemporaryDirectory(prefix="magicfit-property-tour-") as tmp_dir:
+        tmp_video = Path(tmp_dir) / "tour.mp4"
+        tmp_sidecar = Path(tmp_dir) / "tour.magicfit.json"
+        command = [
+            str((_repo_root() / ".venv" / "bin" / "python").resolve()),
+            str(script_path),
+            "--prompt",
+            prompt,
+            "--out",
+            str(tmp_video),
+            "--state-json",
+            str(tmp_sidecar),
+            "--duration",
+            "10",
+            "--timeout-minutes",
+            "8",
+        ]
+        completed = subprocess.run(
+            command,
+            cwd=str(_repo_root()),
+            capture_output=True,
+            text=True,
+            timeout=12 * 60,
+            check=False,
+        )
+        render_log.update(
+            {
+                "returncode": int(completed.returncode),
+                "stdout_tail": compact_text(str(completed.stdout or "").strip(), fallback="", limit=3000),
+                "stderr_tail": compact_text(str(completed.stderr or "").strip(), fallback="", limit=3000),
+            }
+        )
+        if completed.returncode != 0 or not tmp_video.exists():
+            render_log["status"] = "failed"
+            render_log["reason"] = "magicfit_render_failed"
+            return render_log
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(tmp_video, bundle_video_path)
+        if tmp_sidecar.exists():
+            shutil.copy2(tmp_sidecar, bundle_sidecar_path)
+        try:
+            _update_hosted_property_tour_magicfit_video_manifest(
+                tour_url=tour_url,
+                video_relpath=video_relpath,
+                sidecar_relpath=sidecar_relpath if bundle_sidecar_path.exists() else "",
+            )
+        except Exception as exc:
+            render_log["status"] = "failed"
+            render_log["reason"] = "magicfit_manifest_update_failed"
+            render_log["error"] = str(exc)
+            return render_log
+    render_log["status"] = "rendered"
+    render_log["video_file_path"] = str(bundle_video_path)
+    render_log["sidecar_path"] = str(bundle_sidecar_path) if bundle_sidecar_path.exists() else ""
+    render_log["provider_key"] = "magicfit"
+    return render_log
+
+
 def _embedded_live_360_source_url(payload: dict[str, object]) -> str:
     if not isinstance(payload, dict):
         return ""
@@ -20104,6 +20270,27 @@ class ProductService:
             return _telegram_safe_url_button_target(target_url)
 
         video_delivery = _hosted_property_tour_video_delivery(tour_url) if tour_url else {}
+        if tour_url and (not str(video_delivery.get("video_url") or "").strip() or str(video_delivery.get("provider_key") or "").strip().lower() != "magicfit"):
+            magicfit_render = _render_magicfit_property_flythrough_into_hosted_tour(
+                tour_url=tour_url,
+                title=title,
+                property_facts=property_facts_json,
+                actor=resolved_actor,
+            )
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_link_magicfit_flythrough_rendered",
+                payload={
+                    "property_url": normalized_url,
+                    "title": title,
+                    "source_ref": resolved_source_ref,
+                    "tour_url": tour_url,
+                    **dict(magicfit_render or {}),
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-link-magicfit-flythrough",
+            )
+            video_delivery = _hosted_property_tour_video_delivery(tour_url) if tour_url else {}
         video_url = str(video_delivery.get("video_url") or "").strip()
         video_provider_key = str(video_delivery.get("provider_key") or "").strip().lower()
         magicfit_video_ready = bool(video_url and video_provider_key == "magicfit")
