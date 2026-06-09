@@ -135,6 +135,28 @@
     </section>
     {% endif %}
 
+    {% if payload.diorama_scene and payload.diorama_scene.image_url %}
+    <section class="page image-spread">
+      <div class="page-inner">
+        <div class="section-kicker">Diorama preview</div>
+        <div class="image-layout single-visual-layout">
+          <div class="image-main">
+            <img class="gallery-hero" src="{{ payload.diorama_scene.image_url }}" alt="Diorama preview">
+          </div>
+          <div class="panel">
+            <h3>White-label spatial preview</h3>
+            <p>{{ payload.diorama_scene.summary or "A stylised preview of the route, layout, and overall living feel of the flat." }}</p>
+            <ul>
+              <li>Purpose: fast visual orientation before the full 3D surface</li>
+              <li>Type: generated preview, not source evidence</li>
+              <li>Linked to the hosted 3D tour and flythrough lane</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
     <section class="page">
       <div class="page-inner">
         <div class="section-kicker">Location and daily-life radius</div>

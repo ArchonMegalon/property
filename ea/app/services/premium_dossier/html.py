@@ -6,6 +6,8 @@ import mimetypes
 import os
 from pathlib import Path
 from urllib.parse import urlparse
+import urllib.error
+import urllib.request
 
 from functools import lru_cache
 
@@ -81,6 +83,39 @@ def _data_url_for_private_reference(*, principal_id: str, url: str) -> str:
     return f"data:{mime_type};base64,{encoded}"
 
 
+def _max_inline_image_bytes() -> int:
+    raw = str(os.getenv("PROPERTYQUARRY_DOSSIER_INLINE_IMAGE_MAX_BYTES") or str(12 * 1024 * 1024)).strip()
+    try:
+        return max(int(raw or 0), 1024)
+    except Exception:
+        return 12 * 1024 * 1024
+
+
+def _data_url_for_remote_image(url: str) -> str:
+    normalized = str(url or "").strip()
+    if not normalized or normalized.startswith("data:"):
+        return normalized
+    parsed = urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return normalized
+    request = urllib.request.Request(
+        normalized,
+        headers={"User-Agent": "PropertyQuarry-PremiumDossier/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+            if not content_type.startswith("image/"):
+                return normalized
+            data = response.read(_max_inline_image_bytes() + 1)
+    except (urllib.error.URLError, ValueError, OSError):
+        return normalized
+    if not data or len(data) > _max_inline_image_bytes():
+        return normalized
+    encoded = base64.b64encode(data).decode("ascii")
+    return f"data:{content_type};base64,{encoded}"
+
+
 def _inline_private_magic_fit_reference_urls(*, html: str, compiled: PremiumDossierCompileResult, principal_id: str) -> str:
     payload = dict(compiled.redacted_payload or {})
     scene = dict(payload.get("magic_fit_scene") or {}) if isinstance(payload.get("magic_fit_scene"), dict) else {}
@@ -91,6 +126,31 @@ def _inline_private_magic_fit_reference_urls(*, html: str, compiled: PremiumDoss
         if "/app/api/property/magic-fit-reference-files/" not in url:
             continue
         rendered = rendered.replace(url, _data_url_for_private_reference(principal_id=principal_id, url=url))
+    return rendered
+
+
+def _inline_remote_image_urls(*, html: str, compiled: PremiumDossierCompileResult) -> str:
+    payload = dict(compiled.redacted_payload or {})
+    urls: list[str] = []
+    diorama_scene = dict(payload.get("diorama_scene") or {}) if isinstance(payload.get("diorama_scene"), dict) else {}
+    magic_fit_scene = dict(payload.get("magic_fit_scene") or {}) if isinstance(payload.get("magic_fit_scene"), dict) else {}
+    urls.append(compiled.hero_image_url)
+    urls.extend(list(compiled.gallery_urls))
+    urls.extend(list(compiled.floorplan_urls))
+    urls.append(str(diorama_scene.get("image_url") or "").strip())
+    urls.append(str(magic_fit_scene.get("image_url") or "").strip())
+    rendered = html
+    seen: set[str] = set()
+    for url in urls:
+        normalized = str(url or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        if normalized.startswith("data:") or "/app/api/property/magic-fit-reference-files/" in normalized:
+            continue
+        data_url = _data_url_for_remote_image(normalized)
+        if data_url != normalized:
+            rendered = rendered.replace(normalized, data_url)
     return rendered
 
 
@@ -107,4 +167,8 @@ def render_premium_dossier_html(compiled: PremiumDossierCompileResult, *, princi
             compiled=compiled,
             principal_id=principal_id,
         )
+    rendered = _inline_remote_image_urls(
+        html=rendered,
+        compiled=compiled,
+    )
     return rendered

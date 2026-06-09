@@ -65,8 +65,10 @@ def compile_premium_dossier(
     photo_refs = _text_items(redacted_payload.get("photo_refs"), limit=12)
     floorplan_refs = _text_items(redacted_payload.get("floorplan_refs"), limit=4)
     magic_fit_scene = dict(redacted_payload.get("magic_fit_scene") or {}) if isinstance(redacted_payload.get("magic_fit_scene"), dict) else {}
+    diorama_scene = dict(redacted_payload.get("diorama_scene") or {}) if isinstance(redacted_payload.get("diorama_scene"), dict) else {}
     magic_fit_image_url = str(magic_fit_scene.get("image_url") or "").strip()
-    hero_image_url = magic_fit_image_url or (photo_refs[0] if photo_refs else (floorplan_refs[0] if floorplan_refs else ""))
+    diorama_image_url = str(diorama_scene.get("image_url") or "").strip()
+    hero_image_url = magic_fit_image_url or (photo_refs[0] if photo_refs else (diorama_image_url or (floorplan_refs[0] if floorplan_refs else "")))
     recommendation = _recommendation_label(redacted_payload.get("recommendation"))
     compare_rows = _comparison_rows(redacted_payload.get("comparison_rows"))
     compare_reason = str(redacted_payload.get("compare_reason") or (compare_rows[0].get("compare_reason") if compare_rows else "") or "").strip()

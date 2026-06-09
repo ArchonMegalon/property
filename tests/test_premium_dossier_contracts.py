@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.premium_dossier import render_property_packet_pdf_via_premium_pipeline
@@ -37,6 +38,23 @@ def _sample_source() -> dict[str, object]:
         "flythrough_url": "https://propertyquarry.com/tours/test-tour?pane=flythrough-pane&autoplay=1",
         "review_url": "https://propertyquarry.com/app/research/test",
     }
+
+
+class _FakeUrlopenResponse:
+    def __init__(self, payload: bytes, content_type: str = "image/jpeg") -> None:
+        self._payload = payload
+        self.headers = {"Content-Type": content_type}
+
+    def read(self, amount: int = -1) -> bytes:
+        if amount is None or amount < 0:
+            return self._payload
+        return self._payload[:amount]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
 
 def test_premium_dossier_html_contains_core_sections() -> None:
@@ -167,3 +185,27 @@ def test_premium_dossier_html_inlines_private_magicfit_reference_urls(monkeypatc
     )
     html = render_premium_dossier_html(compiled, principal_id=principal_id)
     assert "data:image/jpeg;base64," in html
+
+
+def test_premium_dossier_html_inlines_remote_images_and_diorama(monkeypatch) -> None:
+    source = _sample_source()
+    source["photo_refs"] = ["https://cdn.example.com/property-photo.jpg"]
+    source["floorplan_refs"] = ["https://cdn.example.com/floorplan.jpg"]
+    source["diorama_scene"] = {
+        "image_url": "https://cdn.example.com/diorama.jpg",
+        "summary": "Comic-style spatial preview.",
+    }
+    compiled = compile_premium_dossier(
+        source=source,
+        redacted_payload=source,
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        renderer_version="v1_premium_markupgo_dossier",
+    )
+    fake_image = b"\xff\xd8\xff\xe0fakejpeg"
+    with patch("app.services.premium_dossier.html.urllib.request.urlopen", return_value=_FakeUrlopenResponse(fake_image)):
+        html = render_premium_dossier_html(compiled)
+    assert "Diorama preview" in html
+    assert "data:image/jpeg;base64," in html
+    assert "https://cdn.example.com/property-photo.jpg" not in html
