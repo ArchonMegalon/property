@@ -63,6 +63,8 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_product_api_contracts.py -k 'property_notification_preview or property_feedback'
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
+  tests/test_product_api_contracts.py -k 'telegram_property_link_bundle or property_scout_dossier_promotes_media'
+PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_propertyquarry_workspace_redesign.py \
   tests/e2e/test_propertyquarry_greenfield_browser.py \
   tests/e2e/test_propertyquarry_public_tour_browser.py \
@@ -73,6 +75,9 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/e2e/test_propertyquarry_timeline_browser.py \
   tests/e2e/test_propertyquarry_commercial_optimization_browser.py \
   tests/e2e/test_propertyquarry_phase_regression_browser.py
+if [[ -n "${PROPERTYQUARRY_SENT_LINKS_MANIFEST:-}" ]]; then
+  PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q tests/e2e/test_propertyquarry_sent_links_browser.py
+fi
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_search_runs.py \
   tests/test_property_market_catalog.py \

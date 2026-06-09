@@ -1035,7 +1035,8 @@ def test_hosted_property_tour_helpers_use_public_tours_files_route(monkeypatch, 
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "tour.mp4").write_bytes(b"video")
-    (bundle_dir / "diorama-preview.png").write_bytes(b"png")
+    from PIL import Image
+    Image.new("RGB", (800, 450), "#d8c7b5").save(bundle_dir / "diorama-preview.png", format="PNG")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
@@ -1062,6 +1063,273 @@ def test_hosted_property_tour_helpers_use_public_tours_files_route(monkeypatch, 
         f"https://propertyquarry.com/tours/{slug}"
     )
     assert preview_url == f"https://propertyquarry.com/tours/files/{slug}/diorama-preview.png"
+    telegram_preview_url = product_service._hosted_property_tour_telegram_preview_image_url(
+        f"https://propertyquarry.com/tours/{slug}"
+    )
+    assert telegram_preview_url == f"https://propertyquarry.com/tours/files/{slug}/telegram-preview.png"
+    telegram_preview_path = bundle_dir / "telegram-preview.png"
+    assert telegram_preview_path.exists()
+    with Image.open(telegram_preview_path) as image:
+        assert image.width > 800
+        assert image.height > 450
+
+
+def test_render_property_scout_dossier_promotes_media_and_visuals_into_packet(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Dossier Media Office")
+    observed: dict[str, object] = {}
+    pdf_path = tmp_path / "packet.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\nmedia packet")
+
+    class _PacketService:
+        def render_packet(self, **kwargs):
+            observed["source_payload"] = dict(kwargs.get("source_payload") or {})
+            return {
+                "publication_id": "pub_media_probe",
+                "source_pdf_artifact_ref": str(pdf_path),
+                "source_pdf_sha256": "abc123",
+            }
+
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_video_delivery",
+        lambda tour_url: {
+            "video_url": "https://propertyquarry.com/tours/files/test-hosted-tour/tour.mp4",
+            "provider_key": "magicfit",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_telegram_preview_image_url",
+        lambda tour_url: "https://propertyquarry.com/tours/files/test-hosted-tour/telegram-preview.png",
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_preview_image_url",
+        lambda tour_url: "https://propertyquarry.com/tours/files/test-hosted-tour/diorama-preview.png",
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_recent_property_magic_fit_reference_urls",
+        lambda self, **kwargs: ["/app/api/property/magic-fit-reference-files/magicfitref_test"],
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_maybe_auto_create_property_magic_fit_scene_for_packet",
+        lambda self, **kwargs: {
+            "image_url": "https://cdn.example.com/magicfit-scene.jpg",
+            "share_with_packet_pdf": True,
+            "scene_type": "family_evening",
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.fliplink.service.build_fliplink_packet_service",
+        lambda container: _PacketService(),
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service._render_property_scout_dossier(
+        principal_id=principal_id,
+        actor="test",
+        title="1050 Vienna Listing",
+        summary="Bright two-room flat with lift.",
+        counterparty="immobilienscout24.at",
+        account_email="tibor.girschele@gmail.com",
+        property_url="https://www.immobilienscout24.at/expose/test-media-probe",
+        source_ref="probe-src",
+        assessment={},
+        fit_score=72.0,
+        preference_person_id="self",
+        review_url="",
+        tour_result={"tour_url": "https://propertyquarry.com/tours/test-hosted-tour"},
+        candidate_properties=(
+            {
+                "listing_title": "1050 Vienna Listing",
+                "property_url": "https://www.immobilienscout24.at/expose/test-media-probe",
+                "media_urls_json": ["https://cdn.example.com/property-photo.jpg"],
+                "floorplan_urls_json": ["https://cdn.example.com/floorplan.jpg"],
+                "property_facts_json": {
+                    "rooms": 2,
+                    "area_sqm": 57,
+                    "media_urls_json": ["https://cdn.example.com/property-photo.jpg"],
+                    "floorplan_urls_json": ["https://cdn.example.com/floorplan.jpg"],
+                },
+            },
+        ),
+    )
+
+    assert result["status"] == "rendered"
+    payload = dict(observed["source_payload"])
+    assert payload["media_urls_json"] == ["https://cdn.example.com/property-photo.jpg"]
+    assert payload["floorplan_urls_json"] == ["https://cdn.example.com/floorplan.jpg"]
+    assert payload["flythrough_url"] == "https://propertyquarry.com/tours/files/test-hosted-tour/tour.mp4"
+    assert payload["diorama_scene"]["image_url"] == "https://propertyquarry.com/tours/files/test-hosted-tour/telegram-preview.png"
+    assert payload["magic_fit_scene"]["image_url"] == "https://cdn.example.com/magicfit-scene.jpg"
+    assert payload["personal_reference_urls"] == ["/app/api/property/magic-fit-reference-files/magicfitref_test"]
+
+
+def test_deliver_telegram_property_link_bundle_renders_dossier_after_magicfit_video_is_ready(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Ordering Office")
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
+    observed: dict[str, object] = {"video_calls": 0}
+    dossier_path = tmp_path / "bundle.pdf"
+    dossier_path.write_bytes(b"%PDF-1.4\nordered")
+
+    class _MessageReceipt:
+        chat_id = "1354554303"
+        message_ids = ("9501",)
+
+    class _VideoReceipt:
+        chat_id = "1354554303"
+        message_ids = ("9502",)
+
+    class _DocumentReceipt:
+        chat_id = "1354554303"
+        message_ids = ("9503",)
+
+    monkeypatch.setattr(
+        ProductService,
+        "create_generic_property_tour",
+        lambda self, **kwargs: {
+            "status": "created",
+            "tour_url": "https://propertyquarry.com/tours/test-ordered-bundle",
+            "vendor_tour_url": "",
+            "blocked_reason": "",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda property_url: {
+            "title": "Ordered Bundle Listing",
+            "listing_id": "tg-link-ordered-1",
+            "description": "A bundle that must render the dossier after the MagicFit clip exists.",
+            "media_urls_json": ["https://cdn.example.com/photo.jpg"],
+            "floorplan_urls_json": [],
+            "source_virtual_tour_url": "",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_candidate_payload_from_preview",
+        lambda *, property_url, preview: {"listing_id": "tg-link-ordered-1", "rooms": 2},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_merge_property_facts_with_source_research",
+        lambda **kwargs: dict(kwargs.get("property_facts") or {}),
+    )
+
+    def _video_delivery(tour_url: str) -> dict[str, str]:
+        observed["video_calls"] = int(observed.get("video_calls") or 0) + 1
+        if observed["video_calls"] == 1:
+            return {}
+        return {
+            "video_url": "https://propertyquarry.com/tours/files/test-ordered-bundle/tour.mp4",
+            "provider_key": "magicfit",
+            "video_file_path": "/tmp/test-ordered-bundle/tour.mp4",
+        }
+
+    monkeypatch.setattr(product_service, "_hosted_property_tour_video_delivery", _video_delivery)
+    monkeypatch.setattr(
+        product_service,
+        "_render_magicfit_property_flythrough_into_hosted_tour",
+        lambda **kwargs: {"status": "rendered", "provider_key": "magicfit"},
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_render_property_scout_dossier",
+        lambda self, **kwargs: observed.update({"video_calls_at_dossier": observed["video_calls"]}) or {
+            "status": "rendered",
+            "publication_id": "pub_ordered_bundle",
+            "pdf_path": str(dossier_path),
+            "public_pdf_url": "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/ordered-token",
+            "caption": "PropertyQuarry dossier · Ordered Bundle Listing",
+        },
+    )
+    monkeypatch.setattr(ProductService, "issue_workspace_access_session", lambda self, **kwargs: {"access_launch_url": "/workspace-access/ordered"})
+    monkeypatch.setattr(product_service, "_property_link_bundle_preview_image_url", lambda **kwargs: "https://propertyquarry.com/tours/files/test-ordered-bundle/scene-01.png")
+    monkeypatch.setattr(product_service, "send_telegram_photo_for_principal", lambda *args, **kwargs: _MessageReceipt())
+    monkeypatch.setattr(product_service, "send_telegram_video_for_principal", lambda *args, **kwargs: _VideoReceipt())
+    monkeypatch.setattr(product_service, "send_telegram_document_for_principal", lambda *args, **kwargs: _DocumentReceipt())
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service.deliver_telegram_property_link_bundle(
+        principal_id=principal_id,
+        property_url="https://www.immobilienscout24.at/expose/telegram-property-link-ordered",
+        actor="test",
+    )
+
+    assert result["status"] == "sent"
+    assert observed["video_calls"] == 2
+    assert observed["video_calls_at_dossier"] == 2
+
+
+@pytest.mark.parametrize("principal_id", ["cf-email:tibor.girschele@gmail.com", "cf-email:elizabeth.girschele@gmail.com"])
+def test_deliver_telegram_property_link_bundle_supports_multiple_family_principals(monkeypatch, tmp_path: Path, principal_id: str) -> None:
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Family Office")
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
+    dossier_path = tmp_path / f"{principal_id.split(':', 1)[-1].replace('@', '_')}.pdf"
+    dossier_path.write_bytes(b"%PDF-1.4\nfamily")
+    observed: dict[str, object] = {}
+
+    class _Receipt:
+        chat_id = "1354554303"
+        message_ids = ("9601",)
+
+    monkeypatch.setattr(
+        ProductService,
+        "create_generic_property_tour",
+        lambda self, **kwargs: {"status": "created", "tour_url": "https://propertyquarry.com/tours/test-family-bundle", "vendor_tour_url": "", "blocked_reason": ""},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda property_url: {"title": "Family Bundle Listing", "listing_id": "family-1", "description": "Family lane", "media_urls_json": [], "floorplan_urls_json": [], "source_virtual_tour_url": ""},
+    )
+    monkeypatch.setattr(product_service, "_property_scout_candidate_payload_from_preview", lambda **kwargs: {"listing_id": "family-1"})
+    monkeypatch.setattr(product_service, "_merge_property_facts_with_source_research", lambda **kwargs: dict(kwargs.get("property_facts") or {}))
+    monkeypatch.setattr(product_service, "_hosted_property_tour_video_delivery", lambda tour_url: {"video_url": "https://propertyquarry.com/tours/files/test-family-bundle/tour.mp4", "provider_key": "magicfit", "video_file_path": "/tmp/test-family-bundle/tour.mp4"})
+    monkeypatch.setattr(
+        ProductService,
+        "_render_property_scout_dossier",
+        lambda self, **kwargs: {"status": "rendered", "publication_id": "pub_family_bundle", "pdf_path": str(dossier_path), "public_pdf_url": "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/family-token", "caption": "PropertyQuarry dossier · Family Bundle Listing"},
+    )
+    monkeypatch.setattr(ProductService, "issue_workspace_access_session", lambda self, **kwargs: {"access_launch_url": "/workspace-access/family"})
+    monkeypatch.setattr(product_service, "_property_link_bundle_preview_image_url", lambda **kwargs: "")
+    monkeypatch.setattr(product_service, "send_telegram_message_for_principal", lambda tool_runtime, **kwargs: observed.update({"principal_id": kwargs["principal_id"]}) or _Receipt())
+    monkeypatch.setattr(product_service, "send_telegram_video_for_principal", lambda *args, **kwargs: _Receipt())
+    monkeypatch.setattr(product_service, "send_telegram_document_for_principal", lambda *args, **kwargs: _Receipt())
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service.deliver_telegram_property_link_bundle(
+        principal_id=principal_id,
+        property_url="https://www.immobilienscout24.at/expose/family-bundle",
+        actor="test",
+    )
+
+    assert result["status"] == "sent"
+    assert observed["principal_id"] == principal_id
 
 
 def test_deliver_telegram_property_link_bundle_shortens_pdf_button_through_workspace_access_launch(monkeypatch, tmp_path: Path) -> None:

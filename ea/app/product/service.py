@@ -11044,6 +11044,9 @@ def _property_link_bundle_preview_image_url(
     source_virtual_tour_url: str = "",
     tour_url: str = "",
 ) -> str:
+    telegram_preview = _hosted_property_tour_telegram_preview_image_url(tour_url)
+    if telegram_preview:
+        return telegram_preview
     hosted_preview = _hosted_property_tour_preview_image_url(tour_url)
     if hosted_preview:
         return hosted_preview
@@ -11123,6 +11126,67 @@ def _hosted_property_tour_preview_image_url(tour_url: str) -> str:
             if bundle_dir.resolve() in asset_path.parents and asset_path.exists() and asset_path.is_file():
                 return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=asset_relpath)
     return ""
+
+
+def _hosted_property_tour_telegram_preview_image_url(tour_url: str) -> str:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url or Image is None:
+        return ""
+    parsed = urllib.parse.urlparse(normalized_url)
+    path_parts = [part for part in str(parsed.path or "").split("/") if part]
+    if len(path_parts) < 2 or path_parts[-2] != "tours":
+        return ""
+    slug = str(path_parts[-1] or "").strip()
+    if not slug:
+        return ""
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    bundle_dir = public_dir / slug
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists():
+        return ""
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    scenes = [dict(scene) for scene in list(payload.get("scenes") or []) if isinstance(scene, dict)]
+    diorama_scene = next((scene for scene in scenes if str(scene.get("role") or "").strip().lower() == "diorama"), {})
+    asset_relpath = str(diorama_scene.get("asset_relpath") or "").strip()
+    if not asset_relpath or not asset_relpath.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+        return ""
+    source_path = (bundle_dir / asset_relpath).resolve()
+    if bundle_dir.resolve() not in source_path.parents or not source_path.exists() or not source_path.is_file():
+        return ""
+    derived_relpath = "telegram-preview.png"
+    derived_path = (bundle_dir / derived_relpath).resolve()
+    if bundle_dir.resolve() not in derived_path.parents:
+        return ""
+    try:
+        needs_refresh = (not derived_path.exists()) or derived_path.stat().st_mtime < source_path.stat().st_mtime
+    except Exception:
+        needs_refresh = True
+    if needs_refresh:
+        try:
+            with Image.open(source_path) as image:
+                base = image.convert("RGB")
+                width, height = base.size
+                canvas_width = max(int(round(width * 1.32)), width + 120)
+                canvas_height = max(int(round(height * 1.32)), height + 120)
+                scale = min((canvas_width * 0.78) / max(width, 1), (canvas_height * 0.78) / max(height, 1))
+                scaled = base.resize(
+                    (max(1, int(round(width * scale))), max(1, int(round(height * scale)))),
+                    Image.Resampling.LANCZOS,
+                )
+                canvas = Image.new("RGB", (canvas_width, canvas_height), "#f4efe7")
+                offset_x = (canvas_width - scaled.size[0]) // 2
+                offset_y = (canvas_height - scaled.size[1]) // 2
+                canvas.paste(scaled, (offset_x, offset_y))
+                derived_path.parent.mkdir(parents=True, exist_ok=True)
+                canvas.save(derived_path, format="PNG", optimize=True)
+        except Exception:
+            return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=asset_relpath)
+    return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=derived_relpath)
 
 
 def _property_link_bundle_key_facts_lines(property_facts: dict[str, object]) -> list[str]:
@@ -20220,26 +20284,8 @@ class ProductService:
             "source_virtual_tour_url": source_virtual_tour_url,
             "panorama_media_urls_json": list(panorama_media_urls_json),
         }
-        dossier_render = self._render_property_scout_dossier(
-            principal_id=principal_id,
-            actor=resolved_actor,
-            title=title,
-            summary=summary,
-            counterparty=urllib.parse.urlparse(normalized_url).netloc.lower(),
-            account_email=principal_email,
-            property_url=normalized_url,
-            source_ref=resolved_source_ref,
-            assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
-            fit_score=float(fit_score or 0.0),
-            preference_person_id=str(preference_person_id or "").strip() or "self",
-            review_url=review_url,
-            tour_result=dict(tour_result or {}),
-            candidate_properties=(candidate_payload,),
-        )
-        fit_summary = _property_alert_fit_summary(dict(assessment or {}) if isinstance(assessment, dict) else {})
         tour_url = str(tour_result.get("tour_url") or "").strip()
         vendor_tour_url = str(tour_result.get("vendor_tour_url") or "").strip()
-        public_pdf_url = str(dossier_render.get("public_pdf_url") or "").strip()
         source_tour_url = str(source_virtual_tour_url or "").strip()
         primary_tour_url = str(tour_url or vendor_tour_url or source_tour_url).strip()
         principal_access_email = _principal_email_hint(principal_id)
@@ -20291,6 +20337,24 @@ class ProductService:
                 dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-link-magicfit-flythrough",
             )
             video_delivery = _hosted_property_tour_video_delivery(tour_url) if tour_url else {}
+        dossier_render = self._render_property_scout_dossier(
+            principal_id=principal_id,
+            actor=resolved_actor,
+            title=title,
+            summary=summary,
+            counterparty=urllib.parse.urlparse(normalized_url).netloc.lower(),
+            account_email=principal_email,
+            property_url=normalized_url,
+            source_ref=resolved_source_ref,
+            assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
+            fit_score=float(fit_score or 0.0),
+            preference_person_id=str(preference_person_id or "").strip() or "self",
+            review_url=review_url,
+            tour_result=dict(tour_result or {}),
+            candidate_properties=(candidate_payload,),
+        )
+        fit_summary = _property_alert_fit_summary(dict(assessment or {}) if isinstance(assessment, dict) else {})
+        public_pdf_url = str(dossier_render.get("public_pdf_url") or "").strip()
         video_url = str(video_delivery.get("video_url") or "").strip()
         video_provider_key = str(video_delivery.get("provider_key") or "").strip().lower()
         magicfit_video_ready = bool(video_url and video_provider_key == "magicfit")
@@ -20365,6 +20429,8 @@ class ProductService:
         summary_lines.append("Open 3D Tour goes directly into the interactive tour. Open Flythrough starts the video immediately.")
         url_buttons: list[list[tuple[str, str]]] = []
         first_row: list[tuple[str, str]] = []
+        deep_3d_tour_url = ""
+        deep_flythrough_url = ""
         if primary_tour_url:
             direct_360_url = _hosted_property_tour_direct_360_url(primary_tour_url)
             deep_3d_tour_url = _telegram_safe_url_button_target(direct_360_url) if direct_360_url else _autologin_button_url(
@@ -20489,6 +20555,9 @@ class ProductService:
             "dossier_publication_id": str(dossier_render.get("publication_id") or "").strip(),
             "dossier_telegram_message_ids": list(dossier_message_ids),
             "fit_score": float(fit_score or 0.0),
+            "direct_tour_url": deep_3d_tour_url,
+            "direct_flythrough_url": deep_flythrough_url,
+            "preview_image_url": preview_image_url,
         }
         self._record_product_event(
             principal_id=principal_id,
@@ -23491,6 +23560,49 @@ class ProductService:
                 break
         return urls
 
+    def _maybe_auto_create_property_magic_fit_scene_for_packet(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        property_ref: str,
+        property_title: str,
+        property_url: str,
+        property_facts: dict[str, object],
+        reference_urls: list[str] | tuple[str, ...],
+    ) -> dict[str, object]:
+        normalized_refs = [str(item or "").strip() for item in list(reference_urls or []) if str(item or "").strip()]
+        if not normalized_refs:
+            return {}
+        with contextlib.suppress(Exception):
+            existing = self.latest_property_magic_fit_scene(
+                principal_id=principal_id,
+                property_ref=property_ref,
+            )
+            if isinstance(existing, dict) and existing and bool(existing.get("share_with_packet_pdf")):
+                return dict(existing)
+        try:
+            return self.create_property_magic_fit_scene(
+                principal_id=principal_id,
+                actor=actor,
+                property_ref=property_ref,
+                property_title=property_title,
+                property_url=property_url,
+                scene_type="family_evening",
+                room_hint="main living room or open living kitchen",
+                styling_hint="warm, realistic, lived-in premium family home editorial; tasteful clutter; the resident may appear naturally if the references support it",
+                property_facts=dict(property_facts or {}),
+                reference_urls=normalized_refs,
+                household_roles=["resident"],
+                include_child_reference=False,
+                consent_personal_photos=True,
+                guardian_confirmed_for_children=False,
+                share_with_packet_pdf=True,
+                note="Auto-generated for a private PropertyQuarry dossier packet.",
+            )
+        except Exception:
+            return {}
+
     def _property_magic_fit_scene_prompt(
         self,
         *,
@@ -26126,6 +26238,30 @@ class ProductService:
                     "property_url": str(row.get("property_url") or "").strip(),
                 }
             )
+        source_media_urls = [
+            str(value or "").strip()
+            for value in list(
+                top_candidate.get("media_urls_json")
+                or top_facts.get("media_urls_json")
+                or []
+            )
+            if str(value or "").strip()
+        ]
+        source_floorplan_urls = [
+            str(value or "").strip()
+            for value in list(
+                top_candidate.get("floorplan_urls_json")
+                or top_facts.get("floorplan_urls_json")
+                or []
+            )
+            if str(value or "").strip()
+        ]
+        hosted_tour_url = str(tour_payload.get("tour_url") or top_candidate.get("tour_url") or "").strip()
+        video_delivery = _hosted_property_tour_video_delivery(hosted_tour_url) if hosted_tour_url else {}
+        flythrough_url = ""
+        if str(video_delivery.get("provider_key") or "").strip().lower() == "magicfit":
+            flythrough_url = str(video_delivery.get("video_url") or "").strip()
+        diorama_preview_url = _hosted_property_tour_telegram_preview_image_url(hosted_tour_url) or _hosted_property_tour_preview_image_url(hosted_tour_url)
         source_payload: dict[str, object] = {
             "title": property_title,
             "property_title": property_title,
@@ -26142,22 +26278,37 @@ class ProductService:
             "unknowns": question_lines[:8],
             "viewing_questions": list(effective_assessment.get("viewing_questions_json") or effective_assessment.get("questions") or []),
             "review_url": str(review_url or top_candidate.get("review_url") or "").strip(),
-            "tour_url": str(tour_payload.get("tour_url") or top_candidate.get("tour_url") or "").strip(),
+            "tour_url": hosted_tour_url,
+            "flythrough_url": flythrough_url,
             "vendor_tour_url": str(tour_payload.get("vendor_tour_url") or top_candidate.get("vendor_tour_url") or "").strip(),
             "source_virtual_tour_url": str(top_facts.get("source_virtual_tour_url") or top_candidate.get("source_virtual_tour_url") or "").strip(),
             "property_facts_json": top_facts,
             "facts": top_facts,
+            "media_urls_json": list(source_media_urls),
+            "floorplan_urls_json": list(source_floorplan_urls),
             "comparison_candidates": comparison_rows,
         }
-        latest_magic_fit_scene = self.latest_property_magic_fit_scene(
-            principal_id=principal_id,
-            property_ref=str(source_payload["property_ref"]),
-        )
-        if isinstance(latest_magic_fit_scene, dict) and latest_magic_fit_scene and bool(latest_magic_fit_scene.get("share_with_packet_pdf")):
-            source_payload["magic_fit_scene"] = dict(latest_magic_fit_scene)
         personal_reference_urls = self._recent_property_magic_fit_reference_urls(principal_id=principal_id, limit=3)
         if personal_reference_urls:
             source_payload["personal_reference_urls"] = list(personal_reference_urls)
+        latest_magic_fit_scene = self._maybe_auto_create_property_magic_fit_scene_for_packet(
+            principal_id=principal_id,
+            actor=str(actor or "").strip() or "property_scout",
+            property_ref=str(source_payload["property_ref"]),
+            property_title=property_title,
+            property_url=normalized_property_url,
+            property_facts=top_facts,
+            reference_urls=personal_reference_urls,
+        )
+        if isinstance(latest_magic_fit_scene, dict) and latest_magic_fit_scene and bool(latest_magic_fit_scene.get("share_with_packet_pdf")):
+            source_payload["magic_fit_scene"] = dict(latest_magic_fit_scene)
+        if diorama_preview_url:
+            source_payload["diorama_scene"] = {
+                "image_url": diorama_preview_url,
+                "summary": "Stylised overview preview of the flat before opening the full 3D tour.",
+                "video_url": flythrough_url,
+                "privacy_mode": PacketPrivacyMode.OWNER_PRIVATE.value,
+            }
         if top_facts:
             source_payload.update(top_facts)
         if preference_person_id and preference_person_id != "self":
