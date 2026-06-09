@@ -31,7 +31,16 @@ def render_pdf_with_markupgo(request: PremiumDossierRenderRequest) -> PremiumDos
     started = time.time()
     endpoint = str(os.getenv("MARKUPGO_PDF_BUFFER_ENDPOINT") or f"{markupgo_base_url()}/pdf/buffer").strip()
     body = {
-        "html": request.html,
+        "source": {
+            "type": "html",
+            "data": request.html,
+        },
+        "options": {
+            "properties": {
+                "format": "pdf",
+            },
+            "optimizeForSpeed": True,
+        },
         "metadata": {
             "title": request.title,
             "dossier_id": request.dossier_id,
@@ -65,4 +74,3 @@ def render_pdf_with_markupgo(request: PremiumDossierRenderRequest) -> PremiumDos
         pdf_sha256=hashlib.sha256(pdf_bytes).hexdigest(),
         render_seconds=time.time() - started,
     )
-
