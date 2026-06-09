@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
+from app.services.fliplink.pdf_renderer import _resolve_pdf_flythrough_url
 from app.services.premium_dossier import render_property_packet_pdf_via_premium_pipeline
 from app.services.premium_dossier.compiler import compile_premium_dossier
 from app.services.premium_dossier.html import render_premium_dossier_html
@@ -209,3 +210,14 @@ def test_premium_dossier_html_inlines_remote_images_and_diorama(monkeypatch) -> 
     assert "Diorama preview" in html
     assert "data:image/jpeg;base64," in html
     assert "https://cdn.example.com/property-photo.jpg" not in html
+
+
+def test_pdf_flythrough_url_does_not_fallback_to_tour_pane_without_real_clip() -> None:
+    source = {
+        "tour_url": "https://propertyquarry.com/tours/test-tour#live-360",
+        "hosted_url": "https://propertyquarry.com/tours/test-tour#live-360",
+    }
+    payload = {
+        "tour_url": "https://propertyquarry.com/tours/test-tour#live-360",
+    }
+    assert _resolve_pdf_flythrough_url(source=source, payload=payload) == ""

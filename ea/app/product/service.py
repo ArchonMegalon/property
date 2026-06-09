@@ -10803,7 +10803,7 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
         return {}
     if not isinstance(payload, dict):
         return {}
-    video_relpath = str(payload.get("video_relpath") or payload.get("video_fallback_relpath") or "").strip()
+    video_relpath = str(payload.get("video_relpath") or "").strip()
     if not video_relpath:
         return {}
     video_provider = str(
@@ -10868,7 +10868,7 @@ def _update_hosted_property_tour_magicfit_video_manifest(
     if not normalized_video_relpath:
         raise RuntimeError("hosted_property_tour_video_relpath_missing")
     payload["video_relpath"] = normalized_video_relpath
-    payload["video_fallback_relpath"] = normalized_video_relpath
+    payload.pop("video_fallback_relpath", None)
     payload["video_provider_key"] = "magicfit"
     payload["video_provider"] = "magicfit"
     payload["video_render_provider"] = "magicfit"

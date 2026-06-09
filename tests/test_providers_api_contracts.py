@@ -7664,6 +7664,51 @@ def test_public_tour_routes_render_pure_360_cube_with_continuing_links(
     assert "scene-01-f.jpg" in page.text
 
 
+def test_public_tour_payload_ignores_legacy_video_fallback_relpath(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "pioche-lecombe-video-clean"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01-f.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "tour.mp4").write_bytes(b"fake-video-data")
+    (bundle_dir / "tour-fallback.mp4").write_bytes(b"fake-video-data")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Pioche Lecombe Video Clean",
+                "display_title": "Pioche Lecombe Video Clean",
+                "listing_url": "https://www.example.test/listing",
+                "hosted_url": f"https://ea.example/tours/{slug}",
+                "scene_strategy": "pure_360_cube",
+                "video_relpath": "tour.mp4",
+                "video_fallback_relpath": "tour-fallback.mp4",
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "photo",
+                        "scene_id": "living",
+                        "asset_relpath": "scene-01-f.jpg",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-video-clean")
+    body = client.get(f"/tours/{slug}.json").json()
+
+    assert body["video_url"].endswith(f"/tours/files/{slug}/tour.mp4")
+    assert "video_fallback_url" not in body
+    assert "video_fallback_relpath" not in body
+
+
 def test_public_tour_routes_keep_pure_360_white_labeled_when_origin_present(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

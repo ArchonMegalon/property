@@ -139,7 +139,6 @@ _PUBLIC_TOUR_TOP_LEVEL_KEYS = frozenset(
         "brief",
         "scenes",
         "video_relpath",
-        "video_fallback_relpath",
         "tour_privacy_mode",
         "privacy_mode",
     }
@@ -473,7 +472,6 @@ def _public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
             refs.add(relpath)
 
     _add(payload.get("video_relpath"))
-    _add(payload.get("video_fallback_relpath"))
     for scene in list(payload.get("scenes") or []):
         if not isinstance(scene, dict):
             continue
@@ -537,7 +535,6 @@ def _public_tour_asset_metadata(payload: dict[str, object]) -> dict[str, dict[st
             row["mime_type"] = str(mime_type).strip()
 
     _record(payload.get("video_relpath"), role="video")
-    _record(payload.get("video_fallback_relpath"), role="video")
     for scene in list(payload.get("scenes") or []):
         if not isinstance(scene, dict):
             continue
@@ -757,7 +754,7 @@ def _redacted_public_tour_payload(
         if key == "scenes":
             rendered[key] = _redacted_public_tour_scenes(payload, expose_asset_relpaths=expose_asset_relpaths)
             continue
-        if key in {"video_relpath", "video_fallback_relpath"}:
+        if key == "video_relpath":
             relpath = _public_tour_safe_asset_relpath(payload.get(key))
             if not relpath or relpath not in _public_tour_allowed_asset_paths(payload):
                 continue
@@ -2042,9 +2039,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     hosted_brand_html = html.escape(hosted_brand_name)
     slug = str(payload.get("slug") or "").strip()
     video_relpath = str(payload.get("video_relpath") or "").strip()
-    video_fallback_relpath = str(payload.get("video_fallback_relpath") or "").strip()
     video_url = f"/tours/files/{slug}/{video_relpath}" if slug and video_relpath else ""
-    video_fallback_url = f"/tours/files/{slug}/{video_fallback_relpath}" if slug and video_fallback_relpath else ""
 
     def _trim_text(value: object) -> str:
         return str(value or "").strip()
@@ -4676,7 +4671,6 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             f'''<div class="hero-video">
               <video id="tour-video" controls playsinline preload="metadata" poster="{html.escape(scene_data[0]["image_url"])}">
                 <source src="{html.escape(video_url)}" type="video/webm">
-                {f'<source src="{html.escape(video_fallback_url)}" type="video/mp4">' if video_fallback_url else ''}
               </video>
             </div>'''
         ) if video_url else ''}

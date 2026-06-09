@@ -454,9 +454,6 @@ def _resolve_pdf_flythrough_url(*, source: dict[str, object], payload: dict[str,
         href = _safe_pdf_href(value)
         if href:
             return href
-    primary_tour = _resolve_pdf_primary_tour_url(source=source, payload=payload)
-    if primary_tour:
-        return _append_query_param(primary_tour, pane="flythrough-pane")
     return ""
 
 
