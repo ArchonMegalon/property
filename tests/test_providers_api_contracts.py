@@ -7509,6 +7509,54 @@ def test_public_tour_routes_embed_live_360_source_when_present(
     assert ">Source<" not in page.text
 
 
+def test_public_tour_routes_allow_matterport_thumb_preview_for_live_360(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "matterport-live-360"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Matterport Live 360",
+                "display_title": "Matterport Live 360",
+                "listing_url": "https://www.immobilienscout24.at/expose/matterport-live-360",
+                "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+                "source_virtual_tour_url": "https://my.matterport.com/show/?m=BmVWxvZQZLq",
+                "source_virtual_tour_origin": "https://my.matterport.com/show/?m=BmVWxvZQZLq",
+                "panorama_source": "my.matterport.com",
+                "brand_name": "PropertyQuarry",
+                "scene_strategy": "live_360_embed",
+                "scene_count": 1,
+                "facts": {"has_360": True, "teaser_attributes": ["Live 360 tour"]},
+                "brief": {"theme_name": "Matterport", "tour_style": "live 360", "audience": "buyers", "creative_brief": "Lead with live 360.", "call_to_action": "Open live 360."},
+                "scenes": [
+                    {
+                        "name": "Live 360",
+                        "role": "live_360",
+                        "image_url": "https://my.matterport.com/api/v2/player/models/BmVWxvZQZLq/thumb/",
+                        "source_url": "https://my.matterport.com/show/?m=BmVWxvZQZLq",
+                        "mime_type": "image/jpeg",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-matterport-live-360")
+    page = client.get(f"/tours/{slug}", headers={"host": "propertyquarry.com"})
+
+    assert page.status_code == 200
+    assert "Matterport Live 360" in page.text
+    assert "my.matterport.com/show/?m=BmVWxvZQZLq" in page.text
+
+
 def test_public_tour_routes_render_pure_360_cube_with_continuing_links(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

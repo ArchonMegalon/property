@@ -371,6 +371,7 @@ _PUBLIC_TOUR_RESEARCH_DEFAULT_HOST_SUFFIXES = (
     "immobilienscout24.at",
     "immowelt.at",
     "immonet.de",
+    "matterport.com",
     "edikte2.justiz.gv.at",
     "sreal.at",
     "immobilien.derstandard.at",
