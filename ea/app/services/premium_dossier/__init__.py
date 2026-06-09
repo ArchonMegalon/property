@@ -63,7 +63,7 @@ def render_property_packet_pdf_via_premium_pipeline(
         fliplink_format=fliplink_format,
         renderer_version=PREMIUM_DOSSIER_RENDERER_VERSION,
     )
-    html = render_premium_dossier_html(compiled)
+    html = render_premium_dossier_html(compiled, principal_id=principal_id)
     request = PremiumDossierRenderRequest(
         dossier_id=publication_id,
         renderer_version=PREMIUM_DOSSIER_RENDERER_VERSION,

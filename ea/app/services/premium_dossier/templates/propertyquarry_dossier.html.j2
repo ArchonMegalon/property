@@ -104,6 +104,31 @@
               <li>Visual simulation: yes</li>
               <li>Shared into packet with consent</li>
             </ul>
+            {% if payload.magic_fit_scene.reference_urls %}
+            <div class="reference-strip">
+              {% for image_url in payload.magic_fit_scene.reference_urls[:3] %}
+              <img class="reference-thumb" src="{{ image_url }}" alt="Personal reference {{ loop.index }}">
+              {% endfor %}
+            </div>
+            <p class="reference-note">Personal reference photos included for this private packet.</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if payload.personal_reference_urls %}
+    <section class="page image-spread">
+      <div class="page-inner">
+        <div class="section-kicker">Personal references</div>
+        <div class="panel">
+          <h3>Private reference photos</h3>
+          <p>Diese privaten Referenzbilder gehören nur in diesen geschützten Packet-Pfad. Sie dienen dazu, das Objekt im familiären Kontext schneller einzuordnen.</p>
+          <div class="reference-strip">
+            {% for image_url in payload.personal_reference_urls[:3] %}
+            <img class="reference-thumb" src="{{ image_url }}" alt="Personal reference {{ loop.index }}">
+            {% endfor %}
           </div>
         </div>
       </div>

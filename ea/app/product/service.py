@@ -23291,6 +23291,45 @@ class ProductService:
             deduped.append(url)
         return deduped[:3]
 
+    def _recent_property_magic_fit_reference_urls(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 3,
+    ) -> list[str]:
+        token = "".join(ch if ch.isalnum() or ch in "._-" else "-" for ch in str(principal_id or "").strip()).strip("-._")[:120] or "principal"
+        root = Path(str(self._container.settings.storage.artifacts_dir)).resolve() / "magic_fit_refs" / token
+        if not root.exists():
+            return []
+        rows: list[tuple[float, str]] = []
+        for meta_path in root.glob("magicfitref_*.json"):
+            try:
+                metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            reference_id = str(metadata.get("reference_id") or meta_path.stem).strip()
+            file_name_on_disk = str(metadata.get("file_name_on_disk") or "").strip()
+            file_path = root / file_name_on_disk if file_name_on_disk else None
+            if not reference_id or file_path is None or not file_path.exists():
+                continue
+            modified_at = 0.0
+            try:
+                modified_at = max(meta_path.stat().st_mtime, file_path.stat().st_mtime)
+            except Exception:
+                modified_at = 0.0
+            rows.append((modified_at, f"/app/api/property/magic-fit-reference-files/{reference_id}"))
+        rows.sort(key=lambda item: item[0], reverse=True)
+        urls: list[str] = []
+        seen: set[str] = set()
+        for _, url in rows:
+            if url in seen:
+                continue
+            seen.add(url)
+            urls.append(url)
+            if len(urls) >= max(1, int(limit or 3)):
+                break
+        return urls
+
     def _property_magic_fit_scene_prompt(
         self,
         *,
@@ -25955,6 +25994,9 @@ class ProductService:
         )
         if isinstance(latest_magic_fit_scene, dict) and latest_magic_fit_scene and bool(latest_magic_fit_scene.get("share_with_packet_pdf")):
             source_payload["magic_fit_scene"] = dict(latest_magic_fit_scene)
+        personal_reference_urls = self._recent_property_magic_fit_reference_urls(principal_id=principal_id, limit=3)
+        if personal_reference_urls:
+            source_payload["personal_reference_urls"] = list(personal_reference_urls)
         if top_facts:
             source_payload.update(top_facts)
         if preference_person_id and preference_person_id != "self":

@@ -324,6 +324,7 @@ def _public_magic_fit_scene(source: dict[str, object], *, privacy_mode: PacketPr
         "room_hint": _text(raw.get("room_hint"), limit=160),
         "summary": _text(raw.get("summary"), limit=240),
         "image_url": _text(raw.get("image_url"), limit=2000),
+        "reference_urls": _list_text(raw.get("reference_urls"), limit=3),
         "visual_simulation": bool(raw.get("visual_simulation", True)),
         "generated_at": _text(raw.get("generated_at"), limit=80),
     }
@@ -354,6 +355,14 @@ def _public_diorama_scene(source: dict[str, object], *, privacy_mode: PacketPriv
         removed.append("diorama_scene.image_url_missing")
         return {}
     return scene
+
+
+def _public_personal_reference_urls(source: dict[str, object], *, privacy_mode: PacketPrivacyMode, removed: list[str]) -> list[str]:
+    if privacy_mode not in {PacketPrivacyMode.OWNER_PRIVATE, PacketPrivacyMode.FAMILY_REVIEW, PacketPrivacyMode.AGENT_SHARE}:
+        if source.get("personal_reference_urls"):
+            removed.append("personal_reference_urls.privacy_mode_omitted")
+        return []
+    return _list_text(source.get("personal_reference_urls"), limit=3)
 
 
 def _media_allowed_hosts() -> set[str]:
@@ -562,6 +571,9 @@ def redact_property_packet(
     magic_fit_scene = _public_magic_fit_scene(source, privacy_mode=privacy_mode, removed=removed)
     if magic_fit_scene:
         payload["magic_fit_scene"] = magic_fit_scene
+    personal_reference_urls = _public_personal_reference_urls(source, privacy_mode=privacy_mode, removed=removed)
+    if personal_reference_urls:
+        payload["personal_reference_urls"] = personal_reference_urls
     diorama_scene = _public_diorama_scene(source, privacy_mode=privacy_mode, removed=removed)
     if diorama_scene:
         payload["diorama_scene"] = diorama_scene

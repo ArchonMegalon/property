@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
@@ -110,6 +111,7 @@ def test_premium_dossier_html_can_embed_personal_magicfit_scene() -> None:
         "scene_type": "breakfast",
         "summary": "Personal morning scene for the packet.",
         "image_url": "https://propertyquarry.com/static/magicfit-scene.jpg",
+        "reference_urls": ["/app/api/property/magic-fit-reference-files/magicfitref_test"],
         "share_with_packet_pdf": True,
         "visual_simulation": True,
     }
@@ -124,3 +126,44 @@ def test_premium_dossier_html_can_embed_personal_magicfit_scene() -> None:
     html = render_premium_dossier_html(compiled)
     assert "Personal lifestyle scene" in html
     assert "https://propertyquarry.com/static/magicfit-scene.jpg" in html
+    assert "/app/api/property/magic-fit-reference-files/magicfitref_test" in html
+
+
+def test_premium_dossier_html_inlines_private_magicfit_reference_urls(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:tibor@example.com"
+    root = tmp_path / "magic_fit_refs" / "cf-email-tibor-example.com"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "magicfitref_test.jpg").write_bytes(b"fake-jpeg-bits")
+    (root / "magicfitref_test.json").write_text(
+        json.dumps(
+            {
+                "reference_id": "magicfitref_test",
+                "file_name": "family-ref.jpg",
+                "mime_type": "image/jpeg",
+                "file_name_on_disk": "magicfitref_test.jpg",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))
+    source = _sample_source()
+    source["personal_reference_urls"] = ["/app/api/property/magic-fit-reference-files/magicfitref_test"]
+    source["magic_fit_scene"] = {
+        "scene_id": "magicfit-1",
+        "scene_type": "breakfast",
+        "summary": "Personal morning scene for the packet.",
+        "image_url": "https://propertyquarry.com/static/magicfit-scene.jpg",
+        "reference_urls": ["/app/api/property/magic-fit-reference-files/magicfitref_test"],
+        "share_with_packet_pdf": True,
+        "visual_simulation": True,
+    }
+    compiled = compile_premium_dossier(
+        source=source,
+        redacted_payload=source,
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        renderer_version="v1_premium_markupgo_dossier",
+    )
+    html = render_premium_dossier_html(compiled, principal_id=principal_id)
+    assert "data:image/jpeg;base64," in html

@@ -292,6 +292,28 @@ ul {
   margin-top: 0;
 }
 
+.reference-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3mm;
+  margin-top: 5mm;
+}
+
+.reference-thumb {
+  width: 100%;
+  height: 28mm;
+  object-fit: cover;
+  border-radius: 3mm;
+  border: 1px solid var(--line);
+  background: #efe6d8;
+}
+
+.reference-note {
+  margin: 3mm 0 0;
+  color: var(--muted);
+  font-size: 9.8px;
+}
+
 .action-rail {
   display: flex;
   flex-direction: column;
