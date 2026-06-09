@@ -25,6 +25,7 @@ from app.api.dependencies import get_container
 from app.channels.telegram.adapter import TelegramObservationAdapter
 from app.container import AppContainer
 from app.domain.models import ToolInvocationRequest
+from app.product import service as product_service_module
 from app.product.service import build_product_service
 from app.services import google_oauth as google_oauth_service
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
@@ -47,6 +48,7 @@ _SAFE_MATH_RE = re.compile(r"^[0-9\.\+\-\*\/\(\)\s=\?]+$")
 _TELEGRAM_ASSISTANT_ACK = "Let me check that and get back to you here."
 _TELEGRAM_ASYNC_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="telegram-ea")
 _TELEGRAM_WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
+_URL_RE = re.compile(r"https?://[^\s<>\"]+")
 _MATH_WORD_NUMBERS = {
     "zero": "0",
     "one": "1",
@@ -808,6 +810,34 @@ def _record_telegram_async_failed(
         source_id=f"telegram:{chat_id}" if chat_id else "telegram",
         external_id=external_id,
         dedupe_key=f"{external_id}:assistant_async_failed" if external_id else "",
+    )
+
+
+def _record_telegram_async_sent(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    chat_id: str,
+    current_message_id: str,
+    prompt_text: str,
+    reply_text: str,
+    used_fallback_only: bool,
+) -> None:
+    external_id = str(current_message_id or "").strip()
+    container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="telegram",
+        event_type="telegram.reply_async_sent",
+        payload={
+            "chat_id": str(chat_id or "").strip(),
+            "prompt_text": str(prompt_text or "").strip(),
+            "reply_text": str(reply_text or "").strip(),
+            "used_fallback_only": bool(used_fallback_only),
+            "turn_state": "sent",
+        },
+        source_id=f"telegram:{chat_id}" if chat_id else "telegram",
+        external_id=external_id,
+        dedupe_key=f"{external_id}:assistant_async_sent" if external_id else "",
     )
 
 
@@ -4527,6 +4557,9 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
 def _telegram_link_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
     if "http://" not in ctx.normalized and "https://" not in ctx.normalized:
         return TelegramTurnDecision()
+    property_url = _telegram_supported_property_link(ctx.normalized)
+    if property_url:
+        return TelegramTurnDecision(schedule_async=True, async_text=property_url, async_message_id=ctx.current_message_id)
     local_assistant_reply = _telegram_local_assistant_reply_text(
         ctx.container,
         principal_id=ctx.principal_id,
@@ -4537,6 +4570,17 @@ def _telegram_link_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecisi
     return TelegramTurnDecision(
         reply_text="Link received. EA captured it and will route it into Tibor's assistant workspace for review."
     )
+
+
+def _telegram_supported_property_link(text: str) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return ""
+    for raw in _URL_RE.findall(normalized):
+        candidate = str(raw or "").strip().rstrip(").,!?]}>")
+        if candidate and product_service_module._property_scout_is_supported_listing_url(candidate):
+            return candidate
+    return ""
 
 
 def _telegram_local_tool_priority(ctx: TelegramTurnContext) -> bool:
@@ -4735,6 +4779,49 @@ def _telegram_async_assistant_reply_worker(
         current_message_id=current_message_id,
         prompt_text=text,
     )
+    property_url = _telegram_supported_property_link(text)
+    if property_url:
+        try:
+            service = build_product_service(container)
+            result = service.deliver_telegram_property_link_bundle(
+                principal_id=principal_id,
+                property_url=property_url,
+                actor="telegram_property_link",
+                source_ref=f"telegram:{chat_id}:{current_message_id or hashlib.sha256(property_url.encode('utf-8')).hexdigest()[:16]}",
+                external_id=property_url,
+                preference_person_id="self",
+            )
+        except Exception as exc:
+            _record_telegram_async_failed(
+                container,
+                principal_id=principal_id,
+                chat_id=chat_id,
+                current_message_id=current_message_id,
+                prompt_text=text,
+                stage="property_link_bundle",
+                error=str(exc),
+            )
+        else:
+            if str(result.get("status") or "").strip() == "sent":
+                _record_telegram_async_sent(
+                    container,
+                    principal_id=principal_id,
+                    chat_id=chat_id,
+                    current_message_id=current_message_id,
+                    prompt_text=text,
+                    reply_text=f"property_link_bundle_sent:{property_url}",
+                    used_fallback_only=False,
+                )
+                return
+            _record_telegram_async_failed(
+                container,
+                principal_id=principal_id,
+                chat_id=chat_id,
+                current_message_id=current_message_id,
+                prompt_text=text,
+                stage="property_link_bundle_status",
+                error=str(result.get("reason") or result.get("status") or "property_link_bundle_failed"),
+            )
     probe_reply = _telegram_probe_reply_text(text)
     last_resort_reply = _telegram_last_resort_reply_text(text)
     reply_text = _telegram_pocket_audio_reply_text(

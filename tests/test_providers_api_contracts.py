@@ -1589,6 +1589,46 @@ def test_telegram_async_worker_sends_real_ea_followup(monkeypatch: pytest.Monkey
     assert sent and sent[0]["text"] == "Here is the real EA answer."
 
 
+def test_telegram_async_worker_routes_supported_property_link_to_bundle(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import channels as channels_route
+
+    client = _client(principal_id="exec-telegram-property-link-worker", operator=False)
+    observed: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        channels_route,
+        "build_product_service",
+        lambda container: SimpleNamespace(
+            deliver_telegram_property_link_bundle=lambda **kwargs: observed.update(kwargs) or {"status": "sent"}
+        ),
+    )
+    monkeypatch.setattr(
+        channels_route,
+        "_record_telegram_async_sent",
+        lambda *args, **kwargs: observed.update({"async_sent_reply_text": kwargs.get("reply_text")}),
+        raising=False,
+    )
+    monkeypatch.setattr(channels_route, "_record_telegram_async_failed", lambda *args, **kwargs: observed.update({"async_failed_stage": kwargs.get("stage")}))
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: (_ for _ in ()).throw(AssertionError("real EA fallback should not run for property links")))
+
+    property_url = "https://www.immobilienscout24.at/expose/telegram-property-link-worker"
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-property-link-worker",
+        bot_config={"token": "telegram-token-property-link"},
+        chat_id="9799",
+        text=property_url,
+        current_message_id="31",
+    )
+
+    assert observed["principal_id"] == "exec-telegram-property-link-worker"
+    assert observed["property_url"] == property_url
+    assert observed["actor"] == "telegram_property_link"
+    assert observed["preference_person_id"] == "self"
+    assert observed["async_sent_reply_text"] == f"property_link_bundle_sent:{property_url}"
+    assert "async_failed_stage" not in observed
+
+
 def test_telegram_ingest_schedules_async_without_placeholder_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
@@ -1622,6 +1662,44 @@ def test_telegram_ingest_schedules_async_without_placeholder_reply(monkeypatch: 
     assert body["reply_sent"] is False
     assert body["reply_text"] == ""
     assert seen and seen[0]["chat_id"] == "9798"
+
+
+def test_telegram_ingest_schedules_supported_property_link_for_async_bundle(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-property-link")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-property-link")
+    from app.api.routes import channels as channels_route
+
+    seen: list[dict[str, object]] = []
+
+    def _fake_schedule_async_assistant_reply(**kwargs):
+        seen.append(kwargs)
+
+    monkeypatch.setattr(channels_route, "_telegram_schedule_async_assistant_reply", _fake_schedule_async_assistant_reply)
+    client = _client(principal_id="", operator=False)
+    property_url = "https://www.immobilienscout24.at/expose/telegram-property-link-ingest"
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update_id": 73,
+            "message": {
+                "chat": {"id": 9799},
+                "text": property_url,
+                "message_id": 31,
+                "date": 123,
+            },
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reply_sent"] is False
+    assert body["reply_text"] == ""
+    assert seen and seen[0]["chat_id"] == "9799"
+    assert seen[0]["text"] == property_url
+    assert seen[0]["current_message_id"] == "31"
 
 
 def test_telegram_real_ea_reply_text_calls_upstream_with_required_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:

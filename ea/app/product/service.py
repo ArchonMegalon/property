@@ -19681,6 +19681,224 @@ class ProductService:
         )
         return payload
 
+    def deliver_telegram_property_link_bundle(
+        self,
+        *,
+        principal_id: str,
+        property_url: str,
+        actor: str = "",
+        source_ref: str = "",
+        external_id: str = "",
+        preference_person_id: str = "self",
+    ) -> dict[str, object]:
+        normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
+            return {"status": "invalid", "reason": "property_url_invalid"}
+        resolved_actor = str(actor or "").strip() or "telegram_property_link"
+        resolved_source_ref = str(source_ref or f"telegram-property-link:{_saved_link_fallback_id(normalized_url)}").strip()
+        resolved_external_id = str(external_id or normalized_url).strip()
+        domain = "willhaben" if _is_willhaben_property_url(normalized_url) else "property_scout"
+        principal_email = _principal_email_hint(principal_id)
+        title = normalized_url
+        summary = ""
+        property_facts_json: dict[str, object] = {}
+        media_urls_json: list[str] = []
+        floorplan_urls_json: list[str] = []
+        source_virtual_tour_url = ""
+        panorama_media_urls_json: list[str] = []
+        try:
+            if _is_willhaben_property_url(normalized_url):
+                packet = _load_willhaben_property_packet_compat(normalized_url)
+                title = compact_text(str(packet.get("title") or normalized_url).strip(), fallback=normalized_url, limit=220)
+                summary = compact_text(
+                    str(packet.get("description") or packet.get("summary") or "").strip(),
+                    fallback="",
+                    limit=900,
+                )
+                property_facts_json = dict(packet.get("property_facts_json") or {})
+                media_urls_json = [str(value or "").strip() for value in list(packet.get("media_urls_json") or []) if str(value or "").strip()]
+                floorplan_urls_json = [str(value or "").strip() for value in list(packet.get("floorplan_urls_json") or []) if str(value or "").strip()]
+                panorama_media_urls_json = [str(value or "").strip() for value in list(packet.get("panorama_media_urls_json") or []) if str(value or "").strip()]
+                source_virtual_tour_url = str(packet.get("source_virtual_tour_url") or property_facts_json.get("source_virtual_tour_url") or "").strip()
+            else:
+                preview = _property_scout_page_preview(normalized_url)
+                title = compact_text(str(preview.get("title") or normalized_url).strip(), fallback=normalized_url, limit=220)
+                summary = compact_text(
+                    str(preview.get("description") or preview.get("summary") or "").strip(),
+                    fallback="",
+                    limit=900,
+                )
+                property_facts_json = _property_scout_candidate_payload_from_preview(property_url=normalized_url, preview=preview)
+                media_urls_json = [str(value or "").strip() for value in list(preview.get("media_urls_json") or []) if str(value or "").strip()]
+                floorplan_urls_json = [str(value or "").strip() for value in list(preview.get("floorplan_urls_json") or []) if str(value or "").strip()]
+                panorama_media_urls_json = [str(value or "").strip() for value in list(preview.get("panorama_media_urls_json") or []) if str(value or "").strip()]
+                source_virtual_tour_url = _first_non_empty_text(
+                    preview.get("source_virtual_tour_url"),
+                    property_facts_json.get("source_virtual_tour_url"),
+                )
+        except Exception:
+            title = normalized_url
+            summary = ""
+            property_facts_json = {}
+        property_facts_json = _merge_property_facts_with_source_research(
+            property_url=normalized_url,
+            property_facts=dict(property_facts_json or {}),
+            image_urls=tuple(media_urls_json),
+        )
+        try:
+            assessment = self._preference_profiles.assess_candidate(
+                principal_id=principal_id,
+                person_id=str(preference_person_id or "").strip() or "self",
+                domain=domain,
+                object_type="listing",
+                object_id=str(property_facts_json.get("listing_id") or _saved_link_fallback_id(normalized_url)).strip(),
+                object_payload=property_facts_json,
+                persist=True,
+                require_existing_profile=True,
+            )
+        except Exception:
+            assessment = None
+        fit_score = _property_alert_fit_score(dict(assessment or {}) if isinstance(assessment, dict) else None)
+        tour_result = self.create_willhaben_property_tour(
+            principal_id=principal_id,
+            property_url=normalized_url,
+            recipient_email=principal_email,
+            source_ref=resolved_source_ref,
+            external_id=resolved_external_id,
+            auto_deliver=False,
+            actor=resolved_actor,
+            allow_floorplan_only=True,
+        )
+        review_url = ""
+        candidate_payload = {
+            "listing_title": title,
+            "title": title,
+            "property_url": normalized_url,
+            "property_facts_json": dict(property_facts_json or {}),
+            "property_facts": dict(property_facts_json or {}),
+            "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
+            "recommendation": str(dict(assessment or {}).get("recommendation") or "").strip() if isinstance(assessment, dict) else "",
+            "tour_url": str(tour_result.get("tour_url") or "").strip(),
+            "vendor_tour_url": str(tour_result.get("vendor_tour_url") or "").strip(),
+            "review_url": review_url,
+            "media_urls_json": list(media_urls_json),
+            "floorplan_urls_json": list(floorplan_urls_json),
+            "source_virtual_tour_url": source_virtual_tour_url,
+            "panorama_media_urls_json": list(panorama_media_urls_json),
+        }
+        dossier_render = self._render_property_scout_dossier(
+            principal_id=principal_id,
+            actor=resolved_actor,
+            title=title,
+            summary=summary,
+            counterparty=urllib.parse.urlparse(normalized_url).netloc.lower(),
+            account_email=principal_email,
+            property_url=normalized_url,
+            source_ref=resolved_source_ref,
+            assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
+            fit_score=float(fit_score or 0.0),
+            preference_person_id=str(preference_person_id or "").strip() or "self",
+            review_url=review_url,
+            tour_result=dict(tour_result or {}),
+            candidate_properties=(candidate_payload,),
+        )
+        summary_lines = [
+            f"PropertyQuarry Paket für {title}",
+            f"Listing: {normalized_url}",
+        ]
+        tour_url = str(tour_result.get("tour_url") or "").strip()
+        if tour_url:
+            summary_lines.append(f"3D-Tour: {tour_url}")
+        else:
+            summary_lines.append(
+                "3D-Tour: derzeit nicht verfügbar"
+                + (f" ({str(tour_result.get('blocked_reason') or '').strip().replace('_', ' ')})" if str(tour_result.get("blocked_reason") or "").strip() else "")
+            )
+        summary_lines.append("Flythrough: siehe Video-Nachricht unten." if tour_url else "Flythrough: nicht verfügbar, solange keine gehostete Tour vorliegt.")
+        if str(dossier_render.get("status") or "").strip() == "rendered":
+            summary_lines.append("Dossier: als PDF angehängt.")
+        message_receipt = send_telegram_message_for_principal(
+            self._container.tool_runtime,
+            principal_id=principal_id,
+            text="\n".join(summary_lines),
+        )
+        video_delivery_status = "skipped"
+        video_delivery_error = ""
+        video_message_ids: list[str] = []
+        video_url = ""
+        if tour_url:
+            video_delivery = _hosted_property_tour_video_delivery(tour_url)
+            if video_delivery:
+                video_url = str(video_delivery.get("video_url") or "").strip()
+                if video_url:
+                    try:
+                        video_receipt = send_telegram_video_for_principal(
+                            self._container.tool_runtime,
+                            principal_id=principal_id,
+                            video_ref=video_url,
+                            audio_probe_ref=str(video_delivery.get("audio_probe_ref") or "").strip(),
+                            caption=f"{title}\n{tour_url}",
+                        )
+                        video_delivery_status = "sent"
+                        video_message_ids = list(video_receipt.message_ids)
+                    except Exception as exc:
+                        video_delivery_status = "failed"
+                        video_delivery_error = compact_text(str(exc or ""), fallback="telegram_video_delivery_failed", limit=180)
+                else:
+                    video_delivery_status = "skipped"
+        dossier_delivery_status = "skipped"
+        dossier_delivery_error = ""
+        dossier_message_ids: list[str] = []
+        if str(dossier_render.get("status") or "").strip() == "rendered":
+            try:
+                dossier_receipt = send_telegram_document_for_principal(
+                    self._container.tool_runtime,
+                    principal_id=principal_id,
+                    document_ref=str(dossier_render.get("pdf_path") or "").strip(),
+                    caption=str(dossier_render.get("caption") or "").strip(),
+                )
+                dossier_delivery_status = "sent"
+                dossier_message_ids = list(dossier_receipt.message_ids)
+            except Exception as exc:
+                dossier_delivery_status = "failed"
+                dossier_delivery_error = compact_text(str(exc or ""), fallback="telegram_document_delivery_failed", limit=180)
+        payload = {
+            "property_url": normalized_url,
+            "title": title,
+            "source_ref": resolved_source_ref,
+            "external_id": resolved_external_id,
+            "actor": resolved_actor,
+            "tour_url": tour_url,
+            "telegram_message_ids": list(message_receipt.message_ids),
+            "telegram_chat_ref": str(message_receipt.chat_id or "").strip(),
+            "telegram_video_delivery_status": video_delivery_status,
+            "telegram_video_url": video_url,
+            "telegram_video_message_ids": list(video_message_ids),
+            "telegram_video_delivery_error": video_delivery_error,
+            "dossier_delivery_status": dossier_delivery_status,
+            "dossier_delivery_error": dossier_delivery_error,
+            "dossier_pdf_path": str(dossier_render.get("pdf_path") or "").strip(),
+            "dossier_publication_id": str(dossier_render.get("publication_id") or "").strip(),
+            "dossier_telegram_message_ids": list(dossier_message_ids),
+            "fit_score": float(fit_score or 0.0),
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="telegram_property_link_bundle_sent",
+            payload=payload,
+            source_id=resolved_source_ref,
+            dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-link-bundle",
+        )
+        return {
+            "status": "sent",
+            "tour_url": tour_url,
+            "telegram_message_ids": list(message_receipt.message_ids),
+            "telegram_video_message_ids": list(video_message_ids),
+            "dossier_telegram_message_ids": list(dossier_message_ids),
+            "dossier_status": dossier_delivery_status,
+            "video_status": video_delivery_status,
+        }
+
     def sync_google_workspace_signals(
         self,
         *,
