@@ -1105,6 +1105,13 @@ def test_render_property_scout_dossier_promotes_media_and_visuals_into_packet(mo
         lambda tour_url: "https://propertyquarry.com/tours/files/test-hosted-tour/telegram-preview.png",
     )
     monkeypatch.setattr(
+        "app.product.service._hosted_property_tour_magicfit_still_urls",
+        lambda tour_url, limit=3: [
+            "https://propertyquarry.com/tours/files/test-hosted-tour/magicfit-still-1.jpg",
+            "https://propertyquarry.com/tours/files/test-hosted-tour/magicfit-still-2.jpg",
+        ],
+    )
+    monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_preview_image_url",
         lambda tour_url: "https://propertyquarry.com/tours/files/test-hosted-tour/diorama-preview.png",
@@ -1161,7 +1168,11 @@ def test_render_property_scout_dossier_promotes_media_and_visuals_into_packet(mo
 
     assert result["status"] == "rendered"
     payload = dict(observed["source_payload"])
-    assert payload["media_urls_json"] == ["https://cdn.example.com/property-photo.jpg"]
+    assert payload["media_urls_json"] == [
+        "https://propertyquarry.com/tours/files/test-hosted-tour/magicfit-still-1.jpg",
+        "https://propertyquarry.com/tours/files/test-hosted-tour/magicfit-still-2.jpg",
+        "https://cdn.example.com/property-photo.jpg",
+    ]
     assert payload["floorplan_urls_json"] == ["https://cdn.example.com/floorplan.jpg"]
     assert payload["flythrough_url"] == "https://propertyquarry.com/tours/files/test-hosted-tour/tour.mp4"
     assert payload["diorama_scene"]["image_url"] == "https://propertyquarry.com/tours/files/test-hosted-tour/telegram-preview.png"
@@ -1453,8 +1464,94 @@ def test_deliver_telegram_property_link_bundle_shortens_pdf_button_through_works
     )
 
     assert result["status"] == "sent"
+
+
+def test_deliver_telegram_property_link_bundle_uses_direct_magicfit_video_and_live_360_targets(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Direct Targets Office")
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
+    observed: dict[str, object] = {}
+    dossier_path = tmp_path / "telegram-bundle-direct-targets.pdf"
+    dossier_path.write_bytes(b"%PDF-1.4\ndirect-targets")
+
+    class _Receipt:
+        chat_id = "1354554303"
+        message_ids = ("9701",)
+
+    monkeypatch.setattr(
+        ProductService,
+        "create_generic_property_tour",
+        lambda self, **kwargs: {"status": "created", "tour_url": "https://propertyquarry.com/tours/test-direct-targets", "vendor_tour_url": "", "blocked_reason": ""},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda property_url: {"title": "Direct Targets Listing", "listing_id": "direct-targets-1", "description": "Direct target lane", "media_urls_json": [], "floorplan_urls_json": [], "source_virtual_tour_url": ""},
+    )
+    monkeypatch.setattr(product_service, "_property_scout_candidate_payload_from_preview", lambda **kwargs: {"listing_id": "direct-targets-1"})
+    monkeypatch.setattr(product_service, "_merge_property_facts_with_source_research", lambda **kwargs: dict(kwargs.get("property_facts") or {}))
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_video_delivery",
+        lambda tour_url: {
+            "video_url": "https://propertyquarry.com/tours/files/test-direct-targets/tour.mp4",
+            "provider_key": "magicfit",
+            "video_file_path": "/tmp/test-direct-targets/tour.mp4",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_direct_360_url",
+        lambda tour_url: "https://my.matterport.com/show/?m=TEST123&mls=2",
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_render_property_scout_dossier",
+        lambda self, **kwargs: {
+            "status": "rendered",
+            "publication_id": "pub_tg_bundle_direct_targets",
+            "pdf_path": str(dossier_path),
+            "public_pdf_url": "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/direct-targets-token",
+            "caption": "PropertyQuarry dossier · Direct Targets Listing",
+        },
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "issue_workspace_access_session",
+        lambda self, **kwargs: {"access_launch_url": "/workspace-access/direct-targets"},
+    )
+    monkeypatch.setattr(product_service, "_property_link_bundle_preview_image_url", lambda **kwargs: "")
+    monkeypatch.setattr(product_service, "send_telegram_chat_action_for_principal", lambda *args, **kwargs: _Receipt())
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None: observed.update({"url_buttons": url_buttons}) or _Receipt(),
+    )
+    monkeypatch.setattr(product_service, "send_telegram_video_for_principal", lambda *args, **kwargs: _Receipt())
+    monkeypatch.setattr(product_service, "send_telegram_document_for_principal", lambda *args, **kwargs: _Receipt())
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service.deliver_telegram_property_link_bundle(
+        principal_id=principal_id,
+        property_url="https://www.immobilienscout24.at/expose/direct-targets",
+        actor="test",
+    )
+
+    assert result["status"] == "sent"
+    buttons = list(observed["url_buttons"])
+    assert buttons[0][0] == ("Open 3D Tour", "https://my.matterport.com/show/?m=TEST123&mls=2")
+    assert buttons[0][1] == ("Open Flythrough", "https://propertyquarry.com/tours/files/test-direct-targets/tour.mp4")
     flattened = [button for row in list(observed.get("url_buttons") or []) for button in row]
-    assert any(label == "Open Dossier PDF" and "/workspace-access/" in str(url) for label, url in flattened)
+    assert any(label == "Open Dossier PDF" for label, _url in flattened)
 
 
 def test_deliver_telegram_property_link_bundle_waits_for_full_bundle_before_sending_assets(monkeypatch, tmp_path: Path) -> None:

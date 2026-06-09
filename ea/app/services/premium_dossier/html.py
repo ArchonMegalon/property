@@ -91,6 +91,15 @@ def _max_inline_image_bytes() -> int:
         return 12 * 1024 * 1024
 
 
+def _inline_remote_images_enabled() -> bool:
+    return str(os.getenv("PROPERTYQUARRY_DOSSIER_INLINE_REMOTE_IMAGES") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _data_url_for_remote_image(url: str) -> str:
     normalized = str(url or "").strip()
     if not normalized or normalized.startswith("data:"):
@@ -167,8 +176,9 @@ def render_premium_dossier_html(compiled: PremiumDossierCompileResult, *, princi
             compiled=compiled,
             principal_id=principal_id,
         )
-    rendered = _inline_remote_image_urls(
-        html=rendered,
-        compiled=compiled,
-    )
+    if _inline_remote_images_enabled():
+        rendered = _inline_remote_image_urls(
+            html=rendered,
+            compiled=compiled,
+        )
     return rendered

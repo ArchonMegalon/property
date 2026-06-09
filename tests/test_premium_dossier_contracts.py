@@ -189,6 +189,7 @@ def test_premium_dossier_html_inlines_private_magicfit_reference_urls(monkeypatc
 
 
 def test_premium_dossier_html_inlines_remote_images_and_diorama(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_INLINE_REMOTE_IMAGES", "1")
     source = _sample_source()
     source["photo_refs"] = ["https://cdn.example.com/property-photo.jpg"]
     source["floorplan_refs"] = ["https://cdn.example.com/floorplan.jpg"]
@@ -210,6 +211,21 @@ def test_premium_dossier_html_inlines_remote_images_and_diorama(monkeypatch) -> 
     assert "Diorama preview" in html
     assert "data:image/jpeg;base64," in html
     assert "https://cdn.example.com/property-photo.jpg" not in html
+
+
+def test_premium_dossier_html_keeps_remote_image_urls_by_default() -> None:
+    source = _sample_source()
+    source["photo_refs"] = ["https://cdn.example.com/property-photo.jpg"]
+    compiled = compile_premium_dossier(
+        source=source,
+        redacted_payload=source,
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        renderer_version="v1_premium_markupgo_dossier",
+    )
+    html = render_premium_dossier_html(compiled)
+    assert "https://cdn.example.com/property-photo.jpg" in html
 
 
 def test_pdf_flythrough_url_does_not_fallback_to_tour_pane_without_real_clip() -> None:

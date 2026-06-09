@@ -11171,9 +11171,9 @@ def _hosted_property_tour_telegram_preview_image_url(tour_url: str) -> str:
             with Image.open(source_path) as image:
                 base = image.convert("RGB")
                 width, height = base.size
-                canvas_width = max(int(round(width * 1.32)), width + 120)
-                canvas_height = max(int(round(height * 1.32)), height + 120)
-                scale = min((canvas_width * 0.78) / max(width, 1), (canvas_height * 0.78) / max(height, 1))
+                canvas_width = max(int(round(width * 1.62)), width + 220)
+                canvas_height = max(int(round(height * 1.62)), height + 220)
+                scale = min((canvas_width * 0.64) / max(width, 1), (canvas_height * 0.64) / max(height, 1))
                 scaled = base.resize(
                     (max(1, int(round(width * scale))), max(1, int(round(height * scale)))),
                     Image.Resampling.LANCZOS,
@@ -11187,6 +11187,86 @@ def _hosted_property_tour_telegram_preview_image_url(tour_url: str) -> str:
         except Exception:
             return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=asset_relpath)
     return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=derived_relpath)
+
+
+def _hosted_property_tour_magicfit_still_urls(tour_url: str, *, limit: int = 3) -> list[str]:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return []
+    video_delivery = _hosted_property_tour_video_delivery(normalized_url)
+    if str(video_delivery.get("provider_key") or "").strip().lower() != "magicfit":
+        return []
+    slug, bundle_dir = _hosted_property_tour_bundle_dir(normalized_url)
+    if not slug or bundle_dir is None:
+        return []
+    local_video_path = Path(str(video_delivery.get("video_file_path") or "")).resolve()
+    if not local_video_path.exists() or not local_video_path.is_file():
+        return []
+    ffmpeg_bin = _pocket_audio_enhance_ffmpeg_bin()
+    still_urls: list[str] = []
+    duration_probe = shutil.which("ffprobe") or "/usr/bin/ffprobe"
+    duration_seconds = 0.0
+    if duration_probe and Path(duration_probe).exists():
+        with contextlib.suppress(Exception):
+            probe = subprocess.run(
+                [
+                    duration_probe,
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(local_video_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if probe.returncode == 0:
+                duration_seconds = max(0.0, float((probe.stdout or "").strip() or "0"))
+    default_offsets = [0.35, 1.35, 2.35]
+    if duration_seconds > 0.5:
+        useful = max(0.5, duration_seconds - 0.35)
+        default_offsets = [round(useful * ratio, 2) for ratio in (0.18, 0.48, 0.78)]
+    for index, offset in enumerate(default_offsets[: max(1, int(limit or 3))], start=1):
+        relpath = f"magicfit-still-{index}.jpg"
+        target_path = (bundle_dir / relpath).resolve()
+        if bundle_dir.resolve() not in target_path.parents:
+            continue
+        needs_refresh = (not target_path.exists()) or target_path.stat().st_mtime < local_video_path.stat().st_mtime
+        if needs_refresh:
+            command = [
+                ffmpeg_bin,
+                "-y",
+                "-ss",
+                f"{max(0.0, float(offset)):.2f}",
+                "-i",
+                str(local_video_path),
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale=1280:-2",
+                "-q:v",
+                "3",
+                str(target_path),
+            ]
+            try:
+                result = subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=90,
+                )
+            except Exception:
+                continue
+            if result.returncode != 0 or not target_path.exists():
+                continue
+        still_url = _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=relpath)
+        if still_url:
+            still_urls.append(still_url)
+    return still_urls
 
 
 def _property_link_bundle_key_facts_lines(property_facts: dict[str, object]) -> list[str]:
@@ -23591,25 +23671,25 @@ class ProductService:
             return ""
         if not images:
             return ""
-        canvas = Image.new("RGB", (1400, 900), "#f4efe7")
+        canvas = Image.new("RGB", (1100, 720), "#f4efe7")
         if len(images) == 1:
             tile = images[0].copy()
-            tile.thumbnail((1120, 760), Image.Resampling.LANCZOS)
+            tile.thumbnail((860, 600), Image.Resampling.LANCZOS)
             canvas.paste(tile, ((canvas.width - tile.width) // 2, (canvas.height - tile.height) // 2))
         elif len(images) == 2:
-            slots = [(90, 110, 560, 680), (750, 110, 560, 680)]
+            slots = [(70, 90, 410, 540), (620, 90, 410, 540)]
             for image, (x, y, w, h) in zip(images, slots):
                 tile = image.copy()
                 tile.thumbnail((w, h), Image.Resampling.LANCZOS)
                 canvas.paste(tile, (x + (w - tile.width) // 2, y + (h - tile.height) // 2))
         else:
-            slots = [(70, 120, 650, 660), (820, 95, 480, 300), (820, 505, 480, 300)]
+            slots = [(55, 90, 520, 520), (650, 70, 350, 250), (650, 400, 350, 250)]
             for image, (x, y, w, h) in zip(images[:3], slots):
                 tile = image.copy()
                 tile.thumbnail((w, h), Image.Resampling.LANCZOS)
                 canvas.paste(tile, (x + (w - tile.width) // 2, y + (h - tile.height) // 2))
         buffer = io.BytesIO()
-        canvas.save(buffer, format="JPEG", quality=88, optimize=True)
+        canvas.save(buffer, format="JPEG", quality=76, optimize=True)
         encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
         return f"data:image/jpeg;base64,{encoded}"
 
@@ -26314,6 +26394,23 @@ class ProductService:
         flythrough_url = ""
         if str(video_delivery.get("provider_key") or "").strip().lower() == "magicfit":
             flythrough_url = str(video_delivery.get("video_url") or "").strip()
+            magicfit_stills = [
+                str(url or "").strip()
+                for url in _hosted_property_tour_magicfit_still_urls(hosted_tour_url, limit=3)
+                if str(url or "").strip()
+            ]
+            deduped_media_urls: list[str] = []
+            seen_media_urls: set[str] = set()
+            for url in [*magicfit_stills, *source_media_urls]:
+                normalized_url = str(url or "").strip()
+                if not normalized_url or normalized_url in seen_media_urls:
+                    continue
+                seen_media_urls.add(normalized_url)
+                deduped_media_urls.append(normalized_url)
+            source_media_urls = deduped_media_urls
+        floorplan_ref_set = {str(url or "").strip() for url in source_floorplan_urls if str(url or "").strip()}
+        if floorplan_ref_set:
+            source_media_urls = [url for url in source_media_urls if str(url or "").strip() not in floorplan_ref_set]
         diorama_preview_url = _hosted_property_tour_telegram_preview_image_url(hosted_tour_url) or _hosted_property_tour_preview_image_url(hosted_tour_url)
         source_payload: dict[str, object] = {
             "title": property_title,
@@ -26376,7 +26473,20 @@ class ProductService:
                 "privacy_mode": PacketPrivacyMode.OWNER_PRIVATE.value,
             }
         if top_facts:
-            source_payload.update(top_facts)
+            source_payload.update(
+                {
+                    key: value
+                    for key, value in dict(top_facts).items()
+                    if key
+                    not in {
+                        "media_urls_json",
+                        "floorplan_urls_json",
+                        "tour_url",
+                        "flythrough_url",
+                        "source_virtual_tour_url",
+                    }
+                }
+            )
         if preference_person_id and preference_person_id != "self":
             source_payload["fit_summary"] = f"{source_payload['fit_summary']} · profile {preference_person_id}" if source_payload["fit_summary"] else f"profile {preference_person_id}"
         try:
