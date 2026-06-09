@@ -10820,6 +10820,38 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
     }
 
 
+def _embedded_live_360_source_url(payload: dict[str, object]) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("source_virtual_tour_url", "source_virtual_tour_origin"):
+        normalized = _safe_live_property_tour_url(str(payload.get(key) or "").strip())
+        if normalized:
+            return normalized
+    return ""
+
+
+def _hosted_property_tour_direct_360_url(tour_url: str) -> str:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return ""
+    parsed = urllib.parse.urlparse(normalized_url)
+    path_parts = [part for part in str(parsed.path or "").split("/") if part]
+    if len(path_parts) < 2 or path_parts[-2] != "tours":
+        return ""
+    slug = str(path_parts[-1] or "").strip()
+    if not slug:
+        return ""
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    manifest_path = public_dir / slug / "tour.json"
+    if not manifest_path.exists():
+        return ""
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    return _embedded_live_360_source_url(payload if isinstance(payload, dict) else {})
+
+
 def _matterport_thumb_url(source_virtual_tour_url: str) -> str:
     normalized = str(source_virtual_tour_url or "").strip()
     if not normalized:
@@ -20130,13 +20162,14 @@ class ProductService:
         url_buttons: list[list[tuple[str, str]]] = []
         first_row: list[tuple[str, str]] = []
         if primary_tour_url:
-            deep_3d_tour_url = _autologin_button_url(_property_tour_deep_link(primary_tour_url, pane="panorama-pane"))
+            direct_360_url = _hosted_property_tour_direct_360_url(primary_tour_url)
+            deep_3d_tour_url = _telegram_safe_url_button_target(direct_360_url) if direct_360_url else _autologin_button_url(
+                _property_tour_deep_link(primary_tour_url, pane="panorama-pane")
+            )
             if deep_3d_tour_url:
                 first_row.append(("Open 3D Tour", deep_3d_tour_url))
-        if video_url and primary_tour_url:
-            deep_flythrough_url = _autologin_button_url(
-                _property_tour_deep_link(primary_tour_url, pane="flythrough-pane", autoplay=True)
-            )
+        if video_url:
+            deep_flythrough_url = _telegram_safe_url_button_target(video_url)
             if deep_flythrough_url:
                 first_row.append(("Open Flythrough", deep_flythrough_url))
         safe_public_pdf_url = _autologin_button_url(public_pdf_url)
