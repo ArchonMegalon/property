@@ -26435,7 +26435,9 @@ class ProductService:
             "property_facts_json": top_facts,
             "facts": top_facts,
             "media_urls_json": list(source_media_urls),
+            "photo_refs": list(source_media_urls),
             "floorplan_urls_json": list(source_floorplan_urls),
+            "floorplan_refs": list(source_floorplan_urls),
             "comparison_candidates": comparison_rows,
         }
         personal_reference_urls = self._recent_property_magic_fit_reference_urls(principal_id=principal_id, limit=3)

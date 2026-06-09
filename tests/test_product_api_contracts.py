@@ -1173,7 +1173,9 @@ def test_render_property_scout_dossier_promotes_media_and_visuals_into_packet(mo
         "https://propertyquarry.com/tours/files/test-hosted-tour/magicfit-still-2.jpg",
         "https://cdn.example.com/property-photo.jpg",
     ]
+    assert payload["photo_refs"] == payload["media_urls_json"]
     assert payload["floorplan_urls_json"] == ["https://cdn.example.com/floorplan.jpg"]
+    assert payload["floorplan_refs"] == payload["floorplan_urls_json"]
     assert payload["flythrough_url"] == "https://propertyquarry.com/tours/files/test-hosted-tour/tour.mp4"
     assert payload["diorama_scene"]["image_url"] == "https://propertyquarry.com/tours/files/test-hosted-tour/telegram-preview.png"
     assert payload["magic_fit_scene"]["image_url"] == "https://cdn.example.com/magicfit-scene.jpg"
