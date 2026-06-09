@@ -20363,22 +20363,6 @@ class ProductService:
             summary_lines.append(f"Personal fit {int(round(max(0.0, min(100.0, float(fit_score or 0.0))))):d}/100")
         summary_lines.extend(_property_link_bundle_key_facts_lines(property_facts_json))
         summary_lines.append("Open 3D Tour goes directly into the interactive tour. Open Flythrough starts the video immediately.")
-        feedback_prompt = self._prepare_notification_feedback_prompt(
-            principal_id=principal_id,
-            notification_kind="telegram_property_link_bundle",
-            person_id="self",
-            domain="property_scout",
-            object_type="property_listing",
-            object_id=normalized_url,
-            source_ref=resolved_source_ref,
-            raw_signal_json={
-                "title": title,
-                "property_url": normalized_url,
-                "fit_score": float(fit_score or 0.0),
-                "tour_url": primary_tour_url,
-            },
-            interpreted_signal_json={},
-        )
         url_buttons: list[list[tuple[str, str]]] = []
         first_row: list[tuple[str, str]] = []
         if primary_tour_url:
@@ -20424,7 +20408,6 @@ class ProductService:
                     principal_id=principal_id,
                     photo_ref=preview_image_url,
                     caption=message_text,
-                    inline_buttons=list(feedback_prompt.get("button_rows") or []),
                     url_buttons=url_buttons,
                 )
             except Exception:
@@ -20432,7 +20415,6 @@ class ProductService:
                     self._container.tool_runtime,
                     principal_id=principal_id,
                     text=message_text,
-                    inline_buttons=list(feedback_prompt.get("button_rows") or []),
                     url_buttons=url_buttons,
                 )
         else:
@@ -20440,16 +20422,8 @@ class ProductService:
                 self._container.tool_runtime,
                 principal_id=principal_id,
                 text=message_text,
-                inline_buttons=list(feedback_prompt.get("button_rows") or []),
                 url_buttons=url_buttons,
             )
-        self._record_notification_feedback_prompt(
-            principal_id=principal_id,
-            prompt=feedback_prompt,
-            delivery_channel="telegram",
-            telegram_chat_ref=str(message_receipt.chat_id or "").strip(),
-            telegram_message_ids=list(message_receipt.message_ids),
-        )
         video_delivery_status = "skipped"
         video_delivery_error = ""
         video_message_ids: list[str] = []

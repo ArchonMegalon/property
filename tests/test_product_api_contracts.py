@@ -882,9 +882,7 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
     assert "/workspace-access/" in str(observed["url_buttons"][0][0][1])
     assert observed["url_buttons"][0][1][0] == "Open Flythrough"
     assert observed["url_buttons"][0][1][1] == "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4"
-    button_labels = [button[0] for row in list(observed.get("inline_buttons") or []) for button in row]
-    assert "I like it" in button_labels
-    assert "I don't like it" in button_labels
+    assert not list(observed.get("inline_buttons") or [])
     assert observed["video_principal_id"] == principal_id
     assert observed["video_ref"] == "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4"
     assert observed["video_caption"] == "Telegram Test Listing\nPropertyQuarry flythrough"
