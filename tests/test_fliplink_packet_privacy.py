@@ -340,7 +340,7 @@ def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
     )
 
     pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
-    assert b"Contents" in pdf_bytes
+    assert b"Packet contents" in pdf_bytes
     assert b"Comparison snapshot" in pdf_bytes
     assert rendered["redacted_payload"]["comparison_rows"][0]["title"].startswith("Pärchenhit")
     assert "comparison_snapshot" in rendered["receipt"]["visual_elements"]
@@ -353,7 +353,7 @@ def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
     assert b"flipbook_3d" not in pdf_bytes
     assert b"https://packets.propertyquarry.com/assets/floorplan.pdf" not in pdf_bytes
     assert b"https://packets.propertyquarry.com/assets/photo.jpg" not in pdf_bytes
-    assert b"Executive summary" in pdf_bytes
+    assert b"Executive decision" in pdf_bytes
     assert b"https://propertyquarry.com/tours/test-demo-tour" in pdf_bytes
     assert b"Chosen ahead" in pdf_bytes
     assert b"next option" in pdf_bytes
@@ -363,6 +363,7 @@ def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
     assert b"on foot" in pdf_bytes
     assert b"Family route and school independence" in pdf_bytes
     assert b"Safety, crime, and climate risk" in pdf_bytes
+    assert b"Research notes and evidence" in pdf_bytes
     assert b"Crime burden" in pdf_bytes
     assert b"Medical care" in pdf_bytes
     assert b"Area outlook and future infrastructure" in pdf_bytes
