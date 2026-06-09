@@ -392,7 +392,12 @@ def _photo_media_ref_allowed(url: str) -> bool:
     parsed = urllib.parse.urlparse(url)
     suffix = _normalized_media_extension(parsed)
     lowered = url.lower()
-    if any(marker in lowered for marker in FLOORPLAN_MEDIA_HINTS):
+    basename = os.path.basename(str(parsed.path or "").strip().lower())
+    if basename.startswith("magicfit-still-"):
+        return suffix in PHOTO_MEDIA_EXTENSIONS
+    path_parts = [part for part in str(parsed.path or "").strip().lower().split("/") if part]
+    relevant_parts = [basename, *path_parts[-2:]]
+    if any(marker in part for marker in FLOORPLAN_MEDIA_HINTS for part in relevant_parts if part):
         return False
     return suffix in PHOTO_MEDIA_EXTENSIONS
 

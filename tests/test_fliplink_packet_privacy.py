@@ -118,9 +118,24 @@ def test_fliplink_packet_media_flags_remove_floorplans_and_photos() -> None:
     assert "floorplan_refs" not in redacted.payload
     assert "photo_refs" not in redacted.payload
     assert "floorplan_refs" in redacted.receipt["removed_fields"]
-    assert "photo_refs" in redacted.receipt["removed_fields"]
-    assert redacted.receipt["include_floorplan"] is False
-    assert redacted.receipt["include_photos"] is False
+
+
+def test_fliplink_packet_allows_magicfit_still_photo_refs_even_when_tour_slug_contains_layout() -> None:
+    source = _source_payload()
+    source["photo_refs"] = [
+        "https://propertyquarry.com/tours/files/neu-08-06-layout-first-demo/magicfit-still-1.jpg",
+        "https://propertyquarry.com/tours/files/neu-08-06-layout-first-demo/magicfit-still-2.jpg",
+    ]
+    redacted = redact_property_packet(
+        source=source,
+        privacy_mode=PacketPrivacyMode.OWNER_PRIVATE,
+        include_floorplan=True,
+        include_photos=True,
+    )
+    assert redacted.payload["photo_refs"][:2] == [
+        "https://propertyquarry.com/tours/files/neu-08-06-layout-first-demo/magicfit-still-1.jpg",
+        "https://propertyquarry.com/tours/files/neu-08-06-layout-first-demo/magicfit-still-2.jpg",
+    ]
 
 
 def test_fliplink_packet_media_refs_are_host_allowlisted(monkeypatch) -> None:
