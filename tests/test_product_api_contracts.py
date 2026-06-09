@@ -762,6 +762,11 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
     monkeypatch.setattr(
         ProductService,
         "create_willhaben_property_tour",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("willhaben builder should not be used for ImmoScout links")),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "create_generic_property_tour",
         lambda self, **kwargs: {
             "status": "created",
             "tour_url": "https://propertyquarry.com/tours/test-telegram-bundle?pane=floorplan-pane",
@@ -815,10 +820,15 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
     )
     monkeypatch.setattr(
         product_service,
-        "send_telegram_message_for_principal",
-        lambda tool_runtime, *, principal_id, text, inline_buttons=None: observed.update(
-            {"message_principal_id": principal_id, "message_text": text}
+        "send_telegram_photo_for_principal",
+        lambda tool_runtime, *, principal_id, photo_ref, caption="", url_buttons=None: observed.update(
+            {"message_principal_id": principal_id, "photo_ref": photo_ref, "message_text": caption, "url_buttons": url_buttons}
         ) or _MessageReceipt(),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("photo lane should be preferred when a preview image exists")),
     )
     monkeypatch.setattr(
         product_service,
@@ -844,9 +854,12 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
 
     assert result["status"] == "sent"
     assert observed["message_principal_id"] == principal_id
-    assert "3D-Tour: https://propertyquarry.com/tours/test-telegram-bundle?pane=floorplan-pane" in str(observed["message_text"])
+    assert observed["photo_ref"] == "https://cache.willhaben.at/example-photo.jpg"
+    assert "PropertyQuarry Review Packet" in str(observed["message_text"])
+    assert observed["url_buttons"][0][0] == ("Open 3D Tour", "https://propertyquarry.com/tours/test-telegram-bundle?pane=floorplan-pane")
     assert observed["video_principal_id"] == principal_id
     assert observed["video_ref"] == "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4"
+    assert observed["video_caption"] == "Telegram Test Listing\nPropertyQuarry flythrough"
     assert observed["document_principal_id"] == principal_id
     assert observed["document_ref"] == str(dossier_path)
 
@@ -7342,6 +7355,25 @@ def test_willhaben_property_tour_route_publishes_pure_360_bundle_when_crezlo_is_
     assert body["tour_media_mode"] == "panorama_360"
     assert body["tour_url"].startswith("https://propertyquarry.com/tours/")
     assert body["vendor_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
+
+
+def test_matterport_hosted_pure_360_bundle_uses_http_thumb_preview(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
+    payload = product_service._write_hosted_feelestate_pure_360_property_tour_bundle(
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        title="Matterport Preview Test",
+        listing_id="matterport-preview-test",
+        property_url="https://www.immobilienscout24.at/expose/matterport-preview-test",
+        variant_key="layout_first",
+        source_virtual_tour_url="https://my.matterport.com/show/?m=BmVWxvZQZLq",
+        floorplan_urls=(),
+        property_facts_json={"has_360": True},
+        source_host="www.immobilienscout24.at",
+    )
+    scene = dict((payload.get("scenes") or [{}])[0] or {})
+    assert scene["image_url"] == "https://my.matterport.com/api/v2/player/models/BmVWxvZQZLq/thumb/"
+    assert scene["mime_type"] == "image/jpeg"
 
 
 def test_willhaben_property_tour_route_blocks_when_only_flat_listing_photos_exist_and_360_is_required(monkeypatch) -> None:

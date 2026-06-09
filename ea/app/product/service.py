@@ -104,6 +104,7 @@ from app.services.telegram_delivery import (
     send_telegram_audio_for_principal,
     send_telegram_document_for_principal,
     send_telegram_message_for_principal,
+    send_telegram_photo_for_principal,
     send_telegram_video_for_principal,
 )
 from app.services.registration_email import (
@@ -10603,10 +10604,11 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
                     "ordinal": 1,
                     "name": "Live 360",
                     "role": "live_360",
-                    "image_url": "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+                    "image_url": _matterport_thumb_url(live_url)
+                    or "https://my.matterport.com/api/v2/player/models/default/thumb/",
                     "source_url": live_url,
                     "property_url": property_url,
-                    "mime_type": "image/gif",
+                    "mime_type": "image/jpeg",
                 }
             ],
             "generated_at": _now_iso(),
@@ -10814,6 +10816,31 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
         "video_url": public_video_url,
         "audio_probe_ref": str(local_video_path),
     }
+
+
+def _matterport_thumb_url(source_virtual_tour_url: str) -> str:
+    normalized = str(source_virtual_tour_url or "").strip()
+    if not normalized:
+        return ""
+    parsed = urllib.parse.urlparse(normalized)
+    if "matterport.com" not in parsed.netloc.lower():
+        return ""
+    model_id = str(urllib.parse.parse_qs(parsed.query).get("m", [""])[0] or "").strip()
+    if not model_id:
+        return ""
+    return f"https://my.matterport.com/api/v2/player/models/{model_id}/thumb/"
+
+
+def _property_link_bundle_preview_image_url(
+    *,
+    media_urls: list[str] | tuple[str, ...],
+    source_virtual_tour_url: str = "",
+) -> str:
+    for candidate in list(media_urls or []):
+        normalized = _safe_live_property_tour_url(candidate)
+        if normalized and normalized.lower().split("?", 1)[0].endswith((".jpg", ".jpeg", ".png", ".webp")):
+            return normalized
+    return _matterport_thumb_url(source_virtual_tour_url)
 
 
 def _willhaben_property_packet_script_path() -> Path:
@@ -19759,16 +19786,28 @@ class ProductService:
         except Exception:
             assessment = None
         fit_score = _property_alert_fit_score(dict(assessment or {}) if isinstance(assessment, dict) else None)
-        tour_result = self.create_willhaben_property_tour(
-            principal_id=principal_id,
-            property_url=normalized_url,
-            recipient_email=principal_email,
-            source_ref=resolved_source_ref,
-            external_id=resolved_external_id,
-            auto_deliver=False,
-            actor=resolved_actor,
-            allow_floorplan_only=True,
-        )
+        if _is_willhaben_property_url(normalized_url):
+            tour_result = self.create_willhaben_property_tour(
+                principal_id=principal_id,
+                property_url=normalized_url,
+                recipient_email=principal_email,
+                source_ref=resolved_source_ref,
+                external_id=resolved_external_id,
+                auto_deliver=False,
+                actor=resolved_actor,
+                allow_floorplan_only=True,
+            )
+        else:
+            tour_result = self.create_generic_property_tour(
+                principal_id=principal_id,
+                property_url=normalized_url,
+                recipient_email=principal_email,
+                source_ref=resolved_source_ref,
+                external_id=resolved_external_id,
+                auto_deliver=False,
+                actor=resolved_actor,
+                allow_floorplan_only=True,
+            )
         review_url = ""
         candidate_payload = {
             "listing_title": title,
@@ -19802,26 +19841,60 @@ class ProductService:
             tour_result=dict(tour_result or {}),
             candidate_properties=(candidate_payload,),
         )
-        summary_lines = [
-            f"PropertyQuarry Paket für {title}",
-            f"Listing: {normalized_url}",
-        ]
+        fit_summary = _property_alert_fit_summary(dict(assessment or {}) if isinstance(assessment, dict) else {})
         tour_url = str(tour_result.get("tour_url") or "").strip()
-        if tour_url:
-            summary_lines.append(f"3D-Tour: {tour_url}")
+        vendor_tour_url = str(tour_result.get("vendor_tour_url") or "").strip()
+        public_pdf_url = str(dossier_render.get("public_pdf_url") or "").strip()
+        source_tour_url = str(source_virtual_tour_url or "").strip()
+        primary_tour_url = str(tour_url or vendor_tour_url or source_tour_url).strip()
+        summary_lines = [f"PropertyQuarry Review Packet\n{title}"]
+        if fit_summary:
+            summary_lines.append(fit_summary)
+        elif fit_score > 0:
+            summary_lines.append(f"Personal fit {int(round(max(0.0, min(100.0, float(fit_score or 0.0))))):d}/100")
+        if primary_tour_url:
+            summary_lines.append("Included: 3D tour")
         else:
+            blocked_reason = str(tour_result.get("blocked_reason") or "").strip()
             summary_lines.append(
-                "3D-Tour: derzeit nicht verfügbar"
-                + (f" ({str(tour_result.get('blocked_reason') or '').strip().replace('_', ' ')})" if str(tour_result.get("blocked_reason") or "").strip() else "")
+                "3D tour pending"
+                + (f" · {blocked_reason.replace('_', ' ')}" if blocked_reason else "")
             )
-        summary_lines.append("Flythrough: siehe Video-Nachricht unten." if tour_url else "Flythrough: nicht verfügbar, solange keine gehostete Tour vorliegt.")
+        summary_lines.append("Flythrough: sent below when a hosted video lane is available.")
         if str(dossier_render.get("status") or "").strip() == "rendered":
-            summary_lines.append("Dossier: als PDF angehängt.")
-        message_receipt = send_telegram_message_for_principal(
-            self._container.tool_runtime,
-            principal_id=principal_id,
-            text="\n".join(summary_lines),
+            summary_lines.append("Dossier: attached as PDF.")
+        url_buttons: list[list[tuple[str, str]]] = []
+        first_row: list[tuple[str, str]] = []
+        if primary_tour_url:
+            first_row.append(("Open 3D Tour", primary_tour_url))
+        if public_pdf_url:
+            first_row.append(("Open Dossier PDF", public_pdf_url))
+        if first_row:
+            url_buttons.append(first_row[:2])
+        second_row: list[tuple[str, str]] = [("Open Listing", normalized_url)]
+        if len(first_row) > 2:
+            second_row.insert(0, first_row[2])
+        if second_row:
+            url_buttons.append(second_row[:2])
+        preview_image_url = _property_link_bundle_preview_image_url(
+            media_urls=media_urls_json,
+            source_virtual_tour_url=source_tour_url,
         )
+        if preview_image_url:
+            message_receipt = send_telegram_photo_for_principal(
+                self._container.tool_runtime,
+                principal_id=principal_id,
+                photo_ref=preview_image_url,
+                caption="\n".join(summary_lines),
+                url_buttons=url_buttons,
+            )
+        else:
+            message_receipt = send_telegram_message_for_principal(
+                self._container.tool_runtime,
+                principal_id=principal_id,
+                text="\n".join(summary_lines),
+                url_buttons=url_buttons,
+            )
         video_delivery_status = "skipped"
         video_delivery_error = ""
         video_message_ids: list[str] = []
@@ -19837,7 +19910,7 @@ class ProductService:
                             principal_id=principal_id,
                             video_ref=video_url,
                             audio_probe_ref=str(video_delivery.get("audio_probe_ref") or "").strip(),
-                            caption=f"{title}\n{tour_url}",
+                            caption=f"{title}\nPropertyQuarry flythrough",
                         )
                         video_delivery_status = "sent"
                         video_message_ids = list(video_receipt.message_ids)

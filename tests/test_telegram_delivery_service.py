@@ -10,6 +10,7 @@ from app.services.telegram_delivery import (
     send_telegram_audio_for_principal,
     send_telegram_document_for_principal,
     send_telegram_message_for_principal,
+    send_telegram_photo_for_principal,
     send_telegram_video_for_principal,
 )
 from app.services.tool_runtime import ToolRuntimeService
@@ -115,6 +116,49 @@ def test_send_telegram_message_for_principal_includes_inline_buttons(monkeypatch
     )
     assert sent
     assert sent[0]["reply_markup"]["inline_keyboard"][0][0]["text"] == "More like this"
+
+
+def test_send_telegram_message_for_principal_includes_url_buttons(monkeypatch) -> None:
+    runtime = _tool_runtime()
+    runtime.upsert_connector_binding(
+        principal_id="exec-telegram-url-buttons",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+    )
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 18}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
+    send_telegram_message_for_principal(
+        runtime,
+        principal_id="exec-telegram-url-buttons",
+        text="Bundle ready",
+        url_buttons=[[("Open dossier", "https://propertyquarry.com/dossier/test")]],
+    )
+    assert sent
+    assert sent[0]["reply_markup"]["inline_keyboard"][0][0]["text"] == "Open dossier"
+    assert sent[0]["reply_markup"]["inline_keyboard"][0][0]["url"] == "https://propertyquarry.com/dossier/test"
 
 
 def test_resolve_primary_telegram_binding_falls_back_to_default_principal(monkeypatch) -> None:
@@ -234,6 +278,59 @@ def test_send_telegram_video_for_principal_uses_bound_chat_and_sendvideo(monkeyp
     assert sent and sent[0]["url"] == "https://api.telegram.org/bottelegram-token/sendVideo"
     assert sent[0]["payload"]["video"] == "https://cdn.example/render/final.mp4"
     assert sent[0]["payload"]["caption"] == "Brigittenau teaser"
+
+
+def test_send_telegram_photo_for_principal_uses_bound_chat_and_sendphoto(monkeypatch) -> None:
+    runtime = _tool_runtime()
+    runtime.upsert_connector_binding(
+        principal_id="exec-telegram-photo",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+    )
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_remote_ref_reachable", lambda value: True)
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 19}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(
+            {
+                "url": request.full_url,
+                "payload": json.loads(request.data.decode("utf-8")),
+                "timeout": timeout,
+            }
+        )
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
+    receipt = send_telegram_photo_for_principal(
+        runtime,
+        principal_id="exec-telegram-photo",
+        photo_ref="https://cdn.example/property-thumb.jpg",
+        caption="Telegram cover",
+        url_buttons=[[("Open 3D Tour", "https://propertyquarry.com/tours/test")]],
+    )
+    assert receipt.chat_id == "42"
+    assert receipt.message_ids == ("19",)
+    assert sent and sent[0]["url"] == "https://api.telegram.org/bottelegram-token/sendPhoto"
+    assert sent[0]["payload"]["photo"] == "https://cdn.example/property-thumb.jpg"
+    assert sent[0]["payload"]["reply_markup"]["inline_keyboard"][0][0]["url"] == "https://propertyquarry.com/tours/test"
 
 
 def test_send_telegram_video_for_principal_uploads_local_file(monkeypatch, tmp_path) -> None:

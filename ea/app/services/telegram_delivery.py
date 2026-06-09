@@ -363,6 +363,7 @@ def send_telegram_message_for_principal(
     principal_id: str,
     text: str,
     inline_buttons: list[list[tuple[str, str]]] | None = None,
+    url_buttons: list[list[tuple[str, str]]] | None = None,
 ) -> TelegramDeliveryReceipt:
     binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
     if binding is None:
@@ -382,18 +383,25 @@ def send_telegram_message_for_principal(
     message_ids: list[str] = []
     for chunk in _chunk_telegram_text(text):
         payload: dict[str, object] = {"chat_id": chat_id, "text": chunk}
-        if inline_buttons:
-            payload["reply_markup"] = {
-                "inline_keyboard": [
-                    [
-                        {"text": str(label or "").strip(), "callback_data": str(callback_data or "").strip()}
-                        for label, callback_data in row
-                        if str(label or "").strip() and str(callback_data or "").strip()
-                    ]
-                    for row in inline_buttons
-                    if row
-                ]
-            }
+        keyboard_rows: list[list[dict[str, str]]] = []
+        for row in list(inline_buttons or []):
+            buttons = [
+                {"text": str(label or "").strip(), "callback_data": str(callback_data or "").strip()}
+                for label, callback_data in row
+                if str(label or "").strip() and str(callback_data or "").strip()
+            ]
+            if buttons:
+                keyboard_rows.append(buttons)
+        for row in list(url_buttons or []):
+            buttons = [
+                {"text": str(label or "").strip(), "url": str(url or "").strip()}
+                for label, url in row
+                if str(label or "").strip() and str(url or "").strip()
+            ]
+            if buttons:
+                keyboard_rows.append(buttons)
+        if keyboard_rows:
+            payload["reply_markup"] = {"inline_keyboard": keyboard_rows}
         result = _telegram_send_json(
             token=token,
             method="sendMessage",
@@ -406,6 +414,78 @@ def send_telegram_message_for_principal(
         bot_key=bot_key,
         bot_handle=bot_handle,
         message_ids=tuple(value for value in message_ids if value),
+    )
+
+
+def send_telegram_photo_for_principal(
+    tool_runtime: ToolRuntimeService,
+    *,
+    principal_id: str,
+    photo_ref: str,
+    caption: str = "",
+    url_buttons: list[list[tuple[str, str]]] | None = None,
+) -> TelegramDeliveryReceipt:
+    binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
+    if binding is None:
+        raise RuntimeError("telegram_binding_not_found")
+    metadata = dict(binding.auth_metadata_json or {})
+    bot_key = str(metadata.get("bot_key") or "default").strip() or "default"
+    bot_handle = str(metadata.get("bot_handle") or "").strip()
+    chat_id = str(metadata.get("default_chat_ref") or binding.external_account_ref or "").strip()
+    if not chat_id:
+        raise RuntimeError("telegram_chat_ref_missing")
+    config = dict(_telegram_bot_registry().get(bot_key) or {})
+    token = str(config.get("token") or "").strip()
+    if not token:
+        raise RuntimeError("telegram_bot_token_missing")
+    if not bot_handle:
+        bot_handle = str(config.get("handle") or "").strip()
+    normalized_photo_ref = str(photo_ref or "").strip()
+    if not normalized_photo_ref:
+        raise RuntimeError("telegram_photo_ref_missing")
+    keyboard_rows: list[list[dict[str, str]]] = []
+    for row in list(url_buttons or []):
+        buttons = [
+            {"text": str(label or "").strip(), "url": str(url or "").strip()}
+            for label, url in row
+            if str(label or "").strip() and str(url or "").strip()
+        ]
+        if buttons:
+            keyboard_rows.append(buttons)
+    reply_markup = {"inline_keyboard": keyboard_rows} if keyboard_rows else None
+    if Path(normalized_photo_ref).is_file():
+        fields = {"chat_id": chat_id, "caption": _telegram_caption(caption)}
+        if reply_markup:
+            fields["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
+        result = _telegram_send_multipart(
+            token=token,
+            method="sendPhoto",
+            fields=fields,
+            file_field="photo",
+            file_path=normalized_photo_ref,
+            content_type=_guess_content_type(normalized_photo_ref, fallback="image/jpeg"),
+        )
+    else:
+        if not _telegram_remote_ref_reachable(normalized_photo_ref):
+            raise RuntimeError("telegram_photo_unreachable")
+        payload: dict[str, object] = {
+            "chat_id": chat_id,
+            "photo": normalized_photo_ref,
+            "caption": _telegram_caption(caption),
+        }
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        result = _telegram_send_json(
+            token=token,
+            method="sendPhoto",
+            payload=payload,
+        )
+    return TelegramDeliveryReceipt(
+        principal_id=str(principal_id or "").strip(),
+        chat_id=chat_id,
+        bot_key=bot_key,
+        bot_handle=bot_handle,
+        message_ids=tuple(value for value in (str(result.get("message_id") or ""),) if value),
     )
 
 
