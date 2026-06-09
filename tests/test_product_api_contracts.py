@@ -896,10 +896,6 @@ def test_deliver_telegram_property_link_bundle_waits_for_full_bundle_before_send
 
     observed: dict[str, object] = {}
 
-    class _MessageReceipt:
-        chat_id = "1354554303"
-        message_ids = ("9101",)
-
     monkeypatch.setattr(
         ProductService,
         "create_generic_property_tour",
@@ -950,10 +946,8 @@ def test_deliver_telegram_property_link_bundle_waits_for_full_bundle_before_send
     )
     monkeypatch.setattr(
         product_service,
-        "send_telegram_message_for_principal",
-        lambda tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None: observed.update(
-            {"message_principal_id": principal_id, "message_text": text}
-        ) or _MessageReceipt(),
+        "send_telegram_chat_action_for_principal",
+        lambda tool_runtime, *, principal_id, action="typing": observed.setdefault("actions", []).append((principal_id, action)) or SimpleNamespace(chat_id="1354554303", message_ids=()),
     )
     monkeypatch.setattr(
         product_service,
@@ -979,7 +973,8 @@ def test_deliver_telegram_property_link_bundle_waits_for_full_bundle_before_send
     )
 
     assert result["status"] == "pending"
-    assert "all three are ready" in str(observed["message_text"]).lower()
+    assert observed["actions"] == [(principal_id, "typing")]
+    assert result["telegram_message_ids"] == []
     assert "flythrough video missing" in str(result["pending_reasons"])
 
 

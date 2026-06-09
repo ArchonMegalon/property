@@ -357,6 +357,57 @@ def resolve_primary_telegram_binding(tool_runtime: ToolRuntimeService, *, princi
     return None
 
 
+def send_telegram_chat_action_for_principal(
+    tool_runtime: ToolRuntimeService,
+    *,
+    principal_id: str,
+    action: str = "typing",
+) -> TelegramDeliveryReceipt:
+    binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
+    if binding is None:
+        raise RuntimeError("telegram_binding_not_found")
+    metadata = dict(binding.auth_metadata_json or {})
+    bot_key = str(metadata.get("bot_key") or "default").strip() or "default"
+    bot_handle = str(metadata.get("bot_handle") or "").strip()
+    chat_id = str(metadata.get("default_chat_ref") or binding.external_account_ref or "").strip()
+    if not chat_id:
+        raise RuntimeError("telegram_chat_ref_missing")
+    config = dict(_telegram_bot_registry().get(bot_key) or {})
+    token = str(config.get("token") or "").strip()
+    if not token:
+        raise RuntimeError("telegram_bot_token_missing")
+    if not bot_handle:
+        bot_handle = str(config.get("handle") or "").strip()
+    normalized_action = str(action or "typing").strip().lower() or "typing"
+    allowed_actions = {
+        "typing",
+        "upload_photo",
+        "record_video",
+        "upload_video",
+        "record_voice",
+        "upload_voice",
+        "upload_document",
+        "choose_sticker",
+        "find_location",
+        "record_video_note",
+        "upload_video_note",
+    }
+    if normalized_action not in allowed_actions:
+        raise RuntimeError("telegram_chat_action_invalid")
+    _telegram_send_json(
+        token=token,
+        method="sendChatAction",
+        payload={"chat_id": chat_id, "action": normalized_action},
+    )
+    return TelegramDeliveryReceipt(
+        principal_id=str(principal_id or "").strip(),
+        chat_id=chat_id,
+        bot_key=bot_key,
+        bot_handle=bot_handle,
+        message_ids=(),
+    )
+
+
 def send_telegram_message_for_principal(
     tool_runtime: ToolRuntimeService,
     *,

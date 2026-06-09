@@ -101,6 +101,7 @@ from app.services.propertyquarry_teable_projection import (
 from app.services.telegram_delivery import (
     build_telegram_feedback_callback_data_for_principal,
     resolve_primary_telegram_binding,
+    send_telegram_chat_action_for_principal,
     send_telegram_audio_for_principal,
     send_telegram_document_for_principal,
     send_telegram_message_for_principal,
@@ -19820,6 +19821,12 @@ class ProductService:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
             return {"status": "invalid", "reason": "property_url_invalid"}
+        with contextlib.suppress(Exception):
+            send_telegram_chat_action_for_principal(
+                self._container.tool_runtime,
+                principal_id=principal_id,
+                action="typing",
+            )
         resolved_actor = str(actor or "").strip() or "telegram_property_link"
         resolved_source_ref = str(source_ref or f"telegram-property-link:{_saved_link_fallback_id(normalized_url)}").strip()
         resolved_external_id = str(external_id or normalized_url).strip()
@@ -19961,17 +19968,13 @@ class ProductService:
                 pending_reasons.append("flythrough video missing")
             if not dossier_ready:
                 pending_reasons.append("dossier not rendered")
-            pending_lines = [f"PropertyQuarry bundle pending\n{title}"]
-            if fit_summary:
-                pending_lines.append(fit_summary)
-            pending_lines.append("I will only send the full package once all three are ready: 3D tour, flythrough video, and dossier.")
-            if pending_reasons:
-                pending_lines.append("Still missing: " + "; ".join(pending_reasons))
-            pending_receipt = send_telegram_message_for_principal(
-                self._container.tool_runtime,
-                principal_id=principal_id,
-                text="\n".join(pending_lines),
-            )
+            pending_binding = resolve_primary_telegram_binding(self._container.tool_runtime, principal_id=principal_id)
+            pending_chat_ref = ""
+            if pending_binding is not None:
+                pending_metadata = dict(pending_binding.auth_metadata_json or {})
+                pending_chat_ref = str(
+                    pending_metadata.get("default_chat_ref") or pending_binding.external_account_ref or ""
+                ).strip()
             payload = {
                 "property_url": normalized_url,
                 "title": title,
@@ -19979,8 +19982,8 @@ class ProductService:
                 "external_id": resolved_external_id,
                 "actor": resolved_actor,
                 "tour_url": tour_url,
-                "telegram_message_ids": list(pending_receipt.message_ids),
-                "telegram_chat_ref": str(pending_receipt.chat_id or "").strip(),
+                "telegram_message_ids": [],
+                "telegram_chat_ref": pending_chat_ref,
                 "telegram_video_delivery_status": "skipped",
                 "telegram_video_url": video_url,
                 "telegram_video_message_ids": [],
@@ -20003,7 +20006,7 @@ class ProductService:
             return {
                 "status": "pending",
                 "tour_url": tour_url,
-                "telegram_message_ids": list(pending_receipt.message_ids),
+                "telegram_message_ids": [],
                 "telegram_video_message_ids": [],
                 "dossier_telegram_message_ids": [],
                 "dossier_status": "skipped",
@@ -20083,6 +20086,12 @@ class ProductService:
         video_message_ids: list[str] = []
         if video_url:
             try:
+                with contextlib.suppress(Exception):
+                    send_telegram_chat_action_for_principal(
+                        self._container.tool_runtime,
+                        principal_id=principal_id,
+                        action="upload_video",
+                    )
                 video_receipt = send_telegram_video_for_principal(
                     self._container.tool_runtime,
                     principal_id=principal_id,
@@ -20100,6 +20109,12 @@ class ProductService:
         dossier_message_ids: list[str] = []
         if str(dossier_render.get("status") or "").strip() == "rendered":
             try:
+                with contextlib.suppress(Exception):
+                    send_telegram_chat_action_for_principal(
+                        self._container.tool_runtime,
+                        principal_id=principal_id,
+                        action="upload_document",
+                    )
                 dossier_receipt = send_telegram_document_for_principal(
                     self._container.tool_runtime,
                     principal_id=principal_id,
