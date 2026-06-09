@@ -78,6 +78,41 @@ def _clean_sentence(value: object) -> str:
     return text
 
 
+def _localize_compare_reason(value: object) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    replacements = {
+        "Chosen ahead of the next option because": "Vor der nächstbesten Alternative liegt dieses Objekt, weil",
+        "it scored": "es",
+        "points higher on the current brief": "Punkte höher auf das aktuelle Suchprofil scored",
+        "it includes a floorplan while the next option does not": "ein Grundriss vorliegt, während der nächsten Alternative dieser fehlt",
+        "it offers more usable room count": "die Zimmerstruktur besser nutzbar wirkt",
+        "next option": "nächstbesten Alternative",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    text = text.replace(" scored", " bewertet wurde")
+    text = text.replace("Punkte höher auf das aktuelle Suchprofil scored", "Punkte höher auf das aktuelle Suchprofil bewertet wurde")
+    return _clean_sentence(text)
+
+
+def _localize_fit_summary(value: object) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    replacements = {
+        "Personal fit": "Persönliche Passung",
+        "ask for clarification": "mit Klärungsbedarf",
+        "high fit": "starke Passung",
+        "good fit": "gute Passung",
+        "weak fit": "schwache Passung",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return _clean_sentence(text)
+
+
 def _comparison_rows(value: object, *, limit: int = 6) -> list[dict[str, str]]:
     if not isinstance(value, list):
         return []
@@ -143,40 +178,64 @@ def _bool_label(value: object, *, yes: str = "Confirmed", no: str = "No", unknow
 def _fallback_match_reasons(facts: dict[str, object]) -> list[str]:
     rows: list[str] = []
     if facts.get("floorplan_count") or facts.get("has_floorplan"):
-        rows.append("A usable floorplan is already available, which makes remote review materially more reliable.")
+        rows.append("Ein brauchbarer Grundriss liegt bereits vor und macht die Vorprüfung deutlich belastbarer.")
     if facts.get("balcony") or facts.get("terrace") or facts.get("garden") or "loggia" in str(facts.get("title") or "").lower():
-        rows.append("Outdoor space is part of the current offer, which improves day-to-day usability beyond the interior alone.")
+        rows.append("Die angebotene Außenfläche verbessert die alltägliche Nutzbarkeit über die reine Innenfläche hinaus.")
     tram_bus = _walk_minutes_phrase(facts.get("nearest_tram_bus_m"))
     if tram_bus:
-        rows.append(f"Public transport starts well before the underground because the nearest tram or bus stop is {tram_bus}.")
+        rows.append(f"Die öffentliche Anbindung beginnt bereits vor der U-Bahn, da die nächste Straßenbahn- oder Busanbindung {tram_bus} liegt.")
     supermarket = _walk_minutes_phrase(facts.get("nearest_supermarket_m"))
     if supermarket:
-        rows.append(f"Errands look practical at first glance because the nearest supermarket is {supermarket}.")
+        rows.append(f"Die Nahversorgung wirkt alltagstauglich, weil der nächste Supermarkt {supermarket} liegt.")
     return rows
 
 
 def _fallback_risks(facts: dict[str, object]) -> list[str]:
     rows: list[str] = []
     if not (facts.get("heating_type") or "").strip():
-        rows.append("The heating system is still not explicitly confirmed in the source material.")
+        rows.append("Das Heizsystem ist in den vorliegenden Unterlagen noch nicht ausdrücklich bestätigt.")
     if not facts.get("operating_cost_history_available"):
-        rows.append("Operating-cost history is not in hand yet, so the monthly burden still needs confirmation.")
+        rows.append("Eine belastbare Betriebskostenhistorie fehlt noch, daher bleibt die monatliche Belastung offen.")
     if not facts.get("lift") and not facts.get("has_lift"):
-        rows.append("Lift availability is not yet confirmed in a way that should be relied upon without a viewing or agent answer.")
+        rows.append("Die Liftfrage ist noch nicht so geklärt, dass man sich ohne Besichtigung oder Maklerantwort darauf verlassen sollte.")
     if not facts.get("epc") and not facts.get("energy_certificate"):
-        rows.append("The current energy certificate is still missing from the working packet.")
+        rows.append("Ein aktueller Energieausweis fehlt im bisherigen Dossier noch.")
     return rows
 
 
 def _fallback_questions(facts: dict[str, object]) -> list[str]:
     rows = [
-        "Can you send the floorplan with room dimensions and balcony or loggia depth?",
-        "Can you confirm the heating type and the latest available energy certificate?",
-        "Can you send the last operating-cost statement and clarify any recurring monthly extras?",
+        "Können Sie den Grundriss mit Raummaßen sowie Balkon- oder Loggia-Tiefe übermitteln?",
+        "Können Sie Heizungsart und den aktuellsten verfügbaren Energieausweis bestätigen?",
+        "Können Sie die letzte Betriebskostenabrechnung samt allfälligen wiederkehrenden Zusatzkosten senden?",
     ]
     if facts.get("nearest_school_m") or facts.get("school_atlas_selected_school"):
-        rows.append("Is the route to the nearest Volksschule and onward public transport realistically child-safe without a dangerous street crossing?")
+        rows.append("Ist der Weg zur nächsten Volksschule und zu den relevanten Öffis realistisch kindersicher, ohne kritische Straßenquerung?")
     return rows
+
+
+def _recommendation_label(value: object) -> str:
+    normalized = str(value or "").strip().lower().replace("_", " ")
+    mapping = {
+        "shortlist": "Engere Auswahl",
+        "investigate further": "Vertieft prüfen",
+        "investigate": "Vertieft prüfen",
+        "maybe": "Mit Vorbehalt",
+        "pass": "Eher absagen",
+        "reject": "Absagen",
+        "offer candidate": "Angebotskandidat",
+        "offer": "Angebotskandidat",
+        "interested": "Interessant",
+    }
+    return mapping.get(normalized, "Vertieft prüfen")
+
+
+def _confidence_label(*, risk_lines: list[str], match_reasons: list[str], mismatch_reasons: list[str]) -> str:
+    if not risk_lines and match_reasons:
+        return "Hoch"
+    if len(risk_lines) >= 3 or len(mismatch_reasons) >= 3:
+        return "Zurückhaltend"
+    return "Mittel"
 
 
 def _office_packet_label(packet_kind: PropertyPacketKind) -> str:
@@ -271,22 +330,22 @@ def _school_route_line(facts: dict[str, object]) -> str:
     cycleway = _distance_label(facts.get("nearest_cycleway_m"), name=facts.get("nearest_cycleway_name"))
     route_posture = []
     if cycleway:
-        route_posture.append(f"protected or explicit cycling access is {cycleway}")
+        route_posture.append(f"eine geschützte oder klar erkennbare Radanbindung liegt {cycleway}")
     else:
-        route_posture.append("safe child-cycle access still needs explicit on-site verification")
+        route_posture.append("eine eigenständige und sichere Radroute für ein Kind muss vor Ort noch ausdrücklich geprüft werden")
     if tram_bus:
-        route_posture.append(f"the nearest tram or bus stop is {tram_bus}")
+        route_posture.append(f"die nächste Straßenbahn- oder Busanbindung liegt {tram_bus}")
     if subway:
-        route_posture.append(f"the nearest underground stop is {subway}")
+        route_posture.append(f"die nächste U-Bahn-Anbindung liegt {subway}")
     school_bits = []
     if school_type:
         school_bits.append(school_type)
     if school_distance:
         school_bits.append(school_distance)
-    school_prefix = f"The nearest relevant school route is towards {school_name}" if school_name else "The school route"
+    school_prefix = f"Die maßgebliche Schulroute führt in Richtung {school_name}" if school_name else "Die Schulroute"
     if school_bits:
         school_prefix += f" ({', '.join(school_bits)})"
-    school_prefix += "; this is the baseline for judging whether a seven-year-old could realistically manage the route alone by bike or public transport"
+    school_prefix += "; daran lässt sich ablesen, ob ein siebenjähriges Kind den Weg realistisch allein per Rad oder Öffis bewältigen könnte"
     return _clean_sentence(school_prefix + "; " + "; ".join(route_posture))
 
 
@@ -628,7 +687,7 @@ def _draw_footer(ops: list[str], *, page_number: int, privacy_mode: PacketPrivac
     _draw_rect(ops, MARGIN_X, 34, CARD_WIDTH, 1.2, fill=(0.82, 0.80, 0.75))
     _draw_text(
         ops,
-        f"PropertyQuarry packet - {privacy_mode.value.replace('_', ' ')} - page {page_number}",
+        f"PropertyQuarry Dossier - {privacy_mode.value.replace('_', ' ')} - Seite {page_number}",
         x=MARGIN_X,
         y=20,
         size=8,
@@ -803,30 +862,30 @@ def _packet_sections(
         _section("Evidence readiness", [item for item in evidence if item] or ["Evidence readiness is not yet available."], accent=(0.74, 0.55, 0.18)),
     ]
     if any(item for item in radius):
-        sections.append(_section("Neighbourhood and daily life", [item for item in radius if item], accent=(0.19, 0.36, 0.53)))
+        sections.append(_section("Umfeld und tägliche Wege", [item for item in radius if item], accent=(0.19, 0.36, 0.53)))
     if school_and_family:
-        sections.append(_section("Family route and school independence", school_and_family, accent=(0.18, 0.41, 0.44)))
+        sections.append(_section("Familienroute und schulische Selbstständigkeit", school_and_family, accent=(0.18, 0.41, 0.44)))
     if any(item for item in building_context):
-        sections.append(_section("Building and house profile", [item for item in building_context if item], accent=(0.43, 0.38, 0.29)))
+        sections.append(_section("Hausprofil und Substanz", [item for item in building_context if item], accent=(0.43, 0.38, 0.29)))
     if future_change:
-        sections.append(_section("Area outlook and future infrastructure", future_change, accent=(0.42, 0.25, 0.48)))
+        sections.append(_section("Gebietsausblick und künftige Infrastruktur", future_change, accent=(0.42, 0.25, 0.48)))
     if risk_context:
-        sections.append(_section("Safety, crime, and climate risk", risk_context, accent=(0.62, 0.29, 0.26)))
+        sections.append(_section("Sicherheit, Kriminalität und Klimarisiko", risk_context, accent=(0.62, 0.29, 0.26)))
     sections.extend(
         [
-            _section("Why it matched", match_reasons or ["No explicit match reason was included in the source packet."], accent=(0.17, 0.45, 0.37)),
+            _section("Was für das Objekt spricht", match_reasons or ["Im Quelldossier wurde kein ausdrücklicher Positivgrund genannt."], accent=(0.17, 0.45, 0.37)),
             _section(
-                "Risks and unknowns",
-                risks or ["No explicit risk was included. Ask the agent for source documents and current operating costs."],
+                "Risiken und offene Punkte",
+                risks or ["Ein ausdrückliches Risiko wurde nicht genannt. Daher sollten Unterlagen und laufende Kosten aktiv nachgefordert werden."],
                 accent=(0.62, 0.29, 0.26),
             ),
             _section(
-                "Viewing checklist",
+                "Besichtigungs- und Rückfragenliste",
                 viewing_questions
                 or [
-                    "Confirm usable floorplan and room dimensions.",
-                    "Ask for operating cost history and renovation notes.",
-                    "Check noise, light, storage, and daily route fit.",
+                    "Brauchbaren Grundriss und exakte Raummaße bestätigen.",
+                    "Betriebskostenhistorie und allfällige Sanierungshinweise nachfordern.",
+                    "Lärm, Licht, Stauraum und Alltagstauglichkeit vor Ort prüfen.",
                 ],
                 accent=(0.20, 0.37, 0.52),
             ),
@@ -846,12 +905,12 @@ def _packet_sections(
         )
     sections.append(
         _section(
-            "Source, provenance, and privacy",
+            "Quelle, Provenienz und Datenschutz",
             [
-                f"Source: {payload.get('property_url') or 'internal PropertyQuarry packet'}",
-                "This packet was redacted before publication.",
-                "PropertyQuarry remains the source of truth for ranking, preference learning, and audit state.",
-                f"Renderer fallback available: {PDF_RENDERER_FALLBACK_VERSION}",
+                f"Quelle: {payload.get('property_url') or 'internes PropertyQuarry-Dossier'}",
+                "Dieses Dossier wurde vor der Veröffentlichung redigiert.",
+                "PropertyQuarry bleibt die maßgebliche Quelle für Ranking, Lernlogik und Prüfpfad.",
+                f"Fallback-Renderer verfügbar: {PDF_RENDERER_FALLBACK_VERSION}",
             ],
             accent=(0.30, 0.31, 0.30),
         )
@@ -886,23 +945,23 @@ def _property_narrative(payload: dict[str, object]) -> list[str]:
     running = _walk_minutes_phrase(facts.get("nearest_running_m"))
     school_route = _school_route_line(facts)
     if supermarket:
-        daily_life.append(f"the nearest supermarket is {supermarket}")
+        daily_life.append(f"der nächste Supermarkt liegt {supermarket}")
     if pharmacy:
-        daily_life.append(f"the nearest pharmacy is {pharmacy}")
+        daily_life.append(f"die nächste Apotheke liegt {pharmacy}")
     if library:
-        daily_life.append(f"the nearest library is {library}")
+        daily_life.append(f"die nächste Bücherei liegt {library}")
     if medical_care:
-        daily_life.append(f"the nearest medical care is {medical_care}")
+        daily_life.append(f"die nächste medizinische Versorgung liegt {medical_care}")
     if hospital:
-        daily_life.append(f"the nearest hospital is {hospital}")
+        daily_life.append(f"das nächste Spital liegt {hospital}")
     if tram_bus:
-        daily_life.append(f"the nearest tram or bus stop is {tram_bus}")
+        daily_life.append(f"die nächste Straßenbahn- oder Bushaltestelle liegt {tram_bus}")
     if subway:
-        daily_life.append(f"the nearest subway stop is {subway}")
+        daily_life.append(f"die nächste U-Bahn-Station liegt {subway}")
     if playground:
-        daily_life.append(f"the nearest playground is {playground}")
+        daily_life.append(f"der nächste Spielplatz liegt {playground}")
     if running:
-        daily_life.append(f"the nearest realistic green or running route is {running}")
+        daily_life.append(f"die nächste realistische Lauf- oder Grünroute liegt {running}")
 
     intro_bits = [title]
     if district:
@@ -910,47 +969,47 @@ def _property_narrative(payload: dict[str, object]) -> list[str]:
     if rooms or area:
         shape = []
         if rooms:
-            shape.append(f"{_display_number(rooms, decimals=0)} rooms")
+            shape.append(f"{_display_number(rooms, decimals=0)} Zimmer")
         if area:
-            shape.append(f"around {_display_number(area, decimals=0)} m2")
-        intro_bits.append("offers " + " and ".join(shape))
+            shape.append(f"rund {_display_number(area, decimals=0)} m2")
+        intro_bits.append("bietet " + " und ".join(shape))
     pricing = _money_phrase(price or rent)
     if pricing:
-        intro_bits.append(f"with a current ask of {pricing}")
+        intro_bits.append(f"mit einem aktuellen Ansatz von {pricing}")
     intro = _clean_sentence(", ".join(intro_bits))
 
     evidence_parts = []
     if has_floorplan is True:
-        evidence_parts.append("A usable floorplan is already available")
+        evidence_parts.append("ein brauchbarer Grundriss liegt bereits vor")
     if lift is True:
-        evidence_parts.append("the building includes a lift")
+        evidence_parts.append("das Haus verfügt über einen Lift")
     if heating:
-        evidence_parts.append(f"the advertised heating type is {heating}")
+        evidence_parts.append(f"als Heizungsart ist {heating} angegeben")
     if availability:
-        evidence_parts.append(f"availability is marked as {availability}")
-    evidence = _clean_sentence(", and ".join(evidence_parts))
+        evidence_parts.append(f"die Verfügbarkeit ist mit {availability} angegeben")
+    evidence = _clean_sentence(", ".join(evidence_parts))
 
-    fit = _clean_sentence(payload.get("fit_summary"))
-    compare_reason = _clean_sentence(payload.get("compare_reason"))
+    fit = _localize_fit_summary(payload.get("fit_summary"))
+    compare_reason = _localize_compare_reason(payload.get("compare_reason"))
     if not fit and match_reasons:
-        fit = _clean_sentence("Why it stands out: " + "; ".join(match_reasons))
+        fit = _clean_sentence("Positiv fällt auf: " + "; ".join(match_reasons))
     elif not fit:
         fallback = _fallback_match_reasons(facts)
         if fallback:
-            fit = _clean_sentence("Why it stands out: " + "; ".join(fallback[:3]))
-    neighborhood = _clean_sentence("For everyday living, " + ", and ".join(daily_life)) if daily_life else ""
+            fit = _clean_sentence("Positiv fällt auf: " + "; ".join(fallback[:3]))
+    neighborhood = _clean_sentence("Im Alltag spricht dafür, dass " + ", und ".join(daily_life)) if daily_life else ""
     school_quality = str(facts.get("school_atlas_quality_summary") or "").strip()
     school_progression = str(facts.get("school_atlas_progression_summary") or "").strip()
     school_items = [item for item in [school_route, school_quality, school_progression] if item]
-    school = _clean_sentence("For a family read, " + "; ".join(school_items)) if school_items else ""
-    official_risk = _clean_sentence("Risk context: " + "; ".join(_official_risk_lines(facts)[:3])) if _official_risk_lines(facts) else ""
-    future_change = _clean_sentence("Area outlook: " + "; ".join(_future_change_lines(facts)[:3])) if _future_change_lines(facts) else ""
+    school = _clean_sentence("Für die Familienperspektive ist entscheidend: " + "; ".join(school_items)) if school_items else ""
+    official_risk = _clean_sentence("Offizieller Risikokontext: " + "; ".join(_official_risk_lines(facts)[:3])) if _official_risk_lines(facts) else ""
+    future_change = _clean_sentence("Zum Gebietsausblick gehört: " + "; ".join(_future_change_lines(facts)[:3])) if _future_change_lines(facts) else ""
     if not risks:
         risks = _fallback_risks(facts)
-    risk = _clean_sentence("Points that still need hard confirmation: " + "; ".join(risks)) if risks else ""
+    risk = _clean_sentence("Vor einer Entscheidung sollte noch belastbar geklärt werden: " + "; ".join(risks)) if risks else ""
     if not questions:
         questions = _fallback_questions(facts)
-    next_step = _clean_sentence("Recommended next questions for the agent or viewing: " + "; ".join(questions)) if questions else ""
+    next_step = _clean_sentence("Sinnvolle nächste Fragen an Makler oder Eigentümer sind: " + "; ".join(questions)) if questions else ""
 
     return [item for item in [intro, compare_reason, fit, neighborhood, evidence, school, official_risk, future_change, risk, next_step] if item]
 
@@ -1004,9 +1063,8 @@ def _visual_pdf(
     district_value = _fact_value(packet_facts, "postal_name", "district", "city")
     office_label = _office_packet_label(packet_kind)
     privacy_label = _privacy_label(privacy_mode)
-    executive_lines = narrative_lines[:5] or [summary or "Review this property against the current PropertyQuarry brief."]
-    recommendation_raw = str(payload.get("recommendation") or "").strip().replace("_", " ")
-    recommendation_label = recommendation_raw.title() if recommendation_raw else "Investigate further"
+    executive_lines = narrative_lines[:5] or [summary or "Diese Liegenschaft sollte gegen das aktuelle PropertyQuarry-Suchprofil geprüft werden."]
+    recommendation_label = _recommendation_label(payload.get("recommendation"))
     fit_score = payload.get("fit_score")
     try:
         fit_score_label = f"{float(fit_score):.0f}/100"
@@ -1036,29 +1094,29 @@ def _visual_pdf(
     investment_rows = [
         row
         for row in [
-            f"Purchase price: {_money_phrase(investment.get('purchase_price_eur') or packet_facts.get('purchase_price_eur') or packet_facts.get('price_eur'))}"
+            f"Kaufpreis: {_money_phrase(investment.get('purchase_price_eur') or packet_facts.get('purchase_price_eur') or packet_facts.get('price_eur'))}"
             if (investment.get("purchase_price_eur") or packet_facts.get("purchase_price_eur") or packet_facts.get("price_eur"))
             else "",
-            f"Expected rent: {_money_phrase(investment.get('expected_rent_eur') or investment.get('rent_eur'))}"
+            f"Erwartete Miete: {_money_phrase(investment.get('expected_rent_eur') or investment.get('rent_eur'))}"
             if (investment.get("expected_rent_eur") or investment.get("rent_eur"))
             else "",
-            f"Gross yield: {investment.get('gross_yield_pct')}%" if investment.get("gross_yield_pct") else "",
-            f"Net yield range: {investment.get('net_yield_range')}" if investment.get("net_yield_range") else "",
+            f"Bruttorendite: {investment.get('gross_yield_pct')}%" if investment.get("gross_yield_pct") else "",
+            f"Nettorendite-Spanne: {investment.get('net_yield_range')}" if investment.get("net_yield_range") else "",
         ]
         if row
     ]
     location_lines = []
     for label, distance_key, name_key in (
-        ("Supermarket", "nearest_supermarket_m", "nearest_supermarket_name"),
-        ("Pharmacy", "nearest_pharmacy_m", "nearest_pharmacy_name"),
-        ("Library", "nearest_library_m", "nearest_library_name"),
-        ("Medical care", "nearest_medical_care_m", "nearest_medical_care_name"),
-        ("Hospital", "nearest_hospital_m", "nearest_hospital_name"),
-        ("Tram / bus", "nearest_tram_bus_m", "nearest_tram_bus_name"),
-        ("Underground", "nearest_subway_m", "nearest_subway_name"),
-        ("School", "nearest_school_m", "nearest_school_name"),
-        ("Playground", "nearest_playground_m", "nearest_playground_name"),
-        ("Run / green space", "nearest_running_m", "nearest_running_name"),
+        ("Supermarkt", "nearest_supermarket_m", "nearest_supermarket_name"),
+        ("Apotheke", "nearest_pharmacy_m", "nearest_pharmacy_name"),
+        ("Bücherei", "nearest_library_m", "nearest_library_name"),
+        ("Medizinische Versorgung", "nearest_medical_care_m", "nearest_medical_care_name"),
+        ("Spital", "nearest_hospital_m", "nearest_hospital_name"),
+        ("Straßenbahn / Bus", "nearest_tram_bus_m", "nearest_tram_bus_name"),
+        ("U-Bahn", "nearest_subway_m", "nearest_subway_name"),
+        ("Schule", "nearest_school_m", "nearest_school_name"),
+        ("Spielplatz", "nearest_playground_m", "nearest_playground_name"),
+        ("Laufen / Grünraum", "nearest_running_m", "nearest_running_name"),
     ):
         line = _distance_label(packet_facts.get(distance_key), name=packet_facts.get(name_key))
         if line:
@@ -1067,33 +1125,33 @@ def _visual_pdf(
     future_change_lines = _future_change_lines(packet_facts)
     school_route_line = _school_route_line(packet_facts)
     packet_contents = [
-        "Executive decision",
-        "Key facts and metrics",
-        "Hosted 360 and media",
-        "Location and daily-life radius",
-        "Risk register and next proof",
+        "Entscheidung auf einen Blick",
+        "Eckdaten und Kennzahlen",
+        "3D-Tour, Grundriss und Medien",
+        "Lage und Alltagsradius",
+        "Risikoregister und nächste Nachweise",
     ]
     if comparison_rows:
-        packet_contents.append("Comparison snapshot")
+        packet_contents.append("Vergleichsbild")
     if household_stakeholders:
-        packet_contents.append("Household review")
+        packet_contents.append("Haushaltsabgleich")
     if investment_headline or investment_rows:
-        packet_contents.append("Investment read")
+        packet_contents.append("Investment-Blick")
     if floorplan_image is not None:
-        packet_contents.append("Floorplan")
+        packet_contents.append("Grundriss")
     if gallery_images:
-        packet_contents.append("Photo gallery")
+        packet_contents.append("Bildauswahl")
     if diorama_scene and str(diorama_scene.get("image_url") or "").strip():
-        packet_contents.append("Diorama preview")
+        packet_contents.append("Diorama")
     if magic_fit_scene and str(magic_fit_scene.get("image_url") or "").strip():
-        packet_contents.append("Lifestyle scene")
-    packet_contents.extend(["Provenance and privacy", "Legal notice"])
+        packet_contents.append("Lifestyle-Szene")
+    packet_contents.extend(["Provenienz und Datenschutz", "Hinweise"])
     if cover_image is None and floorplan_image is not None:
         cover_image = floorplan_image
     ops = _new_page(page_number=1, privacy_mode=privacy_mode)
     hero_height = PAGE_HEIGHT
     _draw_rect(ops, 0, 0, PAGE_WIDTH, PAGE_HEIGHT, fill=(0.82, 0.83, 0.80))
-    cover_kicker = "A brochure-style review dossier with hosted tour access, neighbourhood research, and concrete next actions."
+    cover_kicker = "Ein redigiertes Exposé mit 3D-Tour, Lagebewertung, Prüfhinweisen und konkreten nächsten Schritten."
     if redacted_tour_url:
         redacted_tour_url = _append_query_param(redacted_tour_url, pane="floorplan-pane")
     flythrough_candidate = _safe_pdf_href(diorama_scene.get("video_url") if isinstance(diorama_scene, dict) else "")
@@ -1210,32 +1268,28 @@ def _visual_pdf(
     page_number = 2
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
     y = 786
-    _draw_text(ops, "Executive decision", x=MARGIN_X, y=y, size=18, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Entscheidung auf einen Blick", x=MARGIN_X, y=y, size=18, font="F2", fill=(0.15, 0.38, 0.30))
     _draw_rect(ops, MARGIN_X, 528, 204, 190, fill=(1.0, 0.995, 0.97))
     _draw_rect(ops, MARGIN_X, 528, 8, 190, fill=(0.15, 0.38, 0.30))
-    _draw_text(ops, "Current read", x=MARGIN_X + 18, y=688, size=10.8, font="F2", fill=(0.43, 0.38, 0.29))
+    _draw_text(ops, "Aktuelle Einordnung", x=MARGIN_X + 18, y=688, size=10.8, font="F2", fill=(0.43, 0.38, 0.29))
     _draw_text(ops, recommendation_label, x=MARGIN_X + 18, y=656, size=21, font="F2", fill=(0.12, 0.14, 0.13))
-    confidence_label = "Medium"
-    if not risk_lines and match_reasons:
-        confidence_label = "High"
-    elif len(risk_lines) >= 3 or len(mismatch_reasons) >= 3:
-        confidence_label = "Guarded"
-    _draw_text(ops, f"Fit score: {fit_score_label}", x=MARGIN_X + 18, y=626, size=10.2, font="F2", fill=(0.15, 0.38, 0.30))
-    _draw_text(ops, f"Confidence: {confidence_label}", x=MARGIN_X + 18, y=608, size=10.0, font="F2", fill=(0.35, 0.37, 0.35))
-    next_action = viewing_questions[0] if viewing_questions else "Ask the agent for the missing operating facts and room orientation."
-    _draw_text(ops, "Next action", x=MARGIN_X + 18, y=578, size=10.4, font="F2", fill=(0.43, 0.38, 0.29))
+    confidence_label = _confidence_label(risk_lines=risk_lines, match_reasons=match_reasons, mismatch_reasons=mismatch_reasons)
+    _draw_text(ops, f"Passung: {fit_score_label}", x=MARGIN_X + 18, y=626, size=10.2, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, f"Vertrauen in den Stand: {confidence_label}", x=MARGIN_X + 18, y=608, size=10.0, font="F2", fill=(0.35, 0.37, 0.35))
+    next_action = viewing_questions[0] if viewing_questions else "Bitte die fehlenden Betriebskostenangaben und die Lage der Schlafräume konkret nachfordern."
+    _draw_text(ops, "Nächster sinnvoller Schritt", x=MARGIN_X + 18, y=578, size=10.4, font="F2", fill=(0.43, 0.38, 0.29))
     _draw_wrapped(ops, _clean_sentence(next_action), x=MARGIN_X + 18, y=560, width_chars=28, size=9.4, leading=11.2)
     _draw_rect(ops, MARGIN_X + 224, 528, CARD_WIDTH - 224, 190, fill=(1.0, 0.995, 0.97))
     _draw_rect(ops, MARGIN_X + 224, 528, 6, 190, fill=(0.74, 0.55, 0.18))
-    _draw_text(ops, "Why it deserves attention", x=MARGIN_X + 242, y=688, size=11.2, font="F2", fill=(0.43, 0.38, 0.29))
+    _draw_text(ops, "Warum diese Liegenschaft nähere Prüfung verdient", x=MARGIN_X + 242, y=688, size=11.2, font="F2", fill=(0.43, 0.38, 0.29))
     prose_y = 664
     for paragraph in executive_lines[:4]:
         prose_y = _draw_wrapped(ops, paragraph, x=MARGIN_X + 242, y=prose_y, width_chars=47, size=9.6, leading=11.8)
         prose_y -= 3
         if prose_y < 548:
             break
-    _draw_text(ops, "Why it matches your brief", x=MARGIN_X, y=478, size=15, font="F2", fill=(0.15, 0.38, 0.30))
-    _draw_text(ops, "Why it may fail", x=MARGIN_X + 308, y=478, size=15, font="F2", fill=(0.62, 0.29, 0.26))
+    _draw_text(ops, "Was für das Objekt spricht", x=MARGIN_X, y=478, size=15, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Was noch dagegensprechen kann", x=MARGIN_X + 308, y=478, size=15, font="F2", fill=(0.62, 0.29, 0.26))
     left_y = 450
     for row in match_reasons[:4]:
         left_y = _draw_wrapped(ops, f"- {row}", x=MARGIN_X, y=left_y, width_chars=40, size=10.0, leading=13)
@@ -1244,7 +1298,7 @@ def _visual_pdf(
         right_y = _draw_wrapped(ops, f"- {row}", x=MARGIN_X + 308, y=right_y, width_chars=38, size=10.0, leading=13)
     _draw_rect(ops, MARGIN_X, 132, CARD_WIDTH, 206, fill=(1.0, 0.995, 0.97))
     _draw_rect(ops, MARGIN_X, 132, 6, 206, fill=(0.15, 0.38, 0.30))
-    _draw_text(ops, "Executive summary", x=MARGIN_X + 18, y=308, size=12, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Kurzfazit", x=MARGIN_X + 18, y=308, size=12, font="F2", fill=(0.15, 0.38, 0.30))
     prose_y = 284
     for paragraph in narrative_lines[:6]:
         prose_y = _draw_wrapped(ops, paragraph, x=MARGIN_X + 18, y=prose_y, width_chars=88, size=9.8, leading=12.0)
@@ -1255,17 +1309,17 @@ def _visual_pdf(
     page_number += 1
 
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
-    _draw_text(ops, "Key facts and metrics", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Eckdaten und Kennzahlen", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
     fact_cards = [
-        ("Price", ask_value or "On request"),
-        ("Area", area_value or "n/a"),
-        ("Rooms", rooms_value or "n/a"),
-        ("District", district_value or "n/a"),
-        ("Floorplan", "Available" if (packet_facts.get("has_floorplan") or packet_facts.get("floorplan_count") or floorplan_refs) else "Missing"),
-        ("Heating", _fact_value(packet_facts, "heating_type") or "Unknown"),
-        ("Lift", _bool_label(packet_facts.get("lift") if "lift" in packet_facts else packet_facts.get("has_lift"), yes="Confirmed", no="No lift")),
-        ("Outdoor space", _fact_value(packet_facts, "balcony", "terrace", "garden", "outdoor_space") or "Not confirmed"),
-        ("Energy / EPC", _fact_value(packet_facts, "epc", "energy_class", "energy_certificate") or "Not confirmed"),
+        ("Preis", ask_value or "auf Anfrage"),
+        ("Fläche", area_value or "k. A."),
+        ("Zimmer", rooms_value or "k. A."),
+        ("Lage", district_value or "k. A."),
+        ("Grundriss", "vorhanden" if (packet_facts.get("has_floorplan") or packet_facts.get("floorplan_count") or floorplan_refs) else "noch nicht gesichert"),
+        ("Heizung", _fact_value(packet_facts, "heating_type") or "noch offen"),
+        ("Lift", _bool_label(packet_facts.get("lift") if "lift" in packet_facts else packet_facts.get("has_lift"), yes="bestätigt", no="kein Lift", unknown="noch offen")),
+        ("Außenfläche", _fact_value(packet_facts, "balcony", "terrace", "garden", "outdoor_space") or "nicht bestätigt"),
+        ("Energie / EPC", _fact_value(packet_facts, "epc", "energy_class", "energy_certificate") or "noch nicht bestätigt"),
     ]
     card_width = (CARD_WIDTH - 20) / 3.0
     start_y = 726.0
@@ -1278,8 +1332,8 @@ def _visual_pdf(
         _draw_rect(ops, x, y0 - 96, card_width, 8, fill=(0.15, 0.38, 0.30) if col != 2 else (0.74, 0.55, 0.18))
         _draw_text(ops, label, x=x + 14, y=y0 - 28, size=9, font="F2", fill=(0.43, 0.38, 0.29))
         _draw_wrapped(ops, value, x=x + 14, y=y0 - 52, width_chars=20, size=12.4, leading=14, font="F2", fill=(0.12, 0.14, 0.13))
-    _draw_text(ops, "Why it matches your brief", x=MARGIN_X, y=308, size=14, font="F2", fill=(0.15, 0.38, 0.30))
-    _draw_text(ops, "Why it may fail", x=MARGIN_X + 308, y=308, size=14, font="F2", fill=(0.62, 0.29, 0.26))
+    _draw_text(ops, "Was für das Objekt spricht", x=MARGIN_X, y=308, size=14, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Was noch dagegensprechen kann", x=MARGIN_X + 308, y=308, size=14, font="F2", fill=(0.62, 0.29, 0.26))
     left_y = 282
     for row in (match_reasons[:4] or ["No explicit match reason was supplied."]):
         left_y = _draw_wrapped(ops, f"- {row}", x=MARGIN_X, y=left_y, width_chars=38, size=9.8, leading=12.2)
@@ -1290,7 +1344,7 @@ def _visual_pdf(
     page_number += 1
 
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
-    _draw_text(ops, "Hosted 360 and media", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "3D-Tour, Grundriss und Medien", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
     preview_image = floorplan_image or cover_image or (gallery_images[0] if gallery_images else None)
     media_page_images: list[dict[str, object]] = []
     media_annotations: list[dict[str, object]] = []
@@ -1309,20 +1363,20 @@ def _visual_pdf(
         media_page_images.append({**preview_image, "name": "Im1"})
     _draw_rect(ops, MARGIN_X + 368, 212, CARD_WIDTH - 368, 506, fill=(1.0, 0.995, 0.97))
     _draw_rect(ops, MARGIN_X + 368, 212, 6, 506, fill=(0.74, 0.55, 0.18))
-    _draw_text(ops, "Media status", x=MARGIN_X + 386, y=694, size=12, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Medienstatus", x=MARGIN_X + 386, y=694, size=12, font="F2", fill=(0.15, 0.38, 0.30))
     media_rows = [
-        f"Hosted 360: {'available' if redacted_tour_url else 'not available'}",
-        f"Flythrough: {'available' if redacted_flythrough_url else 'queued or not available'}",
-        f"Photos embedded: {len(gallery_images)}",
-        f"Floorplan: {'embedded' if floorplan_image is not None else 'source-only or missing'}",
+        f"Gehostete 3D-Tour: {'verfügbar' if redacted_tour_url else 'noch nicht verfügbar'}",
+        f"Flythrough: {'verfügbar' if redacted_flythrough_url else 'noch ausständig oder nicht vorhanden'}",
+        f"Eingebettete Bilder: {len(gallery_images)}",
+        f"Grundriss: {'eingebettet' if floorplan_image is not None else 'nur Quelle oder noch fehlend'}",
     ]
     status_y = 668
     for row in media_rows:
         status_y = _draw_wrapped(ops, row, x=MARGIN_X + 386, y=status_y, width_chars=26, size=9.8, leading=12)
-    _draw_text(ops, "Next media action", x=MARGIN_X + 386, y=560, size=11, font="F2", fill=(0.43, 0.38, 0.29))
-    next_media_action = "Use the hosted 3D reconstruction first, then switch to the flythrough to judge room flow and furniture logic."
+    _draw_text(ops, "Empfohlene Medienreihenfolge", x=MARGIN_X + 386, y=560, size=11, font="F2", fill=(0.43, 0.38, 0.29))
+    next_media_action = "Zuerst die gehostete 3D-Rekonstruktion öffnen, danach den Flythrough nutzen, um Raumfluss, Möblierbarkeit und Blickachsen zu beurteilen."
     if not redacted_tour_url and not redacted_flythrough_url:
-        next_media_action = "No hosted 360 is available yet. Rely on the floorplan, request missing media, or queue a new tour generation."
+        next_media_action = "Noch ist keine gehostete 3D-Tour verfügbar. In diesem Fall sollte man sich auf Grundriss, Quellmaterial und gezielte Mediennachforderung stützen."
     _draw_wrapped(ops, next_media_action, x=MARGIN_X + 386, y=538, width_chars=26, size=9.5, leading=11.8)
     cta_y = 262
     if redacted_tour_url:
@@ -1341,70 +1395,70 @@ def _visual_pdf(
     page_number += 1
 
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
-    _draw_text(ops, "Location and daily-life radius", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Lage und Alltagsradius", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
     _draw_rect(ops, MARGIN_X, 196, 238, 520, fill=(0.98, 0.97, 0.94))
     _draw_rect(ops, MARGIN_X, 196, 238, 36, fill=(0.19, 0.36, 0.53))
-    _draw_text(ops, "Daily-life radius", x=MARGIN_X + 18, y=690, size=12, font="F2", fill=(0.98, 0.98, 0.96))
+    _draw_text(ops, "Alltagsradius", x=MARGIN_X + 18, y=690, size=12, font="F2", fill=(0.98, 0.98, 0.96))
     location_y = 662
-    for row in (location_lines[:9] or ["No daily-life radius was supplied."]):
+    for row in (location_lines[:9] or ["Zum Alltagsradius liegt noch keine verwertbare Distanzlage vor."]):
         location_y = _draw_wrapped(ops, row, x=MARGIN_X + 18, y=location_y, width_chars=28, size=9.6, leading=12)
     _draw_rect(ops, MARGIN_X + 258, 446, CARD_WIDTH - 258, 270, fill=(1.0, 0.995, 0.97))
     _draw_rect(ops, MARGIN_X + 258, 446, 6, 270, fill=(0.18, 0.41, 0.44))
-    _draw_text(ops, "Family route and school independence", x=MARGIN_X + 278, y=690, size=12, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Familienroute und schulische Selbstständigkeit", x=MARGIN_X + 278, y=690, size=12, font="F2", fill=(0.15, 0.38, 0.30))
     family_lines = []
     if school_route_line:
         family_lines.append(school_route_line)
     if packet_facts.get("school_atlas_quality_summary"):
-        family_lines.append(_clean_sentence("School profile: " + str(packet_facts.get("school_atlas_quality_summary") or "").strip()))
+        family_lines.append(_clean_sentence("Schulprofil: " + str(packet_facts.get("school_atlas_quality_summary") or "").strip()))
     if packet_facts.get("school_atlas_progression_summary"):
-        family_lines.append(_clean_sentence("Progression profile: " + str(packet_facts.get("school_atlas_progression_summary") or "").strip()))
+        family_lines.append(_clean_sentence("Übergangsprofil: " + str(packet_facts.get("school_atlas_progression_summary") or "").strip()))
     family_y = 664
-    for row in (family_lines[:4] or ["No school-route or family-independence read was supplied."]):
+    for row in (family_lines[:4] or ["Zur schulischen Eigenständigkeit liegt noch keine belastbare Einschätzung vor."]):
         family_y = _draw_wrapped(ops, row, x=MARGIN_X + 278, y=family_y, width_chars=38, size=9.4, leading=11.6)
         family_y -= 2
     _draw_rect(ops, MARGIN_X + 258, 196, CARD_WIDTH - 258, 226, fill=(1.0, 0.995, 0.97))
     _draw_rect(ops, MARGIN_X + 258, 196, 6, 226, fill=(0.43, 0.38, 0.29))
-    _draw_text(ops, "Area outlook and future infrastructure", x=MARGIN_X + 278, y=396, size=12, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Gebietsausblick und künftige Infrastruktur", x=MARGIN_X + 278, y=396, size=12, font="F2", fill=(0.15, 0.38, 0.30))
     outlook_y = 372
-    for row in (future_change_lines[:4] or ["No future infrastructure or area-change signal was included."]):
+    for row in (future_change_lines[:4] or ["Zu künftigen Infrastruktur- oder Gebietsentwicklungen liegt aktuell kein belastbares Signal vor."]):
         outlook_y = _draw_wrapped(ops, row, x=MARGIN_X + 278, y=outlook_y, width_chars=38, size=9.4, leading=11.6)
     pages.append({"ops": ops, "images": []})
     page_number += 1
 
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
-    _draw_text(ops, "Risk register and next proof", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.62, 0.29, 0.26))
+    _draw_text(ops, "Risikoregister und nächste Nachweise", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.62, 0.29, 0.26))
     register_y = 736.0
-    for index, row in enumerate((risk_lines[:5] or mismatch_reasons[:5] or ["No explicit risk register was supplied. Treat missing documents as unresolved risk."]), start=1):
+    for index, row in enumerate((risk_lines[:5] or mismatch_reasons[:5] or ["Es liegt noch kein explizites Risikoregister vor. Fehlende Unterlagen sind bis zur Klärung als offenes Risiko zu behandeln."]), start=1):
         card_height = 94
         _draw_rect(ops, MARGIN_X, register_y - card_height, CARD_WIDTH, card_height, fill=(1.0, 0.995, 0.97))
         _draw_rect(ops, MARGIN_X, register_y - card_height, 8, card_height, fill=(0.62, 0.29, 0.26))
-        _draw_text(ops, f"{index}. Risk", x=MARGIN_X + 18, y=register_y - 24, size=10.2, font="F2", fill=(0.62, 0.29, 0.26))
+        _draw_text(ops, f"{index}. Prüffeld", x=MARGIN_X + 18, y=register_y - 24, size=10.2, font="F2", fill=(0.62, 0.29, 0.26))
         _draw_wrapped(ops, row, x=MARGIN_X + 18, y=register_y - 44, width_chars=84, size=9.4, leading=11.4)
         register_y -= card_height + 12
         if register_y < 248:
             break
     lower_left_x = MARGIN_X
     lower_right_x = MARGIN_X + 300
-    _draw_text(ops, "Agent questions / next actions", x=lower_left_x, y=220, size=13, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Fragen an Makler oder Eigentümer", x=lower_left_x, y=220, size=13, font="F2", fill=(0.15, 0.38, 0.30))
     qy = 196
     for row in (viewing_questions[:4] or ["Can you send the floorplan with room dimensions and the latest operating-cost history?"]):
         qy = _draw_wrapped(ops, f"- {row}", x=lower_left_x, y=qy, width_chars=36, size=9.4, leading=11.5)
-    _draw_text(ops, "Household review" if household_stakeholders else "Decision consequences", x=lower_right_x, y=220, size=13, font="F2", fill=(0.43, 0.38, 0.29))
+    _draw_text(ops, "Haushaltsbild" if household_stakeholders else "Wirkung der Entscheidung", x=lower_right_x, y=220, size=13, font="F2", fill=(0.43, 0.38, 0.29))
     hy = 196
     if household_stakeholders:
         if household_alignment:
-            hy = _draw_wrapped(ops, f"Alignment: {household_alignment}", x=lower_right_x, y=hy, width_chars=34, size=9.4, leading=11.5)
+            hy = _draw_wrapped(ops, f"Abgleich: {household_alignment}", x=lower_right_x, y=hy, width_chars=34, size=9.4, leading=11.5)
         if household_score != "":
-            hy = _draw_wrapped(ops, f"Alignment score: {household_score}", x=lower_right_x, y=hy, width_chars=34, size=9.4, leading=11.5)
+            hy = _draw_wrapped(ops, f"Abgleichswert: {household_score}", x=lower_right_x, y=hy, width_chars=34, size=9.4, leading=11.5)
         for row in household_stakeholders[:3]:
             hy = _draw_wrapped(ops, f"- {row}", x=lower_right_x, y=hy, width_chars=34, size=9.2, leading=11.2)
         if household_question:
-            _draw_wrapped(ops, "Next question: " + household_question, x=lower_right_x, y=max(112, hy - 8), width_chars=34, size=9.2, leading=11.2)
+            _draw_wrapped(ops, "Nächste Frage: " + household_question, x=lower_right_x, y=max(112, hy - 8), width_chars=34, size=9.2, leading=11.2)
     else:
         for row in [
-            "The next saved decision will update future ranking.",
-            "Missing facts should create agent questions immediately.",
-            "Anonymized risk intelligence is only published after privacy thresholds are met.",
+            "Die nächste gespeicherte Entscheidung wirkt direkt auf die künftige Rangfolge ähnlicher Angebote.",
+            "Fehlende Fakten sollten sofort in konkrete Nachfragen übersetzt werden.",
+            "Anonymisierte Risikosignale werden erst nach Erreichen der Datenschutzschwellen veröffentlicht.",
         ]:
             hy = _draw_wrapped(ops, row, x=lower_right_x, y=hy, width_chars=34, size=9.2, leading=11.2)
     pages.append({"ops": ops, "images": []})
@@ -1412,10 +1466,10 @@ def _visual_pdf(
 
     if investment_headline or investment_rows:
         ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
-        _draw_text(ops, "Investment read", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, "Investment-Blick", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
         _draw_wrapped(
             ops,
-            investment_headline or "Use this page as underwriting posture, not as marketing prose.",
+            investment_headline or "Diese Seite ist als nüchterne Investment-Einschätzung zu lesen, nicht als Vermarktungstext.",
             x=MARGIN_X,
             y=760,
             width_chars=84,
@@ -1423,17 +1477,17 @@ def _visual_pdf(
             leading=12.2,
         )
         iy = 716
-        for row in investment_rows or ["Base case still depends on confirmed operating costs, reserve posture, and legal facts."]:
+        for row in investment_rows or ["Der Basiscase hängt weiterhin von bestätigten Betriebskosten, Rücklagenlage und Rechtsfakten ab."]:
             iy = _draw_wrapped(ops, row, x=MARGIN_X, y=iy, width_chars=86, size=9.5, leading=12)
         pages.append({"ops": ops, "images": []})
         page_number += 1
 
     if comparison_rows:
         ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
-        _draw_text(ops, "Comparison snapshot", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, "Vergleichsbild", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
         _draw_wrapped(
             ops,
-            "This spread compares the lead option against the nearest alternatives so the shortlist reads like a recommendation rather than a loose bundle of links.",
+            "Diese Vergleichsseite stellt die führende Option den naheliegendsten Alternativen gegenüber, damit die Auswahl wie eine echte Empfehlung und nicht wie eine lose Link-Sammlung wirkt.",
             x=MARGIN_X,
             y=764,
             width_chars=86,
@@ -1451,22 +1505,22 @@ def _visual_pdf(
             accent = (0.15, 0.38, 0.30) if index == 0 else (0.74, 0.55, 0.18)
             _draw_rect(ops, x, card_top - card_height, card_width, card_height, fill=fill)
             _draw_rect(ops, x, card_top - card_height, card_width, 18, fill=accent)
-            _draw_text(ops, "Lead option" if index == 0 else f"Alternative {index}", x=x + 14, y=card_top - 36, size=8.7, font="F2", fill=(0.30, 0.36, 0.32))
+            _draw_text(ops, "Führende Option" if index == 0 else f"Alternative {index}", x=x + 14, y=card_top - 36, size=8.7, font="F2", fill=(0.30, 0.36, 0.32))
             title_y = _draw_wrapped(ops, row.get("title"), x=x + 14, y=card_top - 56, width_chars=22, size=11.5, leading=13.5, font="F2", fill=(0.12, 0.14, 0.13))
             stat_y = title_y - 8
             for stat in (
                 row.get("price") or "",
-                f"{row.get('rooms')} rooms" if row.get("rooms") else "",
+                f"{row.get('rooms')} Zimmer" if row.get("rooms") else "",
                 f"{row.get('area')} m2" if row.get("area") else "",
                 row.get("recommendation") or "",
             ):
                 if stat:
                     _draw_text(ops, stat, x=x + 14, y=stat_y, size=8.8, font="F2", fill=(0.30, 0.36, 0.32))
                     stat_y -= 13
-            _draw_text(ops, "Why it won" if index == 0 else "Why it trails", x=x + 14, y=stat_y - 8, size=9.4, font="F2", fill=(0.15, 0.38, 0.30))
+            _draw_text(ops, "Warum diese Option vorne liegt" if index == 0 else "Warum sie zurückliegt", x=x + 14, y=stat_y - 8, size=9.4, font="F2", fill=(0.15, 0.38, 0.30))
             _draw_wrapped(
                 ops,
-                row.get("compare_reason") or "No comparison reason was provided yet.",
+                _localize_compare_reason(row.get("compare_reason")) or "Für diese Vergleichszeile liegt noch keine präzise Begründung vor.",
                 x=x + 14,
                 y=stat_y - 26,
                 width_chars=22,
@@ -1479,10 +1533,10 @@ def _visual_pdf(
 
     if floorplan_image is not None:
         ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
-        _draw_text(ops, "Floorplan", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, "Grundriss", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
         _draw_wrapped(
             ops,
-            "This plan is surfaced early so room flow, furniture logic, and storage questions can be reviewed before a viewing is booked.",
+            "Der Grundriss steht hier bewusst früh, damit Raumfluss, Möblierbarkeit und Stauraum vor einer Besichtigung nachvollziehbar geprüft werden können.",
             x=MARGIN_X,
             y=764,
             width_chars=86,
@@ -1502,16 +1556,16 @@ def _visual_pdf(
         draw_x = MARGIN_X + 13 + ((available_width - draw_width) / 2.0)
         draw_y = 150 + ((available_height - draw_height) / 2.0)
         _draw_image(ops, name="Im1", x=draw_x, y=draw_y, width=draw_width, height=draw_height)
-        _draw_text(ops, "Source floorplan", x=MARGIN_X + 18, y=700, size=11, font="F2", fill=(0.12, 0.14, 0.13))
+        _draw_text(ops, "Grundriss aus der Quelle", x=MARGIN_X + 18, y=700, size=11, font="F2", fill=(0.12, 0.14, 0.13))
         pages.append({"ops": ops, "images": [{**floorplan_image, "name": "Im1"}]})
         page_number += 1
 
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
     y = 786
-    _draw_text(ops, "Research notes and evidence", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Research-Notizen und Beleglage", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
     _draw_wrapped(
         ops,
-        "This appendix keeps the underlying evidence visible without letting the whole dossier collapse into a debug-looking packet.",
+        "Dieser Abschnitt hält die Beleglage sichtbar, ohne das gesamte Dossier in einen technischen Ausdruck kippen zu lassen.",
         x=MARGIN_X,
         y=y - 22,
         width_chars=82,
@@ -1536,7 +1590,7 @@ def _visual_pdf(
             pages.append({"ops": ops, "images": []})
             page_number += 1
             ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
-            _draw_text(ops, "Research notes and evidence", x=MARGIN_X, y=786, size=17, font="F2", fill=(0.15, 0.38, 0.30))
+            _draw_text(ops, "Research-Notizen und Beleglage", x=MARGIN_X, y=786, size=17, font="F2", fill=(0.15, 0.38, 0.30))
             col_y = [744.0, 744.0]
             column = 0
             x = MARGIN_X
@@ -1553,21 +1607,21 @@ def _visual_pdf(
 
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
     y = 786
-    _draw_text(ops, "Provenance, privacy, and legal notice", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Provenienz, Datenschutz und Hinweis", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
     provenance_blocks = [
-        ("Provenance", [
-            f"Source listing: {payload.get('property_url') or 'internal PropertyQuarry packet'}",
-            f"Renderer version: {PDF_RENDERER_VERSION}",
-            f"Privacy mode: {privacy_mode.value.replace('_', ' ')}",
-            "Every hosted link in this dossier is the public-safe white-label review surface, not a raw debug artifact.",
+        ("Provenienz", [
+            f"Quellinserat: {payload.get('property_url') or 'internes PropertyQuarry-Dossier'}",
+            f"Renderer-Version: {PDF_RENDERER_VERSION}",
+            f"Datenschutzmodus: {privacy_mode.value.replace('_', ' ')}",
+            "Jeder gehostete Link in diesem Dossier führt auf eine freigegebene White-Label-Oberfläche und nicht auf eine interne Debug-Ansicht.",
         ]),
-        ("Privacy", [
-            "This packet excludes private preference snapshots, internal source diagnostics, principal IDs, tokens, and exact address fields unless explicitly allowed.",
-            "Family, advisor, and household review surfaces are redacted before publication.",
+        ("Datenschutz", [
+            "Dieses Dossier blendet private Präferenzstände, interne Quelldiagnostik, Principal-IDs, Tokens und exakte Adressfelder aus, sofern sie nicht ausdrücklich freigegeben wurden.",
+            "Familien-, Berater- und Haushaltsansichten werden vor Veröffentlichung redigiert.",
         ]),
-        ("Disclaimer", [
-            "This dossier supports decision-making and does not replace legal, technical, surveying, tax, or investment advice.",
-            "Distances, route safety, school independence, and future infrastructure posture should still be verified on site before commitment.",
+        ("Hinweis", [
+            "Dieses Dossier unterstützt die Entscheidungsfindung, ersetzt aber keine rechtliche, technische, steuerliche oder investmentbezogene Beratung.",
+            "Distanzen, Routensicherheit, schulische Selbstständigkeit und Gebietsausblick sollten vor einer bindenden Entscheidung weiterhin vor Ort überprüft werden.",
         ]),
     ]
     prov_y = 730
@@ -1586,10 +1640,10 @@ def _visual_pdf(
         page_number += 1
         ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
         y = 786
-        _draw_text(ops, "Property gallery", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, "Bildauswahl", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
         _draw_wrapped(
             ops,
-            "Selected listing visuals embedded directly into the dossier so the review reads like a real property presentation rather than a media dump.",
+            "Ausgewählte Objektbilder sind direkt eingebettet, damit das Dossier wie eine ernsthafte Präsentation und nicht wie ein bloßer Medienanhang wirkt.",
             x=MARGIN_X,
             y=y - 24,
             width_chars=82,
