@@ -465,8 +465,6 @@ def main() -> int:
                 intro_lines.append(f"3D tour: {row['tour_url']}")
             if row.get("flythrough_url"):
                 intro_lines.append(f"Flythrough: {row['flythrough_url']}")
-            if row.get("review_url"):
-                intro_lines.append(f"Review: {row['review_url']}")
             intro_lines.append("")
         send_telegram_message_for_principal(
             tool_runtime,
