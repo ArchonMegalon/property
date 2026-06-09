@@ -1629,6 +1629,25 @@ def test_telegram_async_worker_routes_supported_property_link_to_bundle(monkeypa
     assert "async_failed_stage" not in observed
 
 
+def test_telegram_link_turn_decision_reports_login_walled_broker_portal() -> None:
+    from app.api.routes import channels as channels_route
+
+    client = _client(principal_id="exec-telegram-broker-portal", operator=False)
+    portal_url = "https://trend-immobilien.service.immo/objekt/16915684/details/angebot/34065127"
+    ctx = SimpleNamespace(
+        normalized=portal_url,
+        container=client.app.state.container,
+        principal_id="exec-telegram-broker-portal",
+        current_message_id="1713",
+    )
+
+    decision = channels_route._telegram_link_turn_decision(ctx)
+
+    assert decision.schedule_async is False
+    assert "authenticated service-portal session" in decision.reply_text
+    assert "3D tour, flythrough, or dossier" in decision.reply_text
+
+
 def test_telegram_ingest_schedules_async_without_placeholder_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")

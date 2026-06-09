@@ -4560,6 +4560,15 @@ def _telegram_link_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecisi
     property_url = _telegram_supported_property_link(ctx.normalized)
     if property_url:
         return TelegramTurnDecision(schedule_async=True, async_text=property_url, async_message_id=ctx.current_message_id)
+    broker_portal_url = _telegram_login_walled_property_link(ctx.normalized)
+    if broker_portal_url:
+        return TelegramTurnDecision(
+            reply_text=(
+                "Link received. This broker portal is behind an authenticated service-portal session, "
+                "so EA cannot truthfully build the 3D tour, flythrough, or dossier from the raw link alone. "
+                "Send a public expose link, the broker PDF, or the listing photos/screenshots here and EA can continue from that."
+            )
+        )
     local_assistant_reply = _telegram_local_assistant_reply_text(
         ctx.container,
         principal_id=ctx.principal_id,
@@ -4579,6 +4588,18 @@ def _telegram_supported_property_link(text: str) -> str:
     for raw in _URL_RE.findall(normalized):
         candidate = str(raw or "").strip().rstrip(").,!?]}>")
         if candidate and product_service_module._property_scout_is_supported_listing_url(candidate):
+            return candidate
+    return ""
+
+
+def _telegram_login_walled_property_link(text: str) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return ""
+    for raw in _URL_RE.findall(normalized):
+        candidate = str(raw or "").strip().rstrip(").,!?]}>")
+        lowered = candidate.lower()
+        if any(marker in lowered for marker in ("service.immo/objekt/", "service.immo/login/generate_link")):
             return candidate
     return ""
 
