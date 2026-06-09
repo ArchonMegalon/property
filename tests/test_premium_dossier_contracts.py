@@ -51,6 +51,7 @@ def test_premium_dossier_html_contains_core_sections() -> None:
     assert "Executive decision" in html
     assert "Hosted 360 and media" in html
     assert "Risk register and next proof" in html
+    assert "Property portrait" in html
     assert "PropertyQuarry" in html
 
 

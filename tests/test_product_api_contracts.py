@@ -831,7 +831,7 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
     monkeypatch.setattr(
         product_service,
         "_property_link_bundle_preview_image_url",
-        lambda **kwargs: "https://propertyquarry.com/tours/test-telegram-bundle/../files/test-telegram-bundle/scene-01.png",
+        lambda **kwargs: "https://propertyquarry.com/tours/files/test-telegram-bundle/scene-01.png",
     )
     monkeypatch.setattr(
         product_service,
@@ -875,13 +875,13 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
 
     assert result["status"] == "sent"
     assert observed["message_principal_id"] == principal_id
-    assert observed["photo_ref"] == "https://propertyquarry.com/tours/test-telegram-bundle/../files/test-telegram-bundle/scene-01.png"
+    assert observed["photo_ref"] == "https://propertyquarry.com/tours/files/test-telegram-bundle/scene-01.png"
     assert "Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF." in str(observed["message_text"])
     assert "Most important facts: 2 rooms · 48 m2 · EUR 1.095 · Floorplan" in str(observed["message_text"])
     assert observed["url_buttons"][0][0][0] == "Open 3D Tour"
     assert "/workspace-access/" in str(observed["url_buttons"][0][0][1])
     assert observed["url_buttons"][0][1][0] == "Open Flythrough"
-    assert "/workspace-access/" in str(observed["url_buttons"][0][1][1])
+    assert observed["url_buttons"][0][1][1] == "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4"
     button_labels = [button[0] for row in list(observed.get("inline_buttons") or []) for button in row]
     assert "I like it" in button_labels
     assert "I don't like it" in button_labels
@@ -1030,6 +1030,40 @@ def test_deliver_telegram_property_link_bundle_falls_back_to_text_when_preview_p
     assert "Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF." in str(observed["message_text"])
     assert observed["video_principal_id"] == principal_id
     assert observed["document_principal_id"] == principal_id
+
+
+def test_hosted_property_tour_helpers_use_public_tours_files_route(monkeypatch, tmp_path: Path) -> None:
+    slug = "test-hosted-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.mp4").write_bytes(b"video")
+    (bundle_dir / "diorama-preview.png").write_bytes(b"png")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "video_relpath": "tour.mp4",
+                "scenes": [
+                    {
+                        "role": "diorama",
+                        "ordinal": 1,
+                        "asset_relpath": "diorama-preview.png",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    video_delivery = product_service._hosted_property_tour_video_delivery(
+        f"https://propertyquarry.com/tours/{slug}"
+    )
+    assert video_delivery["video_url"] == f"https://propertyquarry.com/tours/files/{slug}/tour.mp4"
+
+    preview_url = product_service._hosted_property_tour_preview_image_url(
+        f"https://propertyquarry.com/tours/{slug}"
+    )
+    assert preview_url == f"https://propertyquarry.com/tours/files/{slug}/diorama-preview.png"
 
 
 def test_deliver_telegram_property_link_bundle_shortens_pdf_button_through_workspace_access_launch(monkeypatch, tmp_path: Path) -> None:

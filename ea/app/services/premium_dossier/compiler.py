@@ -68,6 +68,7 @@ def compile_premium_dossier(
     recommendation = _recommendation_label(redacted_payload.get("recommendation"))
     compare_rows = _comparison_rows(redacted_payload.get("comparison_rows"))
     compare_reason = str(redacted_payload.get("compare_reason") or (compare_rows[0].get("compare_reason") if compare_rows else "") or "").strip()
+    property_narrative = _property_narrative(redacted_payload)
     return PremiumDossierCompileResult(
         title=title,
         recommended_title=recommended_title,
@@ -78,12 +79,14 @@ def compile_premium_dossier(
         fact_cards=_fact_cards(redacted_payload),
         why_match=why_match,
         why_fail=why_fail,
+        property_narrative=property_narrative,
         risk_register=risk_register,
         daily_life=daily_life,
         family_route=family_route,
         investment_lines=investment_lines,
         agent_questions=agent_questions,
         provenance_lines=provenance_lines,
+        comparison_rows=compare_rows,
         gallery_urls=photo_refs,
         floorplan_urls=floorplan_refs,
         hero_image_url=hero_image_url,
@@ -97,4 +100,3 @@ def compile_premium_dossier(
         compare_reason=compare_reason,
         renderer_version=renderer_version,
     )
-

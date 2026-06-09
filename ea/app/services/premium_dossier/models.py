@@ -28,12 +28,14 @@ class PremiumDossierCompileResult:
     fact_cards: list[PremiumFactCard] = field(default_factory=list)
     why_match: list[str] = field(default_factory=list)
     why_fail: list[str] = field(default_factory=list)
+    property_narrative: list[str] = field(default_factory=list)
     risk_register: list[str] = field(default_factory=list)
     daily_life: list[str] = field(default_factory=list)
     family_route: list[str] = field(default_factory=list)
     investment_lines: list[str] = field(default_factory=list)
     agent_questions: list[str] = field(default_factory=list)
     provenance_lines: list[str] = field(default_factory=list)
+    comparison_rows: list[dict[str, str]] = field(default_factory=list)
     gallery_urls: list[str] = field(default_factory=list)
     floorplan_urls: list[str] = field(default_factory=list)
     hero_image_url: str = ""
@@ -81,4 +83,3 @@ class PremiumDossierQualityReport:
     forbidden_text_check: str
     required_text_hits: list[str] = field(default_factory=list)
     forbidden_text_hits: list[str] = field(default_factory=list)
-

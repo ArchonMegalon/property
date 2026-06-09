@@ -10811,7 +10811,7 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
         return {}
     if not local_video_path.exists() or not local_video_path.is_file():
         return {}
-    public_video_url = urllib.parse.urljoin(f"{normalized_url.rstrip('/')}/", f"../files/{slug}/{video_relpath}")
+    public_video_url = _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=video_relpath)
     return {
         "slug": slug,
         "video_url": public_video_url,
@@ -10881,6 +10881,27 @@ def _property_link_bundle_preview_image_url(
     return _matterport_thumb_url(source_virtual_tour_url)
 
 
+def _hosted_public_tour_asset_url(tour_url: str, *, slug: str, asset_relpath: str) -> str:
+    normalized_url = str(tour_url or "").strip()
+    safe_slug = str(slug or "").strip()
+    safe_relpath = str(asset_relpath or "").strip().lstrip("/")
+    if not normalized_url or not safe_slug or not safe_relpath:
+        return ""
+    parsed = urllib.parse.urlparse(normalized_url)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return urllib.parse.urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            f"/tours/files/{safe_slug}/{safe_relpath}",
+            "",
+            "",
+            "",
+        )
+    )
+
+
 def _hosted_property_tour_preview_image_url(tour_url: str) -> str:
     normalized_url = str(tour_url or "").strip()
     if not normalized_url:
@@ -10927,7 +10948,7 @@ def _hosted_property_tour_preview_image_url(tour_url: str) -> str:
         if asset_relpath and asset_relpath.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
             asset_path = (bundle_dir / asset_relpath).resolve()
             if bundle_dir.resolve() in asset_path.parents and asset_path.exists() and asset_path.is_file():
-                return urllib.parse.urljoin(f"{normalized_url.rstrip('/')}/", f"../files/{slug}/{asset_relpath}")
+                return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=asset_relpath)
     return ""
 
 
