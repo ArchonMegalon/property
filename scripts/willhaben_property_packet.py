@@ -671,12 +671,17 @@ def inspect_panorama_signal(url: str, description: str) -> dict[str, object]:
             width, height = rgb_image.size
             if width and height:
                 aspect_ratio = round(width / height, 4)
-                if min(width, height) >= 700 and 0.75 <= (width / height) <= 1.4:
+                # Many Willhaben listings upload floorplans as plain gallery images rather
+                # than structured floorPlan attachments. Accept smaller document images too,
+                # but keep the heuristic narrow enough to avoid swallowing energy-certificate
+                # sheets or other scanned paperwork.
+                if min(width, height) >= 260 and 0.65 <= (width / height) <= 1.45:
                     probe = rgb_image.resize((220, 220))
                     pixel_count = 0
                     white_pixels = 0
                     low_saturation_pixels = 0
                     dark_pixels = 0
+                    colorful_pixels = 0
                     for r, g, b in probe.getdata():
                         pixel_count += 1
                         if r >= 232 and g >= 232 and b >= 232:
@@ -685,12 +690,20 @@ def inspect_panorama_signal(url: str, description: str) -> dict[str, object]:
                             low_saturation_pixels += 1
                         if max(r, g, b) <= 90:
                             dark_pixels += 1
+                        if max(abs(r - g), abs(r - b), abs(g - b)) > 40:
+                            colorful_pixels += 1
                     white_ratio = white_pixels / float(pixel_count or 1)
                     low_saturation_ratio = low_saturation_pixels / float(pixel_count or 1)
                     dark_ratio = dark_pixels / float(pixel_count or 1)
-                    if white_ratio >= 0.58 and low_saturation_ratio >= 0.72 and 0.005 <= dark_ratio <= 0.22:
+                    colorful_ratio = colorful_pixels / float(pixel_count or 1)
+                    if (
+                        white_ratio >= 0.70
+                        and low_saturation_ratio >= 0.90
+                        and dark_ratio <= 0.04
+                        and colorful_ratio <= 0.05
+                    ):
                         floorplan_candidate = True
-                        floorplan_reason = "plan_like_image"
+                        floorplan_reason = "plan_like_document_image"
     except Exception:
         width = None
         height = None

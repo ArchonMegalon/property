@@ -84,6 +84,69 @@ def test_extract_media_surfaces_panorama_candidates_separately(monkeypatch) -> N
     assert [entry["url"] for entry in panoramas] == ["https://cdn.example.com/pano.jpg"]
 
 
+def test_extract_media_promotes_plan_like_document_image_to_floorplan(monkeypatch) -> None:
+    module = _load_module()
+
+    def _document_bytes(*, line_plan: bool = False, colorful: bool = False) -> bytes:
+        image = Image.new("RGB", (283, 400), color=(255, 255, 255))
+        if line_plan:
+            for x in range(35, 240):
+                image.putpixel((x, 45), (70, 70, 70))
+                image.putpixel((x, 260), (70, 70, 70))
+            for y in range(45, 261):
+                image.putpixel((35, y), (70, 70, 70))
+                image.putpixel((239, y), (70, 70, 70))
+            for x in range(110, 200):
+                image.putpixel((x, 150), (90, 90, 90))
+            for y in range(150, 260):
+                image.putpixel((110, y), (90, 90, 90))
+        if colorful:
+            for x in range(20, 260):
+                for y in range(20, 55):
+                    image.putpixel((x, y), (70, 180, 80))
+            for x in range(20, 260):
+                for y in range(310, 340):
+                    image.putpixel((x, y), (240, 210, 60))
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG")
+        return buffer.getvalue()
+
+    responses = {
+        "https://cdn.example.com/floorplan.jpg": _document_bytes(line_plan=True),
+        "https://cdn.example.com/energy-cert.jpg": _document_bytes(colorful=True),
+    }
+
+    class _Response:
+        def __init__(self, content: bytes) -> None:
+            self.content = content
+
+        def raise_for_status(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        module.requests,
+        "get",
+        lambda url, **kwargs: _Response(responses[str(url)]),
+    )
+
+    advert = {
+        "advertImageList": {
+            "advertImage": [
+                {"mainImageUrl": "https://cdn.example.com/floorplan.jpg", "description": "Bild"},
+                {"mainImageUrl": "https://cdn.example.com/energy-cert.jpg", "description": "Bild"},
+            ]
+        }
+    }
+
+    photos, floorplans, assets, panoramas = module.extract_media(advert)
+
+    assert not panoramas
+    assert [entry["url"] for entry in floorplans] == ["https://cdn.example.com/floorplan.jpg"]
+    assert [entry["url"] for entry in photos] == ["https://cdn.example.com/energy-cert.jpg"]
+    assert assets[0]["floorplan_candidate"] is True
+    assert assets[0]["floorplan_reason"] == "plan_like_document_image"
+
+
 def test_inspect_panorama_signal_does_not_treat_numeric_ids_as_360_markers(monkeypatch) -> None:
     module = _load_module()
 
