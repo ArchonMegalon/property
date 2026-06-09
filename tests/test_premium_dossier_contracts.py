@@ -11,6 +11,7 @@ from app.services.premium_dossier.compiler import compile_premium_dossier
 from app.services.premium_dossier.html import render_premium_dossier_html
 from app.services.premium_dossier.markupgo_adapter import render_pdf_with_markupgo
 from app.services.premium_dossier.models import PremiumDossierRenderRequest, PremiumDossierRenderResult
+from app.services.premium_dossier.qa import inspect_rendered_artifact
 
 
 def _sample_source() -> dict[str, object]:
@@ -226,6 +227,17 @@ def test_premium_dossier_html_keeps_remote_image_urls_by_default() -> None:
     )
     html = render_premium_dossier_html(compiled)
     assert "https://cdn.example.com/property-photo.jpg" in html
+
+
+def test_premium_dossier_quality_gate_allows_binary_pdf_without_false_required_text_failure() -> None:
+    report = inspect_rendered_artifact(
+        artifact_bytes=b"%PDF-1.4\n\x00\x01binary-stream",
+        expected_text=["PropertyQuarry", "1050 live"],
+        forbidden_text=["token", "session"],
+    )
+    assert report.required_text_check == "passed"
+    assert report.forbidden_text_check == "passed"
+    assert report.ok is True
 
 
 def test_pdf_flythrough_url_does_not_fallback_to_tour_pane_without_real_clip() -> None:

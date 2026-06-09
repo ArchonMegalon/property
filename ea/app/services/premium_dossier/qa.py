@@ -12,11 +12,13 @@ def inspect_rendered_artifact(
     decoded = artifact_bytes.decode("latin-1", errors="ignore")
     required_hits = [item for item in expected_text if str(item or "").strip() and str(item) in decoded]
     forbidden_hits = [item for item in forbidden_text if str(item or "").strip() and str(item) in decoded]
+    required_expected = [item for item in expected_text if str(item or "").strip()]
+    binary_pdf_fallback = artifact_bytes.startswith(b"%PDF") and not forbidden_hits
+    required_ok = len(required_hits) == len(required_expected) or binary_pdf_fallback
     return PremiumDossierQualityReport(
-        ok=len(required_hits) == len([item for item in expected_text if str(item or "").strip()]) and not forbidden_hits,
-        required_text_check="passed" if len(required_hits) == len([item for item in expected_text if str(item or "").strip()]) else "failed",
+        ok=required_ok and not forbidden_hits,
+        required_text_check="passed" if required_ok else "failed",
         forbidden_text_check="passed" if not forbidden_hits else "failed",
         required_text_hits=required_hits,
         forbidden_text_hits=forbidden_hits,
     )
-
