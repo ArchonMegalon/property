@@ -94,6 +94,8 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
 
     assert "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" in dockerfile
     assert "COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py" in dockerfile
+    assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
+    assert "python -m playwright install --with-deps chromium" in dockerfile
     assert "for script in /tmp/src/scripts/*" not in dockerfile
     assert 'for script in "$APP_SRC"/scripts/*' not in dockerfile
     assert 'cp "$script" /app/scripts/' not in dockerfile
