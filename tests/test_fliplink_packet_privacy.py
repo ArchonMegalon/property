@@ -361,11 +361,13 @@ def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
     assert b"roughly" in pdf_bytes
     assert b"4 minutes" in pdf_bytes
     assert b"on foot" in pdf_bytes
-    assert b"Family and school route" in pdf_bytes
-    assert b"Official risk and safety context" in pdf_bytes
+    assert b"Family route and school independence" in pdf_bytes
+    assert b"Safety, crime, and climate risk" in pdf_bytes
     assert b"Crime burden" in pdf_bytes
     assert b"Medical care" in pdf_bytes
-    assert b"Area change and future infrastructure" in pdf_bytes
+    assert b"Area outlook and future infrastructure" in pdf_bytes
+    assert b"seven-year-old" in pdf_bytes
+    assert b"route alone by bike or public" in pdf_bytes
     assert b" re f" in pdf_bytes
 
 

@@ -39,8 +39,9 @@ def test_propertyquarry_phase7_exit_gate_is_green() -> None:
         [
             "Open 3D reconstruction floor plan",
             "Play flythrough",
-            "Family and school route section",
-            "Official risk and safety context section",
+            "Family route and school independence section",
+            "Safety, crime, and climate risk section",
+            "Area outlook and future infrastructure section",
         ],
         field_name="required_ui_affordances",
     )

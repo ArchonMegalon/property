@@ -45,9 +45,9 @@ required_persistence_assertions:
 required_ui_affordances:
   - Open 3D reconstruction floor plan
   - Play flythrough
-  - Family and school route section
-  - Official risk and safety context section
-  - Area change and future infrastructure section
+  - Family route and school independence section
+  - Safety, crime, and climate risk section
+  - Area outlook and future infrastructure section
 fail_closed_conditions:
   - hosted tour opens to a broken or non-white-label surface
   - flythrough renders as audio-only or black video

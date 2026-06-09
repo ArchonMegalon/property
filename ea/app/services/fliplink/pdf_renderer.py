@@ -205,7 +205,7 @@ def _school_route_line(facts: dict[str, object]) -> str:
     if cycleway:
         route_posture.append(f"protected or explicit cycling access is {cycleway}")
     else:
-        route_posture.append("safe child-cycle access still needs explicit verification")
+        route_posture.append("safe child-cycle access still needs explicit on-site verification")
     if tram_bus:
         route_posture.append(f"the nearest tram or bus stop is {tram_bus}")
     if subway:
@@ -218,6 +218,7 @@ def _school_route_line(facts: dict[str, object]) -> str:
     school_prefix = f"The nearest relevant school route is towards {school_name}" if school_name else "The school route"
     if school_bits:
         school_prefix += f" ({', '.join(school_bits)})"
+    school_prefix += "; this is the baseline for judging whether a seven-year-old could realistically manage the route alone by bike or public transport"
     return _clean_sentence(school_prefix + "; " + "; ".join(route_posture))
 
 
@@ -734,15 +735,15 @@ def _packet_sections(
         _section("Evidence readiness", [item for item in evidence if item] or ["Evidence readiness is not yet available."], accent=(0.74, 0.55, 0.18)),
     ]
     if any(item for item in radius):
-        sections.append(_section("Daily-life radius", [item for item in radius if item], accent=(0.19, 0.36, 0.53)))
+        sections.append(_section("Neighbourhood and daily life", [item for item in radius if item], accent=(0.19, 0.36, 0.53)))
     if school_and_family:
-        sections.append(_section("Family and school route", school_and_family, accent=(0.18, 0.41, 0.44)))
+        sections.append(_section("Family route and school independence", school_and_family, accent=(0.18, 0.41, 0.44)))
     if any(item for item in building_context):
-        sections.append(_section("Building and house context", [item for item in building_context if item], accent=(0.43, 0.38, 0.29)))
+        sections.append(_section("Building and house profile", [item for item in building_context if item], accent=(0.43, 0.38, 0.29)))
     if future_change:
-        sections.append(_section("Area change and future infrastructure", future_change, accent=(0.42, 0.25, 0.48)))
+        sections.append(_section("Area outlook and future infrastructure", future_change, accent=(0.42, 0.25, 0.48)))
     if risk_context:
-        sections.append(_section("Official risk and safety context", risk_context, accent=(0.62, 0.29, 0.26)))
+        sections.append(_section("Safety, crime, and climate risk", risk_context, accent=(0.62, 0.29, 0.26)))
     sections.extend(
         [
             _section("Why it matched", match_reasons or ["No explicit match reason was included in the source packet."], accent=(0.17, 0.45, 0.37)),
@@ -865,16 +866,16 @@ def _property_narrative(payload: dict[str, object]) -> list[str]:
     compare_reason = _clean_sentence(payload.get("compare_reason"))
     if not fit and match_reasons:
         fit = _clean_sentence("Why it stands out: " + "; ".join(match_reasons))
-    neighborhood = _clean_sentence("For daily life, " + ", and ".join(daily_life)) if daily_life else ""
+    neighborhood = _clean_sentence("For everyday living, " + ", and ".join(daily_life)) if daily_life else ""
     school_quality = str(facts.get("school_atlas_quality_summary") or "").strip()
     school_progression = str(facts.get("school_atlas_progression_summary") or "").strip()
-    school = _clean_sentence("School and family route: " + "; ".join(item for item in [school_route, school_quality, school_progression] if item)) if any(
+    school = _clean_sentence("For a family read, " + "; ".join(item for item in [school_route, school_quality, school_progression] if item)) if any(
         item for item in [school_route, school_quality, school_progression]
     ) else ""
     official_risk = _clean_sentence("Risk context: " + "; ".join(_official_risk_lines(facts)[:3])) if _official_risk_lines(facts) else ""
-    future_change = _clean_sentence("Area and infrastructure outlook: " + "; ".join(_future_change_lines(facts)[:3])) if _future_change_lines(facts) else ""
-    risk = _clean_sentence("Open points still worth checking: " + "; ".join(risks)) if risks else ""
-    next_step = _clean_sentence("Suggested next questions: " + "; ".join(questions)) if questions else ""
+    future_change = _clean_sentence("Area outlook: " + "; ".join(_future_change_lines(facts)[:3])) if _future_change_lines(facts) else ""
+    risk = _clean_sentence("Points that still need hard confirmation: " + "; ".join(risks)) if risks else ""
+    next_step = _clean_sentence("Recommended next questions for the agent or viewing: " + "; ".join(questions)) if questions else ""
 
     return [item for item in [intro, compare_reason, fit, neighborhood, school, evidence, official_risk, future_change, risk, next_step] if item]
 
