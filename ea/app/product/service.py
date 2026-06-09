@@ -26482,7 +26482,9 @@ class ProductService:
                     if key
                     not in {
                         "media_urls_json",
+                        "photo_refs",
                         "floorplan_urls_json",
+                        "floorplan_refs",
                         "tour_url",
                         "flythrough_url",
                         "source_virtual_tour_url",
