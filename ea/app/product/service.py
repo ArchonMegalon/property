@@ -10943,6 +10943,34 @@ def _property_tour_deep_link(tour_url: str, *, pane: str, autoplay: bool = False
         return normalized
 
 
+def _telegram_safe_url_button_target(value: str, *, max_length: int = 256) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    if len(normalized) > max(int(max_length or 256), 1):
+        return ""
+    return normalized
+
+
+def _workspace_relative_target_from_public_url(value: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    if normalized.startswith("/"):
+        return normalized
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    public_base = _public_app_base_url()
+    public_host = urllib.parse.urlparse(public_base).netloc.lower()
+    if not public_host or parsed.netloc.lower() != public_host:
+        return ""
+    target = parsed.path or "/"
+    if parsed.query:
+        target = f"{target}?{parsed.query}"
+    return target
+
+
 def _willhaben_property_packet_script_path() -> Path:
     explicit = str(os.getenv("EA_WILLHABEN_PROPERTY_PACKET_SCRIPT") or "").strip()
     if explicit:
@@ -13537,6 +13565,40 @@ class ProductService:
 
     def _workspace_access_secret(self) -> str:
         return resolve_signing_secret(self._container.settings, purpose="workspace-access")
+
+    def _sign_workspace_access_launch_token(self, *, session_id: str, expires_at: str) -> str:
+        normalized_session_id = str(session_id or "").strip()
+        normalized_expires_at = str(expires_at or "").strip()
+        if not normalized_session_id or not normalized_expires_at:
+            return ""
+        try:
+            expires_dt = datetime.fromisoformat(normalized_expires_at)
+        except ValueError:
+            return ""
+        if expires_dt.tzinfo is None:
+            expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+        return _sign_channel_payload(
+            secret=self._workspace_access_secret(),
+            payload={
+                "k": "wa",
+                "s": normalized_session_id,
+                "x": int(expires_dt.timestamp()),
+            },
+        )
+
+    def _resolve_workspace_access_session_principal(self, *, session_id: str, limit: int = 5000) -> str:
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            return ""
+        for row in self._container.channel_runtime.list_recent_observations(limit=max(int(limit or 5000), 100)):
+            if str(row.event_type or "").strip().lower() != "workspace_access_session_issued":
+                continue
+            payload = dict(row.payload or {})
+            current_session_id = str(payload.get("session_id") or row.source_id or "").strip()
+            if current_session_id != normalized_session_id:
+                continue
+            return str(row.principal_id or payload.get("principal_id") or "").strip()
+        return ""
 
     def _signal_ingest_secret(self) -> str:
         return resolve_signing_secret(self._container.settings, purpose="signal-ingest")
@@ -19953,6 +20015,33 @@ class ProductService:
         public_pdf_url = str(dossier_render.get("public_pdf_url") or "").strip()
         source_tour_url = str(source_virtual_tour_url or "").strip()
         primary_tour_url = str(tour_url or vendor_tour_url or source_tour_url).strip()
+        principal_access_email = _principal_email_hint(principal_id)
+
+        def _autologin_button_url(target_url: str) -> str:
+            relative_target = _workspace_relative_target_from_public_url(target_url)
+            if not relative_target or not principal_access_email:
+                return _telegram_safe_url_button_target(target_url)
+            try:
+                access_session = self.issue_workspace_access_session(
+                    principal_id=principal_id,
+                    email=principal_access_email,
+                    role="principal",
+                    source_kind="telegram_property_link_access",
+                    expires_in_hours=72,
+                    default_target=relative_target,
+                )
+                launch_path = str(
+                    access_session.get("access_launch_url")
+                    or access_session.get("access_url")
+                    or ""
+                ).strip()
+                if launch_path:
+                    launch_url = urllib.parse.urljoin(f"{_public_app_base_url().rstrip('/')}/", launch_path.lstrip("/"))
+                    return _telegram_safe_url_button_target(launch_url)
+            except Exception:
+                pass
+            return _telegram_safe_url_button_target(target_url)
+
         video_delivery = _hosted_property_tour_video_delivery(tour_url) if tour_url else {}
         video_url = str(video_delivery.get("video_url") or "").strip()
         dossier_ready = str(dossier_render.get("status") or "").strip() == "rendered"
@@ -20040,16 +20129,26 @@ class ProductService:
         url_buttons: list[list[tuple[str, str]]] = []
         first_row: list[tuple[str, str]] = []
         if primary_tour_url:
-            first_row.append(("Open 3D Tour", _property_tour_deep_link(primary_tour_url, pane="panorama-pane")))
+            deep_3d_tour_url = _autologin_button_url(_property_tour_deep_link(primary_tour_url, pane="panorama-pane"))
+            if deep_3d_tour_url:
+                first_row.append(("Open 3D Tour", deep_3d_tour_url))
         if video_url and primary_tour_url:
-            first_row.append(("Open Flythrough", _property_tour_deep_link(primary_tour_url, pane="flythrough-pane", autoplay=True)))
-        if public_pdf_url:
-            first_row.append(("Open Dossier PDF", public_pdf_url))
+            deep_flythrough_url = _autologin_button_url(
+                _property_tour_deep_link(primary_tour_url, pane="flythrough-pane", autoplay=True)
+            )
+            if deep_flythrough_url:
+                first_row.append(("Open Flythrough", deep_flythrough_url))
+        safe_public_pdf_url = _autologin_button_url(public_pdf_url)
+        if safe_public_pdf_url:
+            first_row.append(("Open Dossier PDF", safe_public_pdf_url))
         if first_row:
             url_buttons.append(first_row[:2])
-        second_row: list[tuple[str, str]] = [("Open Listing", normalized_url)]
+        second_row: list[tuple[str, str]] = []
         if len(first_row) > 2:
             second_row.insert(0, first_row[2])
+        safe_listing_url = _telegram_safe_url_button_target(normalized_url)
+        if safe_listing_url:
+            second_row.append(("Open Listing", safe_listing_url))
         if second_row:
             url_buttons.append(second_row[:2])
         preview_image_url = _property_link_bundle_preview_image_url(
@@ -27627,6 +27726,12 @@ class ProductService:
             "access_url": f"/workspace-access/{access_token}",
             "default_target": resolved_default_target,
         }
+        launch_token = self._sign_workspace_access_launch_token(
+            session_id=session_id,
+            expires_at=str(token_payload["expires_at"]),
+        )
+        payload["access_launch_token"] = launch_token
+        payload["access_launch_url"] = f"/workspace-access/{launch_token}"
         self._record_product_event(
             principal_id=principal_id,
             event_type="workspace_access_session_issued",
@@ -27697,10 +27802,23 @@ class ProductService:
 
     def preview_workspace_access_session(self, *, token: str) -> dict[str, object] | None:
         payload = _verify_channel_payload(secret=self._workspace_access_secret(), token=token)
-        if payload is None or str(payload.get("token_kind") or "").strip() != "workspace_access_session":
+        if payload is None:
             return None
-        principal_id = str(payload.get("principal_id") or "").strip()
-        session_id = str(payload.get("session_id") or "").strip()
+        token_kind = str(payload.get("token_kind") or payload.get("k") or "").strip()
+        if token_kind == "wa":
+            try:
+                expires_unix = int(str(payload.get("x") or "0").strip() or "0")
+            except Exception:
+                return None
+            if expires_unix > 0 and expires_unix <= int(datetime.now(timezone.utc).timestamp()):
+                return None
+            session_id = str(payload.get("s") or "").strip()
+            principal_id = self._resolve_workspace_access_session_principal(session_id=session_id)
+        elif token_kind == "workspace_access_session":
+            principal_id = str(payload.get("principal_id") or "").strip()
+            session_id = str(payload.get("session_id") or "").strip()
+        else:
+            return None
         if not principal_id or not session_id:
             return None
         current = self.get_workspace_access_session(principal_id=principal_id, session_id=session_id)
@@ -27708,6 +27826,8 @@ class ProductService:
             if str(current.get("status") or "").strip().lower() == "revoked":
                 return None
             return current
+        if token_kind == "wa":
+            return None
         normalized_role = str(payload.get("role") or "principal").strip().lower() or "principal"
         return {
             "session_id": session_id,

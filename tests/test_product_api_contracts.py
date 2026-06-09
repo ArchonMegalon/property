@@ -615,6 +615,7 @@ def test_signal_ingest_property_alert_sends_telegram_review_summary(monkeypatch)
         status="enabled",
     )
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
 
     observed_telegram: dict[str, object] = {}
 
@@ -669,6 +670,7 @@ def test_signal_ingest_property_alert_sends_telegram_dossier_document(monkeypatc
         status="enabled",
     )
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
 
     dossier_path = tmp_path / "property-scout-dossier.pdf"
     dossier_path.write_bytes(b"%PDF-1.4\n% scout dossier test\n")
@@ -742,6 +744,7 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
         status="enabled",
     )
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
 
     dossier_path = tmp_path / "telegram-property-bundle.pdf"
     dossier_path.write_bytes(b"%PDF-1.4\n% telegram bundle dossier\n")
@@ -814,6 +817,13 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
         },
     )
     monkeypatch.setattr(
+        ProductService,
+        "issue_workspace_access_session",
+        lambda self, **kwargs: {
+            "access_launch_url": "/workspace-access/launch-long-pdf",
+        },
+    )
+    monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_video_delivery",
         lambda tour_url: {"video_url": "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4", "audio_probe_ref": "https://propertyquarry.com/tours/test-telegram-bundle/audio.mp3"},
@@ -868,8 +878,10 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
     assert observed["photo_ref"] == "https://propertyquarry.com/tours/test-telegram-bundle/../files/test-telegram-bundle/scene-01.png"
     assert "Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF." in str(observed["message_text"])
     assert "Most important facts: 2 rooms · 48 m2 · EUR 1.095 · Floorplan" in str(observed["message_text"])
-    assert observed["url_buttons"][0][0] == ("Open 3D Tour", "https://propertyquarry.com/tours/test-telegram-bundle?pane=panorama-pane")
-    assert observed["url_buttons"][0][1] == ("Open Flythrough", "https://propertyquarry.com/tours/test-telegram-bundle?pane=flythrough-pane&autoplay=1")
+    assert observed["url_buttons"][0][0][0] == "Open 3D Tour"
+    assert "/workspace-access/" in str(observed["url_buttons"][0][0][1])
+    assert observed["url_buttons"][0][1][0] == "Open Flythrough"
+    assert "/workspace-access/" in str(observed["url_buttons"][0][1][1])
     button_labels = [button[0] for row in list(observed.get("inline_buttons") or []) for button in row]
     assert "I like it" in button_labels
     assert "I don't like it" in button_labels
@@ -953,6 +965,13 @@ def test_deliver_telegram_property_link_bundle_falls_back_to_text_when_preview_p
         },
     )
     monkeypatch.setattr(
+        ProductService,
+        "issue_workspace_access_session",
+        lambda self, **kwargs: {
+            "access_launch_url": "/workspace-access/launch-long-pdf",
+        },
+    )
+    monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_video_delivery",
         lambda tour_url: {"video_url": "https://propertyquarry.com/tours/test-photo-fallback-bundle/video.mp4", "audio_probe_ref": "https://propertyquarry.com/tours/test-photo-fallback-bundle/audio.mp3"},
@@ -1011,6 +1030,131 @@ def test_deliver_telegram_property_link_bundle_falls_back_to_text_when_preview_p
     assert "Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF." in str(observed["message_text"])
     assert observed["video_principal_id"] == principal_id
     assert observed["document_principal_id"] == principal_id
+
+
+def test_deliver_telegram_property_link_bundle_shortens_pdf_button_through_workspace_access_launch(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Long PDF URL Office")
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+    dossier_path = tmp_path / "telegram-bundle-long-url.pdf"
+    dossier_path.write_bytes(b"%PDF-1.4\nlong-url")
+    observed: dict[str, object] = {}
+
+    class _MessageReceipt:
+        chat_id = "1354554303"
+        message_ids = ("9301",)
+
+    class _VideoReceipt:
+        chat_id = "1354554303"
+        message_ids = ("9302",)
+
+    class _DocumentReceipt:
+        chat_id = "1354554303"
+        message_ids = ("9303",)
+
+    monkeypatch.setattr(
+        ProductService,
+        "create_generic_property_tour",
+        lambda self, **kwargs: {
+            "status": "created",
+            "tour_url": "https://propertyquarry.com/tours/test-long-url-bundle",
+            "vendor_tour_url": "",
+            "blocked_reason": "",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda property_url: {
+            "title": "Long PDF URL Listing",
+            "listing_id": "tg-link-long-url-1",
+            "description": "A bundle with a very long PDF URL.",
+            "media_urls_json": [],
+            "floorplan_urls_json": [],
+            "source_virtual_tour_url": "",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_candidate_payload_from_preview",
+        lambda *, property_url, preview: {"listing_id": "tg-link-long-url-1"},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_merge_property_facts_with_source_research",
+        lambda **kwargs: dict(kwargs.get("property_facts") or {}),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_render_property_scout_dossier",
+        lambda self, **kwargs: {
+            "status": "rendered",
+            "publication_id": "pub_tg_bundle_long_url",
+            "pdf_path": str(dossier_path),
+            "public_pdf_url": "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/" + ("x" * 400),
+            "caption": "PropertyQuarry dossier · Long PDF URL Listing",
+        },
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "issue_workspace_access_session",
+        lambda self, **kwargs: {
+            "access_launch_url": "/workspace-access/launch-long-pdf",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_video_delivery",
+        lambda tour_url: {"video_url": "https://propertyquarry.com/tours/test-long-url-bundle/video.mp4", "audio_probe_ref": "https://propertyquarry.com/tours/test-long-url-bundle/audio.mp3"},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_chat_action_for_principal",
+        lambda *args, **kwargs: SimpleNamespace(chat_id="1354554303", message_ids=()),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None: observed.update(
+            {"url_buttons": url_buttons}
+        ) or _MessageReceipt(),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_photo_for_principal",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("telegram_photo_unreachable")),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_video_for_principal",
+        lambda *args, **kwargs: _VideoReceipt(),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_document_for_principal",
+        lambda *args, **kwargs: _DocumentReceipt(),
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service.deliver_telegram_property_link_bundle(
+        principal_id=principal_id,
+        property_url="https://www.immobilienscout24.at/expose/telegram-property-link-long-url",
+        actor="test",
+    )
+
+    assert result["status"] == "sent"
+    flattened = [button for row in list(observed.get("url_buttons") or []) for button in row]
+    assert any(label == "Open Dossier PDF" and "/workspace-access/" in str(url) for label, url in flattened)
 
 
 def test_deliver_telegram_property_link_bundle_waits_for_full_bundle_before_sending_assets(monkeypatch, tmp_path: Path) -> None:
