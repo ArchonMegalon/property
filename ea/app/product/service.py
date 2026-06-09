@@ -11269,6 +11269,20 @@ def _hosted_property_tour_magicfit_still_urls(tour_url: str, *, limit: int = 3) 
     return still_urls
 
 
+def _placeholder_listing_media_url(url: str) -> bool:
+    lowered = str(url or "").strip().lower()
+    if not lowered:
+        return False
+    markers = (
+        "plus-insider-locked",
+        "placeholder",
+        "no-image",
+        "coming-soon",
+        "image-not-available",
+    )
+    return any(marker in lowered for marker in markers)
+
+
 def _property_link_bundle_key_facts_lines(property_facts: dict[str, object]) -> list[str]:
     facts = dict(property_facts or {})
     chips: list[str] = []
@@ -26399,9 +26413,14 @@ class ProductService:
                 for url in _hosted_property_tour_magicfit_still_urls(hosted_tour_url, limit=3)
                 if str(url or "").strip()
             ]
+            filtered_source_media_urls = [
+                str(url or "").strip()
+                for url in source_media_urls
+                if str(url or "").strip() and not _placeholder_listing_media_url(str(url or "").strip())
+            ]
             deduped_media_urls: list[str] = []
             seen_media_urls: set[str] = set()
-            for url in [*magicfit_stills, *source_media_urls]:
+            for url in [*magicfit_stills, *filtered_source_media_urls]:
                 normalized_url = str(url or "").strip()
                 if not normalized_url or normalized_url in seen_media_urls:
                     continue

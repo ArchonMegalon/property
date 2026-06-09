@@ -1182,6 +1182,101 @@ def test_render_property_scout_dossier_promotes_media_and_visuals_into_packet(mo
     assert "personal_reference_urls" not in payload
 
 
+def test_render_property_scout_dossier_filters_locked_listing_placeholder_when_magicfit_stills_exist(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Placeholder Filter Office")
+    observed: dict[str, object] = {}
+    pdf_path = tmp_path / "packet.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\nmedia packet")
+
+    class _PacketService:
+        def render_packet(self, **kwargs):
+            observed["source_payload"] = dict(kwargs.get("source_payload") or {})
+            return {
+                "publication_id": "pub_media_probe",
+                "source_pdf_artifact_ref": str(pdf_path),
+                "source_pdf_sha256": "abc123",
+            }
+
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_video_delivery",
+        lambda tour_url: {
+            "video_url": "https://propertyquarry.com/tours/files/test-hosted-tour/tour.mp4",
+            "provider_key": "magicfit",
+        },
+    )
+    monkeypatch.setattr(
+        "app.product.service._hosted_property_tour_magicfit_still_urls",
+        lambda tour_url, limit=3: [
+            "https://propertyquarry.com/tours/files/test-hosted-tour/magicfit-still-1.jpg",
+            "https://propertyquarry.com/tours/files/test-hosted-tour/magicfit-still-2.jpg",
+        ],
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_telegram_preview_image_url",
+        lambda tour_url: "https://propertyquarry.com/tours/files/test-hosted-tour/telegram-preview.png",
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_recent_property_magic_fit_reference_urls",
+        lambda self, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_maybe_auto_create_property_magic_fit_scene_for_packet",
+        lambda self, **kwargs: {},
+    )
+    monkeypatch.setattr(
+        "app.services.fliplink.service.build_fliplink_packet_service",
+        lambda container: _PacketService(),
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service._render_property_scout_dossier(
+        principal_id=principal_id,
+        actor="test",
+        title="1050 Vienna Listing",
+        summary="Bright two-room flat with lift.",
+        counterparty="immobilienscout24.at",
+        account_email="tibor.girschele@gmail.com",
+        property_url="https://www.immobilienscout24.at/expose/test-media-probe",
+        source_ref="probe-src",
+        assessment={},
+        fit_score=72.0,
+        preference_person_id="self",
+        review_url="",
+        tour_result={"tour_url": "https://propertyquarry.com/tours/test-hosted-tour"},
+        candidate_properties=(
+            {
+                "listing_title": "1050 Vienna Listing",
+                "property_url": "https://www.immobilienscout24.at/expose/test-media-probe",
+                "media_urls_json": [
+                    "https://www.immobilienscout24.at/expose/assets/plus-insider-locked.77b21addeee8c430a19b.webp",
+                ],
+                "floorplan_urls_json": [],
+                "property_facts_json": {
+                    "rooms": 2,
+                    "area_sqm": 57,
+                    "media_urls_json": [
+                        "https://www.immobilienscout24.at/expose/assets/plus-insider-locked.77b21addeee8c430a19b.webp",
+                    ],
+                    "floorplan_urls_json": [],
+                },
+            },
+        ),
+    )
+
+    assert result["status"] == "rendered"
+    payload = dict(observed["source_payload"])
+    assert payload["photo_refs"] == [
+        "https://propertyquarry.com/tours/files/test-hosted-tour/magicfit-still-1.jpg",
+        "https://propertyquarry.com/tours/files/test-hosted-tour/magicfit-still-2.jpg",
+    ]
+
+
 def test_deliver_telegram_property_link_bundle_renders_dossier_after_magicfit_video_is_ready(monkeypatch, tmp_path: Path) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
