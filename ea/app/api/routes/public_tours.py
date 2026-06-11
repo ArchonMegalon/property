@@ -140,6 +140,10 @@ _PUBLIC_TOUR_TOP_LEVEL_KEYS = frozenset(
         "control_mode",
         "scenes",
         "video_relpath",
+        "video_provider",
+        "video_provider_key",
+        "video_render_provider",
+        "video_coverage_proof",
         "walkable_scene",
         "tour_privacy_mode",
         "privacy_mode",
@@ -2061,13 +2065,45 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
   </body>
 </html>"""
     scenes = [dict(row) for row in (payload.get("scenes") or []) if isinstance(row, dict)]
-    if not scenes and isinstance(payload.get("walkable_scene"), dict):
+    control_mode = str(payload.get("control_mode") or "").strip().lower()
+    if control_mode == "walkable_3d" or isinstance(payload.get("walkable_scene"), dict):
         safe_title = html.escape(str(payload.get("display_title") or payload.get("title") or payload.get("slug") or "Property tour").strip())
         slug = str(payload.get("slug") or "").strip()
         video_relpath = str(payload.get("video_relpath") or "").strip()
         existing_video_url = str(payload.get("video_url") or "").strip()
-        control_url = f"/tours/{html.escape(slug)}/control" if slug else ""
-        video_url = existing_video_url or (f"/tours/files/{html.escape(slug)}/{html.escape(video_relpath)}" if slug and video_relpath else "")
+        matterport_url = ""
+        for key in ("matterport_url", "source_virtual_tour_url"):
+            if _safe_matterport_external_url(payload.get(key)):
+                matterport_url = f"/tours/{html.escape(slug)}/control/matterport" if slug else ""
+                break
+        three_d_vista_url = ""
+        if slug:
+            for key in ("three_d_vista_url", "threedvista_url", "3dvista_url"):
+                if _safe_3dvista_external_url(payload.get(key)):
+                    three_d_vista_url = f"/tours/{html.escape(slug)}/control/3dvista"
+                    break
+            if not three_d_vista_url and _public_tour_safe_asset_relpath(
+                str(
+                    payload.get("three_d_vista_entry_relpath")
+                    or payload.get("threedvista_entry_relpath")
+                    or payload.get("3dvista_entry_relpath")
+                    or ""
+                ).strip()
+            ):
+                three_d_vista_url = f"/tours/{html.escape(slug)}/control/3dvista"
+        video_provider = str(
+            payload.get("video_provider")
+            or payload.get("video_provider_key")
+            or payload.get("video_render_provider")
+            or ""
+        ).strip().lower()
+        video_coverage_proof = str(payload.get("video_coverage_proof") or "").strip()
+        video_allowed = bool(video_provider) and (
+            video_provider != "magicfit" or video_coverage_proof == "boundary_verified_frame_continuation"
+        )
+        video_url = ""
+        if video_allowed:
+            video_url = existing_video_url or (f"/tours/files/{html.escape(slug)}/{html.escape(video_relpath)}" if slug and video_relpath else "")
         return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -2091,7 +2127,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       <h1>{safe_title}</h1>
       <p>This bundle exposes only validated media controls. The generated 3D cube fallback has been removed.</p>
       <div class="actions">
-        {f'<a href="{control_url}">Open 3D Control</a>' if control_url else ''}
+        {f'<a href="{matterport_url}">Open Matterport</a>' if matterport_url else ''}
+        {f'<a href="{three_d_vista_url}">Open 3DVista</a>' if three_d_vista_url else ''}
         {f'<a class="secondary" href="{video_url}">Open Fly-through</a>' if video_url else ''}
       </div>
     </main>
@@ -5191,6 +5228,10 @@ def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "") -> 
     if control_mode in {"3dvista", "3d_vista", "three_d_vista"}:
         return _tour_control_3dvista_html(payload)
     if control_mode == "walkable_3d" or isinstance(payload.get("walkable_scene"), dict):
+        if str(os.getenv("PROPERTYQUARRY_ENABLE_INTERNAL_WALKABLE_CONTROL") or "").strip() == "1":
+            return _tour_control_walkable_html(payload)
+        raise HTTPException(status_code=404, detail="tour_control_provider_export_missing")
+    if control_mode == "internal_walkable_3d":
         return _tour_control_walkable_html(payload)
     if str(payload.get("scene_strategy") or "").strip() == "pure_360_cube":
         raise HTTPException(status_code=404, detail="tour_control_cube_viewer_removed")

@@ -897,7 +897,7 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
     assert "Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF." in str(observed["message_text"])
     assert "Most important facts: 2 rooms · 48 m2 · EUR 1.095 · Floorplan" in str(observed["message_text"])
     flattened_buttons = [button for row in list(observed.get("url_buttons") or []) for button in row]
-    assert ("Open 3D Control", "https://propertyquarry.com/tours/test-telegram-bundle/control") in flattened_buttons
+    assert not any(label == "Open 3D Control" for label, _url in flattened_buttons)
     assert ("Open Flythrough", "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4") in flattened_buttons
     assert not list(observed.get("inline_buttons") or [])
     assert "video_principal_id" not in observed
@@ -1683,7 +1683,7 @@ def test_deliver_telegram_property_link_bundle_uses_hosted_control_and_direct_ma
     assert result["status"] == "sent"
     buttons = list(observed["url_buttons"])
     flattened = [button for row in list(observed.get("url_buttons") or []) for button in row]
-    assert ("Open 3D Control", "https://propertyquarry.com/tours/test-direct-targets/control") in flattened
+    assert not any(label == "Open 3D Control" for label, _url in flattened)
     assert ("Open Flythrough", "https://propertyquarry.com/tours/files/test-direct-targets/tour.mp4") in flattened
     assert any(label == "Open Dossier PDF" for label, _url in flattened)
 
@@ -2171,10 +2171,7 @@ def test_deliver_telegram_property_link_bundle_prefers_hosted_control_and_magicf
 
     assert result["status"] == "sent"
     flattened = [button for row in list(observed.get("url_buttons") or []) for button in row]
-    assert (
-        "Open 3D Control",
-        "https://propertyquarry.com/tours/test-direct-buttons-bundle/control",
-    ) in flattened
+    assert not any(label == "Open 3D Control" for label, _url in flattened)
     assert (
         "Open Flythrough",
         "https://propertyquarry.com/tours/files/test-direct-buttons-bundle/tour.mp4",
@@ -17279,6 +17276,75 @@ def test_magicfit_flythrough_duration_gate_rejects_short_multi_room_clip() -> No
     assert required_seconds >= 90.0
 
 
+def test_magicfit_flythrough_duration_gate_rejects_missing_room_coverage() -> None:
+    ok, reason, actual_seconds, required_seconds = product_service._magicfit_flythrough_duration_gate(
+        {
+            "provider_key": "magicfit",
+            "video_url": "https://propertyquarry.com/tours/files/demo/tour.mp4",
+            "duration_seconds": 120.0,
+        },
+        title="2 Zimmer Wohnung mit Küche, Bad, WC, Vorraum und Balkon",
+        property_facts={
+            "room_count": 2,
+            "description": "Küche, Badezimmer, separates WC, Vorraum und Balkon sind vorhanden.",
+        },
+    )
+
+    assert ok is False
+    assert reason == "flythrough_route_coverage_proof_missing"
+    assert actual_seconds == pytest.approx(120.0)
+    assert required_seconds >= 90.0
+
+
+def test_magicfit_flythrough_duration_gate_rejects_proof_without_room_labels() -> None:
+    ok, reason, actual_seconds, required_seconds = product_service._magicfit_flythrough_duration_gate(
+        {
+            "provider_key": "magicfit",
+            "video_url": "https://propertyquarry.com/tours/files/demo/tour.mp4",
+            "duration_seconds": 120.0,
+            "coverage_proof": "boundary_verified_frame_continuation",
+        },
+        title="2 Zimmer Wohnung mit Küche, Bad, WC, Vorraum und Balkon",
+        property_facts={
+            "room_count": 2,
+            "description": "Küche, Badezimmer, separates WC, Vorraum und Balkon sind vorhanden.",
+        },
+    )
+
+    assert ok is False
+    assert reason == "flythrough_route_coverage_unverified"
+    assert actual_seconds == pytest.approx(120.0)
+    assert required_seconds >= 90.0
+
+
+def test_magicfit_flythrough_duration_gate_accepts_all_room_coverage() -> None:
+    property_facts = {
+        "room_count": 2,
+        "description": "Küche, Badezimmer, separates WC, Vorraum und Balkon sind vorhanden.",
+    }
+    _room_count, route_labels = product_service._magicfit_property_room_visit_plan(
+        title="2 Zimmer Wohnung mit Küche, Bad, WC, Vorraum und Balkon",
+        property_facts=property_facts,
+    )
+
+    ok, reason, actual_seconds, required_seconds = product_service._magicfit_flythrough_duration_gate(
+        {
+            "provider_key": "magicfit",
+            "video_url": "https://propertyquarry.com/tours/files/demo/tour.mp4",
+            "duration_seconds": 120.0,
+            "coverage_proof": "boundary_verified_frame_continuation",
+            "covered_route_labels": route_labels,
+        },
+        title="2 Zimmer Wohnung mit Küche, Bad, WC, Vorraum und Balkon",
+        property_facts=property_facts,
+    )
+
+    assert ok is True
+    assert reason == ""
+    assert actual_seconds == pytest.approx(120.0)
+    assert required_seconds >= 90.0
+
+
 def test_flythrough_gate_rejects_unverified_duration() -> None:
     ok, reason, actual_seconds, required_seconds = product_service._magicfit_flythrough_duration_gate(
         {
@@ -17725,6 +17791,63 @@ def test_public_tour_control_rejects_removed_legacy_viewer() -> None:
 
     assert exc_info.value.status_code == 410
     assert exc_info.value.detail == "tour_control_legacy_viewer_removed"
+
+
+def test_public_tour_landing_hides_magicfit_without_route_coverage_proof() -> None:
+    from app.api.routes import public_tours
+
+    html = public_tours._tour_html(
+        {
+            "slug": "stale-magicfit-tour",
+            "display_title": "Stale MagicFit Tour",
+            "video_provider": "magicfit",
+            "video_relpath": "tour.mp4",
+            "scenes": [],
+            "walkable_scene": {"rooms": []},
+        }
+    )
+
+    assert "Open Fly-through" not in html
+    assert "Open 3D Control" not in html
+
+
+def test_public_tour_landing_links_magicfit_with_route_coverage_proof() -> None:
+    from app.api.routes import public_tours
+
+    html = public_tours._tour_html(
+        {
+            "slug": "verified-magicfit-tour",
+            "display_title": "Verified MagicFit Tour",
+            "video_provider": "magicfit",
+            "video_coverage_proof": "boundary_verified_frame_continuation",
+            "video_relpath": "tour.mp4",
+            "scenes": [],
+            "walkable_scene": {"rooms": []},
+        }
+    )
+
+    assert "Open Fly-through" in html
+    assert "/tours/files/verified-magicfit-tour/tour.mp4" in html
+    assert "Open 3D Control" not in html
+
+
+def test_public_tour_control_rejects_internal_walkable_by_default(monkeypatch) -> None:
+    from app.api.routes import public_tours
+
+    monkeypatch.delenv("PROPERTYQUARRY_ENABLE_INTERNAL_WALKABLE_CONTROL", raising=False)
+
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_control_html(
+            {
+                "slug": "internal-walkable-test",
+                "display_title": "Internal Walkable Test",
+                "control_mode": "walkable_3d",
+                "walkable_scene": {"rooms": []},
+            }
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_control_provider_export_missing"
 
 
 def test_property_tour_compare_links_offer_only_real_provider_exports(monkeypatch, tmp_path: Path) -> None:

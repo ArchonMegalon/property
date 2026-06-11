@@ -10825,7 +10825,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     return payload
 
 
-def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
+def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, object]:
     normalized_url = str(tour_url or "").strip()
     if not normalized_url:
         return {}
@@ -10865,6 +10865,39 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
     duration_seconds = _video_duration_seconds(str(local_video_path))
     scenes = list(payload.get("scenes") or []) if isinstance(payload.get("scenes"), list) else []
     scene_count = int(payload.get("scene_count") or len(scenes) or 0)
+    sidecar_payload: dict[str, object] = {}
+    sidecar_relpath = _hosted_property_tour_safe_asset_relpath(str(payload.get("video_sidecar_relpath") or "").strip())
+    if sidecar_relpath:
+        sidecar_path = (bundle_dir / sidecar_relpath).resolve()
+        if bundle_dir.resolve() in sidecar_path.parents and sidecar_path.exists() and sidecar_path.is_file():
+            try:
+                parsed_sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+                if isinstance(parsed_sidecar, dict):
+                    sidecar_payload = parsed_sidecar
+            except Exception:
+                sidecar_payload = {}
+    coverage_proof = ""
+    if str(sidecar_payload.get("composition") or "").strip() == "boundary_verified_frame_continuation":
+        coverage_proof = "boundary_verified_frame_continuation"
+    route_labels: list[str] = []
+    route_sources = [sidecar_payload] if coverage_proof else []
+    for source_payload in route_sources:
+        for key in ("covered_route_labels", "magicfit_route_labels", "room_visit_plan", "route_labels", "walkthrough_route_labels"):
+            raw_labels = source_payload.get(key)
+            if not isinstance(raw_labels, (list, tuple)):
+                continue
+            for raw_label in raw_labels:
+                label = compact_text(str(raw_label or "").strip(), fallback="", limit=80)
+                if label and label.lower() not in {item.lower() for item in route_labels}:
+                    route_labels.append(label)
+    if not route_labels and coverage_proof:
+        raw_labels = payload.get("covered_route_labels") or payload.get("magicfit_route_labels")
+        if not isinstance(raw_labels, (list, tuple)):
+            raw_labels = []
+        for raw_label in raw_labels:
+            label = compact_text(str(raw_label or "").strip(), fallback="", limit=80)
+            if label and label.lower() not in {item.lower() for item in route_labels}:
+                route_labels.append(label)
     return {
         "slug": slug,
         "video_url": public_video_url,
@@ -10873,6 +10906,10 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
         "provider_key": video_provider,
         "duration_seconds": duration_seconds,
         "tour_scene_count": scene_count,
+        "coverage_proof": coverage_proof,
+        "video_sidecar_relpath": sidecar_relpath,
+        "covered_route_labels": route_labels,
+        "magicfit_route_labels": route_labels,
     }
 
 
@@ -10922,6 +10959,7 @@ def _update_hosted_property_tour_magicfit_video_manifest(
     tour_url: str,
     video_relpath: str,
     sidecar_relpath: str,
+    route_labels: list[str] | tuple[str, ...] = (),
 ) -> dict[str, object]:
     slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
     if not slug or bundle_dir is None:
@@ -10947,6 +10985,16 @@ def _update_hosted_property_tour_magicfit_video_manifest(
     payload["video_source"] = "magicfit"
     if normalized_sidecar_relpath:
         payload["video_sidecar_relpath"] = normalized_sidecar_relpath
+    normalized_route_labels = [
+        compact_text(str(label or "").strip(), fallback="", limit=80)
+        for label in list(route_labels or [])
+        if compact_text(str(label or "").strip(), fallback="", limit=80)
+    ]
+    if normalized_route_labels:
+        payload["magicfit_route_labels"] = normalized_route_labels
+        payload["covered_route_labels"] = normalized_route_labels
+        payload["room_visit_plan"] = normalized_route_labels
+        payload["video_coverage_proof"] = "boundary_verified_frame_continuation"
     payload["flythrough_url"] = _property_tour_deep_link(tour_url, pane="flythrough-pane", autoplay=True)
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
@@ -11790,6 +11838,8 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
                     "segment_count": len(segment_paths),
                     "duration_seconds": combined_duration_seconds,
                     "required_duration_seconds": required_duration_seconds,
+                    "route_labels": route_labels,
+                    "covered_route_labels": route_labels,
                     "segments": segment_sidecars,
                 },
                 ensure_ascii=False,
@@ -11802,6 +11852,7 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
                 tour_url=tour_url,
                 video_relpath=video_relpath,
                 sidecar_relpath=sidecar_relpath,
+                route_labels=route_labels,
             )
         except Exception as exc:
             render_log["status"] = "failed"
@@ -13221,6 +13272,76 @@ def _magicfit_flythrough_minimum_duration_seconds(*, title: str, property_facts:
     return float(max(1, min(25, int(room_count or 1))) * 15)
 
 
+def _magicfit_normalized_route_label(value: object) -> str:
+    text = compact_text(str(value or "").strip().lower(), fallback="", limit=80)
+    if not text:
+        return ""
+    text = re.sub(r"[^a-z0-9äöüß]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    aliases = {
+        "entry hall": "hall",
+        "vorraum": "hall",
+        "flur": "hall",
+        "storage room": "storage",
+        "abstellraum": "storage",
+        "bath wc": "bath toilet",
+        "bad wc": "bath toilet",
+        "separate toilet": "toilet",
+        "wc": "toilet",
+        "wohnkuche": "living kitchen",
+        "wohnküche": "living kitchen",
+        "zimmer schlafzimmer": "bedroom",
+        "balcony terrace": "balcony terrace",
+        "balkon": "balcony terrace",
+        "terrace": "balcony terrace",
+    }
+    return aliases.get(text, text)
+
+
+def _magicfit_route_coverage_gate(
+    video_delivery: dict[str, object],
+    *,
+    title: str,
+    property_facts: dict[str, object] | None,
+) -> tuple[bool, str, dict[str, object]]:
+    _room_count, expected_labels = _magicfit_property_room_visit_plan(
+        title=title,
+        property_facts=dict(property_facts or {}),
+    )
+    expected = [
+        _magicfit_normalized_route_label(label)
+        for label in expected_labels
+        if _magicfit_normalized_route_label(label)
+    ]
+    expected = list(dict.fromkeys(expected))
+    if len(expected) <= 1:
+        return True, "", {"expected": expected, "covered": [], "missing": []}
+    coverage_proof = str(video_delivery.get("coverage_proof") or "").strip()
+    if coverage_proof != "boundary_verified_frame_continuation":
+        return False, "flythrough_route_coverage_proof_missing", {
+            "expected": expected,
+            "covered": [],
+            "missing": expected,
+            "coverage_proof": coverage_proof,
+        }
+    covered_labels: list[str] = []
+    for key in ("covered_route_labels", "magicfit_route_labels", "room_visit_plan", "route_labels", "walkthrough_route_labels"):
+        raw_labels = video_delivery.get(key)
+        if not isinstance(raw_labels, (list, tuple)):
+            continue
+        for raw_label in raw_labels:
+            label = _magicfit_normalized_route_label(raw_label)
+            if label and label not in covered_labels:
+                covered_labels.append(label)
+    missing = [label for label in expected if label not in covered_labels]
+    metrics = {"expected": expected, "covered": covered_labels, "missing": missing}
+    if missing:
+        if not covered_labels:
+            return False, "flythrough_route_coverage_unverified", metrics
+        return False, "flythrough_route_coverage_missing:" + ",".join(missing), metrics
+    return True, "", metrics
+
+
 def _magicfit_flythrough_duration_gate(
     video_delivery: dict[str, object],
     *,
@@ -13245,6 +13366,13 @@ def _magicfit_flythrough_duration_gate(
         return False, "flythrough_duration_unverified", actual_seconds, required_seconds
     if actual_seconds + 0.25 < required_seconds:
         return False, f"flythrough_too_short:{actual_seconds:.3f}s<{required_seconds:.3f}s", actual_seconds, required_seconds
+    coverage_ok, coverage_reason, _coverage_metrics = _magicfit_route_coverage_gate(
+        video_delivery,
+        title=title,
+        property_facts=gate_facts,
+    )
+    if not coverage_ok:
+        return False, coverage_reason, actual_seconds, required_seconds
     probe_ref = str(video_delivery.get("video_file_path") or video_delivery.get("audio_probe_ref") or "").strip()
     if probe_ref:
         continuity_ok, continuity_reason, _continuity_metrics = _video_continuous_shot_gate(Path(probe_ref))
@@ -23098,7 +23226,7 @@ class ProductService:
         elif fit_score > 0:
             summary_lines.append(f"Personal fit {int(round(max(0.0, min(100.0, float(fit_score or 0.0))))):d}/100")
         summary_lines.extend(_property_link_bundle_key_facts_lines(property_facts_json))
-        summary_lines.append("Open 3D Control opens the available tour control. Matterport and 3DVista buttons appear only when a real provider export exists. Open Flythrough starts the video immediately.")
+        summary_lines.append("Matterport and 3DVista buttons appear only when a real provider export exists. Open Flythrough starts the verified video immediately.")
         url_buttons: list[list[tuple[str, str]]] = []
         first_row: list[tuple[str, str]] = []
         deep_flythrough_url = ""
@@ -23184,10 +23312,6 @@ class ProductService:
                 first_row.append(("Open Matterport", compare_links["matterport"]))
             if compare_links.get("3dvista"):
                 first_row.append(("Open 3DVista", compare_links["3dvista"]))
-            if not first_row:
-                safe_control_url = _telegram_safe_url_button_target(_property_tour_control_link(primary_tour_url))
-                if safe_control_url:
-                    first_row.append(("Open 3D Control", safe_control_url))
         if first_row:
             url_buttons.append(first_row[:2])
         second_row: list[tuple[str, str]] = []
@@ -23286,7 +23410,7 @@ class ProductService:
             "fit_score": float(fit_score or 0.0),
             "direct_matterport_url": compare_links.get("matterport", ""),
             "direct_3dvista_url": compare_links.get("3dvista", ""),
-            "direct_3d_control_url": first_row[0][1] if first_row and first_row[0][0] == "Open 3D Control" else "",
+            "direct_3d_control_url": "",
             "direct_flythrough_url": deep_flythrough_url,
             "provider_rule_gate_status": "passed",
             "provider_rule_gate_metrics": provider_rule_gate_metrics if primary_tour_url else {},
@@ -23686,10 +23810,6 @@ class ProductService:
             first_row.append(("Open Matterport", compare_links["matterport"]))
         if compare_links.get("3dvista"):
             first_row.append(("Open 3DVista", compare_links["3dvista"]))
-        if not first_row:
-            safe_control_url = _telegram_safe_url_button_target(_property_tour_control_link(tour_url_for_buttons))
-            if safe_control_url:
-                first_row.append(("Open 3D Control", safe_control_url))
         if first_row:
             url_buttons.append(first_row[:2])
         second_row: list[tuple[str, str]] = []
@@ -23758,7 +23878,7 @@ class ProductService:
             "flythrough_url": video_url,
             "direct_tour_url": direct_tour_url,
             "direct_flythrough_url": direct_flythrough_url,
-            "direct_3d_control_url": first_row[0][1] if first_row and first_row[0][0] == "Open 3D Control" else "",
+            "direct_3d_control_url": "",
             "provider_rule_gate_status": "passed",
             "provider_rule_gate_metrics": provider_rule_gate_metrics,
             "viewer_gate_status": "passed",
