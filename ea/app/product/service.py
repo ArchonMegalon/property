@@ -25497,7 +25497,31 @@ class ProductService:
             except Exception:
                 pass
 
-        request_preferences = dict(property_search_preferences or {})
+        request_preferences = self._merged_raw_property_search_preferences(
+            principal_id=principal_id,
+            property_preferences=property_search_preferences,
+        )
+        if (
+            request_preferences.get("property_search_enabled") is False
+            or str(request_preferences.get("property_search_enabled") or "").strip().lower() in {"0", "false", "no", "n", "off", "disabled"}
+            or str(request_preferences.get("alert_frequency") or "").strip().lower() in {"off", "disabled", "none", "never"}
+        ):
+            return {
+                "generated_at": _now_iso(),
+                "status": "noop",
+                "noop_reason": "property_search_disabled",
+                "sources_total": 0,
+                "listing_total": 0,
+                "review_created_total": 0,
+                "review_existing_total": 0,
+                "notified_total": 0,
+                "email_notified_total": 0,
+                "tour_created_total": 0,
+                "tour_existing_total": 0,
+                "high_fit_total": 0,
+                "failed_total": 0,
+                "sources": [],
+            }
         effective_force_refresh = bool(force_refresh)
         try:
             resolved_max_results = (

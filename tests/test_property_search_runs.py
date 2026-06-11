@@ -1522,6 +1522,63 @@ def test_property_search_preferences_persist_and_merge_into_run(monkeypatch) -> 
     assert set(status_snapshot.json()["property_search_preferences"]["selected_platforms"]) == {"willhaben", "kalandra"}
 
 
+def test_direct_property_scout_uses_saved_preferences_and_respects_disabled_flag(monkeypatch) -> None:
+    principal_id = "exec-property-direct-saved-preferences"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Direct Saved Preferences")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": False,
+            "alert_frequency": "disabled",
+            "property_commercial": {"active_plan_key": "agent", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"},
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    service = product_service.build_product_service(client.app.state.container)
+    disabled = service.sync_direct_property_scout(principal_id=principal_id, actor="scheduler")
+
+    assert disabled["status"] == "noop"
+    assert disabled["noop_reason"] == "property_search_disabled"
+
+    enabled = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": True,
+            "alert_frequency": "daily",
+            "property_commercial": {"active_plan_key": "agent", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"},
+        },
+    )
+    assert enabled.status_code == 200, enabled.text
+    observed: dict[str, object] = {}
+
+    def _fake_generated_specs(**kwargs):
+        observed["preferences"] = dict(kwargs.get("preferences") or {})
+        observed["selected_platforms"] = tuple(kwargs.get("selected_platforms") or ())
+        return ()
+
+    monkeypatch.setattr(product_service, "generated_property_source_specs", _fake_generated_specs)
+
+    result = service.sync_direct_property_scout(principal_id=principal_id, actor="scheduler")
+
+    assert result["status"] == "noop"
+    assert observed["preferences"]["location_query"] == "Wien"
+    assert observed["preferences"]["listing_mode"] == "rent"
+    assert observed["selected_platforms"] == ()
+
+
 def test_property_search_run_uses_saved_platforms_before_family_toggles(monkeypatch) -> None:
     principal_id = "exec-property-search-saved-platforms"
     client = build_property_client(principal_id=principal_id)
