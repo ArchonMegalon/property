@@ -5262,7 +5262,7 @@ def _property_candidate_matches_requested_location(
         return True
     facts = dict(property_facts or {})
     address_lines = tuple(str(item or "").strip() for item in list(facts.get("address_lines") or []) if str(item or "").strip())
-    haystack_parts = [
+    concrete_parts = [
         str(property_url or "").strip(),
         str(title or "").strip(),
         str(summary or "").strip(),
@@ -5271,26 +5271,46 @@ def _property_candidate_matches_requested_location(
         str(facts.get("location") or "").strip(),
         str(facts.get("street_address") or "").strip(),
         str(facts.get("exact_address") or "").strip(),
+        *address_lines,
+    ]
+    scope_parts = [
         str(facts.get("source_scope_location") or "").strip(),
         str(facts.get("source_postal_code") or "").strip(),
         str(facts.get("source_city") or "").strip(),
-        *address_lines,
     ]
-    raw_text = " ".join(part for part in haystack_parts if part).lower()
-    normalized_text = re.sub(r"[^a-z0-9äöüß]+", "", raw_text)
 
-    for hint in hints:
-        lowered_hint = str(hint or "").strip().lower()
-        if not lowered_hint:
-            continue
-        if lowered_hint in raw_text:
-            return True
-        normalized_hint = re.sub(r"[^a-z0-9äöüß]+", "", lowered_hint)
-        if normalized_hint and normalized_hint in normalized_text:
-            return True
-        hint_tokens = tuple(token for token in _google_location_query_tokens(lowered_hint) if token not in {"vienna", "wien", "austria", "osterreich", "österreich"})
-        if hint_tokens and all(token in raw_text or token in normalized_text for token in hint_tokens):
-            return True
+    concrete_text = " ".join(part for part in concrete_parts if part).lower()
+    normalized_concrete_text = re.sub(r"[^a-z0-9äöüß]+", "", concrete_text)
+
+    def _matches_text(raw_text: str, normalized_text: str) -> bool:
+        for hint in hints:
+            lowered_hint = str(hint or "").strip().lower()
+            if not lowered_hint:
+                continue
+            if lowered_hint in raw_text:
+                return True
+            normalized_hint = re.sub(r"[^a-z0-9äöüß]+", "", lowered_hint)
+            if normalized_hint and normalized_hint in normalized_text:
+                return True
+            hint_tokens = tuple(token for token in _google_location_query_tokens(lowered_hint) if token not in {"vienna", "wien", "austria", "osterreich", "österreich"})
+            if hint_tokens and all(token in raw_text or token in normalized_text for token in hint_tokens):
+                return True
+        return False
+
+    if _matches_text(concrete_text, normalized_concrete_text):
+        return True
+
+    concrete_postal_codes = tuple(re.findall(r"\b\d{4}\b", concrete_text))
+    if concrete_postal_codes:
+        hint_text = " ".join(hints).lower()
+        wants_vienna = "wien" in hint_text or "vienna" in hint_text or any(str(code).startswith("1") for code in re.findall(r"\b\d{4}\b", hint_text))
+        if wants_vienna and not any(str(code).startswith("1") for code in concrete_postal_codes):
+            return False
+
+    scope_text = " ".join(part for part in scope_parts if part).lower()
+    normalized_scope_text = re.sub(r"[^a-z0-9äöüß]+", "", scope_text)
+    if scope_text and _matches_text(scope_text, normalized_scope_text):
+        return True
     return False
 
 

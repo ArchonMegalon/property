@@ -50,6 +50,7 @@ Updated: 2026-06-10
 | `GetNextStep.io` | `Tier 5` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 5 and account identity were seeded manually; local credentials now exist for later structured verification or BrowserAct capture. |
 | `ICanpreneur` | `Tier 3` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 3 and account identity were seeded manually; local credentials now exist for later structured verification or BrowserAct capture. |
 | `Invoiless` | `1x code-based` | `1 code` | `Activated` |  | `Tier 3` | None | Redeemed and activated; still out of the current hot-path product architecture. |
+| `Jogg.ai` | `Tier 4` | `1 account` | `Owned` | activate within AppSumo deadline | `Tier 4` | Local credentials expected via usual shared credential flow; no active runtime lane yet | Newly reported AppSumo Tier 4 account. Candidate use is bounded photoreal/video-ad generation, avatar/product-video experiments, and possible PropertyQuarry/Chummer promo-video provider bake-off support. Jogg.ai must not own property facts, legal/investment truth, dossier writing, 3D tours, preference learning, publishing, or Telegram delivery. Promote only after live login proof, plan/quota capture, watermark/commercial-use/export checks, privacy/data-retention review, and first approved workflow receipt. |
 | `katteb.com` | `10x code-based` | `10 codes` | `Owned` |  | `Tier 4` | Local `.env` username/password only | Newly tracked code-based holding; account credentials are present locally and code activation verification is still pending. |
 | `Lunacal` | `Tier 4 (highest AppSumo tier)` | `1 account` | `Activated` |  | `Tier 4` | BrowserAct-stored credentials plus local `.env` username/password; no active runtime lane yet | Highest AppSumo tier is confirmed at `app.lunacal.ai`; BrowserAct and the local env both hold the account credentials for later structured verification. |
 | `MagicFit` | `License Tier 5` | `2 accounts` | `Owned` |  | `Tier 4` | Local `.env` credentials for the newly seeded account; candidate `MagicFitProviderAdapter` for `chummer6-media-factory` after provider verification | Acquired for Chummer6 promo-video recovery and Black Ledger Newsroom provider bake-off. Candidate uses: text-to-video/image-to-video B-roll, faction promo scenes, social derivatives, and short photoreal anchor tests. It may render candidate assets only; it must not publish directly, own editorial/product truth, or serve as product proof. Promote only after provider verification, commercial-use/watermark/export/credit receipts, motion/people-action scores, public-safety scan, and human creative review. Accounts reported as `tibor.girschele@gmail.com` and `the.girscheles@gmail.com`; the latter is now seeded locally for runtime verification. |
@@ -75,7 +76,7 @@ Updated: 2026-06-10
 
 ## Summary
 
-- `51` total LTD products tracked
+- `52` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `katteb.com`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`12 licenses / 12 accounts`)
 
@@ -102,6 +103,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `FlipLink.me` |  | `manual_seeded` | `user_report + local_env_slots` | 2026-06-05T00:00:00Z | Tier 10 ownership was reported by the user. Runtime slots cover login, cap assumptions, custom domain, webhook secret, default format, and BrowserAct toggle; structured BrowserAct/API verification is still pending. |
 | `GetNextStep.io` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-20T00:00:00Z | Tier 5 and account email were seeded manually; local credentials now exist and structured verification is still pending. |
 | `ICanpreneur` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-20T00:00:00Z | Tier 3 and account email were seeded manually; local credentials now exist and structured verification is still pending. |
+| `Jogg.ai` | `the.girscheles@gmail.com` | `manual_seeded` | `user_report + local_credentials_expected` | 2026-06-11T00:00:00Z | Tier 4 was reported by the user with the usual shared credentials. Live login, plan/quota capture, watermark/commercial-use/export checks, privacy/data-retention review, API/embed/export capability proof, and first approved workflow receipt are still pending. |
 | `hedy.ai` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-02T00:00:00Z | Username/password are stored locally; plan/tier and activation details still need structured verification. |
 | `Internxt Cloud Storage` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `ApiX-Drive` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |

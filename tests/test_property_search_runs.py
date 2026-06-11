@@ -190,6 +190,18 @@ def test_property_search_location_matching_accepts_source_scope_location() -> No
     ) is True
 
 
+def test_property_search_location_matching_rejects_source_scope_postal_conflict() -> None:
+    hints = _property_search_location_hints({"location_query": "1020 Vienna, 1030 Vienna, Wien"})
+
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://www.willhaben.at/iad/object?adId=2098041582",
+        title="Neubau 2 Zimmer Traum mit Balkon, 51,81 m², € 1.099,-, (3400 Klosterneuburg)",
+        summary="Provider result page was queried from a Vienna source scope.",
+        property_facts={"source_scope_location": "Wien", "source_city": "Wien"},
+    ) is False
+
+
 def test_property_search_location_hints_ignore_broad_austria_scope() -> None:
     assert _property_search_location_hints({"location_query": "Österreich"}) == ()
     assert _property_search_location_hints({"location_query": "All Austria"}) == ()
