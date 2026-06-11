@@ -5247,8 +5247,8 @@ def _safe_3dvista_external_url(value: object) -> str:
     parsed = urllib.parse.urlparse(normalized)
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
         return ""
-    host = parsed.netloc.lower()
-    if "3dvista.com" not in host and "3dvista" not in host:
+    host = str(parsed.hostname or "").strip().lower().rstrip(".")
+    if host != "3dvista.com" and not host.endswith(".3dvista.com"):
         return ""
     return normalized
 
@@ -5260,8 +5260,8 @@ def _safe_matterport_external_url(value: object) -> str:
     parsed = urllib.parse.urlparse(normalized)
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
         return ""
-    host = parsed.netloc.lower()
-    if "matterport.com" not in host:
+    host = str(parsed.hostname or "").strip().lower().rstrip(".")
+    if host != "matterport.com" and not host.endswith(".matterport.com"):
         return ""
     return normalized
 

@@ -40,8 +40,11 @@ async def dadan_recording_submitted_webhook(
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="dadan_webhook_invalid_payload")
     service = DadanVideoRequestService(repo=build_property_packet_publication_repository(container.settings))
-    return service.ingest_recording_submitted_webhook(
-        payload=payload,
-        actor="dadan_webhook",
-        secret_mode=secret_mode,
-    )
+    try:
+        return service.ingest_recording_submitted_webhook(
+            payload=payload,
+            actor="dadan_webhook",
+            secret_mode=secret_mode,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc or "dadan_webhook_invalid_payload")) from exc

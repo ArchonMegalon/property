@@ -35,6 +35,7 @@ def test_claim_extraction_marks_missing_operating_costs_with_next_action() -> No
 def test_private_claim_bound_writer_uses_neuronwriter_gate_but_stays_disabled_without_flag(monkeypatch) -> None:
     monkeypatch.delenv("PROPERTYQUARRY_NEURONWRITER_PRIVATE_PACKET_ALLOWED", raising=False)
     monkeypatch.delenv("PROPERTYQUARRY_NEURONWRITER_ENABLED", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_NEURONWRITER_DOSSIER_MODE", raising=False)
     claims = claims_from_deep_research(_research())
     draft = write_claim_bound_dossier(
         dossier_id="dossier-1",
@@ -45,8 +46,8 @@ def test_private_claim_bound_writer_uses_neuronwriter_gate_but_stays_disabled_wi
     recommendation = recommend_for_draft(draft)
 
     assert draft.sections
-    assert recommendation.status == "disabled"
-    assert recommendation.reason == "neuronwriter_disabled"
+    assert recommendation.status == "blocked"
+    assert recommendation.reason == "neuronwriter_private_packet_blocked"
 
 
 def test_public_market_report_can_use_neuronwriter_guard_but_stays_disabled_without_flag(monkeypatch) -> None:
@@ -72,6 +73,7 @@ def test_private_packet_neuronwriter_live_mode_uses_public_safe_topic(monkeypatc
         return {"query": "private-safe-query"}
 
     monkeypatch.setenv("PROPERTYQUARRY_NEURONWRITER_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_NEURONWRITER_DOSSIER_MODE", "private_public_safe")
     monkeypatch.setenv("NEURONWRITER_API_KEY", "test-key")
     monkeypatch.setattr("app.services.dossier_writer.neuronwriter_adapter._post", fake_post)
     claims = claims_from_deep_research(_research())
@@ -124,7 +126,8 @@ def test_write_verified_dossier_from_research_returns_claim_coverage() -> None:
     assert verified.status == "verified"
     assert verified.claim_coverage["claims_used"] > 0
     assert verified.neuronwriter is not None
-    assert verified.neuronwriter.status == "disabled"
+    assert verified.neuronwriter.status == "blocked"
+    assert verified.neuronwriter.reason == "neuronwriter_private_packet_blocked"
 
 
 def test_neuronwriter_new_query_uses_official_header_and_payload(monkeypatch) -> None:

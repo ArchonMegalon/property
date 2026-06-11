@@ -161,3 +161,34 @@ def test_dadan_webhook_records_unmatched_without_learning(monkeypatch: pytest.Mo
     )
     assert events[0]["payload_json"]["principal_id"] == ""
     assert events[0]["payload_json"]["trust_state"] == "untrusted_external"
+
+
+def test_dadan_webhook_rejects_missing_code_and_unsafe_recording_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DADAN_WEBHOOK_SECRET", "dadan-secret")
+    client = build_property_client(principal_id="dadan-invalid-owner")
+    start_workspace(client, mode="personal", workspace_name="Dadan Invalid")
+
+    missing_code = client.post(
+        "/v1/integrations/dadan/webhooks/recording-submitted",
+        headers={"x-propertyquarry-webhook-secret": "dadan-secret"},
+        json={"recordingTitle": "Invalid", "recordingUrl": "https://dadan.io/watch/abc"},
+    )
+    assert missing_code.status_code == 400
+    assert missing_code.json()["error"]["code"] == "dadan_webhook_request_code_missing"
+
+    unsafe_url = client.post(
+        "/v1/integrations/dadan/webhooks/recording-submitted",
+        headers={"x-propertyquarry-webhook-secret": "dadan-secret"},
+        json={
+            "recordingTitle": "Invalid",
+            "recordingUrl": "https://dadan.io.evil.example/watch/abc",
+            "requestCode": "unknown",
+        },
+    )
+    assert unsafe_url.status_code == 400
+    assert unsafe_url.json()["error"]["code"] == "dadan_webhook_recording_url_invalid"
+
+    events = build_property_packet_publication_repository(client.app.state.container.settings).list_events(
+        event_type="property_video_response_received",
+    )
+    assert events == []

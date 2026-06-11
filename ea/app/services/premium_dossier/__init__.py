@@ -11,7 +11,7 @@ from app.services.fliplink.privacy import REDACTION_POLICY_VERSION, redact_prope
 from app.services.premium_dossier.compiler import compile_premium_dossier
 from app.services.premium_dossier.html import render_premium_dossier_html
 from app.services.premium_dossier.markupgo_adapter import render_pdf_with_markupgo
-from app.services.premium_dossier.models import PremiumDossierRenderRequest, PremiumDossierRenderResult
+from app.services.premium_dossier.models import PremiumDossierQualityReport, PremiumDossierRenderRequest, PremiumDossierRenderResult
 from app.services.premium_dossier.playwright_adapter import render_pdf_with_playwright
 from app.services.premium_dossier.qa import inspect_rendered_artifact
 from app.services.premium_dossier.receipts import build_premium_receipt
@@ -89,6 +89,8 @@ def render_property_packet_pdf_via_premium_pipeline(
         forbidden_text=["principal_id", "token", "session", "cookie"],
     )
     render_result: PremiumDossierRenderResult | None = None
+    quality_report: PremiumDossierQualityReport | None = None
+    render_failures: list[dict[str, object]] = []
     for renderer_name in _renderer_chain():
         if renderer_name == "markupgo":
             result = render_pdf_with_markupgo(request)
@@ -97,10 +99,28 @@ def render_property_packet_pdf_via_premium_pipeline(
         else:
             break
         if result.status == "rendered":
-            render_result = result
-            break
+            candidate_quality = inspect_rendered_artifact(
+                artifact_bytes=result.pdf_bytes,
+                expected_text=request.expected_text,
+                forbidden_text=request.forbidden_text,
+            )
+            if candidate_quality.ok:
+                render_result = result
+                quality_report = candidate_quality
+                break
+            render_failures.append(
+                {
+                    "renderer": result.renderer,
+                    "error_code": "premium_pdf_quality_gate_failed",
+                    "required_text_check": candidate_quality.required_text_check,
+                    "forbidden_text_check": candidate_quality.forbidden_text_check,
+                    "forbidden_hits": candidate_quality.forbidden_text_hits[:3],
+                }
+            )
+        elif result.error_code:
+            render_failures.append({"renderer": result.renderer, "error_code": result.error_code, "error_detail": result.error_detail})
     if render_result is None:
-        return legacy_renderer(
+        legacy_rendered = legacy_renderer(
             artifact_root=artifact_root,
             publication_id=publication_id,
             principal_id=principal_id,
@@ -112,6 +132,11 @@ def render_property_packet_pdf_via_premium_pipeline(
             include_floorplan=include_floorplan,
             include_photos=include_photos,
         )
+        if isinstance(legacy_rendered, dict) and render_failures:
+            receipt = legacy_rendered.get("receipt") if isinstance(legacy_rendered.get("receipt"), dict) else {}
+            receipt = {**dict(receipt), "premium_render_failures": render_failures[:5]}
+            legacy_rendered = {**legacy_rendered, "receipt": receipt}
+        return legacy_rendered
     principal_token = "".join(ch if ch.isalnum() else "-" for ch in principal_id.lower())[:80].strip("-") or "principal"
     publication_token = "".join(ch if ch.isalnum() else "-" for ch in publication_id.lower())[:80].strip("-") or "packet"
     target_dir = artifact_root / "property_packets" / principal_token
@@ -119,11 +144,12 @@ def render_property_packet_pdf_via_premium_pipeline(
     pdf_path = target_dir / f"{publication_token}.pdf"
     receipt_path = target_dir / f"{publication_token}.receipt.json"
     pdf_path.write_bytes(render_result.pdf_bytes)
-    quality_report = inspect_rendered_artifact(
-        artifact_bytes=render_result.pdf_bytes,
-        expected_text=request.expected_text,
-        forbidden_text=request.forbidden_text,
-    )
+    if quality_report is None:
+        quality_report = inspect_rendered_artifact(
+            artifact_bytes=render_result.pdf_bytes,
+            expected_text=request.expected_text,
+            forbidden_text=request.forbidden_text,
+        )
     base_receipt = {
         **dict(redaction.receipt or {}),
         "visual_elements": [
@@ -140,6 +166,7 @@ def render_property_packet_pdf_via_premium_pipeline(
             "photos": len(compiled.gallery_urls),
         },
         "redaction_policy_version": REDACTION_POLICY_VERSION,
+        "premium_render_failures": render_failures[:5],
     }
     receipt = build_premium_receipt(
         renderer_version=PREMIUM_DOSSIER_RENDERER_VERSION if render_result.renderer == "markupgo" else PREMIUM_DOSSIER_FALLBACK_VERSION,

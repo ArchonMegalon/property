@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hmac
 import os
+import urllib.parse
 from uuid import uuid4
 
 from app.domain.models import now_utc_iso
@@ -35,6 +36,20 @@ def _safe_metadata(value: dict[str, object] | None) -> dict[str, object]:
         if isinstance(raw, (str, int, float, bool)) or raw is None:
             safe[normalized_key] = raw if not isinstance(raw, str) else _clean(raw, limit=500)
     return safe
+
+
+def _safe_dadan_recording_url(value: object) -> str:
+    normalized = _clean(value, limit=1000)
+    if not normalized:
+        return ""
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.scheme.lower() != "https" or not parsed.netloc:
+        return ""
+    host = str(parsed.hostname or "").strip().lower().rstrip(".")
+    allowed_hosts = ("dadan.io", "app.dadan.io", "www.dadan.io")
+    if host not in allowed_hosts and not host.endswith(".dadan.io"):
+        return ""
+    return urllib.parse.urlunparse(parsed._replace(fragment=""))
 
 
 def _default_agent_missing_fact_instructions(title: str) -> str:
@@ -136,7 +151,12 @@ class DadanVideoRequestService:
         secret_mode: str = "",
     ) -> dict[str, object]:
         request_code = _clean(payload.get("requestCode") or payload.get("request_code") or payload.get("code"), limit=160)
-        recording_url = _clean(payload.get("recordingUrl") or payload.get("recording_url") or payload.get("url"), limit=1000)
+        raw_recording_url = payload.get("recordingUrl") or payload.get("recording_url") or payload.get("url")
+        recording_url = _safe_dadan_recording_url(raw_recording_url)
+        if not request_code:
+            raise ValueError("dadan_webhook_request_code_missing")
+        if not recording_url:
+            raise ValueError("dadan_webhook_recording_url_invalid")
         submitted_at = _clean(payload.get("submittedAt") or payload.get("submitted_at"), limit=120)
         title = _clean(payload.get("recordingTitle") or payload.get("title"), limit=240)
         request = self.request_by_code(request_code) if request_code else None

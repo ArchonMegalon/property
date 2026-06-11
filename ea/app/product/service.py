@@ -13426,7 +13426,8 @@ def _property_3d_provider_rule_exit_gate(
                 expected.append(provider)
     links = _property_tour_compare_links(normalized)
     metrics["expected_providers"] = list(expected)
-    metrics["selected_links"] = dict(links)
+    metrics["available_links"] = dict(links)
+    metrics["selected_links"] = {provider: links[provider] for provider in expected if links.get(provider)}
     if not expected:
         metrics["skipped"] = "no_provider_export_rule"
         return True, "", metrics

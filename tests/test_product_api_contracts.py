@@ -18034,6 +18034,23 @@ def test_public_tour_control_embeds_external_3dvista_url() -> None:
     assert '<iframe src="https://example.3dvista.com/tours/top22/index.html"' in html
 
 
+def test_public_tour_control_rejects_3dvista_lookalike_domain() -> None:
+    from app.api.routes import public_tours
+
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_control_html(
+            {
+                "slug": "3dvista-lookalike",
+                "display_title": "3DVista Lookalike",
+                "control_mode": "3dvista",
+                "three_d_vista_url": "https://3dvista.com.evil.example/tours/top22/index.html",
+            }
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_control_3dvista_export_missing"
+
+
 def test_public_tour_control_embeds_external_matterport_url() -> None:
     from app.api.routes import public_tours
 
@@ -18048,6 +18065,23 @@ def test_public_tour_control_embeds_external_matterport_url() -> None:
 
     assert "Matterport Control" in html
     assert '<iframe src="https://my.matterport.com/show/?m=TEST123&amp;mls=2"' in html
+
+
+def test_public_tour_control_rejects_matterport_lookalike_domain() -> None:
+    from app.api.routes import public_tours
+
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_control_html(
+            {
+                "slug": "matterport-lookalike",
+                "display_title": "Matterport Lookalike",
+                "source_virtual_tour_url": "https://my.matterport.com.evil.example/show/?m=TEST123",
+            },
+            viewer_mode="matterport",
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_control_matterport_export_missing"
 
 
 def test_public_tour_control_rejects_removed_legacy_viewer() -> None:
@@ -18189,6 +18223,36 @@ def test_property_3d_provider_rule_exit_gate_requires_selected_provider_links(mo
         "matterport": "https://propertyquarry.com/tours/provider-rule-tour/control/matterport",
         "3dvista": "https://propertyquarry.com/tours/provider-rule-tour/control/3dvista",
     }
+    assert metrics["available_links"] == metrics["selected_links"]
+
+
+def test_property_3d_provider_rule_exit_gate_rejects_when_one_requested_viewer_is_missing(monkeypatch, tmp_path: Path) -> None:
+    slug = "provider-rule-half-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "matterport_url": "https://my.matterport.com/show/?m=TEST123",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    ok, reason, metrics = product_service._property_3d_provider_rule_exit_gate(
+        "https://propertyquarry.com/tours/provider-rule-half-tour",
+        expected_providers=("matterport", "3dvista"),
+    )
+
+    assert ok is False
+    assert reason == "3dvista_export_missing_for_rule"
+    assert metrics["expected_providers"] == ["matterport", "3dvista"]
+    assert metrics["selected_links"] == {
+        "matterport": "https://propertyquarry.com/tours/provider-rule-half-tour/control/matterport",
+    }
+    assert metrics["available_links"] == metrics["selected_links"]
 
 
 def test_property_3d_provider_rule_exit_gate_rejects_rule_without_export(monkeypatch, tmp_path: Path) -> None:

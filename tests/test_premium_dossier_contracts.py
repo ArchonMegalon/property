@@ -229,15 +229,62 @@ def test_premium_dossier_html_keeps_remote_image_urls_by_default() -> None:
     assert "https://cdn.example.com/property-photo.jpg" in html
 
 
-def test_premium_dossier_quality_gate_allows_binary_pdf_without_false_required_text_failure() -> None:
+def test_premium_dossier_quality_gate_rejects_tiny_binary_pdf_without_markers() -> None:
     report = inspect_rendered_artifact(
         artifact_bytes=b"%PDF-1.4\n\x00\x01binary-stream",
         expected_text=["PropertyQuarry", "1050 live"],
         forbidden_text=["token", "session"],
     )
-    assert report.required_text_check == "passed"
+    assert report.required_text_check == "failed"
+    assert report.forbidden_text_check == "passed"
+    assert report.ok is False
+
+
+def test_premium_dossier_quality_gate_allows_structural_binary_pdf_without_extractable_text() -> None:
+    report = inspect_rendered_artifact(
+        artifact_bytes=b"%PDF-1.4\n1 0 obj <</Type /Page>> endobj\n" + (b"0" * 2048),
+        expected_text=["PropertyQuarry", "1050 live"],
+        forbidden_text=["token", "session"],
+    )
+    assert report.required_text_check == "passed_structural_pdf"
     assert report.forbidden_text_check == "passed"
     assert report.ok is True
+
+
+def test_premium_pipeline_falls_back_when_rendered_pdf_fails_quality_gate(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
+
+    def _bad_playwright(_request):
+        return PremiumDossierRenderResult(
+            status="rendered",
+            renderer="playwright",
+            pdf_bytes=b"%PDF-1.4\n\x00bad",
+            pdf_sha256="bad",
+            render_seconds=0.1,
+        )
+
+    def _legacy_renderer(**kwargs):  # noqa: ANN003
+        return {"status": "legacy_rendered", "receipt": {"renderer_provider": "legacy"}}
+
+    monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_playwright", _bad_playwright)
+
+    rendered = render_property_packet_pdf_via_premium_pipeline(
+        artifact_root=tmp_path,
+        publication_id="pub_quality_fallback",
+        principal_id="cf-email:tibor@example.com",
+        source=_sample_source(),
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        include_exact_address=False,
+        include_floorplan=True,
+        include_photos=True,
+        legacy_renderer=_legacy_renderer,
+    )
+
+    assert rendered["status"] == "legacy_rendered"
+    assert rendered["receipt"]["premium_render_failures"][0]["error_code"] == "premium_pdf_quality_gate_failed"
 
 
 def test_pdf_flythrough_url_does_not_fallback_to_tour_pane_without_real_clip() -> None:
