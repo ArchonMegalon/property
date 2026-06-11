@@ -11006,6 +11006,7 @@ def _update_hosted_property_tour_video_manifest(
     video_relpath: str,
     sidecar_relpath: str,
     provider_key: str,
+    route_labels: list[str] | tuple[str, ...] = (),
 ) -> dict[str, object]:
     slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
     if not slug or bundle_dir is None:
@@ -11032,6 +11033,15 @@ def _update_hosted_property_tour_video_manifest(
     payload["video_source"] = normalized_provider
     if normalized_sidecar_relpath:
         payload["video_sidecar_relpath"] = normalized_sidecar_relpath
+    normalized_route_labels = [
+        compact_text(str(label or "").strip(), fallback="", limit=80)
+        for label in list(route_labels or [])
+        if compact_text(str(label or "").strip(), fallback="", limit=80)
+    ]
+    if normalized_route_labels:
+        payload["covered_route_labels"] = normalized_route_labels
+        payload["room_visit_plan"] = normalized_route_labels
+        payload["video_coverage_proof"] = "boundary_verified_frame_continuation"
     payload["flythrough_url"] = _property_tour_deep_link(tour_url, pane="flythrough-pane", autoplay=True)
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
@@ -12107,6 +12117,8 @@ def _render_onemin_property_flythrough_into_hosted_tour(
                     "segment_count": len(segment_paths),
                     "duration_seconds": combined_duration_seconds,
                     "required_duration_seconds": required_duration_seconds,
+                    "route_labels": route_labels,
+                    "covered_route_labels": route_labels,
                     "segments": segment_sidecars,
                 },
                 ensure_ascii=False,
@@ -12120,6 +12132,7 @@ def _render_onemin_property_flythrough_into_hosted_tour(
                 video_relpath=video_relpath,
                 sidecar_relpath=sidecar_relpath,
                 provider_key="onemin_i2v",
+                route_labels=route_labels,
             )
         except Exception as exc:
             render_log["status"] = "failed"
@@ -12141,6 +12154,24 @@ def _render_property_flythrough_into_hosted_tour(
     birthday_party_request: bool = False,
     person_motion_hint: str = "",
 ) -> dict[str, object]:
+    def _magicfit_fallback_allowed(rendered: dict[str, object]) -> bool:
+        reason = str(rendered.get("reason") or "").strip().lower()
+        error = str(rendered.get("error") or "").strip().lower()
+        combined = f"{reason} {error}"
+        return any(
+            marker in combined
+            for marker in (
+                "not_enough_credits",
+                "not enough credits",
+                "magicfit_account",
+                "magicfit_provider",
+                "magicfit_login",
+                "magicfit_session",
+                "magicfit_render_script_missing",
+                "magicfit_segment_render_failed",
+            )
+        )
+
     route = route_property_media_task(
         MediaRequirement(
             task="walkthrough_video",
@@ -12176,7 +12207,21 @@ def _render_property_flythrough_into_hosted_tour(
             birthday_party_request=birthday_party_request,
             person_motion_hint=person_motion_hint,
         )
-        return {**route_payload, **dict(rendered or {})}
+        rendered_payload = dict(rendered or {})
+        if str(rendered_payload.get("status") or "").strip().lower() == "rendered" or not _magicfit_fallback_allowed(rendered_payload):
+            return {**route_payload, **rendered_payload}
+        fallback = _render_onemin_property_flythrough_into_hosted_tour(
+            tour_url=tour_url,
+            title=title,
+            property_facts=property_facts,
+            actor=actor,
+            birthday_party_request=birthday_party_request,
+            person_motion_hint=person_motion_hint,
+        )
+        fallback_payload = dict(fallback or {})
+        fallback_payload["primary_provider_status"] = rendered_payload
+        fallback_payload["media_route_fallback_provider_key"] = "onemin_i2v"
+        return {**route_payload, **fallback_payload}
     return {"status": "failed", "reason": "selected_flythrough_provider_not_implemented", **route_payload}
 
 

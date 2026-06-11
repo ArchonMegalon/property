@@ -2098,8 +2098,10 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             or ""
         ).strip().lower()
         video_coverage_proof = str(payload.get("video_coverage_proof") or "").strip()
+        generated_video_providers = {"magicfit", "onemin_i2v", "ea_one_manager_onemin_i2v", "poppy_ai"}
         video_allowed = bool(video_provider) and (
-            video_provider != "magicfit" or video_coverage_proof == "boundary_verified_frame_continuation"
+            video_provider not in generated_video_providers
+            or video_coverage_proof == "boundary_verified_frame_continuation"
         )
         video_url = ""
         if video_allowed:

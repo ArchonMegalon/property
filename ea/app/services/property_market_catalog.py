@@ -33,7 +33,7 @@ class PropertyProviderSpec:
 
 
 COUNTRIES: tuple[PropertyCountrySpec, ...] = (
-    PropertyCountrySpec("AT", "Austria", "de", "EUR", "EUR", "Vienna, Graz, Linz", ("willhaben", "immmo", "immoscout_at", "kalandra", "broker_direct_at", "community_signals_at", "genossenschaften_at")),
+    PropertyCountrySpec("AT", "Austria", "de", "EUR", "EUR", "Vienna, Graz, Linz", ("willhaben", "immmo", "immoscout_at", "remax_at", "kalandra", "broker_direct_at", "community_signals_at", "genossenschaften_at")),
     PropertyCountrySpec("BE", "Belgium", "nl", "EUR", "EUR", "Brussels, Antwerp, Ghent", ("immoweb", "zimmo")),
     PropertyCountrySpec("CA", "Canada", "en", "CAD", "CAD", "Toronto, Montreal, Vancouver", ("realtor_ca", "rew_ca", "rentals_ca")),
     PropertyCountrySpec("DE", "Germany", "de", "EUR", "EUR", "Berlin, Munich, Hamburg", ("immoscout_de", "immowelt", "immonet", "kleinanzeigen_immo")),
@@ -142,6 +142,20 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
             "buy": "https://www.kalandra.at/immobiliensuche",
         },
         description="Austria brokerage inventory with high-value marketing packets.",
+        family="broker_direct",
+        trust_tier="standard",
+    ),
+    PropertyProviderSpec(
+        key="remax_at",
+        label="RE/MAX Austria",
+        country_code="AT",
+        host_markers=("remax.at",),
+        listing_path_markers=("/en/im/", "/de/im/", "/en/g/", "/de/g/", "/properties/propertysearch"),
+        search_urls={
+            "rent": "https://www.remax.at/en/properties/propertysearch",
+            "buy": "https://www.remax.at/en/properties/propertysearch",
+        },
+        description="Austria RE/MAX broker network property search for buy and rent inventory.",
         family="broker_direct",
         trust_tier="standard",
     ),
@@ -999,6 +1013,10 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
     "willhaben": "willhaben",
     "immmo": "immmo",
     "kalandra": "kalandra",
+    "remax": "remax_at",
+    "remaxat": "remax_at",
+    "remax_at": "remax_at",
+    "remaxaustria": "remax_at",
     "genossenschaften": "genossenschaften_at",
     "genossenschaft": "genossenschaften_at",
     "cooperatives": "genossenschaften_at",
@@ -1628,6 +1646,7 @@ def _provider_filter_pushdown_payload(
         "willhaben",
         "immmo",
         "immoscout_at",
+        "remax_at",
         "kalandra",
         "flatbee",
         "immoscout_de",

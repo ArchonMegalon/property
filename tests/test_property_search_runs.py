@@ -13,6 +13,7 @@ import app.product.service as product_service
 from app.product.service import ProductService
 from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_matches_requested_location, _property_search_location_hints
 from app.services.property_billing import property_commercial_snapshot
+from app.services import property_market_catalog
 from tests.product_test_helpers import build_property_client, seed_product_state, start_workspace
 
 
@@ -952,8 +953,30 @@ def test_property_provider_greenfield_api_returns_country_scoped_catalog() -> No
     uk_body = uk_response.json()
     assert at_body["country_code"] == "AT"
     assert any(row["value"] == "willhaben" for row in at_body["providers"])
+    assert any(row["value"] == "remax_at" and "RE/MAX Austria" in row["label"] for row in at_body["providers"])
     assert all("Willhaben" not in row["label"] for row in uk_body["providers"])
     assert any(row["value"] == "rightmove" for row in uk_body["providers"])
+
+
+def test_property_provider_catalog_generates_remax_austria_sources() -> None:
+    rows = property_market_catalog.generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "listing_mode": "buy",
+            "location_query": "Wien",
+            "min_area_m2": 70,
+        },
+        selected_platforms=("remax",),
+        principal_id="exec-property-remax-source",
+    )
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["platform"] == "remax_at"
+    assert row["provider_family"] == "broker_direct"
+    assert row["url"].startswith("https://www.remax.at/en/properties/propertysearch")
+    assert "q=Wien" in row["url"]
+    assert row["provider_filter_pushdown"]["applied"]["min_area_m2"] == 70
 
 
 def test_property_search_run_rejects_invalid_platform_and_enforces_run_principal_scope(monkeypatch) -> None:
