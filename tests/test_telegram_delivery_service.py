@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 
+import app.api.routes.channels as channel_routes
 from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.telegram_delivery import (
@@ -132,6 +133,42 @@ def test_telegram_link_renderer_escapes_surrounding_text() -> None:
     assert "Use &lt;this&gt;" in rendered
     assert "https://willhaben.at/iad/object?adId=1" in rendered
     assert ">Open Willhaben listing</a>" in rendered
+
+
+def test_direct_telegram_route_send_hides_visible_full_links(monkeypatch) -> None:
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 11}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.api.routes.channels.urllib.request.urlopen", _fake_urlopen)
+
+    result = channel_routes._telegram_send_message(
+        bot_token="telegram-token",
+        chat_id="42",
+        text="Done: https://propertyquarry.com/tours/demo/control",
+        inline_buttons=[[("https://propertyquarry.com/tours/demo/control", "ea|status|1|42|9999999999|sig")]],
+    )
+
+    assert result["ok"] is True
+    assert sent
+    payload = sent[0]
+    visible_text = re.sub(r'href="[^"]+"', 'href=""', payload["text"])
+    assert payload["parse_mode"] == "HTML"
+    assert "https://propertyquarry.com" not in visible_text
+    assert '<a href="https://propertyquarry.com/tours/demo/control">Open 3D tour</a>' in payload["text"]
+    assert payload["reply_markup"]["inline_keyboard"][0][0]["text"] == "Open 3D tour"
 
 
 def test_send_telegram_message_for_principal_includes_inline_buttons(monkeypatch) -> None:

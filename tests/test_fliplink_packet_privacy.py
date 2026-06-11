@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
-from app.services.fliplink.pdf_renderer import render_property_packet_pdf
+from app.services.fliplink.pdf_renderer import _claim_bound_dossier_sections, render_property_packet_pdf
 from app.services.fliplink.privacy import redact_property_packet
 
 
@@ -68,6 +68,37 @@ def _source_payload() -> dict[str, object]:
             "internal_source_diagnostics": {"cookie": "secret"},
         },
     }
+
+
+def test_claim_bound_dossier_sections_omit_internal_writer_status() -> None:
+    sections = _claim_bound_dossier_sections(
+        {
+            "dossier_writer": {
+                "status": "verified",
+                "generated_by": "propertyquarry_dossier_writer.claim_bound.v1",
+                "claim_coverage": {"claims_used": 9, "unsupported_sentences": 0},
+                "neuronwriter": {"status": "disabled", "reason": "neuronwriter_disabled"},
+                "sections": [
+                    {
+                        "section_key": "executive_decision",
+                        "title": "Executive read",
+                        "body_markdown": "This property remains worth a controlled review.",
+                        "claims_used": ["fact.layout"],
+                    }
+                ],
+            }
+        }
+    )
+
+    rendered = "\n".join(
+        [str(section.get("title") or "") for section in sections]
+        + [str(item or "") for section in sections for item in list(section.get("items") or [])]
+    )
+    assert "Executive read" in rendered
+    assert "Dossier writer:" not in rendered
+    assert "Claim coverage:" not in rendered
+    assert "NeuronWriter:" not in rendered
+    assert "Provenance / QA" not in rendered
 
 
 def test_fliplink_packet_redacts_private_keys_and_exact_address_by_default() -> None:

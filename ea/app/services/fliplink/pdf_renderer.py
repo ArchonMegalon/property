@@ -779,17 +779,6 @@ def _claim_bound_dossier_sections(payload: dict[str, object]) -> list[dict[str, 
         if not title or not items:
             continue
         sections.append(_section(title, items[:5], accent=accents.get(str(raw.get("section_key") or ""), (0.15, 0.38, 0.30))))
-    if sections:
-        neuronwriter = dict(writer.get("neuronwriter") or {}) if isinstance(writer.get("neuronwriter"), dict) else {}
-        neuronwriter_status = str(neuronwriter.get("status") or "").strip()
-        neuronwriter_reason = str(neuronwriter.get("reason") or "").strip()
-        provenance = [
-            f"Dossier writer: {writer.get('generated_by') or 'claim-bound verified narrative'}.",
-            f"Claim coverage: {dict(writer.get('claim_coverage') or {}).get('claims_used', 0)} claims used; unsupported sentences {dict(writer.get('claim_coverage') or {}).get('unsupported_sentences', 0)}.",
-        ]
-        if neuronwriter_status:
-            provenance.append(f"NeuronWriter: {neuronwriter_status}{' - ' + neuronwriter_reason if neuronwriter_reason else ''}.")
-        sections.append(_section("Provenance / QA", provenance, accent=(0.30, 0.31, 0.30)))
     return sections[:7]
 
 

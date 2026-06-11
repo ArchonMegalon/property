@@ -43,7 +43,11 @@ from app.services.telegram_session_service import (
     run_local_resolvers,
 )
 from app.services.telegram_onboarding_service import TELEGRAM_IDENTITY_CONNECTOR, TELEGRAM_OFFICIAL_BOT_CONNECTOR
-from app.services.telegram_delivery import decode_telegram_feedback_callback_data
+from app.services.telegram_delivery import (
+    _telegram_html_with_titled_links,
+    _telegram_visible_button_label,
+    decode_telegram_feedback_callback_data,
+)
 
 router = APIRouter(prefix="/v1/channels", tags=["channels"])
 _telegram = TelegramObservationAdapter()
@@ -341,7 +345,11 @@ def _auto_bind_telegram_chat(container: AppContainer, chat_id: str, *, config: d
 def _telegram_inline_keyboard(button_rows: list[list[tuple[str, str]]]) -> dict[str, object]:
     return {
         "inline_keyboard": [
-            [{"text": str(label or "").strip(), "callback_data": str(callback_data or "").strip()} for label, callback_data in row if str(label or "").strip() and str(callback_data or "").strip()]
+            [
+                {"text": _telegram_visible_button_label(str(label or "")), "callback_data": str(callback_data or "").strip()}
+                for label, callback_data in row
+                if str(label or "").strip() and str(callback_data or "").strip()
+            ]
             for row in button_rows
             if row
         ]
@@ -463,7 +471,11 @@ def _telegram_send_message(
     normalized_text = str(text or "").strip()
     if not normalized_token or not normalized_chat_id or not normalized_text:
         return {}
-    payload_dict: dict[str, object] = {"chat_id": normalized_chat_id, "text": normalized_text}
+    payload_dict: dict[str, object] = {
+        "chat_id": normalized_chat_id,
+        "text": _telegram_html_with_titled_links(normalized_text),
+        "parse_mode": "HTML",
+    }
     if inline_buttons:
         payload_dict["reply_markup"] = _telegram_inline_keyboard(inline_buttons)
     payload = json.dumps(payload_dict).encode("utf-8")
