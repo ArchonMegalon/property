@@ -54,7 +54,13 @@ def test_dadan_dry_run_request_records_safe_video_request(monkeypatch: pytest.Mo
             "audience_type": "agent",
             "title": "Missing-fact check",
             "instructions": "Please show the heating system.",
-            "metadata": {"exact_address": "Private Street 4", "nested": {"drop": True}},
+            "metadata": {
+                "exact_address": "Private Street 4",
+                "principal_id": "cf-email:private@example.test",
+                "property_ref_hash": "already-hashed",
+                "privacy_mode": "agent_share",
+                "nested": {"drop": True},
+            },
         },
     )
     assert response.status_code == 200, response.text
@@ -63,7 +69,7 @@ def test_dadan_dry_run_request_records_safe_video_request(monkeypatch: pytest.Mo
     assert body["status"] == "created"
     assert request["dadan_request_code"].startswith("dry_")
     assert request["trust_state"] == "operator_requested"
-    assert request["metadata_json"] == {"exact_address": "Private Street 4"}
+    assert request["metadata_json"] == {"property_ref_hash": "already-hashed", "privacy_mode": "agent_share"}
 
     events = build_property_packet_publication_repository(client.app.state.container.settings).list_events(
         principal_id="dadan-dry-owner",

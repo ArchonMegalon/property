@@ -25,12 +25,28 @@ def _renderer_chain() -> list[str]:
     primary = str(os.getenv("PROPERTYQUARRY_DOSSIER_RENDERER") or "").strip().lower()
     fallback = str(os.getenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK") or "").strip().lower()
     if not primary:
-        return ["legacy"]
+        primary = "playwright"
     chain: list[str] = []
-    for name in (primary, fallback, "legacy"):
+    legacy_allowed = str(os.getenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW") or "").strip().lower() in {"1", "true", "yes", "on"}
+    for name in (primary, fallback):
         if name and name not in chain:
+            if name == "legacy" and not legacy_allowed:
+                continue
             chain.append(name)
     return chain
+
+
+def _payload_has_private_reference_media(payload: dict[str, object]) -> bool:
+    if payload.get("personal_reference_urls"):
+        return True
+    magic_fit_scene = payload.get("magic_fit_scene")
+    if isinstance(magic_fit_scene, dict) and magic_fit_scene.get("reference_urls"):
+        return True
+    return False
+
+
+def _private_reference_remote_allowed() -> bool:
+    return str(os.getenv("PROPERTYQUARRY_DOSSIER_ALLOW_PRIVATE_REFERENCES_REMOTE") or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def render_property_packet_pdf_via_premium_pipeline(
@@ -76,6 +92,7 @@ def render_property_packet_pdf_via_premium_pipeline(
         fliplink_format=fliplink_format,
         renderer_version=PREMIUM_DOSSIER_RENDERER_VERSION,
     )
+    private_reference_media_included = _payload_has_private_reference_media(source) or _payload_has_private_reference_media(redaction.payload)
     html = render_premium_dossier_html(compiled, principal_id=principal_id)
     request = PremiumDossierRenderRequest(
         dossier_id=publication_id,
@@ -93,6 +110,15 @@ def render_property_packet_pdf_via_premium_pipeline(
     render_failures: list[dict[str, object]] = []
     for renderer_name in _renderer_chain():
         if renderer_name == "markupgo":
+            if private_reference_media_included and not _private_reference_remote_allowed():
+                render_failures.append(
+                    {
+                        "renderer": "markupgo",
+                        "error_code": "markupgo_private_reference_media_blocked",
+                        "error_detail": "Private reference media requires local rendering unless explicit remote consent is enabled.",
+                    }
+                )
+                continue
             result = render_pdf_with_markupgo(request)
         elif renderer_name == "playwright":
             result = render_pdf_with_playwright(request)
@@ -120,6 +146,11 @@ def render_property_packet_pdf_via_premium_pipeline(
         elif result.error_code:
             render_failures.append({"renderer": result.renderer, "error_code": result.error_code, "error_detail": result.error_detail})
     if render_result is None:
+        if str(os.getenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW") or "").strip().lower() not in {"1", "true", "yes", "on"}:
+            raise RuntimeError(
+                "premium_dossier_render_failed:"
+                + ",".join(str(item.get("error_code") or item.get("renderer") or "unknown") for item in render_failures[:5])
+            )
         legacy_rendered = legacy_renderer(
             artifact_root=artifact_root,
             publication_id=publication_id,
@@ -165,6 +196,7 @@ def render_property_packet_pdf_via_premium_pipeline(
             "floorplans": len(compiled.floorplan_urls),
             "photos": len(compiled.gallery_urls),
         },
+        "private_reference_media_included": private_reference_media_included,
         "redaction_policy_version": REDACTION_POLICY_VERSION,
         "premium_render_failures": render_failures[:5],
     }

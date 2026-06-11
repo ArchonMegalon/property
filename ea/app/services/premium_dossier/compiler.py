@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import urllib.parse
 from typing import Any
 
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
@@ -40,6 +41,34 @@ def _fact_cards(payload: dict[str, object]) -> list[PremiumFactCard]:
         PremiumFactCard("ÖV", str(facts.get("nearest_tram_bus_label") or facts.get("nearest_transit_label") or "").strip() or "Siehe Lageprofil"),
     ]
     return [row for row in rows if row.value]
+
+
+def _google_maps_url(payload: dict[str, object]) -> str:
+    facts = dict(payload.get("facts") or {}) if isinstance(payload.get("facts"), dict) else {}
+    if isinstance(payload.get("property_facts"), dict):
+        facts = {**facts, **dict(payload.get("property_facts") or {})}
+    if isinstance(facts.get("listing_research_snapshot"), dict):
+        facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
+
+    def _text(*values: object) -> str:
+        return next((str(value or "").strip() for value in values if str(value or "").strip()), "")
+
+    lat = _text(facts.get("map_lat"), facts.get("lat"), facts.get("latitude"))
+    lng = _text(facts.get("map_lng"), facts.get("lng"), facts.get("lon"), facts.get("longitude"))
+    if lat and lng:
+        return f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(f'{lat},{lng}', safe=',')}"
+    address_lines = " ".join(str(item or "").strip() for item in list(facts.get("address_lines") or []) if str(item or "").strip())
+    query = _text(
+        facts.get("exact_address"),
+        facts.get("street_address"),
+        address_lines,
+        facts.get("postal_name"),
+        facts.get("location"),
+        payload.get("title"),
+    )
+    if not query:
+        return ""
+    return f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(query)}"
 
 
 def compile_premium_dossier(
@@ -97,6 +126,7 @@ def compile_premium_dossier(
         tour_url=_resolve_pdf_primary_tour_url(source=source, payload=redacted_payload),
         flythrough_url=_resolve_pdf_flythrough_url(source=source, payload=redacted_payload),
         review_url=_resolve_pdf_review_url(source=source, payload=redacted_payload),
+        map_url=str(redacted_payload.get("map_url") or source.get("map_url") or _google_maps_url(redacted_payload) or _google_maps_url(source)).strip(),
         fit_summary=str(redacted_payload.get("fit_summary") or redacted_payload.get("recommendation") or "").strip(),
         recommendation=recommendation,
         confidence_label=_confidence_label(risk_lines=risk_register, match_reasons=why_match, mismatch_reasons=why_fail),

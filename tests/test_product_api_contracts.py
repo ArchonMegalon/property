@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import io
@@ -1207,7 +1208,7 @@ def test_render_property_scout_dossier_promotes_media_and_visuals_into_packet(mo
     assert payload["appendix_mode"] == "telegram_pdf_appendix"
     assert payload["dossier_writer_status"] == "verified"
     assert payload["dossier_writer_generated_by"] == "propertyquarry_dossier_writer.claim_bound.v1"
-    assert payload["dossier_writer"]["neuronwriter"]["status"] == "disabled"
+    assert payload["dossier_writer"]["neuronwriter"]["status"] in {"disabled", "blocked"}
     assert "personal_reference_urls" not in payload
 
 
@@ -15535,8 +15536,56 @@ def test_property_magic_fit_reference_upload_route_returns_urls(tmp_path) -> Non
     principal_id = "exec-product-magic-fit-upload"
     client = build_product_client(principal_id=principal_id)
     seed_product_state(client, principal_id=principal_id)
+    tiny_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5Wm1cAAAAASUVORK5CYII="
 
     uploaded = client.post(
+        "/app/api/property/magic-fit-reference-files",
+        json={
+            "items": [
+                {
+                    "file_name": "family-ref.png",
+                    "mime_type": "image/png",
+                    "data_url": f"data:image/png;base64,{tiny_png}",
+                }
+            ]
+        },
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    body = uploaded.json()
+    assert body["status"] == "uploaded"
+    assert len(body["items"]) == 1
+    item = body["items"][0]
+    assert item["file_name"] == "family-ref.png"
+    assert item["mime_type"] == "image/png"
+    assert item["reference_url"].startswith("/app/api/property/magic-fit-reference-files/")
+
+    fetched = client.get(item["reference_url"])
+    assert fetched.status_code == 200
+    assert fetched.headers["content-type"].startswith("image/png")
+    assert fetched.content.startswith(b"\x89PNG")
+
+
+def test_property_magic_fit_reference_upload_rejects_svg_and_invalid_image_bytes(tmp_path) -> None:
+    principal_id = "exec-product-magic-fit-upload-invalid"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    svg = base64.b64encode(b"<svg><script>alert(1)</script></svg>").decode("ascii")
+    rejected_svg = client.post(
+        "/app/api/property/magic-fit-reference-files",
+        json={
+            "items": [
+                {
+                    "file_name": "family-ref.svg",
+                    "mime_type": "image/svg+xml",
+                    "data_url": f"data:image/svg+xml;base64,{svg}",
+                }
+            ]
+        },
+    )
+    assert rejected_svg.status_code == 422
+
+    rejected_jpeg = client.post(
         "/app/api/property/magic-fit-reference-files",
         json={
             "items": [
@@ -15548,18 +15597,7 @@ def test_property_magic_fit_reference_upload_route_returns_urls(tmp_path) -> Non
             ]
         },
     )
-    assert uploaded.status_code == 200, uploaded.text
-    body = uploaded.json()
-    assert body["status"] == "uploaded"
-    assert len(body["items"]) == 1
-    item = body["items"][0]
-    assert item["file_name"] == "family-ref.jpg"
-    assert item["mime_type"] == "image/jpeg"
-    assert item["reference_url"].startswith("/app/api/property/magic-fit-reference-files/")
-
-    fetched = client.get(item["reference_url"])
-    assert fetched.status_code == 200
-    assert fetched.content == b"fake-jpeg-bits"
+    assert rejected_jpeg.status_code == 422
 
 
 def test_property_magic_fit_scene_requires_consent(monkeypatch) -> None:

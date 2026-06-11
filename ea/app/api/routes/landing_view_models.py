@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import urllib.parse
 from typing import Any
 
 
@@ -54,6 +55,34 @@ def _split_known_and_custom_values(
         else:
             custom.append(normalized)
     return known, custom
+
+
+def _property_candidate_maps_url(candidate: dict[str, object]) -> str:
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    if isinstance(candidate.get("property_facts_json"), dict):
+        facts = {**facts, **dict(candidate.get("property_facts_json") or {})}
+    if isinstance(facts.get("listing_research_snapshot"), dict):
+        facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
+
+    def _text(*values: object) -> str:
+        return next((str(value or "").strip() for value in values if str(value or "").strip()), "")
+
+    lat = _text(facts.get("map_lat"), facts.get("lat"), facts.get("latitude"))
+    lng = _text(facts.get("map_lng"), facts.get("lng"), facts.get("lon"), facts.get("longitude"))
+    if lat and lng:
+        return f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(f'{lat},{lng}', safe=',')}"
+    address_lines = " ".join(str(item or "").strip() for item in list(facts.get("address_lines") or []) if str(item or "").strip())
+    query = _text(
+        facts.get("exact_address"),
+        facts.get("street_address"),
+        address_lines,
+        facts.get("postal_name"),
+        facts.get("location"),
+        candidate.get("title"),
+    )
+    if not query:
+        return ""
+    return f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(query)}"
 
 
 def _group_property_provider_options(options: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -1065,6 +1094,36 @@ def app_section_payload(
         enriched_sources.append(source_row)
     if enriched_sources:
         property_summary["sources"] = enriched_sources
+        ranked_candidates = [
+            dict(row)
+            for row in list(property_summary.get("ranked_candidates") or [])
+            if isinstance(row, dict)
+        ]
+        if not ranked_candidates:
+            seen_candidates: set[str] = set()
+            for source_row in enriched_sources:
+                source_label = str(source_row.get("source_label") or source_row.get("source_url") or "Source").strip()
+                for candidate in list(source_row.get("top_candidates") or []):
+                    if not isinstance(candidate, dict):
+                        continue
+                    candidate_row = dict(candidate)
+                    candidate_key = str(candidate_row.get("source_ref") or candidate_row.get("property_url") or candidate_row.get("listing_id") or "").strip()
+                    if candidate_key and candidate_key in seen_candidates:
+                        continue
+                    if candidate_key:
+                        seen_candidates.add(candidate_key)
+                    candidate_row.setdefault("source_label", source_label)
+                    ranked_candidates.append(candidate_row)
+        ranked_candidates.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
+        for index, candidate_row in enumerate(ranked_candidates, start=1):
+            candidate_row["rank"] = index
+            candidate_row.setdefault("map_url", _property_candidate_maps_url(candidate_row))
+            if not str(candidate_row.get("packet_url") or "").strip():
+                candidate_row["packet_url"] = _packet_url_for_candidate(
+                    candidate_row,
+                    source_label=str(candidate_row.get("source_label") or "Source"),
+                )
+        property_summary["ranked_candidates"] = ranked_candidates[:50]
         property_run["summary"] = property_summary
 
     property_source_rows = [

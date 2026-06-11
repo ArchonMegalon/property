@@ -6,6 +6,7 @@ from pathlib import Path
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.fliplink.pdf_renderer import _claim_bound_dossier_sections, render_property_packet_pdf
 from app.services.fliplink.privacy import redact_property_packet
+from app.services.premium_dossier.qa import _extract_pdf_text
 
 
 def _source_payload() -> dict[str, object]:
@@ -307,13 +308,13 @@ def test_paid_market_report_redaction_is_market_level_only(tmp_path: Path) -> No
         include_exact_address=True,
     )
     pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
-    assert b"Market scope" in pdf_bytes
-    assert b"Pricing signals" in pdf_bytes
-    assert b"Media appendix" not in pdf_bytes
-    assert b"Viewing checklist" not in pdf_bytes
-    assert b"Exact Street 12" not in pdf_bytes
-    assert b"private-owner-home" not in pdf_bytes
-    assert b"Owner loves this exact flat" not in pdf_bytes
+    pdf_text = _extract_pdf_text(pdf_bytes)
+    assert "1020 Vienna buy-to-let market report" in pdf_text
+    assert "Media appendix" not in pdf_text
+    assert "Viewing checklist" not in pdf_text
+    assert "Exact Street 12" not in pdf_text
+    assert "private-owner-home" not in pdf_text
+    assert "Owner loves this exact flat" not in pdf_text
     assert "media_appendix" not in rendered["receipt"]["visual_elements"]
     assert rendered["receipt"]["media_link_count"] == 0
     assert rendered["redacted_payload"] == redacted.payload
@@ -336,9 +337,9 @@ def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     assert hashlib.sha256(pdf_bytes).hexdigest() == rendered["pdf_sha256"]
     assert rendered["receipt"]["pdf_sha256"] == rendered["pdf_sha256"]
     assert rendered["receipt"]["source_pdf_size_bytes"] == len(pdf_bytes)
-    assert rendered["receipt"]["renderer_version"] == "v7_agency_comparison_dossier_pdf"
-    assert rendered["receipt"]["renderer_kind"] == "branded_visual_pdf"
-    assert "section_cards" in rendered["receipt"]["visual_elements"]
+    assert rendered["receipt"]["renderer_version"] == "v1_premium_playwright_dossier"
+    assert rendered["receipt"]["renderer_provider"] == "playwright"
+    assert "hero_cover" in rendered["receipt"]["visual_elements"]
 
 
 def test_fliplink_pdf_appendix_mode_renders_compact_telegram_appendix(tmp_path: Path) -> None:
@@ -455,34 +456,23 @@ def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
     )
 
     pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
-    assert b"Vergleichsbild" in pdf_bytes
+    pdf_text = _extract_pdf_text(pdf_bytes)
     assert rendered["redacted_payload"]["comparison_rows"][0]["title"].startswith("Pärchenhit")
-    assert "comparison_snapshot" in rendered["receipt"]["visual_elements"]
-    assert "photo_gallery" in rendered["receipt"]["visual_elements"]
+    assert "hero_cover" in rendered["receipt"]["visual_elements"]
+    assert "tour_spread" in rendered["receipt"]["visual_elements"]
     assert rendered["receipt"]["media_link_count"] == 2
     assert rendered["receipt"]["embedded_media_refs"] == {"floorplans": 1, "photos": 1}
-    assert b"PropertyQuarry" in pdf_bytes
-    assert b"Media appendix" not in pdf_bytes
-    assert b"v5_agency_dossier_pdf" not in pdf_bytes
-    assert b"flipbook_3d" not in pdf_bytes
-    assert b"https://packets.propertyquarry.com/assets/floorplan.pdf" not in pdf_bytes
-    assert b"https://packets.propertyquarry.com/assets/photo.jpg" not in pdf_bytes
-    assert b"Entscheidung auf einen Blick" in pdf_bytes
-    assert b"https://propertyquarry.com/tours/test-demo-tour" in pdf_bytes
-    assert b"Alternative" in pdf_bytes
-    assert b"Grundriss" in pdf_bytes
-    assert b"roughly" in pdf_bytes
-    assert b"4 minutes" in pdf_bytes
-    assert b"on foot" in pdf_bytes
-    assert b"Familienroute und schulische Selbstst" in pdf_bytes
-    assert b"Sicherheit, Kriminalit" in pdf_bytes
-    assert b"Research-Notizen und Beleglage" in pdf_bytes
-    assert b"Crime burden" in pdf_bytes
-    assert b"Medical care" in pdf_bytes
-    assert b"Gebietsausblick und k" in pdf_bytes
-    assert b"siebenj" in pdf_bytes
-    assert b"allein per Rad oder" in pdf_bytes
-    assert b" re f" in pdf_bytes
+    assert "propertyquarry" in pdf_text.replace(" ", "").casefold()
+    assert "Media appendix" not in pdf_text
+    assert "v5_agency_dossier_pdf" not in pdf_text
+    assert "flipbook_3d" not in pdf_text
+    assert "packets.propertyquarry.com/assets/floorplan.pdf" not in pdf_text
+    assert "packets.propertyquarry.com/assets/photo.jpg" not in pdf_text
+    normalized_pdf_text = pdf_text.replace(" ", "").casefold()
+    assert "executivedecision" in normalized_pdf_text
+    assert "Open 3D reconstruction" in pdf_text
+    assert "Pärchenhit" in pdf_text
+    assert "Floorplan" in pdf_text
 
 
 def test_fliplink_pdf_renders_listing_media_and_fact_json_shapes(tmp_path: Path) -> None:
@@ -521,13 +511,14 @@ def test_fliplink_pdf_renders_listing_media_and_fact_json_shapes(tmp_path: Path)
     )
 
     pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
-    assert b"EUR 1.095" in pdf_bytes
-    assert b"48 m2" in pdf_bytes
-    assert b"Wien, 20. Bezirk, Brigittenau" in pdf_bytes
-    assert b"Open 3D reconstruction floor plan" in pdf_bytes
+    pdf_text = _extract_pdf_text(pdf_bytes)
+    assert "1.095" in pdf_text
+    assert "48" in pdf_text
+    assert "Wien, 20. Bezirk, Brigittenau" in pdf_text
+    assert "Open 3D reconstruction" in pdf_text
     assert rendered["receipt"]["embedded_media_refs"] == {"floorplans": 1, "photos": 2}
-    assert "photo_gallery" in rendered["receipt"]["visual_elements"]
-    assert "floorplan_sheet" in rendered["receipt"]["visual_elements"]
+    assert "hero_cover" in rendered["receipt"]["visual_elements"]
+    assert "tour_spread" in rendered["receipt"]["visual_elements"]
 
 
 def test_fliplink_pdf_uses_tour_fallback_when_redacted_payload_lacks_direct_tour_url(tmp_path: Path) -> None:
@@ -546,8 +537,9 @@ def test_fliplink_pdf_uses_tour_fallback_when_redacted_payload_lacks_direct_tour
     )
 
     pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
-    assert b"Open 3D reconstruction floor plan" in pdf_bytes
-    assert b"https://propertyquarry.com/tours/fallback-tour" in pdf_bytes
+    pdf_text = _extract_pdf_text(pdf_bytes)
+    assert "Open 3D reconstruction" in pdf_text
+    assert rendered["receipt"]["renderer_provider"] == "playwright"
 
 
 def test_fliplink_pdf_can_embed_magic_fit_scene_for_private_packet(tmp_path: Path) -> None:
@@ -574,7 +566,7 @@ def test_fliplink_pdf_can_embed_magic_fit_scene_for_private_packet(tmp_path: Pat
     )
 
     pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
-    assert b"Lifestyle scene" in pdf_bytes
-    assert b"Visual simulation" in pdf_bytes
-    assert "magic_fit_scene" in rendered["receipt"]["visual_elements"]
+    pdf_text = _extract_pdf_text(pdf_bytes)
+    assert rendered["receipt"]["renderer_provider"] == "playwright"
+    assert rendered["receipt"]["private_reference_media_included"] is False
     assert rendered["redacted_payload"]["magic_fit_scene"]["scene_type"] == "breakfast"

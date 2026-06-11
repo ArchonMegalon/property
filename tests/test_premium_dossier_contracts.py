@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.fliplink.pdf_renderer import _resolve_pdf_flythrough_url
 from app.services.premium_dossier import render_property_packet_pdf_via_premium_pipeline
@@ -26,6 +28,7 @@ def _sample_source() -> dict[str, object]:
             "heating_type": "Fernwärme",
             "has_lift": True,
             "nearest_transit_label": "Straßenbahn in 4 Gehminuten",
+            "street_address": "Testgasse 12, 1020 Wien",
         },
         "photo_refs": ["https://propertyquarry.com/static/test-cover.jpg"],
         "floorplan_refs": ["https://propertyquarry.com/static/test-floorplan.jpg"],
@@ -74,6 +77,8 @@ def test_premium_dossier_html_contains_core_sections() -> None:
     assert "Risk register and next proof" in html
     assert "Property portrait" in html
     assert "PropertyQuarry" in html
+    assert "Open Google Maps" in html
+    assert "https://www.google.com/maps/search/?api=1" in html
 
 
 def test_markupgo_adapter_requires_api_key(monkeypatch) -> None:
@@ -98,10 +103,11 @@ def test_premium_pipeline_uses_configured_playwright_before_legacy(monkeypatch, 
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
 
     def _fake_playwright(_request):
+        pdf_text = "%PDF-1.4 " + " ".join(_request.expected_text)
         return PremiumDossierRenderResult(
             status="rendered",
             renderer="playwright",
-            pdf_bytes=b"%PDF-1.4 PropertyQuarry Premium Test Wohnung Vertieft prufen",
+            pdf_bytes=pdf_text.encode("utf-8"),
             pdf_sha256="abc123",
             render_seconds=0.5,
         )
@@ -122,6 +128,47 @@ def test_premium_pipeline_uses_configured_playwright_before_legacy(monkeypatch, 
     )
     assert Path(str(rendered["pdf_path"])).is_file()
     assert rendered["receipt"]["renderer_provider"] == "playwright"
+
+
+def test_premium_pipeline_blocks_markupgo_for_private_references(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "markupgo")
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "playwright")
+    monkeypatch.delenv("PROPERTYQUARRY_DOSSIER_ALLOW_PRIVATE_REFERENCES_REMOTE", raising=False)
+    source = _sample_source()
+    source["personal_reference_urls"] = ["/app/api/property/magic-fit-reference-files/magicfitref_private"]
+
+    def _markupgo_should_not_run(_request):
+        raise AssertionError("MarkupGo must not receive private reference media by default")
+
+    def _fake_playwright(_request):
+        pdf_text = "%PDF-1.4 " + " ".join(_request.expected_text)
+        return PremiumDossierRenderResult(
+            status="rendered",
+            renderer="playwright",
+            pdf_bytes=pdf_text.encode("utf-8"),
+            pdf_sha256="abc123",
+            render_seconds=0.5,
+        )
+
+    monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_markupgo", _markupgo_should_not_run)
+    monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_playwright", _fake_playwright)
+    rendered = render_property_packet_pdf_via_premium_pipeline(
+        artifact_root=tmp_path,
+        publication_id="pub_private_refs",
+        principal_id="cf-email:tibor@example.com",
+        source=source,
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        include_exact_address=False,
+        include_floorplan=True,
+        include_photos=True,
+        legacy_renderer=lambda **kwargs: {"status": "legacy_should_not_run"},
+    )
+
+    assert rendered["receipt"]["renderer_provider"] == "playwright"
+    assert rendered["receipt"]["private_reference_media_included"] is True
+    assert rendered["receipt"]["premium_render_failures"][0]["error_code"] == "markupgo_private_reference_media_blocked"
 
 
 def test_premium_dossier_html_can_embed_personal_magicfit_scene() -> None:
@@ -240,20 +287,21 @@ def test_premium_dossier_quality_gate_rejects_tiny_binary_pdf_without_markers() 
     assert report.ok is False
 
 
-def test_premium_dossier_quality_gate_allows_structural_binary_pdf_without_extractable_text() -> None:
+def test_premium_dossier_quality_gate_rejects_structural_binary_pdf_without_extractable_text() -> None:
     report = inspect_rendered_artifact(
         artifact_bytes=b"%PDF-1.4\n1 0 obj <</Type /Page>> endobj\n" + (b"0" * 2048),
         expected_text=["PropertyQuarry", "1050 live"],
         forbidden_text=["token", "session"],
     )
-    assert report.required_text_check == "passed_structural_pdf"
+    assert report.required_text_check == "failed"
     assert report.forbidden_text_check == "passed"
-    assert report.ok is True
+    assert report.ok is False
 
 
-def test_premium_pipeline_falls_back_when_rendered_pdf_fails_quality_gate(monkeypatch, tmp_path: Path) -> None:
+def test_premium_pipeline_fails_closed_when_rendered_pdf_fails_quality_gate(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
+    monkeypatch.delenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", raising=False)
 
     def _bad_playwright(_request):
         return PremiumDossierRenderResult(
@@ -269,6 +317,40 @@ def test_premium_pipeline_falls_back_when_rendered_pdf_fails_quality_gate(monkey
 
     monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_playwright", _bad_playwright)
 
+    with pytest.raises(RuntimeError, match="premium_dossier_render_failed:premium_pdf_quality_gate_failed"):
+        render_property_packet_pdf_via_premium_pipeline(
+            artifact_root=tmp_path,
+            publication_id="pub_quality_fallback",
+            principal_id="cf-email:tibor@example.com",
+            source=_sample_source(),
+            packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+            privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+            fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+            include_exact_address=False,
+            include_floorplan=True,
+            include_photos=True,
+            legacy_renderer=_legacy_renderer,
+        )
+
+
+def test_premium_pipeline_legacy_fallback_requires_emergency_flag(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
+    monkeypatch.setenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", "1")
+
+    def _bad_playwright(_request):
+        return PremiumDossierRenderResult(
+            status="rendered",
+            renderer="playwright",
+            pdf_bytes=b"%PDF-1.4\n\x00bad",
+            pdf_sha256="bad",
+            render_seconds=0.1,
+        )
+
+    def _legacy_renderer(**kwargs):  # noqa: ANN003
+        return {"status": "legacy_rendered", "receipt": {"renderer_provider": "legacy"}}
+
+    monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_playwright", _bad_playwright)
     rendered = render_property_packet_pdf_via_premium_pipeline(
         artifact_root=tmp_path,
         publication_id="pub_quality_fallback",

@@ -138,11 +138,29 @@ def test_dadan_video_feedback_normalizes_into_structured_property_signals(tmp_pa
     client = property_client_with_workspace(principal_id="pq-dadan-feedback", tmp_path=tmp_path)
     publication_id = seed_packet(client, property_ref="listing-dadan")
 
+    pending = client.post(
+        "/app/api/property-feedback/dadan",
+        json={
+            "property_ref": "listing-dadan",
+            "publication_id": publication_id,
+            "stakeholder_id": "viewer-mara",
+            "stakeholder_label": "Mara",
+            "submission_id": "dadan-submission-pending",
+            "answers": [
+                {"question": "What did you like?", "answer": "I like the bright kitchen and balcony."},
+            ],
+        },
+    )
+    assert pending.status_code == 200, pending.text
+    assert pending.json()["status"] == "pending_owner_review"
+    assert pending.json()["total"] == 0
+
     recorded = client.post(
         "/app/api/property-feedback/dadan",
         json={
             "property_ref": "listing-dadan",
             "publication_id": publication_id,
+            "owner_review_confirmed": True,
             "stakeholder_id": "viewer-mara",
             "stakeholder_label": "Mara",
             "submission_id": "dadan-submission-1",

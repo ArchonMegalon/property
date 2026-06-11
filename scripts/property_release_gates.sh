@@ -27,6 +27,7 @@ Runs the focused PropertyQuarry release bundle:
   - property search run contracts
   - property market catalog contracts
   - property browser journey contracts
+  - dossier writer, Dadan video request, media factory, and premium dossier contracts
 EOF
   exit 0
 fi
@@ -59,6 +60,10 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_propertyquarry_phase7_exit_gate.py \
   tests/test_propertyquarry_master_regression_gate.py \
   tests/test_propertyquarry_tester_gold_gate.py \
+  tests/test_dossier_writer.py \
+  tests/test_dadan_video_request_workflow.py \
+  tests/test_property_media_factory.py \
+  tests/test_premium_dossier_contracts.py \
   tests/test_property_search_runs.py::test_property_search_run_surfaces_and_updates_missing_fact_research_tasks
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_product_api_contracts.py -k 'property_notification_preview or property_feedback'

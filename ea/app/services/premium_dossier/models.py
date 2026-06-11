@@ -42,6 +42,7 @@ class PremiumDossierCompileResult:
     tour_url: str = ""
     flythrough_url: str = ""
     review_url: str = ""
+    map_url: str = ""
     fit_summary: str = ""
     recommendation: str = ""
     confidence_label: str = ""

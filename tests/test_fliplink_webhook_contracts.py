@@ -12,7 +12,8 @@ from tests.product_test_helpers import build_property_client, start_workspace
 
 
 @pytest.fixture(autouse=True)
-def _reset_packet_publication_repo() -> None:
+def _reset_packet_publication_repo(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", "1")
     repo = property_packet_publications._MEMORY_REPO
     repo._publications.clear()
     repo._publication_order.clear()

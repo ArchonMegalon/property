@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-import mimetypes
 import os
 import re
 import base64
+from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
@@ -168,6 +168,7 @@ class DadanPropertyFeedbackIn(BaseModel):
     summary: str = Field(default="", max_length=4000)
     comment: str = Field(default="", max_length=2000)
     note: str = Field(default="", max_length=2000)
+    owner_review_confirmed: bool = False
 
 
 class DadanVideoRequestCreateIn(BaseModel):
@@ -1282,11 +1283,15 @@ def upload_property_magic_fit_reference_files(
         raise HTTPException(status_code=422, detail="property_magic_fit_reference_photo_required")
     for upload in accepted:
         mime_type = str(upload.mime_type or "").strip().lower()
-        if not mime_type.startswith("image/"):
+        allowed_mime_types = {"image/jpeg": ("JPEG", ".jpg"), "image/png": ("PNG", ".png"), "image/webp": ("WEBP", ".webp")}
+        if mime_type not in allowed_mime_types:
             raise HTTPException(status_code=422, detail="property_magic_fit_reference_image_required")
         data_url = str(upload.data_url or "").strip()
         match = re.match(r"^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,(.+)$", data_url, re.IGNORECASE | re.DOTALL)
         if match is None:
+            raise HTTPException(status_code=422, detail="property_magic_fit_reference_image_required")
+        data_url_mime = str(match.group(1) or "").strip().lower()
+        if data_url_mime and data_url_mime != mime_type:
             raise HTTPException(status_code=422, detail="property_magic_fit_reference_image_required")
         try:
             data = base64.b64decode(match.group(2), validate=False)
@@ -1296,9 +1301,26 @@ def upload_property_magic_fit_reference_files(
             raise HTTPException(status_code=422, detail="property_magic_fit_reference_image_required")
         if len(data) > 8 * 1024 * 1024:
             raise HTTPException(status_code=422, detail="property_magic_fit_reference_file_too_large")
-        suffix = Path(str(upload.file_name or "")).suffix.lower()
-        if not suffix:
-            suffix = mimetypes.guess_extension(mime_type) or ".jpg"
+        try:
+            from PIL import Image
+
+            with Image.open(BytesIO(data)) as image:
+                image.load()
+                width, height = image.size
+                if width <= 0 or height <= 0 or (width * height) > 24_000_000:
+                    raise HTTPException(status_code=422, detail="property_magic_fit_reference_file_too_large")
+                target_format, suffix = allowed_mime_types[mime_type]
+                normalized_image = image.convert("RGB") if target_format in {"JPEG", "WEBP"} else image.convert("RGBA")
+                output = BytesIO()
+                save_kwargs: dict[str, object] = {}
+                if target_format == "JPEG":
+                    save_kwargs.update({"quality": 92, "optimize": True})
+                normalized_image.save(output, format=target_format, **save_kwargs)
+                data = output.getvalue()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="property_magic_fit_reference_image_required") from exc
         reference_id = f"magicfitref_{uuid4().hex}"
         file_path = root / f"{reference_id}{suffix}"
         meta_path = root / f"{reference_id}.json"
@@ -1412,6 +1434,35 @@ def record_dadan_property_feedback(
     service = build_fliplink_packet_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "dadan").strip()
     payload = body.model_dump()
+    if not body.owner_review_confirmed:
+        event = service._repo.record_event(
+            {
+                "publication_id": body.publication_id,
+                "principal_id": context.principal_id,
+                "event_type": "property_dadan_feedback_pending_review",
+                "actor": actor,
+                "payload_json": {
+                    "property_ref": body.property_ref,
+                    "publication_id": body.publication_id,
+                    "share_id": body.share_id,
+                    "audience_type": body.audience_type or "viewer",
+                    "event_id": body.event_id,
+                    "submission_id": body.submission_id,
+                    "video_id": body.video_id,
+                    "source": "dadan_video_feedback",
+                    "trust_state": "untrusted_external",
+                    "review_state": "pending_owner_review",
+                },
+            }
+        )
+        return {
+            "status": "pending_owner_review",
+            "source": "dadan_video_feedback",
+            "property_ref": body.property_ref,
+            "event_id": str(event.get("event_id") or ""),
+            "recorded": [],
+            "total": 0,
+        }
     signals = dadan_feedback_signals(payload)
     recorded: list[dict[str, object]] = []
     for signal in signals:

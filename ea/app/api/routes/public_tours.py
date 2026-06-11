@@ -830,6 +830,19 @@ def _safe_live_360_url(value: object) -> str:
     parsed = urlparse(normalized)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return ""
+    host = str(parsed.hostname or "").strip().lower().rstrip(".")
+    raw_allowed = str(
+        os.getenv(
+            "PROPERTYQUARRY_PUBLIC_360_ALLOWED_HOSTS",
+            "propertyquarry.com,*.propertyquarry.com,my.matterport.com,*.matterport.com,360.kalandra.at",
+        )
+        or ""
+    ).strip()
+    allowed = tuple(item.strip().lower().rstrip(".") for item in raw_allowed.split(",") if item.strip())
+    if not allowed:
+        return ""
+    if not any(host == item or (item.startswith("*.") and host.endswith(item[1:])) for item in allowed):
+        return ""
     return normalized
 
 

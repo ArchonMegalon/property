@@ -200,6 +200,13 @@ def test_property_search_location_matching_rejects_source_scope_postal_conflict(
         summary="Provider result page was queried from a Vienna source scope.",
         property_facts={"source_scope_location": "Wien", "source_city": "Wien"},
     ) is False
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://propertyquarry.com/tours/gefrderte-2-zimmer-mietwohnung-mit-balkon-und-carport-in-jagerberg-layout-first-828b943ae4",
+        title="Geförderte 2 Zimmer Mietwohnung mit Balkon und Carport in Jagerberg",
+        summary="Provider result page was queried from a Vienna source scope.",
+        property_facts={"postal_name": "8091 Jagerberg", "source_scope_location": "Wien", "source_city": "Wien"},
+    ) is False
 
 
 def test_property_search_location_hints_ignore_broad_austria_scope() -> None:

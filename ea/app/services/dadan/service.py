@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import hmac
 import os
 import urllib.parse
@@ -22,6 +23,15 @@ _REQUEST_KINDS = {
     "public_testimonial",
 }
 
+_SAFE_METADATA_KEYS = {
+    "property_ref_hash",
+    "request_kind",
+    "audience_type",
+    "packet_kind",
+    "privacy_mode",
+    "source_ref_hash",
+}
+
 
 def _clean(value: object, *, limit: int = 1000) -> str:
     return " ".join(str(value or "").strip().split())[:limit]
@@ -31,11 +41,18 @@ def _safe_metadata(value: dict[str, object] | None) -> dict[str, object]:
     safe: dict[str, object] = {}
     for key, raw in dict(value or {}).items():
         normalized_key = _clean(key, limit=80)
-        if not normalized_key:
+        if not normalized_key or normalized_key not in _SAFE_METADATA_KEYS:
             continue
         if isinstance(raw, (str, int, float, bool)) or raw is None:
             safe[normalized_key] = raw if not isinstance(raw, str) else _clean(raw, limit=500)
     return safe
+
+
+def _hash_ref(value: object) -> str:
+    normalized = _clean(value, limit=1000)
+    if not normalized:
+        return ""
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
 
 
 def _safe_dadan_recording_url(value: object) -> str:
@@ -98,7 +115,7 @@ class DadanVideoRequestService:
             instructions=normalized_instructions,
             metadata={
                 **safe_meta,
-                "property_ref": _clean(property_ref, limit=240),
+                "property_ref_hash": _hash_ref(property_ref),
                 "request_kind": normalized_kind,
                 "audience_type": _clean(audience_type, limit=80) or "agent",
             },

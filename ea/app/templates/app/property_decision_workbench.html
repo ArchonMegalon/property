@@ -966,6 +966,46 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
     }
+    .pqx-table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      margin-bottom: 14px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: var(--pq-panel);
+    }
+    .pqx-table {
+      width: 100%;
+      min-width: 860px;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .pqx-table th,
+    .pqx-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--pq-line);
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+    .pqx-table th {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--pq-muted);
+      background: #fffefa;
+    }
+    .pqx-table tr:last-child td {
+      border-bottom: 0;
+    }
+    .pqx-table a {
+      display: inline-block;
+      margin-right: 8px;
+      color: var(--pq-gold-strong);
+      font-weight: 760;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
     .pqx-source-card {
       display: grid;
       gap: 8px;
@@ -1820,6 +1860,41 @@
             </div>
             <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
           </div>
+          {% set ranked_candidates = run_summary.get('ranked_candidates') or [] %}
+          {% if ranked_candidates %}
+          <div class="pqx-table-wrap" data-pqx-ranked-candidates>
+            <table class="pqx-table">
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Property</th>
+                  <th>Provider</th>
+                  <th>Fit</th>
+                  <th>Reason</th>
+                  <th>Open</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for candidate in ranked_candidates[:20] %}
+                <tr>
+                  <td>{{ candidate.get('rank') or loop.index }}</td>
+                  <td>{{ candidate.get('title') or candidate.get('property_url') or 'Property candidate' }}</td>
+                  <td>{{ candidate.get('source_label') or candidate.get('source_platform') or 'Provider' }}</td>
+                  <td>{{ candidate.get('fit_score') or 0 }}</td>
+                  <td>{{ candidate.get('compare_reason') or candidate.get('fit_summary') or (candidate.get('match_reasons') or ['Review packet for details'])[0] }}</td>
+                  <td>
+                    {% if candidate.get('packet_url') %}<a href="{{ candidate.get('packet_url') }}">Review</a>{% endif %}
+                    {% if candidate.get('map_url') %}<a href="{{ candidate.get('map_url') }}">Map</a>{% endif %}
+                    {% if candidate.get('property_url') %}<a href="{{ candidate.get('property_url') }}">Listing</a>{% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <div class="pqx-empty" data-pqx-ranked-candidates>No ranked candidates are available yet.</div>
+          {% endif %}
           {% if run_sources %}
           <div class="pqx-source-grid" data-pqx-source-breakdown>
             {% for source in run_sources %}
@@ -3624,6 +3699,22 @@
         return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(event?.message || 'No detail yet.')}</span></div>`;
       }).join('') || '<div class="pqx-empty">Waiting for the first crawler update.</div>';
     };
+    const renderRankedCandidates = (candidates) => {
+      const rows = Array.isArray(candidates) ? candidates.slice(0, 20) : [];
+      if (!rows.length) return '<div class="pqx-empty" data-pqx-ranked-candidates>No ranked candidates are available yet.</div>';
+      const body = rows.map((candidate, index) => {
+        const title = candidate?.title || candidate?.property_url || 'Property candidate';
+        const source = candidate?.source_label || candidate?.source_platform || 'Provider';
+        const reason = candidate?.compare_reason || candidate?.fit_summary || (Array.isArray(candidate?.match_reasons) ? candidate.match_reasons[0] : '') || 'Review packet for details';
+        const links = [
+          candidate?.packet_url ? `<a href="${escapeHtml(candidate.packet_url)}">Review</a>` : '',
+          candidate?.map_url ? `<a href="${escapeHtml(candidate.map_url)}">Map</a>` : '',
+          candidate?.property_url ? `<a href="${escapeHtml(candidate.property_url)}">Listing</a>` : '',
+        ].filter(Boolean).join('');
+        return `<tr><td>${escapeHtml(candidate?.rank || index + 1)}</td><td>${escapeHtml(title)}</td><td>${escapeHtml(source)}</td><td>${escapeHtml(candidate?.fit_score || 0)}</td><td>${escapeHtml(reason)}</td><td>${links}</td></tr>`;
+      }).join('');
+      return `<div class="pqx-table-wrap" data-pqx-ranked-candidates><table class="pqx-table"><thead><tr><th>Rank</th><th>Property</th><th>Provider</th><th>Fit</th><th>Reason</th><th>Open</th></tr></thead><tbody>${body}</tbody></table></div>`;
+    };
     const renderRun = (runPayload) => {
       if (!runPayload || typeof runPayload !== 'object') return;
       const status = String(runPayload.status || 'queued');
@@ -3635,11 +3726,13 @@
       const summaryNode = root.querySelector('[data-pqx-run-summary]');
       const eventsNode = root.querySelector('[data-pqx-run-events]');
       const updatedNode = root.querySelector('[data-pqx-run-updated]');
+      const rankedNode = root.querySelector('[data-pqx-ranked-candidates]');
       if (statusNode) statusNode.textContent = status.replaceAll('_', ' ');
       if (messageNode) messageNode.textContent = String(runPayload.message || 'Queued for execution.');
       if (ring) ring.style.setProperty('--progress', String(terminalStates.has(status) ? progress : Math.min(progress, 95)));
       if (progressLabel) progressLabel.textContent = `${terminalStates.has(status) ? progress : Math.min(progress, 95)}%`;
       if (summaryNode && runPayload.summary) summaryNode.textContent = runSummaryText(runPayload);
+      if (rankedNode && runPayload.summary) rankedNode.outerHTML = renderRankedCandidates(runPayload.summary.ranked_candidates);
       if (eventsNode) eventsNode.innerHTML = renderRunEvents(runPayload.events);
       if (updatedNode) updatedNode.textContent = `Last update ${runPayload.updated_at || runPayload.generated_at || new Date().toLocaleTimeString()}`;
       applyResearchTaskSnapshot(runPayload);

@@ -23,7 +23,7 @@ def render_pdf_with_playwright(request: PremiumDossierRenderRequest) -> PremiumD
                 browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
                 try:
                     page = browser.new_page()
-                    page.goto(html_path.as_uri(), wait_until="networkidle")
+                    page.goto(html_path.as_uri(), wait_until="load")
                     page.pdf(path=str(pdf_path), format="A4", print_background=True, margin={"top": "0", "right": "0", "bottom": "0", "left": "0"})
                 finally:
                     browser.close()
@@ -39,4 +39,3 @@ def render_pdf_with_playwright(request: PremiumDossierRenderRequest) -> PremiumD
         pdf_sha256=hashlib.sha256(pdf_bytes).hexdigest(),
         render_seconds=time.time() - started,
     )
-

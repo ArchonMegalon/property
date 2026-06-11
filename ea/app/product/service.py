@@ -5314,6 +5314,60 @@ def _property_candidate_matches_requested_location(
     return False
 
 
+def _property_candidate_google_maps_url(candidate: dict[str, object]) -> str:
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    if isinstance(candidate.get("property_facts_json"), dict):
+        facts = {**facts, **dict(candidate.get("property_facts_json") or {})}
+    if isinstance(facts.get("listing_research_snapshot"), dict):
+        facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
+
+    def _text(*values: object) -> str:
+        return next((str(value or "").strip() for value in values if str(value or "").strip()), "")
+
+    lat = _text(facts.get("map_lat"), facts.get("lat"), facts.get("latitude"))
+    lng = _text(facts.get("map_lng"), facts.get("lng"), facts.get("lon"), facts.get("longitude"))
+    if lat and lng:
+        return f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(f'{lat},{lng}', safe=',')}"
+    address_lines = " ".join(str(item or "").strip() for item in list(facts.get("address_lines") or []) if str(item or "").strip())
+    query = _text(
+        facts.get("exact_address"),
+        facts.get("street_address"),
+        address_lines,
+        facts.get("postal_name"),
+        facts.get("location"),
+        candidate.get("title"),
+    )
+    if not query:
+        return ""
+    return f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(query)}"
+
+
+def _property_search_ranked_candidates_from_sources(sources: object, *, limit: int = 50) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for source in list(sources or []):
+        if not isinstance(source, dict):
+            continue
+        source_label = str(source.get("source_label") or source.get("platform") or "Property scout").strip() or "Property scout"
+        for candidate in list(source.get("research_candidates") or source.get("top_candidates") or []):
+            if not isinstance(candidate, dict):
+                continue
+            row = dict(candidate)
+            dedupe_key = str(row.get("source_ref") or row.get("property_url") or row.get("listing_id") or "").strip()
+            if dedupe_key and dedupe_key in seen:
+                continue
+            if dedupe_key:
+                seen.add(dedupe_key)
+            row.setdefault("source_label", source_label)
+            if not str(row.get("map_url") or "").strip():
+                row["map_url"] = _property_candidate_google_maps_url(row)
+            rows.append(row)
+    rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
+    for index, row in enumerate(rows, start=1):
+        row["rank"] = index
+    return rows[: max(1, min(int(limit or 50), 200))]
+
+
 _PROPERTY_NON_RESIDENTIAL_ONLY_MARKERS = (
     "garagenplatz",
     "garageplatz",
@@ -25147,6 +25201,7 @@ class ProductService:
             source_row["top_candidates"] = refreshed_candidates
             refreshed_sources.append(source_row)
         refreshed["sources"] = refreshed_sources
+        refreshed["ranked_candidates"] = _property_search_ranked_candidates_from_sources(refreshed_sources)
         refreshed["ready_tour_total"] = ready_total
         refreshed["pending_tour_total"] = pending_total
         refreshed["blocked_tour_total"] = blocked_total
@@ -27025,6 +27080,13 @@ class ProductService:
                         "tour_status": str(tour_result.get("status") or "").strip(),
                         "blocked_reason": str(tour_result.get("blocked_reason") or "").strip(),
                         "property_facts": dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {},
+                        "map_url": _property_candidate_google_maps_url(
+                            {
+                                "title": title,
+                                "property_url": property_url,
+                                "property_facts": dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {},
+                            }
+                        ),
                         "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
                         "match_reasons": [
                             str(item or "").strip()
@@ -27247,6 +27309,7 @@ class ProductService:
             "failed_total": failed_total,
             "sources": source_summaries,
         }
+        payload["ranked_candidates"] = _property_search_ranked_candidates_from_sources(source_summaries)
         research_tasks = _property_research_tasks_from_result(payload)
         payload.update(_property_research_task_counts(research_tasks))
         payload["research_tasks"] = research_tasks[:50]

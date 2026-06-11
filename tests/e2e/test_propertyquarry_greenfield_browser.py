@@ -48,11 +48,12 @@ def _wait_for_http(base_url: str, *, timeout_seconds: float = 15.0) -> None:
 def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, object]]:
     from tests.product_test_helpers import build_product_client, start_workspace
 
-    client = build_product_client(principal_id="pq-greenfield-browser")
-    start_workspace(client, mode="personal", workspace_name="Property Office")
+    monkeypatch.setenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", "1")
     monkeypatch.setenv("PAYPAL_CLIENT_ID", "paypal-client")
     monkeypatch.setenv("PAYPAL_SECRET", "paypal-secret")
     monkeypatch.setenv("FLIPLINK_WEBHOOK_SECRET", "webhook-secret")
+    client = build_product_client(principal_id="pq-greenfield-browser")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
     stored = client.post(
         "/v1/onboarding/property-search/preferences",
         json={

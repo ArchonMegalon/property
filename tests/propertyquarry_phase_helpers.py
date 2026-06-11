@@ -26,6 +26,9 @@ def seed_packet(
     property_ref: str = "listing-123",
     payload: dict[str, object] | None = None,
 ) -> str:
+    import os
+
+    os.environ["PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW"] = "1"
     property_payload = payload or {
         "title": "Family flat near Augarten",
         "property_url": "https://www.willhaben.at/iad/immobilien/d/demo",
@@ -61,6 +64,7 @@ def property_client_with_workspace(*, principal_id: str, tmp_path: Path):
 
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ["EA_ARTIFACTS_DIR"] = str(tmp_path)
+    os.environ["PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW"] = "1"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
     return client

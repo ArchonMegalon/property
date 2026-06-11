@@ -7448,6 +7448,7 @@ def test_public_tour_routes_embed_live_360_source_when_present(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_360_ALLOWED_HOSTS", "360.example.test")
     slug = "pioche-lecombe-live-360"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)

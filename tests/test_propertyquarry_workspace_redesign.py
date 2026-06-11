@@ -388,6 +388,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-workbench-dossier' in search.text
     assert 'data-workbench-row' in search.text
     assert "Ranked shortlist" in search.text
+    assert "Rank" in search.text
+    assert "Provider" in search.text
+    assert "Map" in search.text
+    assert "https://www.google.com/maps/search/?api=1" in search.text
     assert "select one to update the 360 and decision panel" in search.text
     assert "Altbau near U6" in search.text
     assert "Family flat near Tiergarten" in search.text
