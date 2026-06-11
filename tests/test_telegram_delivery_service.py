@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 
 from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.telegram_delivery import (
     _chunk_telegram_text,
+    _telegram_html_with_titled_links,
     resolve_primary_telegram_binding,
     send_telegram_audio_for_principal,
     send_telegram_document_for_principal,
@@ -74,6 +76,62 @@ def test_send_telegram_message_for_principal_uses_bound_chat(monkeypatch) -> Non
     assert receipt.message_ids == ("7",)
     assert sent and sent[0]["payload"]["chat_id"] == "42"
     assert sent[0]["payload"]["text"] == "Hello from EA"
+    assert sent[0]["payload"]["parse_mode"] == "HTML"
+
+
+def test_telegram_message_hides_visible_full_links(monkeypatch) -> None:
+    runtime = _tool_runtime()
+    runtime.upsert_connector_binding(
+        principal_id="exec-telegram-link-gate",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+    )
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 9}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
+    send_telegram_message_for_principal(
+        runtime,
+        principal_id="exec-telegram-link-gate",
+        text="Open https://propertyquarry.com/tours/example/control and https://maps.google.com/?q=Wien.",
+    )
+
+    assert sent
+    text = sent[0]["text"]
+    visible_text = re.sub(r'href="[^"]+"', 'href=""', text)
+    assert sent[0]["parse_mode"] == "HTML"
+    assert "https://propertyquarry.com" not in visible_text
+    assert "https://maps.google.com" not in visible_text
+    assert '<a href="https://propertyquarry.com/tours/example/control">Open 3D tour</a>' in text
+    assert '<a href="https://maps.google.com/?q=Wien">Open Google navigation</a>' in text
+
+
+def test_telegram_link_renderer_escapes_surrounding_text() -> None:
+    rendered = _telegram_html_with_titled_links("Use <this> https://willhaben.at/iad/object?adId=1")
+
+    assert "Use &lt;this&gt;" in rendered
+    assert "https://willhaben.at/iad/object?adId=1" in rendered
+    assert ">Open Willhaben listing</a>" in rendered
 
 
 def test_send_telegram_message_for_principal_includes_inline_buttons(monkeypatch) -> None:

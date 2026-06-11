@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import hmac
 import json
 import mimetypes
 import os
+import re
 import subprocess
 import time
 import uuid
 import urllib.request
+import urllib.parse
 from urllib.error import HTTPError, URLError
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +26,7 @@ _VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv")
 _AUDIO_SUFFIXES = (".mp3", ".m4a", ".wav", ".ogg", ".flac", ".aac", ".opus")
 _DOCUMENT_SUFFIXES = (".pdf", ".txt", ".md", ".json", ".csv", ".rtf", ".doc", ".docx")
 _TELEGRAM_REMOTE_MEDIA_TIMEOUT = 30
+_URL_PATTERN = re.compile(r"https?://[^\s<>()\]]+", re.IGNORECASE)
 _TELEGRAM_FEEDBACK_KEY_ALIASES = {
     "like_property": "lp",
     "dislike_property": "dp",
@@ -110,6 +114,96 @@ def _chunk_telegram_text(text: str) -> tuple[str, ...]:
         chunks.append(chunk)
         remaining = remaining[split_at:].strip()
     return tuple(chunk for chunk in chunks if chunk)
+
+
+def _telegram_url_label(url: str) -> str:
+    parsed = urllib.parse.urlparse(str(url or "").strip())
+    host = str(parsed.netloc or "").lower().removeprefix("www.")
+    path = str(parsed.path or "").strip("/")
+    if "propertyquarry.com" in host:
+        if "/tours/" in f"/{path}/":
+            return "Open 3D tour"
+        if "workspace-access" in path:
+            return "Open PropertyQuarry review"
+        return "Open PropertyQuarry link"
+    if "google." in host or "maps.app.goo.gl" in host:
+        return "Open Google navigation"
+    if "remax." in host:
+        return "Open RE/MAX listing"
+    if "willhaben." in host:
+        return "Open Willhaben listing"
+    if "immoscout" in host or "immobilienscout" in host:
+        return "Open ImmoScout listing"
+    if "immmo." in host:
+        return "Open immmo listing"
+    if "flatbee." in host:
+        return "Open Flatbee listing"
+    if "kalandra." in host:
+        return "Open Kalandra listing"
+    if path:
+        slug = path.rstrip("/").rsplit("/", 1)[-1].replace("-", " ").replace("_", " ").strip()
+        if slug:
+            return compact_text_for_telegram_title(slug)
+    return host or "Open link"
+
+
+def compact_text_for_telegram_title(value: str) -> str:
+    words = [part for part in re.split(r"\s+", str(value or "").strip()) if part]
+    title = " ".join(words[:6]).strip()
+    if not title:
+        return "Open link"
+    return title[:1].upper() + title[1:80]
+
+
+def _telegram_visible_button_label(label: str, *, url: str = "") -> str:
+    normalized = " ".join(str(label or "").split()).strip()
+    target_url = str(url or "").strip()
+    if _URL_PATTERN.fullmatch(normalized):
+        return _telegram_url_label(normalized)
+    if not normalized and target_url:
+        return _telegram_url_label(target_url)
+    match = _URL_PATTERN.search(normalized)
+    if match:
+        return _telegram_url_label(str(match.group(0) or ""))
+    return compact_text_for_telegram_title(normalized)
+
+
+def _telegram_html_with_titled_links(text: str) -> str:
+    raw = str(text or "")
+    if not raw:
+        return ""
+    out: list[str] = []
+    last = 0
+    for match in _URL_PATTERN.finditer(raw):
+        start, end = match.span()
+        url = str(match.group(0) or "")
+        trailing = ""
+        while url and url[-1] in ".,;:!?)]}":
+            trailing = url[-1] + trailing
+            url = url[:-1]
+            end -= 1
+        out.append(html.escape(raw[last:start], quote=False))
+        safe_url = html.escape(url, quote=True)
+        safe_label = html.escape(_telegram_url_label(url), quote=False)
+        out.append(f'<a href="{safe_url}">{safe_label}</a>')
+        out.append(html.escape(trailing, quote=False))
+        last = match.end()
+    out.append(html.escape(raw[last:], quote=False))
+    return "".join(out)
+
+
+def _telegram_caption_html(text: str) -> str:
+    normalized = " ".join(str(text or "").split()).strip()
+    if not normalized:
+        return ""
+    rendered = _telegram_html_with_titled_links(normalized)
+    if len(rendered) <= _TELEGRAM_CAPTION_LIMIT:
+        return rendered
+    compacted = _URL_PATTERN.sub(lambda match: _telegram_url_label(str(match.group(0) or "")), normalized)
+    escaped = html.escape(compacted, quote=False)
+    if len(escaped) <= _TELEGRAM_CAPTION_LIMIT:
+        return escaped
+    return f"{escaped[: _TELEGRAM_CAPTION_LIMIT - 3].rstrip()}..."
 
 
 def _telegram_caption(text: str) -> str:
@@ -437,12 +531,13 @@ def send_telegram_message_for_principal(
     if not bot_handle:
         bot_handle = str(config.get("handle") or "").strip()
     message_ids: list[str] = []
-    for chunk in _chunk_telegram_text(text):
-        payload: dict[str, object] = {"chat_id": chat_id, "text": chunk}
+    rendered_text = _telegram_html_with_titled_links(text)
+    for chunk in _chunk_telegram_text(rendered_text):
+        payload: dict[str, object] = {"chat_id": chat_id, "text": chunk, "parse_mode": "HTML"}
         keyboard_rows: list[list[dict[str, str]]] = []
         for row in list(inline_buttons or []):
             buttons = [
-                {"text": str(label or "").strip(), "callback_data": str(callback_data or "").strip()}
+                {"text": _telegram_visible_button_label(str(label or "")), "callback_data": str(callback_data or "").strip()}
                 for label, callback_data in row
                 if str(label or "").strip() and str(callback_data or "").strip()
             ]
@@ -450,9 +545,9 @@ def send_telegram_message_for_principal(
                 keyboard_rows.append(buttons)
         for row in list(url_buttons or []):
             buttons = [
-                {"text": str(label or "").strip(), "url": str(url or "").strip()}
+                {"text": _telegram_visible_button_label(str(label or ""), url=str(url or "")), "url": str(url or "").strip()}
                 for label, url in row
-                if str(label or "").strip() and str(url or "").strip()
+                if (str(label or "").strip() or str(url or "").strip()) and str(url or "").strip()
             ]
             if buttons:
                 keyboard_rows.append(buttons)
@@ -503,7 +598,7 @@ def send_telegram_photo_for_principal(
     keyboard_rows: list[list[dict[str, str]]] = []
     for row in list(inline_buttons or []):
         buttons = [
-            {"text": str(label or "").strip(), "callback_data": str(callback_data or "").strip()}
+            {"text": _telegram_visible_button_label(str(label or "")), "callback_data": str(callback_data or "").strip()}
             for label, callback_data in row
             if str(label or "").strip() and str(callback_data or "").strip()
         ]
@@ -511,15 +606,17 @@ def send_telegram_photo_for_principal(
             keyboard_rows.append(buttons)
     for row in list(url_buttons or []):
         buttons = [
-            {"text": str(label or "").strip(), "url": str(url or "").strip()}
+            {"text": _telegram_visible_button_label(str(label or ""), url=str(url or "")), "url": str(url or "").strip()}
             for label, url in row
-            if str(label or "").strip() and str(url or "").strip()
+            if (str(label or "").strip() or str(url or "").strip()) and str(url or "").strip()
         ]
         if buttons:
             keyboard_rows.append(buttons)
     reply_markup = {"inline_keyboard": keyboard_rows} if keyboard_rows else None
     if Path(normalized_photo_ref).is_file():
-        fields = {"chat_id": chat_id, "caption": _telegram_caption(caption)}
+        fields = {"chat_id": chat_id, "caption": _telegram_caption_html(caption)}
+        if fields["caption"]:
+            fields["parse_mode"] = "HTML"
         if reply_markup:
             fields["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
         result = _telegram_send_multipart(
@@ -536,8 +633,10 @@ def send_telegram_photo_for_principal(
         payload: dict[str, object] = {
             "chat_id": chat_id,
             "photo": normalized_photo_ref,
-            "caption": _telegram_caption(caption),
+            "caption": _telegram_caption_html(caption),
         }
+        if payload["caption"]:
+            payload["parse_mode"] = "HTML"
         if reply_markup:
             payload["reply_markup"] = reply_markup
         result = _telegram_send_json(
@@ -683,12 +782,14 @@ def send_telegram_video_for_principal(
     if Path(normalized_video_ref).is_file():
         method = "sendVideo" if has_audio else "sendDocument"
         file_field = "video" if has_audio else "document"
+        caption_html = _telegram_caption_html(caption)
         result = _telegram_send_multipart(
             token=token,
             method=method,
             fields={
                 "chat_id": chat_id,
-                "caption": _telegram_caption(caption),
+                "caption": caption_html,
+                **({"parse_mode": "HTML"} if caption_html else {}),
                 **({"supports_streaming": "true"} if has_audio else {}),
             },
             file_field=file_field,
@@ -700,13 +801,15 @@ def send_telegram_video_for_principal(
             raise RuntimeError("telegram_video_audio_missing")
         if not _telegram_remote_ref_reachable(normalized_video_ref):
             raise RuntimeError("telegram_video_unreachable")
+        caption_html = _telegram_caption_html(caption)
         result = _telegram_send_json(
             token=token,
             method="sendVideo",
             payload={
                 "chat_id": chat_id,
                 "video": normalized_video_ref,
-                "caption": _telegram_caption(caption),
+                "caption": caption_html,
+                **({"parse_mode": "HTML"} if caption_html else {}),
                 "supports_streaming": True,
             },
         )
@@ -745,10 +848,11 @@ def send_telegram_audio_for_principal(
     if not normalized_audio_ref:
         raise RuntimeError("telegram_audio_ref_missing")
     if Path(normalized_audio_ref).is_file():
+        caption_html = _telegram_caption_html(caption)
         result = _telegram_send_multipart(
             token=token,
             method="sendAudio",
-            fields={"chat_id": chat_id, "caption": _telegram_caption(caption)},
+            fields={"chat_id": chat_id, "caption": caption_html, **({"parse_mode": "HTML"} if caption_html else {})},
             file_field="audio",
             file_path=normalized_audio_ref,
             content_type=_guess_content_type(normalized_audio_ref, fallback="audio/mpeg"),
@@ -756,10 +860,16 @@ def send_telegram_audio_for_principal(
     else:
         if not _telegram_remote_ref_reachable(normalized_audio_ref):
             raise RuntimeError("telegram_audio_unreachable")
+        caption_html = _telegram_caption_html(caption)
         result = _telegram_send_json(
             token=token,
             method="sendAudio",
-            payload={"chat_id": chat_id, "audio": normalized_audio_ref, "caption": _telegram_caption(caption)},
+            payload={
+                "chat_id": chat_id,
+                "audio": normalized_audio_ref,
+                "caption": caption_html,
+                **({"parse_mode": "HTML"} if caption_html else {}),
+            },
         )
     return TelegramDeliveryReceipt(
         principal_id=str(principal_id or "").strip(),
@@ -800,7 +910,7 @@ def send_telegram_document_for_principal(
     keyboard_rows: list[list[dict[str, str]]] = []
     for row in list(inline_buttons or []):
         buttons = [
-            {"text": str(label or "").strip(), "callback_data": str(callback_data or "").strip()}
+            {"text": _telegram_visible_button_label(str(label or "")), "callback_data": str(callback_data or "").strip()}
             for label, callback_data in row
             if str(label or "").strip() and str(callback_data or "").strip()
         ]
@@ -808,15 +918,17 @@ def send_telegram_document_for_principal(
             keyboard_rows.append(buttons)
     for row in list(url_buttons or []):
         buttons = [
-            {"text": str(label or "").strip(), "url": str(url or "").strip()}
+            {"text": _telegram_visible_button_label(str(label or ""), url=str(url or "")), "url": str(url or "").strip()}
             for label, url in row
-            if str(label or "").strip() and str(url or "").strip()
+            if (str(label or "").strip() or str(url or "").strip()) and str(url or "").strip()
         ]
         if buttons:
             keyboard_rows.append(buttons)
     reply_markup = {"inline_keyboard": keyboard_rows} if keyboard_rows else None
     if Path(normalized_document_ref).is_file():
-        fields = {"chat_id": chat_id, "caption": _telegram_caption(caption)}
+        fields = {"chat_id": chat_id, "caption": _telegram_caption_html(caption)}
+        if fields["caption"]:
+            fields["parse_mode"] = "HTML"
         if reply_markup:
             fields["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
         result = _telegram_send_multipart(
@@ -830,7 +942,9 @@ def send_telegram_document_for_principal(
     else:
         if not _telegram_remote_ref_reachable(normalized_document_ref):
             raise RuntimeError("telegram_document_unreachable")
-        payload: dict[str, object] = {"chat_id": chat_id, "document": normalized_document_ref, "caption": _telegram_caption(caption)}
+        payload: dict[str, object] = {"chat_id": chat_id, "document": normalized_document_ref, "caption": _telegram_caption_html(caption)}
+        if payload["caption"]:
+            payload["parse_mode"] = "HTML"
         if reply_markup:
             payload["reply_markup"] = reply_markup
         result = _telegram_send_json(

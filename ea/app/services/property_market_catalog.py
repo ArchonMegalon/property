@@ -151,7 +151,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         label="RE/MAX Austria",
         country_code="AT",
         host_markers=("remax.at",),
-        listing_path_markers=("/en/im/", "/de/im/", "/en/g/", "/de/g/", "/properties/propertysearch"),
+        listing_path_markers=("/en/im/", "/de/im/", "/en/g/", "/de/g/", "/en/ib/", "/de/ib/", "/properties/propertysearch"),
         search_urls={
             "rent": "https://www.remax.at/en/properties/propertysearch",
             "buy": "https://www.remax.at/en/properties/propertysearch",
@@ -1873,6 +1873,17 @@ def _build_provider_search_url(
         if min_area_m2:
             query_items["minArea"] = str(min_area_m2)
         return _append_query(scout_fallback, query_items)
+    if provider.key == "remax_at":
+        query_items = {}
+        if search_terms:
+            query_items["q"] = search_terms
+        if max_price_eur:
+            query_items["maxPrice"] = str(max_price_eur)
+        if min_rooms:
+            query_items["minRooms"] = str(min_rooms)
+        if min_area_m2:
+            query_items["minArea"] = str(min_area_m2)
+        return _append_query(base_url, query_items)
     if provider.key == "kalandra":
         query_items = {}
         if min_area_m2:
@@ -2247,27 +2258,31 @@ def generated_source_specs(
             detail_parts = [provider.label, country_label(country_code), LISTING_MODE_LABELS.get(provider_mode, provider_mode.capitalize())]
             if location_variant:
                 detail_parts.append(location_variant)
-            rows.append(
-                {
-                    "url": url,
-                    "label": " | ".join(detail_parts),
-                    "principal_id": str(principal_id or "").strip(),
-                    "preference_person_id": str(normalized_preferences.get("preference_person_id") or default_person_id or "self").strip() or "self",
-                    "account_email": "",
-                    "notify_telegram": bool(notify_telegram),
-                    "platform": provider.key,
-                    "provider_family": provider.family,
-                    "provider_trust_tier": provider.trust_tier,
-                    "source_access_level": property_provider_access_level(provider.key),
-                    "verification_required": provider.trust_tier in {"watch", "restricted"} or provider.family in {"community_signals", "community_meta"},
-                    "max_results": max(1, min(int(max_results or 5), 10)),
-                    "country_code": country_code,
-                    "language_code": str(normalized_preferences.get("language_code") or "en"),
-                    "listing_mode": provider_mode,
-                    "location_query": location_variant,
-                    "keywords": keywords,
-                    "provider_filter_pushdown": pushdown,
-                    "provider_cache_key": str(pushdown.get("cache_key") or ""),
-                }
-            )
+            row = {
+                "url": url,
+                "label": " | ".join(detail_parts),
+                "principal_id": str(principal_id or "").strip(),
+                "preference_person_id": str(normalized_preferences.get("preference_person_id") or default_person_id or "self").strip() or "self",
+                "account_email": "",
+                "notify_telegram": bool(notify_telegram),
+                "platform": provider.key,
+                "provider_family": provider.family,
+                "provider_trust_tier": provider.trust_tier,
+                "source_access_level": property_provider_access_level(provider.key),
+                "verification_required": provider.trust_tier in {"watch", "restricted"} or provider.family in {"community_signals", "community_meta"},
+                "max_results": max(1, min(int(max_results or 5), 10)),
+                "country_code": country_code,
+                "language_code": str(normalized_preferences.get("language_code") or "en"),
+                "listing_mode": provider_mode,
+                "location_query": location_variant,
+                "keywords": keywords,
+                "provider_filter_pushdown": pushdown,
+                "provider_cache_key": str(pushdown.get("cache_key") or ""),
+            }
+            if provider.key == "remax_at":
+                row["fetch_timeout_seconds"] = 8
+                row["fallback_listing_urls"] = [
+                    "https://www.remax.at/de/ib/remax-first-wien/immobilien",
+                ]
+            rows.append(row)
     return tuple(rows)

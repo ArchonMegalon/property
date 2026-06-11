@@ -2278,22 +2278,45 @@ def _property_scout_listing_urls_for_source(
     force_refresh: bool = False,
 ) -> tuple[tuple[str, ...], dict[str, object]]:
     normalized_url = urllib.parse.urldefrag(str(source_url or "").strip())[0]
+    spec = dict(source_spec or {})
+    try:
+        fetch_timeout_seconds = max(3.0, min(60.0, float(spec.get("fetch_timeout_seconds") or 60.0)))
+    except Exception:
+        fetch_timeout_seconds = 60.0
     cache_key = _property_source_listing_cache_key(source_url=normalized_url, source_spec=source_spec)
     if not cache_key:
-        html = _property_scout_fetch_html(normalized_url)
-        listing_urls = _property_scout_extract_listing_urls(source_url=normalized_url, html=html)
+        html = _property_scout_fetch_html(normalized_url, timeout_seconds=fetch_timeout_seconds)
+        listing_urls = _property_scout_extract_listing_urls(source_url=normalized_url, html=html, source_spec=source_spec)
         return listing_urls, {"status": "disabled", "cache_key": "", "listing_total": len(listing_urls)}
     if not force_refresh:
         cached_urls, cached_state = _property_source_listing_cache_get(cache_key)
         if cached_urls:
             return cached_urls, cached_state
     try:
-        html = _property_scout_fetch_html(normalized_url)
-        listing_urls = _property_scout_extract_listing_urls(source_url=normalized_url, html=html)
+        html = _property_scout_fetch_html(normalized_url, timeout_seconds=fetch_timeout_seconds)
+        listing_urls = _property_scout_extract_listing_urls(source_url=normalized_url, html=html, source_spec=source_spec)
     except Exception:
         cached_urls, cached_state = _property_source_listing_cache_get(cache_key, allow_stale=True)
         if cached_urls:
             return cached_urls, {**cached_state, "revalidation": "stale_source_fetch_failed"}
+        fallback_urls = tuple(
+            urllib.parse.urldefrag(str(url or "").strip())[0]
+            for url in list(spec.get("fallback_listing_urls") or [])
+            if str(url or "").strip()
+        )
+        fallback_urls = tuple(url for url in fallback_urls if _property_scout_is_supported_listing_url(url))
+        if fallback_urls:
+            cache_state = _property_source_listing_cache_put(
+                cache_key,
+                source_url=normalized_url,
+                listing_urls=fallback_urls,
+                source_spec=source_spec,
+            )
+            return fallback_urls, {
+                **cache_state,
+                "status": "fallback",
+                "fallback_reason": "source_fetch_failed",
+            }
         raise
     cache_state = _property_source_listing_cache_put(
         cache_key,
@@ -5705,6 +5728,81 @@ def _property_apply_distance_gate(
     elif distance_mode == "relaxed":
         _property_append_distance_relaxation(facts, label=label, requested_m=limit_m, actual_m=actual_m)
     return distance_ok
+
+
+_PROPERTY_SEARCH_FEEDBACK_PATCH_KEYS: frozenset[str] = frozenset(
+    {
+        "min_area_m2",
+        "require_floorplan",
+        "available_within_years",
+        "max_distance_to_library_m",
+        "max_distance_to_zoo_m",
+        "max_distance_to_supermarket_m",
+        "max_distance_to_playground_m",
+        "max_distance_to_market_m",
+        "max_distance_to_hardware_store_m",
+        "max_distance_to_shopping_center_m",
+        "max_distance_to_shopping_street_m",
+        "max_distance_to_theatre_m",
+        "max_distance_to_public_pool_m",
+        "max_distance_to_medical_care_m",
+        "max_distance_to_starbucks_m",
+        "max_distance_to_fitness_center_m",
+        "max_distance_to_cinema_m",
+        "max_distance_to_bouldering_m",
+        "max_distance_to_dog_park_m",
+        "max_distance_to_good_cafe_m",
+    }
+)
+
+
+def _property_search_filter_label(filter_key: str) -> str:
+    labels = {
+        "min_area_m2": "minimum area",
+        "require_floorplan": "floor plan requirement",
+        "available_within_years": "move-in horizon",
+        "max_distance_to_library_m": "library radius",
+        "max_distance_to_zoo_m": "zoo radius",
+        "max_distance_to_supermarket_m": "supermarket radius",
+        "max_distance_to_playground_m": "playground radius",
+        "max_distance_to_market_m": "market radius",
+        "max_distance_to_hardware_store_m": "Baumarkt radius",
+        "max_distance_to_shopping_center_m": "shopping-center radius",
+        "max_distance_to_shopping_street_m": "shopping-street radius",
+        "max_distance_to_theatre_m": "theatre radius",
+        "max_distance_to_public_pool_m": "public-pool radius",
+        "max_distance_to_medical_care_m": "medical-care radius",
+        "max_distance_to_starbucks_m": "Starbucks radius",
+        "max_distance_to_fitness_center_m": "fitness radius",
+        "max_distance_to_cinema_m": "cinema radius",
+        "max_distance_to_bouldering_m": "bouldering radius",
+        "max_distance_to_dog_park_m": "dog-park radius",
+        "max_distance_to_good_cafe_m": "cafe radius",
+    }
+    return labels.get(str(filter_key or "").strip(), str(filter_key or "").replace("_", " ").strip() or "search filter")
+
+
+def _property_search_filter_disable_patch(filter_key: str) -> dict[str, object]:
+    normalized = str(filter_key or "").strip()
+    if normalized not in _PROPERTY_SEARCH_FEEDBACK_PATCH_KEYS:
+        return {}
+    if normalized == "require_floorplan":
+        return {normalized: False}
+    if normalized == "available_within_years":
+        return {normalized: 0}
+    return {normalized: None}
+
+
+def _property_near_miss_filter_message(*, title: str, source_label: str, filter_label: str, score: float) -> str:
+    return compact_text(
+        (
+            f"Near miss: {title} looked like a strong match from {source_label}, "
+            f"but was filtered out only by the {filter_label} filter. "
+            f"Pre-filter score: {score:.0f}/100."
+        ),
+        fallback="Near miss: a strong property was filtered by one search filter.",
+        limit=420,
+    )
 
 
 def _property_enrich_future_change_research(
@@ -20642,6 +20740,132 @@ class ProductService:
             tour_url=str(tour_result.get("tour_url") or "").strip(),
         )
 
+    def _send_property_scout_filter_near_miss_telegram(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        title: str,
+        summary: str,
+        counterparty: str,
+        property_url: str,
+        source_ref: str,
+        preference_person_id: str,
+        failed_filter_key: str,
+        failed_filter_label: str,
+        prefilter_score: float,
+    ) -> dict[str, object]:
+        patch = _property_search_filter_disable_patch(failed_filter_key)
+        if not patch:
+            return {"status": "suppressed", "reason": "unsupported_filter_patch"}
+        prompt = self._prepare_notification_feedback_prompt(
+            principal_id=principal_id,
+            notification_kind="property_scout_filter_near_miss",
+            person_id=str(preference_person_id or "").strip() or "self",
+            domain="property_search",
+            object_type="property_listing",
+            object_id=str(property_url or source_ref or "").strip(),
+            source_ref=str(source_ref or property_url or "").strip(),
+            raw_signal_json={
+                "title": str(title or "").strip(),
+                "summary": str(summary or "").strip(),
+                "counterparty": str(counterparty or "").strip(),
+                "property_url": str(property_url or "").strip(),
+                "failed_filter_key": str(failed_filter_key or "").strip(),
+                "failed_filter_label": str(failed_filter_label or "").strip(),
+                "prefilter_score": float(prefilter_score or 0.0),
+            },
+            interpreted_signal_json={},
+            suggestion_options=[
+                {
+                    "key": f"disable_{str(failed_filter_key or '').strip()}",
+                    "label": f"Disable {_property_search_filter_label(failed_filter_key)}",
+                    "event_type": "property_filter_disable_requested",
+                    "reply_text": "Noted. I disabled that one search filter and started a fresh search.",
+                    "property_search_preference_patch": patch,
+                    "property_search_rerun": True,
+                    "preference_hints": [
+                        {
+                            "domain": "property_search",
+                            "category": "filter_adjustment",
+                            "key": "disable_filter_requested",
+                            "value_json": {
+                                "filter_key": str(failed_filter_key or "").strip(),
+                                "filter_label": str(failed_filter_label or "").strip(),
+                            },
+                            "strength": "high",
+                            "merge_mode": "append_unique",
+                        }
+                    ],
+                },
+                {
+                    "key": f"keep_{str(failed_filter_key or '').strip()}",
+                    "label": "Keep filter",
+                    "event_type": "property_filter_kept",
+                    "reply_text": "Noted. I’ll keep that filter active.",
+                },
+            ],
+        )
+        try:
+            receipt = send_telegram_message_for_principal(
+                self._container.tool_runtime,
+                principal_id=principal_id,
+                text=(
+                    _property_near_miss_filter_message(
+                        title=title,
+                        source_label=counterparty,
+                        filter_label=failed_filter_label,
+                        score=float(prefilter_score or 0.0),
+                    )
+                    + "\n\nShould I disable only this filter and search again?"
+                ),
+                url_buttons=[[(str(title or "Open listing").strip() or "Open listing", str(property_url or "").strip())]]
+                if str(property_url or "").strip()
+                else None,
+                inline_buttons=list(prompt.get("button_rows") or []),
+            )
+            self._record_notification_feedback_prompt(
+                principal_id=principal_id,
+                prompt=prompt,
+                delivery_channel="telegram",
+                telegram_chat_ref=str(receipt.chat_id or "").strip(),
+                telegram_message_ids=list(receipt.message_ids),
+            )
+            payload = {
+                "status": "sent",
+                "actor": str(actor or "").strip() or "property_scout",
+                "property_url": str(property_url or "").strip(),
+                "source_ref": str(source_ref or "").strip(),
+                "failed_filter_key": str(failed_filter_key or "").strip(),
+                "failed_filter_label": str(failed_filter_label or "").strip(),
+                "prefilter_score": float(prefilter_score or 0.0),
+                "telegram_message_ids": list(receipt.message_ids),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_scout_filter_near_miss_telegram_sent",
+                payload=payload,
+                source_id=str(source_ref or property_url or "").strip(),
+                dedupe_key=f"{principal_id}|{source_ref or property_url}|{failed_filter_key}|property-filter-near-miss",
+            )
+            return payload
+        except Exception as exc:
+            payload = {
+                "status": "failed",
+                "blocked_reason": compact_text(str(exc or ""), fallback="telegram_delivery_failed", limit=160),
+                "property_url": str(property_url or "").strip(),
+                "source_ref": str(source_ref or "").strip(),
+                "failed_filter_key": str(failed_filter_key or "").strip(),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_scout_filter_near_miss_telegram_failed",
+                payload=payload,
+                source_id=str(source_ref or property_url or "").strip(),
+                dedupe_key=f"{principal_id}|{source_ref or property_url}|{failed_filter_key}|property-filter-near-miss-failed",
+            )
+            return payload
+
     def _attach_property_alert_review_to_ooda_loop(
         self,
         *,
@@ -25710,6 +25934,7 @@ class ProductService:
         provider_cache_hit_total = 0
         provider_cache_refresh_total = 0
         watch_notified_total = 0
+        filter_near_miss_notified_total = 0
         policy = self.property_alert_policy(principal_id=principal_id)
         source_summaries: list[dict[str, object]] = []
         seen_listing_urls: set[str] = set()
@@ -25735,7 +25960,39 @@ class ProductService:
             filtered_availability_for_source = 0
             filtered_floorplan_for_source = 0
             filtered_low_fit_for_source = 0
+            filter_near_misses_for_source: list[dict[str, object]] = []
             provider_cache_state: dict[str, object] = {"status": "not_started", "cache_key": provider_cache_key}
+
+            def _remember_filter_near_miss(
+                *,
+                row: dict[str, object],
+                property_url: str,
+                title: str,
+                summary: str,
+                filter_key: str,
+            ) -> None:
+                if len(filter_near_misses_for_source) >= 2:
+                    return
+                normalized_filter_key = str(filter_key or "").strip()
+                if normalized_filter_key not in _PROPERTY_SEARCH_FEEDBACK_PATCH_KEYS:
+                    return
+                prefilter_score = float(row.get("fit_score") or 0.0)
+                if prefilter_score < float(min_match_score):
+                    return
+                source_ref = f"property-scout:{str(row.get('listing_id') or property_url).strip() or property_url}"
+                if any(str(item.get("source_ref") or "") == source_ref for item in filter_near_misses_for_source):
+                    return
+                filter_near_misses_for_source.append(
+                    {
+                        "property_url": str(property_url or "").strip(),
+                        "source_ref": source_ref,
+                        "title": compact_text(str(title or property_url), fallback=property_url, limit=160),
+                        "summary": compact_text(str(summary or ""), fallback="", limit=240),
+                        "failed_filter_key": normalized_filter_key,
+                        "failed_filter_label": _property_search_filter_label(normalized_filter_key),
+                        "prefilter_score": prefilter_score,
+                    }
+                )
 
             _report(
                 step="source_started",
@@ -26111,6 +26368,13 @@ class ProductService:
                     summary=detailed_summary,
                     property_facts=detailed_facts,
                 ):
+                    _remember_filter_near_miss(
+                        row=row,
+                        property_url=property_url,
+                        title=detailed_title,
+                        summary=detailed_summary,
+                        filter_key="min_area_m2",
+                    )
                     filtered_area_total += 1
                     filtered_area_for_source += 1
                     _report(
@@ -26128,6 +26392,13 @@ class ProductService:
                     available_within_years=available_within_years,
                     property_facts=detailed_facts,
                 ):
+                    _remember_filter_near_miss(
+                        row=row,
+                        property_url=property_url,
+                        title=detailed_title,
+                        summary=detailed_summary,
+                        filter_key="available_within_years",
+                    )
                     filtered_availability_total += 1
                     filtered_availability_for_source += 1
                     _report(
@@ -26258,6 +26529,13 @@ class ProductService:
                         fact_key="nearest_library_m",
                         label="Library",
                     ):
+                        _remember_filter_near_miss(
+                            row=row,
+                            property_url=property_url,
+                            title=detailed_title,
+                            summary=detailed_summary,
+                            filter_key="max_distance_to_library_m",
+                        )
                         _report(
                             step="source_family_filter",
                             message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the relaxed library radius for {source_label}.",
@@ -26272,6 +26550,13 @@ class ProductService:
                         requested_limit_m=max_distance_to_zoo_m,
                     )
                     if not distance_ok:
+                        _remember_filter_near_miss(
+                            row=row,
+                            property_url=property_url,
+                            title=detailed_title,
+                            summary=detailed_summary,
+                            filter_key="max_distance_to_zoo_m",
+                        )
                         _report(
                             step="source_family_filter",
                             message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the relaxed zoo radius for {source_label}.",
@@ -26302,6 +26587,13 @@ class ProductService:
                         fact_key=fact_key,
                         label=label,
                     ):
+                        _remember_filter_near_miss(
+                            row=row,
+                            property_url=property_url,
+                            title=detailed_title,
+                            summary=detailed_summary,
+                            filter_key=preference_key,
+                        )
                         _report(
                             step=report_step,
                             message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the relaxed {label} radius for {source_label}.",
@@ -26319,6 +26611,13 @@ class ProductService:
                     property_facts=detailed_facts,
                     preview=preview,
                 ):
+                    _remember_filter_near_miss(
+                        row=row,
+                        property_url=property_url,
+                        title=detailed_title,
+                        summary=detailed_summary,
+                        filter_key="require_floorplan",
+                    )
                     filtered_floorplan_total += 1
                     filtered_floorplan_for_source += 1
                     _report(
@@ -26740,6 +27039,28 @@ class ProductService:
                     notified_for_source += 1
                     notified_total += 1
 
+            filter_near_miss_notified_for_source = 0
+            if notify_telegram and filter_near_misses_for_source:
+                for near_miss in filter_near_misses_for_source[:2]:
+                    near_miss_result = self._send_property_scout_filter_near_miss_telegram(
+                        principal_id=principal_id,
+                        actor=actor,
+                        title=str(near_miss.get("title") or "").strip(),
+                        summary=str(near_miss.get("summary") or "").strip(),
+                        counterparty=source_label,
+                        property_url=str(near_miss.get("property_url") or "").strip(),
+                        source_ref=str(near_miss.get("source_ref") or "").strip(),
+                        preference_person_id=source_preference_person_id,
+                        failed_filter_key=str(near_miss.get("failed_filter_key") or "").strip(),
+                        failed_filter_label=str(near_miss.get("failed_filter_label") or "").strip(),
+                        prefilter_score=float(near_miss.get("prefilter_score") or 0.0),
+                    )
+                    if str(near_miss_result.get("status") or "").strip() == "sent":
+                        filter_near_miss_notified_for_source += 1
+                        filter_near_miss_notified_total += 1
+                        notified_for_source += 1
+                        notified_total += 1
+
             source_summaries.append(
                 {
                     "source_url": source_url,
@@ -26796,6 +27117,9 @@ class ProductService:
                     "tour_existing_total": tour_existing_for_source,
                     "high_fit_total": high_fit_for_source,
                     "watch_notified_total": watch_notified_for_source,
+                    "filter_near_miss_total": len(filter_near_misses_for_source),
+                    "filter_near_miss_notified_total": filter_near_miss_notified_for_source,
+                    "filter_near_misses": filter_near_misses_for_source[:5],
                     "top_fit_score": max((_property_alert_fit_score(dict(item.get("assessment") or {})) for item in ranked_rows), default=0.0),
                     "top_candidates": sorted_top_candidates_for_source[:5],
                     "research_candidates": sorted_top_candidates_for_source,
@@ -26856,6 +27180,7 @@ class ProductService:
             "tour_existing_total": tour_existing_total,
             "high_fit_total": high_fit_total,
             "watch_notified_total": watch_notified_total,
+            "filter_near_miss_notified_total": filter_near_miss_notified_total,
             "failed_total": failed_total,
             "sources": source_summaries,
         }
@@ -29157,6 +29482,12 @@ class ProductService:
     ) -> list[dict[str, object]]:
         normalized_kind = str(notification_kind or "").strip().lower()
         normalized_domain = str(domain or "").strip().lower()
+        if normalized_kind == "property_scout_filter_near_miss":
+            return [
+                dict(item)
+                for item in list(suggestion_options or [])
+                if isinstance(item, dict) and str(item.get("key") or "").strip()
+            ][:6]
         if normalized_kind == "telegram_property_link_bundle":
             return [
                 {
@@ -29441,6 +29772,40 @@ class ProductService:
                 return payload
         return None
 
+    def _apply_property_search_feedback_patch(
+        self,
+        *,
+        principal_id: str,
+        patch: dict[str, object],
+    ) -> dict[str, object]:
+        safe_patch: dict[str, object] = {}
+        for key, value in dict(patch or {}).items():
+            normalized_key = str(key or "").strip()
+            if normalized_key in _PROPERTY_SEARCH_FEEDBACK_PATCH_KEYS:
+                safe_patch[normalized_key] = value
+        if not safe_patch:
+            return {"status": "skipped", "reason": "empty_or_unsupported_patch"}
+        status = self._container.onboarding.status(principal_id=principal_id)
+        current = dict(status.get("property_search_preferences") or {})
+        raw = dict(current.get("raw_preferences") or current)
+        for key, value in safe_patch.items():
+            raw[key] = value
+            current[key] = value
+            if key.startswith("max_distance_to_") and key.endswith("_m"):
+                importance_key = key.replace("_m", "_importance")
+                raw[importance_key] = "nice_to_have"
+                current[importance_key] = "nice_to_have"
+        current["raw_preferences"] = raw
+        saved = self._container.onboarding.upsert_property_search_preferences(
+            principal_id=principal_id,
+            property_search_preferences_json=current,
+        )
+        return {
+            "status": "patched",
+            "patched_keys": sorted(safe_patch.keys()),
+            "property_search_preferences": dict(saved.get("property_search_preferences") or {}),
+        }
+
     def record_notification_feedback(
         self,
         *,
@@ -29483,6 +29848,42 @@ class ProductService:
             merged_hints = [dict(item) for item in list(interpreted_signal_json.get("preference_hints") or []) if isinstance(item, dict)]
             merged_hints.extend(option_hints)
             interpreted_signal_json["preference_hints"] = merged_hints
+        preference_patch_result: dict[str, object] = {}
+        rerun_result: dict[str, object] = {}
+        property_search_patch = (
+            dict(option.get("property_search_preference_patch") or {})
+            if isinstance(option.get("property_search_preference_patch"), dict)
+            else {}
+        )
+        if property_search_patch:
+            try:
+                preference_patch_result = self._apply_property_search_feedback_patch(
+                    principal_id=principal_id,
+                    patch=property_search_patch,
+                )
+            except Exception as exc:
+                preference_patch_result = {
+                    "status": "failed",
+                    "blocked_reason": compact_text(str(exc or ""), fallback="property_search_preference_patch_failed", limit=160),
+                }
+        if bool(option.get("property_search_rerun")) and str(preference_patch_result.get("status") or "") == "patched":
+            patched_preferences = (
+                dict(preference_patch_result.get("property_search_preferences") or {})
+                if isinstance(preference_patch_result.get("property_search_preferences"), dict)
+                else {}
+            )
+            try:
+                rerun_result = self.sync_direct_property_scout(
+                    principal_id=principal_id,
+                    actor="telegram_filter_feedback",
+                    property_search_preferences=patched_preferences,
+                    force_refresh=True,
+                )
+            except Exception as exc:
+                rerun_result = {
+                    "status": "failed",
+                    "blocked_reason": compact_text(str(exc or ""), fallback="property_search_rerun_failed", limit=160),
+                }
         evidence_result = None
         normalized_domain = str(prompt.get("domain") or "").strip()
         normalized_object_type = str(prompt.get("object_type") or "").strip()
@@ -29525,6 +29926,10 @@ class ProductService:
                 "actor": str(actor or "").strip() or "telegram_feedback",
                 "chat_id": str(chat_id or "").strip(),
                 "preference_event_type": str(option.get("event_type") or "").strip(),
+                "property_search_preference_patch_status": str(preference_patch_result.get("status") or "").strip(),
+                "property_search_preference_patch_keys": list(preference_patch_result.get("patched_keys") or []),
+                "property_search_rerun_status": str(rerun_result.get("status") or "").strip(),
+                "property_search_rerun_listing_total": int(dict(rerun_result or {}).get("listing_total") or 0) if rerun_result else 0,
                 "teable_sync_status": str(dict(teable_sync or {}).get("sync_result") or dict(teable_sync or {}).get("status") or "").strip(),
                 "teable_blocked_reason": str(dict(teable_sync or {}).get("blocked_reason") or "").strip(),
             },
@@ -29543,6 +29948,8 @@ class ProductService:
         return {
             "status": "recorded",
             "reply_text": str(option.get("reply_text") or "Noted.").strip() or "Noted.",
+            "property_search_preference_patch_status": str(preference_patch_result.get("status") or "").strip(),
+            "property_search_rerun_status": str(rerun_result.get("status") or "").strip(),
             "teable_sync_status": str(dict(teable_sync or {}).get("sync_result") or dict(teable_sync or {}).get("status") or "").strip(),
         }
 

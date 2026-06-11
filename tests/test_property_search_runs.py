@@ -241,6 +241,112 @@ def test_property_distance_gate_records_relaxed_and_unknown_distances() -> None:
     assert "distance_relaxations_json" not in outside_facts
 
 
+def test_property_filter_feedback_patch_disables_filter_and_reruns_search(monkeypatch) -> None:
+    principal_id = "exec-property-filter-feedback-patch"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Filter Feedback Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben"],
+            "max_distance_to_supermarket_m": 200,
+            "max_distance_to_supermarket_importance": "important",
+            "property_search_enabled": True,
+            "property_commercial": {"active_plan_key": "agent", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"},
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    service = ProductService(client.app.state.container)
+    prompt = service._prepare_notification_feedback_prompt(
+        principal_id=principal_id,
+        notification_kind="property_scout_filter_near_miss",
+        person_id="self",
+        domain="property_search",
+        object_type="property_listing",
+        object_id="https://www.willhaben.at/iad/object?adId=near-miss",
+        source_ref="property-scout:near-miss",
+        raw_signal_json={"failed_filter_key": "max_distance_to_supermarket_m"},
+        interpreted_signal_json={},
+        suggestion_options=[
+            {
+                "key": "disable_max_distance_to_supermarket_m",
+                "label": "Disable supermarket radius",
+                "event_type": "property_filter_disable_requested",
+                "reply_text": "Noted. I disabled that one search filter and started a fresh search.",
+                "property_search_preference_patch": {"max_distance_to_supermarket_m": None},
+                "property_search_rerun": True,
+            }
+        ],
+    )
+    service._record_notification_feedback_prompt(
+        principal_id=principal_id,
+        prompt=prompt,
+        delivery_channel="telegram",
+        telegram_chat_ref="42",
+        telegram_message_ids=["77"],
+    )
+    observed: dict[str, object] = {}
+
+    def _fake_sync_direct_property_scout(
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...] = (),
+        property_search_preferences: dict[str, object] | None = None,
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+        progress_callback: callable | None = None,
+    ) -> dict[str, object]:
+        observed["principal_id"] = principal_id
+        observed["actor"] = actor
+        observed["force_refresh"] = force_refresh
+        observed["property_search_preferences"] = dict(property_search_preferences or {})
+        return {"status": "processed", "listing_total": 2}
+
+    monkeypatch.setattr(service, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    result = service.record_notification_feedback(
+        principal_id=principal_id,
+        notification_key=str(prompt["notification_key"]),
+        feedback_key="disable_max_distance_to_supermarket_m",
+        actor="telegram_test",
+        chat_id="42",
+    )
+
+    assert result["status"] == "recorded"
+    assert result["property_search_preference_patch_status"] == "patched"
+    assert result["property_search_rerun_status"] == "processed"
+    assert observed["principal_id"] == principal_id
+    assert observed["actor"] == "telegram_filter_feedback"
+    assert observed["force_refresh"] is True
+    updated = client.app.state.container.onboarding.status(principal_id=principal_id)["property_search_preferences"]
+    raw = updated["raw_preferences"]
+    assert raw["max_distance_to_supermarket_m"] is None
+    assert raw["max_distance_to_supermarket_importance"] == "nice_to_have"
+
+
+def test_property_filter_feedback_patch_ignores_unsupported_keys() -> None:
+    principal_id = "exec-property-filter-feedback-unsupported"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Filter Unsupported Office")
+    service = ProductService(client.app.state.container)
+
+    result = service._apply_property_search_feedback_patch(
+        principal_id=principal_id,
+        patch={"selected_platforms": [], "max_distance_to_playground_m": None},
+    )
+
+    assert result["status"] == "patched"
+    assert result["patched_keys"] == ["max_distance_to_playground_m"]
+    updated = client.app.state.container.onboarding.status(principal_id=principal_id)["property_search_preferences"]
+    assert updated["raw_preferences"]["max_distance_to_playground_m"] is None
+    assert "selected_platforms" not in updated["raw_preferences"]
+
+
 def test_property_search_sparse_auction_floorplan_area_scores_above_review_threshold() -> None:
     preview = {
         "title": "BG Leopoldstadt, 082 25 E 89/25g",
@@ -361,7 +467,12 @@ def test_property_scout_listing_url_cache_reuses_provider_result_lists(monkeypat
         fetch_calls.append(url)
         return "<html>provider source</html>"
 
-    def _fake_extract_listing_urls(*, source_url: str, html: str) -> tuple[str, ...]:
+    def _fake_extract_listing_urls(
+        *,
+        source_url: str,
+        html: str,
+        source_spec: dict[str, object] | None = None,
+    ) -> tuple[str, ...]:
         return (
             "https://www.willhaben.at/iad/object?adId=cache-1",
             "https://www.willhaben.at/iad/object?adId=cache-2",
@@ -412,7 +523,12 @@ def test_property_scout_listing_url_cache_persists_provider_result_lists(monkeyp
         fetch_calls.append(url)
         return "<html>provider source</html>"
 
-    def _fake_extract_listing_urls(*, source_url: str, html: str) -> tuple[str, ...]:
+    def _fake_extract_listing_urls(
+        *,
+        source_url: str,
+        html: str,
+        source_spec: dict[str, object] | None = None,
+    ) -> tuple[str, ...]:
         return (
             "https://www.willhaben.at/iad/object?adId=persist-1",
             "https://www.willhaben.at/iad/object?adId=persist-2",
@@ -459,6 +575,40 @@ def test_property_scout_listing_url_cache_persists_provider_result_lists(monkeyp
     assert second_cache["persistence"] == "file"
     assert second_urls == first_urls
     assert len(fetch_calls) == 1
+
+
+def test_property_scout_listing_url_cache_uses_source_fallback_when_provider_fetch_fails(monkeypatch) -> None:
+    with product_service._PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+        product_service._PROPERTY_SOURCE_LISTING_CACHE.clear()
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
+        product_service._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_BACKEND", "memory")
+    monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_PATH", "")
+    observed: dict[str, object] = {}
+
+    def _blocked_fetch_html(url: str, *, timeout_seconds: float = 60.0) -> str:
+        observed["timeout_seconds"] = timeout_seconds
+        raise TimeoutError("remax upstream timeout")
+
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", _blocked_fetch_html)
+    source_spec = {
+        "platform": "remax_at",
+        "provider_cache_key": "remax_at:fallback-cache-key",
+        "provider_filter_pushdown": {"cache_key": "remax_at:fallback-cache-key"},
+        "fetch_timeout_seconds": 8,
+        "fallback_listing_urls": ["https://www.remax.at/de/ib/remax-first-wien/immobilien"],
+    }
+
+    urls, cache_state = product_service._property_scout_listing_urls_for_source(
+        source_url="https://www.remax.at/en/properties/propertysearch?q=Wien&minArea=35",
+        source_spec=source_spec,
+        force_refresh=True,
+    )
+
+    assert observed["timeout_seconds"] == 8
+    assert urls == ("https://www.remax.at/de/ib/remax-first-wien/immobilien",)
+    assert cache_state["status"] == "fallback"
+    assert cache_state["fallback_reason"] == "source_fetch_failed"
 
 
 def test_property_scout_listing_url_cache_merges_existing_persistent_entries(monkeypatch, tmp_path) -> None:
@@ -1071,6 +1221,8 @@ def test_property_provider_catalog_generates_remax_austria_sources() -> None:
     assert row["provider_family"] == "broker_direct"
     assert row["url"].startswith("https://www.remax.at/en/properties/propertysearch")
     assert "q=Wien" in row["url"]
+    assert row["fetch_timeout_seconds"] == 8
+    assert "https://www.remax.at/de/ib/remax-first-wien/immobilien" in row["fallback_listing_urls"]
     assert row["provider_filter_pushdown"]["applied"]["min_area_m2"] == 70
 
 
