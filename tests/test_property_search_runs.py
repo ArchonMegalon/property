@@ -250,6 +250,49 @@ def test_property_search_type_filter_blocks_garage_for_residential_searches() ->
         )
         is True
     )
+    assert (
+        product_service._property_candidate_matches_requested_property_type(
+            property_type="apartment",
+            property_url="https://www.immmo.at/expose/praxis",
+            title="Großzügige Praxisfläche in gepflegtem Zustand",
+            summary="Ideal für medizinische Nutzung.",
+            property_facts={},
+        )
+        is False
+    )
+    assert (
+        product_service._property_candidate_matches_requested_property_type(
+            property_type="any",
+            property_url="https://www.immmo.at/expose/praxis",
+            title="Großzügige Praxisfläche in gepflegtem Zustand",
+            summary="Ideal für medizinische Nutzung.",
+            property_facts={},
+        )
+        is False
+    )
+
+
+def test_property_search_type_filter_supports_building_land() -> None:
+    assert (
+        product_service._property_candidate_matches_requested_property_type(
+            property_type="land",
+            property_url="https://www.willhaben.at/iad/object?adId=land-one",
+            title="Baugrundstück mit Seezugang in Niederösterreich",
+            summary="Bauland, aufgeschlossen, ruhige Lage.",
+            property_facts={},
+        )
+        is True
+    )
+    assert (
+        product_service._property_candidate_matches_requested_property_type(
+            property_type="land",
+            property_url="https://www.willhaben.at/iad/object?adId=flat-one",
+            title="Wohnung mit Garten und Balkon",
+            summary="Helle Wohnung, kein Baugrund.",
+            property_facts={"property_type": "apartment"},
+        )
+        is False
+    )
 
 
 def test_property_scout_listing_url_cache_reuses_provider_result_lists(monkeypatch) -> None:
@@ -1425,6 +1468,132 @@ def test_property_search_preferences_persist_and_merge_into_run(monkeypatch) -> 
     status_snapshot = client.get("/v1/onboarding/property-search/preferences")
     assert status_snapshot.status_code == 200
     assert set(status_snapshot.json()["property_search_preferences"]["selected_platforms"]) == {"willhaben", "kalandra"}
+
+
+def test_property_search_run_uses_saved_platforms_before_family_toggles(monkeypatch) -> None:
+    principal_id = "exec-property-search-saved-platforms"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Saved Platforms")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben", "immmo", "immoscout_at", "remax_at", "kalandra", "broker_direct_at"],
+            "include_broker_direct_sources": True,
+            "property_commercial": {"active_plan_key": "agent", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"},
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    observed: dict[str, object] = {}
+
+    def _fake_sync_direct_property_scout(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...] = (),
+        property_search_preferences: dict[str, object] | None = None,
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+        progress_callback: callable | None = None,
+    ) -> dict[str, object]:
+        observed["selected_platforms"] = tuple(selected_platforms)
+        return {
+            "generated_at": product_service._now_iso(),
+            "status": "processed",
+            "sources_total": 1,
+            "listing_total": 1,
+            "review_created_total": 1,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [],
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    started = client.post("/app/api/signals/property/search/run", json={"selected_platforms": []})
+    assert started.status_code == 200, started.text
+    _poll_property_search_run_status(client, started.json()["run_id"])
+
+    assert set(observed.get("selected_platforms") or ()) >= {
+        "willhaben",
+        "immmo",
+        "immoscout_at",
+        "remax_at",
+        "kalandra",
+        "broker_direct_at",
+    }
+
+
+def test_property_search_run_explicit_empty_keywords_clear_saved_keywords(monkeypatch) -> None:
+    principal_id = "exec-property-search-clear-keywords"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Clear Keywords")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "keywords": "supermarket nearby, underground nearby, no gas",
+            "custom_keywords": "quiet, bright",
+            "selected_platforms": ["willhaben"],
+            "property_commercial": {"active_plan_key": "agent", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"},
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    observed: dict[str, object] = {}
+
+    def _fake_sync_direct_property_scout(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...] = (),
+        property_search_preferences: dict[str, object] | None = None,
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+        progress_callback: callable | None = None,
+    ) -> dict[str, object]:
+        observed["property_search_preferences"] = dict(property_search_preferences or {})
+        return {
+            "generated_at": product_service._now_iso(),
+            "status": "processed",
+            "sources_total": 1,
+            "listing_total": 1,
+            "review_created_total": 1,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [],
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    started = client.post(
+        "/app/api/signals/property/search/run",
+        json={"property_preferences": {"keywords": "", "custom_keywords": ""}},
+    )
+    assert started.status_code == 200, started.text
+    _poll_property_search_run_status(client, started.json()["run_id"])
+
+    assert observed["property_search_preferences"]["keywords"] == ""
+    assert observed["property_search_preferences"]["custom_keywords"] == ""
 
 
 def test_property_search_preferences_update_preserves_existing_commercial_state(monkeypatch) -> None:

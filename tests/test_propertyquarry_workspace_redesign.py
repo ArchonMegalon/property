@@ -343,6 +343,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Erweiterte Kinder- und Familienfilter" in setup.text
     assert "Erweiterte Lage- und Researchfilter" in setup.text
     assert 'name="max_distance_to_library_m"' in setup.text
+    assert 'name="max_distance_to_library_importance"' in setup.text
+    assert 'name="max_distance_to_playground_importance"' in setup.text
+    assert 'name="max_distance_to_supermarket_m"' in setup.text
+    assert 'name="max_distance_to_supermarket_importance"' in setup.text
+    assert "Supermarket nearby means" in setup.text
+    assert "If good matches are scarce" in setup.text
     assert 'name="max_distance_to_zoo_m"' in setup.text
     assert 'name="max_distance_to_market_m"' in setup.text
     assert 'name="max_distance_to_hardware_store_m"' in setup.text

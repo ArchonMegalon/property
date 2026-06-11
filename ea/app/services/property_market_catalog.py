@@ -75,6 +75,7 @@ PROPERTY_TYPE_LABELS = {
     "any": "Any type",
     "apartment": "Apartment",
     "house": "House",
+    "land": "Building land",
 }
 
 
@@ -1398,7 +1399,16 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         "max_commute_minutes_bike",
         "max_commute_minutes_walk",
         "max_distance_to_playground_m",
+        "max_distance_to_library_m",
         "max_distance_to_university_m",
+        "max_distance_to_supermarket_m",
+        "max_distance_to_market_m",
+        "max_distance_to_hardware_store_m",
+        "max_distance_to_shopping_center_m",
+        "max_distance_to_shopping_street_m",
+        "max_distance_to_theatre_m",
+        "max_distance_to_public_pool_m",
+        "max_distance_to_medical_care_m",
         "max_distance_to_starbucks_m",
         "max_distance_to_fitness_center_m",
         "max_distance_to_cinema_m",
@@ -1423,7 +1433,10 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
                 payload[numeric_key] = max(5, min(180, numeric_value))
             elif numeric_key in {
                 "max_distance_to_playground_m",
+                "max_distance_to_library_m",
                 "max_distance_to_university_m",
+                "max_distance_to_supermarket_m",
+                "max_distance_to_market_m",
                 "max_distance_to_starbucks_m",
                 "max_distance_to_fitness_center_m",
                 "max_distance_to_cinema_m",
@@ -1433,6 +1446,15 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
                 "max_distance_to_zoo_m",
             }:
                 payload[numeric_key] = max(50, min(5000, numeric_value))
+            elif numeric_key in {
+                "max_distance_to_hardware_store_m",
+                "max_distance_to_shopping_center_m",
+                "max_distance_to_shopping_street_m",
+                "max_distance_to_theatre_m",
+                "max_distance_to_public_pool_m",
+                "max_distance_to_medical_care_m",
+            }:
+                payload[numeric_key] = max(50, min(7000, numeric_value))
             else:
                 payload[numeric_key] = numeric_value
         else:
@@ -1606,6 +1628,8 @@ def _willhaben_rooms_bucket(min_rooms: int | None) -> str:
 
 def _willhaben_search_base_url(*, base_url: str, listing_mode: str, property_type: str) -> str:
     normalized_type = normalize_property_type(property_type)
+    if normalized_type == "land":
+        return "https://www.willhaben.at/iad/immobilien/grundstuecke" if normalize_listing_mode(listing_mode) == "buy" else base_url
     if normalized_type != "house":
         return base_url
     if normalize_listing_mode(listing_mode) == "buy":
@@ -1801,6 +1825,8 @@ def _provider_property_type_segment(property_type: str) -> str:
         return "apartment"
     if normalized == "house":
         return "house"
+    if normalized == "land":
+        return "land"
     return ""
 
 
@@ -2124,6 +2150,9 @@ def generated_source_specs(
         provider = _PROVIDER_INDEX.get(provider_key)
         if provider is None or provider.country_code != country_code:
             continue
+        if listing_mode not in provider.supported_listing_modes:
+            if not bool(normalized_preferences.get("include_distressed_sale_signals")):
+                continue
         provider_mode = listing_mode if listing_mode in provider.supported_listing_modes else provider.supported_listing_modes[0]
         grouped_sources = GROUPED_PROVIDER_SOURCE_MAP.get(provider.key)
         if grouped_sources:

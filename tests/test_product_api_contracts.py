@@ -4220,6 +4220,77 @@ def test_property_scout_move_in_horizon_filters_before_scoring(monkeypatch) -> N
     assert assessed == ["near-future"]
 
 
+def test_property_scout_move_in_horizon_keeps_unknown_availability(monkeypatch) -> None:
+    principal_id = "cf-email:move-in-unknown.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Unknown Move-in")
+    candidate_urls = ("https://www.willhaben.at/iad/object?adId=unknown-availability",)
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.willhaben.at/iad/immobilien/eigentumswohnung/wien",
+                "label": "Willhaben apartments",
+                "platform": "willhaben",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 1,
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: candidate_urls)
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "unknown-availability",
+            "title": "Wohnung mit offenem Bezugsdatum",
+            "summary": "Availability is not published yet.",
+            "property_facts_json": {"property_type": "apartment", "area_m2": 72},
+        },
+    )
+
+    def _fake_assess_candidate(**kwargs):
+        return {
+            "fit_score": 72.0,
+            "confidence": 0.9,
+            "predicted_reaction": "consider",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Unknown availability is a follow-up question, not a pre-filter rejection."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": ["Ask for the available-from date."],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _fake_assess_candidate)
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "property_type": "apartment",
+            "available_within_years": 2,
+            "min_match_score": 65,
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 1
+    assert result["filtered_availability_total"] == 0
+    assert result["sources"][0]["top_candidates"][0]["title"] == "Wohnung mit offenem Bezugsdatum"
+
+
 def test_property_search_results_include_future_change_research_tasks_when_investment_mode_enabled() -> None:
     tasks = product_service._property_research_tasks_from_result(
         {
@@ -4552,6 +4623,87 @@ def test_property_scout_clamps_requested_match_score_to_free_plan_cap(monkeypatc
     assert result["sources"][0]["high_match_min_score"] == 45.0
     assert result["sources"][0]["max_match_score"] == 45
     assert result["sources"][0]["top_candidates"][0]["title"] == "Apartment just above free threshold"
+
+
+def test_property_scout_keeps_provider_fallback_when_all_personal_scores_are_zero(monkeypatch) -> None:
+    principal_id = "cf-email:provider-fallback@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Provider Fallback")
+    candidate_urls = (
+        "https://www.willhaben.at/iad/object?adId=fallback-one",
+        "https://www.willhaben.at/iad/object?adId=fallback-two",
+    )
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien",
+                "label": "Willhaben apartments",
+                "platform": "willhaben",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 2,
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: candidate_urls)
+    previews = {
+        candidate_urls[0]: {
+            "listing_id": "fallback-one",
+            "title": "Sparse apartment one",
+            "summary": "Wohnung in Wien.",
+            "property_facts_json": {"property_type": "apartment", "area_m2": 65},
+        },
+        candidate_urls[1]: {
+            "listing_id": "fallback-two",
+            "title": "Sparse apartment two",
+            "summary": "Wohnung in Wien.",
+            "property_facts_json": {"property_type": "apartment", "area_m2": 72},
+        },
+    }
+    monkeypatch.setattr(product_service, "_property_scout_page_preview", lambda url, prefer_fast=False: dict(previews[url]))
+
+    def _zero_assessment(**kwargs):
+        return {
+            "fit_score": 0.0,
+            "confidence": 0.1,
+            "predicted_reaction": "unknown",
+            "recommendation": "insufficient_data",
+            "match_reasons_json": [],
+            "mismatch_reasons_json": [],
+            "unknowns_json": ["Sparse listing data."],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _zero_assessment)
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "property_type": "apartment",
+            "location_query": "Wien",
+            "min_area_m2": 50,
+            "min_match_score": 20,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=2,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 2
+    assert result["sources"][0]["filtered_low_fit_total"] == 2
+    assert result["sources"][0]["top_candidates"][0]["assessment"]["recommendation"] == "review"
+    assert result["sources"][0]["top_candidates"][0]["assessment"]["predicted_reaction"] == "needs_review"
 
 
 def test_property_scout_route_deduplicates_duplicate_listings_across_sources(monkeypatch) -> None:

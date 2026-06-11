@@ -110,6 +110,62 @@ def test_market_labels_are_human_readable() -> None:
     assert language_label("fr", country_code="FR") == "Français"
     assert listing_mode_label("buy") == "Buy"
     assert property_type_label("house") == "House"
+    assert property_type_label("land") == "Building land"
+
+
+def test_generated_source_specs_support_austrian_land_searches() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "property_type": "land",
+            "location_query": "Niederösterreich",
+            "keywords": "baugrund seezugang",
+        },
+        selected_platforms=("willhaben",),
+        principal_id="exec-property-land-at",
+        default_person_id="self",
+        max_results=4,
+    )
+
+    assert specs
+    assert specs[0]["provider_filter_pushdown"]["requested"]["property_type"] == "land"
+    assert "grundstuecke" in str(specs[0]["url"])
+    assert "Nieder" in urllib.parse.unquote(str(specs[0]["url"]))
+    assert "seezugang" in urllib.parse.unquote(str(specs[0]["url"])).lower()
+
+
+def test_generated_source_specs_skip_buy_only_sources_for_rent_without_distress_signal() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+        },
+        selected_platforms=("justiz_edikte_at",),
+        principal_id="exec-property-rent-no-justiz",
+        default_person_id="self",
+        max_results=4,
+    )
+    distress_specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "include_distressed_sale_signals": True,
+        },
+        selected_platforms=("justiz_edikte_at",),
+        principal_id="exec-property-rent-with-justiz",
+        default_person_id="self",
+        max_results=4,
+    )
+
+    assert specs == ()
+    assert distress_specs
+    assert distress_specs[0]["listing_mode"] == "buy"
 
 
 def test_generated_source_specs_build_provider_specific_market_urls() -> None:
