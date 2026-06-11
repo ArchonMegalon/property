@@ -5,6 +5,7 @@ import os
 import time
 import urllib.parse
 import uuid
+from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -345,6 +346,58 @@ def test_property_filter_feedback_patch_ignores_unsupported_keys() -> None:
     updated = client.app.state.container.onboarding.status(principal_id=principal_id)["property_search_preferences"]
     assert updated["raw_preferences"]["max_distance_to_playground_m"] is None
     assert "selected_platforms" not in updated["raw_preferences"]
+
+
+def test_property_filter_near_miss_feedback_buttons_fit_telegram_callback_limit(monkeypatch) -> None:
+    principal_id = "exec-property-filter-near-miss-buttons"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Filter Button Office")
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+    )
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    service = ProductService(client.app.state.container)
+    sent: dict[str, object] = {}
+
+    def _fake_send_telegram_message_for_principal(*args, **kwargs):
+        sent.update(kwargs)
+        return SimpleNamespace(chat_id="1354554303", message_ids=("7",))
+
+    monkeypatch.setattr(product_service, "send_telegram_message_for_principal", _fake_send_telegram_message_for_principal)
+
+    result = service._send_property_scout_filter_near_miss_telegram(
+        principal_id=principal_id,
+        actor="test",
+        title="Near miss apartment",
+        summary="Strong candidate",
+        counterparty="Willhaben",
+        property_url="https://www.willhaben.at/iad/object?adId=near-miss",
+        source_ref="property-scout:near-miss",
+        preference_person_id="self",
+        failed_filter_key="max_distance_to_supermarket_m",
+        failed_filter_label="supermarket radius",
+        prefilter_score=86.0,
+    )
+
+    assert result["status"] == "sent"
+    inline_buttons = list(sent["inline_buttons"])
+    callback_values = [
+        str(callback_data)
+        for row in inline_buttons
+        for _label, callback_data in row
+    ]
+    assert callback_values
+    assert all(len(value.encode("utf-8")) <= 64 for value in callback_values)
+    assert any("|df_super|" in value for value in callback_values)
+    assert any("|kf_super|" in value for value in callback_values)
 
 
 def test_property_search_sparse_auction_floorplan_area_scores_above_review_threshold() -> None:

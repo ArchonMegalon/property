@@ -5782,6 +5782,33 @@ def _property_search_filter_label(filter_key: str) -> str:
     return labels.get(str(filter_key or "").strip(), str(filter_key or "").replace("_", " ").strip() or "search filter")
 
 
+def _property_search_filter_feedback_alias(filter_key: str) -> str:
+    aliases = {
+        "min_area_m2": "area",
+        "require_floorplan": "plan",
+        "available_within_years": "movein",
+        "max_distance_to_library_m": "lib",
+        "max_distance_to_zoo_m": "zoo",
+        "max_distance_to_supermarket_m": "super",
+        "max_distance_to_playground_m": "play",
+        "max_distance_to_market_m": "market",
+        "max_distance_to_hardware_store_m": "bau",
+        "max_distance_to_shopping_center_m": "mall",
+        "max_distance_to_shopping_street_m": "shop",
+        "max_distance_to_theatre_m": "theatre",
+        "max_distance_to_public_pool_m": "pool",
+        "max_distance_to_medical_care_m": "med",
+        "max_distance_to_starbucks_m": "sbux",
+        "max_distance_to_fitness_center_m": "fit",
+        "max_distance_to_cinema_m": "cinema",
+        "max_distance_to_bouldering_m": "boulder",
+        "max_distance_to_dog_park_m": "dog",
+        "max_distance_to_good_cafe_m": "cafe",
+    }
+    normalized = str(filter_key or "").strip()
+    return aliases.get(normalized, re.sub(r"[^a-z0-9]+", "", normalized.lower())[:12] or "filter")
+
+
 def _property_search_filter_disable_patch(filter_key: str) -> dict[str, object]:
     normalized = str(filter_key or "").strip()
     if normalized not in _PROPERTY_SEARCH_FEEDBACK_PATCH_KEYS:
@@ -20758,6 +20785,7 @@ class ProductService:
         patch = _property_search_filter_disable_patch(failed_filter_key)
         if not patch:
             return {"status": "suppressed", "reason": "unsupported_filter_patch"}
+        feedback_alias = _property_search_filter_feedback_alias(failed_filter_key)
         prompt = self._prepare_notification_feedback_prompt(
             principal_id=principal_id,
             notification_kind="property_scout_filter_near_miss",
@@ -20778,7 +20806,7 @@ class ProductService:
             interpreted_signal_json={},
             suggestion_options=[
                 {
-                    "key": f"disable_{str(failed_filter_key or '').strip()}",
+                    "key": f"df_{feedback_alias}",
                     "label": f"Disable {_property_search_filter_label(failed_filter_key)}",
                     "event_type": "property_filter_disable_requested",
                     "reply_text": "Noted. I disabled that one search filter and started a fresh search.",
@@ -20799,7 +20827,7 @@ class ProductService:
                     ],
                 },
                 {
-                    "key": f"keep_{str(failed_filter_key or '').strip()}",
+                    "key": f"kf_{feedback_alias}",
                     "label": "Keep filter",
                     "event_type": "property_filter_kept",
                     "reply_text": "Noted. I’ll keep that filter active.",
