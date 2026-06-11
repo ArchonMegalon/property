@@ -281,13 +281,29 @@ def request_i2v(
 
 
 def download(url: str, out_path: Path) -> None:
-    response = requests.get(url, timeout=300, stream=True)
-    response.raise_for_status()
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("wb") as handle:
-        for chunk in response.iter_content(chunk_size=1024 * 128):
-            if chunk:
-                handle.write(chunk)
+    last_error: Exception | None = None
+    retry_statuses = {404, 408, 409, 425, 429, 500, 502, 503, 504, 520, 522, 524}
+    for attempt in range(1, 19):
+        try:
+            response = requests.get(url, timeout=300, stream=True)
+            if response.status_code in retry_statuses and attempt < 18:
+                time.sleep(min(60, 5 * attempt))
+                continue
+            response.raise_for_status()
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with out_path.open("wb") as handle:
+                for chunk in response.iter_content(chunk_size=1024 * 128):
+                    if chunk:
+                        handle.write(chunk)
+            return
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            if attempt >= 18:
+                break
+            time.sleep(min(60, 5 * attempt))
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("download_failed")
 
 
 def render_with_ea_one_manager(args: argparse.Namespace, *, image_path: Path) -> int:
