@@ -1211,6 +1211,63 @@ def test_render_property_scout_dossier_promotes_media_and_visuals_into_packet(mo
     assert "personal_reference_urls" not in payload
 
 
+def test_property_link_dossier_does_not_use_short_appendix_page_gate(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:property-link-dossier@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Link Dossier Gate Office")
+    observed: dict[str, object] = {}
+    pdf_path = tmp_path / "property-link-dossier.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n% normal property link dossier")
+
+    class _PacketService:
+        def render_packet(self, **kwargs):
+            observed["source_payload"] = dict(kwargs.get("source_payload") or {})
+            return {
+                "publication_id": "pub_property_link_gate",
+                "source_pdf_artifact_ref": str(pdf_path),
+                "source_pdf_sha256": "abc123",
+            }
+
+    monkeypatch.setattr(
+        "app.services.fliplink.service.build_fliplink_packet_service",
+        lambda container: _PacketService(),
+    )
+    monkeypatch.setattr(product_service, "_pdf_media_gate_passed", lambda **kwargs: (True, 1, 1))
+    monkeypatch.setattr(
+        product_service,
+        "_pdf_appendix_exit_gate_passed",
+        lambda pdf_path: (_ for _ in ()).throw(AssertionError("short appendix gate must not run for property links")),
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service._render_property_scout_dossier(
+        principal_id=principal_id,
+        actor="test",
+        title="Property link listing",
+        summary="Normal property link dossier.",
+        counterparty="willhaben.at",
+        account_email="property-link-dossier@example.com",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1200-brigittenau/termin-bitte-online-buchen-1845770594/",
+        source_ref="property-link-gate",
+        assessment={},
+        fit_score=0.0,
+        preference_person_id="self",
+        tour_result={"status": "blocked", "blocked_reason": "provider_export_missing"},
+        appendix_mode="property_link_appendix",
+        candidate_properties=(
+            {
+                "listing_title": "Property link listing",
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1200-brigittenau/termin-bitte-online-buchen-1845770594/",
+                "property_facts_json": {"rooms": 2, "area_sqm": 61.21},
+                "media_urls_json": ["https://example.test/photo.jpg"],
+            },
+        ),
+    )
+
+    assert result["status"] == "rendered"
+    assert observed["source_payload"]["appendix_mode"] == "property_link_appendix"
+
+
 def test_render_property_scout_dossier_filters_locked_listing_placeholder_when_magicfit_stills_exist(monkeypatch, tmp_path: Path) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)

@@ -30051,7 +30051,7 @@ class ProductService:
                 "expected_media_count": normalized_dossier_media_count,
                 "required_media_count": required_media_count,
             }
-        if normalized_appendix_mode:
+        if normalized_appendix_mode == "telegram_pdf_appendix":
             appendix_gate_ok, appendix_gate_reason, appendix_gate_metrics = _pdf_appendix_exit_gate_passed(pdf_path)
             if not appendix_gate_ok:
                 return {
