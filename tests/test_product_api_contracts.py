@@ -4381,6 +4381,46 @@ def test_generic_property_tour_without_browseract_binding_blocks_cube_360_fallba
     assert result["tour_url"] == ""
 
 
+def test_willhaben_property_tour_suppressed_followup_block_does_not_reference_unbound_followup(monkeypatch) -> None:
+    principal_id = "cf-email:willhaben-suppressed-followup@example.com"
+    listing_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1200-brigittenau/termin-bitte-online-buchen-1845770594/"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Willhaben Suppressed Followup Office")
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "listing_id": "1845770594",
+            "title": "Termin bitte online buchen",
+            "media_urls_json": ["https://cache.willhaben.at/photo.jpg"],
+            "floorplan_urls_json": [],
+            "panorama_media_urls_json": [],
+            "source_virtual_tour_url": "",
+            "property_facts_json": {"has_floorplan": False},
+            "tour_variants_json": [{"variant_key": "layout_first", "scene_strategy": "layout_first"}],
+        },
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: None,
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.create_willhaben_property_tour(
+        principal_id=principal_id,
+        property_url=listing_url,
+        actor="test",
+        allow_floorplan_only=False,
+        enforce_360_media=True,
+        suppress_human_followup=True,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocked_reason"] == "listing_360_media_missing"
+    assert result["human_task_id"] == ""
+
+
 def test_property_scout_clamps_requested_match_score_to_free_plan_cap(monkeypatch) -> None:
     principal_id = "cf-email:free-threshold@example.test"
     client = build_product_client(principal_id=principal_id)

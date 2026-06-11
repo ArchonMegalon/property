@@ -21888,7 +21888,7 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": blocked_reason,
-                "human_task_id": f"human_task:{followup.human_task_id}",
+                "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
                 "tour_media_mode": tour_media_mode,
