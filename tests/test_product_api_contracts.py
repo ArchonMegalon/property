@@ -17273,7 +17273,7 @@ def test_magicfit_flythrough_duration_gate_rejects_short_multi_room_clip() -> No
     assert ok is False
     assert reason.startswith("flythrough_too_short:")
     assert actual_seconds == pytest.approx(5.088)
-    assert required_seconds >= 90.0
+    assert required_seconds == pytest.approx(60.0)
 
 
 def test_magicfit_flythrough_duration_gate_rejects_missing_room_coverage() -> None:
@@ -17293,7 +17293,7 @@ def test_magicfit_flythrough_duration_gate_rejects_missing_room_coverage() -> No
     assert ok is False
     assert reason == "flythrough_route_coverage_proof_missing"
     assert actual_seconds == pytest.approx(120.0)
-    assert required_seconds >= 90.0
+    assert required_seconds == pytest.approx(60.0)
 
 
 def test_magicfit_flythrough_duration_gate_rejects_proof_without_room_labels() -> None:
@@ -17314,7 +17314,7 @@ def test_magicfit_flythrough_duration_gate_rejects_proof_without_room_labels() -
     assert ok is False
     assert reason == "flythrough_route_coverage_unverified"
     assert actual_seconds == pytest.approx(120.0)
-    assert required_seconds >= 90.0
+    assert required_seconds == pytest.approx(60.0)
 
 
 def test_magicfit_flythrough_duration_gate_accepts_all_room_coverage() -> None:
@@ -17342,7 +17342,7 @@ def test_magicfit_flythrough_duration_gate_accepts_all_room_coverage() -> None:
     assert ok is True
     assert reason == ""
     assert actual_seconds == pytest.approx(120.0)
-    assert required_seconds >= 90.0
+    assert required_seconds == pytest.approx(60.0)
 
 
 def test_flythrough_gate_rejects_unverified_duration() -> None:
@@ -17467,7 +17467,7 @@ def test_magicfit_flythrough_render_concats_short_magicfit_segments(monkeypatch,
         if "ffprobe" in command_text:
             probe_calls.append(command[-1])
             if str(command[-1]).endswith("tour.combined.mp4"):
-                return SimpleNamespace(returncode=0, stdout="30.0\n", stderr="")
+                return SimpleNamespace(returncode=0, stdout="20.0\n", stderr="")
             return SimpleNamespace(returncode=0, stdout="10.0\n", stderr="")
         if "ffmpeg" in command_text:
             Path(command[-1]).write_bytes(b"combined-video")
@@ -17484,9 +17484,9 @@ def test_magicfit_flythrough_render_concats_short_magicfit_segments(monkeypatch,
     )
 
     assert result["status"] == "rendered"
-    assert len(render_calls) == 3
-    assert result["duration_seconds"] == pytest.approx(30.0)
-    assert result["combined_duration_seconds"] == pytest.approx(30.0)
+    assert len(render_calls) == 2
+    assert result["duration_seconds"] == pytest.approx(20.0)
+    assert result["combined_duration_seconds"] == pytest.approx(20.0)
     assert (bundle_dir / "tour-magicfit-1781083900-fedcba9876.mp4").read_bytes() == b"combined-video"
 
 

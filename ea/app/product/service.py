@@ -13314,7 +13314,12 @@ def _magicfit_flythrough_minimum_duration_seconds(*, title: str, property_facts:
         title=title,
         property_facts=dict(property_facts or {}),
     )
-    return float(max(1, min(25, int(room_count or 1))) * 15)
+    try:
+        seconds_per_stop = float(os.getenv("PROPERTYQUARRY_FLYTHROUGH_SECONDS_PER_ROUTE_STOP") or "10")
+    except Exception:
+        seconds_per_stop = 10.0
+    seconds_per_stop = max(5.0, min(30.0, seconds_per_stop))
+    return float(max(1, min(25, int(room_count or 1))) * seconds_per_stop)
 
 
 def _magicfit_normalized_route_label(value: object) -> str:
