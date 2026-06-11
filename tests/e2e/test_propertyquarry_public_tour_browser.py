@@ -110,7 +110,7 @@ def _video_frame_brightness(page) -> float:
     return float(
         page.evaluate(
             """() => {
-                const video = document.getElementById('flythrough-video');
+                const video = document.getElementById('flythrough-video') || document.getElementById('tour-video');
                 if (!video || !video.videoWidth || !video.videoHeight) return 0;
                 const canvas = document.createElement('canvas');
                 canvas.width = Math.min(video.videoWidth, 160);
@@ -137,18 +137,7 @@ def public_tour_browser_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     bundle_dir.mkdir(parents=True, exist_ok=True)
     _write_floorplan_png(bundle_dir / "floorplan-01.png")
     _write_h264_flythrough(bundle_dir / "tour.mp4")
-    cube_faces: dict[str, str] = {}
-    for face, label, fill in (
-        ("f", "Living room", (108, 82, 59)),
-        ("r", "Kitchen view", (86, 114, 148)),
-        ("b", "Hall view", (110, 98, 124)),
-        ("l", "Bedroom view", (124, 92, 72)),
-        ("u", "Ceiling", (154, 164, 180)),
-        ("d", "Floor", (86, 78, 64)),
-    ):
-        filename = f"cube-{face}.png"
-        _write_cube_face_png(bundle_dir / filename, label=label, fill=fill)
-        cube_faces[face] = filename
+    _write_cube_face_png(bundle_dir / "scene-01.png", label="Living room", fill=(108, 82, 59))
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
@@ -158,16 +147,17 @@ def public_tour_browser_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
                 "hosted_url": f"https://propertyquarry.com/tours/{slug}",
                 "public_url": f"https://propertyquarry.com/tours/{slug}",
                 "brand_name": "PropertyQuarry",
-                "scene_strategy": "pure_360_cube",
+                "scene_strategy": "layout_first",
                 "creation_mode": "hosted_floorplan_tour",
                 "video_relpath": "tour.mp4",
                 "scenes": [
                     {
                         "scene_id": "panorama-1",
                         "name": "Living room anchor",
-                        "role": "pure_360",
-                        "cube_faces": cube_faces,
-                        "image_url": "cube-f.png",
+                        "role": "photo",
+                        "asset_relpath": "scene-01.png",
+                        "image_url": "scene-01.png",
+                        "mime_type": "image/png",
                     },
                     {
                         "scene_id": "floorplan-1",
@@ -251,23 +241,13 @@ def test_public_tour_panorama_lane_opens_in_real_browser(
 
     page.goto(url, wait_until="networkidle")
     page.locator("h1").wait_for()
-    assert "PropertyQuarry" in page.locator("body").inner_text()
+    assert "PROPERTY TOUR" in page.locator("body").inner_text()
     page.wait_for_timeout(1500)
-    status_text = page.locator("#tour-status").inner_text()
-    assert "Panorama" in status_text or "fallback" in status_text.lower()
-    cube = page.locator("#cube")
-    cube.wait_for()
-    assert cube.is_visible()
-    has_canvas_or_fallback = bool(
-        page.evaluate(
-            """() => {
-                const cube = document.getElementById('cube');
-                if (!cube) return false;
-                return Boolean(cube.querySelector('canvas, .viewer-empty'));
-            }"""
-        )
-    )
-    assert has_canvas_or_fallback
+    viewer = page.locator("#viewer")
+    viewer.wait_for()
+    assert viewer.is_visible()
+    assert page.locator("#stage-role").inner_text().lower() == "photo"
+    assert page.locator("#stage-image").is_visible()
     assert not [
         message
         for message in console_errors
@@ -291,15 +271,13 @@ def test_public_tour_floorplan_lane_renders_in_real_browser(
     page.goto(url, wait_until="networkidle")
     expect_title = page.locator("h1")
     expect_title.wait_for()
-    assert "PropertyQuarry" in page.locator("body").inner_text()
-    assert page.locator("#floorplan-pane").is_visible()
-    floorplan_image = page.locator("#floorplan-image")
-    floorplan_image.wait_for()
+    assert "PROPERTY TOUR" in page.locator("body").inner_text()
+    page.locator('#role-filter button[data-role="floorplan"]').click()
+    assert page.locator("#stage-role").inner_text().lower() == "floorplan"
+    floorplan_image = page.locator("#stage-image")
     assert floorplan_image.is_visible()
-    natural_width = page.evaluate("() => document.getElementById('floorplan-image')?.naturalWidth || 0")
+    natural_width = page.evaluate("() => document.getElementById('stage-image')?.naturalWidth || 0")
     assert natural_width >= 1000
-    status_text = page.locator("#tour-status").inner_text()
-    assert "Floorplan" in status_text
     assert not [message for message in console_errors if "Failed to load resource" in message or "Refused" in message]
     context.close()
 
@@ -315,13 +293,14 @@ def test_public_tour_flythrough_video_decodes_and_advances_in_real_browser(
     url = f"{public_tour_browser_server['base_url']}/tours/{public_tour_browser_server['slug']}?pane=flythrough-pane&autoplay=1"
 
     page.goto(url, wait_until="networkidle")
-    video = page.locator("#flythrough-video")
+    video = page.locator("#tour-video")
     video.wait_for()
     assert video.is_visible()
+    page.evaluate("() => document.getElementById('tour-video')?.play()?.catch(() => null)")
     page.wait_for_timeout(1800)
     state = page.evaluate(
         """() => {
-            const video = document.getElementById('flythrough-video');
+            const video = document.getElementById('flythrough-video') || document.getElementById('tour-video');
             return video ? {
                 currentTime: video.currentTime,
                 duration: video.duration,
@@ -337,7 +316,7 @@ def test_public_tour_flythrough_video_decodes_and_advances_in_real_browser(
     assert state["currentTime"] > 0.2
     assert state["duration"] >= 2.5
     assert _video_frame_brightness(page) > 10.0
-    assert "Flythrough" in page.locator("#tour-status").inner_text()
+    assert page.locator("#tour-video source").get_attribute("type") == "video/mp4"
     assert not [message for message in console_errors if "MEDIA" in message.upper() or "decode" in message.lower()]
     context.close()
 
@@ -353,13 +332,14 @@ def test_public_tour_flythrough_video_decodes_on_mobile_viewport(
     url = f"{public_tour_browser_server['base_url']}/tours/{public_tour_browser_server['slug']}?pane=flythrough-pane&autoplay=1"
 
     page.goto(url, wait_until="networkidle")
-    video = page.locator("#flythrough-video")
+    video = page.locator("#tour-video")
     video.wait_for()
     assert video.is_visible()
+    page.evaluate("() => document.getElementById('tour-video')?.play()?.catch(() => null)")
     page.wait_for_timeout(1800)
     state = page.evaluate(
         """() => {
-            const video = document.getElementById('flythrough-video');
+            const video = document.getElementById('flythrough-video') || document.getElementById('tour-video');
             return video ? {
                 currentTime: video.currentTime,
                 readyState: video.readyState,

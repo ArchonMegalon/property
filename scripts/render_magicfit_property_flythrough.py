@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -28,6 +29,9 @@ NEGATIVE = ", ".join(
         "no storyboard",
         "no slideshow",
         "no empty unfurnished flat",
+        "no abrupt cut before final 240 degree sweep",
+        "no ending cut before sweep completes",
+        "no fade-out before final sweep",
         "no cartoon",
         "no toy diorama",
         "no visible text",
@@ -65,6 +69,8 @@ def arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout-minutes", type=int, default=18)
     parser.add_argument("--model-label", default="")
     parser.add_argument("--state-json", default="")
+    parser.add_argument("--first-frame", default="", help="Optional image file to upload as MagicFit first-frame reference.")
+    parser.add_argument("--extend-session-url", default="", help="Optional MagicFit session URL whose newest visible video should be continued.")
     return parser
 
 
@@ -148,6 +154,19 @@ def select_button(page, current_text: str, option_text: str) -> None:
         pass
 
 
+def select_option_from_known_current(page, *, current_options: list[str], option_text: str) -> bool:
+    for current_text in current_options:
+        try:
+            page.get_by_role("button", name=current_text, exact=True).last.click(timeout=4000)
+            page.wait_for_timeout(500)
+            page.get_by_text(option_text, exact=True).last.click(timeout=8000)
+            page.wait_for_timeout(800)
+            return True
+        except PlaywrightTimeoutError:
+            continue
+    return False
+
+
 def fill_prompt(page, prompt: str) -> None:
     box = page.locator('[contenteditable="true"][role="textbox"]').first
     box.wait_for(timeout=10000)
@@ -164,6 +183,71 @@ def fill_prompt(page, prompt: str) -> None:
     page.wait_for_timeout(800)
 
 
+def upload_first_frame(page, image_path: Path) -> None:
+    if not image_path.is_file():
+        raise RuntimeError(f"magicfit_first_frame_missing:{image_path}")
+    before_images = 0
+    with contextlib.suppress(Exception):
+        before_images = int(page.locator("img").count())
+    try:
+        page.get_by_role("button", name=re.compile(r"first frame", re.I)).first.click(timeout=5000, force=True)
+        page.wait_for_timeout(500)
+    except PlaywrightTimeoutError:
+        pass
+    uploaded = False
+    try:
+        with page.expect_file_chooser(timeout=4000) as chooser_info:
+            page.get_by_role("button", name=re.compile(r"first frame|upload", re.I)).first.click(timeout=4000, force=True)
+        chooser_info.value.set_files(str(image_path))
+        uploaded = True
+    except Exception:
+        file_input = page.locator("input[type=file][accept*='image']").first
+        if not file_input.count():
+            page.get_by_text("Upload", exact=True).first.click(timeout=10000, force=True)
+            page.wait_for_timeout(1000)
+            file_input = page.locator("input[type=file][accept*='image']").first
+        file_input.set_input_files(str(image_path))
+        uploaded = True
+    page.wait_for_timeout(8000)
+    remove_visible = False
+    after_images = before_images
+    with contextlib.suppress(Exception):
+        remove_visible = bool(page.get_by_role("button", name=re.compile(r"remove", re.I)).first.is_visible(timeout=1500))
+    with contextlib.suppress(Exception):
+        after_images = int(page.locator("img").count())
+    body = ""
+    with contextlib.suppress(Exception):
+        body = page.locator("body").inner_text(timeout=3000)
+    if not uploaded or (not remove_visible and after_images <= before_images and "First Frame" not in body):
+        raise RuntimeError("magicfit_first_frame_upload_unverified")
+
+
+def load_session_video_for_extend(page, session_url: str) -> None:
+    page.goto(session_url, wait_until="domcontentloaded", timeout=120000)
+    page.wait_for_timeout(6000)
+    videos = page.locator("video")
+    selected = False
+    for index in range(videos.count()):
+        candidate = videos.nth(index)
+        box = candidate.bounding_box()
+        if box and box.get("width", 0) > 50 and box.get("height", 0) > 50:
+            candidate.click(timeout=10000, force=True)
+            page.wait_for_timeout(1500)
+            selected = True
+            break
+    if not selected:
+        raise RuntimeError("magicfit_extend_source_video_not_visible")
+    try:
+        page.get_by_role("button", name=re.compile(r"^Tweak$", re.I)).last.click(timeout=10000, force=True)
+        page.wait_for_timeout(5000)
+    except PlaywrightTimeoutError as exc:
+        raise RuntimeError("magicfit_extend_tweak_unavailable") from exc
+    # Tweak opens the selected MagicFit result in the composer with the existing
+    # source attached. For video outputs it exposes First Frame / Last Frame
+    # controls; keep that state instead of switching to the top-level Extend tab,
+    # which expects a separate source selection.
+
+
 def collect_visible_video_urls(page) -> set[str]:
     urls: set[str] = set()
     html = page.content()
@@ -178,11 +262,40 @@ def collect_visible_video_urls(page) -> set[str]:
     return urls
 
 
+def write_debug_snapshot(page, *, poll_count: int, label: str = "poll") -> None:
+    debug_dir_raw = str(os.environ.get("MAGICFIT_DEBUG_DIR") or "").strip()
+    if not debug_dir_raw:
+        return
+    debug_dir = Path(debug_dir_raw).expanduser()
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    prefix = f"{label}-{poll_count:03d}"
+    with contextlib.suppress(Exception):
+        page.screenshot(path=str(debug_dir / f"{prefix}.png"), full_page=True, timeout=10000)
+    with contextlib.suppress(Exception):
+        body_text = page.locator("body").inner_text(timeout=5000)
+        (debug_dir / f"{prefix}.txt").write_text(body_text, encoding="utf-8", errors="replace")
+    with contextlib.suppress(Exception):
+        (debug_dir / f"{prefix}.url.txt").write_text(str(page.url or ""), encoding="utf-8")
+
+
+def visible_body_text(page) -> str:
+    with contextlib.suppress(Exception):
+        return str(page.locator("body").inner_text(timeout=5000) or "")
+    return ""
+
+
+def raise_if_credit_blocked(page) -> None:
+    body_text = visible_body_text(page)
+    if re.search(r"\bnot enough credits\b|\bbuy credits\b", body_text, flags=re.IGNORECASE):
+        raise RuntimeError("magicfit_not_enough_credits")
+
+
 def run() -> int:
     load_env()
     args = arg_parser().parse_args()
     out_path = Path(args.out).resolve()
     state_path = Path(args.state_json).resolve() if args.state_json else None
+    first_frame_path = Path(args.first_frame).expanduser().resolve() if args.first_frame else None
     prompt = f"{args.prompt.strip()} Global constraints: {NEGATIVE}."
     provider_duration = magicfit_duration(int(args.duration or 10))
     with sync_playwright() as playwright:
@@ -191,15 +304,46 @@ def run() -> int:
         page = context.new_page()
         try:
             maybe_login(page)
-            print("magicfit: open video generator", flush=True)
-            page.goto(MAGICFIT_VIDEO_URL, wait_until="domcontentloaded", timeout=120000)
-            page.wait_for_timeout(5000)
+            if args.extend_session_url:
+                print("magicfit: open extend source session", flush=True)
+                load_session_video_for_extend(page, args.extend_session_url)
+            else:
+                print("magicfit: open video generator", flush=True)
+                page.goto(MAGICFIT_VIDEO_URL, wait_until="domcontentloaded", timeout=120000)
+                page.wait_for_timeout(5000)
             baseline = collect_visible_video_urls(page)
             print(f"magicfit: baseline urls={len(baseline)}", flush=True)
-            select_button(page, "9:16", args.aspect_label)
-            select_button(page, "4s", f"{provider_duration}s")
+            select_option_from_known_current(
+                page,
+                current_options=["9:16", "16:9", "1:1", "4:3", "3:4", "21:9", "Portrait (9:16)", "Landscape (16:9)"],
+                option_text=args.aspect_label,
+            )
+            duration_selected = select_option_from_known_current(
+                page,
+                current_options=["4s", "5s", "6s", "7s", "8s", "9s", "10s", "11s", "12s", "13s", "14s", "15s"],
+                option_text=f"{provider_duration}s",
+            )
+            print(f"magicfit: duration_target={provider_duration}s selected={duration_selected}", flush=True)
             if args.model_label:
-                select_button(page, "Veo 3.1", args.model_label)
+                model_selected = select_option_from_known_current(
+                    page,
+                    current_options=[
+                        "Seedance 2.0 Fast",
+                        "Seedance 2.0",
+                        "Kling 3.0",
+                        "Kling 2.6 Pro",
+                        "Kling O1",
+                        "VEO 3.1 Fast",
+                        "VEO 3.1",
+                        "Veo 3.1 Fast",
+                        "Veo 3.1",
+                    ],
+                    option_text=args.model_label,
+                )
+                print(f"magicfit: model_target={args.model_label} selected={model_selected}", flush=True)
+            if first_frame_path is not None:
+                print("magicfit: upload first frame", flush=True)
+                upload_first_frame(page, first_frame_path)
             fill_prompt(page, prompt)
             events: list[dict[str, object]] = []
             seen_urls: set[str] = set()
@@ -230,16 +374,22 @@ def run() -> int:
             print("magicfit: submit job", flush=True)
             submit.click(timeout=30000)
             page.wait_for_timeout(3000)
+            write_debug_snapshot(page, poll_count=0, label="submitted")
+            raise_if_credit_blocked(page)
             deadline = time.time() + max(int(args.timeout_minutes or 18), 1) * 60
             video_url = ""
             poll_count = 0
             while time.time() < deadline and not video_url:
                 page.wait_for_timeout(10000)
                 poll_count += 1
+                raise_if_credit_blocked(page)
                 seen_urls.update(collect_visible_video_urls(page))
                 video_url = choose_newest_video(seen_urls, baseline, submitted_at_ms)
                 print(f"magicfit: poll={poll_count} seen_urls={len(seen_urls)} found={bool(video_url)}", flush=True)
+                if poll_count <= 3 or poll_count % 12 == 0:
+                    write_debug_snapshot(page, poll_count=poll_count)
             if not video_url:
+                write_debug_snapshot(page, poll_count=poll_count, label="failed")
                 raise RuntimeError("magicfit_video_url_not_found")
             print("magicfit: download clip", flush=True)
             download(video_url, out_path)

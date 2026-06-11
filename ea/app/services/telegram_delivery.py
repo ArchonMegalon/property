@@ -776,6 +776,8 @@ def send_telegram_document_for_principal(
     principal_id: str,
     document_ref: str,
     caption: str = "",
+    inline_buttons: list[list[tuple[str, str]]] | None = None,
+    url_buttons: list[list[tuple[str, str]]] | None = None,
 ) -> TelegramDeliveryReceipt:
     binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
     if binding is None:
@@ -795,11 +797,32 @@ def send_telegram_document_for_principal(
     normalized_document_ref = str(document_ref or "").strip()
     if not normalized_document_ref:
         raise RuntimeError("telegram_document_ref_missing")
+    keyboard_rows: list[list[dict[str, str]]] = []
+    for row in list(inline_buttons or []):
+        buttons = [
+            {"text": str(label or "").strip(), "callback_data": str(callback_data or "").strip()}
+            for label, callback_data in row
+            if str(label or "").strip() and str(callback_data or "").strip()
+        ]
+        if buttons:
+            keyboard_rows.append(buttons)
+    for row in list(url_buttons or []):
+        buttons = [
+            {"text": str(label or "").strip(), "url": str(url or "").strip()}
+            for label, url in row
+            if str(label or "").strip() and str(url or "").strip()
+        ]
+        if buttons:
+            keyboard_rows.append(buttons)
+    reply_markup = {"inline_keyboard": keyboard_rows} if keyboard_rows else None
     if Path(normalized_document_ref).is_file():
+        fields = {"chat_id": chat_id, "caption": _telegram_caption(caption)}
+        if reply_markup:
+            fields["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
         result = _telegram_send_multipart(
             token=token,
             method="sendDocument",
-            fields={"chat_id": chat_id, "caption": _telegram_caption(caption)},
+            fields=fields,
             file_field="document",
             file_path=normalized_document_ref,
             content_type=_guess_content_type(normalized_document_ref),
@@ -807,10 +830,13 @@ def send_telegram_document_for_principal(
     else:
         if not _telegram_remote_ref_reachable(normalized_document_ref):
             raise RuntimeError("telegram_document_unreachable")
+        payload: dict[str, object] = {"chat_id": chat_id, "document": normalized_document_ref, "caption": _telegram_caption(caption)}
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
         result = _telegram_send_json(
             token=token,
             method="sendDocument",
-            payload={"chat_id": chat_id, "document": normalized_document_ref, "caption": _telegram_caption(caption)},
+            payload=payload,
         )
     return TelegramDeliveryReceipt(
         principal_id=str(principal_id or "").strip(),

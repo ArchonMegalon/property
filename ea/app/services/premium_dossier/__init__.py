@@ -55,6 +55,19 @@ def render_property_packet_pdf_via_premium_pipeline(
         include_floorplan=include_floorplan,
         include_photos=include_photos,
     )
+    if str(redaction.payload.get("appendix_mode") or "").strip().lower() == "telegram_pdf_appendix":
+        return legacy_renderer(
+            artifact_root=artifact_root,
+            publication_id=publication_id,
+            principal_id=principal_id,
+            source=source,
+            packet_kind=packet_kind,
+            privacy_mode=privacy_mode,
+            fliplink_format=fliplink_format,
+            include_exact_address=include_exact_address,
+            include_floorplan=include_floorplan,
+            include_photos=include_photos,
+        )
     compiled = compile_premium_dossier(
         source=source,
         redacted_payload=redaction.payload,

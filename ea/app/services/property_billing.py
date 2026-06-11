@@ -67,14 +67,14 @@ _FREE_PLAN = PropertyPlanSpec(
     magic_fit_scene_limit=1,
     magic_fit_video_limit=1,
     magic_fit_scene_period="week",
-    magic_fit_video_period="week",
+    magic_fit_video_period="day",
     auto_tour_policy="hero_only",
     features=(
         "up to 3 platforms per run",
         "up to 2 results per source",
         "match threshold up to 45/100",
         "standard research on the shortlisted results",
-        "one 3D reconstruction floor plan and one interior flythrough per week",
+        "one 3D reconstruction floor plan and one interior flythrough per day",
     ),
 )
 
@@ -91,7 +91,7 @@ _PAID_PLANS = {
         research_depth="deep",
         investment_research_level="preview",
         magic_fit_scene_limit=5,
-        magic_fit_video_limit=2,
+        magic_fit_video_limit=3,
         magic_fit_scene_period="day",
         magic_fit_video_period="day",
         auto_tour_policy="shortlist_opt_in",
@@ -100,7 +100,7 @@ _PAID_PLANS = {
             "up to 5 results per source",
             "match threshold up to 65/100",
             "deep research with preview investment signals",
-            "multiple 3D reconstruction floor plans and interior flythroughs per day",
+            "multiple 3D reconstruction floor plans and interior flythroughs per day (3 max)",
         ),
     ),
     "agent": PropertyPlanSpec(

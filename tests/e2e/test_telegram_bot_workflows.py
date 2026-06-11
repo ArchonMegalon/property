@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -415,6 +416,227 @@ def test_telegram_bot_workflow_persists_property_comparison_memory(monkeypatch: 
     second = agent.ask("What about the other one?")
     assert second["reply_sent"] is False
     assert any("comparison_secondary: Strong Doebling listing | willhaben:1071155412" in item for item in upstream_groundings)
+
+
+def test_telegram_bot_property_link_e2e_sends_diorama_photo_and_artifact_buttons(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-property-link")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-property-link")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+    monkeypatch.setenv("EA_TELEGRAM_PROPERTY_LINK_BUNDLE_POLL_ATTEMPTS", "0")
+    from app.api.routes import channels as channels_route
+    import app.product.service as product_service
+    from app.product.service import ProductService
+
+    class _InlineExecutor:
+        def submit(self, fn, *args, **kwargs):  # noqa: ANN001
+            fn(*args, **kwargs)
+            return SimpleNamespace()
+
+    class _Receipt:
+        chat_id = "1354554303"
+        message_ids = ("tg-property-link-1",)
+
+    dossier_path = tmp_path / "property-link-dossier.pdf"
+    dossier_path.write_bytes(b"%PDF-1.4\n% property link e2e\n")
+    sent_photos: list[dict[str, object]] = []
+
+    monkeypatch.setattr(channels_route, "_TELEGRAM_FREE_RENDER_EXECUTOR", _InlineExecutor())
+    monkeypatch.setattr(
+        ProductService,
+        "create_generic_property_tour",
+        lambda self, **kwargs: {
+            "status": "created",
+            "tour_url": "https://propertyquarry.com/tours/e2e-property-link",
+            "vendor_tour_url": "",
+            "blocked_reason": "",
+            "personal_fit_assessment": {"recommendation": "shortlist", "fit_score": 81.0},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda property_url: {
+            "title": "E2E Telegram Property",
+            "listing_id": "e2e-property-link",
+            "description": "Bright family apartment with a usable floorplan.",
+            "media_urls_json": ["https://cdn.example.com/e2e/photo.jpg"],
+            "floorplan_urls_json": ["https://cdn.example.com/e2e/floorplan.jpg"],
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_candidate_payload_from_preview",
+        lambda *, property_url, preview: {"listing_id": "e2e-property-link", "rooms": 3, "area_sqm": 72, "has_floorplan": True},
+    )
+    monkeypatch.setattr(product_service, "_merge_property_facts_with_source_research", lambda **kwargs: dict(kwargs.get("property_facts") or {}))
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_video_delivery",
+        lambda tour_url: {
+            "video_url": "https://propertyquarry.com/tours/files/e2e-property-link/tour.mp4",
+            "provider_key": "magicfit",
+        },
+    )
+    monkeypatch.setattr(product_service, "_property_bundle_exit_gate_http_url", lambda *args, **kwargs: (True, ""))
+    monkeypatch.setattr(
+        ProductService,
+        "_render_property_scout_dossier",
+        lambda self, **kwargs: {
+            "status": "rendered",
+            "publication_id": "pub-e2e-property-link",
+            "pdf_path": str(dossier_path),
+            "public_pdf_url": "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/e2e-token",
+            "caption": "PropertyQuarry dossier · E2E Telegram Property",
+            "diorama_preview_url": "https://propertyquarry.com/tours/files/e2e-property-link/diorama-preview.png",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_photo_for_principal",
+        lambda tool_runtime, **kwargs: sent_photos.append(dict(kwargs)) or _Receipt(),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("diorama photo reply should be used")),
+    )
+
+    client = _client(principal_id="")
+    agent = _TelegramScenarioAgent(client, secret="tg-secret")
+    reply = agent.ask(
+        "Please make a scout update with a warm diorama style for https://www.immobilienscout24.at/expose/e2e-property-link"
+    )
+
+    assert reply["reply_sent"] is False
+    assert sent_photos
+    photo = sent_photos[-1]
+    assert photo["principal_id"] == "exec-telegram-e2e-property-link"
+    assert photo["photo_ref"] == "https://propertyquarry.com/tours/files/e2e-property-link/diorama-preview.png"
+    assert "Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF." in str(photo["caption"])
+    buttons = list(photo["url_buttons"] or [])
+    flattened = [button for row in buttons for button in row]
+    assert ("Open 3D Tour", "https://propertyquarry.com/tours/e2e-property-link?pane=panorama-pane") in flattened
+    assert ("Open Flythrough", "https://propertyquarry.com/tours/files/e2e-property-link/tour.mp4") in flattened
+    assert any(label == "Open Dossier PDF" for label, _url in flattened)
+
+
+def test_telegram_bot_property_pdf_upload_e2e_returns_rendered_pdf(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-property-pdf")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-property-pdf")
+    from app.api.routes import channels as channels_route
+    from app.services import telegram_session_service
+    import app.product.service as product_service
+    from app.product.service import ProductService
+
+    class _InlineExecutor:
+        def submit(self, fn, *args, **kwargs):  # noqa: ANN001
+            fn(*args, **kwargs)
+            return SimpleNamespace()
+
+    class _Receipt:
+        chat_id = "1354554303"
+        message_ids = ("tg-property-pdf-1",)
+
+    returned_pdf = tmp_path / "returned-property-packet.pdf"
+    returned_pdf.write_bytes(b"%PDF-1.4\n% returned property pdf e2e\n")
+    combined_pdf = tmp_path / "combined-property-packet.pdf"
+    combined_pdf.write_bytes(b"%PDF-1.4\n% combined property pdf e2e\n")
+    sent_documents: list[dict[str, object]] = []
+    render_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(channels_route, "_TELEGRAM_ASYNC_EXECUTOR", _InlineExecutor())
+    monkeypatch.setattr(
+        telegram_session_service,
+        "_telegram_file_download_url",
+        lambda *, bot_token, file_id: "https://api.telegram.org/file/botredacted/documents/property-upload.pdf",
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_write_hosted_floorplan_property_tour_bundle",
+        lambda **kwargs: {
+            "hosted_url": "https://propertyquarry.com/tours/pdf-upload-tour",
+            "public_url": "https://propertyquarry.com/tours/pdf-upload-tour",
+            "creation_mode": "hosted_floorplan_tour",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_render_magicfit_property_flythrough_into_hosted_tour",
+        lambda **kwargs: {
+            "status": "rendered",
+            "provider_key": "magicfit",
+            "video_file_path": "/tmp/pdf-upload-tour/tour.mp4",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_video_delivery",
+        lambda tour_url: {
+            "video_url": "https://propertyquarry.com/tours/files/pdf-upload-tour/tour.mp4",
+            "provider_key": "magicfit",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_append_propertyquarry_pdf_to_source_pdf",
+        lambda **kwargs: str(combined_pdf),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_render_property_scout_dossier",
+        lambda self, **kwargs: render_calls.append(dict(kwargs)) or {
+            "status": "rendered",
+            "publication_id": "pub-e2e-property-pdf",
+            "pdf_path": str(returned_pdf),
+            "public_pdf_url": "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/pdf-token",
+            "caption": "PropertyQuarry dossier · Uploaded property PDF",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_document_for_principal",
+        lambda tool_runtime, **kwargs: sent_documents.append(dict(kwargs)) or _Receipt(),
+    )
+
+    client = _client(principal_id="")
+    agent = _TelegramScenarioAgent(client, secret="tg-secret")
+    agent._message_id += 1
+    response = agent.send_message_payload(
+        {
+            "caption": "PropertyQuarry scout update from this Wohnung expose PDF",
+            "document": {
+                "file_id": "telegram-property-pdf-file",
+                "file_name": "wohnung-expose.pdf",
+                "mime_type": "application/pdf",
+            },
+        }
+    )
+
+    assert response["reply_sent"] is False
+    assert render_calls
+    assert render_calls[-1]["property_url"] == "https://api.telegram.org/file/botredacted/documents/property-upload.pdf"
+    assert render_calls[-1]["appendix_mode"] == "telegram_pdf_appendix"
+    assert sent_documents
+    assert sent_documents[-1]["principal_id"] == "exec-telegram-e2e-property-pdf"
+    assert sent_documents[-1]["document_ref"] == str(combined_pdf)
+    assert "Original PDF first" in str(sent_documents[-1]["caption"])
+    buttons = [button for row in list(sent_documents[-1]["url_buttons"] or []) for button in row]
+    assert ("Open 3D Tour", "https://propertyquarry.com/tours/pdf-upload-tour?pane=floorplan-pane") in buttons
+    assert ("Open Flythrough", "https://propertyquarry.com/tours/files/pdf-upload-tour/tour.mp4") in buttons
+    observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=20, principal_id="exec-telegram-e2e-property-pdf"))
+    assert any(str(row.event_type) == "telegram.reply_async_sent" for row in observations)
 
 
 def test_telegram_bot_workflow_answers_focus_on_tomorrow_from_calendar_signal(monkeypatch: pytest.MonkeyPatch) -> None:

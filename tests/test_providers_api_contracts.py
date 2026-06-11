@@ -7653,15 +7653,11 @@ def test_public_tour_routes_render_pure_360_cube_with_continuing_links(
     page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
 
     assert page.status_code == 200
-    assert "Pure 360 hosted on My External Brain" in page.text
-    assert 'id="prev-link"' in page.text
-    assert 'id="next-link"' in page.text
-    assert "Flythrough" in page.text
-    assert 'id="flythrough-video"' in page.text
-    assert "Location" in page.text
-    assert '"scene_id": "living"' in page.text
-    assert '"scene_id": "bedroom"' in page.text
-    assert "scene-01-f.jpg" in page.text
+    assert "3D cube fallback blocked" in page.text
+    assert "not allowed to masquerade as a real 3D tour" in page.text
+    assert "@photo-sphere-viewer" not in page.text
+    assert "CubemapAdapter" not in page.text
+    assert "scene-01-f.jpg" not in page.text
 
 
 def test_public_tour_payload_ignores_legacy_video_fallback_relpath(
@@ -7799,12 +7795,11 @@ def test_public_tour_routes_keep_pure_360_white_labeled_when_origin_present(
 
     assert page.status_code == 200
     assert 'src="https://360.kalandra.at/view/portal/id/VZ8P1"' not in page.text
-    assert "Pure 360 hosted on My External Brain" in page.text
-    assert 'id="prev-link"' in page.text
-    assert 'id="next-link"' in page.text
-    assert '"scene_id": "living"' in page.text
-    assert 'id="scene-data"' in page.text
-    assert 'id="cube"' in page.text
+    assert "3D cube fallback blocked" in page.text
+    assert "not allowed to masquerade as a real 3D tour" in page.text
+    assert 'id="prev-link"' not in page.text
+    assert 'id="next-link"' not in page.text
+    assert 'id="cube"' not in page.text
     assert "Live Panorama Viewer" not in page.text
     assert "Hosted tour page with the original 360 viewer embedded." not in page.text
 
@@ -8617,16 +8612,13 @@ def test_public_tour_routes_use_listing_research_to_fill_decision_brief(
     page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
 
     assert page.status_code == 200
-    assert "Lift and floor plan materially reduce remote-viewing uncertainty." in page.text
-    assert "43 m² of terrace area adds meaningful private outdoor space." in page.text
-    assert "The building has only 8 residential units, which should keep internal traffic lower." in page.text
-    assert "Availability is listed as Sofort." in page.text
+    assert "3D cube fallback blocked" in page.text
+    assert "not allowed to masquerade as a real 3D tour" in page.text
+    assert "Lift and floor plan materially reduce remote-viewing uncertainty." not in page.text
+    assert "43 m² of terrace area adds meaningful private outdoor space." not in page.text
     assert "Immersive 360 tour is available." not in page.text
     assert "Hameaustraße 34" not in page.text
-    assert "Supermarket" in page.text
-    assert "Pharmacy" in page.text
-    assert "Underground" in page.text
-    assert "Source research already filled: lift, floor plan, availability (Sofort), supermarket distance, pharmacy distance, playground distance, underground distance." in page.text
+    assert "@photo-sphere-viewer" not in page.text
 
 
 def test_public_tour_routes_refuse_generated_fallback_tours(

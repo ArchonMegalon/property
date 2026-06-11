@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +19,7 @@ class ScenePreset:
     windows: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
     sprites: tuple[tuple[float, float, str], ...]
     route: tuple[tuple[float, float], ...]
+    scan_stops: tuple[tuple[float, float, float, float, str], ...] = ()
 
 
 SACHSENPLATZ_PRESET = ScenePreset(
@@ -81,6 +83,188 @@ SACHSENPLATZ_PRESET = ScenePreset(
 PRESETS: dict[str, ScenePreset] = {
     SACHSENPLATZ_PRESET.name: SACHSENPLATZ_PRESET,
 }
+
+
+def _float_pair(value: object, *, fallback: tuple[float, float] = (0.0, 0.0)) -> tuple[float, float]:
+    if isinstance(value, (list, tuple)) and len(value) >= 2:
+        try:
+            return float(value[0]), float(value[1])
+        except (TypeError, ValueError):
+            return fallback
+    return fallback
+
+
+def _rect_edges(x: float, y: float, w: float, h: float) -> tuple[tuple[tuple[float, float], tuple[float, float]], ...]:
+    return (
+        ((x, y), (x + w, y)),
+        ((x + w, y), (x + w, y + h)),
+        ((x + w, y + h), (x, y + h)),
+        ((x, y + h), (x, y)),
+    )
+
+
+def _room_center(room: dict[str, object]) -> tuple[float, float]:
+    return (
+        float(room.get("x") or 0.0) + float(room.get("w") or 1.0) / 2.0,
+        float(room.get("y") or 0.0) + float(room.get("h") or 1.0) / 2.0,
+    )
+
+
+def _default_sprite_for_room(room: dict[str, object]) -> tuple[float, float, str]:
+    cx, cy = _room_center(room)
+    name = str(room.get("name") or room.get("type") or "").lower()
+    kind = "chair"
+    if any(token in name for token in ("bad", "bath", "wc", "toilet")):
+        kind = "bath"
+    elif any(token in name for token in ("kueche", "küche", "kitchen", "wohn", "living")):
+        kind = "cooking" if "k" in name or "kitchen" in name else "sofa"
+    elif any(token in name for token in ("zimmer", "bed", "schlaf")):
+        kind = "bed"
+    elif any(token in name for token in ("balkon", "balcony", "terrace", "loggia")):
+        kind = "plants"
+    elif any(token in name for token in ("vorraum", "hall", "entry", "flur")):
+        kind = "coat"
+    return (cx, cy, kind)
+
+
+def scene_preset_from_floorplan_spec(spec: dict[str, object]) -> ScenePreset:
+    rooms = [dict(room) for room in list(spec.get("rooms") or []) if isinstance(room, dict)]
+    if not rooms:
+        raise ValueError("floorplan_spec_rooms_missing")
+    walls: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    openings: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    windows: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    sprites: list[tuple[float, float, str]] = []
+    for room in rooms:
+        x = float(room.get("x") or 0.0)
+        y = float(room.get("y") or 0.0)
+        w = max(0.4, float(room.get("w") or 1.0))
+        h = max(0.4, float(room.get("h") or 1.0))
+        walls.extend(_rect_edges(x, y, w, h))
+        for opening in list(room.get("openings") or []):
+            if isinstance(opening, dict):
+                openings.append((_float_pair(opening.get("from")), _float_pair(opening.get("to"))))
+        for window in list(room.get("windows") or []):
+            if isinstance(window, dict):
+                windows.append((_float_pair(window.get("from")), _float_pair(window.get("to"))))
+        room_sprites = [row for row in list(room.get("sprites") or []) if isinstance(row, dict)]
+        if room_sprites:
+            for sprite in room_sprites:
+                sx, sy = _float_pair(sprite.get("at"), fallback=_room_center(room))
+                sprites.append((sx, sy, str(sprite.get("kind") or "chair").strip() or "chair"))
+        else:
+            sprites.append(_default_sprite_for_room(room))
+    route = tuple(_float_pair(row) for row in list(spec.get("route") or []) if isinstance(row, (list, tuple)) and len(row) >= 2)
+    if not route:
+        route = tuple(_room_center(room) for room in rooms)
+    scan_stops: list[tuple[float, float, float, float, str]] = []
+    for index, stop in enumerate(list(spec.get("scan_stops") or [])):
+        if not isinstance(stop, dict):
+            continue
+        x, y = _float_pair(stop.get("at"), fallback=route[min(index, len(route) - 1)])
+        scan_stops.append(
+            (
+                x,
+                y,
+                float(stop.get("start_deg") or 0.0),
+                max(180.0, float(stop.get("sweep_deg") or 360.0)),
+                str(stop.get("label") or f"Room {index + 1}"),
+            )
+        )
+    if not scan_stops:
+        scan_stops = [
+            (x, y, 0.0, 360.0 if index not in {0, len(route) - 1} else 270.0, f"Room {index + 1}")
+            for index, (x, y) in enumerate(route)
+        ]
+    return ScenePreset(
+        name=str(spec.get("name") or "floorplan").strip() or "floorplan",
+        walls=tuple(walls),
+        openings=tuple(openings),
+        windows=tuple(windows),
+        sprites=tuple(sprites),
+        route=tuple(route),
+        scan_stops=tuple(scan_stops),
+    )
+
+
+TOP22_FLOORPLAN_SPEC: dict[str, object] = {
+    "name": "top22",
+    "rooms": [
+        {
+            "name": "Vorraum / entry with jackets",
+            "x": 1.0,
+            "y": 5.3,
+            "w": 3.6,
+            "h": 3.9,
+            "openings": [{"from": [2.18, 5.3], "to": [2.82, 5.3]}],
+            "sprites": [{"at": [2.15, 6.55], "kind": "coat"}],
+        },
+        {
+            "name": "Bad/WC",
+            "x": 1.0,
+            "y": 1.0,
+            "w": 2.0,
+            "h": 4.3,
+            "openings": [{"from": [3.0, 3.9], "to": [3.0, 4.65]}],
+            "sprites": [{"at": [2.35, 2.9], "kind": "bath"}],
+        },
+        {
+            "name": "Wohnkueche with cooking and TV",
+            "x": 4.6,
+            "y": 1.0,
+            "w": 6.2,
+            "h": 2.8,
+            "openings": [{"from": [4.6, 2.05], "to": [4.6, 2.9]}],
+            "windows": [{"from": [5.4, 1.0], "to": [7.0, 1.0]}, {"from": [8.2, 1.0], "to": [10.0, 1.0]}],
+            "sprites": [
+                {"at": [5.35, 2.45], "kind": "island"},
+                {"at": [6.55, 2.55], "kind": "cups"},
+                {"at": [6.95, 3.15], "kind": "cooking"},
+                {"at": [8.95, 2.45], "kind": "sofa"},
+                {"at": [10.10, 2.55], "kind": "tv"},
+                {"at": [9.2, 3.3], "kind": "toys"},
+            ],
+        },
+        {
+            "name": "Zimmer 1",
+            "x": 4.6,
+            "y": 3.8,
+            "w": 3.1,
+            "h": 5.4,
+            "openings": [{"from": [6.55, 3.8], "to": [7.25, 3.8]}],
+            "sprites": [{"at": [5.75, 6.85], "kind": "bed"}, {"at": [6.9, 8.4], "kind": "desk"}],
+        },
+        {
+            "name": "Zimmer 2",
+            "x": 7.7,
+            "y": 3.8,
+            "w": 3.1,
+            "h": 3.2,
+            "openings": [{"from": [7.7, 5.45], "to": [7.7, 6.25]}, {"from": [9.52, 7.0], "to": [10.28, 7.0]}],
+            "sprites": [{"at": [8.9, 5.85], "kind": "bed"}, {"at": [9.9, 6.45], "kind": "laundry"}],
+        },
+        {
+            "name": "Balkon",
+            "x": 7.7,
+            "y": 7.0,
+            "w": 3.1,
+            "h": 2.2,
+            "windows": [{"from": [8.6, 9.2], "to": [10.4, 9.2]}],
+            "sprites": [{"at": [10.0, 8.25], "kind": "plants"}, {"at": [9.25, 8.55], "kind": "chair"}],
+        },
+    ],
+    "route": [[2.25, 8.45], [2.25, 6.35], [2.28, 2.78], [6.95, 2.78], [6.12, 7.35], [9.15, 5.95], [9.92, 8.25]],
+    "scan_stops": [
+        {"at": [2.25, 7.55], "start_deg": -90.0, "sweep_deg": 360.0, "label": "Vorraum / entry with jackets"},
+        {"at": [2.30, 2.82], "start_deg": -20.0, "sweep_deg": 270.0, "label": "Bad/WC"},
+        {"at": [6.95, 2.78], "start_deg": 0.0, "sweep_deg": 360.0, "label": "Wohnkueche with cooking and TV"},
+        {"at": [6.12, 7.35], "start_deg": 88.0, "sweep_deg": 360.0, "label": "Zimmer 1"},
+        {"at": [9.15, 5.95], "start_deg": 45.0, "sweep_deg": 360.0, "label": "Zimmer 2"},
+        {"at": [9.92, 8.25], "start_deg": 130.0, "sweep_deg": 270.0, "label": "Balkon"},
+    ],
+}
+
+PRESETS[TOP22_FLOORPLAN_SPEC["name"]] = scene_preset_from_floorplan_spec(TOP22_FLOORPLAN_SPEC)
 
 
 def lerp(a: float, b: float, t: float) -> float:
@@ -191,6 +375,12 @@ def sprite_color(kind: str) -> tuple[int, int, int]:
         "bath": (220, 220, 224),
         "plants": (72, 122, 78),
         "chair": (98, 122, 158),
+        "coat": (88, 86, 96),
+        "cups": (230, 232, 222),
+        "cooking": (190, 210, 198),
+        "toys": (90, 150, 204),
+        "desk": (128, 116, 98),
+        "laundry": (205, 188, 180),
     }.get(kind, (170, 170, 170))
 
 
@@ -327,6 +517,21 @@ class OneTakeRenderer:
         return np.clip(frame.astype(np.float32) * vignette[..., None], 0, 255).astype(np.uint8)
 
     def route_pose(self, t: float) -> tuple[float, float, float]:
+        if self.preset.scan_stops:
+            stops = self.preset.scan_stops
+            move_share = 0.28
+            scan_share = 0.72
+            segment_count = len(stops)
+            seg = min(segment_count - 1, int(max(0.0, min(0.999999, t)) * segment_count))
+            local = (t * segment_count) - seg
+            x, y, start_deg, sweep_deg, _label = stops[seg]
+            prev_x, prev_y = self.preset.route[0] if seg == 0 else (stops[seg - 1][0], stops[seg - 1][1])
+            approach_angle = math.atan2(y - prev_y, x - prev_x) if (x, y) != (prev_x, prev_y) else math.radians(start_deg)
+            if local < move_share:
+                u = smoothstep(local / move_share)
+                return lerp(prev_x, x, u), lerp(prev_y, y, u), lerp(approach_angle, math.radians(start_deg), u)
+            u = smoothstep((local - move_share) / scan_share)
+            return x, y, math.radians(start_deg + sweep_deg * u)
         route = self.preset.route
         t = max(0.0, min(0.999999, t))
         n = len(route) - 1
@@ -370,6 +575,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Render a true one-take shell-style flythrough previs from a hard-coded room shell preset."
     )
     parser.add_argument("--preset", choices=sorted(PRESETS), default="sachsenplatz")
+    parser.add_argument(
+        "--floorplan-json",
+        default="",
+        help="Optional generic floorplan spec JSON with rooms, openings, windows, route, and scan_stops.",
+    )
     parser.add_argument("--out-dir", default="/tmp/sachsenplatz_true_take_v2")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
@@ -382,7 +592,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    preset = PRESETS[args.preset]
+    if args.floorplan_json:
+        spec_path = Path(args.floorplan_json).expanduser()
+        preset = scene_preset_from_floorplan_spec(json.loads(spec_path.read_text(encoding="utf-8")))
+    else:
+        preset = PRESETS[args.preset]
     out_dir = Path(args.out_dir).expanduser()
     renderer = OneTakeRenderer(
         preset=preset,

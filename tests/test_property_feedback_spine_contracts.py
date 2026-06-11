@@ -132,3 +132,33 @@ def test_structured_property_feedback_accepts_decision_lifecycle_states(tmp_path
     summary = client.get("/app/api/properties/listing-phase2-lifecycle/feedback-summary")
     assert summary.status_code == 200, summary.text
     assert summary.json()["decision_state_counts"]["viewing_requested"] >= 1
+
+
+def test_dadan_video_feedback_normalizes_into_structured_property_signals(tmp_path: Path) -> None:
+    client = property_client_with_workspace(principal_id="pq-dadan-feedback", tmp_path=tmp_path)
+    publication_id = seed_packet(client, property_ref="listing-dadan")
+
+    recorded = client.post(
+        "/app/api/property-feedback/dadan",
+        json={
+            "property_ref": "listing-dadan",
+            "publication_id": publication_id,
+            "stakeholder_id": "viewer-mara",
+            "stakeholder_label": "Mara",
+            "submission_id": "dadan-submission-1",
+            "answers": [
+                {"question": "What did you like?", "answer": "I like the bright kitchen and balcony."},
+                {"question": "What did you not like?", "answer": "The bathroom feels small and might be a blocker."},
+                {"question": "What should we ask?", "answer": "Can the agent confirm operating costs?"},
+            ],
+        },
+    )
+    assert recorded.status_code == 200, recorded.text
+    body = recorded.json()
+    assert body["source"] == "dadan_video_feedback"
+    assert body["total"] == 3
+    assert {item["category"] for item in body["recorded"]} == {"love", "dealbreaker", "question"}
+
+    listing = client.get("/app/api/property-feedback", params={"property_ref": "listing-dadan"})
+    assert listing.status_code == 200
+    assert listing.json()["total"] == 3

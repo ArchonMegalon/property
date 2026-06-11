@@ -30,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from html import escape as html_escape
 from html.parser import HTMLParser
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -50,6 +50,7 @@ except Exception:  # pragma: no cover - optional OCR fallback
 from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, IntentSpecV3, Stakeholder, TaskExecutionRequest, ToolInvocationRequest
 from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
 from app.services.property_billing import enforce_property_plan_limits, property_commercial_snapshot
+from app.services.property_media_factory import MediaRequirement, route_property_media_task
 from app.product.extractors import extract_commitment_candidates
 from app.product.models import (
     BriefItem,
@@ -10391,7 +10392,7 @@ def _prefer_hosted_live_360_embed(source_virtual_tour_url: object) -> bool:
     if not normalized:
         return False
     host = urllib.parse.urlparse(normalized).netloc.lower()
-    return "matterport" in host
+    return "matterport" in host or "3dvista" in host
 
 
 def _hosted_property_tour_slug(*, title: str, listing_id: str, property_url: str, variant_key: str) -> str:
@@ -10440,10 +10441,13 @@ def _download_public_tour_asset_with_type(url: str, target: Path) -> str:
 
 
 def _hosted_property_tour_asset_suffix(*, url: str, content_type: str) -> str:
-    guessed = mimetypes.guess_extension(str(content_type or "").split(";", 1)[0].strip())
+    suffix = Path(urllib.parse.urlparse(str(url or "")).path).suffix.lower()
+    normalized_type = str(content_type or "").split(";", 1)[0].strip().lower()
+    if normalized_type in {"application/octet-stream", "binary/octet-stream"} and suffix:
+        return suffix
+    guessed = mimetypes.guess_extension(normalized_type)
     if guessed:
         return guessed
-    suffix = Path(urllib.parse.urlparse(str(url or "")).path).suffix.lower()
     return suffix or ".bin"
 
 
@@ -10496,6 +10500,7 @@ def _write_hosted_floorplan_property_tour_bundle(
                         "ordinal": ordinal,
                         "name": f"Floorplan {ordinal}",
                         "role": "floorplan",
+                        "privacy_class": "floorplan_pdf_public" if relpath.lower().endswith(".pdf") else "public",
                         "asset_relpath": relpath,
                         "source_url": asset_url,
                         "property_url": property_url,
@@ -10580,7 +10585,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     live_url = _safe_live_property_tour_url(source_virtual_tour_url)
     parsed_live = urllib.parse.urlparse(live_url)
     live_host = parsed_live.netloc.lower()
-    if "matterport" in live_host:
+    if "matterport" in live_host or "3dvista" in live_host:
         base_url = _hosted_property_tour_public_base_url()
         public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
         slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
@@ -10602,6 +10607,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
                 "teaser_attributes": existing_teasers or ["Live 360 tour", "Embedded external panorama"],
             }
         )
+        is_3dvista = "3dvista" in live_host
         display_title = compact_text(title, fallback="Live 360 Property Tour", limit=180)
         payload = {
             "slug": slug,
@@ -10620,26 +10626,28 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
             "tour_title": f"{display_title} - live 360",
             "tour_id": None,
             "variant_key": variant_key,
-            "variant_label": "live 360",
+            "variant_label": "3DVista" if is_3dvista else "live 360",
             "scene_strategy": "live_360_embed",
+            "control_mode": "3dvista" if is_3dvista else "external_live_360",
             "scene_count": 1,
             "facts": facts,
             "brief": {
-                "theme_name": "clean_light",
-                "tour_style": "embedded_live_360",
+                "theme_name": "3DVista" if is_3dvista else "clean_light",
+                "tour_style": "embedded_3dvista" if is_3dvista else "embedded_live_360",
                 "audience": "tenant_screening",
-                "creative_brief": "Render the live 360 viewer directly inside the PropertyQuarry hosted tour page.",
-                "call_to_action": "Open live 360 tour.",
+                "creative_brief": "Render the 3DVista viewer directly inside the PropertyQuarry hosted tour page." if is_3dvista else "Render the live 360 viewer directly inside the PropertyQuarry hosted tour page.",
+                "call_to_action": "Open 3DVista tour." if is_3dvista else "Open live 360 tour.",
             },
             "editor_url": "",
             "crezlo_public_url": live_url,
+            "three_d_vista_url": live_url if is_3dvista else "",
             "scenes": [
                 {
                     "ordinal": 1,
-                    "name": "Live 360",
+                    "name": "3DVista Tour" if is_3dvista else "Live 360",
                     "role": "live_360",
                     "image_url": _matterport_thumb_url(live_url)
-                    or "https://my.matterport.com/api/v2/player/models/default/thumb/",
+                    or "",
                     "source_url": live_url,
                     "property_url": property_url,
                     "mime_type": "image/jpeg",
@@ -10652,6 +10660,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
         return payload
     if "360.kalandra.at" not in live_host and "feelestate" not in live_host:
         raise RuntimeError("pure_360_source_unsupported")
+    raise RuntimeError("property_tour_cube_fallback_disabled")
     base_url = _hosted_property_tour_public_base_url()
     public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
     slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
@@ -10795,6 +10804,8 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
         "variant_key": variant_key,
         "variant_label": "pure 360",
         "scene_strategy": "pure_360_cube",
+        "control_mode": "3dvista",
+        "viewer_provider": "3dvista",
         "scene_count": len(scenes),
         "facts": facts,
         "brief": {
@@ -10851,13 +10862,41 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
     if not local_video_path.exists() or not local_video_path.is_file():
         return {}
     public_video_url = _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=video_relpath)
+    duration_seconds = _video_duration_seconds(str(local_video_path))
+    scenes = list(payload.get("scenes") or []) if isinstance(payload.get("scenes"), list) else []
+    scene_count = int(payload.get("scene_count") or len(scenes) or 0)
     return {
         "slug": slug,
         "video_url": public_video_url,
         "video_file_path": str(local_video_path),
         "audio_probe_ref": str(local_video_path),
         "provider_key": video_provider,
+        "duration_seconds": duration_seconds,
+        "tour_scene_count": scene_count,
     }
+
+
+def _hosted_property_tour_scene_count(tour_url: str) -> int:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return 0
+    slug, bundle_dir = _hosted_property_tour_bundle_dir(normalized_url)
+    if not slug or bundle_dir is None:
+        return 0
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists():
+        return 0
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return 0
+    if not isinstance(payload, dict):
+        return 0
+    scenes = list(payload.get("scenes") or []) if isinstance(payload.get("scenes"), list) else []
+    try:
+        return max(0, int(payload.get("scene_count") or len(scenes) or 0))
+    except Exception:
+        return len(scenes)
 
 
 def _hosted_property_tour_bundle_dir(tour_url: str) -> tuple[str, Path] | tuple[str, None]:
@@ -10913,9 +10952,413 @@ def _update_hosted_property_tour_magicfit_video_manifest(
     return payload
 
 
-def _default_magicfit_property_flythrough_prompt(*, title: str, property_facts: dict[str, object] | None = None) -> str:
+def _update_hosted_property_tour_video_manifest(
+    *,
+    tour_url: str,
+    video_relpath: str,
+    sidecar_relpath: str,
+    provider_key: str,
+) -> dict[str, object]:
+    slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
+    if not slug or bundle_dir is None:
+        raise RuntimeError("hosted_property_tour_bundle_missing")
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists():
+        raise RuntimeError("hosted_property_tour_manifest_missing")
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError("hosted_property_tour_manifest_invalid") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("hosted_property_tour_manifest_invalid")
+    normalized_video_relpath = str(video_relpath or "").strip().lstrip("/")
+    normalized_sidecar_relpath = str(sidecar_relpath or "").strip().lstrip("/")
+    normalized_provider = str(provider_key or "").strip().lower() or "unknown"
+    if not normalized_video_relpath:
+        raise RuntimeError("hosted_property_tour_video_relpath_missing")
+    payload["video_relpath"] = normalized_video_relpath
+    payload.pop("video_fallback_relpath", None)
+    payload["video_provider_key"] = normalized_provider
+    payload["video_provider"] = normalized_provider
+    payload["video_render_provider"] = normalized_provider
+    payload["video_source"] = normalized_provider
+    if normalized_sidecar_relpath:
+        payload["video_sidecar_relpath"] = normalized_sidecar_relpath
+    payload["flythrough_url"] = _property_tour_deep_link(tour_url, pane="flythrough-pane", autoplay=True)
+    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def _onemin_i2v_keys_available() -> bool:
+    if any(
+        str(value or "").strip()
+        for key, value in os.environ.items()
+        if key == "ONEMIN_AI_API_KEY" or key.startswith("ONEMIN_AI_API_KEY_FALLBACK_")
+    ):
+        return True
+    for env_name in ("ONEMIN_DIRECT_API_KEYS_JSON_FILE", "ONEMIN_DIRECT_API_KEYS_JSON"):
+        raw_value = str(os.environ.get(env_name) or "").strip()
+        if not raw_value:
+            continue
+        if env_name.endswith("_FILE"):
+            candidate = Path(raw_value).expanduser()
+            if not candidate.is_absolute():
+                candidate = (_repo_root() / candidate).resolve()
+            if candidate.exists() and candidate.read_text(encoding="utf-8").strip():
+                return True
+        else:
+            return True
+    return False
+
+
+def _hosted_property_tour_safe_asset_relpath(value: object) -> str:
+    raw = str(value or "").strip().replace("\\", "/")
+    if not raw or "\x00" in raw or "://" in raw or raw.startswith("/"):
+        return ""
+    path = PurePosixPath(raw)
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        return ""
+    return "/".join(path.parts)
+
+
+def _hosted_property_tour_seed_image_path(tour_url: str) -> Path | None:
+    _slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
+    if bundle_dir is None:
+        return None
+    manifest_path = bundle_dir / "tour.json"
+    payload: dict[str, object] = {}
+    if manifest_path.exists():
+        with contextlib.suppress(Exception):
+            loaded = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                payload = loaded
+    candidate_relpaths: list[str] = []
+    for key in ("telegram_preview_relpath", "diorama_preview_relpath", "preview_relpath"):
+        value = str(payload.get(key) or "").strip()
+        if value:
+            candidate_relpaths.append(value)
+    for scene in list(payload.get("scenes") or []):
+        if not isinstance(scene, dict):
+            continue
+        for key in ("asset_relpath", "image_relpath"):
+            value = str(scene.get(key) or "").strip()
+            if value:
+                candidate_relpaths.append(value)
+        cube_faces = scene.get("cube_faces")
+        if isinstance(cube_faces, dict):
+            value = str(cube_faces.get("f") or cube_faces.get("front") or "").strip()
+            if value:
+                candidate_relpaths.append(value)
+    candidate_relpaths.extend(
+        path.name
+        for path in sorted(bundle_dir.iterdir())
+        if path.is_file()
+        and path.name.lower().startswith(("magicfit-still-", "telegram-preview", "diorama-preview"))
+    )
+    for relpath in candidate_relpaths:
+        safe_relpath = _hosted_property_tour_safe_asset_relpath(relpath)
+        if not safe_relpath.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+            continue
+        candidate = (bundle_dir / safe_relpath).resolve()
+        if bundle_dir.resolve() in candidate.parents and candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
+def _magicfit_property_room_visit_plan(
+    *,
+    title: str,
+    property_facts: dict[str, object] | None,
+) -> tuple[int, list[str]]:
     facts = dict(property_facts or {})
-    room_text = compact_text(str(facts.get("rooms") or facts.get("room_count") or "").strip(), fallback="", limit=32)
+    explicit_route_labels: list[str] = []
+    for key in ("magicfit_route_labels", "room_visit_plan", "walkthrough_route_labels", "walkable_route_labels"):
+        raw_labels = facts.get(key)
+        if not isinstance(raw_labels, (list, tuple)):
+            continue
+        for raw_label in raw_labels:
+            label = compact_text(str(raw_label or "").strip(), fallback="", limit=80)
+            if label and label.lower() not in {item.lower() for item in explicit_route_labels}:
+                explicit_route_labels.append(label)
+    room_count_hint = facts.get("room_count")
+    if room_count_hint is None:
+        room_count_hint = facts.get("rooms")
+    base_room_count = _property_numeric_room_count(room_count_hint)
+    if base_room_count is None or base_room_count <= 0:
+        base_room_count, _ = _property_extract_rooms_from_text(
+            " ".join(
+                part
+                for part in (
+                    title,
+                    str(facts.get("listing_title") or "").strip(),
+                    str(facts.get("title") or "").strip(),
+                    str(facts.get("summary") or "").strip(),
+                    str(facts.get("description") or "").strip(),
+                    str(facts.get("rooms_label") or "").strip(),
+                )
+                if part
+            )
+        )
+    if not isinstance(base_room_count, float) or base_room_count <= 0:
+        base_room_count = 0.0
+    base_room_count = int(base_room_count) if float(base_room_count).is_integer() else int(math.ceil(base_room_count))
+
+    room_signal_text = " ".join(
+        part
+        for part in (
+            title,
+            str(facts.get("title") or "").strip(),
+            str(facts.get("listing_title") or "").strip(),
+            str(facts.get("summary") or "").strip(),
+            str(facts.get("description") or "").strip(),
+            str(facts.get("rooms_label") or "").strip(),
+        )
+        if part
+    ).lower()
+
+    category_rules: list[tuple[str, str, str, tuple[str, ...]]] = [
+        (
+            "kitchen",
+            r"\b(?:wohnk(?:u|ue|ü)che|k(?:u|ue|ü)chen|küche|kueche|kitchen|cook(er|ing)\s?area)\b",
+            "living kitchen",
+            ("küche", "kueche", "kitchen", "kochen", "küchen", "kuechen", "wohnküche", "wohnkueche"),
+        ),
+        (
+            "bathroom",
+            r"\b(?:bathroom|badezimmer|bath room|bath|bad)\b",
+            "bath/WC",
+            ("badezimmer", "bathroom", "bath", "badzimmer", "badenzimmer", "bad mit wc", "bad/wc", "bad"),
+        ),
+        (
+            "toilet",
+            r"\b(?:toilette|toiletten|toilet|w\.?c\.?|wc)\b",
+            "separate toilet",
+            ("toilette", "toiletten", "toilet", "w.c.", "w.c", "wc"),
+        ),
+        (
+            "hall",
+            r"\b(?:hallway|hall|foyer|flur|entry|entryway|eingang|vorraum|vorr(?:a|ä)ume)\b",
+            "entry/hall",
+            ("flur", "hall", "foyer", "eingang", "entrance", "entry", "egress", "vorraum"),
+        ),
+        (
+            "storage",
+            r"\b(?:storage|store room|storeroom|utility room|abstellraum|abstellr(?:a|ä)ume|ar)\b",
+            "storage room",
+            ("storage", "store room", "storeroom", "utility room", "abstellraum", "abstellräume", "abstellraeume"),
+        ),
+        (
+            "dining",
+            r"\b(?:dining room|dining|esszimmer|eszimmer|essenzimmer)\b",
+            "dining room",
+            ("esszimmer", "eszimmer", "essenzimmer", "dining", "dining room"),
+        ),
+        (
+            "outdoor",
+            r"\b(?:balcony|balconies|balkon|balkone|loggia|terrace|terraces|terrasse|terrassen|roof\s?terrace|dachterrasse)\b",
+            "balcony/terrace",
+            ("balcony", "balconies", "balkon", "balkone", "loggia", "terrace", "terraces", "terrasse", "terrassen", "dachterrasse"),
+        ),
+    ]
+    bonus: dict[str, int] = {}
+    for category, pattern, _label, aliases in category_rules:
+        total_count = 0
+        counted = 0
+        for match in re.finditer(rf"(?:(?P<count>\d+(?:[.,]\d+)?)\s*(?:{pattern}))", room_signal_text, flags=re.IGNORECASE):
+            matched_count = str(match.group("count") or "").strip()
+            if matched_count:
+                parsed_count = _property_numeric_room_count(matched_count)
+                if parsed_count is not None:
+                    total_count += max(1, int(math.ceil(parsed_count)))
+            counted += 1
+        if total_count == 0:
+            for alias in aliases:
+                if alias and alias in room_signal_text:
+                    total_count = 1
+                    break
+        if total_count == 0 and counted > 0:
+            total_count = 1
+        if total_count > 0:
+            bonus[category] = total_count
+
+    def _add_route_label(labels: list[str], label: str) -> None:
+        normalized = compact_text(str(label or "").strip(), fallback="", limit=80)
+        if normalized and normalized.lower() not in {item.lower() for item in labels}:
+            labels.append(normalized)
+
+    room_visit_labels: list[str] = []
+    if explicit_route_labels:
+        room_visit_labels = list(explicit_route_labels)
+    else:
+        if bonus.get("hall"):
+            _add_route_label(room_visit_labels, "entry/hall")
+        if bonus.get("storage"):
+            _add_route_label(room_visit_labels, "storage room")
+        if bonus.get("bathroom"):
+            _add_route_label(room_visit_labels, "bath/WC")
+        elif bonus.get("toilet"):
+            _add_route_label(room_visit_labels, "toilet")
+        separate_toilet_signal = bool(
+            re.search(
+                r"\b(?:separat(?:e|es|er|en)?|separate|extra|eigen(?:e|es|er|en)?)\s+(?:w\.?c\.?|wc|toilette|toilet)\b",
+                room_signal_text,
+                flags=re.IGNORECASE,
+            )
+        )
+        if bonus.get("toilet") and (not bonus.get("bathroom") or separate_toilet_signal):
+            _add_route_label(room_visit_labels, "toilet")
+        if bonus.get("kitchen"):
+            _add_route_label(room_visit_labels, "living kitchen")
+        if base_room_count >= 1 and not bonus.get("kitchen"):
+            _add_route_label(room_visit_labels, "living room")
+        if base_room_count >= 2:
+            _add_route_label(room_visit_labels, "bedroom")
+        for bedroom_index in range(2, max(1, base_room_count - 1) + 1):
+            _add_route_label(room_visit_labels, f"bedroom {bedroom_index}")
+        if bonus.get("dining") and not bonus.get("kitchen"):
+            _add_route_label(room_visit_labels, "dining room")
+        if bonus.get("outdoor"):
+            _add_route_label(room_visit_labels, "balcony/terrace")
+    if explicit_route_labels:
+        computed_room_count = max(1, len(explicit_route_labels))
+    elif room_visit_labels:
+        computed_room_count = len(room_visit_labels)
+    else:
+        computed_room_count = max(1, base_room_count)
+        computed_room_count += sum(int(item) for item in bonus.values())
+    tour_scene_count = 0
+    for key in ("tour_scene_count", "scene_count", "panorama_scene_count"):
+        raw_scene_count = facts.get(key)
+        if isinstance(raw_scene_count, bool) or raw_scene_count in (None, ""):
+            continue
+        try:
+            tour_scene_count = max(tour_scene_count, int(float(str(raw_scene_count).strip())))
+        except Exception:
+            continue
+    if computed_room_count <= 2 and tour_scene_count >= 4:
+        derived_stop_count = max(5, min(6, tour_scene_count))
+        if derived_stop_count > computed_room_count:
+            computed_room_count = derived_stop_count
+            if not room_visit_labels:
+                room_visit_labels = [f"walkthrough stop {index}" for index in range(1, derived_stop_count + 1)]
+    computed_room_count = max(1, min(25, computed_room_count))
+    return computed_room_count, room_visit_labels
+
+
+def _property_first_text(facts: dict[str, object], *keys: str, limit: int = 120) -> str:
+    for key in keys:
+        value = facts.get(key)
+        if isinstance(value, (list, tuple)):
+            text = ", ".join(str(item or "").strip() for item in value if str(item or "").strip())
+        else:
+            text = str(value or "").strip()
+        text = compact_text(text, fallback="", limit=limit)
+        if text:
+            return text
+    return ""
+
+
+def _property_float_text(facts: dict[str, object], *keys: str) -> str:
+    for key in keys:
+        value = facts.get(key)
+        if isinstance(value, bool) or value in (None, ""):
+            continue
+        try:
+            return f"{float(str(value).strip()):.6f}".rstrip("0").rstrip(".")
+        except Exception:
+            continue
+    return ""
+
+
+def _magicfit_property_daylight_context(*, property_facts: dict[str, object] | None) -> str:
+    facts = dict(property_facts or {})
+    address_text = _property_first_text(
+        facts,
+        "street_address",
+        "address",
+        "address_text",
+        "location_label",
+        "postal_name",
+        "district",
+        "city",
+        limit=180,
+    )
+    latitude_text = _property_float_text(facts, "latitude", "lat", "map_lat")
+    longitude_text = _property_float_text(facts, "longitude", "lng", "lon", "map_lng")
+    floor_text = _property_first_text(facts, "floor", "floor_label", "storey", "level", "etage", limit=80)
+    orientation_text = _property_first_text(
+        facts,
+        "orientation",
+        "window_orientation",
+        "balcony_orientation",
+        "terrace_orientation",
+        "facing",
+        "aspect",
+        limit=120,
+    )
+    outdoor_text = _property_first_text(
+        facts,
+        "view",
+        "view_description",
+        "outlook",
+        "balcony_view",
+        "terrace_view",
+        "street_context",
+        "neighbourhood_context",
+        "nearby_context",
+        limit=180,
+    )
+    obstruction_text = _property_first_text(
+        facts,
+        "shadow_context",
+        "sunlight_context",
+        "tree_shadow_context",
+        "building_shadow_context",
+        "obstruction_context",
+        "nearby_buildings",
+        "nearby_trees",
+        limit=180,
+    )
+    exterior_parts = [part for part in (address_text, outdoor_text) if part]
+    exterior_clause = "; ".join(exterior_parts)
+    coordinate_clause = f" Approximate map coordinates: {latitude_text}, {longitude_text}." if latitude_text and longitude_text else ""
+    floor_clause = f" Floor/elevation hint: {floor_text}." if floor_text else ""
+    orientation_clause = f" Window/balcony orientation hint: {orientation_text}." if orientation_text else ""
+    obstruction_clause = f" Known possible blockers: {obstruction_text}." if obstruction_text else ""
+    exterior_sentence = (
+        f"Use the known exterior context ({exterior_clause}) for the window and balcony-door views."
+        if exterior_clause
+        else "For windows and balcony doors, show a plausible Vienna urban exterior view consistent with the listing location; do not leave windows blank or glowing."
+    )
+    return (
+        "Daylight and exterior simulation is mandatory: render the flat at 13:00 local Vienna time on a sunny day. "
+        "Use physically plausible solar direction, bright but not overexposed daylight, natural contrast, and room-by-room changes in light. "
+        f"{exterior_sentence}"
+        f"{coordinate_clause}"
+        f"{floor_clause}"
+        f"{orientation_clause}"
+        f"{obstruction_clause}"
+        "When precise orientation or obstruction data is missing, represent uncertainty visually with plausible partial sun, soft shadows, and neighboring building/tree silhouettes rather than inventing exact landmarks. "
+        "If nearby buildings or trees could block light, include believable shade bands and darker corners so the viewer can judge whether the flat may feel dark at midday. "
+        "Through balcony doors and windows, show exterior geometry, sky brightness, street/courtyard depth, and any likely greenery or neighboring facades."
+    )
+
+
+def _default_magicfit_property_flythrough_prompt(
+    *,
+    title: str,
+    property_facts: dict[str, object] | None = None,
+    room_count: int | None = None,
+    room_visit_plan: list[str] | tuple[str, ...] = (),
+    birthday_party_request: bool = False,
+    person_motion_hint: str = "",
+    include_final_turn_directive: bool = True,
+) -> str:
+    facts = dict(property_facts or {})
+    resolved_room_count = int(room_count or 0)
+    if resolved_room_count <= 0:
+        resolved_room_count = 1
+    room_text = compact_text(str(resolved_room_count).strip(), fallback="", limit=32)
     area_text = compact_text(str(facts.get("area_sqm") or facts.get("living_area_sqm") or "").strip(), fallback="", limit=32)
     location_text = compact_text(
         _first_non_empty_text(
@@ -10927,16 +11370,70 @@ def _default_magicfit_property_flythrough_prompt(*, title: str, property_facts: 
         fallback="Vienna",
         limit=60,
     )
+    room_visit_plan_text = compact_text(", ".join(str(item or "").strip() for item in room_visit_plan if str(item or "").strip()), fallback="", limit=160)
+    final_turn_text = (
+        (
+            "Final segment is mandatory and must be the last action before ending. "
+            "At about 65–72% of the full clip and no earlier, stop movement and hold for about 2 seconds. "
+            "Then perform ONE very slow clockwise 240° sweep (exactly 240°, not 180°), constant speed, using the final 28–35% of runtime. "
+            "Do not fly backward, zoom, or translate during this segment; hold for the final 2 seconds before ending."
+        )
+        if include_final_turn_directive
+        else ""
+    )
     descriptor_parts = [part for part in (room_text and f"{room_text}-room", area_text and f"{area_text} m2") if part]
     descriptor = ", ".join(descriptor_parts)
     descriptor_clause = f" of a {descriptor}" if descriptor else ""
     title_text = compact_text(str(title or "modern Vienna apartment").strip(), fallback="modern Vienna apartment", limit=140)
+    motion_hint_text = compact_text(str(person_motion_hint or "").strip(), fallback="", limit=260)
+    daylight_context = _magicfit_property_daylight_context(property_facts=property_facts)
+    visit_directive = (
+        f"Prioritize a strict room-by-room route through: {room_visit_plan_text}. "
+        "Do not skip any listed room and keep motion continuous enough to clearly show each space. "
+        if room_visit_plan_text
+        else (
+            "If the listing only gives a total room count, force a practical floor-loop route covering hall/entry, "
+            "kitchen, bathroom/toilet, and the living/bedroom/balcony spaces once each without skipping."
+        )
+    )
+    room_coverage_directive = (
+        "Treat hall, entry, kitchen, bathroom, separate toilet, storage, terrace, and balcony as real route stops when present, "
+        "not as optional transitions. Show each clearly before moving on. "
+    )
+    birthday_directive = (
+        "If people or family styling appear, stage a recent child's birthday gathering with tasteful age-appropriate details: "
+        "a small cake table, a few balloons, subtle decorations, and a believable lived-in family atmosphere. "
+        "Keep it photoreal and restrained. "
+        if birthday_party_request
+        else ""
+    )
+    movement_directive = (
+        f"When a resident appears, keep body posture and movement consistent with this requirement: {motion_hint_text}. "
+        if motion_hint_text
+        else ""
+    )
     return (
         f"Photorealistic lived-in flythrough{descriptor_clause} in {location_text}. "
         f"Based on the listing '{title_text}'. "
-        "Single smooth first-person indoor drone glide from entry through hall into living area and toward the balcony or loggia. "
-        "Realistic family home styling with tasteful clutter, coats, plants, books, toys, breakfast traces, warm natural daylight, coherent walls and doors, "
-        "premium real-estate cinematography, no people visible."
+        "SUPER SLOW single first-person indoor drone glide: open the front door, move at walking pace or slower, "
+        "glide through the entry, and open doorway-by-doorway. No fast cuts, no jump cuts, no speed-ramping. "
+        "Visit every room once in a logical route. Enter each room fully before scanning it; do not just pass the doorway. "
+        f"{visit_directive}"
+        f"{room_coverage_directive}"
+        "In every room, stop or nearly stop, then rotate slowly at least 180 degrees; rotate 360 degrees where space allows. "
+        "Hold each room long enough to read the walls, windows, doors, storage, and furniture layout before continuing. "
+        "The route must visibly enter the living room, bedroom, kitchen, bathroom/toilet, hall/entry, storage, and balcony/terrace when present. "
+        "Do not cut away, fade, dissolve, restart the camera, or switch viewpoint. "
+        f"{final_turn_text} "
+        f"{birthday_directive}"
+        f"{movement_directive}"
+        f"{daylight_context} "
+        "Realistic inhabited family-home styling, not an empty showroom: jackets and shoes in the entry, "
+        "someone naturally cooking in the kitchen where the layout allows it, TV running in the living area, "
+        "toys or school items in one room, laundry or towels near bath/storage zones, open books, plants, cups, "
+        "breakfast traces, and believable everyday objects lying around without cluttering the route. "
+        "Coherent walls and doors, premium real-estate cinematography, gentle occupancy indicators, "
+        "and a natural perspective with a lived-in atmosphere."
     )
 
 
@@ -10946,6 +11443,8 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
     title: str,
     property_facts: dict[str, object] | None = None,
     actor: str = "",
+    birthday_party_request: bool = False,
+    person_motion_hint: str = "",
 ) -> dict[str, object]:
     slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
     if not slug or bundle_dir is None:
@@ -10953,13 +11452,55 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
     script_path = (_repo_root() / "scripts" / "render_magicfit_property_flythrough.py").resolve()
     if not script_path.exists():
         return {"status": "missing", "reason": "magicfit_render_script_missing"}
-    video_relpath = "tour.mp4"
+    render_token = f"{int(time.time())}-{uuid4().hex[:10]}"
+    video_relpath = f"tour-magicfit-{render_token}.mp4"
     sidecar_relpath = "tour.magicfit.json"
     bundle_video_path = (bundle_dir / video_relpath).resolve()
     bundle_sidecar_path = (bundle_dir / sidecar_relpath).resolve()
+    room_count = 1
+    room_visit_plan: list[str] = []
+    enriched_property_facts = dict(property_facts or {}) if isinstance(property_facts, dict) else {}
+    with contextlib.suppress(Exception):
+        tour_payload_path = bundle_dir / "tour.json"
+        if tour_payload_path.is_file():
+            tour_payload = json.loads(tour_payload_path.read_text(encoding="utf-8"))
+            walkable_scene = dict(tour_payload.get("walkable_scene") or {}) if isinstance(tour_payload.get("walkable_scene"), dict) else {}
+            route_labels: list[str] = []
+            for stop in list(walkable_scene.get("route") or []):
+                if not isinstance(stop, dict):
+                    continue
+                label = compact_text(str(stop.get("label") or stop.get("room") or stop.get("name") or "").strip(), fallback="", limit=80)
+                if label and label.lower() not in {item.lower() for item in route_labels}:
+                    route_labels.append(label)
+            if not route_labels:
+                for room in list(walkable_scene.get("rooms") or []):
+                    if not isinstance(room, dict):
+                        continue
+                    label = compact_text(str(room.get("label") or room.get("name") or room.get("room") or "").strip(), fallback="", limit=80)
+                    if label and label.lower() not in {item.lower() for item in route_labels}:
+                        route_labels.append(label)
+            if route_labels:
+                enriched_property_facts.setdefault("magicfit_route_labels", route_labels)
+                enriched_property_facts.setdefault("tour_scene_count", len(route_labels))
+                enriched_property_facts.setdefault("room_count", len(route_labels))
+    if enriched_property_facts:
+        room_count, room_visit_plan = _magicfit_property_room_visit_plan(title=title, property_facts=enriched_property_facts)
+    if room_count <= 0:
+        room_count = 1
+    room_count = max(1, min(25, room_count))
+    # Provider UI currently caps generation at 15s; keep prompt-level timing constraints.
+    flythrough_duration_seconds = 15
     if bundle_dir.resolve() not in bundle_video_path.parents or bundle_dir.resolve() not in bundle_sidecar_path.parents:
         return {"status": "missing", "reason": "hosted_tour_bundle_invalid"}
-    prompt = _default_magicfit_property_flythrough_prompt(title=title, property_facts=property_facts)
+    prompt = _default_magicfit_property_flythrough_prompt(
+        title=title,
+        property_facts=enriched_property_facts,
+        room_count=room_count,
+        room_visit_plan=room_visit_plan,
+        birthday_party_request=bool(birthday_party_request),
+        person_motion_hint=person_motion_hint,
+        include_final_turn_directive=False,
+    )
     render_log: dict[str, object] = {
         "status": "pending",
         "tour_url": str(tour_url or "").strip(),
@@ -10969,50 +11510,298 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
         "sidecar_relpath": sidecar_relpath,
     }
     with tempfile.TemporaryDirectory(prefix="magicfit-property-tour-") as tmp_dir:
-        tmp_video = Path(tmp_dir) / "tour.mp4"
-        tmp_sidecar = Path(tmp_dir) / "tour.magicfit.json"
-        command = [
-            _runtime_python_executable(),
-            str(script_path),
-            "--prompt",
-            prompt,
-            "--out",
-            str(tmp_video),
-            "--state-json",
-            str(tmp_sidecar),
-            "--duration",
-            "10",
-            "--timeout-minutes",
-            "8",
-        ]
-        completed = subprocess.run(
-            command,
-            cwd=str(_repo_root()),
-            capture_output=True,
-            text=True,
-            timeout=12 * 60,
-            check=False,
+        required_duration_seconds = _magicfit_flythrough_minimum_duration_seconds(
+            title=title,
+            property_facts=enriched_property_facts,
         )
-        render_log.update(
-            {
-                "returncode": int(completed.returncode),
-                "stdout_tail": compact_text(str(completed.stdout or "").strip(), fallback="", limit=3000),
-                "stderr_tail": compact_text(str(completed.stderr or "").strip(), fallback="", limit=3000),
-            }
-        )
-        if completed.returncode != 0 or not tmp_video.exists():
+        render_log["required_duration_seconds"] = required_duration_seconds
+        segment_paths: list[Path] = []
+        segment_sidecars: list[dict[str, object]] = []
+        segment_logs: list[dict[str, object]] = []
+        accumulated_duration_seconds = 0.0
+        previous_magicfit_session_url = ""
+        route_labels = [str(item or "").strip() for item in room_visit_plan if str(item or "").strip()]
+        if not route_labels:
+            route_labels = ["entry/hall", "kitchen/living", "bath/toilet", "bedrooms", "balcony/terrace"]
+        planned_segments = max(1, int(math.ceil(required_duration_seconds / float(max(flythrough_duration_seconds, 1)))))
+        max_segments = max(planned_segments + 2, int(os.getenv("PROPERTYQUARRY_MAGICFIT_MAX_SEGMENTS") or "20"))
+        for segment_index in range(1, max_segments + 1):
+            focus = route_labels[(segment_index - 1) % len(route_labels)]
+            is_planned_final_segment = segment_index >= planned_segments
+            continuation_frame = Path(tmp_dir) / f"segment-{segment_index - 1:03d}-last-frame.jpg"
+            is_continuation = bool(segment_paths)
+            if is_continuation:
+                try:
+                    _extract_video_boundary_frame(segment_paths[-1], continuation_frame, position="last")
+                except Exception as exc:
+                    render_log.update(
+                        {
+                            "status": "failed",
+                            "reason": "magicfit_continuation_frame_extract_failed",
+                            "error": compact_text(str(exc or ""), fallback="", limit=180),
+                            "segments": segment_logs,
+                        }
+                    )
+                    return render_log
+            segment_prompt = (
+                f"{prompt} Segment {segment_index} of one raw continuous camera shot. "
+                f"Focus on {focus}. "
+                "The output must be a single unedited take from one moving camera: no montage, no scene cuts, no jump cuts, no inserted alternate angle, no time jump, no dissolve, no fade, no transition. "
+                "Move like a person walking at one constant pace with gentle handheld/drone stabilization. "
+            )
+            if is_continuation:
+                segment_prompt += (
+                    "The supplied first frame is the exact final frame from the previous accepted segment. "
+                    "Start from that exact camera pose without reset, jump, blend, or restart. "
+                    "Preserve the same apartment geometry, lens, daylight, and constant walking speed. "
+                )
+            else:
+                segment_prompt += "Start at the apartment entry and establish the route in one clean walking take. "
+            if is_planned_final_segment:
+                segment_prompt += (
+                    "This is the final route segment. Enter the final room or balcony fully, nearly stop, then perform one very slow clockwise 240 degree sweep from the same camera position. "
+                    "Hold the final view for two seconds. Do not exit, fade, or switch viewpoint."
+                )
+            else:
+                segment_prompt += (
+                    "Enter the next room fully, rotate slowly at least 180 degrees from one camera position, then end pointed toward the next doorway. "
+                    "The last frame must be a stable forward-looking doorway or room-continuation frame suitable as the first frame of the next segment."
+                )
+            max_attempts = 1
+            if is_continuation:
+                max_attempts = max(1, int(os.getenv("PROPERTYQUARRY_MAGICFIT_CONTINUATION_ATTEMPTS") or "3"))
+            accepted_segment = False
+            tmp_video = Path(tmp_dir) / f"segment-{segment_index:03d}.mp4"
+            tmp_sidecar = Path(tmp_dir) / f"segment-{segment_index:03d}.magicfit.json"
+            segment_log: dict[str, object] = {}
+            for attempt_index in range(1, max_attempts + 1):
+                attempt_prompt = segment_prompt
+                if is_continuation and attempt_index > 1:
+                    attempt_prompt += (
+                        f" Continuity retry {attempt_index}: treat the uploaded image as a locked first frame. "
+                        "The very first rendered frame must match that image as closely as possible before any movement begins. "
+                        "Do not reinterpret the room, relight the scene, change furniture positions, or start from a nearby but different camera pose. "
+                        "Hold the uploaded first frame for the opening half second, then continue walking at the same pace."
+                    )
+                if tmp_video.exists():
+                    tmp_video.unlink()
+                if tmp_sidecar.exists():
+                    tmp_sidecar.unlink()
+                command = [
+                    _runtime_python_executable(),
+                    str(script_path),
+                    "--prompt",
+                    attempt_prompt,
+                    "--out",
+                    str(tmp_video),
+                    "--state-json",
+                    str(tmp_sidecar),
+                    "--duration",
+                    str(flythrough_duration_seconds),
+                    "--timeout-minutes",
+                    str(max(1, int(os.getenv("PROPERTYQUARRY_MAGICFIT_SEGMENT_TIMEOUT_MINUTES") or "45"))),
+                ]
+                use_magicfit_extend_session = str(os.getenv("PROPERTYQUARRY_MAGICFIT_USE_EXTEND_SESSION") or "").strip().lower() in {"1", "true", "yes", "on"}
+                if is_continuation and use_magicfit_extend_session and previous_magicfit_session_url:
+                    command.extend(["--extend-session-url", previous_magicfit_session_url])
+                if is_continuation and continuation_frame.exists():
+                    command.extend(["--first-frame", str(continuation_frame)])
+                command_timeout_seconds = max(
+                    15 * 60,
+                    (max(1, int(os.getenv("PROPERTYQUARRY_MAGICFIT_SEGMENT_TIMEOUT_MINUTES") or "45")) * 60) + 120,
+                )
+                segment_output_log_path: Path | None = None
+                segment_log_dir = str(os.getenv("PROPERTYQUARRY_MAGICFIT_SEGMENT_LOG_DIR") or "").strip()
+                if segment_log_dir:
+                    with contextlib.suppress(Exception):
+                        resolved_segment_log_dir = Path(segment_log_dir).expanduser().resolve()
+                        resolved_segment_log_dir.mkdir(parents=True, exist_ok=True)
+                        segment_output_log_path = resolved_segment_log_dir / f"{slug}-segment-{segment_index:03d}-attempt-{attempt_index}.log"
+                try:
+                    if segment_output_log_path is not None:
+                        with segment_output_log_path.open("w", encoding="utf-8") as segment_output_log:
+                            completed = subprocess.run(
+                                command,
+                                cwd=str(_repo_root()),
+                                stdout=segment_output_log,
+                                stderr=subprocess.STDOUT,
+                                text=True,
+                                timeout=command_timeout_seconds,
+                                check=False,
+                            )
+                        output_tail_source = ""
+                        with contextlib.suppress(Exception):
+                            output_tail_source = segment_output_log_path.read_text(encoding="utf-8", errors="replace")
+                        stdout_tail = compact_text(output_tail_source.strip(), fallback="", limit=1200)
+                        stderr_tail = ""
+                    else:
+                        completed = subprocess.run(
+                            command,
+                            cwd=str(_repo_root()),
+                            capture_output=True,
+                            text=True,
+                            timeout=command_timeout_seconds,
+                            check=False,
+                        )
+                        stdout_tail = compact_text(str(completed.stdout or "").strip(), fallback="", limit=1200)
+                        stderr_tail = compact_text(str(completed.stderr or "").strip(), fallback="", limit=1200)
+                    returncode = int(completed.returncode)
+                except subprocess.TimeoutExpired as exc:
+                    returncode = 124
+                    stdout_tail = compact_text(str(exc.stdout or "").strip(), fallback="", limit=1200)
+                    stderr_tail = compact_text(str(exc.stderr or "").strip(), fallback="magicfit_segment_subprocess_timeout", limit=1200)
+                segment_duration_seconds = _video_duration_seconds(str(tmp_video)) if tmp_video.exists() else 0.0
+                segment_log = {
+                    "index": segment_index,
+                    "attempt": attempt_index,
+                    "max_attempts": max_attempts,
+                    "focus": focus,
+                    "returncode": returncode,
+                    "duration_seconds": segment_duration_seconds,
+                    "stdout_tail": stdout_tail,
+                    "stderr_tail": stderr_tail,
+                    "subprocess_timeout_seconds": command_timeout_seconds,
+                }
+                if segment_output_log_path is not None:
+                    segment_log["output_log_path"] = str(segment_output_log_path)
+                segment_logs.append(segment_log)
+                if returncode != 0 or not tmp_video.exists() or segment_duration_seconds <= 0:
+                    if attempt_index < max_attempts:
+                        segment_log["retry_reason"] = "magicfit_segment_render_failed"
+                        continue
+                    render_log.update(
+                        {
+                            "status": "failed",
+                            "reason": "magicfit_segment_render_failed",
+                            "segments": segment_logs,
+                        }
+                    )
+                    return render_log
+                segment_continuity_ok, segment_continuity_reason, segment_continuity_metrics = _video_continuous_shot_gate(tmp_video)
+                segment_log["continuous_shot_gate"] = segment_continuity_metrics
+                if not segment_continuity_ok:
+                    if attempt_index < max_attempts:
+                        segment_log["retry_reason"] = segment_continuity_reason or "magicfit_segment_continuity_failed"
+                        continue
+                    render_log.update(
+                        {
+                            "status": "failed",
+                            "reason": segment_continuity_reason or "magicfit_segment_continuity_failed",
+                            "segments": segment_logs,
+                        }
+                    )
+                    return render_log
+                if segment_paths:
+                    boundary_ok, boundary_reason, boundary_metrics = _video_segment_boundary_gate(
+                        [segment_paths[-1], tmp_video],
+                        codec_drift_max_rms_delta=15.0,
+                        min_similarity_score=0.975,
+                    )
+                    segment_log["boundary_gate"] = boundary_metrics
+                    if not boundary_ok:
+                        if attempt_index < max_attempts:
+                            segment_log["retry_reason"] = boundary_reason or "magicfit_continuation_boundary_failed"
+                            continue
+                        if _video_boundary_bridge_enabled():
+                            bridge_path = Path(tmp_dir) / f"segment-{segment_index - 1:03d}-to-{segment_index:03d}-bridge.mp4"
+                            try:
+                                bridge_metrics = _render_video_boundary_bridge(
+                                    segment_paths[-1],
+                                    tmp_video,
+                                    bridge_path,
+                                    duration_seconds=float(os.getenv("PROPERTYQUARRY_MAGICFIT_BOUNDARY_BRIDGE_SECONDS") or "0.75"),
+                                )
+                                segment_log["boundary_bridge_inserted"] = str(bridge_path)
+                                segment_log["boundary_bridge_gate"] = bridge_metrics
+                                segment_paths.append(bridge_path)
+                                accumulated_duration_seconds += _video_duration_seconds(str(bridge_path))
+                                boundary_ok = True
+                            except Exception as exc:
+                                segment_log["boundary_bridge_error"] = compact_text(str(exc or ""), fallback="", limit=240)
+                        if not boundary_ok:
+                            render_log.update(
+                                {
+                                    "status": "failed",
+                                    "reason": boundary_reason or "magicfit_continuation_boundary_failed",
+                                    "segments": segment_logs,
+                                }
+                            )
+                            return render_log
+                accepted_segment = True
+                break
+            if not accepted_segment:
+                render_log.update(
+                    {
+                        "status": "failed",
+                        "reason": "magicfit_segment_not_accepted",
+                        "segments": segment_logs,
+                    }
+                )
+                return render_log
+            segment_paths.append(tmp_video)
+            accumulated_duration_seconds += segment_duration_seconds
+            if tmp_sidecar.exists():
+                with contextlib.suppress(Exception):
+                    sidecar_payload = json.loads(tmp_sidecar.read_text(encoding="utf-8"))
+                    segment_sidecars.append(sidecar_payload)
+                    if isinstance(sidecar_payload, dict):
+                        previous_magicfit_session_url = str(sidecar_payload.get("page_url") or "").strip()
+            if accumulated_duration_seconds + 0.25 >= required_duration_seconds:
+                break
+        render_log["duration_seconds"] = accumulated_duration_seconds
+        render_log["segments"] = segment_logs
+        if accumulated_duration_seconds + 0.25 < required_duration_seconds:
             render_log["status"] = "failed"
-            render_log["reason"] = "magicfit_render_failed"
+            render_log["reason"] = "magicfit_render_too_short_after_segments"
             return render_log
+        delivery_video = Path(tmp_dir) / "tour.combined.mp4"
+        try:
+            _concat_video_segments(
+                segment_paths,
+                delivery_video,
+                boundary_codec_drift_max_rms_delta=15.0,
+                boundary_min_similarity_score=0.975,
+            )
+        except Exception as exc:
+            render_log["status"] = "failed"
+            render_log["reason"] = "magicfit_segment_concat_failed"
+            render_log["error"] = compact_text(str(exc or ""), fallback="", limit=180)
+            return render_log
+        combined_duration_seconds = _video_duration_seconds(str(delivery_video))
+        render_log["combined_duration_seconds"] = combined_duration_seconds
+        if combined_duration_seconds + 0.25 < required_duration_seconds:
+            render_log["status"] = "failed"
+            render_log["reason"] = "magicfit_combined_render_too_short"
+            return render_log
+        continuity_ok, continuity_reason, continuity_metrics = _video_continuous_shot_gate(delivery_video)
+        render_log["continuous_shot_gate"] = continuity_metrics
+        if not continuity_ok:
+            render_log["status"] = "failed"
+            render_log["reason"] = continuity_reason or "continuous_shot_gate_failed"
+            return render_log
+        render_log["slowdown_status"] = "disabled_provider_clean_render"
         bundle_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(tmp_video, bundle_video_path)
-        if tmp_sidecar.exists():
-            shutil.copy2(tmp_sidecar, bundle_sidecar_path)
+        shutil.copy2(delivery_video, bundle_video_path)
+        bundle_sidecar_path.write_text(
+            json.dumps(
+                {
+                    "provider": "MagicFit",
+                    "composition": "boundary_verified_frame_continuation",
+                    "segment_count": len(segment_paths),
+                    "duration_seconds": combined_duration_seconds,
+                    "required_duration_seconds": required_duration_seconds,
+                    "segments": segment_sidecars,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         try:
             _update_hosted_property_tour_magicfit_video_manifest(
                 tour_url=tour_url,
                 video_relpath=video_relpath,
-                sidecar_relpath=sidecar_relpath if bundle_sidecar_path.exists() else "",
+                sidecar_relpath=sidecar_relpath,
             )
         except Exception as exc:
             render_log["status"] = "failed"
@@ -11024,6 +11813,320 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
     render_log["sidecar_path"] = str(bundle_sidecar_path) if bundle_sidecar_path.exists() else ""
     render_log["provider_key"] = "magicfit"
     return render_log
+
+
+def _render_onemin_property_flythrough_into_hosted_tour(
+    *,
+    tour_url: str,
+    title: str,
+    property_facts: dict[str, object] | None = None,
+    actor: str = "",
+    birthday_party_request: bool = False,
+    person_motion_hint: str = "",
+) -> dict[str, object]:
+    slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
+    if not slug or bundle_dir is None:
+        return {"status": "missing", "reason": "hosted_tour_bundle_missing", "provider_key": "onemin_i2v"}
+    if not _onemin_i2v_keys_available():
+        return {"status": "failed", "reason": "onemin_i2v_credentials_missing", "provider_key": "onemin_i2v"}
+    script_path = (_repo_root() / "scripts" / "render_onemin_property_i2v_segment.py").resolve()
+    if not script_path.exists():
+        return {"status": "missing", "reason": "onemin_render_script_missing", "provider_key": "onemin_i2v"}
+    seed_image = _hosted_property_tour_seed_image_path(tour_url)
+    if seed_image is None:
+        return {"status": "failed", "reason": "flythrough_seed_image_missing", "provider_key": "onemin_i2v"}
+    enriched_property_facts = dict(property_facts or {})
+    hosted_scene_count = _hosted_property_tour_scene_count(tour_url)
+    if hosted_scene_count > 0 and not enriched_property_facts.get("tour_scene_count"):
+        enriched_property_facts["tour_scene_count"] = hosted_scene_count
+    render_token = f"{int(time.time())}-{uuid4().hex[:10]}"
+    video_relpath = f"tour-onemin-{render_token}.mp4"
+    sidecar_relpath = "tour.onemin.json"
+    bundle_video_path = (bundle_dir / video_relpath).resolve()
+    bundle_sidecar_path = (bundle_dir / sidecar_relpath).resolve()
+    if bundle_dir.resolve() not in bundle_video_path.parents or bundle_dir.resolve() not in bundle_sidecar_path.parents:
+        return {"status": "missing", "reason": "hosted_tour_bundle_invalid", "provider_key": "onemin_i2v"}
+    room_count = 1
+    room_visit_plan: list[str] = []
+    if isinstance(enriched_property_facts, dict):
+        room_count, room_visit_plan = _magicfit_property_room_visit_plan(title=title, property_facts=enriched_property_facts)
+    room_count = max(1, min(25, int(room_count or 1)))
+    required_duration_seconds = _magicfit_flythrough_minimum_duration_seconds(title=title, property_facts=enriched_property_facts)
+    prompt = _default_magicfit_property_flythrough_prompt(
+        title=title,
+        property_facts=enriched_property_facts,
+        room_count=room_count,
+        room_visit_plan=room_visit_plan,
+        birthday_party_request=bool(birthday_party_request),
+        person_motion_hint=person_motion_hint,
+    )
+    render_log: dict[str, object] = {
+        "status": "pending",
+        "tour_url": str(tour_url or "").strip(),
+        "slug": slug,
+        "actor": str(actor or "").strip(),
+        "provider_key": "onemin_i2v",
+        "video_relpath": video_relpath,
+        "sidecar_relpath": sidecar_relpath,
+        "required_duration_seconds": required_duration_seconds,
+    }
+    with tempfile.TemporaryDirectory(prefix="onemin-property-tour-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        route_labels = [str(item or "").strip() for item in room_visit_plan if str(item or "").strip()] or [
+            "entry/hall",
+            "kitchen/living",
+            "bath/toilet",
+            "bedrooms",
+            "balcony/terrace",
+        ]
+        model_order_text = str(
+            os.getenv("PROPERTYQUARRY_ONEMIN_I2V_MODEL_ORDER")
+            or os.getenv("PROPERTYQUARRY_ONEMIN_I2V_MODEL")
+            or "pika,skyreels,kling,hailuo"
+        )
+        model_order = [
+            item.strip().lower()
+            for item in model_order_text.split(",")
+            if item.strip()
+        ]
+        primary_segment_model = model_order[0] if model_order else "pika"
+        model_segment_seconds = {
+            "pika": 5,
+            "skyreels": 5,
+            "veo3": 8,
+            "veo3-video": 8,
+            "veo3-video-fast": 8,
+            "hailuo": 6,
+            "kling": 5,
+            "luma": 5,
+        }
+        segment_duration_target = int(
+            os.getenv("PROPERTYQUARRY_ONEMIN_SEGMENT_DURATION_SECONDS")
+            or model_segment_seconds.get(primary_segment_model, 5)
+        )
+        segment_duration_target = max(5, min(10, segment_duration_target))
+        planned_segments = max(1, int(math.ceil(required_duration_seconds / float(segment_duration_target))))
+        max_segments = max(planned_segments + 2, int(os.getenv("PROPERTYQUARRY_ONEMIN_MAX_SEGMENTS") or "14"))
+        segment_paths: list[Path] = []
+        segment_sidecars: list[dict[str, object]] = []
+        segment_logs: list[dict[str, object]] = []
+        accumulated_duration_seconds = 0.0
+        current_first_frame = seed_image
+        for segment_index in range(1, max_segments + 1):
+            focus = route_labels[(segment_index - 1) % len(route_labels)]
+            segment_prompt = (
+                f"{prompt} Segment {segment_index} of one continuous first-person walkthrough. "
+                f"Focus on {focus}. "
+                "Use the supplied first frame as the exact starting camera pose. Preserve geometry, lens, daylight, and constant speed. "
+                "No restart, no cuts, no transitions, no speed ramp. Enter the next room fully, rotate slowly 180 to 240 degrees, then face the next doorway."
+            )
+            tmp_video = tmp_path / f"segment-{segment_index:03d}.mp4"
+            tmp_sidecar = tmp_path / f"segment-{segment_index:03d}.onemin.json"
+            command = [
+                _runtime_python_executable(),
+                str(script_path),
+                "--first-frame",
+                str(current_first_frame),
+                "--prompt",
+                segment_prompt,
+                "--out",
+                str(tmp_video),
+                "--state-json",
+                str(tmp_sidecar),
+                "--duration",
+                str(segment_duration_target),
+                "--model",
+                str(os.getenv("PROPERTYQUARRY_ONEMIN_I2V_MODEL") or "kling"),
+                "--model-order",
+                model_order_text,
+                "--feature-timeout",
+                str(int(os.getenv("PROPERTYQUARRY_ONEMIN_FEATURE_TIMEOUT_SECONDS") or "180")),
+            ]
+            max_keys = int(os.getenv("PROPERTYQUARRY_ONEMIN_MAX_KEYS_PER_SEGMENT") or "0")
+            if max_keys > 0:
+                command.extend(["--max-keys", str(max_keys)])
+            try:
+                completed = subprocess.run(
+                    command,
+                    cwd=str(_repo_root()),
+                    capture_output=True,
+                    text=True,
+                    timeout=max(120, int(os.getenv("PROPERTYQUARRY_ONEMIN_SEGMENT_SUBPROCESS_TIMEOUT_SECONDS") or "480")),
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                render_log.update(
+                    {
+                        "status": "failed",
+                        "reason": "onemin_segment_subprocess_timeout",
+                        "segments": [
+                            *segment_logs,
+                            {
+                                "index": segment_index,
+                                "focus": focus,
+                                "returncode": -1,
+                                "duration_seconds": 0.0,
+                                "stdout_tail": compact_text(str(exc.stdout or "").strip(), fallback="", limit=1200),
+                                "stderr_tail": compact_text(str(exc.stderr or "").strip(), fallback="", limit=1200),
+                                "timeout_seconds": max(
+                                    120,
+                                    int(os.getenv("PROPERTYQUARRY_ONEMIN_SEGMENT_SUBPROCESS_TIMEOUT_SECONDS") or "480"),
+                                ),
+                            },
+                        ],
+                    }
+                )
+                return render_log
+            segment_duration_seconds = _video_duration_seconds(str(tmp_video)) if tmp_video.exists() else 0.0
+            segment_log = {
+                "index": segment_index,
+                "focus": focus,
+                "returncode": int(completed.returncode),
+                "duration_seconds": segment_duration_seconds,
+                "stdout_tail": compact_text(str(completed.stdout or "").strip(), fallback="", limit=1200),
+                "stderr_tail": compact_text(str(completed.stderr or "").strip(), fallback="", limit=1200),
+            }
+            segment_logs.append(segment_log)
+            if completed.returncode != 0 or not tmp_video.exists() or segment_duration_seconds <= 0:
+                render_log.update({"status": "failed", "reason": "onemin_segment_render_failed", "segments": segment_logs})
+                return render_log
+            segment_continuity_ok, segment_continuity_reason, segment_continuity_metrics = _video_continuous_shot_gate(tmp_video)
+            segment_log["continuous_shot_gate"] = segment_continuity_metrics
+            if not segment_continuity_ok:
+                render_log.update({"status": "failed", "reason": segment_continuity_reason or "onemin_segment_continuity_failed", "segments": segment_logs})
+                return render_log
+            if segment_paths:
+                boundary_ok, boundary_reason, boundary_metrics = _video_segment_boundary_gate([segment_paths[-1], tmp_video])
+                segment_log["boundary_gate"] = boundary_metrics
+                if not boundary_ok:
+                    render_log.update({"status": "failed", "reason": boundary_reason or "onemin_continuation_boundary_failed", "segments": segment_logs})
+                    return render_log
+            segment_paths.append(tmp_video)
+            accumulated_duration_seconds += segment_duration_seconds
+            if tmp_sidecar.exists():
+                with contextlib.suppress(Exception):
+                    segment_sidecars.append(json.loads(tmp_sidecar.read_text(encoding="utf-8")))
+            if accumulated_duration_seconds + 0.25 >= required_duration_seconds:
+                break
+            next_first_frame = tmp_path / f"segment-{segment_index:03d}-last-frame.jpg"
+            try:
+                _extract_video_boundary_frame(tmp_video, next_first_frame, position="last")
+            except Exception as exc:
+                render_log.update(
+                    {
+                        "status": "failed",
+                        "reason": "onemin_continuation_frame_extract_failed",
+                        "error": compact_text(str(exc or ""), fallback="", limit=180),
+                        "segments": segment_logs,
+                    }
+                )
+                return render_log
+            current_first_frame = next_first_frame
+        render_log["duration_seconds"] = accumulated_duration_seconds
+        render_log["segments"] = segment_logs
+        if accumulated_duration_seconds + 0.25 < required_duration_seconds:
+            render_log["status"] = "failed"
+            render_log["reason"] = "onemin_render_too_short_after_segments"
+            return render_log
+        delivery_video = tmp_path / "tour.combined.mp4"
+        try:
+            boundary_metrics = _concat_video_segments(segment_paths, delivery_video)
+        except Exception as exc:
+            render_log["status"] = "failed"
+            render_log["reason"] = "onemin_segment_concat_failed"
+            render_log["error"] = compact_text(str(exc or ""), fallback="", limit=180)
+            return render_log
+        combined_duration_seconds = _video_duration_seconds(str(delivery_video))
+        render_log["combined_duration_seconds"] = combined_duration_seconds
+        render_log["boundary_gate"] = boundary_metrics
+        continuity_ok, continuity_reason, continuity_metrics = _video_continuous_shot_gate(delivery_video)
+        render_log["continuous_shot_gate"] = continuity_metrics
+        if not continuity_ok:
+            render_log["status"] = "failed"
+            render_log["reason"] = continuity_reason or "continuous_shot_gate_failed"
+            return render_log
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(delivery_video, bundle_video_path)
+        bundle_sidecar_path.write_text(
+            json.dumps(
+                {
+                    "provider": "1min.AI",
+                    "provider_key": "onemin_i2v",
+                    "composition": "boundary_verified_frame_continuation",
+                    "segment_count": len(segment_paths),
+                    "duration_seconds": combined_duration_seconds,
+                    "required_duration_seconds": required_duration_seconds,
+                    "segments": segment_sidecars,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        try:
+            _update_hosted_property_tour_video_manifest(
+                tour_url=tour_url,
+                video_relpath=video_relpath,
+                sidecar_relpath=sidecar_relpath,
+                provider_key="onemin_i2v",
+            )
+        except Exception as exc:
+            render_log["status"] = "failed"
+            render_log["reason"] = "onemin_manifest_update_failed"
+            render_log["error"] = str(exc)
+            return render_log
+    render_log["status"] = "rendered"
+    render_log["video_file_path"] = str(bundle_video_path)
+    render_log["sidecar_path"] = str(bundle_sidecar_path) if bundle_sidecar_path.exists() else ""
+    return render_log
+
+
+def _render_property_flythrough_into_hosted_tour(
+    *,
+    tour_url: str,
+    title: str,
+    property_facts: dict[str, object] | None = None,
+    actor: str = "",
+    birthday_party_request: bool = False,
+    person_motion_hint: str = "",
+) -> dict[str, object]:
+    route = route_property_media_task(
+        MediaRequirement(
+            task="walkthrough_video",
+            first_frame_continuity=True,
+            constant_speed=True,
+            must_be_magicfit=True,
+        )
+    )
+    route_payload = {
+        "media_route_status": route.status,
+        "media_route_provider_key": route.provider_key,
+        "media_route_reason": route.reason,
+        "media_route_candidates": list(route.candidates),
+    }
+    if not route.ok:
+        return {"status": "failed", "reason": route.reason or "flythrough_provider_unavailable", **route_payload}
+    if route.provider_key == "onemin_i2v":
+        rendered = _render_onemin_property_flythrough_into_hosted_tour(
+            tour_url=tour_url,
+            title=title,
+            property_facts=property_facts,
+            actor=actor,
+            birthday_party_request=birthday_party_request,
+            person_motion_hint=person_motion_hint,
+        )
+        return {**route_payload, **dict(rendered or {})}
+    if route.provider_key == "magicfit":
+        rendered = _render_magicfit_property_flythrough_into_hosted_tour(
+            tour_url=tour_url,
+            title=title,
+            property_facts=property_facts,
+            actor=actor,
+            birthday_party_request=birthday_party_request,
+            person_motion_hint=person_motion_hint,
+        )
+        return {**route_payload, **dict(rendered or {})}
+    return {"status": "failed", "reason": "selected_flythrough_provider_not_implemented", **route_payload}
 
 
 def _embedded_live_360_source_url(payload: dict[str, object]) -> str:
@@ -11076,8 +12179,12 @@ def _property_link_bundle_preview_image_url(
     media_urls: list[str] | tuple[str, ...],
     source_virtual_tour_url: str = "",
     tour_url: str = "",
+    diorama_style_hint: str = "",
 ) -> str:
-    telegram_preview = _hosted_property_tour_telegram_preview_image_url(tour_url)
+    telegram_preview = _hosted_property_tour_telegram_preview_image_url_for_style(
+        tour_url,
+        diorama_style_hint=diorama_style_hint,
+    )
     if telegram_preview:
         return telegram_preview
     hosted_preview = _hosted_property_tour_preview_image_url(tour_url)
@@ -11088,6 +12195,30 @@ def _property_link_bundle_preview_image_url(
         if normalized and normalized.lower().split("?", 1)[0].endswith((".jpg", ".jpeg", ".png", ".webp")):
             return normalized
     return _matterport_thumb_url(source_virtual_tour_url)
+
+
+def _property_tour_generated_preview_url(value: object) -> bool:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return False
+    path = urllib.parse.urlparse(normalized).path.lower()
+    filename = Path(path).name
+    return (
+        filename.startswith("telegram-preview")
+        or filename.startswith("diorama-preview")
+    )
+
+
+def _hosted_property_tour_telegram_preview_image_url_for_style(tour_url: str, *, diorama_style_hint: str = "") -> str:
+    try:
+        return _hosted_property_tour_telegram_preview_image_url(
+            tour_url,
+            diorama_style_hint=diorama_style_hint,
+        )
+    except TypeError as exc:
+        if "diorama_style_hint" not in str(exc):
+            raise
+        return _hosted_property_tour_telegram_preview_image_url(tour_url)
 
 
 def _hosted_public_tour_asset_url(tour_url: str, *, slug: str, asset_relpath: str) -> str:
@@ -11161,7 +12292,214 @@ def _hosted_property_tour_preview_image_url(tour_url: str) -> str:
     return ""
 
 
-def _hosted_property_tour_telegram_preview_image_url(tour_url: str) -> str:
+def _compact_diorama_style_hint(value: str, *, max_length: int = 120) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    normalized = normalized.strip(" -_:;,.()[]{}\"'")
+    if not normalized:
+        return ""
+    if len(normalized) <= max_length:
+        return normalized
+    compact = normalized[:max_length].rstrip(" -_:;,.")
+    if " " in compact:
+        compact = compact.rsplit(" ", 1)[0]
+    return compact.strip(" -_:;,.")
+
+
+def _dossier_model_dump(value: object) -> dict[str, object]:
+    if hasattr(value, "model_dump"):
+        dumped = value.model_dump()  # type: ignore[attr-defined]
+        return dict(dumped) if isinstance(dumped, dict) else {}
+    if hasattr(value, "dict"):
+        dumped = value.dict()  # type: ignore[attr-defined]
+        return dict(dumped) if isinstance(dumped, dict) else {}
+    return {}
+
+
+def _dossier_text_items(value: object, *, limit: int = 8) -> list[str]:
+    if value is None:
+        return []
+    raw_items = value if isinstance(value, (list, tuple, set)) else [value]
+    items: list[str] = []
+    for raw in raw_items:
+        if isinstance(raw, dict):
+            text = " - ".join(
+                str(part or "").strip()
+                for part in (
+                    raw.get("label") or raw.get("field") or raw.get("title"),
+                    raw.get("status"),
+                    raw.get("evidence") or raw.get("display_value") or raw.get("value"),
+                )
+                if str(part or "").strip()
+            )
+        else:
+            text = str(raw or "").strip()
+        text = compact_text(" ".join(text.split()), fallback="", limit=240)
+        if text:
+            items.append(text)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def _property_scout_appendix_dossier_writer_payload(
+    *,
+    source_payload: dict[str, object],
+    normalized_appendix_mode: str,
+    language: str = "German",
+) -> dict[str, object]:
+    if not normalized_appendix_mode:
+        return {}
+    facts_value = source_payload.get("facts") or source_payload.get("property_facts_json")
+    facts = dict(facts_value or {}) if isinstance(facts_value, dict) else {}
+    missing_research = dict(facts.get("missing_fact_research") or {}) if isinstance(facts.get("missing_fact_research"), dict) else {}
+    risk_lines = [
+        *_dossier_text_items(source_payload.get("mismatch_reasons"), limit=4),
+        *_dossier_text_items(source_payload.get("unknowns"), limit=4),
+        *_dossier_text_items(missing_research.get("items"), limit=6),
+    ]
+    agent_questions = [
+        *_dossier_text_items(source_payload.get("viewing_questions"), limit=6),
+        *_dossier_text_items(source_payload.get("unknowns"), limit=4),
+    ]
+    daily_life_lines: list[str] = []
+    for key, label in (
+        ("nearest_supermarket_m", "Nearest supermarket"),
+        ("nearest_pharmacy_m", "Nearest pharmacy"),
+        ("nearest_subway_m", "Nearest subway"),
+        ("nearest_tram_bus_m", "Nearest tram or bus"),
+        ("school_route_summary", "School route"),
+    ):
+        value = facts.get(key)
+        if str(value or "").strip():
+            daily_life_lines.append(f"{label}: {value}.")
+    if str(facts.get("school_route_google_navigation_url") or "").strip():
+        daily_life_lines.append("School navigation route is prepared from the property origin.")
+    if str(facts.get("schwarzenbergplatz_navigation_url") or "").strip():
+        daily_life_lines.append("Work/industry navigation route is prepared from the property origin.")
+    research = {
+        "title": source_payload.get("title") or source_payload.get("property_title") or facts.get("title"),
+        "facts": facts,
+        "risk_lines": risk_lines,
+        "agent_questions": agent_questions,
+        "daily_life_lines": daily_life_lines,
+        "investment_lines": _dossier_text_items(source_payload.get("investment_lines") or facts.get("investment_lines"), limit=6),
+    }
+    try:
+        from app.services.dossier_writer import write_verified_dossier_from_research
+
+        verified = write_verified_dossier_from_research(
+            dossier_id=str(source_payload.get("property_ref") or "property-scout-dossier"),
+            research=research,
+            packet_kind="owner_review",
+            privacy_mode="owner_private",
+            language=language,
+            neuronwriter_query_id=str(source_payload.get("neuronwriter_query_id") or "").strip(),
+        )
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "reason": compact_text(str(exc or ""), fallback="dossier_writer_failed", limit=180),
+            "generated_by": "propertyquarry_dossier_writer.claim_bound.v1",
+        }
+    draft = verified.draft
+    neuronwriter = verified.neuronwriter
+    return {
+        "status": verified.status,
+        "generated_by": draft.generated_by,
+        "privacy_mode": draft.privacy_mode,
+        "packet_kind": draft.packet_kind,
+        "language": draft.language,
+        "tone": draft.tone,
+        "claim_coverage": dict(verified.claim_coverage),
+        "unsupported_sentences": list(verified.unsupported_sentences),
+        "forbidden_hits": list(verified.forbidden_hits),
+        "neuronwriter": _dossier_model_dump(neuronwriter) if neuronwriter is not None else {},
+        "sections": [_dossier_model_dump(section) for section in draft.sections],
+    }
+
+
+def _diorama_style_filter_mode(style_hint: str) -> str:
+    style_text = _compact_diorama_style_hint(style_hint).lower()
+    if not style_text:
+        return "default"
+    if any(
+        token in style_text
+        for token in (
+            "warm",
+            "cozy",
+            "sunset",
+            "gold",
+            "amber",
+            "earth",
+            "wood",
+            "rustic",
+            "breakfast",
+            "cup",
+        )
+    ):
+        return "warm"
+    if any(token in style_text for token in ("dark", "monochrome", "bw", "black", "industrial", "urban")):
+        return "dark"
+    if any(token in style_text for token in ("vintage", "retro", "film", "sepia", "classic", "old")):
+        return "vintage"
+    if any(
+        token in style_text
+        for token in (
+            "cool",
+            "scandinavian",
+            "scandi",
+            "minimal",
+            "minimalist",
+            "clean",
+            "neutral",
+            "nordic",
+            "airy",
+            "blue",
+            "contemporary",
+            "modern",
+        )
+    ):
+        return "cool"
+    return "default"
+
+
+def _style_tinted_telegram_diorama_image(image: Image.Image, style_hint: str) -> Image.Image:
+    if Image is None:
+        return image
+    mode = _diorama_style_filter_mode(style_hint)
+    if mode == "default":
+        return image.convert("RGB")
+    preview = image.convert("RGB")
+    if mode == "warm":
+        tone = Image.new("RGB", preview.size, (255, 216, 170))
+        preview = Image.blend(preview, tone, 0.16)
+    elif mode == "dark":
+        preview = preview.convert("L").convert("RGB")
+        tone = Image.new("RGB", preview.size, (28, 24, 26))
+        preview = Image.blend(preview, tone, 0.18)
+    elif mode == "vintage":
+        red, green, blue = preview.split()
+        red = red.point(lambda value: max(0, min(255, int(value * 1.13))))
+        green = green.point(lambda value: max(0, min(255, int(value * 1.03))))
+        blue = blue.point(lambda value: max(0, min(255, int(value * 0.72))))
+        preview = Image.merge("RGB", (red, green, blue))
+        tone = Image.new("RGB", preview.size, (198, 161, 114))
+        preview = Image.blend(preview, tone, 0.14)
+    elif mode == "cool":
+        tone = Image.new("RGB", preview.size, (186, 205, 235))
+        preview = Image.blend(preview, tone, 0.12)
+        red, green, blue = preview.split()
+        red = red.point(lambda value: max(0, min(255, int(value * 0.96))))
+        green = green.point(lambda value: max(0, min(255, int(value * 1.01))))
+        blue = blue.point(lambda value: max(0, min(255, int(value * 1.08))))
+        preview = Image.merge("RGB", (red, green, blue))
+    return preview
+
+
+def _hosted_property_tour_telegram_preview_image_url(tour_url: str, *, diorama_style_hint: str = "") -> str:
     normalized_url = str(tour_url or "").strip()
     if not normalized_url or Image is None:
         return ""
@@ -11184,16 +12522,87 @@ def _hosted_property_tour_telegram_preview_image_url(tour_url: str) -> str:
     if not isinstance(payload, dict):
         return ""
     scenes = [dict(scene) for scene in list(payload.get("scenes") or []) if isinstance(scene, dict)]
+    style_signature = _compact_diorama_style_hint(diorama_style_hint)
+    if style_signature:
+        style_hash = hashlib.sha1(style_signature.encode("utf-8")).hexdigest()[:10]
+        derived_relpath = f"telegram-preview-{style_hash}.png"
+    else:
+        derived_relpath = "telegram-preview.png"
+    derived_path = (bundle_dir / derived_relpath).resolve()
+    if bundle_dir.resolve() not in derived_path.parents:
+        return ""
     diorama_scene = next((scene for scene in scenes if str(scene.get("role") or "").strip().lower() == "diorama"), {})
     asset_relpath = str(diorama_scene.get("asset_relpath") or "").strip()
+    if not asset_relpath:
+        for candidate_name in ("diorama-preview.png", "diorama-preview.jpg", "telegram-preview.png"):
+            candidate_path = (bundle_dir / candidate_name).resolve()
+            if bundle_dir.resolve() in candidate_path.parents and candidate_path.exists() and candidate_path.is_file():
+                asset_relpath = candidate_name
+                break
+    if not asset_relpath:
+        generated_previews = sorted(bundle_dir.glob("telegram-preview-*.png"))
+        if generated_previews:
+            candidate_path = generated_previews[0].resolve()
+            if bundle_dir.resolve() in candidate_path.parents and candidate_path.exists() and candidate_path.is_file():
+                asset_relpath = candidate_path.name
+    if not asset_relpath:
+        source_candidates: list[Path] = []
+        for scene in scenes:
+            candidate_relpath = str(scene.get("asset_relpath") or "").strip()
+            if not candidate_relpath or not candidate_relpath.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+                continue
+            candidate_path = (bundle_dir / candidate_relpath).resolve()
+            if bundle_dir.resolve() not in candidate_path.parents or not candidate_path.exists() or not candidate_path.is_file():
+                continue
+            source_candidates.append(candidate_path)
+            if len(source_candidates) >= 4:
+                break
+        if source_candidates:
+            try:
+                payload_text = " ".join(
+                    str(payload.get(key) or "").strip()
+                    for key in ("title", "display_title", "listing_title", "description", "summary")
+                    if str(payload.get(key) or "").strip()
+                ).lower()
+                multi_floor = any(token in payload_text for token in ("maisonette", "duplex", "mehrgeschoss", "mehrstöck", "split-level", "split level", "2 ebenen", "zwei ebenen", "dachgeschoss"))
+                canvas = Image.new("RGB", (1600, 1100), "#f4efe7")
+                accent = Image.new("RGB", canvas.size, (224, 210, 190) if multi_floor else (214, 224, 235))
+                canvas = Image.blend(canvas, accent, 0.22)
+                opened: list[Image.Image] = []
+                for candidate_path in source_candidates:
+                    with Image.open(candidate_path) as image:
+                        opened.append(_style_tinted_telegram_diorama_image(image.convert("RGB"), style_signature))
+                if opened:
+                    hero = opened[0].copy()
+                    hero.thumbnail((1180, 620), Image.Resampling.LANCZOS)
+                    hero_x = (canvas.width - hero.width) // 2
+                    hero_y = 120
+                    canvas.paste(hero, (hero_x, hero_y))
+                    if multi_floor:
+                        lower_tiles = opened[1:4] or opened[:2]
+                        start_x = 160
+                        y = 760
+                        for idx, tile_src in enumerate(lower_tiles):
+                            tile = tile_src.copy()
+                            tile.thumbnail((360, 220), Image.Resampling.LANCZOS)
+                            x = start_x + idx * 390
+                            canvas.paste(tile, (x, y))
+                    else:
+                        lower_tiles = opened[1:3] or opened[:2]
+                        positions = [(220, 760), (840, 760)]
+                        for tile_src, (x, y) in zip(lower_tiles, positions):
+                            tile = tile_src.copy()
+                            tile.thumbnail((520, 240), Image.Resampling.LANCZOS)
+                            canvas.paste(tile, (x, y))
+                    derived_path.parent.mkdir(parents=True, exist_ok=True)
+                    canvas.save(derived_path, format="PNG", optimize=True)
+                    return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=derived_relpath)
+            except Exception:
+                pass
     if not asset_relpath or not asset_relpath.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
         return ""
     source_path = (bundle_dir / asset_relpath).resolve()
     if bundle_dir.resolve() not in source_path.parents or not source_path.exists() or not source_path.is_file():
-        return ""
-    derived_relpath = "telegram-preview.png"
-    derived_path = (bundle_dir / derived_relpath).resolve()
-    if bundle_dir.resolve() not in derived_path.parents:
         return ""
     try:
         needs_refresh = (not derived_path.exists()) or derived_path.stat().st_mtime < source_path.stat().st_mtime
@@ -11202,11 +12611,11 @@ def _hosted_property_tour_telegram_preview_image_url(tour_url: str) -> str:
     if needs_refresh:
         try:
             with Image.open(source_path) as image:
-                base = image.convert("RGB")
+                base = _style_tinted_telegram_diorama_image(image, style_signature)
                 width, height = base.size
                 canvas_width = max(int(round(width * 1.62)), width + 220)
                 canvas_height = max(int(round(height * 1.62)), height + 220)
-                scale = min((canvas_width * 0.64) / max(width, 1), (canvas_height * 0.64) / max(height, 1))
+                scale = min((canvas_width * 0.52) / max(width, 1), (canvas_height * 0.52) / max(height, 1))
                 scaled = base.resize(
                     (max(1, int(round(width * scale))), max(1, int(round(height * scale)))),
                     Image.Resampling.LANCZOS,
@@ -11220,6 +12629,157 @@ def _hosted_property_tour_telegram_preview_image_url(tour_url: str) -> str:
         except Exception:
             return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=asset_relpath)
     return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=derived_relpath)
+
+
+def _property_bundle_exit_gate_http_url(
+    url: str,
+    *,
+    kind: str,
+    allowed_mime_prefixes: tuple[str, ...],
+    timeout_seconds: float = 12.0,
+) -> tuple[bool, str]:
+    normalized_url = str(url or "").strip()
+    if not normalized_url:
+        return (False, f"{kind}_url_missing")
+    try:
+        response = requests.get(
+            normalized_url,
+            stream=True,
+            allow_redirects=True,
+            timeout=(5.0, timeout_seconds),
+            headers={"Range": "bytes=0-1023"},
+        )
+    except Exception as exc:
+        return (False, compact_text(str(exc or ""), fallback=f"{kind}_request_failed", limit=160))
+    try:
+        if int(response.status_code or 0) >= 400:
+            return (False, f"{kind}_http_{int(response.status_code)}")
+        content_type = str(response.headers.get("content-type") or "").strip().lower()
+        if allowed_mime_prefixes and not any(content_type.startswith(prefix) for prefix in allowed_mime_prefixes):
+            return (False, f"{kind}_mime_invalid:{content_type or 'missing'}")
+        for chunk in response.iter_content(chunk_size=1024):
+            if chunk:
+                return (True, "")
+        return (False, f"{kind}_empty_stream")
+    finally:
+        with contextlib.suppress(Exception):
+            response.close()
+
+
+def _property_3d_viewer_links_exit_gate(
+    viewer_links: dict[str, str],
+    *,
+    timeout_seconds: float = 12.0,
+) -> tuple[bool, str, dict[str, object]]:
+    links = {str(key or "").strip().lower(): str(value or "").strip() for key, value in dict(viewer_links or {}).items()}
+    required = {
+        "matterport": ("Matterport Control", "/control/matterport"),
+        "3dvista": ("3DVista Control", "/control/3dvista"),
+    }
+    checked: dict[str, dict[str, object]] = {}
+    metrics: dict[str, object] = {"checked": checked, "legacy_removed": False}
+    keys_to_check = [key for key in required if links.get(key)]
+    if not keys_to_check:
+        metrics["skipped"] = "no_provider_links"
+        return True, "", metrics
+    unknown_keys = sorted(key for key in links if key not in required and links.get(key))
+    if unknown_keys:
+        metrics["unknown_keys"] = unknown_keys
+        return False, "viewer_unknown_provider_link", metrics
+    for key in keys_to_check:
+        marker, expected_path_suffix = required[key]
+        url = links.get(key, "")
+        row: dict[str, object] = {"url": url}
+        checked[key] = row
+        if not url:
+            return False, f"{key}_viewer_url_missing", metrics
+        try:
+            parsed = urllib.parse.urlparse(url)
+        except Exception:
+            return False, f"{key}_viewer_url_invalid", metrics
+        if not str(parsed.scheme or "").lower().startswith("http") or not parsed.netloc:
+            return False, f"{key}_viewer_url_invalid", metrics
+        if not str(parsed.path or "").rstrip("/").endswith(expected_path_suffix):
+            return False, f"{key}_viewer_wrong_control_path", metrics
+        try:
+            response = requests.get(
+                url,
+                stream=True,
+                allow_redirects=True,
+                timeout=(5.0, timeout_seconds),
+                headers={"Range": "bytes=0-262143"},
+            )
+        except Exception as exc:
+            return False, compact_text(str(exc or ""), fallback=f"{key}_viewer_request_failed", limit=160), metrics
+        try:
+            row["status_code"] = int(response.status_code or 0)
+            row["content_type"] = str(response.headers.get("content-type") or "").strip().lower()
+            if int(response.status_code or 0) >= 400:
+                return False, f"{key}_viewer_http_{int(response.status_code)}", metrics
+            if not str(row["content_type"] or "").startswith("text/html"):
+                return False, f"{key}_viewer_mime_invalid:{row['content_type'] or 'missing'}", metrics
+            chunks: list[bytes] = []
+            total = 0
+            for chunk in response.iter_content(chunk_size=8192):
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                total += len(chunk)
+                if total >= 262144:
+                    break
+            body = b"".join(chunks).decode("utf-8", errors="ignore")
+            lowered = body.lower()
+            row["bytes_read"] = total
+            row["marker_found"] = marker.lower() in lowered
+            row["contains_cpanel"] = "cpanel" in lowered or "webmail login" in lowered
+            row["contains_legacy_viewer"] = "marzipano" in lowered
+            row["contains_cube_fallback_viewer"] = "@photo-sphere-viewer" in lowered or "photosphereviewer" in lowered
+            row["contains_iframe"] = "<iframe" in lowered
+            row["contains_3dvista_runtime_hint"] = "tdvplayer" in lowered or "3dvista" in lowered or "three_d_vista" in lowered
+            if not body.strip():
+                return False, f"{key}_viewer_empty_html", metrics
+            if bool(row["contains_cpanel"]):
+                return False, f"{key}_viewer_resolved_to_hosting_panel", metrics
+            if bool(row["contains_legacy_viewer"]):
+                return False, f"{key}_viewer_legacy_viewer_present", metrics
+            if key in {"matterport", "3dvista"}:
+                if bool(row["contains_cube_fallback_viewer"]):
+                    return False, f"{key}_viewer_is_propertyquarry_cube_fallback", metrics
+                if not bool(row["contains_iframe"]):
+                    return False, f"{key}_viewer_export_iframe_missing", metrics
+            if not bool(row["marker_found"]):
+                return False, f"{key}_viewer_marker_missing", metrics
+        finally:
+            with contextlib.suppress(Exception):
+                response.close()
+    matterport_url = links.get("matterport", "") or next((links.get(key, "") for key in keys_to_check if links.get(key)), "")
+    legacy_url = ""
+    try:
+        parsed = urllib.parse.urlparse(matterport_url)
+        path = str(parsed.path or "").rstrip("/")
+        if "/control/" in path:
+            path = path.rsplit("/control/", 1)[0]
+        elif path.endswith("/control"):
+            path = path[: -len("/control")]
+        legacy_url = urllib.parse.urlunparse(parsed._replace(path=f"{path}/control/marzipano", query="", fragment=""))
+    except Exception:
+        legacy_url = ""
+    metrics["legacy_url"] = legacy_url
+    if legacy_url:
+        try:
+            response = requests.get(legacy_url, allow_redirects=False, timeout=(5.0, timeout_seconds))
+            try:
+                status_code = int(response.status_code or 0)
+                metrics["legacy_status_code"] = status_code
+                if status_code not in {404, 410}:
+                    return False, f"legacy_viewer_not_removed_http_{status_code}", metrics
+                metrics["legacy_removed"] = True
+            finally:
+                with contextlib.suppress(Exception):
+                    response.close()
+        except Exception as exc:
+            return False, compact_text(str(exc or ""), fallback="legacy_viewer_probe_failed", limit=160), metrics
+    return True, "", metrics
 
 
 def _hosted_property_tour_magicfit_still_urls(tour_url: str, *, limit: int = 3) -> list[str]:
@@ -11345,6 +12905,34 @@ def _property_link_bundle_key_facts_lines(property_facts: dict[str, object]) -> 
     return ["Most important facts: " + " · ".join(chips[:6])]
 
 
+def _property_facts_navigation_query(property_facts: dict[str, object] | None) -> str:
+    facts = dict(property_facts or {})
+    tokens: list[str] = []
+    candidates = [
+        str(facts.get("exact_address") or "").strip(),
+        str(facts.get("street_address") or "").strip(),
+        str(facts.get("postal_name") or "").strip(),
+        str(facts.get("district") or "").strip(),
+        str(facts.get("location") or "").strip(),
+        str(facts.get("address") or "").strip(),
+    ]
+    for item in candidates:
+        normalized = compact_text(item, fallback="", limit=140)
+        if not normalized:
+            continue
+        if normalized.lower() in (entry.lower() for entry in tokens):
+            continue
+        tokens.append(normalized)
+    return ", ".join(part for part in tokens if part)
+
+
+def _google_navigation_button_url(property_facts: dict[str, object] | None) -> str:
+    query = _property_facts_navigation_query(property_facts)
+    if not query:
+        return ""
+    return f"https://www.google.com/maps/dir/?api=1&destination={urllib.parse.quote_plus(query)}"
+
+
 def _property_tour_deep_link(tour_url: str, *, pane: str, autoplay: bool = False) -> str:
     normalized = str(tour_url or "").strip()
     if not normalized:
@@ -11359,6 +12947,724 @@ def _property_tour_deep_link(tour_url: str, *, pane: str, autoplay: bool = False
         return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(filtered)))
     except Exception:
         return normalized
+
+
+def _property_tour_control_link(tour_url: str, *, viewer: str = "") -> str:
+    normalized = str(tour_url or "").strip()
+    if not normalized:
+        return ""
+    viewer_slug = str(viewer or "").strip().lower()
+    if viewer_slug in {"metaport"}:
+        viewer_slug = "matterport"
+    if viewer_slug not in {"", "matterport", "3dvista"}:
+        viewer_slug = ""
+    try:
+        parsed = urllib.parse.urlparse(normalized)
+        path = str(parsed.path or "").rstrip("/")
+        if path.endswith("/control/matterport") or path.endswith("/control/3dvista"):
+            path = path.rsplit("/control/", 1)[0]
+        elif path.endswith("/control"):
+            path = path[: -len("/control")]
+        if viewer_slug:
+            path = f"{path}/control/{viewer_slug}"
+        else:
+            path = f"{path}/control"
+        return urllib.parse.urlunparse(parsed._replace(path=path, query="", fragment=""))
+    except Exception:
+        base = normalized.rstrip("/")
+        return f"{base}/control/{viewer_slug}" if viewer_slug else f"{base}/control"
+
+
+def _hosted_property_tour_manifest(tour_url: str) -> dict[str, object]:
+    _slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
+    if bundle_dir is None:
+        return {}
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists() or not manifest_path.is_file():
+        return {}
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _hosted_property_tour_has_matterport_export(tour_url: str) -> bool:
+    payload = _hosted_property_tour_manifest(tour_url)
+    for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url"):
+        value = str(payload.get(key) or "").strip()
+        if not value:
+            continue
+        try:
+            host = urllib.parse.urlparse(value).netloc.lower()
+        except Exception:
+            host = ""
+        if "matterport.com" in host:
+            return True
+    return False
+
+
+def _hosted_property_tour_has_3dvista_export(tour_url: str) -> bool:
+    payload = _hosted_property_tour_manifest(tour_url)
+    for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
+        value = str(payload.get(key) or "").strip()
+        if not value:
+            continue
+        try:
+            host = urllib.parse.urlparse(value).netloc.lower()
+        except Exception:
+            host = ""
+        if "3dvista" in host:
+            return True
+    for key in ("three_d_vista_entry_relpath", "threedvista_entry_relpath", "3dvista_entry_relpath"):
+        if str(payload.get(key) or "").strip():
+            return True
+    return False
+
+
+def _hosted_property_tour_provider_export_keys(tour_url: str) -> tuple[str, ...]:
+    keys: list[str] = []
+    if _hosted_property_tour_has_matterport_export(tour_url):
+        keys.append("matterport")
+    if _hosted_property_tour_has_3dvista_export(tour_url):
+        keys.append("3dvista")
+    return tuple(keys)
+
+
+def _property_tour_compare_links(tour_url: str) -> dict[str, str]:
+    normalized = str(tour_url or "").strip()
+    if not normalized:
+        return {}
+    links: dict[str, str] = {}
+    if _hosted_property_tour_has_matterport_export(normalized):
+        matterport_url = _telegram_safe_url_button_target(_property_tour_control_link(normalized, viewer="matterport"))
+        if matterport_url:
+            links["matterport"] = matterport_url
+    if _hosted_property_tour_has_3dvista_export(normalized):
+        threedvista_url = _telegram_safe_url_button_target(_property_tour_control_link(normalized, viewer="3dvista"))
+        if threedvista_url:
+            links["3dvista"] = threedvista_url
+    return links
+
+
+def _property_3d_provider_rule_exit_gate(
+    tour_url: str,
+    *,
+    expected_providers: tuple[str, ...] | list[str] | set[str] | None = None,
+) -> tuple[bool, str, dict[str, object]]:
+    normalized = str(tour_url or "").strip()
+    metrics: dict[str, object] = {"tour_url": normalized, "expected_providers": [], "selected_links": {}}
+    if not normalized:
+        return False, "tour_url_missing", metrics
+    aliases = {
+        "metaport": "matterport",
+        "matterport": "matterport",
+        "3d_tour": "3dvista",
+        "3d-tour": "3dvista",
+        "3dtour": "3dvista",
+        "3dvista": "3dvista",
+        "3d_vista": "3dvista",
+        "three_d_vista": "3dvista",
+    }
+    if expected_providers is None:
+        expected = list(_hosted_property_tour_provider_export_keys(normalized))
+    else:
+        expected = []
+        for raw_provider in list(expected_providers or []):
+            provider = aliases.get(str(raw_provider or "").strip().lower())
+            if provider and provider not in expected:
+                expected.append(provider)
+    links = _property_tour_compare_links(normalized)
+    metrics["expected_providers"] = list(expected)
+    metrics["selected_links"] = dict(links)
+    if not expected:
+        metrics["skipped"] = "no_provider_export_rule"
+        return True, "", metrics
+    for provider in expected:
+        if provider == "matterport" and not _hosted_property_tour_has_matterport_export(normalized):
+            return False, "matterport_export_missing_for_rule", metrics
+        if provider == "3dvista" and not _hosted_property_tour_has_3dvista_export(normalized):
+            return False, "3dvista_export_missing_for_rule", metrics
+        link = str(links.get(provider) or "").strip()
+        metrics[f"{provider}_link"] = link
+        if not link:
+            return False, f"{provider}_control_link_missing_for_rule", metrics
+        expected_suffix = f"/control/{provider}"
+        try:
+            path = str(urllib.parse.urlparse(link).path or "").rstrip("/")
+        except Exception:
+            path = ""
+        if not path.endswith(expected_suffix):
+            return False, f"{provider}_control_link_wrong_for_rule", metrics
+    unexpected = sorted(key for key in links if key not in expected)
+    if unexpected:
+        metrics["unexpected_provider_links"] = unexpected
+        return False, "unexpected_provider_control_link_selected", metrics
+    return True, "", metrics
+
+
+def _pdf_embedded_image_count(pdf_path: str) -> int:
+    normalized_path = str(pdf_path or "").strip()
+    if not normalized_path:
+        return 0
+    try:
+        pdf_bytes = Path(normalized_path).read_bytes()
+    except Exception:
+        return 0
+    object_starts = list(re.finditer(rb"(?m)(\d+)\s+\d+\s+obj\b", pdf_bytes))
+    if not object_starts:
+        return len(re.findall(rb"/Subtype\s*/Image", pdf_bytes))
+    embedded_image_ids: set[int] = set()
+    total_chunks = len(object_starts)
+    for index, obj_match in enumerate(object_starts):
+        try:
+            object_id = int(obj_match.group(1))
+        except Exception:
+            continue
+        object_start = obj_match.start()
+        object_end = object_starts[index + 1].start() if index + 1 < total_chunks else len(pdf_bytes)
+        object_slice = pdf_bytes[object_start:object_end]
+        endobj_offset = object_slice.find(b"endobj")
+        if endobj_offset < 0:
+            continue
+        object_head = object_slice[:endobj_offset]
+        if b"stream" in object_head:
+            object_head = object_head.split(b"stream", 1)[0]
+        if (
+            re.search(rb"/Subtype\s*/Image\b", object_head, re.MULTILINE) is None
+            or re.search(rb"/Width\s+\d+", object_head, re.MULTILINE) is None
+            or re.search(rb"/Height\s+\d+", object_head, re.MULTILINE) is None
+            or re.search(rb"/Type\s*/XObject\b", object_head, re.MULTILINE) is None
+        ):
+            continue
+        embedded_image_ids.add(object_id)
+    if embedded_image_ids:
+        return len(embedded_image_ids)
+    return len(re.findall(rb"/Subtype\s*/Image", pdf_bytes))
+
+
+def _required_pdf_embedded_media_count(
+    media_ref_count: int,
+    *,
+    required_ratio: float = 0.6,
+) -> int:
+    normalized_media_ref_count = max(0, int(media_ref_count or 0))
+    normalized_required_ratio = max(0.0, min(1.0, float(required_ratio)))
+    if normalized_required_ratio <= 0.0:
+        return 0
+    if normalized_media_ref_count <= 1:
+        return normalized_media_ref_count
+    required_count = math.ceil(normalized_media_ref_count * normalized_required_ratio)
+    if required_count < 1:
+        required_count = 1
+    if required_count > normalized_media_ref_count:
+        required_count = normalized_media_ref_count
+    return required_count
+
+
+def _pdf_media_gate_passed(
+    pdf_path: str,
+    *,
+    media_ref_count: int,
+    required_ratio: float = 0.6,
+) -> tuple[bool, int, int]:
+    normalized_count = max(0, int(media_ref_count or 0))
+    if normalized_count <= 0:
+        return True, 0, 0
+    embedded_images = _pdf_embedded_image_count(pdf_path)
+    required_images = _required_pdf_embedded_media_count(
+        normalized_count,
+        required_ratio=required_ratio,
+    )
+    return embedded_images >= required_images, embedded_images, required_images
+
+
+def _video_duration_seconds(video_ref: str) -> float:
+    normalized_ref = str(video_ref or "").strip()
+    if not normalized_ref:
+        return 0.0
+    if not Path(normalized_ref).is_file():
+        return 0.0
+    ffprobe = shutil.which("ffprobe") or "/usr/bin/ffprobe"
+    try:
+        completed = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                normalized_ref,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except Exception:
+        return 0.0
+    if completed.returncode != 0:
+        return 0.0
+    try:
+        return max(0.0, float(str(completed.stdout or "").strip() or "0"))
+    except ValueError:
+        return 0.0
+
+
+def _magicfit_flythrough_minimum_duration_seconds(*, title: str, property_facts: dict[str, object] | None) -> float:
+    room_count, _visit_plan = _magicfit_property_room_visit_plan(
+        title=title,
+        property_facts=dict(property_facts or {}),
+    )
+    return float(max(1, min(25, int(room_count or 1))) * 15)
+
+
+def _magicfit_flythrough_duration_gate(
+    video_delivery: dict[str, object],
+    *,
+    title: str,
+    property_facts: dict[str, object] | None,
+) -> tuple[bool, str, float, float]:
+    gate_facts = dict(property_facts or {})
+    for key in ("tour_scene_count", "scene_count", "panorama_scene_count"):
+        if video_delivery.get(key) is not None and not gate_facts.get(key):
+            gate_facts[key] = video_delivery.get(key)
+    required_seconds = _magicfit_flythrough_minimum_duration_seconds(title=title, property_facts=gate_facts)
+    raw_duration = video_delivery.get("duration_seconds")
+    actual_seconds = 0.0
+    if isinstance(raw_duration, (int, float)):
+        actual_seconds = max(0.0, float(raw_duration))
+    if actual_seconds <= 0:
+        probe_ref = str(video_delivery.get("video_file_path") or video_delivery.get("audio_probe_ref") or "").strip()
+        if not probe_ref:
+            return False, "flythrough_duration_unverified", 0.0, required_seconds
+        actual_seconds = _video_duration_seconds(probe_ref)
+    if actual_seconds <= 0:
+        return False, "flythrough_duration_unverified", actual_seconds, required_seconds
+    if actual_seconds + 0.25 < required_seconds:
+        return False, f"flythrough_too_short:{actual_seconds:.3f}s<{required_seconds:.3f}s", actual_seconds, required_seconds
+    probe_ref = str(video_delivery.get("video_file_path") or video_delivery.get("audio_probe_ref") or "").strip()
+    if probe_ref:
+        continuity_ok, continuity_reason, _continuity_metrics = _video_continuous_shot_gate(Path(probe_ref))
+        if not continuity_ok:
+            return False, continuity_reason, actual_seconds, required_seconds
+    return True, "", actual_seconds, required_seconds
+
+
+def _video_continuous_shot_gate(
+    video_path: Path,
+    *,
+    scene_threshold: float = 0.18,
+    max_scene_cuts: int = 0,
+) -> tuple[bool, str, dict[str, object]]:
+    normalized_path = Path(video_path).resolve()
+    if not normalized_path.is_file():
+        return False, "continuous_shot_video_missing", {"scene_cuts": 0, "cut_times": []}
+    ffmpeg_bin = _pocket_audio_enhance_ffmpeg_bin()
+    command = [
+        ffmpeg_bin,
+        "-hide_banner",
+        "-i",
+        str(normalized_path),
+        "-filter:v",
+        f"select='gt(scene,{float(scene_threshold):.4f})',showinfo",
+        "-f",
+        "null",
+        "-",
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=False,
+        )
+    except Exception as exc:
+        return False, compact_text(str(exc or ""), fallback="continuous_shot_probe_failed", limit=180), {"scene_cuts": 0, "cut_times": []}
+    output = f"{completed.stdout or ''}\n{completed.stderr or ''}"
+    cut_times: list[float] = []
+    for match in re.finditer(r"pts_time:(?P<time>\d+(?:\.\d+)?)", output):
+        try:
+            cut_times.append(round(float(match.group("time")), 3))
+        except Exception:
+            continue
+    deduped: list[float] = []
+    for timestamp in cut_times:
+        if not deduped or abs(timestamp - deduped[-1]) >= 0.25:
+            deduped.append(timestamp)
+    metrics = {
+        "scene_threshold": float(scene_threshold),
+        "max_scene_cuts": int(max_scene_cuts),
+        "scene_cuts": len(deduped),
+        "cut_times": deduped[:40],
+    }
+    if len(deduped) > max_scene_cuts:
+        return False, f"continuous_shot_scene_cuts:{len(deduped)}>{max_scene_cuts}", metrics
+    return True, "", metrics
+
+
+def _extract_video_boundary_frame(video_path: Path, frame_path: Path, *, position: str) -> None:
+    ffmpeg_bin = _pocket_audio_enhance_ffmpeg_bin()
+    command = [ffmpeg_bin, "-y"]
+    if position == "last":
+        command.extend(["-sseof", "-0.20"])
+    command.extend(["-i", str(video_path), "-frames:v", "1", "-q:v", "2", str(frame_path)])
+    subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+
+
+def _image_rms_delta(first_path: Path, second_path: Path) -> float:
+    if Image is None:
+        raise RuntimeError("pillow_unavailable")
+    from PIL import ImageChops, ImageStat
+
+    with Image.open(first_path) as first_image, Image.open(second_path) as second_image:
+        first = first_image.convert("RGB").resize((320, 180), Image.Resampling.BILINEAR)
+        second = second_image.convert("RGB").resize((320, 180), Image.Resampling.BILINEAR)
+        diff = ImageChops.difference(first, second)
+        stat = ImageStat.Stat(diff)
+    squared = sum(float(value) ** 2 for value in stat.rms) / max(len(stat.rms), 1)
+    return math.sqrt(squared)
+
+
+def _image_similarity_score(first_path: Path, second_path: Path) -> float:
+    if Image is None:
+        raise RuntimeError("pillow_unavailable")
+    from PIL import ImageChops, ImageStat
+
+    with Image.open(first_path) as first_image, Image.open(second_path) as second_image:
+        first = first_image.convert("L").resize((320, 180), Image.Resampling.BILINEAR)
+        second = second_image.convert("L").resize((320, 180), Image.Resampling.BILINEAR)
+        diff = ImageChops.difference(first, second)
+        stat = ImageStat.Stat(diff)
+    mean_abs = float(stat.mean[0]) if stat.mean else 255.0
+    return max(0.0, min(1.0, 1.0 - (mean_abs / 255.0)))
+
+
+def _video_segment_boundary_gate(
+    segment_paths: list[Path],
+    *,
+    max_rms_delta: float = 1.5,
+    codec_drift_max_rms_delta: float = 5.0,
+    min_similarity_score: float = 0.98,
+) -> tuple[bool, str, list[dict[str, object]]]:
+    normalized_segments = [Path(path).resolve() for path in segment_paths if Path(path).is_file()]
+    if len(normalized_segments) <= 1:
+        return True, "", []
+    metrics: list[dict[str, object]] = []
+    with tempfile.TemporaryDirectory(prefix="pq-boundary-gate-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        for index in range(len(normalized_segments) - 1):
+            previous_frame = tmp_path / f"segment-{index + 1:03d}-last.jpg"
+            next_frame = tmp_path / f"segment-{index + 2:03d}-first.jpg"
+            try:
+                _extract_video_boundary_frame(normalized_segments[index], previous_frame, position="last")
+                _extract_video_boundary_frame(normalized_segments[index + 1], next_frame, position="first")
+                rms_delta = _image_rms_delta(previous_frame, next_frame)
+                similarity_score = _image_similarity_score(previous_frame, next_frame)
+            except Exception as exc:
+                return False, compact_text(str(exc or ""), fallback="segment_boundary_probe_failed", limit=180), metrics
+            row = {
+                "boundary_index": index + 1,
+                "previous_segment": str(normalized_segments[index]),
+                "next_segment": str(normalized_segments[index + 1]),
+                "rms_delta": round(rms_delta, 4),
+                "max_rms_delta": float(max_rms_delta),
+                "codec_drift_max_rms_delta": float(codec_drift_max_rms_delta),
+                "similarity_score": round(similarity_score, 6),
+                "min_similarity_score": float(min_similarity_score),
+            }
+            metrics.append(row)
+            if rms_delta > max_rms_delta and not (rms_delta <= codec_drift_max_rms_delta and similarity_score >= min_similarity_score):
+                return False, f"segment_boundary_frame_mismatch:{index + 1}:{rms_delta:.4f}>{max_rms_delta:.4f}", metrics
+    return True, "", metrics
+
+
+def _video_boundary_bridge_enabled() -> bool:
+    return str(os.getenv("PROPERTYQUARRY_MAGICFIT_BOUNDARY_BRIDGE_ENABLED") or "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
+def _render_video_boundary_bridge(
+    previous_segment: Path,
+    next_segment: Path,
+    output_path: Path,
+    *,
+    duration_seconds: float = 0.75,
+) -> list[dict[str, object]]:
+    previous_segment = Path(previous_segment).resolve()
+    next_segment = Path(next_segment).resolve()
+    output_path = Path(output_path).resolve()
+    if not previous_segment.is_file() or not next_segment.is_file():
+        raise RuntimeError("boundary_bridge_segment_missing")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    duration = max(0.25, min(2.0, float(duration_seconds or 0.75)))
+    ffmpeg_bin = _pocket_audio_enhance_ffmpeg_bin()
+    with tempfile.TemporaryDirectory(prefix="pq-boundary-bridge-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        previous_frame = tmp_path / "previous-last.jpg"
+        next_frame = tmp_path / "next-first.jpg"
+        _extract_video_boundary_frame(previous_segment, previous_frame, position="last")
+        _extract_video_boundary_frame(next_segment, next_frame, position="first")
+        if Image is None:
+            raise RuntimeError("boundary_bridge_pillow_missing")
+        bridge_frames = tmp_path / "frames"
+        bridge_frames.mkdir(parents=True, exist_ok=True)
+        frame_count = max(18, int(round(duration * 24)))
+        hold_frames = max(6, int(round(0.25 * 24)))
+        with Image.open(previous_frame) as previous_image, Image.open(next_frame) as next_image:
+            previous_rgb = previous_image.convert("RGB").resize((1920, 1080), Image.Resampling.BILINEAR)
+            next_rgb = next_image.convert("RGB").resize((1920, 1080), Image.Resampling.BILINEAR)
+            for frame_index in range(frame_count):
+                if frame_index < hold_frames:
+                    frame = previous_rgb
+                elif frame_index >= frame_count - hold_frames:
+                    frame = next_rgb
+                else:
+                    blend_index = frame_index - hold_frames
+                    blend_count = max(1, frame_count - (hold_frames * 2) - 1)
+                    alpha = blend_index / float(blend_count)
+                    frame = Image.blend(previous_rgb, next_rgb, alpha)
+                frame.save(bridge_frames / f"frame-{frame_index:04d}.png")
+        command = [
+            ffmpeg_bin,
+            "-y",
+            "-framerate",
+            "24",
+            "-i",
+            str(bridge_frames / "frame-%04d.png"),
+            "-vf",
+            "fps=24,format=yuv420p",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-crf",
+            "18",
+            "-movflags",
+            "+faststart",
+            str(output_path),
+        ]
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        if completed.returncode != 0 or not output_path.is_file():
+            detail = compact_text(str(completed.stderr or completed.stdout or ""), fallback="", limit=240)
+            raise RuntimeError(f"boundary_bridge_render_failed:{detail}")
+    boundary_ok, boundary_reason, boundary_metrics = _video_segment_boundary_gate(
+        [previous_segment, output_path, next_segment],
+        codec_drift_max_rms_delta=15.0,
+        min_similarity_score=0.975,
+    )
+    if not boundary_ok:
+        raise RuntimeError(boundary_reason or "boundary_bridge_gate_failed")
+    return boundary_metrics
+
+
+def _concat_video_segments(
+    segment_paths: list[Path],
+    output_path: Path,
+    *,
+    require_boundary_continuity: bool = True,
+    boundary_codec_drift_max_rms_delta: float = 5.0,
+    boundary_min_similarity_score: float = 0.98,
+) -> list[dict[str, object]]:
+    normalized_segments = [Path(path).resolve() for path in segment_paths if Path(path).is_file()]
+    if not normalized_segments:
+        raise RuntimeError("video_concat_segments_missing")
+    boundary_metrics: list[dict[str, object]] = []
+    if require_boundary_continuity:
+        boundary_ok, boundary_reason, boundary_metrics = _video_segment_boundary_gate(
+            normalized_segments,
+            codec_drift_max_rms_delta=boundary_codec_drift_max_rms_delta,
+            min_similarity_score=boundary_min_similarity_score,
+        )
+        if not boundary_ok:
+            raise RuntimeError(boundary_reason or "segment_boundary_frame_mismatch")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    ffmpeg_bin = _pocket_audio_enhance_ffmpeg_bin()
+    with tempfile.TemporaryDirectory(prefix="pq-video-concat-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        normalized_paths: list[Path] = []
+        for index, segment_path in enumerate(normalized_segments, start=1):
+            normalized_path = tmp_path / f"segment-{index:03d}.mp4"
+            subprocess.run(
+                [
+                    ffmpeg_bin,
+                    "-y",
+                    "-i",
+                    str(segment_path),
+                    "-vf",
+                    "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=24,format=yuv420p",
+                    "-an",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "medium",
+                    "-crf",
+                    "20",
+                    "-movflags",
+                    "+faststart",
+                    str(normalized_path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=180,
+                check=True,
+            )
+            normalized_paths.append(normalized_path)
+        concat_file = tmp_path / "concat.txt"
+        concat_file.write_text(
+            "\n".join(f"file '{str(path).replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}'" for path in normalized_paths) + "\n",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            [
+                ffmpeg_bin,
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_file),
+                "-c",
+                "copy",
+                "-movflags",
+                "+faststart",
+                str(output_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=240,
+            check=True,
+        )
+    return boundary_metrics
+
+
+def _pdf_appendix_exit_gate_passed(pdf_path: str) -> tuple[bool, str, dict[str, object]]:
+    normalized_path = str(pdf_path or "").strip()
+    if not normalized_path or not Path(normalized_path).is_file():
+        return False, "appendix_pdf_missing", {}
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(normalized_path)
+        page_count = len(reader.pages)
+        image_count = 0
+        link_count = 0
+        text_parts: list[str] = []
+        for page in reader.pages:
+            with contextlib.suppress(Exception):
+                text_parts.append(str(page.extract_text() or ""))
+            annots = page.get("/Annots") or []
+            link_count += len(annots)
+            resources = page.get("/Resources") or {}
+            xobjects = resources.get("/XObject") or {}
+            for obj in xobjects.values():
+                with contextlib.suppress(Exception):
+                    resolved = obj.get_object()
+                    if str(resolved.get("/Subtype") or "") == "/Image":
+                        image_count += 1
+        text = " ".join(" ".join(text_parts).split())
+        metrics = {
+            "page_count": page_count,
+            "embedded_image_count": image_count,
+            "link_annotation_count": link_count,
+            "text_chars": len(text),
+        }
+    except ImportError:
+        try:
+            pdf_bytes = Path(normalized_path).read_bytes()
+        except Exception as exc:
+            return False, compact_text(str(exc or ""), fallback="appendix_pdf_gate_failed", limit=160), {}
+        page_count = len(re.findall(rb"/Type\s*/Page\b", pdf_bytes))
+        image_count = len(re.findall(rb"/Subtype\s*/Image\b", pdf_bytes))
+        link_count = len(re.findall(rb"/Subtype\s*/Link\b", pdf_bytes))
+        rough_text_chars = len(re.findall(rb"\((?:\\.|[^\\)])+\)\s*Tj", pdf_bytes))
+        metrics = {
+            "page_count": page_count,
+            "embedded_image_count": image_count,
+            "link_annotation_count": link_count,
+            "text_chars": rough_text_chars,
+        }
+    except Exception as exc:
+        return False, compact_text(str(exc or ""), fallback="appendix_pdf_gate_failed", limit=160), {}
+    if page_count < 1 or page_count > 3:
+        return False, "appendix_page_count_invalid", metrics
+    if image_count < 1:
+        return False, "appendix_hero_poster_missing", metrics
+    if link_count < 2:
+        return False, "appendix_links_missing", metrics
+    if int(metrics["text_chars"]) < 450:
+        return False, "appendix_too_sparse", metrics
+    if int(metrics["text_chars"]) > 5200:
+        return False, "appendix_too_long", metrics
+    return True, "", metrics
+
+
+def _download_pdf_for_appendix(source_pdf_url: str, target_path: Path) -> None:
+    normalized_url = str(source_pdf_url or "").strip()
+    if not normalized_url:
+        raise RuntimeError("source_pdf_url_missing")
+    request = urllib.request.Request(normalized_url, headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT})
+    max_bytes = max(int(os.getenv("PROPERTYQUARRY_TELEGRAM_SOURCE_PDF_MAX_BYTES") or "52428800"), 1)
+    with urllib.request.urlopen(request, timeout=120) as response:
+        content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        data = response.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise RuntimeError("source_pdf_too_large")
+    if not data.startswith(b"%PDF") and content_type not in {"application/pdf", "application/octet-stream"}:
+        raise RuntimeError("source_pdf_not_pdf")
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_bytes(data)
+
+
+def _append_propertyquarry_pdf_to_source_pdf(
+    *,
+    source_pdf_url: str,
+    appendix_pdf_path: str,
+    target_path: Path,
+) -> str:
+    normalized_appendix = str(appendix_pdf_path or "").strip()
+    if not normalized_appendix or not Path(normalized_appendix).is_file():
+        return ""
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except Exception:
+        return ""
+    with tempfile.TemporaryDirectory(prefix="propertyquarry-source-pdf-") as tmp_dir:
+        source_path = Path(tmp_dir) / "source.pdf"
+        _download_pdf_for_appendix(source_pdf_url, source_path)
+        writer = PdfWriter()
+        for path in (source_path, Path(normalized_appendix)):
+            reader = PdfReader(str(path))
+            if getattr(reader, "is_encrypted", False):
+                with contextlib.suppress(Exception):
+                    reader.decrypt("")
+            for page in reader.pages:
+                writer.add_page(page)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with target_path.open("wb") as handle:
+            writer.write(handle)
+    return str(target_path)
 
 
 def _telegram_safe_url_button_target(value: str, *, max_length: int = 256) -> str:
@@ -11420,6 +13726,43 @@ def _crezlo_property_tour_bootstrap_metadata() -> dict[str, object]:
     root = _crezlo_property_tour_state_root()
     metadata: dict[str, object] = {}
 
+    def _merge_workspace_metadata(loaded: dict[str, object]) -> bool:
+        login_email = _first_non_empty_text(loaded.get("login_email"), loaded.get("crezlo_login_email"))
+        login_password = _first_non_empty_text(loaded.get("login_password"), loaded.get("crezlo_login_password"))
+        workspace_id = _first_non_empty_text(
+            loaded.get("workspace_id"),
+            loaded.get("browseract_crezlo_workspace_id"),
+        )
+        workspace_domain = _first_non_empty_text(
+            loaded.get("workspace_domain"),
+            loaded.get("browseract_crezlo_workspace_domain"),
+        )
+        workspace_base_url = _first_non_empty_text(
+            loaded.get("workspace_base_url"),
+            loaded.get("browseract_crezlo_workspace_base_url"),
+        )
+        workspace_tours_url = _first_non_empty_text(
+            loaded.get("workspace_tours_url"),
+            loaded.get("browseract_crezlo_workspace_tours_url"),
+        )
+        if login_email:
+            metadata["crezlo_login_email"] = login_email
+        if login_password:
+            metadata["crezlo_login_password"] = login_password
+        if workspace_id:
+            metadata["crezlo_workspace_id"] = workspace_id
+            metadata["browseract_crezlo_workspace_id"] = workspace_id
+        if workspace_domain:
+            metadata["crezlo_workspace_domain"] = workspace_domain
+            metadata["browseract_crezlo_workspace_domain"] = workspace_domain
+        if workspace_base_url:
+            metadata["crezlo_workspace_base_url"] = workspace_base_url
+            metadata["browseract_crezlo_workspace_base_url"] = workspace_base_url
+        if workspace_tours_url:
+            metadata["crezlo_workspace_tours_url"] = workspace_tours_url
+            metadata["browseract_crezlo_workspace_tours_url"] = workspace_tours_url
+        return bool(workspace_id or workspace_domain or workspace_base_url or workspace_tours_url)
+
     publish_result = _load_json_dict(root / "crezlo_property_tour_operator_publish" / "result.json")
     workflow_id = _first_non_empty_text(
         publish_result.get("workflow_id"),
@@ -11442,29 +13785,32 @@ def _crezlo_property_tour_bootstrap_metadata() -> dict[str, object]:
         loaded = _load_json_dict(candidate)
         if not loaded:
             continue
-        login_email = _first_non_empty_text(loaded.get("login_email"), loaded.get("crezlo_login_email"))
-        login_password = _first_non_empty_text(loaded.get("login_password"), loaded.get("crezlo_login_password"))
-        workspace_id = _first_non_empty_text(loaded.get("workspace_id"))
-        workspace_domain = _first_non_empty_text(loaded.get("workspace_domain"))
-        workspace_base_url = _first_non_empty_text(loaded.get("workspace_base_url"))
-        workspace_tours_url = _first_non_empty_text(loaded.get("workspace_tours_url"))
-        if login_email:
-            metadata["crezlo_login_email"] = login_email
-        if login_password:
-            metadata["crezlo_login_password"] = login_password
-        if workspace_id:
-            metadata["crezlo_workspace_id"] = workspace_id
-            metadata["browseract_crezlo_workspace_id"] = workspace_id
-        if workspace_domain:
-            metadata["crezlo_workspace_domain"] = workspace_domain
-            metadata["browseract_crezlo_workspace_domain"] = workspace_domain
-        if workspace_base_url:
-            metadata["crezlo_workspace_base_url"] = workspace_base_url
-            metadata["browseract_crezlo_workspace_base_url"] = workspace_base_url
-        if workspace_tours_url:
-            metadata["crezlo_workspace_tours_url"] = workspace_tours_url
-            metadata["browseract_crezlo_workspace_tours_url"] = workspace_tours_url
-        break
+        if _merge_workspace_metadata(loaded):
+            break
+
+    if not any(str(metadata.get(key) or "").strip() for key in ("crezlo_workspace_id", "crezlo_workspace_domain", "crezlo_workspace_base_url")):
+        try:
+            runtime_results = sorted(
+                root.glob("crezlo_property_tour_runs_*/*.json"),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            runtime_results = []
+        for candidate in runtime_results:
+            loaded = _load_json_dict(candidate)
+            if not loaded:
+                continue
+            execution = dict(loaded.get("execution") or {})
+            structured_output = dict(execution.get("structured_output_json") or {})
+            receipt = dict(execution.get("receipt_json") or {})
+            merged = {
+                **structured_output,
+                **receipt,
+                **loaded,
+            }
+            if _merge_workspace_metadata(merged):
+                break
     return metadata
 
 
@@ -18835,6 +21181,8 @@ class ProductService:
         auto_deliver: bool = True,
         actor: str = "",
         allow_floorplan_only: bool = False,
+        enforce_360_media: bool = True,
+        suppress_human_followup: bool = False,
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         property_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
@@ -18856,6 +21204,8 @@ class ProductService:
                 auto_deliver=auto_deliver,
                 actor=actor,
                 allow_floorplan_only=allow_floorplan_only,
+                enforce_360_media=enforce_360_media,
+                suppress_human_followup=suppress_human_followup,
             )
         packet = _load_willhaben_property_packet(normalized_url)
         variant = self._selected_willhaben_tour_variant(packet=packet, variant_key=variant_key)
@@ -18925,18 +21275,26 @@ class ProductService:
             resolved_binding_id = ""
         resolved_recipient_email = str(recipient_email or _principal_email_hint(principal_id)).strip().lower()
         generated_at = _now_iso()
-        if _willhaben_property_tour_require_360() and not has_live_360 and not (allow_floorplan_only and has_floorplan_material):
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason="listing_360_media_missing",
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+        if (
+            enforce_360_media
+            and _willhaben_property_tour_require_360()
+            and not has_live_360
+            and not (allow_floorplan_only and has_floorplan_material)
+        ):
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason="listing_360_media_missing",
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -18953,7 +21311,7 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": "listing_360_media_missing",
-                "human_task_id": f"human_task:{followup.human_task_id}",
+                "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
                 "tour_media_mode": tour_media_mode,
@@ -19023,70 +21381,74 @@ class ProductService:
                     return payload
                 except Exception:
                     pass
-            if source_floorplan_urls:
+        if source_floorplan_urls:
+            try:
+                structured_output = _write_hosted_floorplan_property_tour_bundle(
+                    principal_id=principal_id,
+                    title=title,
+                    listing_id=listing_id,
+                    property_url=normalized_url,
+                    variant_key=resolved_variant_key,
+                    floorplan_urls=source_floorplan_urls,
+                    property_facts_json=property_facts_json,
+                    source_host=source_host,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    recipient_email=resolved_recipient_email,
+                )
+                tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                payload = {
+                    "generated_at": generated_at,
+                    "status": "created",
+                    "property_url": normalized_url,
+                    "title": title,
+                    "listing_id": listing_id,
+                    "variant_key": resolved_variant_key,
+                    "artifact_id": "",
+                    "execution_session_id": "",
+                    "connector_binding_id": "",
+                    "tour_url": tour_url,
+                    "vendor_tour_url": vendor_tour_url,
+                    "editor_url": "",
+                    "delivery_email": resolved_recipient_email,
+                    "delivery_status": "skipped" if not auto_deliver else "",
+                    "blocked_reason": "",
+                    "human_task_id": "",
+                    "source_ref": resolved_source_ref,
+                    "external_id": resolved_external_id,
+                    "tour_media_mode": "floorplan_hosted",
+                    "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+                    "personal_fit_assessment": dict(personal_fit_assessment or {}),
+                    "creation_mode": "hosted_floorplan_tour",
+                }
                 try:
-                    structured_output = _write_hosted_floorplan_property_tour_bundle(
+                    self._record_product_event(
                         principal_id=principal_id,
-                        title=title,
-                        listing_id=listing_id,
-                        property_url=normalized_url,
-                        variant_key=resolved_variant_key,
-                        floorplan_urls=source_floorplan_urls,
-                        property_facts_json=property_facts_json,
-                        source_host=source_host,
-                        source_ref=resolved_source_ref,
-                        external_id=resolved_external_id,
-                        recipient_email=resolved_recipient_email,
+                        event_type="willhaben_property_tour_created",
+                        payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                        source_id=resolved_source_ref,
+                        dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-created",
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
-                    payload = {
-                        "generated_at": generated_at,
-                        "status": "created",
-                        "property_url": normalized_url,
-                        "title": title,
-                        "listing_id": listing_id,
-                        "variant_key": resolved_variant_key,
-                        "artifact_id": "",
-                        "execution_session_id": "",
-                        "connector_binding_id": "",
-                        "tour_url": tour_url,
-                        "vendor_tour_url": vendor_tour_url,
-                        "editor_url": "",
-                        "delivery_email": resolved_recipient_email,
-                        "delivery_status": "skipped" if not auto_deliver else "",
-                        "blocked_reason": "",
-                        "human_task_id": "",
-                        "source_ref": resolved_source_ref,
-                        "external_id": resolved_external_id,
-                        "tour_media_mode": "floorplan_hosted",
-                        "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
-                        "personal_fit_assessment": dict(personal_fit_assessment or {}),
-                        "creation_mode": "hosted_floorplan_tour",
-                    }
-                    try:
-                        self._record_product_event(
-                            principal_id=principal_id,
-                            event_type="willhaben_property_tour_created",
-                            payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
-                            source_id=resolved_source_ref,
-                            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-created",
-                        )
-                    except Exception:
-                        pass
-                    return payload
                 except Exception:
                     pass
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason="browseract_connector_unconfigured",
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id="",
-            )
+                return payload
+            except Exception:
+                pass
+        if not resolved_binding_id:
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason="browseract_connector_unconfigured",
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id="",
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -19103,7 +21465,7 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": "browseract_connector_unconfigured",
-                "human_task_id": f"human_task:{followup.human_task_id}",
+                "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
                 "tour_media_mode": tour_media_mode,
@@ -19161,16 +21523,38 @@ class ProductService:
                 resolved_task_key = projected_crezlo_task_key
 
         artifact = None
+        direct_structured_output: dict[str, object] | None = None
         blocked_reason = ""
         try:
-            artifact = self._container.orchestrator.execute_task_artifact(
-                TaskExecutionRequest(
-                    task_key=resolved_task_key,
-                    principal_id=principal_id,
-                    goal=f"create a steerable apartment tour for {title}",
-                    input_json=request_payload,
+            if self._container.task_contracts.get_contract(resolved_task_key) is None and resolved_binding_id:
+                direct_invocation = ToolInvocationRequest(
+                    session_id=f"property-tour-direct:{uuid4()}",
+                    step_id=f"property-tour-direct-step:{uuid4()}",
+                    tool_name="browseract.crezlo_property_tour",
+                    action_kind="property.tour.create",
+                    payload_json={**dict(request_payload), "binding_id": resolved_binding_id},
+                    context_json={"principal_id": principal_id},
                 )
-            )
+                direct_result = self._container.tool_execution.execute_invocation(direct_invocation)
+                direct_structured_output = dict(direct_result.output_json or {})
+                artifact = type(
+                    "DirectTourArtifactShim",
+                    (),
+                    {
+                        "artifact_id": "",
+                        "execution_session_id": str(direct_result.target_ref or "").strip(),
+                        "structured_output_json": direct_structured_output,
+                    },
+                )()
+            else:
+                artifact = self._container.orchestrator.execute_task_artifact(
+                    TaskExecutionRequest(
+                        task_key=resolved_task_key,
+                        principal_id=principal_id,
+                        goal=f"create a steerable apartment tour for {title}",
+                        input_json=request_payload,
+                    )
+                )
         except Exception as exc:
             blocked_reason = self._property_tour_execution_error_reason(exc)
 
@@ -19296,17 +21680,20 @@ class ProductService:
                     return payload
                 except Exception:
                     blocked_reason = "floorplan_assets_unavailable"
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason=blocked_reason,
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason=blocked_reason,
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -19337,21 +21724,24 @@ class ProductService:
             )
             return payload
 
-        structured_output = dict(artifact.structured_output_json or {}) if artifact is not None else {}
+        structured_output = dict(direct_structured_output or artifact.structured_output_json or {}) if artifact is not None else dict(direct_structured_output or {})
         structured_output = _ensure_hosted_property_tour_url(structured_output)
         if _property_tour_payload_is_disabled_fallback(structured_output):
             blocked_reason = "property_tour_fallback_disabled"
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason=blocked_reason,
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason=blocked_reason,
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -19368,7 +21758,7 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": blocked_reason,
-                "human_task_id": f"human_task:{followup.human_task_id}",
+                "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
                 "tour_media_mode": tour_media_mode,
@@ -19471,23 +21861,26 @@ class ProductService:
             blocked_reason = ""
 
         if blocked_reason:
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason=blocked_reason,
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason=blocked_reason,
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload.update(
                 {
                     "status": "blocked",
                     "delivery_status": "blocked",
                     "blocked_reason": blocked_reason,
-                    "human_task_id": f"human_task:{followup.human_task_id}",
+                    "human_task_id": followup_task_id,
                 }
             )
             self._record_product_event(
@@ -19575,18 +21968,21 @@ class ProductService:
                         telegram_video_delivery_status = "failed"
                         telegram_video_delivery_error = str(exc)
                 if telegram_video_delivery_status == "failed" and (email_sent or telegram_delivery_status == "sent"):
-                    followup = self._open_property_tour_followup(
-                        principal_id=principal_id,
-                        property_url=normalized_url,
-                        title=title,
-                        variant_key=resolved_variant_key,
-                        blocked_reason="property_tour_video_delivery_failed",
-                        recipient_email=resolved_recipient_email,
-                        source_ref=resolved_source_ref,
-                        external_id=resolved_external_id,
-                        connector_binding_id=resolved_binding_id,
-                    )
-                    telegram_video_followup_ref = f"human_task:{followup.human_task_id}"
+                    if not suppress_human_followup:
+                        followup = self._open_property_tour_followup(
+                            principal_id=principal_id,
+                            property_url=normalized_url,
+                            title=title,
+                            variant_key=resolved_variant_key,
+                            blocked_reason="property_tour_video_delivery_failed",
+                            recipient_email=resolved_recipient_email,
+                            source_ref=resolved_source_ref,
+                            external_id=resolved_external_id,
+                            connector_binding_id=resolved_binding_id,
+                        )
+                        telegram_video_followup_ref = f"human_task:{followup.human_task_id}"
+                    else:
+                        telegram_video_followup_ref = ""
             elif telegram_delivery_status == "ready":
                 telegram_delivery_status = "not_configured"
             payload.update(
@@ -19661,23 +22057,26 @@ class ProductService:
                 )
             return payload
         except Exception as exc:
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason="property_tour_delivery_failed",
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason="property_tour_delivery_failed",
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload.update(
                 {
                     "status": "blocked",
                     "delivery_status": "failed",
                     "blocked_reason": "property_tour_delivery_failed",
-                    "human_task_id": f"human_task:{followup.human_task_id}",
+                    "human_task_id": followup_task_id,
                 }
             )
             self._record_product_event(
@@ -19703,6 +22102,8 @@ class ProductService:
         auto_deliver: bool = False,
         actor: str = "",
         allow_floorplan_only: bool = False,
+        enforce_360_media: bool = True,
+        suppress_human_followup: bool = False,
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         property_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
@@ -19772,18 +22173,26 @@ class ProductService:
             resolved_binding_id = ""
         resolved_recipient_email = str(recipient_email or _principal_email_hint(principal_id)).strip().lower()
         generated_at = _now_iso()
-        if _willhaben_property_tour_require_360() and not has_live_360 and not (allow_floorplan_only and has_floorplan_material):
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason="listing_360_media_missing",
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+        if (
+            enforce_360_media
+            and _willhaben_property_tour_require_360()
+            and not has_live_360
+            and not (allow_floorplan_only and has_floorplan_material)
+        ):
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason="listing_360_media_missing",
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -19800,7 +22209,7 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": "listing_360_media_missing",
-                "human_task_id": f"human_task:{followup.human_task_id}",
+                "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
                 "tour_media_mode": tour_media_mode,
@@ -19923,17 +22332,20 @@ class ProductService:
                     return payload
                 except Exception:
                     pass
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason="browseract_connector_unconfigured",
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id="",
-            )
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason="browseract_connector_unconfigured",
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id="",
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -19950,7 +22362,7 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": "browseract_connector_unconfigured",
-                "human_task_id": f"human_task:{followup.human_task_id}",
+                "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
                 "tour_media_mode": tour_media_mode,
@@ -20124,17 +22536,20 @@ class ProductService:
                     return payload
                 except Exception:
                     blocked_reason = "floorplan_assets_unavailable"
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason=blocked_reason,
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason=blocked_reason,
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -20151,7 +22566,7 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": blocked_reason,
-                "human_task_id": f"human_task:{followup.human_task_id}",
+                "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
                 "tour_media_mode": tour_media_mode,
@@ -20168,17 +22583,20 @@ class ProductService:
         structured_output = _ensure_hosted_property_tour_url(dict(getattr(artifact, "structured_output_json", {}) or {}))
         if _property_tour_payload_is_disabled_fallback(structured_output):
             blocked_reason = "property_tour_fallback_disabled"
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason=blocked_reason,
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason=blocked_reason,
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -20195,7 +22613,7 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": blocked_reason,
-                "human_task_id": f"human_task:{followup.human_task_id}",
+                "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
                 "tour_media_mode": tour_media_mode,
@@ -20350,6 +22768,9 @@ class ProductService:
         source_ref: str = "",
         external_id: str = "",
         preference_person_id: str = "self",
+        style_hint: str = "",
+        birthday_party_request: bool = False,
+        person_motion_hint: str = "",
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
@@ -20435,6 +22856,8 @@ class ProductService:
                 auto_deliver=False,
                 actor=resolved_actor,
                 allow_floorplan_only=True,
+                enforce_360_media=False,
+                suppress_human_followup=True,
             )
         else:
             tour_result = self.create_generic_property_tour(
@@ -20446,8 +22869,17 @@ class ProductService:
                 auto_deliver=False,
                 actor=resolved_actor,
                 allow_floorplan_only=True,
+                enforce_360_media=False,
+                suppress_human_followup=True,
             )
         review_url = ""
+        resolved_style_hint = _compact_diorama_style_hint(style_hint)
+        resolved_person_motion_hint = compact_text(str(person_motion_hint or "").strip(), fallback="", limit=260)
+        if not resolved_person_motion_hint:
+            resolved_person_motion_hint = self._default_property_person_motion_hint(
+                principal_id=principal_id,
+                person_id=str(preference_person_id or "").strip() or "self",
+            )
         candidate_payload = {
             "listing_title": title,
             "title": title,
@@ -20456,13 +22888,14 @@ class ProductService:
             "property_facts": dict(property_facts_json or {}),
             "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
             "recommendation": str(dict(assessment or {}).get("recommendation") or "").strip() if isinstance(assessment, dict) else "",
-            "tour_url": str(tour_result.get("tour_url") or "").strip(),
+            "tour_url": str(tour_result.get("tour_url") or tour_result.get("vendor_tour_url") or "").strip(),
             "vendor_tour_url": str(tour_result.get("vendor_tour_url") or "").strip(),
             "review_url": review_url,
             "media_urls_json": list(media_urls_json),
             "floorplan_urls_json": list(floorplan_urls_json),
             "source_virtual_tour_url": source_virtual_tour_url,
             "panorama_media_urls_json": list(panorama_media_urls_json),
+            "diorama_style_hint": resolved_style_hint,
         }
         tour_url = str(tour_result.get("tour_url") or "").strip()
         vendor_tour_url = str(tour_result.get("vendor_tour_url") or "").strip()
@@ -20495,28 +22928,42 @@ class ProductService:
                 pass
             return _telegram_safe_url_button_target(target_url)
 
-        video_delivery = _hosted_property_tour_video_delivery(tour_url) if tour_url else {}
-        if tour_url and (not str(video_delivery.get("video_url") or "").strip() or str(video_delivery.get("provider_key") or "").strip().lower() != "magicfit"):
-            magicfit_render = _render_magicfit_property_flythrough_into_hosted_tour(
-                tour_url=tour_url,
+        renderable_tour_url = str(tour_url or vendor_tour_url).strip()
+        video_delivery = _hosted_property_tour_video_delivery(renderable_tour_url) if renderable_tour_url else {}
+        needs_flythrough_render = bool(renderable_tour_url)
+        if str(video_delivery.get("video_url") or "").strip():
+            if str(video_delivery.get("provider_key") or "").strip().lower() != "magicfit":
+                needs_flythrough_render = True
+            else:
+                existing_duration_ok, _existing_duration_reason, _existing_actual, _existing_required = _magicfit_flythrough_duration_gate(
+                    dict(video_delivery),
+                    title=title,
+                    property_facts=property_facts_json,
+                )
+                needs_flythrough_render = not existing_duration_ok
+        if renderable_tour_url and needs_flythrough_render:
+            flythrough_render = _render_property_flythrough_into_hosted_tour(
+                tour_url=renderable_tour_url,
                 title=title,
                 property_facts=property_facts_json,
                 actor=resolved_actor,
+                birthday_party_request=birthday_party_request,
+                person_motion_hint=resolved_person_motion_hint,
             )
             self._record_product_event(
                 principal_id=principal_id,
-                event_type="telegram_property_link_magicfit_flythrough_rendered",
+                event_type="telegram_property_link_flythrough_rendered",
                 payload={
                     "property_url": normalized_url,
                     "title": title,
                     "source_ref": resolved_source_ref,
-                    "tour_url": tour_url,
-                    **dict(magicfit_render or {}),
+                    "tour_url": renderable_tour_url,
+                    **dict(flythrough_render or {}),
                 },
                 source_id=resolved_source_ref,
-                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-link-magicfit-flythrough",
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-link-flythrough",
             )
-            video_delivery = _hosted_property_tour_video_delivery(tour_url) if tour_url else {}
+            video_delivery = _hosted_property_tour_video_delivery(renderable_tour_url) if renderable_tour_url else {}
         dossier_render = self._render_property_scout_dossier(
             principal_id=principal_id,
             actor=resolved_actor,
@@ -20531,15 +22978,48 @@ class ProductService:
             preference_person_id=str(preference_person_id or "").strip() or "self",
             review_url=review_url,
             tour_result=dict(tour_result or {}),
+            diorama_style_hint=resolved_style_hint,
             candidate_properties=(candidate_payload,),
+            permissive_media_gate=True,
+            appendix_mode="property_link_appendix",
+            birthday_party_request=birthday_party_request,
+            person_motion_hint=resolved_person_motion_hint,
         )
         fit_summary = _property_alert_fit_summary(dict(assessment or {}) if isinstance(assessment, dict) else {})
         public_pdf_url = str(dossier_render.get("public_pdf_url") or "").strip()
         video_url = str(video_delivery.get("video_url") or "").strip()
         video_provider_key = str(video_delivery.get("provider_key") or "").strip().lower()
-        magicfit_video_ready = bool(video_url and video_provider_key == "magicfit")
+        video_gate_reason = ""
+        video_duration_seconds = 0.0
+        video_required_duration_seconds = 0.0
+        if video_url and video_provider_key != "magicfit":
+            video_gate_reason = "flythrough_provider_not_magicfit"
+            video_url = ""
+            video_provider_key = ""
+        if video_url:
+            duration_gate_ok, duration_gate_reason, video_duration_seconds, video_required_duration_seconds = _magicfit_flythrough_duration_gate(
+                dict(video_delivery),
+                title=title,
+                property_facts=property_facts_json,
+            )
+            if not duration_gate_ok:
+                video_gate_reason = duration_gate_reason
+                video_url = ""
+                video_provider_key = ""
+        if video_url:
+            video_gate_ok, video_gate_reason = _property_bundle_exit_gate_http_url(
+                video_url,
+                kind="flythrough_video",
+                allowed_mime_prefixes=("video/", "application/octet-stream"),
+            )
+            if not video_gate_ok:
+                video_url = ""
+                video_provider_key = ""
+        video_ready = bool(video_url)
         dossier_ready = str(dossier_render.get("status") or "").strip() == "rendered"
-        bundle_ready = bool(primary_tour_url and dossier_ready and magicfit_video_ready)
+        dossier_status = str(dossier_render.get("status") or "").strip()
+        dossier_reason = str(dossier_render.get("reason") or "").strip()
+        bundle_ready = bool(primary_tour_url and dossier_ready and video_ready)
         if not bundle_ready:
             pending_reasons: list[str] = []
             if not primary_tour_url:
@@ -20548,11 +23028,12 @@ class ProductService:
                     "3D tour missing" + (f" ({blocked_reason.replace('_', ' ')})" if blocked_reason else "")
                 )
             if not video_url:
-                pending_reasons.append("flythrough video missing")
-            elif video_provider_key != "magicfit":
-                pending_reasons.append("flythrough not rendered by MagicFit")
+                pending_reasons.append("flythrough video missing" + (f" ({video_gate_reason.replace('_', ' ')})" if video_gate_reason else ""))
             if not dossier_ready:
-                pending_reasons.append("dossier not rendered")
+                dossier_issue = dossier_reason or dossier_status or "dossier not rendered"
+                if dossier_issue == "failed":
+                    dossier_issue = "dossier render failed"
+                pending_reasons.append(f"dossier not rendered ({dossier_issue})")
             pending_binding = resolve_primary_telegram_binding(self._container.tool_runtime, principal_id=principal_id)
             pending_chat_ref = ""
             if pending_binding is not None:
@@ -20567,11 +23048,16 @@ class ProductService:
                 "external_id": resolved_external_id,
                 "actor": resolved_actor,
                 "tour_url": tour_url,
+                "dossier_render_status": dossier_status,
+                "dossier_render_reason": dossier_reason,
+                "diorama_style_hint": resolved_style_hint,
                 "telegram_message_ids": [],
                 "telegram_chat_ref": pending_chat_ref,
                 "telegram_video_delivery_status": "skipped",
                 "telegram_video_url": video_url,
                 "telegram_video_provider_key": video_provider_key,
+                "telegram_video_duration_seconds": video_duration_seconds,
+                "telegram_video_required_duration_seconds": video_required_duration_seconds,
                 "telegram_video_message_ids": [],
                 "telegram_video_delivery_error": "",
                 "dossier_delivery_status": "skipped",
@@ -20582,6 +23068,12 @@ class ProductService:
                 "fit_score": float(fit_score or 0.0),
                 "pending_reasons": pending_reasons,
             }
+            if dossier_render.get("embedded_media_count") is not None:
+                payload["dossier_embedded_media_count"] = dossier_render.get("embedded_media_count")
+            if dossier_render.get("required_media_count") is not None:
+                payload["dossier_required_media_count"] = dossier_render.get("required_media_count")
+            if dossier_render.get("expected_media_count") is not None:
+                payload["dossier_expected_media_count"] = dossier_render.get("expected_media_count")
             self._record_product_event(
                 principal_id=principal_id,
                 event_type="telegram_property_link_bundle_pending",
@@ -20606,40 +23098,131 @@ class ProductService:
         elif fit_score > 0:
             summary_lines.append(f"Personal fit {int(round(max(0.0, min(100.0, float(fit_score or 0.0))))):d}/100")
         summary_lines.extend(_property_link_bundle_key_facts_lines(property_facts_json))
-        summary_lines.append("Open 3D Tour goes directly into the interactive tour. Open Flythrough starts the video immediately.")
+        summary_lines.append("Open 3D Control opens the available tour control. Matterport and 3DVista buttons appear only when a real provider export exists. Open Flythrough starts the video immediately.")
         url_buttons: list[list[tuple[str, str]]] = []
         first_row: list[tuple[str, str]] = []
-        deep_3d_tour_url = ""
         deep_flythrough_url = ""
+        compare_links: dict[str, str] = {}
+        viewer_gate_metrics: dict[str, object] = {}
         if primary_tour_url:
-            direct_360_url = _hosted_property_tour_direct_360_url(primary_tour_url)
-            deep_3d_tour_url = _telegram_safe_url_button_target(direct_360_url) if direct_360_url else _autologin_button_url(
-                _property_tour_deep_link(primary_tour_url, pane="panorama-pane")
-            )
-            if deep_3d_tour_url:
-                first_row.append(("Open 3D Tour", deep_3d_tour_url))
-        if video_url:
-            deep_flythrough_url = _telegram_safe_url_button_target(video_url)
-            if deep_flythrough_url:
-                first_row.append(("Open Flythrough", deep_flythrough_url))
-        safe_public_pdf_url = _autologin_button_url(public_pdf_url)
-        if safe_public_pdf_url:
-            first_row.append(("Open Dossier PDF", safe_public_pdf_url))
+            compare_links = _property_tour_compare_links(primary_tour_url)
+            provider_rule_gate_ok, provider_rule_gate_reason, provider_rule_gate_metrics = _property_3d_provider_rule_exit_gate(primary_tour_url)
+            if not provider_rule_gate_ok:
+                payload = {
+                    "property_url": normalized_url,
+                    "title": title,
+                    "source_ref": resolved_source_ref,
+                    "external_id": resolved_external_id,
+                    "actor": resolved_actor,
+                    "tour_url": tour_url,
+                    "provider_rule_gate_status": "failed",
+                    "provider_rule_gate_reason": provider_rule_gate_reason,
+                    "provider_rule_gate_metrics": provider_rule_gate_metrics,
+                    "telegram_message_ids": [],
+                    "telegram_video_message_ids": [],
+                    "dossier_telegram_message_ids": [],
+                    "pending_reasons": [f"3D provider rule failed ({provider_rule_gate_reason.replace('_', ' ')})"],
+                }
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="telegram_property_link_bundle_pending",
+                    payload=payload,
+                    source_id=resolved_source_ref,
+                    dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-link-provider-rule-gate-pending",
+                )
+                return {
+                    "status": "pending",
+                    "tour_url": tour_url,
+                    "telegram_message_ids": [],
+                    "telegram_video_message_ids": [],
+                    "dossier_telegram_message_ids": [],
+                    "dossier_status": "skipped",
+                    "video_status": "skipped",
+                    "provider_rule_gate_status": "failed",
+                    "provider_rule_gate_reason": provider_rule_gate_reason,
+                    "provider_rule_gate_metrics": provider_rule_gate_metrics,
+                    "pending_reasons": payload["pending_reasons"],
+                }
+            viewer_gate_ok, viewer_gate_reason, viewer_gate_metrics = _property_3d_viewer_links_exit_gate(compare_links)
+            if not viewer_gate_ok:
+                payload = {
+                    "property_url": normalized_url,
+                    "title": title,
+                    "source_ref": resolved_source_ref,
+                    "external_id": resolved_external_id,
+                    "actor": resolved_actor,
+                    "tour_url": tour_url,
+                    "viewer_gate_status": "failed",
+                    "viewer_gate_reason": viewer_gate_reason,
+                    "viewer_gate_metrics": viewer_gate_metrics,
+                    "telegram_message_ids": [],
+                    "telegram_video_message_ids": [],
+                    "dossier_telegram_message_ids": [],
+                    "pending_reasons": [f"3D viewer links failed exit gate ({viewer_gate_reason.replace('_', ' ')})"],
+                }
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="telegram_property_link_bundle_pending",
+                    payload=payload,
+                    source_id=resolved_source_ref,
+                    dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-link-viewer-gate-pending",
+                )
+                return {
+                    "status": "pending",
+                    "tour_url": tour_url,
+                    "telegram_message_ids": [],
+                    "telegram_video_message_ids": [],
+                    "dossier_telegram_message_ids": [],
+                    "dossier_status": "skipped",
+                    "video_status": "skipped",
+                    "viewer_gate_status": "failed",
+                    "viewer_gate_reason": viewer_gate_reason,
+                    "viewer_gate_metrics": viewer_gate_metrics,
+                    "pending_reasons": payload["pending_reasons"],
+                }
+            if compare_links.get("matterport"):
+                first_row.append(("Open Matterport", compare_links["matterport"]))
+            if compare_links.get("3dvista"):
+                first_row.append(("Open 3DVista", compare_links["3dvista"]))
+            if not first_row:
+                safe_control_url = _telegram_safe_url_button_target(_property_tour_control_link(primary_tour_url))
+                if safe_control_url:
+                    first_row.append(("Open 3D Control", safe_control_url))
         if first_row:
             url_buttons.append(first_row[:2])
         second_row: list[tuple[str, str]] = []
-        if len(first_row) > 2:
-            second_row.insert(0, first_row[2])
-        safe_listing_url = _telegram_safe_url_button_target(normalized_url)
-        if safe_listing_url:
-            second_row.append(("Open Listing", safe_listing_url))
+        if video_url:
+            deep_flythrough_url = _telegram_safe_url_button_target(video_url)
+            if deep_flythrough_url:
+                second_row.append(("Open Flythrough", deep_flythrough_url))
+        safe_public_pdf_url = _autologin_button_url(public_pdf_url)
+        if safe_public_pdf_url:
+            second_row.append(("Open Dossier PDF", safe_public_pdf_url))
         if second_row:
             url_buttons.append(second_row[:2])
-        preview_image_url = _property_link_bundle_preview_image_url(
+        third_row: list[tuple[str, str]] = []
+        safe_listing_url = _telegram_safe_url_button_target(normalized_url)
+        if safe_listing_url:
+            third_row.append(("Open Listing", safe_listing_url))
+        navigation_url = _telegram_safe_url_button_target(_google_navigation_button_url(property_facts_json))
+        if navigation_url:
+            third_row.append(("Navigation", navigation_url))
+        if third_row:
+            url_buttons.append(third_row[:2])
+        preview_image_url = str(dossier_render.get("diorama_preview_url") or "").strip() or _property_link_bundle_preview_image_url(
             media_urls=media_urls_json,
             source_virtual_tour_url=source_tour_url,
-            tour_url=tour_url,
+            tour_url=renderable_tour_url,
+            diorama_style_hint=resolved_style_hint,
         )
+        if preview_image_url:
+            preview_gate_ok, _preview_gate_reason = _property_bundle_exit_gate_http_url(
+                preview_image_url,
+                kind="preview_image",
+                allowed_mime_prefixes=("image/", "application/octet-stream"),
+            )
+            if not preview_gate_ok:
+                preview_image_url = ""
         message_text = "\n".join(summary_lines)
         if preview_image_url:
             try:
@@ -20670,51 +23253,12 @@ class ProductService:
                 text=message_text,
                 url_buttons=url_buttons,
             )
-        video_delivery_status = "skipped"
+        video_delivery_status = "linked" if video_url else "missing"
         video_delivery_error = ""
         video_message_ids: list[str] = []
-        if video_url:
-            try:
-                with contextlib.suppress(Exception):
-                    send_telegram_chat_action_for_principal(
-                        self._container.tool_runtime,
-                        principal_id=principal_id,
-                        action="upload_video",
-                    )
-                video_receipt = send_telegram_video_for_principal(
-                    self._container.tool_runtime,
-                    principal_id=principal_id,
-                    video_ref=str(video_delivery.get("video_file_path") or "").strip() or video_url,
-                    audio_probe_ref=str(video_delivery.get("audio_probe_ref") or "").strip(),
-                    caption=f"{title}\nPropertyQuarry flythrough",
-                )
-                video_delivery_status = "sent"
-                video_message_ids = list(video_receipt.message_ids)
-            except Exception as exc:
-                video_delivery_status = "failed"
-                video_delivery_error = compact_text(str(exc or ""), fallback="telegram_video_delivery_failed", limit=180)
-        dossier_delivery_status = "skipped"
+        dossier_delivery_status = "linked" if str(dossier_render.get("status") or "").strip() == "rendered" else "missing"
         dossier_delivery_error = ""
         dossier_message_ids: list[str] = []
-        if str(dossier_render.get("status") or "").strip() == "rendered":
-            try:
-                with contextlib.suppress(Exception):
-                    send_telegram_chat_action_for_principal(
-                        self._container.tool_runtime,
-                        principal_id=principal_id,
-                        action="upload_document",
-                    )
-                dossier_receipt = send_telegram_document_for_principal(
-                    self._container.tool_runtime,
-                    principal_id=principal_id,
-                    document_ref=str(dossier_render.get("pdf_path") or "").strip(),
-                    caption=str(dossier_render.get("caption") or "").strip(),
-                )
-                dossier_delivery_status = "sent"
-                dossier_message_ids = list(dossier_receipt.message_ids)
-            except Exception as exc:
-                dossier_delivery_status = "failed"
-                dossier_delivery_error = compact_text(str(exc or ""), fallback="telegram_document_delivery_failed", limit=180)
         payload = {
             "property_url": normalized_url,
             "title": title,
@@ -20727,18 +23271,35 @@ class ProductService:
             "telegram_video_delivery_status": video_delivery_status,
             "telegram_video_url": video_url,
             "telegram_video_provider_key": video_provider_key,
+            "telegram_video_duration_seconds": video_duration_seconds,
+            "telegram_video_required_duration_seconds": video_required_duration_seconds,
             "telegram_video_message_ids": list(video_message_ids),
             "telegram_video_delivery_error": video_delivery_error,
+            "dossier_render_status": dossier_status,
+            "dossier_render_reason": dossier_reason,
+            "diorama_style_hint": resolved_style_hint,
             "dossier_delivery_status": dossier_delivery_status,
             "dossier_delivery_error": dossier_delivery_error,
             "dossier_pdf_path": str(dossier_render.get("pdf_path") or "").strip(),
             "dossier_publication_id": str(dossier_render.get("publication_id") or "").strip(),
             "dossier_telegram_message_ids": list(dossier_message_ids),
             "fit_score": float(fit_score or 0.0),
-            "direct_tour_url": deep_3d_tour_url,
+            "direct_matterport_url": compare_links.get("matterport", ""),
+            "direct_3dvista_url": compare_links.get("3dvista", ""),
+            "direct_3d_control_url": first_row[0][1] if first_row and first_row[0][0] == "Open 3D Control" else "",
             "direct_flythrough_url": deep_flythrough_url,
+            "provider_rule_gate_status": "passed",
+            "provider_rule_gate_metrics": provider_rule_gate_metrics if primary_tour_url else {},
+            "viewer_gate_status": "passed",
+            "viewer_gate_metrics": viewer_gate_metrics,
             "preview_image_url": preview_image_url,
         }
+        if dossier_render.get("embedded_media_count") is not None:
+            payload["dossier_embedded_media_count"] = dossier_render.get("embedded_media_count")
+        if dossier_render.get("required_media_count") is not None:
+            payload["dossier_required_media_count"] = dossier_render.get("required_media_count")
+        if dossier_render.get("expected_media_count") is not None:
+            payload["dossier_expected_media_count"] = dossier_render.get("expected_media_count")
         self._record_product_event(
             principal_id=principal_id,
             event_type="telegram_property_link_bundle_sent",
@@ -20755,6 +23316,464 @@ class ProductService:
             "dossier_status": dossier_delivery_status,
             "video_status": video_delivery_status,
         }
+
+    def deliver_telegram_property_pdf_bundle(
+        self,
+        *,
+        principal_id: str,
+        source_pdf_url: str,
+        source_pdf_filename: str = "",
+        caption: str = "",
+        actor: str = "",
+        source_ref: str = "",
+        external_id: str = "",
+        preference_person_id: str = "self",
+    ) -> dict[str, object]:
+        normalized_pdf_url = str(source_pdf_url or "").strip()
+        filename = str(source_pdf_filename or "").strip() or "property-upload.pdf"
+        if not normalized_pdf_url:
+            return {"status": "invalid", "reason": "source_pdf_url_missing"}
+        if not filename.lower().endswith(".pdf"):
+            return {"status": "invalid", "reason": "source_pdf_not_pdf"}
+        with contextlib.suppress(Exception):
+            send_telegram_chat_action_for_principal(
+                self._container.tool_runtime,
+                principal_id=principal_id,
+                action="typing",
+            )
+        resolved_actor = str(actor or "").strip() or "telegram_property_pdf"
+        resolved_source_ref = str(source_ref or f"telegram-property-pdf:{hashlib.sha256(normalized_pdf_url.encode('utf-8')).hexdigest()[:16]}").strip()
+        resolved_external_id = str(external_id or normalized_pdf_url).strip()
+        title_seed = str(caption or "").strip() or Path(filename).stem.replace("_", " ").replace("-", " ")
+        title = compact_text(title_seed, fallback="Telegram property PDF", limit=160)
+        summary = compact_text(
+            f"Property PDF uploaded via Telegram: {filename}. {str(caption or '').strip()}".strip(),
+            fallback=f"Property PDF uploaded via Telegram: {filename}.",
+            limit=900,
+        )
+        property_url = normalized_pdf_url
+        property_facts_json: dict[str, object] = {
+            "source": "telegram_pdf",
+            "source_pdf_filename": filename,
+            "source_pdf_url": normalized_pdf_url,
+            "has_floorplan": True,
+            "listing_id": hashlib.sha256(normalized_pdf_url.encode("utf-8")).hexdigest()[:16],
+            "missing_fact_research": {
+                "status": "queued",
+                "items": [
+                    {
+                        "field": "operating_costs",
+                        "label": "Operating costs",
+                        "status": "research_needed",
+                        "evidence": "Uploaded PDF needs cost-line verification against the source expose.",
+                    },
+                    {
+                        "field": "floorplan_logic",
+                        "label": "Floorplan logic",
+                        "status": "review_needed",
+                        "evidence": "Use the public 3D tour and fly-through to check room flow and furniture assumptions.",
+                    },
+                    {
+                        "field": "legal_energy_documents",
+                        "label": "Legal / energy documents",
+                        "status": "research_needed",
+                        "evidence": "Energy certificate, ownership/land-register context, and renovation history should still be verified.",
+                    },
+                ],
+            },
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="telegram_property_pdf_bundle_started",
+            payload={
+                "source_pdf_filename": filename,
+                "source_ref": resolved_source_ref,
+                "external_id": resolved_external_id,
+                "stage": "started",
+            },
+            source_id=resolved_source_ref,
+            dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-bundle-started",
+        )
+        tour_result: dict[str, object] = {}
+        try:
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_pdf_bundle_step",
+                payload={
+                    "source_pdf_filename": filename,
+                    "source_ref": resolved_source_ref,
+                    "stage": "hosted_tour_start",
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-hosted-tour-start",
+            )
+            structured_tour = _write_hosted_floorplan_property_tour_bundle(
+                principal_id=principal_id,
+                title=title,
+                listing_id=str(property_facts_json["listing_id"]),
+                property_url=property_url,
+                variant_key="telegram_pdf_appendix",
+                floorplan_urls=[normalized_pdf_url],
+                property_facts_json=property_facts_json,
+                source_host="telegram_pdf",
+                source_ref=resolved_source_ref,
+                external_id=resolved_external_id,
+                recipient_email=_principal_email_hint(principal_id),
+            )
+            tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_tour)
+            tour_result = {
+                "status": "created",
+                "tour_url": tour_url,
+                "vendor_tour_url": vendor_tour_url,
+                "blocked_reason": "",
+                "creation_mode": str(structured_tour.get("creation_mode") or "hosted_floorplan_tour").strip(),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_pdf_bundle_step",
+                payload={
+                    "source_pdf_filename": filename,
+                    "source_ref": resolved_source_ref,
+                    "stage": "hosted_tour_created",
+                    "tour_url": tour_url,
+                    "vendor_tour_url": vendor_tour_url,
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-hosted-tour-created",
+            )
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_pdf_bundle_step",
+                payload={
+                    "source_pdf_filename": filename,
+                    "source_ref": resolved_source_ref,
+                    "stage": "magicfit_start",
+                    "tour_url": tour_url or vendor_tour_url,
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-magicfit-start",
+            )
+            flythrough_render = _render_property_flythrough_into_hosted_tour(
+                tour_url=tour_url or vendor_tour_url,
+                title=title,
+                property_facts=property_facts_json,
+                actor=resolved_actor,
+            )
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_pdf_flythrough_rendered",
+                payload={
+                    "source_pdf_filename": filename,
+                    "source_ref": resolved_source_ref,
+                    "tour_url": tour_url,
+                    **dict(flythrough_render or {}),
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-flythrough",
+            )
+        except Exception as exc:
+            reason = compact_text(str(exc or ""), fallback="telegram_property_pdf_tour_failed", limit=180)
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_pdf_bundle_failed",
+                payload={
+                    "source_pdf_filename": filename,
+                    "source_ref": resolved_source_ref,
+                    "external_id": resolved_external_id,
+                    "reason": reason,
+                    "stage": "tour_and_flythrough",
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-tour-failed",
+            )
+            return {"status": "failed", "reason": reason, "source_pdf_filename": filename}
+        video_delivery = _hosted_property_tour_video_delivery(str(tour_result.get("tour_url") or tour_result.get("vendor_tour_url") or ""))
+        video_url = str(video_delivery.get("video_url") or "").strip()
+        if video_url and str(video_delivery.get("provider_key") or "").strip().lower() != "magicfit":
+            video_url = ""
+        if video_url:
+            duration_gate_ok, duration_gate_reason, _actual_seconds, _required_seconds = _magicfit_flythrough_duration_gate(
+                dict(video_delivery),
+                title=title,
+                property_facts=property_facts_json,
+            )
+            if not duration_gate_ok:
+                video_url = ""
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="telegram_property_pdf_bundle_failed",
+                    payload={
+                        "source_pdf_filename": filename,
+                        "source_ref": resolved_source_ref,
+                        "external_id": resolved_external_id,
+                        "reason": duration_gate_reason,
+                        "actual_duration_seconds": _actual_seconds,
+                        "required_duration_seconds": _required_seconds,
+                    },
+                    source_id=resolved_source_ref,
+                    dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-video-duration-failed",
+                )
+                return {"status": "failed", "reason": duration_gate_reason, "source_pdf_filename": filename}
+        if not str(tour_result.get("tour_url") or tour_result.get("vendor_tour_url") or "").strip() or not video_url:
+            reason = "telegram_property_pdf_artifacts_missing"
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_pdf_bundle_failed",
+                payload={
+                    "source_pdf_filename": filename,
+                    "source_ref": resolved_source_ref,
+                    "external_id": resolved_external_id,
+                    "reason": reason,
+                    "tour_url": str(tour_result.get("tour_url") or "").strip(),
+                    "flythrough_url": video_url,
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-artifacts-missing",
+            )
+            return {"status": "failed", "reason": reason, "source_pdf_filename": filename}
+        candidate_payload = {
+            "listing_title": title,
+            "title": title,
+            "property_url": property_url,
+            "property_facts_json": dict(property_facts_json),
+            "property_facts": dict(property_facts_json),
+            "assessment": {},
+            "recommendation": "review",
+            "tour_url": str(tour_result.get("tour_url") or "").strip(),
+            "vendor_tour_url": str(tour_result.get("vendor_tour_url") or "").strip(),
+            "review_url": "",
+            "media_urls_json": [],
+            "floorplan_urls_json": [normalized_pdf_url],
+            "source_virtual_tour_url": "",
+            "panorama_media_urls_json": [],
+            "diorama_style_hint": "",
+        }
+        dossier_render = self._render_property_scout_dossier(
+            principal_id=principal_id,
+            actor=resolved_actor,
+            title=title,
+            summary=summary,
+            counterparty="telegram_pdf",
+            account_email=_principal_email_hint(principal_id),
+            property_url=property_url,
+            source_ref=resolved_source_ref,
+            assessment={},
+            fit_score=0.0,
+            preference_person_id=str(preference_person_id or "").strip() or "self",
+            review_url="",
+            tour_result=tour_result,
+            candidate_properties=(candidate_payload,),
+            permissive_media_gate=True,
+            appendix_mode="telegram_pdf_appendix",
+            source_pdf_filename=filename,
+        )
+        dossier_ready = str(dossier_render.get("status") or "").strip() == "rendered"
+        if not dossier_ready:
+            reason = str(dossier_render.get("reason") or dossier_render.get("status") or "dossier_not_rendered").strip()
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_pdf_bundle_failed",
+                payload={
+                    "source_pdf_filename": filename,
+                    "source_ref": resolved_source_ref,
+                    "external_id": resolved_external_id,
+                    "reason": reason,
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-bundle-failed",
+            )
+            return {"status": "failed", "reason": reason, "source_pdf_filename": filename}
+        appendix_pdf_path = str(dossier_render.get("pdf_path") or "").strip()
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="telegram_property_pdf_bundle_step",
+            payload={
+                "source_pdf_filename": filename,
+                "source_ref": resolved_source_ref,
+                "stage": "appendix_rendered",
+                "appendix_pdf_path": appendix_pdf_path,
+            },
+            source_id=resolved_source_ref,
+            dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-appendix-rendered",
+        )
+        pdf_path = appendix_pdf_path
+        combined_pdf_path = ""
+        with contextlib.suppress(Exception):
+            combined_target = Path(appendix_pdf_path).with_name(f"{Path(appendix_pdf_path).stem}.combined.pdf")
+            combined_pdf_path = _append_propertyquarry_pdf_to_source_pdf(
+                source_pdf_url=normalized_pdf_url,
+                appendix_pdf_path=appendix_pdf_path,
+                target_path=combined_target,
+            )
+        if combined_pdf_path:
+            pdf_path = combined_pdf_path
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="telegram_property_pdf_bundle_step",
+            payload={
+                "source_pdf_filename": filename,
+                "source_ref": resolved_source_ref,
+                "stage": "appendix_merge_checked",
+                "appendix_pdf_path": appendix_pdf_path,
+                "combined_pdf_path": combined_pdf_path,
+                "delivery_pdf_path": pdf_path,
+            },
+            source_id=resolved_source_ref,
+            dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-appendix-merge-checked",
+        )
+        tour_url_for_buttons = str(tour_result.get("tour_url") or tour_result.get("vendor_tour_url") or "").strip()
+        direct_flythrough_url = _telegram_safe_url_button_target(video_url)
+        url_buttons: list[list[tuple[str, str]]] = []
+        first_row: list[tuple[str, str]] = []
+        compare_links = _property_tour_compare_links(tour_url_for_buttons)
+        provider_rule_gate_ok, provider_rule_gate_reason, provider_rule_gate_metrics = _property_3d_provider_rule_exit_gate(tour_url_for_buttons)
+        if not provider_rule_gate_ok:
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_pdf_bundle_failed",
+                payload={
+                    "source_pdf_filename": filename,
+                    "source_ref": resolved_source_ref,
+                    "external_id": resolved_external_id,
+                    "reason": provider_rule_gate_reason,
+                    "stage": "provider_rule_exit_gate",
+                    "provider_rule_gate_status": "failed",
+                    "provider_rule_gate_metrics": provider_rule_gate_metrics,
+                    "appendix_pdf_path": appendix_pdf_path,
+                    "combined_pdf_path": combined_pdf_path,
+                    "delivery_pdf_path": pdf_path,
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-provider-rule-gate-failed",
+            )
+            return {
+                "status": "failed",
+                "reason": provider_rule_gate_reason,
+                "source_pdf_filename": filename,
+                "pdf_path": pdf_path,
+                "provider_rule_gate_status": "failed",
+                "provider_rule_gate_metrics": provider_rule_gate_metrics,
+            }
+        viewer_gate_ok, viewer_gate_reason, viewer_gate_metrics = _property_3d_viewer_links_exit_gate(compare_links)
+        if not viewer_gate_ok:
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_pdf_bundle_failed",
+                payload={
+                    "source_pdf_filename": filename,
+                    "source_ref": resolved_source_ref,
+                    "external_id": resolved_external_id,
+                    "reason": viewer_gate_reason,
+                    "stage": "viewer_exit_gate",
+                    "viewer_gate_status": "failed",
+                    "viewer_gate_metrics": viewer_gate_metrics,
+                    "appendix_pdf_path": appendix_pdf_path,
+                    "combined_pdf_path": combined_pdf_path,
+                    "delivery_pdf_path": pdf_path,
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-viewer-gate-failed",
+            )
+            return {
+                "status": "failed",
+                "reason": viewer_gate_reason,
+                "source_pdf_filename": filename,
+                "pdf_path": pdf_path,
+                "viewer_gate_status": "failed",
+                "viewer_gate_metrics": viewer_gate_metrics,
+            }
+        if compare_links.get("matterport"):
+            first_row.append(("Open Matterport", compare_links["matterport"]))
+        if compare_links.get("3dvista"):
+            first_row.append(("Open 3DVista", compare_links["3dvista"]))
+        if not first_row:
+            safe_control_url = _telegram_safe_url_button_target(_property_tour_control_link(tour_url_for_buttons))
+            if safe_control_url:
+                first_row.append(("Open 3D Control", safe_control_url))
+        if first_row:
+            url_buttons.append(first_row[:2])
+        second_row: list[tuple[str, str]] = []
+        if direct_flythrough_url:
+            second_row.append(("Open Flythrough", direct_flythrough_url))
+        if second_row:
+            url_buttons.append(second_row[:2])
+        try:
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_pdf_bundle_step",
+                payload={
+                    "source_pdf_filename": filename,
+                    "source_ref": resolved_source_ref,
+                    "stage": "telegram_send_start",
+                    "delivery_pdf_path": pdf_path,
+                    "direct_tour_url": direct_tour_url,
+                    "direct_flythrough_url": direct_flythrough_url,
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-send-start",
+            )
+            with contextlib.suppress(Exception):
+                send_telegram_chat_action_for_principal(
+                    self._container.tool_runtime,
+                    principal_id=principal_id,
+                    action="upload_document",
+                )
+            receipt = send_telegram_document_for_principal(
+                self._container.tool_runtime,
+                principal_id=principal_id,
+                document_ref=pdf_path,
+                caption=(
+                    f"{title}\n"
+                    "Original PDF first, PropertyQuarry appendix after it. "
+                    "Public 3D tour and fly-through are linked below and inside the appendix."
+                ),
+                url_buttons=url_buttons,
+            )
+        except Exception as exc:
+            reason = compact_text(str(exc or ""), fallback="telegram_document_delivery_failed", limit=180)
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_pdf_bundle_failed",
+                payload={
+                    "source_pdf_filename": filename,
+                    "source_ref": resolved_source_ref,
+                    "external_id": resolved_external_id,
+                    "reason": reason,
+                    "pdf_path": pdf_path,
+                    "appendix_pdf_path": appendix_pdf_path,
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-bundle-delivery-failed",
+            )
+            return {"status": "failed", "reason": reason, "source_pdf_filename": filename, "pdf_path": pdf_path}
+        payload = {
+            "source_pdf_filename": filename,
+            "source_ref": resolved_source_ref,
+            "external_id": resolved_external_id,
+            "dossier_pdf_path": pdf_path,
+            "appendix_pdf_path": appendix_pdf_path,
+            "combined_pdf_path": combined_pdf_path,
+            "dossier_publication_id": str(dossier_render.get("publication_id") or "").strip(),
+            "tour_url": str(tour_result.get("tour_url") or "").strip(),
+            "flythrough_url": video_url,
+            "direct_tour_url": direct_tour_url,
+            "direct_flythrough_url": direct_flythrough_url,
+            "direct_3d_control_url": first_row[0][1] if first_row and first_row[0][0] == "Open 3D Control" else "",
+            "provider_rule_gate_status": "passed",
+            "provider_rule_gate_metrics": provider_rule_gate_metrics,
+            "viewer_gate_status": "passed",
+            "viewer_gate_metrics": viewer_gate_metrics,
+            "telegram_chat_ref": str(receipt.chat_id or "").strip(),
+            "telegram_message_ids": list(receipt.message_ids),
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="telegram_property_pdf_bundle_sent",
+            payload=payload,
+            source_id=resolved_source_ref,
+            dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-bundle",
+        )
+        return {"status": "sent", **payload}
 
     def sync_google_workspace_signals(
         self,
@@ -23706,12 +26725,22 @@ class ProductService:
         *,
         principal_id: str,
         limit: int = 3,
+        recency_days: int = 0,
+        preferred_keywords: list[str] | tuple[str, ...] | None = None,
     ) -> list[str]:
         token = "".join(ch if ch.isalnum() or ch in "._-" else "-" for ch in str(principal_id or "").strip()).strip("-._")[:120] or "principal"
         root = Path(str(self._container.settings.storage.artifacts_dir)).resolve() / "magic_fit_refs" / token
         if not root.exists():
             return []
-        rows: list[tuple[float, str]] = []
+        normalized_keywords = tuple(
+            str(item or "").strip().lower()
+            for item in list(preferred_keywords or [])
+            if str(item or "").strip()
+        )
+        cutoff_timestamp = 0.0
+        if int(recency_days or 0) > 0:
+            cutoff_timestamp = (datetime.now(timezone.utc) - timedelta(days=max(1, int(recency_days)))).timestamp()
+        rows: list[dict[str, object]] = []
         for meta_path in root.glob("magicfitref_*.json"):
             try:
                 metadata = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -23727,11 +26756,27 @@ class ProductService:
                 modified_at = max(meta_path.stat().st_mtime, file_path.stat().st_mtime)
             except Exception:
                 modified_at = 0.0
-            rows.append((modified_at, f"/app/api/property/magic-fit-reference-files/{reference_id}"))
-        rows.sort(key=lambda item: item[0], reverse=True)
+            file_name = str(metadata.get("file_name") or "").strip().lower()
+            rows.append(
+                {
+                    "modified_at": modified_at,
+                    "url": f"/app/api/property/magic-fit-reference-files/{reference_id}",
+                    "matches_keywords": bool(normalized_keywords) and any(keyword in file_name for keyword in normalized_keywords),
+                    "is_recent": modified_at >= cutoff_timestamp if cutoff_timestamp > 0.0 else True,
+                }
+            )
+        rows.sort(
+            key=lambda item: (
+                1 if bool(item.get("matches_keywords")) else 0,
+                1 if bool(item.get("is_recent")) else 0,
+                float(item.get("modified_at") or 0.0),
+            ),
+            reverse=True,
+        )
         urls: list[str] = []
         seen: set[str] = set()
-        for _, url in rows:
+        for row in rows:
+            url = str(row.get("url") or "").strip()
             if url in seen:
                 continue
             seen.add(url)
@@ -23739,6 +26784,48 @@ class ProductService:
             if len(urls) >= max(1, int(limit or 3)):
                 break
         return urls
+
+    def _default_property_person_motion_hint(
+        self,
+        *,
+        principal_id: str,
+        person_id: str = "self",
+    ) -> str:
+        normalized_person_id = str(person_id or "").strip() or "self"
+        profile_text = ""
+        with contextlib.suppress(Exception):
+            profile = self.get_person(principal_id=principal_id, person_id=normalized_person_id)
+            if profile is not None:
+                profile_text = " ".join(
+                    [
+                        str(profile.display_name or ""),
+                        str(profile.role_or_company or ""),
+                        *[str(item or "") for item in profile.themes],
+                        *[str(item or "") for item in profile.risks],
+                    ]
+                ).lower()
+        scanned_report_present = False
+        scanned_root = Path("/mnt/onedrive/Documents/Scanned Documents")
+        if scanned_root.exists():
+            with contextlib.suppress(Exception):
+                scanned_report_present = any(
+                    path.exists()
+                    for path in (
+                        scanned_root / "20260325 Physiotherapiebericht NRZ Tibor.pdf",
+                        scanned_root / "20250510AKH Ergotherapeutischer Bericht.pdf",
+                    )
+                )
+        if any(token in profile_text for token in ("hemipleg", "hemipare", "halbseiten", "schlaganfall", "stroke recovery")):
+            return (
+                "depict the resident with dignified left-sided hemiplegia or hemiparesis: reduced left arm swing, "
+                "protective left hand and shoulder posture, slight left-right gait asymmetry, and slower deliberate turns"
+            )
+        if normalized_person_id == "self" and scanned_report_present:
+            return (
+                "depict Tibor with dignified left-sided hemiplegia: reduced left arm swing, protective left hand posture, "
+                "subtle stance and gait asymmetry, and calm deliberate turns"
+            )
+        return ""
 
     def _property_magic_fit_reference_sheet_data_url(
         self,
@@ -23803,10 +26890,14 @@ class ProductService:
         property_url: str,
         property_facts: dict[str, object],
         reference_urls: list[str] | tuple[str, ...],
+        scene_type: str = "family_evening",
+        room_hint: str = "main living room or open living kitchen",
+        styling_hint: str = "warm, realistic, lived-in premium family home editorial; tasteful clutter; the resident may appear naturally if the references support it",
+        household_roles: list[str] | tuple[str, ...] | None = None,
+        include_child_reference: bool = False,
+        guardian_confirmed_for_children: bool = False,
     ) -> dict[str, object]:
         normalized_refs = [str(item or "").strip() for item in list(reference_urls or []) if str(item or "").strip()]
-        if not normalized_refs:
-            return {}
         with contextlib.suppress(Exception):
             existing = self.latest_property_magic_fit_scene(
                 principal_id=principal_id,
@@ -23814,6 +26905,52 @@ class ProductService:
             )
             if isinstance(existing, dict) and existing and bool(existing.get("share_with_packet_pdf")):
                 return dict(existing)
+        if not normalized_refs:
+            try:
+                normalized_roles = [
+                    compact_text(str(value or "").strip(), fallback="", limit=40)
+                    for value in list(household_roles or [])
+                    if compact_text(str(value or "").strip(), fallback="", limit=40)
+                ][:6]
+                prompt, summary = self._property_magic_fit_scene_prompt(
+                    property_title=property_title,
+                    property_facts=dict(property_facts or {}),
+                    scene_type=scene_type,
+                    room_hint=room_hint,
+                    styling_hint=styling_hint,
+                    household_roles=normalized_roles,
+                    include_child_reference=False,
+                )
+                image_url, provider_key = self._property_magic_fit_scene_image_url(
+                    principal_id=principal_id,
+                    prompt=prompt,
+                )
+                return {
+                    "scene_id": f"magicfit_{uuid4().hex}",
+                    "property_ref": str(property_ref or "").strip(),
+                    "property_title": compact_text(property_title, fallback="", limit=240),
+                    "property_url": compact_text(property_url, fallback="", limit=2000),
+                    "scene_type": compact_text(scene_type, fallback="breakfast", limit=80),
+                    "room_hint": compact_text(room_hint, fallback="", limit=160),
+                    "styling_hint": compact_text(styling_hint, fallback="", limit=240),
+                    "image_url": image_url,
+                    "prompt": compact_text(prompt, fallback="", limit=2000),
+                    "summary": summary,
+                    "reference_urls": [],
+                    "reference_total": 0,
+                    "household_roles": normalized_roles,
+                    "include_child_reference": False,
+                    "consent_personal_photos": False,
+                    "guardian_confirmed_for_children": bool(guardian_confirmed_for_children),
+                    "share_with_packet_pdf": True,
+                    "visual_simulation": True,
+                    "note": "Auto-generated architecture diorama preview without personal reference photos.",
+                    "provider_key": provider_key,
+                    "generated_at": _now_iso(),
+                    "status": "created",
+                }
+            except Exception:
+                return {}
         try:
             return self.create_property_magic_fit_scene(
                 principal_id=principal_id,
@@ -23821,15 +26958,15 @@ class ProductService:
                 property_ref=property_ref,
                 property_title=property_title,
                 property_url=property_url,
-                scene_type="family_evening",
-                room_hint="main living room or open living kitchen",
-                styling_hint="warm, realistic, lived-in premium family home editorial; tasteful clutter; the resident may appear naturally if the references support it",
+                scene_type=scene_type,
+                room_hint=room_hint,
+                styling_hint=styling_hint,
                 property_facts=dict(property_facts or {}),
                 reference_urls=normalized_refs,
-                household_roles=["resident"],
-                include_child_reference=False,
+                household_roles=list(household_roles or ["resident"]),
+                include_child_reference=bool(include_child_reference),
                 consent_personal_photos=True,
-                guardian_confirmed_for_children=False,
+                guardian_confirmed_for_children=bool(guardian_confirmed_for_children),
                 share_with_packet_pdf=True,
                 note="Auto-generated for a private PropertyQuarry dossier packet.",
             )
@@ -26226,6 +29363,7 @@ class ProductService:
         review_url: str = "",
         tour_result: dict[str, object] | None = None,
         candidate_properties: tuple[dict[str, object], ...] = (),
+        diorama_style_hint: str = "",
     ) -> dict[str, object]:
         dedupe_suffix = datetime.now(timezone.utc).strftime("%Y%m%d")
         dedupe_key = f"{principal_id}|{source_ref}|property-scout-hit-telegram|{dedupe_suffix}"
@@ -26427,6 +29565,12 @@ class ProductService:
         review_url: str = "",
         tour_result: dict[str, object] | None = None,
         candidate_properties: tuple[dict[str, object], ...] = (),
+        diorama_style_hint: str = "",
+        permissive_media_gate: bool = False,
+        birthday_party_request: bool = False,
+        person_motion_hint: str = "",
+        appendix_mode: str = "",
+        source_pdf_filename: str = "",
     ) -> dict[str, object]:
         normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         if not normalized_property_url:
@@ -26436,6 +29580,7 @@ class ProductService:
         top_facts = dict(top_candidate.get("property_facts") or top_candidate.get("property_facts_json") or {}) if isinstance(top_candidate, dict) else {}
         top_assessment = dict(top_candidate.get("assessment") or {}) if isinstance(top_candidate.get("assessment"), dict) else {}
         effective_assessment = dict(assessment or {}) if assessment else top_assessment
+        normalized_diorama_style_hint = _compact_diorama_style_hint(diorama_style_hint)
         fit_summary = _property_alert_fit_summary(effective_assessment)
         if fit_score > 0:
             score_text = f"Personal fit {int(round(max(0.0, min(100.0, float(fit_score or 0.0))))):d}/100"
@@ -26471,6 +29616,13 @@ class ProductService:
                     "property_url": str(row.get("property_url") or "").strip(),
                 }
             )
+        hosted_tour_url = str(
+            tour_payload.get("tour_url")
+            or tour_payload.get("vendor_tour_url")
+            or top_candidate.get("tour_url")
+            or top_candidate.get("vendor_tour_url")
+            or ""
+        ).strip()
         source_media_urls = [
             str(value or "").strip()
             for value in list(
@@ -26480,6 +29632,15 @@ class ProductService:
             )
             if str(value or "").strip()
         ]
+        source_virtual_tour_fallback = str(top_facts.get("source_virtual_tour_url") or top_candidate.get("source_virtual_tour_url") or "").strip()
+        preview_image_fallback = _property_link_bundle_preview_image_url(
+            media_urls=source_media_urls,
+            source_virtual_tour_url=source_virtual_tour_fallback,
+            tour_url=hosted_tour_url,
+            diorama_style_hint=normalized_diorama_style_hint,
+        )
+        if preview_image_fallback and preview_image_fallback not in source_media_urls:
+            source_media_urls.append(preview_image_fallback)
         source_floorplan_urls = [
             str(value or "").strip()
             for value in list(
@@ -26489,7 +29650,6 @@ class ProductService:
             )
             if str(value or "").strip()
         ]
-        hosted_tour_url = str(tour_payload.get("tour_url") or top_candidate.get("tour_url") or "").strip()
         video_delivery = _hosted_property_tour_video_delivery(hosted_tour_url) if hosted_tour_url else {}
         flythrough_url = ""
         if str(video_delivery.get("provider_key") or "").strip().lower() == "magicfit":
@@ -26502,7 +29662,9 @@ class ProductService:
             filtered_source_media_urls = [
                 str(url or "").strip()
                 for url in source_media_urls
-                if str(url or "").strip() and not _placeholder_listing_media_url(str(url or "").strip())
+                if str(url or "").strip()
+                and not _placeholder_listing_media_url(str(url or "").strip())
+                and not _property_tour_generated_preview_url(str(url or "").strip())
             ]
             deduped_media_urls: list[str] = []
             seen_media_urls: set[str] = set()
@@ -26516,7 +29678,11 @@ class ProductService:
         floorplan_ref_set = {str(url or "").strip() for url in source_floorplan_urls if str(url or "").strip()}
         if floorplan_ref_set:
             source_media_urls = [url for url in source_media_urls if str(url or "").strip() not in floorplan_ref_set]
-        diorama_preview_url = _hosted_property_tour_telegram_preview_image_url(hosted_tour_url) or _hosted_property_tour_preview_image_url(hosted_tour_url)
+        dossier_media_refs: list[str] = [*source_media_urls, *source_floorplan_urls]
+        diorama_preview_url = _hosted_property_tour_telegram_preview_image_url_for_style(
+            hosted_tour_url,
+            diorama_style_hint=normalized_diorama_style_hint,
+        ) or _hosted_property_tour_preview_image_url(hosted_tour_url)
         source_payload: dict[str, object] = {
             "title": property_title,
             "property_title": property_title,
@@ -26545,7 +29711,59 @@ class ProductService:
             "floorplan_refs": list(source_floorplan_urls),
             "comparison_candidates": comparison_rows,
         }
-        personal_reference_urls = self._recent_property_magic_fit_reference_urls(principal_id=principal_id, limit=3)
+        normalized_appendix_mode = str(appendix_mode or "").strip().lower()
+        if normalized_appendix_mode:
+            source_payload["appendix_mode"] = normalized_appendix_mode
+            source_payload["source_pdf_filename"] = compact_text(source_pdf_filename, fallback="", limit=180)
+        birthday_reference_keywords = (
+            "birthday",
+            "geburtstag",
+            "party",
+            "feier",
+            "noah",
+            "son",
+            "sohn",
+        )
+        resolved_person_motion_hint = compact_text(str(person_motion_hint or "").strip(), fallback="", limit=260)
+        personal_reference_urls = self._recent_property_magic_fit_reference_urls(
+            principal_id=principal_id,
+            limit=3,
+            recency_days=730 if birthday_party_request else 0,
+            preferred_keywords=birthday_reference_keywords if birthday_party_request else (),
+        )
+        scene_type = "family_evening"
+        scene_room_hint = "main living room or open living kitchen"
+        scene_styling_hint = "warm, realistic, lived-in premium family home editorial; tasteful clutter; the resident may appear naturally if the references support it"
+        scene_household_roles: list[str] = ["resident"]
+        scene_include_child_reference = False
+        multi_floor_signal_text = " ".join(
+            str(value or "").strip()
+            for value in (
+                property_title,
+                summary,
+                top_facts.get("description"),
+                top_facts.get("headline_hook"),
+                top_facts.get("rooms_label"),
+                top_facts.get("property_type"),
+            )
+            if str(value or "").strip()
+        ).lower()
+        if any(token in multi_floor_signal_text for token in ("maisonette", "duplex", "mehrgeschoss", "mehrstöck", "split-level", "split level", "2 ebenen", "zwei ebenen")):
+            scene_styling_hint = (
+                f"{scene_styling_hint}; render the home as a premium architectural cutaway diorama with a partial open side, "
+                "showing the upper floor clearly while still exposing parts of the lower floor underneath; preserve real circulation between levels"
+            )
+        if birthday_party_request:
+            scene_type = "birthday_party"
+            scene_room_hint = "main living room, dining area, or terrace prepared for a child's birthday gathering"
+            scene_styling_hint = (
+                "recent tasteful child's birthday at home; elegant age-appropriate decorations; a small cake table; "
+                "subtle balloons; premium candid family editorial; believable real apartment staging"
+            )
+            scene_household_roles = ["resident", "child", "family"]
+            scene_include_child_reference = True
+        if resolved_person_motion_hint:
+            scene_styling_hint = f"{scene_styling_hint}; keep any visible resident physically consistent with: {resolved_person_motion_hint}"
         latest_magic_fit_scene = self._maybe_auto_create_property_magic_fit_scene_for_packet(
             principal_id=principal_id,
             actor=str(actor or "").strip() or "property_scout",
@@ -26554,6 +29772,12 @@ class ProductService:
             property_url=normalized_property_url,
             property_facts=top_facts,
             reference_urls=personal_reference_urls,
+            scene_type=scene_type,
+            room_hint=scene_room_hint,
+            styling_hint=scene_styling_hint,
+            household_roles=scene_household_roles,
+            include_child_reference=scene_include_child_reference,
+            guardian_confirmed_for_children=scene_include_child_reference,
         )
         if (not isinstance(latest_magic_fit_scene, dict) or not latest_magic_fit_scene) and personal_reference_urls:
             reference_sheet = self._property_magic_fit_reference_sheet_data_url(
@@ -26572,10 +29796,19 @@ class ProductService:
                 }
         if isinstance(latest_magic_fit_scene, dict) and latest_magic_fit_scene and bool(latest_magic_fit_scene.get("share_with_packet_pdf")):
             source_payload["magic_fit_scene"] = dict(latest_magic_fit_scene)
+            magic_fit_image_url = str(latest_magic_fit_scene.get("image_url") or "").strip()
+            if magic_fit_image_url:
+                dossier_media_refs.append(magic_fit_image_url)
+                if not diorama_preview_url:
+                    diorama_preview_url = magic_fit_image_url
         if diorama_preview_url:
+            dossier_media_refs.append(diorama_preview_url)
+            diorama_summary = "Stylised overview preview of the flat before opening the full 3D tour."
+            if normalized_diorama_style_hint:
+                diorama_summary = f"{diorama_summary} Requested style direction: {normalized_diorama_style_hint}."
             source_payload["diorama_scene"] = {
                 "image_url": diorama_preview_url,
-                "summary": "Stylised overview preview of the flat before opening the full 3D tour.",
+                "summary": diorama_summary,
                 "video_url": flythrough_url,
                 "privacy_mode": PacketPrivacyMode.OWNER_PRIVATE.value,
             }
@@ -26598,6 +29831,16 @@ class ProductService:
             )
         if preference_person_id and preference_person_id != "self":
             source_payload["fit_summary"] = f"{source_payload['fit_summary']} · profile {preference_person_id}" if source_payload["fit_summary"] else f"profile {preference_person_id}"
+        dossier_writer_payload = _property_scout_appendix_dossier_writer_payload(
+            source_payload=source_payload,
+            normalized_appendix_mode=normalized_appendix_mode,
+        )
+        if dossier_writer_payload:
+            source_payload["dossier_writer"] = dossier_writer_payload
+            source_payload["dossier_writer_status"] = str(dossier_writer_payload.get("status") or "").strip()
+            source_payload["dossier_writer_generated_by"] = str(dossier_writer_payload.get("generated_by") or "").strip()
+            neuronwriter_payload = dossier_writer_payload.get("neuronwriter") if isinstance(dossier_writer_payload.get("neuronwriter"), dict) else {}
+            source_payload["dossier_writer_neuronwriter_status"] = str(dict(neuronwriter_payload).get("status") or "").strip()
         try:
             from app.services.fliplink.service import build_fliplink_packet_service
 
@@ -26624,6 +29867,28 @@ class ProductService:
         pdf_path = str(row.get("source_pdf_artifact_ref") or "").strip()
         if not pdf_path or not Path(pdf_path).is_file():
             return {"status": "failed", "reason": "property_scout_dossier_pdf_missing"}
+        normalized_dossier_media_count = len({str(item or "").strip() for item in dossier_media_refs if str(item or "").strip()})
+        media_gate_ok, embedded_image_count, required_media_count = _pdf_media_gate_passed(
+            pdf_path=pdf_path,
+            media_ref_count=normalized_dossier_media_count,
+            required_ratio=0.0 if permissive_media_gate else 0.6,
+        )
+        if not media_gate_ok:
+            return {
+                "status": "failed",
+                "reason": "property_scout_dossier_media_gate_failed",
+                "embedded_media_count": embedded_image_count,
+                "expected_media_count": normalized_dossier_media_count,
+                "required_media_count": required_media_count,
+            }
+        if normalized_appendix_mode:
+            appendix_gate_ok, appendix_gate_reason, appendix_gate_metrics = _pdf_appendix_exit_gate_passed(pdf_path)
+            if not appendix_gate_ok:
+                return {
+                    "status": "failed",
+                    "reason": appendix_gate_reason,
+                    "appendix_gate": appendix_gate_metrics,
+                }
         caption_title = compact_text(property_title, fallback="PropertyQuarry dossier", limit=90)
         return {
             "status": "rendered",
@@ -26637,6 +29902,8 @@ class ProductService:
             "property_ref": str(source_payload["property_ref"]),
             "source_ref": str(source_ref or "").strip(),
             "account_email": str(account_email or "").strip(),
+            "diorama_preview_url": str(diorama_preview_url or "").strip(),
+            "flythrough_url": str(flythrough_url or "").strip(),
         }
 
     def _sign_public_property_packet_pdf_token(

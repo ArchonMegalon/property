@@ -144,3 +144,45 @@ def register_builtin_onemin_media_transform(
             enabled=True,
         )
     register_handler(tool_name, onemin_adapter.execute_media_transform)
+
+
+def register_builtin_onemin_property_walkthrough_video(
+    *,
+    tool_runtime: ToolRuntimeService,
+    register_handler: Callable[[str, ToolExecutionHandler], None],
+    onemin_adapter: OneminToolAdapter,
+) -> None:
+    tool_name = "provider.onemin.property_walkthrough_video"
+    if tool_runtime.get_tool(tool_name) is None:
+        tool_runtime.upsert_tool(
+            tool_name=tool_name,
+            version="v1",
+            input_schema_json={
+                "type": "object",
+                "required": ["prompt"],
+                "properties": {
+                    "prompt": {"type": "string"},
+                    "source_text": {"type": "string"},
+                    "first_frame_path": {"type": "string"},
+                    "image_url": {"type": "string"},
+                    "model": {"type": "string"},
+                    "model_order": {"type": ["array", "string"]},
+                    "duration": {"type": "integer"},
+                    "timeout_seconds": {"type": "integer"},
+                    "allow_reserve": {"type": "boolean"},
+                },
+            },
+            output_schema_json={
+                "type": "object",
+                "required": ["normalized_text", "preview_text", "mime_type", "tool_name", "action_kind"],
+            },
+            policy_json={
+                "builtin": True,
+                "action_kind": "video.generate",
+                "provider_manager": "ea_one_manager",
+                "capability": "property_walkthrough_video",
+            },
+            approval_default="none",
+            enabled=True,
+        )
+    register_handler(tool_name, onemin_adapter.execute_property_walkthrough_video)

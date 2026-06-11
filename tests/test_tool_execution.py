@@ -5712,6 +5712,89 @@ def test_tool_execution_service_self_heals_missing_builtin_onemin_image_generate
     assert tool_runtime.get_tool("provider.onemin.image_generate") is not None
 
 
+def test_tool_execution_service_self_heals_missing_builtin_onemin_property_walkthrough_video_definition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-video-key")
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    def _fake_call_property_walkthrough_feature(
+        self,
+        *,
+        first_frame_path: str,
+        image_url: str,
+        feature_model: str,
+        prompt_object: dict[str, object],
+        principal_id: str,
+        allow_reserve: bool,
+        timeout_seconds: int,
+    ):
+        assert image_url == "https://cdn.example/first-frame.jpg"
+        assert feature_model == "pika"
+        assert prompt_object["imageUrl"] == "https://cdn.example/first-frame.jpg"
+        assert principal_id == "exec-1"
+        assert allow_reserve is True
+        assert timeout_seconds == 45
+        return (
+            {
+                "aiRecord": {
+                    "aiRecordDetail": {
+                        "resultObject": {
+                            "url": "https://cdn.1min.ai/generated/walkthrough.mp4",
+                        }
+                    }
+                }
+            },
+            "Ma01",
+            "ONEMIN_AI_API_KEY_FALLBACK_1",
+            feature_model,
+            0,
+            0,
+        )
+
+    monkeypatch.setattr(
+        "app.services.tool_execution_onemin_adapter.OneminToolAdapter._call_property_walkthrough_feature",
+        _fake_call_property_walkthrough_feature,
+    )
+    registry._rows.pop("provider.onemin.property_walkthrough_video", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "provider.onemin.property_walkthrough_video"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-onemin-property-video-1",
+            step_id="step-onemin-property-video-1",
+            tool_name="provider.onemin.property_walkthrough_video",
+            action_kind="video.generate",
+            payload_json={
+                "prompt": "One continuous photorealistic walkthrough, no cuts.",
+                "image_url": "https://cdn.example/first-frame.jpg",
+                "model_order": ["pika"],
+                "duration": 5,
+                "allow_reserve": True,
+                "timeout_seconds": 45,
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "provider.onemin.property_walkthrough_video"
+    assert result.action_kind == "video.generate"
+    assert result.output_json["video_url"] == "https://cdn.1min.ai/generated/walkthrough.mp4"
+    assert result.output_json["asset_url"] == "https://cdn.1min.ai/generated/walkthrough.mp4"
+    assert result.output_json["provider_backend"] == "1min"
+    assert result.receipt_json["feature_type"] == "IMAGE_TO_VIDEO"
+    assert result.receipt_json["provider_key_slot"] == "ONEMIN_AI_API_KEY_FALLBACK_1"
+    assert tool_runtime.get_tool("provider.onemin.property_walkthrough_video") is not None
+
+
 def test_tool_execution_service_self_heals_missing_builtin_comfyui_image_generate_definition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

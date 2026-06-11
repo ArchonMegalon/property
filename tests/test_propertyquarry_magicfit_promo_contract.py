@@ -54,6 +54,16 @@ def test_propertyquarry_magicfit_materializers_are_path_configurable() -> None:
     assert "_completion/telegram_promo_delivery" not in build_script
 
 
+def test_propertyquarry_magicfit_renderer_fails_fast_on_credit_blocker() -> None:
+    render_script = (ROOT / "scripts" / "render_magicfit_property_flythrough.py").read_text(encoding="utf-8")
+
+    assert "magicfit_not_enough_credits" in render_script
+    assert "Not enough credits" not in render_script
+    assert "not enough credits" in render_script
+    assert "MAGICFIT_DEBUG_DIR" in render_script
+    assert "write_debug_snapshot(page" in render_script
+
+
 def test_propertyquarry_release_gates_include_magicfit_promo_contract() -> None:
     release_gate = (ROOT / "scripts" / "property_release_gates.sh").read_text(encoding="utf-8")
 

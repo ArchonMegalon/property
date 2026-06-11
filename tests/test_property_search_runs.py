@@ -61,13 +61,13 @@ def test_property_plan_investment_research_levels_follow_tier() -> None:
     assert agent["magic_fit_video_period"] == "none"
 
 
-def test_free_property_plan_uses_weekly_visual_generation_caps() -> None:
+def test_free_property_plan_uses_daily_visual_generation_caps() -> None:
     snapshot = property_commercial_snapshot({})
 
     assert snapshot["magic_fit_scene_limit"] == 1
     assert snapshot["magic_fit_video_limit"] == 1
     assert snapshot["magic_fit_scene_period"] == "week"
-    assert snapshot["magic_fit_video_period"] == "week"
+    assert snapshot["magic_fit_video_period"] == "day"
 
 
 class _QuotaRow:
@@ -99,7 +99,7 @@ class _QuotaContainer:
         self.channel_runtime = _QuotaRuntime(rows)
 
 
-def test_property_visual_quota_enforces_free_weekly_magic_fit_limit() -> None:
+def test_property_visual_quota_enforces_free_daily_magic_fit_limit() -> None:
     service = ProductService.__new__(ProductService)
     service._container = _QuotaContainer(
         {},
@@ -126,6 +126,7 @@ def test_property_visual_quota_enforces_plus_daily_video_limit() -> None:
         [
             _QuotaRow(event_type="generic_property_tour_created", created_at=datetime.now(timezone.utc).isoformat()),
             _QuotaRow(event_type="willhaben_property_tour_created", created_at=datetime.now(timezone.utc).isoformat()),
+            _QuotaRow(event_type="generic_property_tour_created", created_at=datetime.now(timezone.utc).isoformat()),
         ],
     )
 

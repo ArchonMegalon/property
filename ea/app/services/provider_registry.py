@@ -675,6 +675,11 @@ class ProviderRegistryService:
                         capability_key="media_transform",
                         tool_name="provider.onemin.media_transform",
                     ),
+                    ProviderCapability(
+                        provider_key="onemin",
+                        capability_key="property_walkthrough_video",
+                        tool_name="provider.onemin.property_walkthrough_video",
+                    ),
                 ),
             ),            ProviderBinding(
                 provider_key="comfyui",

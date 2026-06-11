@@ -259,5 +259,7 @@ volumes:
   ea_artifacts: {}
   ea_openvoice_data: {}
   ea_pgdata: {}
-  ea_public_tours: {}
+  ea_public_tours:
+    external: true
+    name: property_propertyquarry_public_tours
   ea_provider_ledger: {}

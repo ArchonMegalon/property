@@ -18,7 +18,7 @@ import urllib.parse
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 import requests
 
 from app.api.dependencies import get_container
@@ -137,8 +137,10 @@ _PUBLIC_TOUR_TOP_LEVEL_KEYS = frozenset(
         "panorama_source",
         "facts",
         "brief",
+        "control_mode",
         "scenes",
         "video_relpath",
+        "walkable_scene",
         "tour_privacy_mode",
         "privacy_mode",
     }
@@ -235,6 +237,7 @@ _PUBLIC_TOUR_ALLOWED_ASSET_EXTENSIONS = frozenset(
         ".mp4",
         ".pdf",
         ".png",
+        ".txt",
         ".webm",
         ".webp",
     }
@@ -585,12 +588,16 @@ def _public_tour_manifest(payload: dict[str, object], *, only_relpath: str = "")
             candidate = (bundle_dir / relpath).resolve()
             try:
                 if bundle_dir.resolve() in candidate.parents and candidate.exists() and candidate.is_file():
-                    row["size_bytes"] = candidate.stat().st_size
-                    digest = hashlib.sha256()
-                    with candidate.open("rb") as handle:
-                        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                            digest.update(chunk)
-                    row["sha256"] = digest.hexdigest()
+                    size_bytes = candidate.stat().st_size
+                    row["size_bytes"] = size_bytes
+                    mime_type = str(row.get("mime_type") or "").strip().lower()
+                    should_hash = size_bytes <= (8 * 1024 * 1024) and not mime_type.startswith("video/")
+                    if should_hash:
+                        digest = hashlib.sha256()
+                        with candidate.open("rb") as handle:
+                            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                                digest.update(chunk)
+                        row["sha256"] = digest.hexdigest()
             except OSError:
                 pass
         manifest[relpath] = row
@@ -779,11 +786,18 @@ def _asset_file(slug: str, asset_path: str) -> Path:
     _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
     manifest = _public_tour_manifest(payload, only_relpath=safe_relpath)
-    if not safe_relpath or safe_relpath not in manifest:
-        raise HTTPException(status_code=404, detail="tour_file_not_found")
     bundle_dir = _tour_bundle_dir(slug)
-    if bundle_dir is None:
+    if not safe_relpath or bundle_dir is None:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
+    if safe_relpath not in manifest:
+        generated_public_asset = (
+            safe_relpath == "tour.mp4"
+            or safe_relpath.startswith("telegram-preview")
+            or safe_relpath.startswith("diorama-preview")
+            or safe_relpath.startswith("magicfit-still-")
+        )
+        if not generated_public_asset:
+            raise HTTPException(status_code=404, detail="tour_file_not_found")
     candidate = (bundle_dir / safe_relpath).resolve()
     if bundle_dir.resolve() not in candidate.parents:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
@@ -2018,7 +2032,71 @@ def _public_tour_host_brand_label(hostname: str, *, fallback: str = "this domain
 
 
 def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
+    early_scene_strategy = str(payload.get("scene_strategy") or "").strip()
+    if early_scene_strategy == "pure_360_cube":
+        safe_title = html.escape(str(payload.get("display_title") or payload.get("title") or payload.get("slug") or "Property tour").strip())
+        return f"""<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{safe_title} - 3D fallback blocked</title>
+    {clickrank_head_snippet(hostname)}
+    <style>
+      html, body {{ margin: 0; min-height: 100%; background: #111; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
+      body {{ display: grid; place-items: center; padding: 24px; }}
+      main {{ max-width: 680px; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 22px; background: rgba(255,255,255,.06); }}
+      h1 {{ margin: 0 0 10px; font-size: 22px; letter-spacing: 0; }}
+      p {{ margin: 0 0 8px; color: rgba(247,241,230,.78); line-height: 1.45; }}
+      code {{ color: #fff; }}
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>3D cube fallback blocked</h1>
+      <p>No. This generated cube fallback is not allowed to masquerade as a real 3D tour.</p>
+      <p>Provide a real Matterport, 3DVista, or validated walkable 3D export instead.</p>
+      <p><code>{safe_title}</code></p>
+    </main>
+  </body>
+</html>"""
     scenes = [dict(row) for row in (payload.get("scenes") or []) if isinstance(row, dict)]
+    if not scenes and isinstance(payload.get("walkable_scene"), dict):
+        safe_title = html.escape(str(payload.get("display_title") or payload.get("title") or payload.get("slug") or "Property tour").strip())
+        slug = str(payload.get("slug") or "").strip()
+        video_relpath = str(payload.get("video_relpath") or "").strip()
+        existing_video_url = str(payload.get("video_url") or "").strip()
+        control_url = f"/tours/{html.escape(slug)}/control" if slug else ""
+        video_url = existing_video_url or (f"/tours/files/{html.escape(slug)}/{html.escape(video_relpath)}" if slug and video_relpath else "")
+        return f"""<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{safe_title}</title>
+    {clickrank_head_snippet(hostname)}
+    <style>
+      html, body {{ margin: 0; min-height: 100%; background: #111; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
+      body {{ display: grid; place-items: center; padding: 24px; }}
+      main {{ width: min(720px, 100%); border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 22px; background: rgba(255,255,255,.06); }}
+      h1 {{ margin: 0 0 10px; font-size: 24px; letter-spacing: 0; }}
+      p {{ margin: 0 0 16px; color: rgba(247,241,230,.78); line-height: 1.45; }}
+      .actions {{ display: flex; flex-wrap: wrap; gap: 10px; }}
+      a {{ color: #111; background: #f7f1e6; border-radius: 8px; padding: 11px 13px; text-decoration: none; font-weight: 700; }}
+      a.secondary {{ color: #f7f1e6; background: transparent; border: 1px solid rgba(255,255,255,.28); }}
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>{safe_title}</h1>
+      <p>This bundle exposes only validated media controls. The generated 3D cube fallback has been removed.</p>
+      <div class="actions">
+        {f'<a href="{control_url}">Open 3D Control</a>' if control_url else ''}
+        {f'<a class="secondary" href="{video_url}">Open Fly-through</a>' if video_url else ''}
+      </div>
+    </main>
+  </body>
+</html>"""
     if not scenes:
         raise HTTPException(status_code=500, detail="tour_scenes_missing")
     facts, researched_facts = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
@@ -2039,7 +2117,34 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     hosted_brand_html = html.escape(hosted_brand_name)
     slug = str(payload.get("slug") or "").strip()
     video_relpath = str(payload.get("video_relpath") or "").strip()
-    video_url = f"/tours/files/{slug}/{video_relpath}" if slug and video_relpath else ""
+    video_url = str(payload.get("video_url") or "").strip() or (f"/tours/files/{slug}/{video_relpath}" if slug and video_relpath else "")
+    video_mime_type = mimetypes.guess_type(urllib.parse.urlparse(video_url).path)[0] or "video/mp4"
+    if is_pure_360_cube:
+        safe_title = html.escape(display_title or title or "Property tour")
+        return f"""<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{safe_title} - 3D fallback blocked</title>
+    {clickrank_head_snippet(hostname)}
+    <style>
+      html, body {{ margin: 0; min-height: 100%; background: #111; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
+      body {{ display: grid; place-items: center; padding: 24px; }}
+      main {{ max-width: 680px; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 22px; background: rgba(255,255,255,.06); }}
+      h1 {{ margin: 0 0 10px; font-size: 22px; letter-spacing: 0; }}
+      p {{ margin: 0; color: rgba(247,241,230,.78); line-height: 1.45; }}
+      code {{ color: #fff; }}
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>3D cube fallback blocked</h1>
+      <p>No. This generated cube fallback is not allowed to masquerade as a real 3D tour. Provide a real Matterport, 3DVista, or validated walkable 3D export instead.</p>
+      <p><code>{safe_title}</code></p>
+    </main>
+  </body>
+</html>"""
 
     def _trim_text(value: object) -> str:
         return str(value or "").strip()
@@ -2371,29 +2476,30 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             + _collect_scene_refs(scene.get("prev_location_id"))
             + _collect_scene_refs(scene.get("prev"))
         )
-        scene_data.append(
-            {
-                "name": str(scene.get("name") or "").strip(),
-                "scene_id": scene_id,
-                "next_scene_id": _trim_text(next_scene_refs[0]) if next_scene_refs else "",
-                "prev_scene_id": _trim_text(prev_scene_refs[0]) if prev_scene_refs else "",
-                "next_scene_index": scene.get("next_scene_index"),
-                "prev_scene_index": scene.get("prev_scene_index"),
-                "image_url": (
-                    f"/tours/files/{slug}/{str(scene.get('asset_relpath') or '').strip()}"
-                    if slug and str(scene.get("asset_relpath") or "").strip()
-                    else str(scene.get("image_url") or "").strip()
-                ),
-                "role": str(scene.get("role") or "photo").strip(),
-                "mime_type": str(scene.get("mime_type") or "").strip(),
-                "source_url": "" if is_pure_360_cube else str(scene.get("source_url") or "").strip(),
-                "cube_faces": {
-                    key: f"/tours/files/{slug}/{str(value or '').strip()}"
-                    for key, value in dict(scene.get("cube_faces") or {}).items()
-                    if slug and str(value or "").strip()
-                },
-            }
-        )
+        scene_row = {
+            "name": str(scene.get("name") or "").strip(),
+            "scene_id": scene_id,
+            "next_scene_id": _trim_text(next_scene_refs[0]) if next_scene_refs else "",
+            "prev_scene_id": _trim_text(prev_scene_refs[0]) if prev_scene_refs else "",
+            "next_scene_index": scene.get("next_scene_index"),
+            "prev_scene_index": scene.get("prev_scene_index"),
+            "image_url": (
+                f"/tours/files/{slug}/{str(scene.get('asset_relpath') or '').strip()}"
+                if slug and str(scene.get("asset_relpath") or "").strip()
+                else str(scene.get("image_url") or "").strip()
+            ),
+            "role": str(scene.get("role") or "photo").strip(),
+            "mime_type": str(scene.get("mime_type") or "").strip(),
+            "source_url": "" if is_pure_360_cube else str(scene.get("source_url") or "").strip(),
+        }
+        cube_faces = {
+            key: f"/tours/files/{slug}/{str(value or '').strip()}"
+            for key, value in dict(scene.get("cube_faces") or {}).items()
+            if slug and str(value or "").strip()
+        }
+        if cube_faces:
+            scene_row["cube_faces"] = cube_faces
+        scene_data.append(scene_row)
 
     if is_pure_360_cube and len(scene_data) > 1:
         scene_id_to_index = {
@@ -3469,6 +3575,67 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     </script>
   </body>
 </html>"""
+    pure_decision_rows_html = "".join(
+        f'<div class="stat"><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></div>'
+        for label, value in decision_rows
+    )
+    pure_reasons_html = "".join(f"<li>{html.escape(item)}</li>" for item in (highlight_lines or ["No strong positive pattern match is clear yet."]))
+    pure_risks_html = "".join(f"<li>{html.escape(item)}</li>" for item in (concern_lines or ["No concrete downside has been stored yet."]))
+    pure_unknowns_html = "".join(f"<li>{html.escape(item)}</li>" for item in (unknown_lines or ["No explicit follow-up question is stored yet."]))
+    pure_feedback_panel = ""
+    if bool(payload.get("_feedback_enabled")) or str(payload.get("principal_id") or "").strip():
+        pure_feedback_panel = (
+            '<section class="card decision-card">'
+            '<div class="eyebrow">Preference Feedback</div>'
+            '<h2>Teach the system what to rank higher or lower</h2>'
+            '<p class="sub">Give a quick reaction and mark concrete reasons. Public-link feedback is captured as an external signal; sign in to apply it to a ranking profile.</p>'
+            '<button class="btn" type="button">Save feedback</button>'
+            '</section>'
+        )
+    pure_shortlist_items = [dict(row) for row in list(shortlist_compare.get("items") or []) if isinstance(row, dict)]
+    pure_shortlist_current = dict(shortlist_compare.get("current") or {}) if isinstance(shortlist_compare.get("current"), dict) else {}
+    pure_shortlist_rows = ([pure_shortlist_current] if pure_shortlist_current else []) + pure_shortlist_items
+    pure_shortlist_cards = "".join(
+        (
+            '<div class="stat">'
+            f'<span>Fit {int(round(float(row.get("score") or 0.0))):d}/100</span>'
+            f'<strong>{html.escape(str(row.get("title") or "Property").strip())}</strong>'
+            f'<p>{html.escape(str(row.get("why_now") or "No comparison note stored.").strip())}</p>'
+            f'<p><span class="shortlist-delta-better">shortlist upside</span> <span class="shortlist-delta-worse">shortlist trade-off</span></p>'
+            + ''.join(
+                f'<p><b>{html.escape(label)}:</b> {html.escape(_shortlist_metric_display(key, dict(row.get("metrics") or {}).get(key)))}</p>'
+                for key, label, _direction in _shortlist_metric_labels()
+                if key in dict(row.get("metrics") or {})
+            )
+            + '</div>'
+        )
+        for row in pure_shortlist_rows[:3]
+    )
+    pure_shortlist_panel = (
+        '<section class="card decision-card">'
+        '<div class="eyebrow">Shortlist Compare</div>'
+        '<h2>Current property against active shortlist items</h2>'
+        f'<div class="stat-grid">{pure_shortlist_cards or "<div class=\"stat\"><span>Shortlist</span><strong>No shortlist loaded</strong></div>"}</div>'
+        '</section>'
+    )
+    pure_distance_html = "".join(
+        f'<div class="stat"><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></div>'
+        for label, value in distance_rows
+    )
+    pure_decision_panel = (
+        '<section class="card decision-card">'
+        '<div class="eyebrow">Decision Summary</div>'
+        '<h2>Decision Summary</h2>'
+        f'<div class="stat-grid">{pure_decision_rows_html}</div>'
+        '<div class="decision-grid">'
+        '<div><h3>Why it fits</h3><ul>' + pure_reasons_html + '</ul></div>'
+        '<div><h3>Decision pressure</h3><ul>' + pure_risks_html + '</ul></div>'
+        '<div><h3>Still missing</h3><ul>' + pure_unknowns_html + '</ul></div>'
+        '</div>'
+        + (f'<h2>Daily-life access</h2><div class="stat-grid">{pure_distance_html}</div>' if pure_distance_html else '')
+        + (f'<p class="sub">{html.escape(completed_research_line)}</p>' if completed_research_line else '')
+        + '</section>'
+    )
     if is_pure_360_cube:
         return f"""<!doctype html>
 <html lang="de">
@@ -3584,6 +3751,51 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         margin-top: 18px;
         display: grid;
         gap: 18px;
+      }}
+      .decision-card {{
+        padding: 22px;
+      }}
+      .decision-card h2 {{
+        margin: 8px 0 14px;
+      }}
+      .decision-grid, .stat-grid {{
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }}
+      .decision-grid {{
+        margin-top: 16px;
+      }}
+      .decision-grid h3 {{
+        margin: 0 0 8px;
+      }}
+      .decision-grid ul {{
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        line-height: 1.5;
+      }}
+      .stat {{
+        padding: 12px 14px;
+        border-radius: 18px;
+        background: rgba(255,255,255,0.68);
+        border: 1px solid rgba(31,28,24,0.08);
+      }}
+      .stat span {{
+        display: block;
+        margin-bottom: 4px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--muted);
+      }}
+      .stat strong {{
+        display: block;
+      }}
+      .stat p {{
+        margin: 6px 0 0;
+        color: var(--muted);
+        line-height: 1.45;
       }}
       .toolbar {{
         display: flex;
@@ -3900,6 +4112,11 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             <div class="kv"><b>Review mode</b>Panorama first, then layout and packet review.</div>
           </div>
         </aside>
+      </section>
+      <section class="stage">
+        {pure_decision_panel}
+        {pure_feedback_panel}
+        {pure_shortlist_panel}
       </section>
       <section class="stage">
         <div class="toolbar">
@@ -4306,6 +4523,61 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         if source_virtual_tour_url
         else ""
     )
+    legacy_decision_rows_html = "".join(
+        f'<div class="kv"><b>{html.escape(label)}</b>{html.escape(value)}</div>'
+        for label, value in decision_rows
+    )
+    legacy_reasons_html = "".join(f"<li>{html.escape(item)}</li>" for item in (highlight_lines or ["No strong positive pattern match is clear yet."]))
+    legacy_risks_html = "".join(f"<li>{html.escape(item)}</li>" for item in (concern_lines or ["No concrete downside has been stored yet."]))
+    legacy_unknowns_html = "".join(f"<li>{html.escape(item)}</li>" for item in (unknown_lines or ["No explicit follow-up question is stored yet."]))
+    feedback_negative = [dict(row) for row in list(feedback_suggestions.get("negative") or []) if isinstance(row, dict)]
+    feedback_positive = [dict(row) for row in list(feedback_suggestions.get("positive") or []) if isinstance(row, dict)]
+    legacy_feedback_chips = "".join(
+        f'<span class="chip">{html.escape(str(row.get("label") or row.get("key") or "").strip())}</span>'
+        for row in [*feedback_negative[:4], *feedback_positive[:4]]
+        if str(row.get("label") or row.get("key") or "").strip()
+    )
+    legacy_feedback_panel = ""
+    if bool(payload.get("_feedback_enabled")) or str(payload.get("principal_id") or "").strip():
+        legacy_feedback_panel = (
+            '<section class="panel">'
+            '<div class="eyebrow">Preference Feedback</div>'
+            '<h2>Teach the system what to rank higher or lower</h2>'
+            '<p class="sub">Give a quick reaction and mark concrete reasons. Public-link feedback is captured as an external signal; sign in to apply it to a ranking profile.</p>'
+            f'<div class="facts">{legacy_feedback_chips or "<span class=\"chip\">No structured feedback chips yet</span>"}</div>'
+            '</section>'
+        )
+    legacy_shortlist_items = [dict(row) for row in list(shortlist_compare.get("items") or []) if isinstance(row, dict)]
+    legacy_shortlist_current = dict(shortlist_compare.get("current") or {}) if isinstance(shortlist_compare.get("current"), dict) else {}
+    legacy_shortlist_rows = ([legacy_shortlist_current] if legacy_shortlist_current else []) + legacy_shortlist_items
+    legacy_shortlist_cards = "".join(
+        (
+            '<div class="kv">'
+            f'<b>{html.escape(str(row.get("title") or "Property").strip())}</b>'
+            f'{html.escape(str(row.get("why_now") or row.get("score_label") or "No comparison note stored.").strip())}'
+            '</div>'
+        )
+        for row in legacy_shortlist_rows[:3]
+    )
+    legacy_shortlist_panel = (
+        '<section class="panel">'
+        '<div class="eyebrow">Shortlist Compare</div>'
+        '<h2>Current property against active shortlist items</h2>'
+        f'<div class="stack">{legacy_shortlist_cards or "<div class=\"kv\"><b>No shortlist loaded</b>No other active shortlist property is currently available for side-by-side comparison.</div>"}</div>'
+        '</section>'
+    )
+    legacy_decision_panel = (
+        '<section class="panel">'
+        '<div class="eyebrow">Decision Summary</div>'
+        '<h2>Decision Summary</h2>'
+        f'<div class="stack">{legacy_decision_rows_html}</div>'
+        '<div class="stage">'
+        '<div class="panel"><h2>Why it fits</h2><ul>' + legacy_reasons_html + '</ul></div>'
+        '<div class="panel"><h2>Decision pressure</h2><ul>' + legacy_risks_html + '</ul></div>'
+        '<div class="panel"><h2>Still missing</h2><ul>' + legacy_unknowns_html + '</ul></div>'
+        '</div>'
+        '</section>'
+    )
     clickrank_html = clickrank_head_snippet(hostname)
     return f"""<!doctype html>
 <html lang="de">
@@ -4666,11 +4938,16 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         </aside>
       </section>
       <section class="stage">
+        {legacy_decision_panel}
+        {legacy_feedback_panel}
+        {legacy_shortlist_panel}
+      </section>
+      <section class="stage">
         {live_shell}
         {(
             f'''<div class="hero-video">
               <video id="tour-video" controls playsinline preload="metadata" poster="{html.escape(scene_data[0]["image_url"])}">
-                <source src="{html.escape(video_url)}" type="video/webm">
+                <source src="{html.escape(video_url)}" type="{html.escape(video_mime_type)}">
               </video>
             </div>'''
         ) if video_url else ''}
@@ -4837,7 +5114,7 @@ def _public_tour_security_headers(*, cache_control: str = "no-store") -> dict[st
             "base-uri 'none'; "
             "object-src 'none'; "
             "frame-ancestors 'self'; "
-            "img-src 'self' data: https:; "
+            "img-src 'self' data: blob: https:; "
             "media-src 'self' https:; "
             "frame-src 'self' https:; "
             "script-src 'self' 'unsafe-inline' https://js.clickrank.ai https://app.rybbit.io https://cdn.jsdelivr.net; "
@@ -4863,9 +5140,28 @@ def public_tour_payload(slug: str) -> JSONResponse:
 
 
 @router.get("/tours/files/{slug}/{asset_path:path}")
-def public_tour_file(slug: str, asset_path: str) -> FileResponse:
+@router.head("/tours/files/{slug}/{asset_path:path}")
+def public_tour_file(slug: str, asset_path: str):
     payload = _load_tour(slug)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
+    safe_name = PurePosixPath(safe_relpath).name
+    if safe_name == "CUBE_FALLBACK_REMOVED.txt" and bool(payload.get("cube_fallback_removed")):
+        return Response(
+            str(payload.get("cube_fallback_policy") or "No. This generated 3D cube fallback is not allowed.\n"),
+            status_code=200,
+            media_type="text/plain; charset=utf-8",
+            headers=_public_tour_security_headers(cache_control="no-store"),
+        )
+    removed_cube_assets = {str(item or "").strip() for item in list(payload.get("removed_cube_assets") or [])}
+    if bool(payload.get("cube_fallback_removed")) and (
+        safe_name in removed_cube_assets or safe_name.lower().startswith("pq-3d-top22")
+    ):
+        return Response(
+            "No. This generated 3D cube fallback is not allowed to masquerade as a real 3D tour.\n",
+            status_code=410,
+            media_type="text/plain; charset=utf-8",
+            headers=_public_tour_security_headers(cache_control="no-store"),
+        )
     manifest_row = _public_tour_manifest(payload, only_relpath=safe_relpath).get(safe_relpath, {}) if safe_relpath else {}
     file_path = _asset_file(slug, asset_path)
     media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
@@ -4879,6 +5175,284 @@ def public_tour_file(slug: str, asset_path: str) -> FileResponse:
         media_type=media_type,
         headers=headers,
     )
+
+
+def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "") -> str:
+    forced_mode = str(viewer_mode or "").strip().lower()
+    if forced_mode == "marzipano":
+        raise HTTPException(status_code=410, detail="tour_control_legacy_viewer_removed")
+    if forced_mode in {"matterport", "metaport"}:
+        return _tour_control_matterport_html(payload)
+    if forced_mode in {"3dvista", "3d_vista", "three_d_vista"}:
+        return _tour_control_3dvista_html(payload)
+    control_mode = str(payload.get("control_mode") or "").strip().lower()
+    if control_mode == "marzipano":
+        raise HTTPException(status_code=410, detail="tour_control_legacy_viewer_removed")
+    if control_mode in {"3dvista", "3d_vista", "three_d_vista"}:
+        return _tour_control_3dvista_html(payload)
+    if control_mode == "walkable_3d" or isinstance(payload.get("walkable_scene"), dict):
+        return _tour_control_walkable_html(payload)
+    if str(payload.get("scene_strategy") or "").strip() == "pure_360_cube":
+        raise HTTPException(status_code=404, detail="tour_control_cube_viewer_removed")
+    raise HTTPException(status_code=404, detail="tour_control_provider_export_missing")
+
+
+def _safe_3dvista_external_url(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return ""
+    host = parsed.netloc.lower()
+    if "3dvista.com" not in host and "3dvista" not in host:
+        return ""
+    return normalized
+
+
+def _safe_matterport_external_url(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return ""
+    host = parsed.netloc.lower()
+    if "matterport.com" not in host:
+        return ""
+    return normalized
+
+
+def _tour_control_external_iframe_html(*, title: str, iframe_src: str, badge: str) -> str:
+    return f"""<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{title} - {html.escape(badge)}</title>
+    <style>
+      html, body {{ margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0f1112; color: #f8f4eb; font-family: Inter, system-ui, sans-serif; }}
+      iframe {{ position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; background: #0f1112; }}
+      .badge {{ position: fixed; left: 14px; top: 14px; z-index: 2; padding: 8px 10px; border-radius: 8px; background: rgba(15,17,18,.62); border: 1px solid rgba(255,255,255,.18); font-size: 12px; backdrop-filter: blur(10px); }}
+    </style>
+  </head>
+  <body>
+    <iframe src="{html.escape(iframe_src)}" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
+    <div class="badge">{html.escape(badge)}</div>
+  </body>
+</html>"""
+
+
+def _tour_control_matterport_html(payload: dict[str, object]) -> str:
+    title = html.escape(str(payload.get("display_title") or payload.get("title") or "Matterport tour control").strip())
+    external_url = ""
+    for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url"):
+        external_url = _safe_matterport_external_url(payload.get(key))
+        if external_url:
+            break
+    if external_url:
+        return _tour_control_external_iframe_html(title=title, iframe_src=external_url, badge="Matterport Control")
+    raise HTTPException(status_code=404, detail="tour_control_matterport_export_missing")
+
+
+def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
+    title = html.escape(str(payload.get("display_title") or payload.get("title") or "3DVista tour control").strip())
+    slug = html.escape(str(payload.get("slug") or "").strip())
+    external_url = ""
+    for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
+        external_url = _safe_3dvista_external_url(payload.get(key))
+        if external_url:
+            break
+    entry_relpath = _public_tour_safe_asset_relpath(
+        str(
+            payload.get("three_d_vista_entry_relpath")
+            or payload.get("threedvista_entry_relpath")
+            or payload.get("3dvista_entry_relpath")
+            or ""
+        ).strip()
+    )
+    iframe_src = external_url
+    if not iframe_src and entry_relpath and slug:
+        iframe_src = f"/tours/files/{slug}/{entry_relpath}"
+    if iframe_src:
+        return _tour_control_external_iframe_html(title=title, iframe_src=iframe_src, badge="3DVista Control")
+    raise HTTPException(status_code=404, detail="tour_control_3dvista_export_missing")
+
+
+def _tour_control_walkable_html(payload: dict[str, object], *, provider_label: str = "Interactive Viewing") -> str:
+    title = html.escape(str(payload.get("display_title") or payload.get("title") or "3D walk control").strip())
+    safe_provider_label = html.escape(str(provider_label or "Interactive Viewing").strip())
+    walkable_scene = payload.get("walkable_scene") if isinstance(payload.get("walkable_scene"), dict) else {}
+    if not walkable_scene:
+        raise HTTPException(status_code=404, detail="tour_control_walkable_scene_missing")
+    data_json = html.escape(json.dumps(walkable_scene, ensure_ascii=False), quote=False)
+    return f"""<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{title} - {safe_provider_label}</title>
+    <style>
+      html, body {{ margin: 0; width: 100%; height: 100%; overflow: hidden; background: #15130f; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
+      #viewer {{ position: fixed; inset: 0; }}
+      #magicfit-view {{ position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: cover; display: none; z-index: 1; background: #15130f; }}
+      .hud {{ position: fixed; left: 14px; top: 14px; z-index: 5; display: flex; gap: 8px; flex-wrap: wrap; max-width: min(620px, calc(100vw - 28px)); }}
+      .panel {{ background: rgba(18,16,13,.72); border: 1px solid rgba(255,255,255,.18); border-radius: 10px; padding: 10px 12px; backdrop-filter: blur(12px); }}
+      .panel strong {{ display: block; font-size: 13px; margin-bottom: 3px; }}
+      .panel span {{ display: block; font-size: 12px; color: rgba(247,241,230,.78); }}
+      .rooms {{ position: fixed; right: 14px; top: 14px; z-index: 5; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; max-width: min(520px, calc(100vw - 28px)); }}
+      .move-pad {{ position: fixed; left: 14px; bottom: 14px; z-index: 5; display: grid; grid-template-columns: repeat(3, 46px); gap: 7px; }}
+      .turn-pad {{ position: fixed; right: 14px; bottom: 14px; z-index: 5; display: flex; gap: 8px; }}
+      button {{ min-height: 38px; padding: 0 13px; border: 1px solid rgba(255,255,255,.24); border-radius: 9px; background: rgba(255,255,255,.14); color: #f7f1e6; cursor: pointer; font: inherit; }}
+      button.active {{ background: #f7f1e6; color: #15130f; }}
+      .move-pad button {{ width: 46px; padding: 0; font-weight: 700; }}
+      .move-pad .blank {{ visibility: hidden; }}
+      @media (max-width: 720px) {{
+        .panel span {{ display: none; }}
+        .rooms {{ top: 72px; left: 14px; right: 14px; justify-content: flex-start; }}
+        .rooms button {{ min-height: 34px; padding: 0 9px; font-size: 12px; }}
+      }}
+    </style>
+  </head>
+  <body>
+    <div id="viewer"></div>
+    <img id="magicfit-view" alt="">
+    <div class="hud"><div class="panel"><strong>{safe_provider_label}</strong><span>Walk with WASD or arrows. Drag to look around. Room buttons jump inside rooms.</span></div></div>
+    <div class="rooms" id="rooms"></div>
+    <div class="move-pad">
+      <button class="blank" tabindex="-1"></button><button data-hold="forward">W</button><button class="blank" tabindex="-1"></button>
+      <button data-hold="left">A</button><button data-hold="back">S</button><button data-hold="right">D</button>
+    </div>
+    <div class="turn-pad"><button data-hold="turn-left">Turn left</button><button data-hold="turn-right">Turn right</button></div>
+    <script id="walkable-data" type="application/json">{data_json}</script>
+    <script type="importmap">{{"imports":{{"three":"https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js"}}}}</script>
+    <script type="module">
+      import * as THREE from 'three';
+      const spec = JSON.parse(document.getElementById('walkable-data').textContent || '{{}}');
+      const rooms = Array.isArray(spec.rooms) ? spec.rooms : [];
+      const stops = Array.isArray(spec.route) ? spec.route : [];
+      const magicfitImages = Array.isArray(spec.magicfit_scene_images) ? spec.magicfit_scene_images : [];
+      const magicfitView = document.getElementById('magicfit-view');
+      const useMagicfitImages = magicfitImages.length > 0;
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xf2eee7);
+      scene.fog = new THREE.Fog(0xf2eee7, 8, 22);
+      const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.05, 80);
+      const renderer = new THREE.WebGLRenderer({{ antialias: true }});
+      renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.shadowMap.enabled = true;
+      document.getElementById('viewer').appendChild(renderer.domElement);
+      if (useMagicfitImages) {{
+        document.getElementById('viewer').style.display = 'none';
+        magicfitView.style.display = 'block';
+      }}
+      const mats = {{
+        floor: new THREE.MeshStandardMaterial({{ color: 0xb78959, roughness: .82 }}),
+        balcony: new THREE.MeshStandardMaterial({{ color: 0x99978e, roughness: .9 }}),
+        wall: new THREE.MeshStandardMaterial({{ color: 0xf1eee8, roughness: .76 }}),
+        wood: new THREE.MeshStandardMaterial({{ color: 0x8d633d, roughness: .78 }}),
+        fabric: new THREE.MeshStandardMaterial({{ color: 0x6d7f94, roughness: .9 }}),
+        dark: new THREE.MeshStandardMaterial({{ color: 0x222326, roughness: .72 }}),
+        white: new THREE.MeshStandardMaterial({{ color: 0xf8f5ef, roughness: .58 }}),
+        green: new THREE.MeshStandardMaterial({{ color: 0x5e8055, roughness: .88 }}),
+        red: new THREE.MeshStandardMaterial({{ color: 0xa45550, roughness: .84 }}),
+        blue: new THREE.MeshStandardMaterial({{ color: 0x397eb9, roughness: .7 }}),
+        metal: new THREE.MeshStandardMaterial({{ color: 0xb9b5ad, roughness: .35, metalness: .25 }}),
+        screen: new THREE.MeshStandardMaterial({{ color: 0x101114, roughness: .25, emissive: 0x25385f, emissiveIntensity: .35 }}),
+        skin: new THREE.MeshStandardMaterial({{ color: 0xc99d78, roughness: .65 }}),
+        shirt: new THREE.MeshStandardMaterial({{ color: 0x7d5148, roughness: .82 }}),
+        glass: new THREE.MeshStandardMaterial({{ color: 0xaed2e5, transparent: true, opacity: .34, roughness: .25 }}),
+      }};
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x8a735a, 1.7));
+      const sun = new THREE.DirectionalLight(0xfff3d6, 2.1); sun.position.set(2,8,-4); sun.castShadow = true; scene.add(sun);
+      const lamp = new THREE.PointLight(0xffddb0, 1.25, 13); lamp.position.set(7,2.4,2.3); scene.add(lamp);
+      function box(n,x,y,z,sx,sy,sz,m,cast=true) {{ const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx,sy,sz), m); mesh.name=n; mesh.position.set(x,y,z); mesh.castShadow=cast; mesh.receiveShadow=true; scene.add(mesh); return mesh; }}
+      function cyl(n,x,y,z,r,h,m) {{ const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,28),m); mesh.name=n; mesh.position.set(x,y,z); mesh.castShadow=true; mesh.receiveShadow=true; scene.add(mesh); return mesh; }}
+      function sphere(n,x,y,z,r,m) {{ const mesh = new THREE.Mesh(new THREE.SphereGeometry(r,28,16),m); mesh.name=n; mesh.position.set(x,y,z); mesh.castShadow=true; scene.add(mesh); return mesh; }}
+      function wall(x1,z1,x2,z2) {{ const dx=x2-x1,dz=z2-z1,len=Math.hypot(dx,dz); const w=box('wall',(x1+x2)/2,1.25,(z1+z2)/2,len,2.5,.08,mats.wall,false); w.rotation.y=-Math.atan2(dz,dx); }}
+      function rug(x,z,sx,sz,color) {{ const mesh = new THREE.Mesh(new THREE.PlaneGeometry(sx,sz), new THREE.MeshStandardMaterial({{color, roughness:.95}})); mesh.rotation.x=-Math.PI/2; mesh.position.set(x,.012,z); mesh.receiveShadow=true; scene.add(mesh); }}
+      for (const room of rooms) {{
+        const cx=room.x+room.w/2, cz=room.z+room.d/2;
+        box(room.name+'_floor',cx,-.025,cz,room.w,.05,room.d,room.kind==='balcony'?mats.balcony:mats.floor,false);
+        box(room.name+'_ceiling',cx,2.52,cz,room.w,.04,room.d,mats.wall,false);
+      }}
+      wall(1.0,1.0,10.8,1.0); wall(10.8,1.0,10.8,9.2); wall(10.8,9.2,1.0,9.2); wall(1.0,9.2,1.0,1.0);
+      wall(3.0,1.0,3.0,3.55); wall(3.0,4.75,3.0,5.3); wall(4.6,1.0,4.6,1.95); wall(4.6,3.05,4.6,5.2); wall(4.6,6.25,4.6,9.2);
+      wall(4.6,3.8,6.45,3.8); wall(7.3,3.8,10.8,3.8); wall(7.7,3.8,7.7,5.25); wall(7.7,6.4,7.7,9.2); wall(7.7,7.0,9.35,7.0); wall(10.25,7.0,10.8,7.0);
+      box('entry_runner',2.3,.02,7.1,1.45,.04,2.2,mats.red); box('shoe_cabinet',1.34,.45,7,.45,.9,1.6,mats.wood);
+      for(let i=0;i<5;i++) box('coat',1.25,1.35-i*.02,6.1+i*.25,.08,.85,.26,i%2?mats.dark:mats.fabric);
+      for(let i=0;i<4;i++) box('shoes',2+i*.28,.08,8.65,.22,.12,.38,i%2?mats.dark:mats.wood);
+      box('vanity',1.35,.48,2,.48,.85,.9,mats.white); box('mirror',1.08,1.55,2,.04,.7,.95,mats.metal,false); cyl('toilet',2.25,.26,2.8,.32,.52,mats.white); box('shower_glass',2,1.05,4.45,1.25,2,.05,mats.glass,false);
+      box('kitchen_wall',5.8,1,1.18,2.25,2,.42,mats.white); box('counter',5.9,.48,2.1,2.5,.9,.72,mats.white); box('island',6.45,.48,2.85,1.55,.9,.75,mats.wood);
+      cyl('person_body',6.75,1.05,2.1,.18,.95,mats.shirt); sphere('person_head',6.75,1.65,2.1,.18,mats.skin); box('person_arm',6.52,1.25,2.22,.5,.08,.08,mats.skin);
+      box('sofa',9.25,.38,2.62,1.85,.75,.82,mats.fabric); box('sofa_back',9.25,.82,3.02,1.9,.7,.18,mats.fabric); box('coffee_table',8.55,.22,2.2,.82,.28,.45,mats.wood); box('tv_screen',10.66,1.15,2.35,.08,.72,1.12,mats.screen,false); rug(8.85,2.55,2.55,1.3,0xddd1c2);
+      for(let i=0;i<9;i++) box('toys',8.25+(i%3)*.22,.08,3.2+Math.floor(i/3)*.18,.13,.13,.13,i%3===0?mats.blue:(i%3===1?mats.red:mats.green));
+      box('bed1',5.55,.35,6.6,1.35,.7,2.05,mats.green); box('bed1_pillow',5.55,.78,5.72,1.08,.18,.36,mats.white); box('desk1',6.95,.42,8.45,1.05,.85,.48,mats.wood); box('chair1',6.6,.35,8.02,.45,.7,.45,mats.fabric);
+      box('bed2',8.95,.34,5,1.26,.68,1.72,mats.red); box('bed2_pillow',8.95,.77,4.35,.96,.16,.34,mats.white); box('toy_shelf',10.38,.72,5.85,.45,1.35,.95,mats.wood); for(let i=0;i<7;i++) sphere('child_toys',8.35+(i%4)*.25,.12,6.45+(i%2)*.23,.09,i%2?mats.blue:mats.green);
+      box('balcony_rail',9.25,1,9.12,2.7,1.5,.08,mats.metal,false); box('balcony_chair',8.65,.35,8.15,.55,.7,.55,mats.wood); box('balcony_table',9.35,.35,8.25,.62,.7,.62,mats.wood); for(let i=0;i<5;i++) {{ cyl('plant_pot',10.15,.18,7.35+i*.35,.16,.35,mats.wood); sphere('plant',10.15,.55,7.35+i*.35,.22,mats.green); }}
+      const roomButtons = document.getElementById('rooms');
+      let yaw = -2.2, pitch = -0.02, pos = new THREE.Vector3(2.35,1.52,7.55);
+      function jump(stop, index) {{
+        pos.set(stop.at[0], 1.52, stop.at[1]);
+        yaw = THREE.MathUtils.degToRad(stop.start_deg || 0);
+        if (useMagicfitImages && magicfitImages[index]) magicfitView.src = magicfitImages[index].url || magicfitImages[index].image_url || magicfitImages[index];
+        [...roomButtons.children].forEach((b,i)=>b.classList.toggle('active', i===index));
+      }}
+      stops.forEach((stop,index)=>{{ const b=document.createElement('button'); b.type='button'; b.textContent=stop.label || stop.room || `Room ${{index+1}}`; b.addEventListener('click',()=>jump(stop,index)); b.classList.toggle('active', index===0); roomButtons.appendChild(b); }});
+      if (stops[0]) jump(stops[0],0);
+      const keys = new Set(); const held = new Set();
+      addEventListener('keydown', e => keys.add(e.key.toLowerCase()));
+      addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+      document.querySelectorAll('[data-hold]').forEach(btn => {{ const v=btn.dataset.hold; ['pointerdown','touchstart'].forEach(ev=>btn.addEventListener(ev,e=>{{e.preventDefault(); held.add(v);}})); ['pointerup','pointerleave','touchend','touchcancel'].forEach(ev=>btn.addEventListener(ev,()=>held.delete(v))); }});
+      let dragging=false,lastX=0,lastY=0; renderer.domElement.addEventListener('pointerdown', e=>{{ dragging=true; lastX=e.clientX; lastY=e.clientY; renderer.domElement.setPointerCapture(e.pointerId); }});
+      renderer.domElement.addEventListener('pointermove', e=>{{ if(!dragging) return; yaw -= (e.clientX-lastX)*.004; pitch = Math.max(-.45, Math.min(.35, pitch - (e.clientY-lastY)*.003)); lastX=e.clientX; lastY=e.clientY; }});
+      renderer.domElement.addEventListener('pointerup', ()=>dragging=false);
+      let last = performance.now();
+      function tick(now) {{
+        const dt = Math.min(.05, (now-last)/1000); last=now;
+        const forward = new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw));
+        const right = new THREE.Vector3(Math.cos(yaw),0,-Math.sin(yaw));
+        let move = new THREE.Vector3();
+        if(keys.has('w')||keys.has('arrowup')||held.has('forward')) move.add(forward);
+        if(keys.has('s')||keys.has('arrowdown')||held.has('back')) move.sub(forward);
+        if(keys.has('a')||held.has('left')) move.sub(right);
+        if(keys.has('d')||held.has('right')) move.add(right);
+        if(keys.has('arrowleft')||held.has('turn-left')) yaw += dt*1.5;
+        if(keys.has('arrowright')||held.has('turn-right')) yaw -= dt*1.5;
+        if(move.lengthSq()>0) {{ move.normalize().multiplyScalar(dt*1.35); pos.add(move); }}
+        pos.x = Math.max(.75, Math.min(11.1, pos.x)); pos.z = Math.max(.75, Math.min(9.55, pos.z));
+        camera.position.copy(pos); camera.position.y = 1.52 + Math.sin(now*.004)*.006;
+        camera.rotation.order='YXZ'; camera.rotation.y = yaw; camera.rotation.x = pitch;
+        renderer.render(scene,camera); requestAnimationFrame(tick);
+      }}
+      addEventListener('resize',()=>{{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); }});
+      requestAnimationFrame(tick);
+    </script>
+  </body>
+</html>"""
+
+
+@router.get("/tours/{slug}/control", response_class=HTMLResponse)
+@router.head("/tours/{slug}/control", response_class=HTMLResponse)
+def public_tour_control(slug: str) -> HTMLResponse:
+    payload = _load_tour(slug)
+    _require_public_tour_viewable(payload)
+    if _tour_payload_is_disabled_fallback(payload):
+        raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+    rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=False)
+    return HTMLResponse(_tour_control_html(rendered_payload), headers=_public_tour_security_headers())
+
+
+@router.get("/tours/{slug}/control/{viewer_mode}", response_class=HTMLResponse)
+@router.head("/tours/{slug}/control/{viewer_mode}", response_class=HTMLResponse)
+def public_tour_control_viewer(slug: str, viewer_mode: str) -> HTMLResponse:
+    payload = _load_tour(slug)
+    _require_public_tour_viewable(payload)
+    if _tour_payload_is_disabled_fallback(payload):
+        raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+    rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=False)
+    return HTMLResponse(_tour_control_html(rendered_payload, viewer_mode=viewer_mode), headers=_public_tour_security_headers())
 
 
 @router.post("/tours/{slug}/request-details", response_class=JSONResponse)

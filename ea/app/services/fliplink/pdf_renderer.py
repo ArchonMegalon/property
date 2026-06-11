@@ -385,6 +385,19 @@ def _draw_text(
     )
 
 
+def _draw_book_icon(ops: list[str], *, x: float, y: float, fill: Color) -> None:
+    _draw_rect(ops, x, y, 8, 15, fill=fill)
+    _draw_rect(ops, x + 10, y, 8, 15, fill=fill)
+    _draw_rect(ops, x + 8.5, y + 1, 1.5, 13, fill=(0.98, 0.98, 0.96))
+
+
+def _draw_building_icon(ops: list[str], *, x: float, y: float, fill: Color) -> None:
+    _draw_rect(ops, x, y, 20, 15, fill=fill)
+    for offset in (4, 9, 14):
+        _draw_rect(ops, x + offset, y + 3, 2, 9, fill=(0.98, 0.98, 0.96))
+    _draw_rect(ops, x - 2, y - 2, 24, 2, fill=fill)
+
+
 def _draw_image(
     ops: list[str],
     *,
@@ -553,7 +566,11 @@ def _load_pdf_image_resource(url: str) -> dict[str, object] | None:
     if url.startswith("data:image/"):
         raw_bytes = _data_url_bytes(url)
     else:
-        request = urllib.request.Request(str(url), method="GET")
+        request = urllib.request.Request(
+            str(url),
+            headers={"User-Agent": "PropertyQuarry-PDF-Renderer/1.0"},
+            method="GET",
+        )
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 raw_bytes = bytes(response.read() or b"")
@@ -734,11 +751,69 @@ def _wrap_media_ref(value: str, width: int = 74) -> list[str]:
     return wrap(text, width=width, break_long_words=True, break_on_hyphens=False) or [text]
 
 
+def _claim_bound_dossier_sections(payload: dict[str, object]) -> list[dict[str, object]]:
+    writer = dict(payload.get("dossier_writer") or {}) if isinstance(payload.get("dossier_writer"), dict) else {}
+    if str(writer.get("status") or "").strip().lower() != "verified":
+        return []
+    raw_sections = list(writer.get("sections") or []) if isinstance(writer.get("sections"), list) else []
+    sections: list[dict[str, object]] = []
+    accents: dict[str, Color] = {
+        "executive_decision": (0.15, 0.38, 0.30),
+        "evidence_summary": (0.19, 0.36, 0.53),
+        "media_tour": (0.74, 0.55, 0.18),
+        "daily_life_radius": (0.18, 0.41, 0.44),
+        "risk_register": (0.62, 0.29, 0.26),
+        "missing_facts": (0.62, 0.29, 0.26),
+        "investment_read": (0.42, 0.25, 0.48),
+        "agent_questions": (0.20, 0.37, 0.52),
+        "provenance_privacy": (0.30, 0.31, 0.30),
+    }
+    for raw in raw_sections:
+        if not isinstance(raw, dict):
+            continue
+        title = str(raw.get("title") or raw.get("section_key") or "").strip()
+        body = _clean_sentence(str(raw.get("body_markdown") or "").strip())
+        bullets = _text_items(raw.get("bullets"), limit=4)
+        cta = _clean_sentence(str(raw.get("cta") or "").strip())
+        items = [item for item in [body, *bullets, f"Next action: {cta}" if cta else ""] if item]
+        if not title or not items:
+            continue
+        sections.append(_section(title, items[:5], accent=accents.get(str(raw.get("section_key") or ""), (0.15, 0.38, 0.30))))
+    if sections:
+        neuronwriter = dict(writer.get("neuronwriter") or {}) if isinstance(writer.get("neuronwriter"), dict) else {}
+        neuronwriter_status = str(neuronwriter.get("status") or "").strip()
+        neuronwriter_reason = str(neuronwriter.get("reason") or "").strip()
+        provenance = [
+            f"Dossier writer: {writer.get('generated_by') or 'claim-bound verified narrative'}.",
+            f"Claim coverage: {dict(writer.get('claim_coverage') or {}).get('claims_used', 0)} claims used; unsupported sentences {dict(writer.get('claim_coverage') or {}).get('unsupported_sentences', 0)}.",
+        ]
+        if neuronwriter_status:
+            provenance.append(f"NeuronWriter: {neuronwriter_status}{' - ' + neuronwriter_reason if neuronwriter_reason else ''}.")
+        sections.append(_section("Provenance / QA", provenance, accent=(0.30, 0.31, 0.30)))
+    return sections[:7]
+
+
+def _claim_bound_dossier_narrative(payload: dict[str, object]) -> list[str]:
+    sections = _claim_bound_dossier_sections(payload)
+    narrative: list[str] = []
+    for section in sections:
+        for item in list(section.get("items") or [])[:1]:
+            text = _clean_sentence(str(item or "").strip())
+            if text and not text.lower().startswith(("dossier writer:", "claim coverage:", "neuronwriter:")):
+                narrative.append(text)
+        if len(narrative) >= 3:
+            break
+    return narrative
+
+
 def _packet_sections(
     *,
     payload: dict[str, object],
     packet_kind: PropertyPacketKind,
 ) -> list[dict[str, object]]:
+    claim_bound_sections = _claim_bound_dossier_sections(payload)
+    if claim_bound_sections:
+        return claim_bound_sections
     facts = dict(payload.get("facts") or {}) if isinstance(payload.get("facts"), dict) else {}
 
     def row(label: str, value: object) -> str:
@@ -850,35 +925,31 @@ def _packet_sections(
     ]
     future_change = _future_change_lines(facts)
     risk_context = _official_risk_lines(facts)
-    match_reasons = _text_items(payload.get("match_reasons"), limit=8)
-    risks = [*_text_items(payload.get("mismatch_reasons"), limit=6), *_text_items(payload.get("unknowns"), limit=6)]
-    viewing_questions = _text_items(payload.get("viewing_questions"), limit=10)
+    match_reasons = _text_items(payload.get("match_reasons"), limit=4)
+    risks = [*_text_items(payload.get("mismatch_reasons"), limit=4), *_text_items(payload.get("unknowns"), limit=4)]
+    viewing_questions = _text_items(payload.get("viewing_questions"), limit=4)
 
     sections = [
         _section("Core facts", [item for item in core_facts if item] or ["No core facts were supplied."], accent=(0.15, 0.38, 0.30)),
         _section("Evidence readiness", [item for item in evidence if item] or ["Evidence readiness is not yet available."], accent=(0.74, 0.55, 0.18)),
     ]
     if any(item for item in radius):
-        sections.append(_section("Umfeld und tägliche Wege", [item for item in radius if item], accent=(0.19, 0.36, 0.53)))
+        sections.append(_section("Umfeld und tägliche Wege", [item for item in radius if item][:3], accent=(0.19, 0.36, 0.53)))
     if school_and_family:
-        sections.append(_section("Familienroute und schulische Selbstständigkeit", school_and_family, accent=(0.18, 0.41, 0.44)))
-    if any(item for item in building_context):
-        sections.append(_section("Hausprofil und Substanz", [item for item in building_context if item], accent=(0.43, 0.38, 0.29)))
-    if future_change:
-        sections.append(_section("Gebietsausblick und künftige Infrastruktur", future_change, accent=(0.42, 0.25, 0.48)))
+        sections.append(_section("Familienroute", school_and_family[:2], accent=(0.18, 0.41, 0.44)))
     if risk_context:
-        sections.append(_section("Sicherheit, Kriminalität und Klimarisiko", risk_context, accent=(0.62, 0.29, 0.26)))
+        sections.append(_section("Sicherheit, Kriminalität und Klimarisiko", risk_context[:2], accent=(0.62, 0.29, 0.26)))
     sections.extend(
         [
-            _section("Was für das Objekt spricht", match_reasons or ["Im Quelldossier wurde kein ausdrücklicher Positivgrund genannt."], accent=(0.17, 0.45, 0.37)),
+            _section("Was für das Objekt spricht", match_reasons[:4] or ["Im Quelldossier wurde kein ausdrücklicher Positivgrund genannt."], accent=(0.17, 0.45, 0.37)),
             _section(
                 "Risiken und offene Punkte",
-                risks or ["Ein ausdrückliches Risiko wurde nicht genannt. Daher sollten Unterlagen und laufende Kosten aktiv nachgefordert werden."],
+                risks[:4] or ["Ein ausdrückliches Risiko wurde nicht genannt. Daher sollten Unterlagen und laufende Kosten aktiv nachgefordert werden."],
                 accent=(0.62, 0.29, 0.26),
             ),
             _section(
                 "Besichtigungs- und Rückfragenliste",
-                viewing_questions
+                viewing_questions[:4]
                 or [
                     "Brauchbaren Grundriss und exakte Raummaße bestätigen.",
                     "Betriebskostenhistorie und allfällige Sanierungshinweise nachfordern.",
@@ -888,6 +959,7 @@ def _packet_sections(
             ),
         ]
     )
+    sections = sections[:6]
     if packet_kind == PropertyPacketKind.PAID_MARKET_REPORT:
         sections.append(
             _section(
@@ -916,6 +988,9 @@ def _packet_sections(
 
 
 def _property_narrative(payload: dict[str, object]) -> list[str]:
+    claim_bound_narrative = _claim_bound_dossier_narrative(payload)
+    if claim_bound_narrative:
+        return claim_bound_narrative
     facts = dict(payload.get("facts") or {}) if isinstance(payload.get("facts"), dict) else {}
     title = str(payload.get("title") or "This property").strip() or "This property"
     district = str(facts.get("district") or facts.get("postal_name") or facts.get("city") or "").strip()
@@ -1011,6 +1086,175 @@ def _property_narrative(payload: dict[str, object]) -> list[str]:
     return [item for item in [intro, compare_reason, fit, neighborhood, evidence, school, official_risk, future_change, risk, next_step] if item]
 
 
+def _visual_pdf_appendix(
+    *,
+    payload: dict[str, object],
+    title: str,
+    packet_kind: PropertyPacketKind,
+    privacy_mode: PacketPrivacyMode,
+    summary: str,
+    packet_facts: dict[str, object],
+    sections: list[dict[str, object]],
+    narrative_lines: list[str],
+    tour_url: str,
+    flythrough_url: str,
+    review_url: str,
+) -> bytes:
+    redacted_tour_url = _safe_pdf_href(tour_url)
+    redacted_flythrough_url = _safe_pdf_href(flythrough_url)
+    redacted_review_url = _safe_pdf_href(review_url)
+    if redacted_tour_url:
+        parsed_tour = urllib.parse.urlparse(redacted_tour_url)
+        if "/tours/" in str(parsed_tour.path or "") and not str(parsed_tour.path or "").rstrip("/").endswith("/control"):
+            redacted_tour_url = urllib.parse.urlunparse(parsed_tour._replace(path=str(parsed_tour.path or "").rstrip("/") + "/control", query=""))
+    source_filename = str(payload.get("source_pdf_filename") or "").strip()
+    narrative = narrative_lines[:2] or [summary or "PropertyQuarry reviewed the uploaded source PDF and generated public review artifacts."]
+    match_reasons = _text_items(payload.get("match_reasons"), limit=3) or _fallback_match_reasons(packet_facts)[:3]
+    risks = [*_text_items(payload.get("mismatch_reasons"), limit=3), *_text_items(payload.get("unknowns"), limit=3)] or _fallback_risks(packet_facts)[:3]
+    questions = _text_items(payload.get("viewing_questions"), limit=4) or _fallback_questions(packet_facts)[:4]
+    diorama_scene = dict(payload.get("diorama_scene") or {}) if isinstance(payload.get("diorama_scene"), dict) else {}
+    magic_fit_scene = dict(payload.get("magic_fit_scene") or {}) if isinstance(payload.get("magic_fit_scene"), dict) else {}
+    hero_ref = (
+        str(diorama_scene.get("image_url") or "").strip()
+        or str(magic_fit_scene.get("image_url") or "").strip()
+        or next((str(item or "").strip() for item in list(payload.get("photo_refs") or payload.get("media_urls_json") or []) if str(item or "").strip()), "")
+    )
+    hero_image = _load_pdf_image_resource(hero_ref) if hero_ref else None
+    research_lines: list[str] = []
+    for section in sections[:4]:
+        section_title = str(section.get("title") or "").strip()
+        for line in list(section.get("items") or [])[:2]:
+            normalized = _clean_sentence(str(line or "").strip())
+            if normalized:
+                research_lines.append(f"{section_title}: {normalized}" if section_title else normalized)
+            if len(research_lines) >= 6:
+                break
+        if len(research_lines) >= 6:
+            break
+    missing_research = dict(packet_facts.get("missing_fact_research") or {}) if isinstance(packet_facts.get("missing_fact_research"), dict) else {}
+    for item in list(missing_research.get("items") or [])[:3]:
+        if not isinstance(item, dict):
+            continue
+        row = " - ".join(
+            part
+            for part in (
+                str(item.get("label") or item.get("field") or "Research item").strip(),
+                str(item.get("status") or "").strip().replace("_", " "),
+                str(item.get("evidence") or item.get("display_value") or "").strip(),
+            )
+            if part
+        )
+        if row:
+            research_lines.append(row)
+    research_lines = research_lines[:8] or [
+        "Deep research did not expose a decisive additional fact yet; verify operating costs, floorplan logic, and legal/energy documents manually."
+    ]
+
+    pages: list[dict[str, object]] = []
+    ops = _new_page(page_number=1, privacy_mode=privacy_mode)
+    annotations: list[dict[str, object]] = []
+    _draw_rect(ops, 0, 0, PAGE_WIDTH, PAGE_HEIGHT, fill=(0.98, 0.97, 0.94))
+    _draw_text(ops, "Viewing Appendix", x=MARGIN_X, y=790, size=18, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_text(
+        ops,
+        f"Appendix to uploaded PDF: {source_filename}" if source_filename else "Appendix to uploaded property PDF",
+        x=MARGIN_X,
+        y=770,
+        size=9.5,
+        fill=(0.43, 0.38, 0.29),
+    )
+    y = _draw_wrapped(ops, title or "PropertyQuarry appendix", x=MARGIN_X, y=732, width_chars=44, size=20, leading=22, font="F2", fill=(0.12, 0.14, 0.13))
+    y -= 12
+    for paragraph in narrative:
+        y = _draw_wrapped(ops, _clean_sentence(paragraph), x=MARGIN_X, y=y, width_chars=45, size=10.2, leading=12.4)
+        y -= 4
+        if y < 620:
+            break
+    page_images: list[dict[str, object]] = []
+    if hero_image is not None:
+        source_width = max(int(hero_image.get("width") or 1), 1)
+        source_height = max(int(hero_image.get("height") or 1), 1)
+        box_x = MARGIN_X + 288
+        box_y = 548
+        box_w = CARD_WIDTH - 288
+        box_h = 184
+        _draw_rect(ops, box_x, box_y, box_w, box_h, fill=(0.93, 0.92, 0.88))
+        scale = min((box_w - 18) / float(source_width), (box_h - 18) / float(source_height))
+        draw_width = max(1.0, float(source_width) * scale)
+        draw_height = max(1.0, float(source_height) * scale)
+        draw_x = box_x + ((box_w - draw_width) / 2.0)
+        draw_y = box_y + ((box_h - draw_height) / 2.0)
+        _draw_image(ops, name="Im1", x=draw_x, y=draw_y, width=draw_width, height=draw_height)
+        page_images.append({**hero_image, "name": "Im1"})
+    cta_y = 548
+    if redacted_tour_url:
+        _draw_rect(ops, MARGIN_X, cta_y, 190, 42, fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, "Open 3D control", x=MARGIN_X + 18, y=cta_y + 17, size=11, font="F2", fill=(0.98, 0.98, 0.96))
+        annotations.append({"url": redacted_tour_url, "rect": [MARGIN_X, cta_y, MARGIN_X + 190, cta_y + 42]})
+    if redacted_flythrough_url:
+        fly_x = MARGIN_X
+        _draw_rect(ops, fly_x, cta_y - 52, 190, 42, fill=(0.74, 0.55, 0.18))
+        _draw_text(ops, "Play fly-through", x=fly_x + 20, y=cta_y - 35, size=11, font="F2", fill=(0.98, 0.98, 0.96))
+        annotations.append({"url": redacted_flythrough_url, "rect": [fly_x, cta_y - 52, fly_x + 190, cta_y - 10]})
+    route_tiles: list[tuple[str, str, str]] = []
+    school_nav_url = _safe_pdf_href(packet_facts.get("school_route_google_navigation_url"))
+    work_nav_url = _safe_pdf_href(packet_facts.get("schwarzenbergplatz_navigation_url"))
+    if not school_nav_url and "google." in redacted_review_url and "/maps/" in redacted_review_url:
+        school_nav_url = redacted_review_url
+    if school_nav_url:
+        route_tiles.append(("school", "School route", school_nav_url))
+    if work_nav_url:
+        route_tiles.append(("work", "Industry route", work_nav_url))
+    for index, (kind, label, href) in enumerate(route_tiles[:2]):
+        tile_x = MARGIN_X + 210 + (index * 172)
+        tile_y = cta_y
+        tile_w = 162
+        _draw_rect(ops, tile_x, tile_y, tile_w, 42, fill=(0.93, 0.96, 0.94))
+        if kind == "school":
+            _draw_book_icon(ops, x=tile_x + 16, y=tile_y + 14, fill=(0.15, 0.38, 0.30))
+        else:
+            _draw_building_icon(ops, x=tile_x + 16, y=tile_y + 14, fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, label, x=tile_x + 46, y=tile_y + 17, size=10.5, font="F2", fill=(0.15, 0.38, 0.30))
+        annotations.append({"url": href, "rect": [tile_x, tile_y, tile_x + tile_w, tile_y + 42]})
+    if redacted_review_url and not route_tiles:
+        review_x = MARGIN_X + 414
+        _draw_rect(ops, review_x, cta_y, 136, 42, fill=(0.93, 0.96, 0.94))
+        _draw_text(ops, "Open dossier", x=review_x + 14, y=cta_y + 17, size=10.5, font="F2", fill=(0.15, 0.38, 0.30))
+        annotations.append({"url": redacted_review_url, "rect": [review_x, cta_y, review_x + 136, cta_y + 42]})
+    _draw_text(ops, "Deep research results", x=MARGIN_X, y=452, size=15, font="F2", fill=(0.15, 0.38, 0.30))
+    y = 426
+    for row in research_lines[:6]:
+        y = _draw_wrapped(ops, f"- {_clean_sentence(row)}", x=MARGIN_X, y=y, width_chars=86, size=9.7, leading=12)
+        y -= 2
+        if y < 282:
+            break
+    _draw_text(ops, "Most useful next checks", x=MARGIN_X, y=242, size=14, font="F2", fill=(0.62, 0.29, 0.26))
+    y = 218
+    for row in questions[:4]:
+        y = _draw_wrapped(ops, f"- {_clean_sentence(row)}", x=MARGIN_X, y=y, width_chars=86, size=9.7, leading=12)
+        y -= 2
+    pages.append({"ops": ops, "images": page_images, "annotations": annotations})
+
+    ops = _new_page(page_number=2, privacy_mode=privacy_mode)
+    _draw_text(ops, "Short readout", x=MARGIN_X, y=790, size=18, font="F2", fill=(0.15, 0.38, 0.30))
+    _draw_rect(ops, MARGIN_X, 438, 246, 290, fill=(1.0, 0.995, 0.97))
+    _draw_rect(ops, MARGIN_X, 438, 6, 290, fill=(0.15, 0.38, 0.30))
+    _draw_text(ops, "Signals that help", x=MARGIN_X + 18, y=700, size=12, font="F2", fill=(0.15, 0.38, 0.30))
+    y = 674
+    for row in match_reasons[:4]:
+        y = _draw_wrapped(ops, f"- {_clean_sentence(row)}", x=MARGIN_X + 18, y=y, width_chars=33, size=9.5, leading=12)
+        y -= 2
+    _draw_rect(ops, MARGIN_X + 266, 438, CARD_WIDTH - 266, 290, fill=(1.0, 0.995, 0.97))
+    _draw_rect(ops, MARGIN_X + 266, 438, 6, 290, fill=(0.62, 0.29, 0.26))
+    _draw_text(ops, "Risks / unknowns", x=MARGIN_X + 284, y=700, size=12, font="F2", fill=(0.62, 0.29, 0.26))
+    y = 674
+    for row in risks[:4]:
+        y = _draw_wrapped(ops, f"- {_clean_sentence(row)}", x=MARGIN_X + 284, y=y, width_chars=39, size=9.5, leading=12)
+        y -= 2
+    pages.append({"ops": ops, "images": []})
+    return _build_pdf(pages)
+
+
 def _visual_pdf(
     *,
     payload: dict[str, object],
@@ -1032,13 +1276,33 @@ def _visual_pdf(
     flythrough_url: str,
     review_url: str,
 ) -> bytes:
+    if str(payload.get("appendix_mode") or "").strip().lower().endswith("appendix"):
+        return _visual_pdf_appendix(
+            payload=payload,
+            title=title,
+            packet_kind=packet_kind,
+            privacy_mode=privacy_mode,
+            summary=summary,
+            packet_facts=packet_facts,
+            sections=sections,
+            narrative_lines=narrative_lines,
+            tour_url=tour_url,
+            flythrough_url=flythrough_url,
+            review_url=review_url,
+        )
     pages: list[dict[str, object]] = []
     redacted_tour_url = _safe_pdf_href(tour_url)
     redacted_flythrough_url = _safe_pdf_href(flythrough_url)
     redacted_review_url = _safe_pdf_href(review_url)
     photo_refs = list(media_refs.get("photos") or [])
     floorplan_refs = list(media_refs.get("floorplans") or [])
-    cover_image = _load_pdf_image_resource(photo_refs[0]) if photo_refs else None
+    diorama_cover_ref = str(diorama_scene.get("image_url") or "").strip() if isinstance(diorama_scene, dict) else ""
+    magicfit_cover_ref = str(magic_fit_scene.get("image_url") or "").strip() if isinstance(magic_fit_scene, dict) else ""
+    cover_image = (
+        _load_pdf_image_resource(diorama_cover_ref)
+        if diorama_cover_ref
+        else (_load_pdf_image_resource(magicfit_cover_ref) if magicfit_cover_ref else (_load_pdf_image_resource(photo_refs[0]) if photo_refs else None))
+    )
     floorplan_image = _load_pdf_image_resource(floorplan_refs[0]) if floorplan_refs else None
     gallery_images = []
     for ref in photo_refs[:4]:
@@ -1060,18 +1324,18 @@ def _visual_pdf(
     district_value = _fact_value(packet_facts, "postal_name", "district", "city")
     office_label = _office_packet_label(packet_kind)
     privacy_label = _privacy_label(privacy_mode)
-    executive_lines = narrative_lines[:5] or [summary or "Diese Liegenschaft sollte gegen das aktuelle PropertyQuarry-Suchprofil geprüft werden."]
+    executive_lines = narrative_lines[:2] or [summary or "Diese Liegenschaft sollte gegen das aktuelle PropertyQuarry-Suchprofil geprüft werden."]
     recommendation_label = _recommendation_label(payload.get("recommendation"))
     fit_score = payload.get("fit_score")
     try:
         fit_score_label = f"{float(fit_score):.0f}/100"
     except Exception:
         fit_score_label = "Not scored"
-    mismatch_reasons = [*_text_items(payload.get("mismatch_reasons"), limit=5), *_text_items(payload.get("unknowns"), limit=5)]
-    match_reasons = _text_items(payload.get("match_reasons"), limit=5) or _fallback_match_reasons(packet_facts)
+    mismatch_reasons = [*_text_items(payload.get("mismatch_reasons"), limit=2), *_text_items(payload.get("unknowns"), limit=2)]
+    match_reasons = _text_items(payload.get("match_reasons"), limit=2) or _fallback_match_reasons(packet_facts)
     if not mismatch_reasons:
         mismatch_reasons = _fallback_risks(packet_facts)
-    viewing_questions = _text_items(payload.get("viewing_questions"), limit=6) or _fallback_questions(packet_facts)
+    viewing_questions = _text_items(payload.get("viewing_questions"), limit=2) or _fallback_questions(packet_facts)
     household_review = dict(payload.get("household_review") or {}) if isinstance(payload.get("household_review"), dict) else {}
     household_stakeholders = [
         str(row.get("label") or row.get("name") or row.get("stakeholder") or "").strip()
@@ -1122,33 +1386,22 @@ def _visual_pdf(
     future_change_lines = _future_change_lines(packet_facts)
     school_route_line = _school_route_line(packet_facts)
     packet_contents = [
-        "Entscheidung auf einen Blick",
-        "Eckdaten und Kennzahlen",
-        "3D-Tour, Grundriss und Medien",
-        "Lage und Alltagsradius",
-        "Risikoregister und nächste Nachweise",
+        "Hero + Urteil",
+        "Eckdaten",
+        "Top Chancen",
+        "Top Risiken",
+        "Nächste Fragen",
     ]
-    if comparison_rows:
-        packet_contents.append("Vergleichsbild")
-    if household_stakeholders:
-        packet_contents.append("Haushaltsabgleich")
-    if investment_headline or investment_rows:
-        packet_contents.append("Investment-Blick")
     if floorplan_image is not None:
         packet_contents.append("Grundriss")
-    if gallery_images:
-        packet_contents.append("Bildauswahl")
     if diorama_scene and str(diorama_scene.get("image_url") or "").strip():
-        packet_contents.append("Diorama")
-    if magic_fit_scene and str(magic_fit_scene.get("image_url") or "").strip():
-        packet_contents.append("Lifestyle-Szene")
-    packet_contents.extend(["Provenienz und Datenschutz", "Hinweise"])
+        packet_contents.append("Cutaway-Diorama")
     if cover_image is None and floorplan_image is not None:
         cover_image = floorplan_image
     ops = _new_page(page_number=1, privacy_mode=privacy_mode)
     hero_height = PAGE_HEIGHT
     _draw_rect(ops, 0, 0, PAGE_WIDTH, PAGE_HEIGHT, fill=(0.82, 0.83, 0.80))
-    cover_kicker = "Ein redigiertes Exposé mit 3D-Tour, Lagebewertung, Prüfhinweisen und konkreten nächsten Schritten."
+    cover_kicker = "Schnelle Entscheidungsvorlage. Wenig Text, klare Signale, direkte nächste Schritte."
     if redacted_tour_url:
         redacted_tour_url = _append_query_param(redacted_tour_url, pane="floorplan-pane")
     flythrough_candidate = _safe_pdf_href(diorama_scene.get("video_url") if isinstance(diorama_scene, dict) else "")
@@ -1273,14 +1526,14 @@ def _visual_pdf(
     confidence_label = _confidence_label(risk_lines=risk_lines, match_reasons=match_reasons, mismatch_reasons=mismatch_reasons)
     _draw_text(ops, f"Passung: {fit_score_label}", x=MARGIN_X + 18, y=626, size=10.2, font="F2", fill=(0.15, 0.38, 0.30))
     _draw_text(ops, f"Vertrauen in den Stand: {confidence_label}", x=MARGIN_X + 18, y=608, size=10.0, font="F2", fill=(0.35, 0.37, 0.35))
-    next_action = viewing_questions[0] if viewing_questions else "Bitte die fehlenden Betriebskostenangaben und die Lage der Schlafräume konkret nachfordern."
+    next_action = viewing_questions[0] if viewing_questions else "Bitte Betriebskosten, Grundrisslogik und Schlafraumlage konkret nachfordern."
     _draw_text(ops, "Nächster sinnvoller Schritt", x=MARGIN_X + 18, y=578, size=10.4, font="F2", fill=(0.43, 0.38, 0.29))
     _draw_wrapped(ops, _clean_sentence(next_action), x=MARGIN_X + 18, y=560, width_chars=28, size=9.4, leading=11.2)
     _draw_rect(ops, MARGIN_X + 224, 528, CARD_WIDTH - 224, 190, fill=(1.0, 0.995, 0.97))
     _draw_rect(ops, MARGIN_X + 224, 528, 6, 190, fill=(0.74, 0.55, 0.18))
     _draw_text(ops, "Warum diese Liegenschaft nähere Prüfung verdient", x=MARGIN_X + 242, y=688, size=11.2, font="F2", fill=(0.43, 0.38, 0.29))
     prose_y = 664
-    for paragraph in executive_lines[:4]:
+    for paragraph in executive_lines[:2]:
         prose_y = _draw_wrapped(ops, paragraph, x=MARGIN_X + 242, y=prose_y, width_chars=47, size=9.6, leading=11.8)
         prose_y -= 3
         if prose_y < 548:
@@ -1288,16 +1541,16 @@ def _visual_pdf(
     _draw_text(ops, "Was für das Objekt spricht", x=MARGIN_X, y=478, size=15, font="F2", fill=(0.15, 0.38, 0.30))
     _draw_text(ops, "Was noch dagegensprechen kann", x=MARGIN_X + 308, y=478, size=15, font="F2", fill=(0.62, 0.29, 0.26))
     left_y = 450
-    for row in match_reasons[:4]:
+    for row in match_reasons[:2]:
         left_y = _draw_wrapped(ops, f"- {row}", x=MARGIN_X, y=left_y, width_chars=40, size=10.0, leading=13)
     right_y = 450
-    for row in mismatch_reasons[:4]:
+    for row in mismatch_reasons[:2]:
         right_y = _draw_wrapped(ops, f"- {row}", x=MARGIN_X + 308, y=right_y, width_chars=38, size=10.0, leading=13)
     _draw_rect(ops, MARGIN_X, 132, CARD_WIDTH, 206, fill=(1.0, 0.995, 0.97))
     _draw_rect(ops, MARGIN_X, 132, 6, 206, fill=(0.15, 0.38, 0.30))
     _draw_text(ops, "Kurzfazit", x=MARGIN_X + 18, y=308, size=12, font="F2", fill=(0.15, 0.38, 0.30))
     prose_y = 284
-    for paragraph in narrative_lines[:6]:
+    for paragraph in narrative_lines[:2]:
         prose_y = _draw_wrapped(ops, paragraph, x=MARGIN_X + 18, y=prose_y, width_chars=88, size=9.8, leading=12.0)
         prose_y -= 3
         if prose_y < 156:

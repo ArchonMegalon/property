@@ -94,6 +94,7 @@ class ToolExecutionService:
             ("onemin", "reasoned_patch_review"): self._register_builtin_onemin_reasoned_patch_review,
             ("onemin", "image_generate"): self._register_builtin_onemin_image_generate,
             ("onemin", "media_transform"): self._register_builtin_onemin_media_transform,
+            ("onemin", "property_walkthrough_video"): self._register_builtin_onemin_property_walkthrough_video,
             ("teable", "table_sync"): self._register_builtin_teable_table_sync,
         }
         for ui_service in browseract_ui_service_definitions():
@@ -392,6 +393,9 @@ class ToolExecutionService:
 
     def _register_builtin_onemin_media_transform(self) -> None:
         self._onemin_module.register_media_transform(self.register_handler)
+
+    def _register_builtin_onemin_property_walkthrough_video(self) -> None:
+        self._onemin_module.register_property_walkthrough_video(self.register_handler)
 
     def _register_builtin_teable_table_sync(self) -> None:
         self._teable_module.register_table_sync(self.register_handler)

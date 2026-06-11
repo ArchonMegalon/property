@@ -413,6 +413,8 @@ class ExecutionTaskOrchestrationService:
             return "image.generate"
         if tool_name == "provider.onemin.media_transform":
             return "media.transform"
+        if tool_name == "provider.onemin.property_walkthrough_video":
+            return "video.generate"
         if tool_name == "connector.dispatch":
             return "delivery.send"
         if tool_name == "browseract.extract_account_inventory":

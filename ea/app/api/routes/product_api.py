@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import re
 import base64
 from pathlib import Path
@@ -109,6 +110,10 @@ from app.container import AppContainer
 from app.product.service import _property_feedback_reason_map, build_product_service
 from app.services.fliplink import build_fliplink_packet_service
 from app.services import poppy_ai as poppy_ai_service
+from app.services.dadan_feedback import dadan_feedback_signals
+from app.services.dadan import DadanVideoRequestService
+from app.services.dossier_writer import write_verified_dossier_from_research
+from app.services.dossier_writer.neuronwriter_adapter import create_neuronwriter_query
 from app.services.registration_email import property_notification_preview
 
 router = APIRouter(prefix="/app/api", tags=["product"])
@@ -146,6 +151,35 @@ class PropertyFeedbackStatusUpdateIn(BaseModel):
     note: str = Field(default="", max_length=500)
 
 
+class DadanPropertyFeedbackIn(BaseModel):
+    property_ref: str = Field(min_length=1, max_length=500)
+    publication_id: str = Field(default="", max_length=160)
+    share_id: str = Field(default="", max_length=160)
+    audience_type: str = Field(default="viewer", max_length=80)
+    stakeholder_id: str = Field(default="", max_length=160)
+    stakeholder_label: str = Field(default="", max_length=160)
+    event_id: str = Field(default="", max_length=160)
+    submission_id: str = Field(default="", max_length=160)
+    video_id: str = Field(default="", max_length=160)
+    video_url: str = Field(default="", max_length=1000)
+    answers: list[dict[str, object]] = Field(default_factory=list)
+    responses: list[dict[str, object]] = Field(default_factory=list)
+    transcript: str = Field(default="", max_length=4000)
+    summary: str = Field(default="", max_length=4000)
+    comment: str = Field(default="", max_length=2000)
+    note: str = Field(default="", max_length=2000)
+
+
+class DadanVideoRequestCreateIn(BaseModel):
+    property_ref: str = Field(min_length=1, max_length=500)
+    property_url: str = Field(default="", max_length=1000)
+    request_kind: str = Field(default="agent_missing_fact", max_length=80)
+    audience_type: str = Field(default="agent", max_length=80)
+    title: str = Field(default="", max_length=240)
+    instructions: str = Field(default="", max_length=4000)
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
 class PropertySummaryGenerateIn(BaseModel):
     subject_type: str = Field(default="property", max_length=80)
     subject_id: str = Field(min_length=1, max_length=500)
@@ -161,10 +195,85 @@ class FollowupResolveIn(BaseModel):
     resolution: str = Field(min_length=1, max_length=240)
 
 
+class PropertyNeuronWriterQueryIn(BaseModel):
+    keyword: str = Field(min_length=1, max_length=240)
+    project_id: str = Field(min_length=1, max_length=160)
+    language: str = Field(default="German", max_length=80)
+    engine: str = Field(default="google.at", max_length=80)
+    content_mode: str = Field(default="public_market_report", max_length=80)
+
+
+class PropertyDossierWriteIn(BaseModel):
+    packet_kind: str = Field(default="owner_review", max_length=80)
+    privacy_mode: str = Field(default="owner_private", max_length=80)
+    language: str = Field(default="German", max_length=80)
+    writer_mode: str = Field(default="claim_bound", max_length=80)
+    neuronwriter_query_id: str = Field(default="", max_length=240)
+    research: dict[str, object] = Field(default_factory=dict)
+
+
 def _require_operator_for_workspace_role(*, role: str, operator_id: str = "", context: RequestContext) -> None:
     normalized_role = str(role or "principal").strip().lower() or "principal"
     if normalized_role == "operator" or str(operator_id or "").strip():
         require_operator_context(context)
+
+
+@router.post("/property/content-intelligence/briefs/{brief_id}/neuronwriter-query")
+def create_property_neuronwriter_query(
+    brief_id: str,
+    payload: PropertyNeuronWriterQueryIn,
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    require_operator_context(context)
+    allowed_modes = {"public_content", "public_market_report", "public_city_guide"}
+    private_allowed = str(os.getenv("PROPERTYQUARRY_NEURONWRITER_PRIVATE_PACKET_ALLOWED") or "").strip().lower() in {"1", "true", "yes", "on"}
+    if payload.content_mode not in allowed_modes and not private_allowed:
+        return {
+            "status": "blocked",
+            "brief_id": brief_id,
+            "reason": "neuronwriter_private_or_non_public_content_blocked",
+            "content_mode": payload.content_mode,
+        }
+    recommendation = create_neuronwriter_query(
+        keyword=payload.keyword,
+        project_id=payload.project_id,
+        language=payload.language,
+        engine=payload.engine,
+    )
+    result = recommendation.model_dump()
+    result.update({"brief_id": brief_id, "content_mode": payload.content_mode})
+    return result
+
+
+@router.post("/property/dossiers/{dossier_id}/write")
+def write_property_dossier(
+    dossier_id: str,
+    payload: PropertyDossierWriteIn,
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    require_operator_context(context)
+    if payload.writer_mode != "claim_bound":
+        raise HTTPException(status_code=400, detail="unsupported_dossier_writer_mode")
+    verified = write_verified_dossier_from_research(
+        dossier_id=dossier_id,
+        research=payload.research,
+        packet_kind=payload.packet_kind,
+        privacy_mode=payload.privacy_mode,
+        language=payload.language,
+        neuronwriter_query_id=payload.neuronwriter_query_id,
+    )
+    return {
+        "status": "written" if verified.status == "verified" else "rejected",
+        "dossier_id": dossier_id,
+        "sections": [section.model_dump() for section in verified.draft.sections],
+        "claim_coverage": verified.claim_coverage,
+        "unsupported_sentences": verified.unsupported_sentences,
+        "forbidden_hits": verified.forbidden_hits,
+        "neuronwriter_applied": bool(verified.neuronwriter and verified.neuronwriter.status == "ready"),
+        "neuronwriter": verified.neuronwriter.model_dump() if verified.neuronwriter else None,
+        "privacy_check": "passed" if verified.status == "verified" else "failed",
+        "generated_by": verified.draft.generated_by,
+    }
 
 @router.get("/brief", response_model=BriefResponse)
 def get_brief(
@@ -1016,8 +1125,17 @@ def record_property_feedback(
         note=body.note,
         actor=actor,
     )
-    structured_property_ref = str(body.property_slug or body.property_url or body.property_title or "property").strip()
-    if structured_property_ref:
+    structured_property_refs: list[str] = []
+    for candidate_ref in (
+        body.property_slug,
+        body.property_url,
+        body.property_title,
+        "property",
+    ):
+        normalized_ref = str(candidate_ref or "").strip()
+        if normalized_ref and normalized_ref not in structured_property_refs:
+            structured_property_refs.append(normalized_ref)
+    if structured_property_refs:
         reaction_category = {
             "like": "love",
             "maybe": "question",
@@ -1049,26 +1167,28 @@ def record_property_feedback(
             )
             if str(part or "").strip()
         )
-        try:
-            packet_service.record_structured_feedback(
-                principal_id=context.principal_id,
-                property_ref=structured_property_ref,
-                stakeholder_id=f"profile:{str(person_id or 'self').strip() or 'self'}",
-                stakeholder_label=str(person_id or "self").strip() or "self",
-                publication_id="",
-                share_id="",
-                audience_type="owner",
-                category=reaction_category,
-                sentiment=reaction_sentiment,
-                importance=5 if reaction_category == "dealbreaker" else (4 if reaction_category == "question" else 3),
-                text=summary_text or f"Decision: {str(body.reaction or '').strip().lower()}",
-                source="workspace_property_feedback",
-                source_event_id=str(result.get("evidence", {}).get("event", {}).get("event_id") or "").strip(),
-                decision_state=decision_state,
-                actor=actor,
-            )
-        except Exception:
-            pass
+        source_event_id = str(result.get("evidence", {}).get("event", {}).get("event_id") or "").strip()
+        for structured_property_ref in structured_property_refs:
+            try:
+                packet_service.record_structured_feedback(
+                    principal_id=context.principal_id,
+                    property_ref=structured_property_ref,
+                    stakeholder_id=f"profile:{str(person_id or 'self').strip() or 'self'}",
+                    stakeholder_label=str(person_id or "self").strip() or "self",
+                    publication_id="",
+                    share_id="",
+                    audience_type="owner",
+                    category=reaction_category,
+                    sentiment=reaction_sentiment,
+                    importance=5 if reaction_category == "dealbreaker" else (4 if reaction_category == "question" else 3),
+                    text=summary_text or f"Decision: {str(body.reaction or '').strip().lower()}",
+                    source="workspace_property_feedback",
+                    source_event_id=source_event_id,
+                    decision_state=decision_state,
+                    actor=actor,
+                )
+            except Exception:
+                pass
     return PropertyFeedbackRecordOut(**result)
 
 
@@ -1281,6 +1401,78 @@ def record_structured_property_feedback(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"status": "recorded", "feedback": feedback}
+
+
+@router.post("/property-feedback/dadan")
+def record_dadan_property_feedback(
+    body: DadanPropertyFeedbackIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "dadan").strip()
+    payload = body.model_dump()
+    signals = dadan_feedback_signals(payload)
+    recorded: list[dict[str, object]] = []
+    for signal in signals:
+        try:
+            feedback = service.record_structured_feedback(
+                principal_id=context.principal_id,
+                property_ref=body.property_ref,
+                stakeholder_id=signal.stakeholder_id,
+                stakeholder_label=signal.stakeholder_label,
+                publication_id=body.publication_id,
+                share_id=body.share_id,
+                audience_type=body.audience_type or "viewer",
+                category=signal.category,
+                sentiment=signal.sentiment,
+                importance=signal.importance,
+                text=signal.text,
+                source="dadan_video_feedback",
+                source_event_id=signal.source_event_id,
+                decision_state=signal.decision_state,
+                followup_status=signal.followup_status,
+                actor=actor,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        recorded.append(dict(feedback))
+    return {
+        "status": "recorded" if recorded else "no_signals",
+        "source": "dadan_video_feedback",
+        "property_ref": body.property_ref,
+        "recorded": recorded,
+        "total": len(recorded),
+    }
+
+
+@router.post("/property-video/requests/dadan")
+def create_dadan_property_video_request(
+    body: DadanVideoRequestCreateIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = DadanVideoRequestService(repo=build_fliplink_packet_service(container)._repo)
+    try:
+        return service.create_recording_request(
+            principal_id=context.principal_id,
+            property_ref=body.property_ref,
+            property_url=body.property_url,
+            request_kind=body.request_kind,
+            audience_type=body.audience_type,
+            title=body.title,
+            instructions=body.instructions,
+            metadata=body.metadata,
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        )
+    except RuntimeError as exc:
+        detail = str(exc or "dadan_request_failed")
+        status_code = 409
+        if detail in {"dadan_disabled", "dadan_api_key_required"}:
+            status_code = 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/property-feedback/{feedback_id}/followup-status")

@@ -5,6 +5,8 @@ import hmac
 import io
 import json
 import os
+import shutil
+import subprocess
 import urllib.parse
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -21,6 +23,20 @@ import app.product.service as product_service
 from app.product.service import ProductService
 from app.services import google_oauth as google_oauth_service
 from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
+
+
+@pytest.fixture(autouse=True)
+def _property_bundle_exit_gate_unit_bypass(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    if "deliver_telegram_property_link_bundle" not in request.node.name:
+        return
+
+    def _fake_exit_gate(url: str, *, kind: str, allowed_mime_prefixes: tuple[str, ...], timeout_seconds: float = 12.0) -> tuple[bool, str]:
+        if not str(url or "").strip():
+            return False, f"{kind}_url_missing"
+        return True, ""
+
+    monkeypatch.setattr(product_service, "_property_bundle_exit_gate_http_url", _fake_exit_gate)
+    monkeypatch.setattr(product_service, "_property_3d_viewer_links_exit_gate", lambda links, **_kwargs: (True, "", {"test_stub": True}))
 
 
 def test_product_api_projects_real_runtime_objects() -> None:
@@ -723,7 +739,7 @@ def test_signal_ingest_property_alert_sends_telegram_dossier_document(monkeypatc
         fit_score=64.0,
         preference_person_id="self",
     )
-    assert result["status"] == "sent"
+    assert result["status"] == "sent", {"result": result, "observed": observed}
     assert observed["principal_id"] == principal_id
     assert "Scout update." in str(observed["text"])
     assert observed["document_principal_id"] == principal_id
@@ -828,6 +844,8 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
         "_hosted_property_tour_video_delivery",
         lambda tour_url: {"video_url": "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4", "audio_probe_ref": "https://propertyquarry.com/tours/test-telegram-bundle/audio.mp3", "provider_key": "magicfit"},
     )
+    monkeypatch.setattr(product_service, "_magicfit_flythrough_duration_gate", lambda *args, **kwargs: (True, "", 90.0, 90.0))
+    monkeypatch.setattr(product_service, "_property_bundle_exit_gate_http_url", lambda *args, **kwargs: (True, ""))
     monkeypatch.setattr(
         product_service,
         "_property_link_bundle_preview_image_url",
@@ -873,21 +891,17 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
         actor="test",
     )
 
-    assert result["status"] == "sent"
+    assert result["status"] == "sent", result
     assert observed["message_principal_id"] == principal_id
     assert observed["photo_ref"] == "https://propertyquarry.com/tours/files/test-telegram-bundle/scene-01.png"
     assert "Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF." in str(observed["message_text"])
     assert "Most important facts: 2 rooms · 48 m2 · EUR 1.095 · Floorplan" in str(observed["message_text"])
-    assert observed["url_buttons"][0][0][0] == "Open 3D Tour"
-    assert "/workspace-access/" in str(observed["url_buttons"][0][0][1])
-    assert observed["url_buttons"][0][1][0] == "Open Flythrough"
-    assert observed["url_buttons"][0][1][1] == "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4"
+    flattened_buttons = [button for row in list(observed.get("url_buttons") or []) for button in row]
+    assert ("Open 3D Control", "https://propertyquarry.com/tours/test-telegram-bundle/control") in flattened_buttons
+    assert ("Open Flythrough", "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4") in flattened_buttons
     assert not list(observed.get("inline_buttons") or [])
-    assert observed["video_principal_id"] == principal_id
-    assert observed["video_ref"] == "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4"
-    assert observed["video_caption"] == "Telegram Test Listing\nPropertyQuarry flythrough"
-    assert observed["document_principal_id"] == principal_id
-    assert observed["document_ref"] == str(dossier_path)
+    assert "video_principal_id" not in observed
+    assert "document_principal_id" not in observed
 
 
 def test_deliver_telegram_property_link_bundle_falls_back_to_text_when_preview_photo_fails(monkeypatch, tmp_path: Path) -> None:
@@ -974,6 +988,8 @@ def test_deliver_telegram_property_link_bundle_falls_back_to_text_when_preview_p
         "_hosted_property_tour_video_delivery",
         lambda tour_url: {"video_url": "https://propertyquarry.com/tours/test-photo-fallback-bundle/video.mp4", "audio_probe_ref": "https://propertyquarry.com/tours/test-photo-fallback-bundle/audio.mp3", "provider_key": "magicfit"},
     )
+    monkeypatch.setattr(product_service, "_magicfit_flythrough_duration_gate", lambda *args, **kwargs: (True, "", 90.0, 90.0))
+    monkeypatch.setattr(product_service, "_property_bundle_exit_gate_http_url", lambda *args, **kwargs: (True, ""))
     monkeypatch.setattr(
         product_service,
         "_property_link_bundle_preview_image_url",
@@ -1023,11 +1039,11 @@ def test_deliver_telegram_property_link_bundle_falls_back_to_text_when_preview_p
         actor="test",
     )
 
-    assert result["status"] == "sent"
+    assert result["status"] == "sent", result
     assert observed["message_principal_id"] == principal_id
     assert "Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF." in str(observed["message_text"])
-    assert observed["video_principal_id"] == principal_id
-    assert observed["document_principal_id"] == principal_id
+    assert "video_principal_id" not in observed
+    assert "document_principal_id" not in observed
 
 
 def test_hosted_property_tour_helpers_use_public_tours_files_route(monkeypatch, tmp_path: Path) -> None:
@@ -1075,6 +1091,7 @@ def test_hosted_property_tour_helpers_use_public_tours_files_route(monkeypatch, 
 
 
 def test_render_property_scout_dossier_promotes_media_and_visuals_into_packet(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("PROPERTYQUARRY_NEURONWRITER_ENABLED", raising=False)
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Dossier Media Office")
@@ -1134,6 +1151,11 @@ def test_render_property_scout_dossier_promotes_media_and_visuals_into_packet(mo
         "app.services.fliplink.service.build_fliplink_packet_service",
         lambda container: _PacketService(),
     )
+    monkeypatch.setattr(
+        product_service,
+        "_pdf_appendix_exit_gate_passed",
+        lambda pdf_path: (True, "", {"page_count": 2, "embedded_image_count": 1, "link_annotation_count": 2, "text_chars": 1200}),
+    )
 
     service = product_service.build_product_service(client.app.state.container)
     result = service._render_property_scout_dossier(
@@ -1150,6 +1172,9 @@ def test_render_property_scout_dossier_promotes_media_and_visuals_into_packet(mo
         preference_person_id="self",
         review_url="",
         tour_result={"tour_url": "https://propertyquarry.com/tours/test-hosted-tour"},
+        permissive_media_gate=True,
+        appendix_mode="telegram_pdf_appendix",
+        source_pdf_filename="source-listing.pdf",
         candidate_properties=(
             {
                 "listing_title": "1050 Vienna Listing",
@@ -1179,6 +1204,10 @@ def test_render_property_scout_dossier_promotes_media_and_visuals_into_packet(mo
     assert payload["flythrough_url"] == "https://propertyquarry.com/tours/files/test-hosted-tour/tour.mp4"
     assert payload["diorama_scene"]["image_url"] == "https://propertyquarry.com/tours/files/test-hosted-tour/telegram-preview.png"
     assert payload["magic_fit_scene"]["image_url"] == "https://cdn.example.com/magicfit-scene.jpg"
+    assert payload["appendix_mode"] == "telegram_pdf_appendix"
+    assert payload["dossier_writer_status"] == "verified"
+    assert payload["dossier_writer_generated_by"] == "propertyquarry_dossier_writer.claim_bound.v1"
+    assert payload["dossier_writer"]["neuronwriter"]["status"] == "disabled"
     assert "personal_reference_urls" not in payload
 
 
@@ -1249,6 +1278,7 @@ def test_render_property_scout_dossier_filters_locked_listing_placeholder_when_m
         preference_person_id="self",
         review_url="",
         tour_result={"tour_url": "https://propertyquarry.com/tours/test-hosted-tour"},
+        permissive_media_gate=True,
         candidate_properties=(
             {
                 "listing_title": "1050 Vienna Listing",
@@ -1350,9 +1380,11 @@ def test_deliver_telegram_property_link_bundle_renders_dossier_after_magicfit_vi
         }
 
     monkeypatch.setattr(product_service, "_hosted_property_tour_video_delivery", _video_delivery)
+    monkeypatch.setattr(product_service, "_magicfit_flythrough_duration_gate", lambda *args, **kwargs: (True, "", 90.0, 90.0))
+    monkeypatch.setattr(product_service, "_property_bundle_exit_gate_http_url", lambda *args, **kwargs: (True, ""))
     monkeypatch.setattr(
         product_service,
-        "_render_magicfit_property_flythrough_into_hosted_tour",
+        "_render_property_flythrough_into_hosted_tour",
         lambda **kwargs: {"status": "rendered", "provider_key": "magicfit"},
     )
     monkeypatch.setattr(
@@ -1379,7 +1411,7 @@ def test_deliver_telegram_property_link_bundle_renders_dossier_after_magicfit_vi
         actor="test",
     )
 
-    assert result["status"] == "sent"
+    assert result["status"] == "sent", result
     assert observed["video_calls"] == 2
     assert observed["video_calls_at_dossier"] == 2
 
@@ -1418,6 +1450,8 @@ def test_deliver_telegram_property_link_bundle_supports_multiple_family_principa
     monkeypatch.setattr(product_service, "_property_scout_candidate_payload_from_preview", lambda **kwargs: {"listing_id": "family-1"})
     monkeypatch.setattr(product_service, "_merge_property_facts_with_source_research", lambda **kwargs: dict(kwargs.get("property_facts") or {}))
     monkeypatch.setattr(product_service, "_hosted_property_tour_video_delivery", lambda tour_url: {"video_url": "https://propertyquarry.com/tours/files/test-family-bundle/tour.mp4", "provider_key": "magicfit", "video_file_path": "/tmp/test-family-bundle/tour.mp4"})
+    monkeypatch.setattr(product_service, "_magicfit_flythrough_duration_gate", lambda *args, **kwargs: (True, "", 90.0, 90.0))
+    monkeypatch.setattr(product_service, "_property_bundle_exit_gate_http_url", lambda *args, **kwargs: (True, ""))
     monkeypatch.setattr(
         ProductService,
         "_render_property_scout_dossier",
@@ -1436,7 +1470,7 @@ def test_deliver_telegram_property_link_bundle_supports_multiple_family_principa
         actor="test",
     )
 
-    assert result["status"] == "sent"
+    assert result["status"] == "sent", result
     assert observed["principal_id"] == principal_id
 
 
@@ -1525,6 +1559,8 @@ def test_deliver_telegram_property_link_bundle_shortens_pdf_button_through_works
         "_hosted_property_tour_video_delivery",
         lambda tour_url: {"video_url": "https://propertyquarry.com/tours/test-long-url-bundle/video.mp4", "audio_probe_ref": "https://propertyquarry.com/tours/test-long-url-bundle/audio.mp3", "provider_key": "magicfit"},
     )
+    monkeypatch.setattr(product_service, "_magicfit_flythrough_duration_gate", lambda *args, **kwargs: (True, "", 90.0, 90.0))
+    monkeypatch.setattr(product_service, "_property_bundle_exit_gate_http_url", lambda *args, **kwargs: (True, ""))
     monkeypatch.setattr(
         product_service,
         "send_telegram_chat_action_for_principal",
@@ -1563,7 +1599,7 @@ def test_deliver_telegram_property_link_bundle_shortens_pdf_button_through_works
     assert result["status"] == "sent"
 
 
-def test_deliver_telegram_property_link_bundle_uses_direct_magicfit_video_and_live_360_targets(monkeypatch, tmp_path: Path) -> None:
+def test_deliver_telegram_property_link_bundle_uses_hosted_control_and_direct_magicfit_video_targets(monkeypatch, tmp_path: Path) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Direct Targets Office")
@@ -1610,6 +1646,7 @@ def test_deliver_telegram_property_link_bundle_uses_direct_magicfit_video_and_li
         "_hosted_property_tour_direct_360_url",
         lambda tour_url: "https://my.matterport.com/show/?m=TEST123&mls=2",
     )
+    monkeypatch.setattr(product_service, "_magicfit_flythrough_duration_gate", lambda *args, **kwargs: (True, "", 90.0, 90.0))
     monkeypatch.setattr(
         ProductService,
         "_render_property_scout_dossier",
@@ -1645,9 +1682,9 @@ def test_deliver_telegram_property_link_bundle_uses_direct_magicfit_video_and_li
 
     assert result["status"] == "sent"
     buttons = list(observed["url_buttons"])
-    assert buttons[0][0] == ("Open 3D Tour", "https://my.matterport.com/show/?m=TEST123&mls=2")
-    assert buttons[0][1] == ("Open Flythrough", "https://propertyquarry.com/tours/files/test-direct-targets/tour.mp4")
     flattened = [button for row in list(observed.get("url_buttons") or []) for button in row]
+    assert ("Open 3D Control", "https://propertyquarry.com/tours/test-direct-targets/control") in flattened
+    assert ("Open Flythrough", "https://propertyquarry.com/tours/files/test-direct-targets/tour.mp4") in flattened
     assert any(label == "Open Dossier PDF" for label, _url in flattened)
 
 
@@ -1749,10 +1786,10 @@ def test_deliver_telegram_property_link_bundle_waits_for_full_bundle_before_send
     assert "flythrough video missing" in str(result["pending_reasons"])
 
 
-def test_deliver_telegram_property_link_bundle_requires_magicfit_flythrough_provider(monkeypatch, tmp_path: Path) -> None:
+def test_deliver_telegram_property_link_bundle_requires_verified_premium_flythrough(monkeypatch, tmp_path: Path) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
-    start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle MagicFit Office")
+    start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Premium Video Office")
     client.app.state.container.tool_runtime.upsert_connector_binding(
         principal_id=principal_id,
         connector_name="telegram_identity",
@@ -1780,7 +1817,7 @@ def test_deliver_telegram_property_link_bundle_requires_magicfit_flythrough_prov
         lambda property_url: {
             "title": "Pending MagicFit Bundle Listing",
             "listing_id": "tg-link-magicfit-1",
-            "description": "A bundle with a non-MagicFit flythrough.",
+            "description": "A bundle with an unverified flythrough.",
             "media_urls_json": ["https://cache.willhaben.at/example-photo.jpg"],
             "floorplan_urls_json": [],
             "source_virtual_tour_url": "",
@@ -1804,7 +1841,7 @@ def test_deliver_telegram_property_link_bundle_requires_magicfit_flythrough_prov
             "publication_id": "pub_magicfit_pending_bundle",
             "pdf_path": str(tmp_path / "magicfit-pending-bundle.pdf"),
             "public_pdf_url": "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/magicfit-pending-token",
-            "caption": "PropertyQuarry dossier · Pending MagicFit Bundle Listing",
+            "caption": "PropertyQuarry dossier · Pending Premium Video Bundle Listing",
         },
     )
     monkeypatch.setattr(
@@ -1823,17 +1860,17 @@ def test_deliver_telegram_property_link_bundle_requires_magicfit_flythrough_prov
     monkeypatch.setattr(
         product_service,
         "send_telegram_photo_for_principal",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("bundle should not send before MagicFit flythrough is ready")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("bundle should not send before premium flythrough is verified")),
     )
     monkeypatch.setattr(
         product_service,
         "send_telegram_video_for_principal",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("video should not send before MagicFit flythrough is ready")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("video should not send before premium flythrough is verified")),
     )
     monkeypatch.setattr(
         product_service,
         "send_telegram_document_for_principal",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("dossier should not send before MagicFit flythrough is ready")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("dossier should not send before premium flythrough is verified")),
     )
 
     service = product_service.build_product_service(client.app.state.container)
@@ -1845,7 +1882,7 @@ def test_deliver_telegram_property_link_bundle_requires_magicfit_flythrough_prov
 
     assert result["status"] == "pending"
     assert observed["actions"] == [(principal_id, "typing")]
-    assert "flythrough not rendered by MagicFit" in str(result["pending_reasons"])
+    assert "flythrough provider not magicfit" in str(result["pending_reasons"])
 
 
 def test_deliver_telegram_property_link_bundle_auto_renders_magicfit_flythrough(monkeypatch, tmp_path: Path) -> None:
@@ -1940,9 +1977,11 @@ def test_deliver_telegram_property_link_bundle_auto_renders_magicfit_flythrough(
         }
 
     monkeypatch.setattr(product_service, "_hosted_property_tour_video_delivery", _video_delivery)
+    monkeypatch.setattr(product_service, "_magicfit_flythrough_duration_gate", lambda *args, **kwargs: (True, "", 90.0, 90.0))
+    monkeypatch.setattr(product_service, "_property_bundle_exit_gate_http_url", lambda *args, **kwargs: (True, ""))
     monkeypatch.setattr(
         product_service,
-        "_render_magicfit_property_flythrough_into_hosted_tour",
+        "_render_property_flythrough_into_hosted_tour",
         lambda **kwargs: observed.update({"magicfit_render": kwargs}) or {"status": "rendered", "provider_key": "magicfit"},
     )
     monkeypatch.setattr(
@@ -1989,18 +2028,19 @@ def test_deliver_telegram_property_link_bundle_auto_renders_magicfit_flythrough(
         actor="test",
     )
 
-    assert result["status"] == "sent"
+    assert result["status"] == "sent", result
     assert observed["video_calls"] == 2
     assert observed["magicfit_render"]["tour_url"] == "https://propertyquarry.com/tours/test-auto-magicfit-bundle"
-    assert observed["video_ref"] == "/tmp/test-auto-magicfit-bundle/tour.mp4"
-    assert observed["url_buttons"][0][1] == (
+    flattened = [button for row in list(observed.get("url_buttons") or []) for button in row]
+    assert (
         "Open Flythrough",
         "https://propertyquarry.com/tours/files/test-auto-magicfit-bundle/tour.mp4",
-    )
-    assert observed["document_ref"] == str(dossier_path)
+    ) in flattened
+    assert "video_ref" not in observed
+    assert "document_ref" not in observed
 
 
-def test_deliver_telegram_property_link_bundle_prefers_direct_live_360_and_magicfit_mp4_buttons(monkeypatch, tmp_path: Path) -> None:
+def test_deliver_telegram_property_link_bundle_prefers_hosted_control_and_magicfit_mp4_buttons(monkeypatch, tmp_path: Path) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Direct Buttons Office")
@@ -2089,6 +2129,7 @@ def test_deliver_telegram_property_link_bundle_prefers_direct_live_360_and_magic
         "_hosted_property_tour_direct_360_url",
         lambda tour_url: "https://my.matterport.com/show/?m=testMatterportId&mls=2",
     )
+    monkeypatch.setattr(product_service, "_magicfit_flythrough_duration_gate", lambda *args, **kwargs: (True, "", 90.0, 90.0))
     monkeypatch.setattr(
         product_service,
         "_property_link_bundle_preview_image_url",
@@ -2129,15 +2170,16 @@ def test_deliver_telegram_property_link_bundle_prefers_direct_live_360_and_magic
     )
 
     assert result["status"] == "sent"
-    assert observed["url_buttons"][0][0] == (
-        "Open 3D Tour",
-        "https://my.matterport.com/show/?m=testMatterportId&mls=2",
-    )
-    assert observed["url_buttons"][0][1] == (
+    flattened = [button for row in list(observed.get("url_buttons") or []) for button in row]
+    assert (
+        "Open 3D Control",
+        "https://propertyquarry.com/tours/test-direct-buttons-bundle/control",
+    ) in flattened
+    assert (
         "Open Flythrough",
         "https://propertyquarry.com/tours/files/test-direct-buttons-bundle/tour.mp4",
-    )
-    assert observed["video_ref"] == "/tmp/test-direct-buttons-bundle/tour.mp4"
+    ) in flattened
+    assert "video_ref" not in observed
 
 
 def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> None:
@@ -4259,7 +4301,7 @@ def test_generic_property_tour_floorplan_only_bypasses_legacy_360_requirement(mo
     assert floorplan_allowed["tour_media_mode"] == "floorplan_hosted"
 
 
-def test_generic_property_tour_without_browseract_binding_uses_pure_360_hosting_when_available(
+def test_generic_property_tour_without_browseract_binding_blocks_cube_360_fallback(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -4337,10 +4379,9 @@ def test_generic_property_tour_without_browseract_binding_uses_pure_360_hosting_
         actor="test",
     )
 
-    assert result["status"] == "created"
-    assert result["creation_mode"] == "pure_hosted_360"
-    assert result["blocked_reason"] == ""
-    assert str(result["tour_url"]).startswith("https://propertyquarry.com/tours/")
+    assert result["status"] == "blocked"
+    assert result["blocked_reason"] == "browseract_connector_unconfigured"
+    assert result["tour_url"] == ""
 
 
 def test_property_scout_clamps_requested_match_score_to_free_plan_cap(monkeypatch) -> None:
@@ -7332,7 +7373,7 @@ def test_property_scout_page_preview_extracts_kronofogden_facts(monkeypatch: pyt
     assert facts["area_sqm"] == 81.0
 
 
-def test_generic_property_tour_publishes_pure_360_bundle_when_crezlo_is_unavailable(monkeypatch, tmp_path: Path) -> None:
+def test_generic_property_tour_blocks_cube_360_bundle_when_provider_is_unavailable(monkeypatch, tmp_path: Path) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")
@@ -7417,28 +7458,9 @@ def test_generic_property_tour_publishes_pure_360_bundle_when_crezlo_is_unavaila
         actor="test",
     )
 
-    assert result["status"] == "created"
-    assert result["creation_mode"] == "pure_hosted_360"
-    assert result["source_virtual_tour_url"] == ""
-    assert str(result["tour_url"]).startswith("https://myexternalbrain.com/tours/")
-    assert not str(result["tour_url"]).endswith("#live-360")
-    slug = str(result["tour_url"]).split("/tours/", 1)[1]
-    payload = json.loads((tmp_path / slug / "tour.json").read_text(encoding="utf-8"))
-    assert payload["scene_strategy"] == "pure_360_cube"
-    assert payload["source_virtual_tour_url"] == ""
-    assert payload["source_virtual_tour_origin"] == "https://360.kalandra.at/view/portal/id/VZ8P1"
-    assert payload["principal_id"] == principal_id
-    assert payload["source_ref"] == "gmail-thread:elisabeth:kalandra-live-360"
-    assert payload["facts"]["street_address"] == "Hameaustraße 34"
-    assert payload["facts"]["address_lines"] == ["Hameaustraße 34", "1190 Wien"]
-    assert payload["facts"]["nearest_supermarket_m"] == 951
-    assert payload["facts"]["nearest_pharmacy_m"] == 882
-    assert payload["facts"]["nearest_playground_m"] == 532
-    assert payload["facts"]["nearest_subway_m"] == 4752
-    assert payload["facts"]["listing_research_snapshot"]["street_address"] == "Hameaustraße 34"
-    assert payload["facts"]["listing_research_meta"]["strategy"] == "provider_html_plus_geo"
-    assert payload["scenes"][0]["role"] == "pure_360"
-    assert payload["scenes"][0]["cube_faces"]["f"] == "panorama/847551/tablet_f.jpg"
+    assert result["status"] == "blocked"
+    assert result["blocked_reason"] == "pure_360_assets_unavailable"
+    assert result["tour_url"] == ""
 
 
 def test_property_source_research_snapshot_uses_image_ocr_when_listing_has_no_map(monkeypatch) -> None:
@@ -8748,6 +8770,24 @@ def test_matterport_hosted_pure_360_bundle_uses_http_thumb_preview(monkeypatch, 
     scene = dict((payload.get("scenes") or [{}])[0] or {})
     assert scene["image_url"] == "https://my.matterport.com/api/v2/player/models/BmVWxvZQZLq/thumb/"
     assert scene["mime_type"] == "image/jpeg"
+
+
+def test_kalandra_cube_360_bundle_generation_is_disabled(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
+
+    with pytest.raises(RuntimeError, match="property_tour_cube_fallback_disabled"):
+        product_service._write_hosted_feelestate_pure_360_property_tour_bundle(
+            principal_id="cf-email:tibor.girschele@gmail.com",
+            title="Kalandra Cube Blocked Test",
+            listing_id="kalandra-cube-blocked-test",
+            property_url="https://www.kalandra.at/objekt/14997053",
+            variant_key="layout_first",
+            source_virtual_tour_url="https://360.kalandra.at/view/portal/id/VZ8P1",
+            floorplan_urls=(),
+            property_facts_json={"has_360": True},
+            source_host="www.kalandra.at",
+        )
 
 
 def test_willhaben_property_tour_route_blocks_when_only_flat_listing_photos_exist_and_360_is_required(monkeypatch) -> None:
@@ -17189,3 +17229,752 @@ def test_property_investment_text_enrichment_prefers_larger_area_when_title_ment
     )
 
     assert enriched["area_m2"] == 127.0
+
+
+def test_magicfit_flythrough_prompt_forces_all_real_rooms_and_final_turn() -> None:
+    room_count, visit_plan = product_service._magicfit_property_room_visit_plan(
+        title="2 Zimmer Wohnung mit Küche, Bad, WC, Vorraum und Balkon",
+        property_facts={
+            "room_count": 2,
+            "description": "Helle Wohnung: Küche, Badezimmer, separates WC, Vorraum, Balkon.",
+        },
+    )
+
+    prompt = product_service._default_magicfit_property_flythrough_prompt(
+        title="2 Zimmer Wohnung mit Küche, Bad, WC, Vorraum und Balkon",
+        property_facts={},
+        room_count=room_count,
+        room_visit_plan=visit_plan,
+    )
+
+    assert room_count >= 6
+    assert "kitchen" in prompt
+    assert "bathroom" in prompt
+    assert "toilet" in prompt
+    assert "hall" in prompt
+    assert "240° sweep" in prompt
+    assert "Final segment is mandatory" in prompt
+    assert "SUPER SLOW" in prompt
+    assert "at least 180 degrees" in prompt
+    assert "rotate 360 degrees where space allows" in prompt
+
+
+def test_magicfit_flythrough_duration_gate_rejects_short_multi_room_clip() -> None:
+    ok, reason, actual_seconds, required_seconds = product_service._magicfit_flythrough_duration_gate(
+        {
+            "provider_key": "magicfit",
+            "video_url": "https://propertyquarry.com/tours/files/demo/tour.mp4",
+            "duration_seconds": 5.088,
+        },
+        title="2 Zimmer Wohnung mit Küche, Bad, WC, Vorraum und Balkon",
+        property_facts={
+            "room_count": 2,
+            "description": "Küche, Badezimmer, separates WC, Vorraum und Balkon sind vorhanden.",
+        },
+    )
+
+    assert ok is False
+    assert reason.startswith("flythrough_too_short:")
+    assert actual_seconds == pytest.approx(5.088)
+    assert required_seconds >= 90.0
+
+
+def test_flythrough_gate_rejects_unverified_duration() -> None:
+    ok, reason, actual_seconds, required_seconds = product_service._magicfit_flythrough_duration_gate(
+        {
+            "provider_key": "matterport",
+            "video_url": "https://propertyquarry.com/tours/files/demo/tour.mp4",
+        },
+        title="2 Zimmer Wohnung mit Küche, Bad, WC, Vorraum und Balkon",
+        property_facts={
+            "room_count": 2,
+            "description": "Küche, Badezimmer, separates WC, Vorraum und Balkon sind vorhanden.",
+        },
+    )
+
+    assert ok is False
+    assert reason == "flythrough_duration_unverified"
+    assert actual_seconds == pytest.approx(0.0)
+    assert required_seconds >= 90.0
+
+
+def test_pdf_appendix_exit_gate_rejects_missing_hero_poster(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "appendix-without-hero.pdf"
+    pdf_path.write_bytes(
+        b"%PDF-1.4\n"
+        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+        b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
+        b"3 0 obj << /Type /Page /Parent 2 0 R /Resources << >> /MediaBox [0 0 612 842] >> endobj\n"
+        b"trailer << /Root 1 0 R >>\n%%EOF\n"
+    )
+
+    ok, reason, metrics = product_service._pdf_appendix_exit_gate_passed(str(pdf_path))
+
+    assert ok is False
+    assert reason in {"appendix_hero_poster_missing", "appendix_links_missing", "appendix_too_sparse"}
+    assert metrics["page_count"] == 1
+
+
+def test_magicfit_flythrough_render_uses_cache_safe_public_video_name(monkeypatch, tmp_path: Path) -> None:
+    slug = "cache-safe-magicfit-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "public_viewable": True,
+                "tour_privacy_mode": "anonymous_public",
+                "video_relpath": "tour.mp4",
+                "scenes": [{"asset_relpath": "floorplan-01.pdf", "privacy_class": "floorplan_pdf_public"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_REPO_ROOT", str(Path(__file__).resolve().parents[1]))
+    monkeypatch.setattr(product_service.time, "time", lambda: 1781083800)
+    monkeypatch.setattr(product_service, "uuid4", lambda: SimpleNamespace(hex="abcdef1234567890"))
+    monkeypatch.setattr(product_service, "_video_segment_boundary_gate", lambda paths, **_kwargs: (True, "", []))
+
+    def _fake_run(command, **kwargs):  # noqa: ANN001
+        command_text = " ".join(str(part) for part in command)
+        if "--out" in command:
+            out_path = Path(command[command.index("--out") + 1])
+            out_path.write_bytes(b"raw-magicfit-video")
+            state_path = Path(command[command.index("--state-json") + 1])
+            state_path.write_text("{}", encoding="utf-8")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        if "ffprobe" in command_text:
+            return SimpleNamespace(returncode=0, stdout="90.0\n", stderr="")
+        if "ffmpeg" in command_text:
+            Path(command[-1]).write_bytes(b"slow-magicfit-video")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(returncode=1, stdout="", stderr="unexpected command")
+
+    monkeypatch.setattr(product_service.subprocess, "run", _fake_run)
+
+    result = product_service._render_magicfit_property_flythrough_into_hosted_tour(
+        tour_url=f"https://propertyquarry.com/tours/{slug}",
+        title="2 Zimmer Wohnung mit Balkon",
+        property_facts={"room_count": 2},
+        actor="telegram_pdf",
+    )
+
+    assert result["status"] == "rendered"
+    assert result["video_relpath"] == "tour-magicfit-1781083800-abcdef1234.mp4"
+    assert result["video_file_path"].endswith("/tour-magicfit-1781083800-abcdef1234.mp4")
+    assert (bundle_dir / "tour-magicfit-1781083800-abcdef1234.mp4").read_bytes() == b"slow-magicfit-video"
+    assert result["combined_duration_seconds"] == pytest.approx(90.0)
+    assert result["slowdown_status"] == "disabled_provider_clean_render"
+    assert not (bundle_dir / "tour.mp4").exists()
+    manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert manifest["video_relpath"] == "tour-magicfit-1781083800-abcdef1234.mp4"
+    delivery = product_service._hosted_property_tour_video_delivery(f"https://propertyquarry.com/tours/{slug}")
+    assert delivery["video_url"].endswith(f"/tours/files/{slug}/tour-magicfit-1781083800-abcdef1234.mp4")
+
+
+def test_magicfit_flythrough_render_concats_short_magicfit_segments(monkeypatch, tmp_path: Path) -> None:
+    slug = "multi-segment-magicfit-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(json.dumps({"slug": slug, "video_relpath": ""}), encoding="utf-8")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_REPO_ROOT", str(Path(__file__).resolve().parents[1]))
+    monkeypatch.setenv("PROPERTYQUARRY_MAGICFIT_MAX_SEGMENTS", "4")
+    monkeypatch.setattr(product_service.time, "time", lambda: 1781083900)
+    monkeypatch.setattr(product_service, "uuid4", lambda: SimpleNamespace(hex="fedcba9876543210"))
+    monkeypatch.setattr(product_service, "_video_segment_boundary_gate", lambda paths, **_kwargs: (True, "", []))
+
+    probe_calls: list[str] = []
+    render_calls: list[str] = []
+
+    def _fake_run(command, **kwargs):  # noqa: ANN001
+        command_text = " ".join(str(part) for part in command)
+        if "--out" in command:
+            out_path = Path(command[command.index("--out") + 1])
+            out_path.write_bytes(f"segment-{len(render_calls) + 1}".encode("utf-8"))
+            render_calls.append(str(out_path))
+            state_path = Path(command[command.index("--state-json") + 1])
+            state_path.write_text(json.dumps({"segment": len(render_calls)}), encoding="utf-8")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        if "ffprobe" in command_text:
+            probe_calls.append(command[-1])
+            if str(command[-1]).endswith("tour.combined.mp4"):
+                return SimpleNamespace(returncode=0, stdout="30.0\n", stderr="")
+            return SimpleNamespace(returncode=0, stdout="10.0\n", stderr="")
+        if "ffmpeg" in command_text:
+            Path(command[-1]).write_bytes(b"combined-video")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(returncode=1, stdout="", stderr="unexpected command")
+
+    monkeypatch.setattr(product_service.subprocess, "run", _fake_run)
+
+    result = product_service._render_magicfit_property_flythrough_into_hosted_tour(
+        tour_url=f"https://propertyquarry.com/tours/{slug}",
+        title="1 Zimmer Wohnung mit Balkon",
+        property_facts={"room_count": 1, "description": "Balkon"},
+        actor="test",
+    )
+
+    assert result["status"] == "rendered"
+    assert len(render_calls) == 3
+    assert result["duration_seconds"] == pytest.approx(30.0)
+    assert result["combined_duration_seconds"] == pytest.approx(30.0)
+    assert (bundle_dir / "tour-magicfit-1781083900-fedcba9876.mp4").read_bytes() == b"combined-video"
+
+
+def test_video_segment_boundary_gate_rejects_visible_chained_cut(tmp_path: Path) -> None:
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg missing")
+    if product_service.Image is None:
+        pytest.skip("pillow missing")
+
+    def _solid_video(path: Path, color: str) -> None:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=c={color}:s=320x180:d=0.5:r=24",
+                "-pix_fmt",
+                "yuv420p",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+
+    first = tmp_path / "first.mp4"
+    same = tmp_path / "same.mp4"
+    different = tmp_path / "different.mp4"
+    _solid_video(first, "black")
+    _solid_video(same, "black")
+    _solid_video(different, "white")
+
+    ok, reason, metrics = product_service._video_segment_boundary_gate([first, same])
+    assert ok
+    assert reason == ""
+    assert metrics and metrics[0]["rms_delta"] <= 1.5
+
+    ok, reason, metrics = product_service._video_segment_boundary_gate([first, different])
+    assert not ok
+    assert reason.startswith("segment_boundary_frame_mismatch")
+    assert metrics and metrics[0]["rms_delta"] > 1.5
+
+
+def test_video_boundary_bridge_passes_segment_join_gate(tmp_path: Path) -> None:
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg missing")
+
+    first = tmp_path / "first.mp4"
+    second = tmp_path / "second.mp4"
+    bridge = tmp_path / "bridge.mp4"
+    for path, color in ((first, "black"), (second, "white")):
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=c={color}:s=320x180:d=0.5:r=24",
+                "-pix_fmt",
+                "yuv420p",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+
+    metrics = product_service._render_video_boundary_bridge(first, second, bridge, duration_seconds=0.5)
+    assert bridge.is_file()
+    assert len(metrics) == 2
+    ok, reason, chain_metrics = product_service._video_segment_boundary_gate([first, bridge, second])
+    assert ok, (reason, chain_metrics)
+
+
+def test_video_segment_boundary_gate_allows_codec_drift_but_not_visible_cut(tmp_path: Path) -> None:
+    if product_service.Image is None:
+        pytest.skip("pillow missing")
+
+    first_frame = tmp_path / "first.jpg"
+    drift_frame = tmp_path / "drift.jpg"
+    cut_frame = tmp_path / "cut.jpg"
+    product_service.Image.new("RGB", (320, 180), (120, 120, 120)).save(first_frame)
+    product_service.Image.new("RGB", (320, 180), (124, 124, 124)).save(drift_frame)
+    product_service.Image.new("RGB", (320, 180), (250, 250, 250)).save(cut_frame)
+
+    drift_rms = product_service._image_rms_delta(first_frame, drift_frame)
+    drift_similarity = product_service._image_similarity_score(first_frame, drift_frame)
+    cut_rms = product_service._image_rms_delta(first_frame, cut_frame)
+    cut_similarity = product_service._image_similarity_score(first_frame, cut_frame)
+
+    assert drift_rms > 1.5
+    assert drift_rms <= 5.0
+    assert drift_similarity >= 0.98
+    assert cut_rms > 5.0
+    assert cut_similarity < 0.98
+
+
+def test_video_continuous_shot_gate_rejects_internal_scene_cuts(tmp_path: Path) -> None:
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg missing")
+
+    continuous = tmp_path / "continuous.mp4"
+    cut = tmp_path / "cut.mp4"
+    first = tmp_path / "first.mp4"
+    second = tmp_path / "second.mp4"
+    list_file = tmp_path / "segments.txt"
+
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=320x180:d=1:r=24",
+            "-pix_fmt",
+            "yuv420p",
+            str(continuous),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    for path, color in ((first, "black"), (second, "white")):
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=c={color}:s=320x180:d=0.5:r=24",
+                "-pix_fmt",
+                "yuv420p",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+    list_file.write_text(f"file '{first}'\nfile '{second}'\n", encoding="utf-8")
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(list_file),
+            "-c",
+            "copy",
+            str(cut),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+
+    ok, reason, metrics = product_service._video_continuous_shot_gate(continuous)
+    assert ok
+    assert reason == ""
+    assert metrics["scene_cuts"] == 0
+
+    ok, reason, metrics = product_service._video_continuous_shot_gate(cut)
+    assert not ok
+    assert reason.startswith("continuous_shot_scene_cuts")
+    assert metrics["scene_cuts"] >= 1
+
+
+def test_public_tour_control_rejects_removed_cube_viewer() -> None:
+    from app.api.routes import public_tours
+
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_control_html(
+            {
+                "slug": "cube-viewer-test",
+                "display_title": "Cube Viewer Test",
+                "scene_strategy": "pure_360_cube",
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "pure_360",
+                        "cube_faces": {
+                            "f": "/tours/files/cube-viewer-test/panorama/1/tablet_f.jpg",
+                            "b": "/tours/files/cube-viewer-test/panorama/1/tablet_b.jpg",
+                            "l": "/tours/files/cube-viewer-test/panorama/1/tablet_l.jpg",
+                            "r": "/tours/files/cube-viewer-test/panorama/1/tablet_r.jpg",
+                            "u": "/tours/files/cube-viewer-test/panorama/1/tablet_u.jpg",
+                            "d": "/tours/files/cube-viewer-test/panorama/1/tablet_d.jpg",
+                        },
+                    }
+                ],
+            }
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_control_cube_viewer_removed"
+
+
+def test_public_tour_control_matterport_requires_real_export() -> None:
+    from app.api.routes import public_tours
+
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_control_html(
+            {
+                "slug": "matterport-test",
+                "display_title": "Matterport Test",
+                "scene_strategy": "pure_360_cube",
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "pure_360",
+                        "cube_faces": {"f": "/tours/files/matterport-test/panorama/1/tablet_f.jpg"},
+                    }
+                ],
+            },
+            viewer_mode="matterport",
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_control_matterport_export_missing"
+
+
+def test_public_tour_control_3dvista_requires_real_export() -> None:
+    from app.api.routes import public_tours
+
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_control_html(
+            {
+                "slug": "3dvista-test",
+                "display_title": "3DVista Test",
+                "control_mode": "3dvista",
+                "scene_strategy": "pure_360_cube",
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "pure_360",
+                        "cube_faces": {"f": "/tours/files/3dvista-test/panorama/1/tablet_f.jpg"},
+                    }
+                ],
+            }
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_control_3dvista_export_missing"
+
+
+def test_public_tour_control_embeds_external_3dvista_url() -> None:
+    from app.api.routes import public_tours
+
+    html = public_tours._tour_control_html(
+        {
+            "slug": "3dvista-external",
+            "display_title": "3DVista External",
+            "control_mode": "3dvista",
+            "three_d_vista_url": "https://example.3dvista.com/tours/top22/index.html",
+        }
+    )
+
+    assert "3DVista Control" in html
+    assert '<iframe src="https://example.3dvista.com/tours/top22/index.html"' in html
+
+
+def test_public_tour_control_embeds_external_matterport_url() -> None:
+    from app.api.routes import public_tours
+
+    html = public_tours._tour_control_html(
+        {
+            "slug": "matterport-external",
+            "display_title": "Matterport External",
+            "source_virtual_tour_url": "https://my.matterport.com/show/?m=TEST123&mls=2",
+        },
+        viewer_mode="matterport",
+    )
+
+    assert "Matterport Control" in html
+    assert '<iframe src="https://my.matterport.com/show/?m=TEST123&amp;mls=2"' in html
+
+
+def test_public_tour_control_rejects_removed_legacy_viewer() -> None:
+    from app.api.routes import public_tours
+
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_control_html(
+            {
+                "slug": "legacy-viewer-test",
+                "display_title": "Legacy Viewer Test",
+                "control_mode": "marzipano",
+                "scenes": [],
+            }
+        )
+
+    assert exc_info.value.status_code == 410
+    assert exc_info.value.detail == "tour_control_legacy_viewer_removed"
+
+
+def test_property_tour_compare_links_offer_only_real_provider_exports(monkeypatch, tmp_path: Path) -> None:
+    slug = "demo-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "matterport_url": "https://my.matterport.com/show/?m=TEST123",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    links = product_service._property_tour_compare_links("https://propertyquarry.com/tours/demo-tour")
+
+    assert links == {
+        "matterport": "https://propertyquarry.com/tours/demo-tour/control/matterport",
+        "3dvista": "https://propertyquarry.com/tours/demo-tour/control/3dvista",
+    }
+
+
+def test_property_tour_compare_links_omits_fake_provider_exports(monkeypatch, tmp_path: Path) -> None:
+    slug = "demo-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps({"slug": slug, "control_mode": "walkable_3d", "scene_strategy": "pure_360_cube"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    assert product_service._property_tour_compare_links("https://propertyquarry.com/tours/demo-tour") == {}
+
+
+def test_property_3d_provider_rule_exit_gate_requires_selected_provider_links(monkeypatch, tmp_path: Path) -> None:
+    slug = "provider-rule-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "matterport_url": "https://my.matterport.com/show/?m=TEST123",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    ok, reason, metrics = product_service._property_3d_provider_rule_exit_gate(
+        "https://propertyquarry.com/tours/provider-rule-tour",
+        expected_providers=("metaport", "3d_tour"),
+    )
+
+    assert ok is True
+    assert reason == ""
+    assert metrics["expected_providers"] == ["matterport", "3dvista"]
+    assert metrics["selected_links"] == {
+        "matterport": "https://propertyquarry.com/tours/provider-rule-tour/control/matterport",
+        "3dvista": "https://propertyquarry.com/tours/provider-rule-tour/control/3dvista",
+    }
+
+
+def test_property_3d_provider_rule_exit_gate_rejects_rule_without_export(monkeypatch, tmp_path: Path) -> None:
+    slug = "provider-rule-missing-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps({"slug": slug, "control_mode": "walkable_3d"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    ok, reason, metrics = product_service._property_3d_provider_rule_exit_gate(
+        "https://propertyquarry.com/tours/provider-rule-missing-tour",
+        expected_providers=("metaport",),
+    )
+
+    assert ok is False
+    assert reason == "matterport_export_missing_for_rule"
+    assert metrics["selected_links"] == {}
+
+
+def test_property_3d_provider_rule_exit_gate_skips_internal_control_without_provider_rule(monkeypatch, tmp_path: Path) -> None:
+    slug = "internal-control-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps({"slug": slug, "control_mode": "walkable_3d"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    ok, reason, metrics = product_service._property_3d_provider_rule_exit_gate(
+        "https://propertyquarry.com/tours/internal-control-tour"
+    )
+
+    assert ok is True
+    assert reason == ""
+    assert metrics["skipped"] == "no_provider_export_rule"
+    assert metrics["selected_links"] == {}
+
+
+def test_property_3d_viewer_links_exit_gate_accepts_verified_viewers(monkeypatch) -> None:
+    class _Response:
+        def __init__(self, status_code: int, body: str, content_type: str = "text/html; charset=utf-8") -> None:
+            self.status_code = status_code
+            self.headers = {"content-type": content_type}
+            self._body = body.encode("utf-8")
+
+        def iter_content(self, chunk_size: int = 8192):  # noqa: ANN001
+            yield self._body
+
+        def close(self) -> None:
+            return None
+
+    def _fake_get(url: str, **kwargs):  # noqa: ANN001
+        if url.endswith("/control/matterport"):
+            return _Response(200, "<html><title>Matterport Control</title><iframe src='https://my.matterport.com/show/?m=TEST123'></iframe></html>")
+        if url.endswith("/control/3dvista"):
+            return _Response(200, "<html><title>3DVista Control</title><iframe src='/tours/files/demo/3dvista/index.htm'></iframe></html>")
+        if url.endswith("/control/marzipano"):
+            return _Response(410, '{"detail":"removed"}', "application/json")
+        return _Response(404, "")
+
+    monkeypatch.setattr(product_service.requests, "get", _fake_get)
+
+    ok, reason, metrics = product_service._property_3d_viewer_links_exit_gate(
+        {
+            "matterport": "https://propertyquarry.com/tours/demo/control/matterport",
+            "3dvista": "https://propertyquarry.com/tours/demo/control/3dvista",
+        }
+    )
+
+    assert ok is True
+    assert reason == ""
+    assert metrics["legacy_removed"] is True
+
+
+def test_property_3d_viewer_links_exit_gate_skips_when_no_provider_links() -> None:
+    ok, reason, metrics = product_service._property_3d_viewer_links_exit_gate({})
+
+    assert ok is True
+    assert reason == ""
+    assert metrics["skipped"] == "no_provider_links"
+
+
+def test_property_3d_viewer_links_exit_gate_rejects_hosting_panel(monkeypatch) -> None:
+    class _Response:
+        status_code = 200
+        headers = {"content-type": "text/html; charset=utf-8"}
+
+        def iter_content(self, chunk_size: int = 8192):  # noqa: ANN001
+            yield b"<html><title>cPanel Login</title></html>"
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(product_service.requests, "get", lambda *args, **kwargs: _Response())
+
+    ok, reason, metrics = product_service._property_3d_viewer_links_exit_gate(
+        {
+            "matterport": "https://propertyquarry.com/tours/demo/control/matterport",
+            "3dvista": "https://propertyquarry.com/tours/demo/control/3dvista",
+        }
+    )
+
+    assert ok is False
+    assert reason == "matterport_viewer_resolved_to_hosting_panel"
+    assert dict(dict(metrics["checked"])["matterport"])["contains_cpanel"] is True
+
+
+def test_property_3d_viewer_links_exit_gate_rejects_legacy_viewer_body(monkeypatch) -> None:
+    class _Response:
+        status_code = 200
+        headers = {"content-type": "text/html; charset=utf-8"}
+
+        def iter_content(self, chunk_size: int = 8192):  # noqa: ANN001
+            yield b"<html><title>3DVista Control</title><script src='marzipano.js'></script></html>"
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(product_service.requests, "get", lambda *args, **kwargs: _Response())
+
+    ok, reason, _metrics = product_service._property_3d_viewer_links_exit_gate(
+        {
+            "matterport": "https://propertyquarry.com/tours/demo/control/matterport",
+            "3dvista": "https://propertyquarry.com/tours/demo/control/3dvista",
+        }
+    )
+
+    assert ok is False
+    assert reason == "matterport_viewer_legacy_viewer_present"
+
+
+def test_magicfit_flythrough_prompt_includes_midday_sun_and_exterior_context() -> None:
+    prompt = product_service._default_magicfit_property_flythrough_prompt(
+        title="DG-Wohnung mit Terrassen in Floridsdorf",
+        property_facts={
+            "street_address": "Beispielgasse 12",
+            "postal_name": "1210 Wien",
+            "map_lat": 48.2601,
+            "map_lng": 16.3992,
+            "floor": "Dachgeschoss",
+            "terrace_orientation": "south-west",
+            "view_description": "urban side street, courtyard greenery",
+            "nearby_trees": "mature street trees can shade the lower facade",
+        },
+        room_count=3,
+        room_visit_plan=["kitchen", "bathroom", "toilet", "hall"],
+    )
+
+    assert "13:00 local Vienna time" in prompt
+    assert "sunny day" in prompt
+    assert "Beispielgasse 12" in prompt
+    assert "48.2601, 16.3992" in prompt
+    assert "south-west" in prompt
+    assert "mature street trees" in prompt
+    assert "balcony doors and windows" in prompt
+
+
+def test_magicfit_visit_plan_counts_functional_route_stops_not_just_listing_rooms() -> None:
+    room_count, route_labels = product_service._magicfit_property_room_visit_plan(
+        title="2-Zimmer-Wohnung mit Balkon, Top 22",
+        property_facts={
+            "room_count": 2,
+            "description": "2 Zimmer inklusive Wohnküche, 1 Vorraum, 1 Bad mit WC, 1 Abstellraum, 1 Balkon.",
+        },
+    )
+
+    assert room_count == 6
+    assert route_labels == [
+        "entry/hall",
+        "storage room",
+        "bath/WC",
+        "living kitchen",
+        "bedroom",
+        "balcony/terrace",
+    ]
+    assert product_service._magicfit_flythrough_minimum_duration_seconds(
+        title="2-Zimmer-Wohnung mit Balkon, Top 22",
+        property_facts={
+            "room_count": 2,
+            "description": "2 Zimmer inklusive Wohnküche, 1 Vorraum, 1 Bad mit WC, 1 Abstellraum, 1 Balkon.",
+        },
+    ) == 90.0

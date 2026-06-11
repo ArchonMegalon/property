@@ -310,6 +310,75 @@ def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     assert "section_cards" in rendered["receipt"]["visual_elements"]
 
 
+def test_fliplink_pdf_appendix_mode_renders_compact_telegram_appendix(tmp_path: Path) -> None:
+    source = {
+        **_source_payload(),
+        "appendix_mode": "telegram_pdf_appendix",
+        "source_pdf_filename": "wohnung-expose.pdf",
+        "title": "Uploaded Wohnung expose",
+        "tour_url": "https://propertyquarry.com/tours/pdf-upload-tour",
+        "flythrough_url": "https://propertyquarry.com/tours/files/pdf-upload-tour/tour.mp4",
+        "dossier_writer": {
+            "status": "verified",
+            "generated_by": "propertyquarry_dossier_writer.claim_bound.v1",
+            "claim_coverage": {"claims_used": 3, "unsupported_sentences": 0},
+            "neuronwriter": {"status": "pending", "mode": "api_live", "query_id": "nw-appendix"},
+            "sections": [
+                {
+                    "section_key": "risk_register",
+                    "title": "Risk Register",
+                    "body_markdown": "Operating-cost history is not yet available. Heating source is not confirmed in the current evidence set.",
+                    "bullets": ["Ask the agent for the last 24 months of operating-cost statements."],
+                    "cta": "Ask the agent for the last 24 months of operating-cost statements.",
+                    "claims_used": ["risk.operating_cost_history_missing", "risk.heating_source_unclear"],
+                }
+            ],
+        },
+        "property_facts_json": {
+            "missing_fact_research": {
+                "items": [
+                    {
+                        "label": "Operating costs",
+                        "status": "research_needed",
+                        "evidence": "Verify cost-line history against the expose.",
+                    }
+                ]
+            }
+        },
+    }
+
+    redacted = redact_property_packet(
+        source=source,
+        privacy_mode=PacketPrivacyMode.OWNER_PRIVATE,
+        include_exact_address=False,
+    )
+
+    assert redacted.payload["appendix_mode"] == "telegram_pdf_appendix"
+    assert redacted.payload["source_pdf_filename"] == "wohnung-expose.pdf"
+
+    rendered = render_property_packet_pdf(
+        artifact_root=tmp_path,
+        publication_id="pub_appendix",
+        principal_id="owner-1",
+        source=source,
+        packet_kind=PropertyPacketKind.OWNER_REVIEW,
+        privacy_mode=PacketPrivacyMode.OWNER_PRIVATE,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+    )
+
+    pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
+    assert b"Viewing Appendix" in pdf_bytes
+    assert b"Appendix to uploaded PDF: wohnung-expose.pdf" in pdf_bytes
+    assert b"Deep research results" in pdf_bytes
+    assert b"Operating-cost history is not yet available" in pdf_bytes
+    assert b"Open 3D control" in pdf_bytes
+    assert b"Play fly-through" in pdf_bytes
+    assert b"Artifact status" not in pdf_bytes
+    assert b"RISK REGISTER" not in pdf_bytes
+    assert b"Comparison snapshot" not in pdf_bytes
+    assert b"COMPARISON SNAPSHOT" not in pdf_bytes
+
+
 def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
     source = {
         **_source_payload(),

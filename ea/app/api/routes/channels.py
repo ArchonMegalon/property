@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import concurrent.futures
+import contextlib
 import hashlib
 import hmac
 import json
@@ -26,10 +27,12 @@ from app.channels.telegram.adapter import TelegramObservationAdapter
 from app.container import AppContainer
 from app.domain.models import ToolInvocationRequest
 from app.product import service as product_service_module
+from app.product.projections import compact_text
 from app.product.service import build_product_service
 from app.services import google_oauth as google_oauth_service
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
 from app.services.ltd_runtime_skill_projection import projected_task_key, projected_task_key_for_request
+from app.services.property_billing import property_commercial_snapshot
 from app.services.telegram_session_service import (
     TelegramLocalResolver,
     TelegramReplyMemoryState,
@@ -46,7 +49,25 @@ router = APIRouter(prefix="/v1/channels", tags=["channels"])
 _telegram = TelegramObservationAdapter()
 _SAFE_MATH_RE = re.compile(r"^[0-9\.\+\-\*\/\(\)\s=\?]+$")
 _TELEGRAM_ASSISTANT_ACK = "Let me check that and get back to you here."
+
+
+def _telegram_env_int(env_key: str, fallback: int) -> int:
+    raw = str(os.getenv(env_key) or "").strip()
+    try:
+        return max(int(raw or str(fallback)), 1)
+    except Exception:
+        return max(fallback, 1)
+
+
 _TELEGRAM_ASYNC_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="telegram-ea")
+_TELEGRAM_PAID_RENDER_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=_telegram_env_int("EA_TELEGRAM_PAID_RENDER_WORKERS", 2),
+    thread_name_prefix="telegram-ea-paid-render",
+)
+_TELEGRAM_FREE_RENDER_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=_telegram_env_int("EA_TELEGRAM_FREE_RENDER_WORKERS", 1),
+    thread_name_prefix="telegram-ea-free-render",
+)
 _TELEGRAM_WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 _URL_RE = re.compile(r"https?://[^\s<>\"]+")
 _MATH_WORD_NUMBERS = {
@@ -106,6 +127,10 @@ _TELEGRAM_MONTH_ALIASES = {
 
 def _responses_route_module():
     return import_module("app.api.routes.responses")
+
+
+responses_route = _responses_route_module()
+
 
 def _telegram_bot_registry() -> dict[str, dict[str, object]]:
     registry: dict[str, dict[str, object]] = {}
@@ -225,6 +250,41 @@ def _resolve_telegram_principal(container: AppContainer, chat_id: str, *, bot_ke
     return ""
 
 
+def _telegram_principal_is_registered_user(
+    container: AppContainer,
+    principal_id: str,
+    *,
+    accepted_default_principal_id: str = "",
+) -> bool:
+    normalized = str(principal_id or "").strip()
+    if not normalized:
+        return False
+    accepted_default = str(accepted_default_principal_id or _telegram_default_principal_id()).strip()
+    if accepted_default and normalized == accepted_default:
+        return True
+    with contextlib.suppress(Exception):
+        status = container.onboarding.status(principal_id=normalized)
+        normalized_status = str(status.get("status") or "").strip().lower()
+        return bool(normalized_status) and normalized_status != "draft"
+    return False
+
+
+def _telegram_property_render_plan_key(container: AppContainer, principal_id: str) -> str:
+    normalized_principal = str(principal_id or "").strip()
+    if not normalized_principal:
+        return "free"
+    with contextlib.suppress(Exception):
+        status = container.onboarding.status(principal_id=normalized_principal)
+        preferences = dict(status.get("property_search_preferences") or {})
+        snapshot = property_commercial_snapshot(preferences)
+        return str(snapshot.get("current_plan_key") or "free").strip().lower() or "free"
+    return "free"
+
+
+def _telegram_property_render_priority(container: AppContainer, principal_id: str) -> str:
+    return "paid" if _telegram_property_render_plan_key(container=container, principal_id=principal_id) in {"plus", "agent"} else "free"
+
+
 def _telegram_default_principal_id() -> str:
     return str(os.getenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID") or "").strip()
 
@@ -252,6 +312,12 @@ def _auto_bind_telegram_chat(container: AppContainer, chat_id: str, *, config: d
     else:
         auto_bind_enabled = bool(auto_bind)
     if not normalized_chat_id or not principal_id or not auto_bind_enabled:
+        return ""
+    if not _telegram_principal_is_registered_user(
+        container=container,
+        principal_id=principal_id,
+        accepted_default_principal_id=str(config.get("default_principal_id") or "").strip(),
+    ):
         return ""
     connector = container.tool_runtime.upsert_connector_binding(
         principal_id=principal_id,
@@ -454,6 +520,22 @@ def _telegram_transport_retry_backoff_seconds() -> float:
         return max(float(raw or "1.0"), 0.0)
     except Exception:
         return 1.0
+
+
+def _telegram_property_link_bundle_poll_attempts() -> int:
+    raw = str(os.getenv("EA_TELEGRAM_PROPERTY_LINK_BUNDLE_POLL_ATTEMPTS") or "8").strip()
+    try:
+        return max(int(float(raw or "8")), 0)
+    except Exception:
+        return 8
+
+
+def _telegram_property_link_bundle_poll_backoff_seconds() -> float:
+    raw = str(os.getenv("EA_TELEGRAM_PROPERTY_LINK_BUNDLE_POLL_BACKOFF_SECONDS") or "6.0").strip()
+    try:
+        return max(float(raw or "6.0"), 0.0)
+    except Exception:
+        return 6.0
 
 
 def _telegram_post_json_with_retries(
@@ -4459,6 +4541,7 @@ def _telegram_command_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDec
                 "/start - connect this chat to Executive Assistant\n"
                 "/help - show this help text\n"
                 "/status - check bot and routing status\n\n"
+                "/scout_update /scout-update /scoutupdate - generate Scout bundle from a listing link\n"
                 "You can also send property links, notes, or requests in plain text."
             )
         )
@@ -4519,9 +4602,18 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
     )
     if action == "status":
         status = str(snapshot.get("status") or "").strip().lower()
+        failure_reason = str(snapshot.get("error") or "").strip()
         if status == "sent":
             return TelegramTurnDecision(reply_text="EA already finished that request and sent the reply here.")
         if status == "failed":
+            if failure_reason:
+                return TelegramTurnDecision(
+                    reply_text=(
+                        "That request failed after processing. "
+                        f"Last status: {failure_reason}. "
+                        "Tap Retry to run it again."
+                    )
+                )
             return TelegramTurnDecision(reply_text="That request failed after processing. Tap Retry to run it again.")
         return TelegramTurnDecision(
             reply_text=(
@@ -4550,6 +4642,7 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
             schedule_async=True,
             async_text=str(snapshot.get("prompt_text") or "").strip(),
             async_message_id=retry_message_id,
+            retry_budget=2,
         )
     return TelegramTurnDecision()
 
@@ -4561,7 +4654,10 @@ def _telegram_notification_feedback_followup_turn_decision(ctx: TelegramTurnCont
     if not normalized:
         return TelegramTurnDecision()
     service = build_product_service(ctx.container)
-    result = service.record_notification_feedback_followup_response(
+    recorder = getattr(service, "record_notification_feedback_followup_response", None)
+    if not callable(recorder):
+        return TelegramTurnDecision()
+    result = recorder(
         principal_id=ctx.principal_id,
         chat_id=ctx.chat_id,
         text=normalized,
@@ -4572,12 +4668,81 @@ def _telegram_notification_feedback_followup_turn_decision(ctx: TelegramTurnCont
     return TelegramTurnDecision()
 
 
+def _telegram_latest_supported_property_link_in_telegram_chat(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    chat_id: str,
+) -> str:
+    normalized_chat_id = str(chat_id or "").strip()
+    for row in container.channel_runtime.list_recent_observations(limit=80, principal_id=principal_id):
+        if str(row.channel or "").strip().lower() != "telegram":
+            continue
+        payload = dict(row.payload or {})
+        if normalized_chat_id and str(payload.get("chat_id") or "").strip() != normalized_chat_id:
+            continue
+        event_type = str(row.event_type or "").strip().lower()
+        text = ""
+        if event_type == "telegram.message":
+            text = str(payload.get("text") or "").strip()
+        elif event_type in {"telegram.reply_sent", "telegram.reply_async_sent", "telegram.reply_async_started", "telegram.reply_async_failed"}:
+            text = str(payload.get("reply_text") or payload.get("prompt_text") or "").strip()
+        if not text:
+            continue
+        candidate = _telegram_supported_property_link(text)
+        if candidate:
+            return candidate
+    return ""
+
+
+def _telegram_scout_update_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
+    normalized = str(ctx.normalized or "").strip()
+    if not normalized:
+        return TelegramTurnDecision()
+    lowered = " ".join(normalized.lower().split())
+    if not (
+        "/scout_update" in lowered
+        or "/scoutupdate" in lowered
+        or "/scout-update" in lowered
+        or "scout update" in lowered
+    ):
+        return TelegramTurnDecision()
+    property_url = _telegram_supported_property_link(normalized)
+    if not property_url and ctx.chat_id:
+        property_url = _telegram_latest_supported_property_link_in_telegram_chat(
+            ctx.container,
+            principal_id=ctx.principal_id,
+            chat_id=ctx.chat_id,
+        )
+    if not property_url:
+        return TelegramTurnDecision(
+            reply_text=(
+                "Scout update needs the listing link. Send: /scout_update <property link> and "
+                "I will generate the 3D tour, fly-through, dossier PDF, preview image, and open-buttons in one reply."
+            )
+        )
+    async_text = normalized
+    if property_url not in async_text:
+        async_text = f"{async_text} {property_url}"
+    return TelegramTurnDecision(
+        schedule_async=True,
+        async_text=async_text,
+        async_message_id=ctx.current_message_id,
+        suppress_async_ack=True,
+    )
+
+
 def _telegram_link_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
     if "http://" not in ctx.normalized and "https://" not in ctx.normalized:
         return TelegramTurnDecision()
     property_url = _telegram_supported_property_link(ctx.normalized)
     if property_url:
-        return TelegramTurnDecision(schedule_async=True, async_text=property_url, async_message_id=ctx.current_message_id)
+        return TelegramTurnDecision(
+            schedule_async=True,
+            async_text=ctx.normalized,
+            async_message_id=ctx.current_message_id,
+            suppress_async_ack=True,
+        )
     broker_portal_url = _telegram_login_walled_property_link(ctx.normalized)
     if broker_portal_url:
         return TelegramTurnDecision(
@@ -4608,6 +4773,224 @@ def _telegram_supported_property_link(text: str) -> str:
         if candidate and product_service_module._property_scout_is_supported_listing_url(candidate):
             return candidate
     return ""
+
+
+def _telegram_property_link_bundle_retryable_pending_reason(reason: str) -> bool:
+    normalized = str(reason or "").strip().lower()
+    if not normalized:
+        return False
+    return (
+        "3d tour missing" in normalized
+        or "flythrough video missing" in normalized
+        or "dossier not rendered" in normalized
+    )
+
+
+def _telegram_property_link_bundle_retryable_failed_reason(reason: str) -> bool:
+    normalized = str(reason or "").strip().lower()
+    if not normalized:
+        return False
+    return (
+        "timeout" in normalized
+        or "rate limit" in normalized
+        or "temporar" in normalized
+        or "429" in normalized
+        or "502" in normalized
+        or "503" in normalized
+        or "504" in normalized
+        or "connection" in normalized
+        or "network" in normalized
+        or "upstream" in normalized
+        or "service unavailable" in normalized
+        or "internal server error" in normalized
+    )
+
+
+def _telegram_property_tour_upgrade_hint(reason: str) -> str:
+    normalized = str(reason or "").strip().lower()
+    if "property_tour_upgrade_required:plus" in normalized:
+        return (
+            "You reached your Free tier tour limit (1/day). "
+            "Upgrade to Plus for 3 property dossiers per day."
+        )
+    if "property_tour_upgrade_required:agent" in normalized:
+        return (
+            "You reached your Plus daily tour limit (3/day). "
+            "Upgrade to Agent for unlimited artifact generation."
+        )
+    return ""
+
+
+def _telegram_property_link_bundle_error_reply(reason: str, *, prompt_text: str = "") -> str:
+    upgrade_hint = _telegram_property_tour_upgrade_hint(str(reason or ""))
+    if upgrade_hint:
+        return upgrade_hint
+    normalized_reason = str(reason or "an internal error").strip()
+    if len(normalized_reason) > 180:
+        normalized_reason = f"{normalized_reason[:177].rstrip()}..."
+    if not normalized_reason:
+        normalized_reason = "an internal error"
+    if prompt_text:
+        return (
+            "I couldn’t build the full property package right now. "
+            f"Error: {normalized_reason}. Send this once more if you want me to retry."
+        )
+    return (
+        "I couldn’t build the full property package right now. "
+        f"Error: {normalized_reason}."
+    )
+
+
+def _compact_telegram_style_hint(value: str, *, max_length: int = 140) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    compact = re.sub(r"\s+", " ", raw).strip(" -_:;,.()[]{}\"'")
+    if not compact:
+        return ""
+    if len(compact) <= max_length:
+        return compact
+    truncated = compact[:max_length].rstrip(" -_:;,.")
+    if " " in truncated:
+        truncated = truncated.rsplit(" ", 1)[0]
+    return truncated.strip(" -_:;,.")
+
+
+def _telegram_property_link_diorama_style_hint(text: str) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return ""
+    without_links = re.sub(r"\s+", " ", _URL_RE.sub(" ", normalized)).strip()
+    if not without_links:
+        return ""
+
+    explicit_patterns = (
+        r"(?i)(?:diorama|preview|flythrough|image)\s+(?:style|theme|look|aesthetic|vibe|mood)\s*[:\-]\s*([^.;\n]{4,140})",
+        r"(?i)(?:style|theme|aesthetic|look|vibe|mood)\s*[:\-]\s*([^.;\n]{4,140})",
+        r"(?i)(?:style|theme|aesthetic|look|vibe|mood)\s+(?:should|must|needs|would|want)\s+be\s+([^.;\n]{4,140})",
+        r"(?i)(?:render|design|interior|ambiance|ambience|interiority|diorama)\s+(?:in|as)\s+([^.;\n]{4,140})",
+    )
+    for pattern in explicit_patterns:
+        match = re.search(pattern, without_links)
+        if match:
+            extracted = _compact_telegram_style_hint(match.group(1), max_length=140)
+            if extracted:
+                return extracted
+
+    lower_without_links = without_links.lower()
+    for token in (
+        "scandinavian",
+        "scandi",
+        "nordic",
+        "minimalist",
+        "minimal",
+        "industrial",
+        "boho",
+        "bohemian",
+        "mid-century",
+        "contemporary",
+        "modern",
+        "vintage",
+        "retro",
+        "cozy",
+        "warm",
+        "cool",
+        "dark",
+        "monochrome",
+        "loft",
+        "elegant",
+        "luxury",
+        "earthy",
+        "neutral",
+    ):
+        token_normalized = f" {token} "
+        if token_normalized in f" {lower_without_links} ":
+            return "scandinavian" if token == "scandi" else token
+    return ""
+
+
+def _telegram_property_link_birthday_party_request(text: str) -> bool:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return False
+    without_links = re.sub(r"\s+", " ", _URL_RE.sub(" ", normalized)).strip().lower()
+    if not without_links:
+        return False
+    return any(
+        token in without_links
+        for token in (
+            "birthday party",
+            "birthday flythrough",
+            "birthday video",
+            "geburtstag",
+            "geburtstagsfeier",
+            "geburtstagsparty",
+            "kindergeburtstag",
+            "party flythrough",
+            "party video",
+            "our son",
+            "unser sohn",
+        )
+    )
+
+
+def _telegram_property_pdf_document_payload(ctx: TelegramTurnContext) -> dict[str, object]:
+    payload = dict(ctx.payload or {})
+    if str(payload.get("kind") or "").strip().lower() != "document":
+        return {}
+    metadata = dict(payload.get("message_metadata") or {})
+    filename = str(metadata.get("file_name") or "").strip()
+    download_url = str(metadata.get("download_url") or "").strip()
+    if not filename.lower().endswith(".pdf") or not download_url:
+        return {}
+    signal_text = " ".join(
+        part
+        for part in (
+            str(ctx.normalized or "").strip(),
+            filename,
+            str(metadata.get("caption") or "").strip(),
+        )
+        if part
+    ).lower()
+    if not any(
+        marker in signal_text
+        for marker in (
+            "property",
+            "propertyquarry",
+            "scout",
+            "dossier",
+            "wohnung",
+            "immobil",
+            "expose",
+            "exposé",
+            "grundriss",
+            "floorplan",
+            "makler",
+            "real estate",
+        )
+    ):
+        return {}
+    return {
+        "kind": "property_pdf_document",
+        "source_pdf_url": download_url,
+        "source_pdf_filename": filename,
+        "caption": str(metadata.get("caption") or ctx.normalized or "").strip(),
+        "telegram_file_id": str(metadata.get("file_id") or "").strip(),
+    }
+
+
+def _telegram_property_pdf_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
+    pdf_payload = _telegram_property_pdf_document_payload(ctx)
+    if not pdf_payload:
+        return TelegramTurnDecision()
+    filename = str(pdf_payload.get("source_pdf_filename") or "property.pdf").strip() or "property.pdf"
+    return TelegramTurnDecision(
+        schedule_async=True,
+        async_text=f"Property PDF upload: {filename}",
+        async_message_id=ctx.current_message_id,
+        async_payload=pdf_payload,
+        suppress_async_ack=True,
+    )
 
 
 def _telegram_login_walled_property_link(text: str) -> str:
@@ -4719,8 +5102,12 @@ def _telegram_async_turn_snapshot(
             payload = dict(row.payload or {})
             if normalized_chat_id and str(payload.get("chat_id") or "").strip() != normalized_chat_id:
                 continue
-            return {"status": "failed", "prompt_text": str(payload.get("prompt_text") or "").strip()}
-        return {"status": "failed", "prompt_text": ""}
+            return {
+                "status": "failed",
+                "prompt_text": str(payload.get("prompt_text") or "").strip(),
+                "error": str(payload.get("error") or "").strip(),
+            }
+        return {"status": "failed", "prompt_text": "", "error": ""}
     processing = container.channel_runtime.find_observation_by_dedupe(
         f"{normalized_message_id}:assistant_async_processing",
         principal_id=principal_id,
@@ -4810,6 +5197,8 @@ def _telegram_async_assistant_reply_worker(
     chat_id: str,
     text: str,
     current_message_id: str,
+    retry_budget: int = 2,
+    async_payload: dict[str, object] | None = None,
 ) -> None:
     _record_telegram_async_processing(
         container,
@@ -4818,30 +5207,139 @@ def _telegram_async_assistant_reply_worker(
         current_message_id=current_message_id,
         prompt_text=text,
     )
-    property_url = _telegram_supported_property_link(text)
-    if property_url:
+    remaining_retries = max(0, int(retry_budget or 0)) + _telegram_property_link_bundle_poll_attempts()
+    poll_backoff_seconds = _telegram_property_link_bundle_poll_backoff_seconds()
+    payload = dict(async_payload or {})
+    if str(payload.get("kind") or "").strip().lower() == "property_pdf_document":
         try:
             service = build_product_service(container)
-            result = service.deliver_telegram_property_link_bundle(
+            result = service.deliver_telegram_property_pdf_bundle(
                 principal_id=principal_id,
-                property_url=property_url,
-                actor="telegram_property_link",
-                source_ref=f"telegram:{chat_id}:{current_message_id or hashlib.sha256(property_url.encode('utf-8')).hexdigest()[:16]}",
-                external_id=property_url,
-                preference_person_id="self",
+                source_pdf_url=str(payload.get("source_pdf_url") or "").strip(),
+                source_pdf_filename=str(payload.get("source_pdf_filename") or "").strip(),
+                caption=str(payload.get("caption") or "").strip(),
+                actor="telegram_property_pdf",
+                source_ref=f"telegram:{chat_id}:{current_message_id or hashlib.sha256(str(payload.get('source_pdf_url') or '').encode('utf-8')).hexdigest()[:16]}",
+                external_id=str(payload.get("telegram_file_id") or payload.get("source_pdf_url") or "").strip(),
             )
         except Exception as exc:
+            failure_reason = str(exc)
             _record_telegram_async_failed(
                 container,
                 principal_id=principal_id,
                 chat_id=chat_id,
                 current_message_id=current_message_id,
                 prompt_text=text,
-                stage="property_link_bundle",
-                error=str(exc),
+                stage="property_pdf_bundle",
+                error=failure_reason,
             )
-        else:
-            if str(result.get("status") or "").strip() == "sent":
+            if chat_id:
+                _telegram_send_and_record_reply(
+                    container=container,
+                    principal_id=principal_id,
+                    bot_config=bot_config,
+                    chat_id=chat_id,
+                    dedupe_key="",
+                    reply_text=(
+                        "I couldn't build the property PDF packet from that upload right now. "
+                        f"Error: {compact_text(failure_reason, fallback='property_pdf_bundle_failed', limit=160)}."
+                    ),
+                    source_text=text,
+                    async_mode=True,
+                    current_message_id=current_message_id,
+                    used_fallback_only=True,
+                    probe_reply=_telegram_probe_reply_text(text),
+                    last_resort_reply=_telegram_last_resort_reply_text(text),
+                )
+            return
+        status = str(result.get("status") or "").strip()
+        if status == "sent":
+            _record_telegram_async_sent(
+                container,
+                principal_id=principal_id,
+                chat_id=chat_id,
+                current_message_id=current_message_id,
+                prompt_text=text,
+                reply_text=f"property_pdf_bundle_sent:{str(result.get('source_pdf_filename') or '').strip()}",
+                used_fallback_only=False,
+            )
+            return
+        reason = str(result.get("reason") or result.get("error") or status or "property_pdf_bundle_failed").strip()
+        _record_telegram_async_failed(
+            container,
+            principal_id=principal_id,
+            chat_id=chat_id,
+            current_message_id=current_message_id,
+            prompt_text=text,
+            stage="property_pdf_bundle_status",
+            error=reason,
+        )
+        if chat_id:
+            _telegram_send_and_record_reply(
+                container=container,
+                principal_id=principal_id,
+                bot_config=bot_config,
+                chat_id=chat_id,
+                dedupe_key="",
+                reply_text=(
+                    "I couldn't build the property PDF packet from that upload right now. "
+                    f"Current status: {compact_text(reason, fallback='property_pdf_bundle_failed', limit=160)}."
+                ),
+                source_text=text,
+                async_mode=True,
+                current_message_id=current_message_id,
+                used_fallback_only=True,
+                probe_reply=_telegram_probe_reply_text(text),
+                last_resort_reply=_telegram_last_resort_reply_text(text),
+            )
+        return
+    property_url = _telegram_supported_property_link(text)
+    if property_url:
+        style_hint = _telegram_property_link_diorama_style_hint(text)
+        birthday_party_request = _telegram_property_link_birthday_party_request(text)
+        while True:
+            try:
+                service = build_product_service(container)
+                result = service.deliver_telegram_property_link_bundle(
+                    principal_id=principal_id,
+                    property_url=property_url,
+                    actor="telegram_property_link",
+                    source_ref=f"telegram:{chat_id}:{current_message_id or hashlib.sha256(property_url.encode('utf-8')).hexdigest()[:16]}",
+                    external_id=property_url,
+                    preference_person_id="self",
+                    style_hint=style_hint,
+                    birthday_party_request=birthday_party_request,
+                )
+            except Exception as exc:
+                failure_reason = str(exc)
+                reply_text = _telegram_property_link_bundle_error_reply(failure_reason, prompt_text=text)
+                _record_telegram_async_failed(
+                    container,
+                    principal_id=principal_id,
+                    chat_id=chat_id,
+                    current_message_id=current_message_id,
+                    prompt_text=text,
+                    stage="property_link_bundle",
+                    error=failure_reason,
+                )
+                if chat_id:
+                    _telegram_send_and_record_reply(
+                        container=container,
+                        principal_id=principal_id,
+                        bot_config=bot_config,
+                        chat_id=chat_id,
+                        dedupe_key="",
+                        reply_text=reply_text,
+                        source_text=text,
+                        async_mode=True,
+                        current_message_id=current_message_id,
+                        used_fallback_only=True,
+                        probe_reply=_telegram_probe_reply_text(text),
+                        last_resort_reply=_telegram_last_resort_reply_text(text),
+                    )
+                return
+            status = str(result.get("status") or "").strip()
+            if status == "sent":
                 _record_telegram_async_sent(
                     container,
                     principal_id=principal_id,
@@ -4850,6 +5348,76 @@ def _telegram_async_assistant_reply_worker(
                     prompt_text=text,
                     reply_text=f"property_link_bundle_sent:{property_url}",
                     used_fallback_only=False,
+                )
+                return
+            pending_reasons = [str(item or "").strip() for item in list(result.get("pending_reasons") or []) if str(item or "").strip()]
+            if status in {"pending", "failed", "blocked"}:
+                failure_reason = str(result.get("reason") or result.get("error") or "").strip()
+                if status == "failed" and not pending_reasons and failure_reason:
+                    pending_reasons = [failure_reason]
+                if status == "blocked":
+                    blocked_reason = str(result.get("blocked_reason") or failure_reason or "").strip()
+                    if blocked_reason:
+                        normalized_blocked_reason = blocked_reason.replace("_", " ").strip()
+                        if normalized_blocked_reason and not any(
+                            str(item or "").strip() == normalized_blocked_reason for item in pending_reasons
+                        ):
+                            if "media missing" in normalized_blocked_reason:
+                                pending_reasons.append(f"3D tour missing ({normalized_blocked_reason})")
+                            else:
+                                pending_reasons.append(normalized_blocked_reason)
+                can_retry = False
+                if status in {"pending", "blocked"}:
+                    can_retry = all(
+                        _telegram_property_link_bundle_retryable_pending_reason(item) for item in pending_reasons
+                    ) if pending_reasons else False
+                else:
+                    can_retry = all(
+                        _telegram_property_link_bundle_retryable_failed_reason(item) for item in pending_reasons
+                    ) if pending_reasons else False
+                upgrade_hint = ""
+                for reason in pending_reasons:
+                    upgrade_hint = _telegram_property_tour_upgrade_hint(reason)
+                    if upgrade_hint:
+                        break
+                if can_retry and remaining_retries > 0:
+                    remaining_retries -= 1
+                    if poll_backoff_seconds > 0:
+                        time.sleep(poll_backoff_seconds)
+                    continue
+                if pending_reasons:
+                    reason_text = "; ".join(pending_reasons)
+                else:
+                    reason_text = str(result.get("status") or result.get("reason") or "property_link_bundle_processing")
+                if upgrade_hint:
+                    reason_text = f"{reason_text}. {upgrade_hint}"
+                reply_text = (
+                    "I still can’t build the full property package right now. "
+                    f"Current status: {reason_text}. "
+                    "I’ll try again if you send this once more."
+                )
+                _record_telegram_async_failed(
+                    container,
+                    principal_id=principal_id,
+                    chat_id=chat_id,
+                    current_message_id=current_message_id,
+                    prompt_text=text,
+                    stage="property_link_bundle_status",
+                    error=f"{status}:{reason_text}",
+                )
+                _telegram_send_and_record_reply(
+                    container=container,
+                    principal_id=principal_id,
+                    bot_config=bot_config,
+                    chat_id=chat_id,
+                    dedupe_key="",
+                    reply_text=reply_text,
+                    source_text=text,
+                    async_mode=True,
+                    current_message_id=current_message_id,
+                    used_fallback_only=True,
+                    probe_reply=_telegram_probe_reply_text(text),
+                    last_resort_reply=_telegram_last_resort_reply_text(text),
                 )
                 return
             _record_telegram_async_failed(
@@ -4861,6 +5429,7 @@ def _telegram_async_assistant_reply_worker(
                 stage="property_link_bundle_status",
                 error=str(result.get("reason") or result.get("status") or "property_link_bundle_failed"),
             )
+            break
     probe_reply = _telegram_probe_reply_text(text)
     last_resort_reply = _telegram_last_resort_reply_text(text)
     reply_text = _telegram_pocket_audio_reply_text(
@@ -4988,11 +5557,16 @@ def _telegram_processing_ack_buttons_payload(
     ]
 
 
-def _telegram_processing_ack_text(text: str) -> str:
+def _telegram_processing_ack_text(text: str, *, render_priority: str = "") -> str:
     normalized = str(text or "").strip()
+    base = "Saved. EA is processing this asynchronously now."
+    if _telegram_supported_property_link(normalized):
+        if str(render_priority or "").strip().lower() == "paid":
+            return f"{base} Your render request is in the paid-priority lane."
+        return f"{base} Free-tier requests are processed after paid render requests."
     if "?" in normalized or any(marker in normalized.lower() for marker in ("what", "why", "how", "where", "when", "which")):
         return "Working on it. EA saved your request and is processing it asynchronously."
-    return "Saved. EA is processing this asynchronously now."
+    return base
 
 
 def _telegram_send_processing_ack(
@@ -5004,6 +5578,7 @@ def _telegram_send_processing_ack(
     dedupe_key: str,
     source_text: str,
     current_message_id: str,
+    render_priority: str = "",
 ) -> bool:
     marker = f"{str(dedupe_key or '').strip()}:processing_ack_sent" if str(dedupe_key or '').strip() else ""
     if marker and container.channel_runtime.find_observation_by_dedupe(marker, principal_id=principal_id) is not None:
@@ -5016,7 +5591,7 @@ def _telegram_send_processing_ack(
     receipt = _telegram_send_message(
         bot_token=str(bot_config.get("token") or "").strip(),
         chat_id=chat_id,
-        text=_telegram_processing_ack_text(source_text),
+        text=_telegram_processing_ack_text(source_text, render_priority=render_priority),
         inline_buttons=buttons,
     )
     if not bool(receipt.get("ok")):
@@ -5027,7 +5602,7 @@ def _telegram_send_processing_ack(
         event_type="telegram.processing_ack_sent",
         payload={
             "chat_id": chat_id,
-            "reply_text": _telegram_processing_ack_text(source_text),
+            "reply_text": _telegram_processing_ack_text(source_text, render_priority=render_priority),
             "source_text": source_text,
             "buttons": _telegram_processing_ack_buttons_payload(
                 bot_config=bot_config,
@@ -5053,11 +5628,16 @@ def _telegram_schedule_async_assistant_reply(
     dedupe_key: str,
     text: str,
     current_message_id: str,
+    retry_budget: int = 2,
+    async_payload: dict[str, object] | None = None,
 ) -> None:
     if not chat_id or not dedupe_key:
         return
     if _telegram_async_already_started(container, principal_id=principal_id, dedupe_key=dedupe_key):
         return
+    property_url = _telegram_supported_property_link(text)
+    render_priority = _telegram_property_render_priority(container=container, principal_id=principal_id) if property_url else "free"
+    render_executor = _TELEGRAM_PAID_RENDER_EXECUTOR if render_priority == "paid" else _TELEGRAM_FREE_RENDER_EXECUTOR
     _record_telegram_async_started(
         container,
         principal_id=principal_id,
@@ -5069,7 +5649,9 @@ def _telegram_schedule_async_assistant_reply(
         bot_handle=str(bot_config.get("handle") or "").strip(),
     )
     if _telegram_inline_async_accelerator_enabled():
-        _TELEGRAM_ASYNC_EXECUTOR.submit(
+        if not property_url:
+            render_executor = _TELEGRAM_ASYNC_EXECUTOR
+        render_executor.submit(
             _telegram_async_assistant_reply_worker,
             container=container,
             principal_id=principal_id,
@@ -5077,6 +5659,8 @@ def _telegram_schedule_async_assistant_reply(
             chat_id=chat_id,
             text=text,
             current_message_id=current_message_id,
+            retry_budget=retry_budget,
+            async_payload=dict(async_payload or {}),
         )
 
 
@@ -5090,7 +5674,8 @@ def _telegram_command_reply_text(
     preferred_onemin_labels: tuple[str, ...] = (),
     current_message_id: str = "",
     chat_id: str = "",
-) -> tuple[str, bool]:
+) -> tuple[str, bool, int, bool]:
+    fallback_retry_budget = TelegramTurnDecision().retry_budget
     ctx = _telegram_turn_context(
         container=container,
         principal_id=principal_id,
@@ -5103,24 +5688,42 @@ def _telegram_command_reply_text(
     )
     command_decision = _telegram_command_turn_decision(ctx)
     if command_decision.reply_text or command_decision.schedule_async:
-        return command_decision.reply_text, command_decision.schedule_async
+        return (
+            command_decision.reply_text,
+            command_decision.schedule_async,
+            command_decision.retry_budget,
+            bool(command_decision.suppress_async_ack),
+        )
+    scout_update_decision = _telegram_scout_update_turn_decision(ctx)
+    if scout_update_decision.reply_text or scout_update_decision.schedule_async:
+        return (
+            scout_update_decision.reply_text,
+            scout_update_decision.schedule_async,
+            scout_update_decision.retry_budget,
+            bool(scout_update_decision.suppress_async_ack),
+        )
     link_decision = _telegram_link_turn_decision(ctx)
     if link_decision.reply_text or link_decision.schedule_async:
-        return link_decision.reply_text, link_decision.schedule_async
+        return (
+            link_decision.reply_text,
+            link_decision.schedule_async,
+            link_decision.retry_budget,
+            bool(link_decision.suppress_async_ack),
+        )
     photo_reply = _telegram_photo_reply_text(ctx.payload)
     if photo_reply:
-        return photo_reply, False
+        return photo_reply, False, fallback_retry_budget, False
     if ctx.normalized:
         probe_reply = _telegram_probe_reply_text(ctx.normalized)
         if probe_reply:
-            return probe_reply, False
+            return probe_reply, False, fallback_retry_budget, False
         if _telegram_local_tool_priority(ctx):
             local_decision = _telegram_local_turn_decision(ctx)
             if local_decision.reply_text or local_decision.schedule_async:
-                return local_decision.reply_text, local_decision.schedule_async
+                return local_decision.reply_text, local_decision.schedule_async, local_decision.retry_budget, bool(local_decision.suppress_async_ack)
         math_reply = _safe_math_answer(ctx.normalized)
         if math_reply:
-            return math_reply, False
+            return math_reply, False, fallback_retry_budget, False
         if _telegram_force_async_path(ctx):
             if _telegram_similar_async_prompt_pending(
                 container,
@@ -5128,8 +5731,8 @@ def _telegram_command_reply_text(
                 chat_id=ctx.chat_id,
                 text=ctx.normalized,
             ):
-                return "", False
-            return "", True
+                return "", False, fallback_retry_budget, False
+            return "", True, fallback_retry_budget, False
         general_reply = _telegram_general_reply_text(container=container, principal_id=principal_id, text=ctx.normalized)
         if (
             ctx.is_completion_cue
@@ -5144,11 +5747,11 @@ def _telegram_command_reply_text(
                 principal_id=principal_id,
                 chat_id=ctx.chat_id,
                 reply_text=general_reply,
-            )
-        ):
-            return "", False
+                )
+            ):
+                return "", False, fallback_retry_budget, False
         if general_reply and not general_reply.startswith("I got it. I saved this in Tibor's assistant flow"):
-            return general_reply, False
+            return general_reply, False, fallback_retry_budget, False
         if _telegram_prefers_async_codex_chat(ctx.normalized):
             if _telegram_low_signal_followup_cue(ctx.normalized):
                 sync_timeout = 0.0
@@ -5168,18 +5771,23 @@ def _telegram_command_reply_text(
                     timeout_seconds=sync_timeout,
                 ).strip()
                 if real_reply:
-                    return real_reply, False
+                    return real_reply, False, fallback_retry_budget, False
             if _telegram_similar_async_prompt_pending(
                 container,
                 principal_id=principal_id,
                 chat_id=ctx.chat_id,
                 text=ctx.normalized,
             ):
-                return "", False
-            return "", True
+                return "", False, fallback_retry_budget, False
+            return "", True, fallback_retry_budget, False
         local_decision = _telegram_local_turn_decision(ctx)
         if local_decision.reply_text or local_decision.schedule_async:
-            return local_decision.reply_text, local_decision.schedule_async
+            return (
+                local_decision.reply_text,
+                local_decision.schedule_async,
+                local_decision.retry_budget,
+                bool(local_decision.suppress_async_ack),
+            )
         sync_timeout = 0.0
         try:
             sync_timeout = max(
@@ -5197,7 +5805,7 @@ def _telegram_command_reply_text(
             timeout_seconds=sync_timeout,
         ).strip()
         if real_reply:
-            return real_reply, False
+            return real_reply, False, fallback_retry_budget, False
         if _telegram_should_async_assistant_reply(ctx.normalized):
             if _telegram_similar_async_prompt_pending(
                 container,
@@ -5205,10 +5813,10 @@ def _telegram_command_reply_text(
                 chat_id=ctx.chat_id,
                 text=ctx.normalized,
             ):
-                return "", False
-            return "", True
-        return general_reply, False
-    return "", False
+                return "", False, fallback_retry_budget, False
+            return "", True, fallback_retry_budget, False
+        return general_reply, False, fallback_retry_budget, False
+    return "", False, fallback_retry_budget, False
 
 
 def _telegram_session_turn(
@@ -5222,7 +5830,21 @@ def _telegram_session_turn(
     current_message_id: str = "",
     chat_id: str = "",
 ) -> TelegramTurnDecision:
-    reply_text, schedule_async = _telegram_command_reply_text(
+    initial_ctx = build_turn_context(
+        container=container,
+        principal_id=principal_id,
+        text=text,
+        payload=dict(payload or {}),
+        bot_handle=bot_handle,
+        preferred_onemin_labels=preferred_onemin_labels,
+        current_message_id=current_message_id,
+        chat_id=chat_id,
+        completion_cue_predicate=_telegram_low_signal_followup_cue,
+    )
+    pdf_decision = _telegram_property_pdf_turn_decision(initial_ctx)
+    if pdf_decision.reply_text or pdf_decision.schedule_async:
+        return pdf_decision
+    reply_text, schedule_async, retry_budget, suppress_async_ack = _telegram_command_reply_text(
         container=container,
         principal_id=principal_id,
         text=text,
@@ -5249,7 +5871,12 @@ def _telegram_session_turn(
     feedback_followup_decision = _telegram_notification_feedback_followup_turn_decision(ctx)
     if feedback_followup_decision.reply_text or feedback_followup_decision.schedule_async:
         return feedback_followup_decision
-    return TelegramTurnDecision(reply_text=reply_text, schedule_async=schedule_async)
+    return TelegramTurnDecision(
+        reply_text=reply_text,
+        schedule_async=schedule_async,
+        retry_budget=retry_budget,
+        suppress_async_ack=suppress_async_ack,
+    )
 
 
 class TelegramIngestOut(BaseModel):
@@ -5289,10 +5916,17 @@ def ingest_telegram(
         bot_key=str(bot_config.get("bot_key") or "").strip(),
         bot_handle=str(bot_config.get("handle") or "").strip(),
     )
+    resolved_from_binding = bool(principal_id)
     if not principal_id:
         principal_id = _auto_bind_telegram_chat(container, chat_id, config=bot_config)
     if not principal_id:
         raise HTTPException(status_code=404, detail="telegram_binding_not_found")
+    if not resolved_from_binding and not _telegram_principal_is_registered_user(
+        container=container,
+        principal_id=principal_id,
+        accepted_default_principal_id=str(bot_config.get("default_principal_id") or "").strip(),
+    ):
+        raise HTTPException(status_code=403, detail="telegram_principal_not_registered")
     existing_event = (
         container.channel_runtime.find_observation_by_dedupe(dedupe_key, principal_id=principal_id) if dedupe_key else None
     )
@@ -5341,6 +5975,7 @@ def ingest_telegram(
     schedule_async = decision.schedule_async
     async_text = str(decision.async_text or "").strip() or str(message_payload.get("text") or "")
     async_message_id = str(decision.async_message_id or "").strip() or str(message_payload.get("message_id") or "")
+    async_payload = dict(decision.async_payload or {})
     reply_sent = False
     if reply_text and chat_id and not _telegram_reply_already_sent(container, principal_id=principal_id, dedupe_key=dedupe_key):
         try:
@@ -5356,18 +5991,25 @@ def ingest_telegram(
         except Exception:
             reply_sent = False
     if schedule_async and chat_id:
-        try:
-            _telegram_send_processing_ack(
-                container=container,
-                principal_id=principal_id,
-                bot_config=bot_config,
-                chat_id=chat_id,
-                dedupe_key=dedupe_key,
-                source_text=async_text,
-                current_message_id=async_message_id,
-            )
-        except Exception:
-            pass
+        async_retry_budget = int(decision.retry_budget)
+        async_text_priority = (
+            _telegram_property_render_priority(container=container, principal_id=principal_id)
+            if _telegram_supported_property_link(str(message_payload.get("text") or "")) else "free"
+        )
+        if not decision.suppress_async_ack:
+            try:
+                _telegram_send_processing_ack(
+                    container=container,
+                    principal_id=principal_id,
+                    bot_config=bot_config,
+                    chat_id=chat_id,
+                    dedupe_key=dedupe_key,
+                    source_text=async_text,
+                    current_message_id=async_message_id,
+                    render_priority=async_text_priority,
+                )
+            except Exception:
+                pass
         _telegram_schedule_async_assistant_reply(
             container=container,
             principal_id=principal_id,
@@ -5376,6 +6018,8 @@ def ingest_telegram(
             dedupe_key=dedupe_key,
             text=async_text,
             current_message_id=async_message_id,
+            retry_budget=async_retry_budget,
+            async_payload=async_payload,
         )
     return TelegramIngestOut(
         observation_id=event.observation_id,

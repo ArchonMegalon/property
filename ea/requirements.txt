@@ -12,3 +12,4 @@ PyYAML>=6.0.0
 requests>=2.32.0
 yt-dlp>=2026.03.17
 python-multipart>=0.0.9
+pypdf>=5.0.0

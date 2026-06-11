@@ -33,6 +33,7 @@ def _include_public_routes(
     landing_workspace_router: APIRouter,
     landing_router: APIRouter,
     fliplink_public_router: APIRouter,
+    dadan_public_router: APIRouter,
     health_router: APIRouter,
     register_router: APIRouter,
 ) -> None:
@@ -44,6 +45,7 @@ def _include_public_routes(
     app.include_router(landing_workspace_router)
     app.include_router(landing_router)
     app.include_router(fliplink_public_router)
+    app.include_router(dadan_public_router)
     if settings.public_results_enabled:
         from app.api.routes.public_results import router as public_results_router
 
@@ -145,6 +147,7 @@ def _include_legacy_authenticated_routes(
 def _load_core_route_modules() -> dict[str, object]:
     modules = {
         "fliplink_integration": import_module("app.api.routes.fliplink_integration"),
+        "dadan_integration": import_module("app.api.routes.dadan_integration"),
         "google_oauth": import_module("app.api.routes.google_oauth"),
         "health": import_module("app.api.routes.health"),
         "images": import_module("app.api.routes.images"),
@@ -202,6 +205,7 @@ def create_app() -> FastAPI:
     route_modules = _load_core_route_modules()
     fliplink_authenticated_router = route_modules["fliplink_integration"].authenticated_router
     fliplink_public_router = route_modules["fliplink_integration"].public_router
+    dadan_public_router = route_modules["dadan_integration"].router
     google_oauth_router = route_modules["google_oauth"].router
     health_router = route_modules["health"].router
     images_router = route_modules["images"].router
@@ -240,6 +244,7 @@ def create_app() -> FastAPI:
         landing_workspace_router=landing_workspace_router,
         landing_router=landing_router,
         fliplink_public_router=fliplink_public_router,
+        dadan_public_router=dadan_public_router,
         health_router=health_router,
         register_router=register_router,
     )

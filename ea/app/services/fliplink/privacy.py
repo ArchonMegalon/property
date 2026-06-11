@@ -62,7 +62,7 @@ DEFAULT_MEDIA_ALLOWED_HOSTS = (
     "*.immowelt.de",
 )
 SENSITIVE_MEDIA_QUERY_MARKERS = ("token=", "secret=", "session=", "cookie=", "signature=", "signed=")
-PHOTO_MEDIA_EXTENSIONS = {".jpg", ".jpeg", ".webp", ".avif"}
+PHOTO_MEDIA_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif"}
 FLOORPLAN_MEDIA_HINTS = ("floorplan", "floor-plan", "grundriss", "plan", "layout", "pdf")
 
 BASE_PUBLIC_FACT_KEYS = {
@@ -212,6 +212,10 @@ PUBLIC_FACT_ALLOWLIST_BY_MODE: dict[PacketPrivacyMode, set[str]] = {
         "market_rent_per_sqm_eur",
         "gross_yield_pct",
         "payback_years",
+        "navigation_origin",
+        "school_route_summary",
+        "school_route_google_navigation_url",
+        "schwarzenbergplatz_navigation_url",
     },
 }
 
@@ -308,6 +312,50 @@ def _market_scope_label(source: dict[str, object], facts: dict[str, object]) -> 
             return value
     parts = [_text(facts.get(key), limit=80) for key in ("district", "city", "country")]
     return ", ".join(part for part in parts if part)
+
+
+def _public_dossier_writer(source: dict[str, object], *, removed: list[str]) -> dict[str, object]:
+    raw = dict(source.get("dossier_writer") or {}) if isinstance(source.get("dossier_writer"), dict) else {}
+    if not raw:
+        return {}
+    if str(raw.get("status") or "").strip().lower() != "verified":
+        removed.append("dossier_writer.unverified_omitted")
+        return {}
+    sections: list[dict[str, object]] = []
+    for raw_section in list(raw.get("sections") or [])[:10]:
+        if not isinstance(raw_section, dict):
+            continue
+        section = {
+            "section_key": _text(raw_section.get("section_key"), limit=80),
+            "title": _text(raw_section.get("title"), limit=120),
+            "body_markdown": _text(raw_section.get("body_markdown"), limit=900),
+            "bullets": _list_text(raw_section.get("bullets"), limit=6),
+            "cta": _text(raw_section.get("cta"), limit=260),
+            "claims_used": _list_text(raw_section.get("claims_used"), limit=12),
+            "confidence": _text(raw_section.get("confidence"), limit=40),
+        }
+        if section["title"] and (section["body_markdown"] or section["bullets"]):
+            sections.append(section)
+    if not sections:
+        removed.append("dossier_writer.empty_sections_omitted")
+        return {}
+    neuronwriter = dict(raw.get("neuronwriter") or {}) if isinstance(raw.get("neuronwriter"), dict) else {}
+    return {
+        "status": "verified",
+        "generated_by": _text(raw.get("generated_by"), limit=120),
+        "privacy_mode": _text(raw.get("privacy_mode"), limit=60),
+        "packet_kind": _text(raw.get("packet_kind"), limit=60),
+        "language": _text(raw.get("language"), limit=40),
+        "tone": _text(raw.get("tone"), limit=80),
+        "claim_coverage": dict(raw.get("claim_coverage") or {}) if isinstance(raw.get("claim_coverage"), dict) else {},
+        "neuronwriter": {
+            "status": _text(neuronwriter.get("status"), limit=40),
+            "mode": _text(neuronwriter.get("mode"), limit=60),
+            "query_id": _text(neuronwriter.get("query_id"), limit=120),
+            "reason": _text(neuronwriter.get("reason"), limit=180),
+        },
+        "sections": sections,
+    }
 
 
 def _public_magic_fit_scene(source: dict[str, object], *, privacy_mode: PacketPrivacyMode, removed: list[str]) -> dict[str, object]:
@@ -556,8 +604,15 @@ def redact_property_packet(
             "viewing_questions": _list_text(source.get("viewing_questions") or source.get("questions")),
             "facts": redacted_facts,
         }
+        appendix_mode = str(source.get("appendix_mode") or "").strip().lower()
+        if appendix_mode:
+            payload["appendix_mode"] = appendix_mode
+            payload["source_pdf_filename"] = _text(source.get("source_pdf_filename"), limit=180)
         if comparison_rows:
             payload["comparison_rows"] = comparison_rows
+    dossier_writer = _public_dossier_writer(source, removed=removed)
+    if dossier_writer:
+        payload["dossier_writer"] = dossier_writer
     if include_floorplan and not paid_market_report:
         floorplans = _public_media_refs(source, FLOORPLAN_REF_KEYS, removed=removed, limit=8)
         if floorplans:

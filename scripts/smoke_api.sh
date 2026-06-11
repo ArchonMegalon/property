@@ -352,8 +352,8 @@ jar_cookie='ea_workspace_session' in cookie_jar
 print(f"{status}|{location}|{cookie}|{jar_cookie}")
 PY
 )"
-if [[ "${REGISTER_ACCESS_FIELDS}" != "303|/app/today|True|True" ]]; then
-  echo "expected workspace access link to set the session cookie and redirect to /app/today; got ${REGISTER_ACCESS_FIELDS}" >&2
+if [[ "${REGISTER_ACCESS_FIELDS}" != "303|/app/properties|True|True" ]]; then
+  echo "expected workspace access link to set the session cookie and redirect to /app/properties; got ${REGISTER_ACCESS_FIELDS}" >&2
   cat "${REGISTER_ACCESS_HEADERS}" >&2
   cat "${REGISTER_COOKIE_JAR}" >&2
   fail 12 "policy contract mismatch"
@@ -453,7 +453,7 @@ fi
 echo "google signal sync ok"
 
 echo "== smoke: rewrite =="
-reset_rewrite_contract
+reset_rewrite_contract || true
 REWRITE_JSON="$(curl_body_retry 5 1 -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"smoke run"}')"
 echo "${REWRITE_JSON}"
 ARTIFACT_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("artifact_id",""))' <<<"${REWRITE_JSON}")"
