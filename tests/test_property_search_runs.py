@@ -189,6 +189,58 @@ def test_property_search_location_matching_accepts_source_scope_location() -> No
     ) is True
 
 
+def test_property_search_location_hints_ignore_broad_austria_scope() -> None:
+    assert _property_search_location_hints({"location_query": "Österreich"}) == ()
+    assert _property_search_location_hints({"location_query": "All Austria"}) == ()
+    assert _property_search_location_hints({"location_query": "Niederösterreich"}) == ("Niederösterreich",)
+
+
+def test_property_distance_gate_records_relaxed_and_unknown_distances() -> None:
+    relaxed_facts = {"nearest_supermarket_m": 420}
+
+    assert product_service._property_apply_distance_gate(
+        relaxed_facts,
+        request_preferences={
+            "max_distance_to_supermarket_m": 200,
+            "max_distance_to_supermarket_importance": "important",
+        },
+        preference_key="max_distance_to_supermarket_m",
+        fact_key="nearest_supermarket_m",
+        label="supermarket",
+    ) is True
+    assert relaxed_facts["distance_relaxations_json"] == [
+        {"label": "supermarket", "requested_m": 200, "actual_m": 420}
+    ]
+
+    unknown_facts: dict[str, object] = {}
+    assert product_service._property_apply_distance_gate(
+        unknown_facts,
+        request_preferences={
+            "max_distance_to_playground_m": 300,
+            "max_distance_to_playground_importance": "must_have",
+        },
+        preference_key="max_distance_to_playground_m",
+        fact_key="nearest_playground_m",
+        label="playground",
+    ) is True
+    assert unknown_facts["distance_unknowns_json"] == [
+        {"label": "playground", "requested_m": 300}
+    ]
+
+    outside_facts = {"nearest_library_m": 1200}
+    assert product_service._property_apply_distance_gate(
+        outside_facts,
+        request_preferences={
+            "max_distance_to_library_m": 300,
+            "max_distance_to_library_importance": "must_have",
+        },
+        preference_key="max_distance_to_library_m",
+        fact_key="nearest_library_m",
+        label="Library",
+    ) is False
+    assert "distance_relaxations_json" not in outside_facts
+
+
 def test_property_search_sparse_auction_floorplan_area_scores_above_review_threshold() -> None:
     preview = {
         "title": "BG Leopoldstadt, 082 25 E 89/25g",

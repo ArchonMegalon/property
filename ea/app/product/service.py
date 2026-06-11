@@ -5208,7 +5208,22 @@ def _property_search_location_hints(preferences: dict[str, object] | None) -> tu
     if not raw_value:
         return ()
     values = [str(item or "").strip() for item in raw_value.split(",")]
-    return tuple(value for value in values if value)
+    broad_country_values = {
+        "allaustria",
+        "austria",
+        "at",
+        "österreich",
+        "osterreich",
+        "gesamtösterreich",
+        "gesamtoesterreich",
+    }
+    hints: list[str] = []
+    for value in values:
+        normalized = re.sub(r"[^a-z0-9äöüß]+", "", value.lower())
+        if not value or normalized in broad_country_values:
+            continue
+        hints.append(value)
+    return tuple(hints)
 
 
 def _property_candidate_matches_requested_location(
@@ -5651,6 +5666,45 @@ def _property_append_distance_relaxation(
     rows = list(existing) if isinstance(existing, list) else []
     rows.append({"label": label, "requested_m": int(requested_m), "actual_m": int(actual_m)})
     facts["distance_relaxations_json"] = rows
+
+
+def _property_append_distance_unknown(
+    facts: dict[str, object],
+    *,
+    label: str,
+    requested_m: int,
+) -> None:
+    existing = facts.get("distance_unknowns_json")
+    rows = list(existing) if isinstance(existing, list) else []
+    row = {"label": label, "requested_m": int(requested_m)}
+    if row not in rows:
+        rows.append(row)
+    facts["distance_unknowns_json"] = rows
+
+
+def _property_apply_distance_gate(
+    facts: dict[str, object],
+    *,
+    request_preferences: dict[str, object],
+    preference_key: str,
+    fact_key: str,
+    label: str,
+) -> bool:
+    limit_m = int(request_preferences.get(preference_key) or 0)
+    if limit_m <= 0:
+        return True
+    distance_ok, distance_mode, actual_m = _property_distance_within_relaxed_radius(
+        actual_m=facts.get(fact_key),
+        requested_limit_m=limit_m,
+        relaxation_factor=_property_distance_relaxation_factor(
+            request_preferences.get(preference_key.replace("_m", "_importance"))
+        ),
+    )
+    if distance_mode == "unknown":
+        _property_append_distance_unknown(facts, label=label, requested_m=limit_m)
+    elif distance_mode == "relaxed":
+        _property_append_distance_relaxation(facts, label=label, requested_m=limit_m, actual_m=actual_m)
+    return distance_ok
 
 
 def _property_enrich_future_change_research(
@@ -26173,14 +26227,13 @@ class ProductService:
                         )
                 max_distance_to_library_m = int(request_preferences.get("max_distance_to_library_m") or 0) if enable_family_mode else 0
                 if enable_family_mode and max_distance_to_library_m > 0:
-                    distance_ok, distance_mode, nearest_library_m = _property_distance_within_relaxed_radius(
-                        actual_m=detailed_facts.get("nearest_library_m"),
-                        requested_limit_m=max_distance_to_library_m,
-                        relaxation_factor=_property_distance_relaxation_factor(
-                            request_preferences.get("max_distance_to_library_importance")
-                        ),
-                    )
-                    if not distance_ok:
+                    if not _property_apply_distance_gate(
+                        detailed_facts,
+                        request_preferences=request_preferences,
+                        preference_key="max_distance_to_library_m",
+                        fact_key="nearest_library_m",
+                        label="Library",
+                    ):
                         _report(
                             step="source_family_filter",
                             message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the relaxed library radius for {source_label}.",
@@ -26188,13 +26241,6 @@ class ProductService:
                             steps_delta=0,
                         )
                         continue
-                    if distance_mode == "relaxed":
-                        _property_append_distance_relaxation(
-                            detailed_facts,
-                            label="Library",
-                            requested_m=max_distance_to_library_m,
-                            actual_m=nearest_library_m,
-                        )
                 max_distance_to_zoo_m = int(request_preferences.get("max_distance_to_zoo_m") or 0) if enable_family_mode else 0
                 if enable_family_mode and max_distance_to_zoo_m > 0:
                     distance_ok, distance_mode, nearest_zoo_m = _property_distance_within_relaxed_radius(
@@ -26213,6 +26259,7 @@ class ProductService:
                         detailed_facts.setdefault("distance_relaxations_json", []).append(
                             {"label": "Zoo", "requested_m": max_distance_to_zoo_m, "actual_m": int(nearest_zoo_m)}
                         )
+                distance_gate_failed = False
                 for preference_key, fact_key, label, report_step in (
                     ("max_distance_to_supermarket_m", "nearest_supermarket_m", "supermarket", "source_location_filter"),
                     ("max_distance_to_playground_m", "nearest_playground_m", "playground", "source_family_filter"),
@@ -26224,54 +26271,22 @@ class ProductService:
                     ("max_distance_to_public_pool_m", "nearest_public_pool_m", "public-pool", "source_location_filter"),
                     ("max_distance_to_medical_care_m", "nearest_medical_care_m", "medical-care", "source_location_filter"),
                 ):
-                    limit_m = int(request_preferences.get(preference_key) or 0)
-                    if limit_m <= 0:
-                        continue
-                    distance_ok, distance_mode, actual_m = _property_distance_within_relaxed_radius(
-                        actual_m=detailed_facts.get(fact_key),
-                        requested_limit_m=limit_m,
-                        relaxation_factor=_property_distance_relaxation_factor(
-                            request_preferences.get(preference_key.replace("_m", "_importance"))
-                        ),
-                    )
-                    if not distance_ok:
+                    if not _property_apply_distance_gate(
+                        detailed_facts,
+                        request_preferences=request_preferences,
+                        preference_key=preference_key,
+                        fact_key=fact_key,
+                        label=label,
+                    ):
                         _report(
                             step=report_step,
                             message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the relaxed {label} radius for {source_label}.",
                             status="in_progress",
                             steps_delta=0,
                         )
+                        distance_gate_failed = True
                         break
-                    if distance_mode == "relaxed":
-                        _property_append_distance_relaxation(
-                            detailed_facts,
-                            label=label,
-                            requested_m=limit_m,
-                            actual_m=actual_m,
-                        )
-                else:
-                    pass
-                if any(
-                    int(request_preferences.get(preference_key) or 0) > 0
-                    and not _property_distance_within_relaxed_radius(
-                        actual_m=detailed_facts.get(fact_key),
-                        requested_limit_m=int(request_preferences.get(preference_key) or 0),
-                        relaxation_factor=_property_distance_relaxation_factor(
-                            request_preferences.get(preference_key.replace("_m", "_importance"))
-                        ),
-                    )[0]
-                    for preference_key, fact_key in (
-                        ("max_distance_to_market_m", "nearest_market_m"),
-                        ("max_distance_to_supermarket_m", "nearest_supermarket_m"),
-                        ("max_distance_to_playground_m", "nearest_playground_m"),
-                        ("max_distance_to_hardware_store_m", "nearest_hardware_store_m"),
-                        ("max_distance_to_shopping_center_m", "nearest_shopping_center_m"),
-                        ("max_distance_to_shopping_street_m", "nearest_shopping_street_m"),
-                        ("max_distance_to_theatre_m", "nearest_theatre_m"),
-                        ("max_distance_to_public_pool_m", "nearest_public_pool_m"),
-                        ("max_distance_to_medical_care_m", "nearest_medical_care_m"),
-                    )
-                ):
+                if distance_gate_failed:
                     continue
                 if require_floorplan and not _property_candidate_has_floorplan(
                     property_url=property_url,
