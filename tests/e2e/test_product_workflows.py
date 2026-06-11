@@ -346,6 +346,7 @@ def product_browser_server() -> Iterator[dict[str, object]]:
     os.environ["EA_ENABLE_PUBLIC_SIDE_SURFACES"] = "0"
     os.environ["EA_ENABLE_PUBLIC_RESULTS"] = "0"
     os.environ["EA_ENABLE_PUBLIC_TOURS"] = "0"
+    os.environ["PROPERTYQUARRY_DEFAULT_BRAND"] = "0"
 
     app = create_app()
     client = TestClient(app)
@@ -375,6 +376,7 @@ def founder_browser_server() -> Iterator[dict[str, object]]:
     os.environ["EA_ENABLE_PUBLIC_SIDE_SURFACES"] = "0"
     os.environ["EA_ENABLE_PUBLIC_RESULTS"] = "0"
     os.environ["EA_ENABLE_PUBLIC_TOURS"] = "0"
+    os.environ["PROPERTYQUARRY_DEFAULT_BRAND"] = "0"
     client, seeded = seed_founder_fixture(principal_id="fixture-founder-browser")
     yield from _start_browser_server(client, seeded=seeded)
 
@@ -386,6 +388,7 @@ def team_browser_server() -> Iterator[dict[str, object]]:
     os.environ["EA_ENABLE_PUBLIC_SIDE_SURFACES"] = "0"
     os.environ["EA_ENABLE_PUBLIC_RESULTS"] = "0"
     os.environ["EA_ENABLE_PUBLIC_TOURS"] = "0"
+    os.environ["PROPERTYQUARRY_DEFAULT_BRAND"] = "0"
     client, seeded = seed_team_fixture(principal_id="fixture-team-browser")
     yield from _start_browser_server(client, seeded=seeded)
 
@@ -430,7 +433,7 @@ def test_activation_and_memo_flow_in_real_browser(page: Page, product_browser_se
     assert "Start a workspace that shows the first useful loop." in page.content()
     assert "Workspace shape" in page.content()
     assert "Google sign-in" in page.content()
-    assert "Open property workspace" in page.content()
+    assert "Open workspace" in page.content()
 
     response = page.goto(f"{base_url}/app/today", wait_until="networkidle")
     assert response is not None and response.ok

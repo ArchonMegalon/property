@@ -18195,6 +18195,40 @@ def test_property_tour_compare_links_omits_fake_provider_exports(monkeypatch, tm
     assert product_service._property_tour_compare_links("https://propertyquarry.com/tours/demo-tour") == {}
 
 
+def test_property_tour_compare_links_rejects_provider_lookalike_exports(monkeypatch, tmp_path: Path) -> None:
+    slug = "lookalike-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "matterport_url": "https://my.matterport.com.evil.example/show/?m=TEST123",
+                "three_d_vista_url": "https://3dvista.com.evil.example/tours/top22/index.html",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    assert product_service._property_tour_compare_links("https://propertyquarry.com/tours/lookalike-tour") == {}
+    assert product_service._hosted_property_tour_provider_export_keys("https://propertyquarry.com/tours/lookalike-tour") == ()
+
+
+def test_matterport_thumb_url_rejects_lookalike_domain() -> None:
+    assert product_service._matterport_thumb_url("https://my.matterport.com/show/?m=TEST123") == (
+        "https://my.matterport.com/api/v2/player/models/TEST123/thumb/"
+    )
+    assert product_service._matterport_thumb_url("https://my.matterport.com.evil.example/show/?m=TEST123") == ""
+
+
+def test_prefer_hosted_live_360_embed_rejects_provider_lookalike_domain() -> None:
+    assert product_service._prefer_hosted_live_360_embed("https://my.matterport.com/show/?m=TEST123") is True
+    assert product_service._prefer_hosted_live_360_embed("https://client.3dvista.com/tour/index.html") is True
+    assert product_service._prefer_hosted_live_360_embed("https://my.matterport.com.evil.example/show/?m=TEST123") is False
+    assert product_service._prefer_hosted_live_360_embed("https://3dvista.com.evil.example/tour/index.html") is False
+
+
 def test_property_3d_provider_rule_exit_gate_requires_selected_provider_links(monkeypatch, tmp_path: Path) -> None:
     slug = "provider-rule-tour"
     bundle_dir = tmp_path / slug

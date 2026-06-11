@@ -444,8 +444,22 @@ def test_telegram_bot_property_link_e2e_sends_diorama_photo_and_artifact_buttons
 
     dossier_path = tmp_path / "property-link-dossier.pdf"
     dossier_path.write_bytes(b"%PDF-1.4\n% property link e2e\n")
+    tour_dir = tmp_path / "e2e-property-link"
+    tour_dir.mkdir(parents=True)
+    (tour_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "e2e-property-link",
+                "matterport_url": "https://my.matterport.com/show/?m=E2ELINK",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+            }
+        ),
+        encoding="utf-8",
+    )
     sent_photos: list[dict[str, object]] = []
+    viewer_gate_calls: list[dict[str, str]] = []
 
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setattr(channels_route, "_TELEGRAM_FREE_RENDER_EXECUTOR", _InlineExecutor())
     monkeypatch.setattr(
         ProductService,
@@ -481,9 +495,17 @@ def test_telegram_bot_property_link_e2e_sends_diorama_photo_and_artifact_buttons
         lambda tour_url: {
             "video_url": "https://propertyquarry.com/tours/files/e2e-property-link/tour.mp4",
             "provider_key": "magicfit",
+            "duration_seconds": 120.0,
+            "coverage_proof": "boundary_verified_frame_continuation",
+            "covered_route_labels": ["living room", "bedroom", "bedroom 2"],
         },
     )
     monkeypatch.setattr(product_service, "_property_bundle_exit_gate_http_url", lambda *args, **kwargs: (True, ""))
+    monkeypatch.setattr(
+        product_service,
+        "_property_3d_viewer_links_exit_gate",
+        lambda viewer_links, **kwargs: viewer_gate_calls.append(dict(viewer_links)) or (True, "", {"checked": dict(viewer_links)}),
+    )
     monkeypatch.setattr(
         ProductService,
         "_render_property_scout_dossier",
@@ -515,13 +537,18 @@ def test_telegram_bot_property_link_e2e_sends_diorama_photo_and_artifact_buttons
 
     assert reply["reply_sent"] is False
     assert sent_photos
+    assert viewer_gate_calls[-1] == {
+        "matterport": "https://propertyquarry.com/tours/e2e-property-link/control/matterport",
+        "3dvista": "https://propertyquarry.com/tours/e2e-property-link/control/3dvista",
+    }
     photo = sent_photos[-1]
     assert photo["principal_id"] == "exec-telegram-e2e-property-link"
     assert photo["photo_ref"] == "https://propertyquarry.com/tours/files/e2e-property-link/diorama-preview.png"
     assert "Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF." in str(photo["caption"])
     buttons = list(photo["url_buttons"] or [])
     flattened = [button for row in buttons for button in row]
-    assert ("Open 3D Tour", "https://propertyquarry.com/tours/e2e-property-link?pane=panorama-pane") in flattened
+    assert ("Open Matterport", "https://propertyquarry.com/tours/e2e-property-link/control/matterport") in flattened
+    assert ("Open 3DVista", "https://propertyquarry.com/tours/e2e-property-link/control/3dvista") in flattened
     assert ("Open Flythrough", "https://propertyquarry.com/tours/files/e2e-property-link/tour.mp4") in flattened
     assert any(label == "Open Dossier PDF" for label, _url in flattened)
 
@@ -553,9 +580,23 @@ def test_telegram_bot_property_pdf_upload_e2e_returns_rendered_pdf(
     returned_pdf.write_bytes(b"%PDF-1.4\n% returned property pdf e2e\n")
     combined_pdf = tmp_path / "combined-property-packet.pdf"
     combined_pdf.write_bytes(b"%PDF-1.4\n% combined property pdf e2e\n")
+    tour_dir = tmp_path / "pdf-upload-tour"
+    tour_dir.mkdir(parents=True)
+    (tour_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "pdf-upload-tour",
+                "matterport_url": "https://my.matterport.com/show/?m=E2EPDF",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+            }
+        ),
+        encoding="utf-8",
+    )
     sent_documents: list[dict[str, object]] = []
     render_calls: list[dict[str, object]] = []
+    viewer_gate_calls: list[dict[str, str]] = []
 
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setattr(channels_route, "_TELEGRAM_ASYNC_EXECUTOR", _InlineExecutor())
     monkeypatch.setattr(
         telegram_session_service,
@@ -586,12 +627,19 @@ def test_telegram_bot_property_pdf_upload_e2e_returns_rendered_pdf(
         lambda tour_url: {
             "video_url": "https://propertyquarry.com/tours/files/pdf-upload-tour/tour.mp4",
             "provider_key": "magicfit",
+            "duration_seconds": 30.0,
+            "coverage_proof": "boundary_verified_frame_continuation",
         },
     )
     monkeypatch.setattr(
         product_service,
         "_append_propertyquarry_pdf_to_source_pdf",
         lambda **kwargs: str(combined_pdf),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_3d_viewer_links_exit_gate",
+        lambda viewer_links, **kwargs: viewer_gate_calls.append(dict(viewer_links)) or (True, "", {"checked": dict(viewer_links)}),
     )
     monkeypatch.setattr(
         ProductService,
@@ -629,11 +677,16 @@ def test_telegram_bot_property_pdf_upload_e2e_returns_rendered_pdf(
     assert render_calls[-1]["property_url"] == "https://api.telegram.org/file/botredacted/documents/property-upload.pdf"
     assert render_calls[-1]["appendix_mode"] == "telegram_pdf_appendix"
     assert sent_documents
+    assert viewer_gate_calls[-1] == {
+        "matterport": "https://propertyquarry.com/tours/pdf-upload-tour/control/matterport",
+        "3dvista": "https://propertyquarry.com/tours/pdf-upload-tour/control/3dvista",
+    }
     assert sent_documents[-1]["principal_id"] == "exec-telegram-e2e-property-pdf"
     assert sent_documents[-1]["document_ref"] == str(combined_pdf)
     assert "Original PDF first" in str(sent_documents[-1]["caption"])
     buttons = [button for row in list(sent_documents[-1]["url_buttons"] or []) for button in row]
-    assert ("Open 3D Tour", "https://propertyquarry.com/tours/pdf-upload-tour?pane=floorplan-pane") in buttons
+    assert ("Open Matterport", "https://propertyquarry.com/tours/pdf-upload-tour/control/matterport") in buttons
+    assert ("Open 3DVista", "https://propertyquarry.com/tours/pdf-upload-tour/control/3dvista") in buttons
     assert ("Open Flythrough", "https://propertyquarry.com/tours/files/pdf-upload-tour/tour.mp4") in buttons
     observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=20, principal_id="exec-telegram-e2e-property-pdf"))
     assert any(str(row.event_type) == "telegram.reply_async_sent" for row in observations)

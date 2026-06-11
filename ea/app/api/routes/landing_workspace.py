@@ -6,7 +6,7 @@ import urllib.parse
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.api.dependencies import RequestContext, get_container, get_request_context, require_operator_context
+from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.api.routes.landing import (
     _console_shell_context,
     _form_value,
@@ -282,15 +282,6 @@ def settings_plan_detail(
     selected_channels = [str(value) for value in (diagnostics.get("selected_channels") or []) if str(value).strip()]
     feature_flags = [str(value).replace("_", " ") for value in (entitlements.get("feature_flags") or []) if str(value).strip()]
     warnings = [str(value) for value in (commercial.get("warnings") or []) if str(value).strip()]
-    object_meta = [
-        {"label": "Connected", "value": "Yes" if connected_account_total else "No"},
-        {"label": "Connected inboxes", "value": str(connected_account_total)},
-        {"label": "Active inboxes", "value": str(active_account_total)},
-        {"label": "Primary inbox", "value": primary_email or "Not connected"},
-        {"label": "Token status", "value": str(sync.get("token_status") or "missing").replace("_", " ")},
-    ]
-    if not is_property_brand:
-        object_meta.append({"label": "Sync runs", "value": str(sync.get("sync_completed") or 0)})
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -308,6 +299,7 @@ def settings_plan_detail(
             {"label": "Invoice status", "value": str(billing.get("invoice_status") or "unknown")},
             {"label": "Support tier", "value": str(billing.get("support_tier") or "standard")},
             {"label": "Seats remaining", "value": str(operators.get("seats_remaining") or 0)},
+            {"label": "Rules", "value": "Open settings"},
         ],
         object_sidebar_title="Why this boundary matters",
         object_sidebar_copy="Commercial scope explains what the office may connect, how many operators may run the queue, and what support posture applies when something goes wrong.",
@@ -478,7 +470,6 @@ def settings_support_detail(
     request: Request,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
-    _operator_guard: None = Depends(require_operator_context),
 ) -> HTMLResponse:
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})

@@ -10641,12 +10641,29 @@ def _safe_live_property_tour_url(value: object) -> str:
     return normalized
 
 
+def _property_tour_provider_host_kind(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    try:
+        parsed = urllib.parse.urlparse(normalized)
+    except Exception:
+        return ""
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return ""
+    host = str(parsed.hostname or "").strip().lower().rstrip(".")
+    if host == "matterport.com" or host.endswith(".matterport.com"):
+        return "matterport"
+    if host == "3dvista.com" or host.endswith(".3dvista.com"):
+        return "3dvista"
+    return ""
+
+
 def _prefer_hosted_live_360_embed(source_virtual_tour_url: object) -> bool:
     normalized = _safe_live_property_tour_url(source_virtual_tour_url)
     if not normalized:
         return False
-    host = urllib.parse.urlparse(normalized).netloc.lower()
-    return "matterport" in host or "3dvista" in host
+    return bool(_property_tour_provider_host_kind(normalized))
 
 
 def _hosted_property_tour_slug(*, title: str, listing_id: str, property_url: str, variant_key: str) -> str:
@@ -10838,8 +10855,9 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
 ) -> dict[str, object]:
     live_url = _safe_live_property_tour_url(source_virtual_tour_url)
     parsed_live = urllib.parse.urlparse(live_url)
-    live_host = parsed_live.netloc.lower()
-    if "matterport" in live_host or "3dvista" in live_host:
+    live_host = str(parsed_live.hostname or "").strip().lower()
+    live_provider = _property_tour_provider_host_kind(live_url)
+    if live_provider:
         base_url = _hosted_property_tour_public_base_url()
         public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
         slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
@@ -10861,7 +10879,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
                 "teaser_attributes": existing_teasers or ["Live 360 tour", "Embedded external panorama"],
             }
         )
-        is_3dvista = "3dvista" in live_host
+        is_3dvista = live_provider == "3dvista"
         display_title = compact_text(title, fallback="Live 360 Property Tour", limit=180)
         payload = {
             "slug": slug,
@@ -12516,7 +12534,7 @@ def _matterport_thumb_url(source_virtual_tour_url: str) -> str:
     if not normalized:
         return ""
     parsed = urllib.parse.urlparse(normalized)
-    if "matterport.com" not in parsed.netloc.lower():
+    if _property_tour_provider_host_kind(normalized) != "matterport":
         return ""
     model_id = str(urllib.parse.parse_qs(parsed.query).get("m", [""])[0] or "").strip()
     if not model_id:
@@ -13345,11 +13363,7 @@ def _hosted_property_tour_has_matterport_export(tour_url: str) -> bool:
         value = str(payload.get(key) or "").strip()
         if not value:
             continue
-        try:
-            host = urllib.parse.urlparse(value).netloc.lower()
-        except Exception:
-            host = ""
-        if "matterport.com" in host:
+        if _property_tour_provider_host_kind(value) == "matterport":
             return True
     return False
 
@@ -13360,11 +13374,7 @@ def _hosted_property_tour_has_3dvista_export(tour_url: str) -> bool:
         value = str(payload.get(key) or "").strip()
         if not value:
             continue
-        try:
-            host = urllib.parse.urlparse(value).netloc.lower()
-        except Exception:
-            host = ""
-        if "3dvista" in host:
+        if _property_tour_provider_host_kind(value) == "3dvista":
             return True
     for key in ("three_d_vista_entry_relpath", "threedvista_entry_relpath", "3dvista_entry_relpath"):
         if str(payload.get(key) or "").strip():
@@ -24249,6 +24259,8 @@ class ProductService:
             second_row.append(("Open Flythrough", direct_flythrough_url))
         if second_row:
             url_buttons.append(second_row[:2])
+        direct_matterport_url = str(compare_links.get("matterport") or "").strip()
+        direct_3dvista_url = str(compare_links.get("3dvista") or "").strip()
         try:
             self._record_product_event(
                 principal_id=principal_id,
@@ -24258,7 +24270,8 @@ class ProductService:
                     "source_ref": resolved_source_ref,
                     "stage": "telegram_send_start",
                     "delivery_pdf_path": pdf_path,
-                    "direct_tour_url": direct_tour_url,
+                    "direct_matterport_url": direct_matterport_url,
+                    "direct_3dvista_url": direct_3dvista_url,
                     "direct_flythrough_url": direct_flythrough_url,
                 },
                 source_id=resolved_source_ref,
@@ -24308,7 +24321,8 @@ class ProductService:
             "dossier_publication_id": str(dossier_render.get("publication_id") or "").strip(),
             "tour_url": str(tour_result.get("tour_url") or "").strip(),
             "flythrough_url": video_url,
-            "direct_tour_url": direct_tour_url,
+            "direct_matterport_url": direct_matterport_url,
+            "direct_3dvista_url": direct_3dvista_url,
             "direct_flythrough_url": direct_flythrough_url,
             "direct_3d_control_url": "",
             "provider_rule_gate_status": "passed",
@@ -37239,6 +37253,7 @@ class ProductService:
             operator_id=resolved_operator_id,
             source_kind="channel_digest_delivery",
             expires_in_hours=expires_in_hours,
+            default_target="/app/today",
         )
         delivery_id = f"digest_{uuid4().hex[:10]}"
         token_payload = {
