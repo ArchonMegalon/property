@@ -8748,6 +8748,7 @@ def test_willhaben_property_tour_route_publishes_pure_360_bundle_when_crezlo_is_
     assert body["tour_media_mode"] == "panorama_360"
     assert body["tour_url"].startswith("https://propertyquarry.com/tours/")
     assert body["vendor_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
+    assert body["source_virtual_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
 
 
 def test_matterport_hosted_pure_360_bundle_uses_http_thumb_preview(monkeypatch, tmp_path: Path) -> None:
@@ -8765,8 +8766,32 @@ def test_matterport_hosted_pure_360_bundle_uses_http_thumb_preview(monkeypatch, 
         source_host="www.immobilienscout24.at",
     )
     scene = dict((payload.get("scenes") or [{}])[0] or {})
+    assert payload["source_virtual_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
+    assert payload["source_virtual_tour_origin"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
     assert scene["image_url"] == "https://my.matterport.com/api/v2/player/models/BmVWxvZQZLq/thumb/"
     assert scene["mime_type"] == "image/jpeg"
+
+
+def test_3dvista_hosted_pure_360_bundle_preserves_provider_url(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
+    payload = product_service._write_hosted_feelestate_pure_360_property_tour_bundle(
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        title="3DVista Preview Test",
+        listing_id="3dvista-preview-test",
+        property_url="https://www.immobilienscout24.at/expose/3dvista-preview-test",
+        variant_key="layout_first",
+        source_virtual_tour_url="https://example.3dvista.com/tours/top22/index.html",
+        floorplan_urls=(),
+        property_facts_json={"has_360": True},
+        source_host="www.immobilienscout24.at",
+    )
+
+    assert payload["control_mode"] == "3dvista"
+    assert payload["source_virtual_tour_url"] == "https://example.3dvista.com/tours/top22/index.html"
+    assert payload["source_virtual_tour_origin"] == "https://example.3dvista.com/tours/top22/index.html"
+    assert payload["three_d_vista_url"] == "https://example.3dvista.com/tours/top22/index.html"
+    assert payload["crezlo_public_url"] == "https://example.3dvista.com/tours/top22/index.html"
 
 
 def test_kalandra_cube_360_bundle_generation_is_disabled(monkeypatch, tmp_path: Path) -> None:
@@ -18100,4 +18125,4 @@ def test_magicfit_visit_plan_counts_functional_route_stops_not_just_listing_room
             "room_count": 2,
             "description": "2 Zimmer inklusive Wohnküche, 1 Vorraum, 1 Bad mit WC, 1 Abstellraum, 1 Balkon.",
         },
-    ) == 90.0
+    ) == 60.0

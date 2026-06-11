@@ -21544,7 +21544,7 @@ class ProductService:
                         "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
                         "personal_fit_assessment": dict(personal_fit_assessment or {}),
                         "creation_mode": "pure_hosted_360",
-                        "source_virtual_tour_url": "",
+                        "source_virtual_tour_url": source_virtual_tour_url,
                     }
                     try:
                         self._record_product_event(
@@ -21782,7 +21782,7 @@ class ProductService:
                         "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
                         "personal_fit_assessment": dict(personal_fit_assessment or {}),
                         "creation_mode": "pure_hosted_360",
-                        "source_virtual_tour_url": "",
+                        "source_virtual_tour_url": source_virtual_tour_url,
                         "upstream_blocked_reason": blocked_reason,
                     }
                     try:
@@ -22442,7 +22442,7 @@ class ProductService:
                         "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
                         "personal_fit_assessment": dict(personal_fit_assessment or {}),
                         "creation_mode": "pure_hosted_360",
-                        "source_virtual_tour_url": "",
+                        "source_virtual_tour_url": source_virtual_tour_url,
                     }
                     try:
                         self._record_product_event(
@@ -22638,7 +22638,7 @@ class ProductService:
                         "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
                         "personal_fit_assessment": dict(personal_fit_assessment or {}),
                         "creation_mode": "pure_hosted_360",
-                        "source_virtual_tour_url": "",
+                        "source_virtual_tour_url": source_virtual_tour_url,
                         "upstream_blocked_reason": blocked_reason,
                     }
                     try:
