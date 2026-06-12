@@ -14,7 +14,12 @@ PUBLIC_PACKET_KINDS: set[DossierPacketKind] = {"paid_market_report", "public_cit
 
 
 def neuronwriter_enabled() -> bool:
-    return str(os.getenv("PROPERTYQUARRY_NEURONWRITER_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
+    explicit = str(os.getenv("PROPERTYQUARRY_NEURONWRITER_ENABLED") or "").strip().lower()
+    if explicit in {"0", "false", "no", "off", "disabled"}:
+        return False
+    if explicit in {"1", "true", "yes", "on", "enabled", "always"}:
+        return True
+    return bool(neuronwriter_api_key())
 
 
 def neuronwriter_api_key() -> str:

@@ -94,6 +94,50 @@ def test_private_packet_neuronwriter_live_mode_uses_public_safe_topic(monkeypatc
     assert "https://" not in str(observed["payload"]["keyword"])
 
 
+def test_neuronwriter_runs_by_default_when_api_key_is_configured(monkeypatch) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_post(method: str, payload: dict[str, object], *, api_key: str) -> dict[str, object]:
+        observed.update({"method": method, "payload": payload, "api_key": api_key})
+        return {"query": "auto-key-query"}
+
+    monkeypatch.delenv("PROPERTYQUARRY_NEURONWRITER_ENABLED", raising=False)
+    monkeypatch.setenv("PROPERTYQUARRY_NEURONWRITER_DOSSIER_MODE", "public_safe")
+    monkeypatch.setenv("NEURONWRITER_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.dossier_writer.neuronwriter_adapter._post", fake_post)
+    claims = claims_from_deep_research(_research())
+    draft = write_claim_bound_dossier(
+        dossier_id="dossier-auto-neuronwriter",
+        claims=claims,
+        packet_kind="owner_review",
+        privacy_mode="owner_private",
+    )
+
+    recommendation = recommend_for_draft(draft)
+
+    assert recommendation.status == "pending"
+    assert recommendation.query_id == "auto-key-query"
+    assert observed["method"] == "new-query"
+    assert observed["api_key"] == "test-key"
+
+
+def test_neuronwriter_explicit_disabled_flag_overrides_api_key(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_NEURONWRITER_ENABLED", "0")
+    monkeypatch.setenv("NEURONWRITER_API_KEY", "test-key")
+    claims = claims_from_deep_research(_research())
+    draft = write_claim_bound_dossier(
+        dossier_id="dossier-neuronwriter-off",
+        claims=claims,
+        packet_kind="paid_market_report",
+        privacy_mode="paid_customer",
+    )
+
+    recommendation = recommend_for_draft(draft)
+
+    assert recommendation.status == "disabled"
+    assert recommendation.reason == "neuronwriter_disabled"
+
+
 def test_verifier_rejects_unsupported_salesy_claim() -> None:
     claims = claims_from_deep_research(_research())
     draft = write_claim_bound_dossier(
