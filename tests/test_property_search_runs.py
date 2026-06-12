@@ -223,6 +223,25 @@ def test_property_search_location_matching_rejects_source_scope_postal_conflict(
     ) is False
 
 
+def test_property_search_location_matching_rejects_non_vienna_title_even_with_vienna_source_scope() -> None:
+    hints = _property_search_location_hints({"location_query": "Wien"})
+
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/oberoesterreich/gmunden/seeblick",
+        title="Moderne Wohnung mit Seeblick in Gmunden",
+        summary="Provider result page was queried from a Vienna source scope.",
+        property_facts={"source_scope_location": "Wien", "source_city": "Wien"},
+    ) is False
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://www.willhaben.at/iad/immobilien/d/haus/niederoesterreich/hollabrunn/familienhaus",
+        title="Familienhaus in Hollabrunn mit Garten",
+        summary="Provider result page was queried from a Vienna source scope.",
+        property_facts={"source_scope_location": "Wien", "source_city": "Wien"},
+    ) is False
+
+
 def test_property_search_location_hints_ignore_broad_austria_scope() -> None:
     assert _property_search_location_hints({"location_query": "Österreich"}) == ()
     assert _property_search_location_hints({"location_query": "All Austria"}) == ()

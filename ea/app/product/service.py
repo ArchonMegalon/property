@@ -5252,6 +5252,47 @@ def _property_search_location_hints(preferences: dict[str, object] | None) -> tu
     return tuple(hints)
 
 
+_PROPERTY_AT_NON_VIENNA_LOCATION_MARKERS = frozenset(
+    {
+        "gmunden",
+        "hollabrunn",
+        "jagerberg",
+        "jägerberg",
+        "klosterneuburg",
+        "st poelten",
+        "st pölten",
+        "sankt poelten",
+        "sankt pölten",
+        "krems",
+        "baden",
+        "moedling",
+        "mödling",
+        "tulln",
+        "mistelbach",
+        "korneuburg",
+        "stockerau",
+        "wr neustadt",
+        "wiener neustadt",
+        "linz",
+        "graz",
+        "salzburg",
+        "innsbruck",
+        "klagenfurt",
+        "villach",
+        "wels",
+        "steyr",
+    }
+)
+
+
+def _property_text_has_explicit_non_vienna_location(value: str) -> bool:
+    text = re.sub(r"[^a-z0-9äöüß]+", " ", str(value or "").strip().lower())
+    if not text:
+        return False
+    padded = f" {text} "
+    return any(f" {marker} " in padded for marker in _PROPERTY_AT_NON_VIENNA_LOCATION_MARKERS)
+
+
 def _property_search_notification_budget(preferences: dict[str, object] | None) -> tuple[int, str]:
     payload = dict(preferences or {})
     period = str(payload.get("search_agent_notification_period") or "").strip().lower()
@@ -5393,6 +5434,8 @@ def _property_candidate_matches_requested_location(
         code for code in re.findall(r"\b\d{4}\b", real_concrete_text) if not source_postal_code or code != source_postal_code
     )
     if wants_vienna and real_concrete_postal_codes and not any(str(code).startswith("1") for code in real_concrete_postal_codes):
+        return False
+    if wants_vienna and _property_text_has_explicit_non_vienna_location(real_concrete_text):
         return False
 
     concrete_postal_codes = tuple(re.findall(r"\b\d{4}\b", concrete_text))
