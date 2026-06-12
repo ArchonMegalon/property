@@ -3986,6 +3986,10 @@ def test_property_scout_floorplan_filter_records_provider_recovery_ooda_event(mo
     )
 
     assert result["filtered_floorplan_total"] == 1
+    assert result["provider_repair_task_opened_total"] == 1
+    assert result["provider_repair_task_existing_total"] == 0
+    assert result["sources"][0]["provider_repair_task_opened_total"] == 1
+    assert result["sources"][0]["provider_repair_task_existing_total"] == 0
     events = [
         row
         for row in client.app.state.container.channel_runtime.list_recent_observations(limit=50, principal_id=principal_id)
@@ -4035,6 +4039,10 @@ def test_property_scout_floorplan_filter_records_provider_recovery_ooda_event(mo
         force_refresh=True,
     )
     assert repeated["filtered_floorplan_total"] == 1
+    assert repeated["provider_repair_task_opened_total"] == 0
+    assert repeated["provider_repair_task_existing_total"] == 1
+    assert repeated["sources"][0]["provider_repair_task_opened_total"] == 0
+    assert repeated["sources"][0]["provider_repair_task_existing_total"] == 1
     repeated_tasks = client.app.state.container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=20)
     repeated_repair_tasks = [
         task for task in repeated_tasks if str(getattr(task, "task_type", "") or "") == "property_provider_repair_ooda"

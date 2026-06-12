@@ -26384,6 +26384,8 @@ class ProductService:
                 "filtered_availability_total": 0,
                 "filtered_floorplan_total": 0,
                 "filtered_low_fit_total": 0,
+                "provider_repair_task_opened_total": 0,
+                "provider_repair_task_existing_total": 0,
                 "provider_cache_hit_total": 0,
                 "provider_cache_refresh_total": 0,
                 "high_match_min_score": min_match_score,
@@ -26441,6 +26443,8 @@ class ProductService:
         filtered_availability_total = 0
         filtered_floorplan_total = 0
         filtered_low_fit_total = 0
+        provider_repair_task_opened_total = 0
+        provider_repair_task_existing_total = 0
         provider_cache_hit_total = 0
         provider_cache_refresh_total = 0
         watch_notified_total = 0
@@ -26471,6 +26475,8 @@ class ProductService:
             filtered_availability_for_source = 0
             filtered_floorplan_for_source = 0
             filtered_low_fit_for_source = 0
+            provider_repair_task_opened_for_source = 0
+            provider_repair_task_existing_for_source = 0
             filter_near_misses_for_source: list[dict[str, object]] = []
             provider_cache_state: dict[str, object] = {"status": "not_started", "cache_key": provider_cache_key}
 
@@ -26766,6 +26772,13 @@ class ProductService:
                         filter_key="require_floorplan",
                         diagnostics=recovery_diagnostics,
                     )
+                    repair_task_status = str(repair_task.get("status") or "").strip().lower()
+                    if repair_task_status == "opened":
+                        provider_repair_task_opened_for_source += 1
+                        provider_repair_task_opened_total += 1
+                    elif repair_task_status == "existing":
+                        provider_repair_task_existing_for_source += 1
+                        provider_repair_task_existing_total += 1
                     self._record_product_event(
                         principal_id=principal_id,
                         event_type="property_provider_floorplan_recovery_needed",
@@ -27175,6 +27188,13 @@ class ProductService:
                         filter_key="require_floorplan",
                         diagnostics=recovery_diagnostics,
                     )
+                    repair_task_status = str(repair_task.get("status") or "").strip().lower()
+                    if repair_task_status == "opened":
+                        provider_repair_task_opened_for_source += 1
+                        provider_repair_task_opened_total += 1
+                    elif repair_task_status == "existing":
+                        provider_repair_task_existing_for_source += 1
+                        provider_repair_task_existing_total += 1
                     self._record_product_event(
                         principal_id=principal_id,
                         event_type="property_provider_floorplan_recovery_needed",
@@ -27720,6 +27740,8 @@ class ProductService:
                     "filtered_availability_total": filtered_availability_for_source,
                     "filtered_floorplan_total": filtered_floorplan_for_source,
                     "filtered_low_fit_total": filtered_low_fit_for_source,
+                    "provider_repair_task_opened_total": provider_repair_task_opened_for_source,
+                    "provider_repair_task_existing_total": provider_repair_task_existing_for_source,
                     "high_match_min_score": min_match_score,
                     "max_match_score": match_score_cap,
                     "min_area_m2": request_preferences.get("min_area_m2") or 0,
@@ -27844,6 +27866,8 @@ class ProductService:
             "filtered_availability_total": filtered_availability_total,
             "filtered_floorplan_total": filtered_floorplan_total,
             "filtered_low_fit_total": filtered_low_fit_total,
+            "provider_repair_task_opened_total": provider_repair_task_opened_total,
+            "provider_repair_task_existing_total": provider_repair_task_existing_total,
             "provider_cache_hit_total": provider_cache_hit_total,
             "provider_cache_refresh_total": provider_cache_refresh_total,
             "high_match_min_score": min_match_score,
