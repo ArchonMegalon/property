@@ -1422,7 +1422,19 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     if investment_mode not in INVESTMENT_RESEARCH_MODE_LABELS:
         investment_mode = "off"
     payload["investment_research_mode"] = investment_mode
+    raw_all_of_vienna = payload.get("all_of_vienna")
+    payload["all_of_vienna"] = (
+        raw_all_of_vienna is True
+        or str(raw_all_of_vienna or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
+    )
     payload["location_query"] = str(payload.get("location_query") or "").strip()
+    if (
+        payload["country_code"] == "AT"
+        and payload["region_code"] in {"vienna", "wien"}
+        and payload["all_of_vienna"]
+        and not payload["location_query"]
+    ):
+        payload["location_query"] = "Vienna"
     payload["keywords"] = str(payload.get("keywords") or "").strip()
     raw_require_floorplan = payload.get("require_floorplan")
     payload["require_floorplan"] = (

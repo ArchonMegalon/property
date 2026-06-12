@@ -1185,6 +1185,20 @@ class OnboardingService(AssistantOnboardingService):
             if normalized_platform and normalized_platform not in selected_platforms:
                 selected_platforms.append(normalized_platform)
 
+        country_code = str(raw.get("country_code") or "AT").strip().upper() or "AT"
+        region_code = str(raw.get("region_code") or "").strip().lower()
+        raw_all_of_vienna = raw.get("all_of_vienna")
+        all_of_vienna = (
+            raw_all_of_vienna is True
+            or str(raw_all_of_vienna or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
+        )
+        location_query = str(raw.get("location_query") or "").strip()
+        if country_code == "AT" and region_code in {"vienna", "wien"} and all_of_vienna and not location_query:
+            location_query = "Vienna"
+        language_code = str(raw.get("language_code") or "").strip().lower()
+        listing_mode = str(raw.get("listing_mode") or "").strip().lower()
+        property_type = str(raw.get("property_type") or "").strip().lower()
+
         max_results_per_source = raw.get("max_results_per_source")
         try:
             normalized_max = int(max_results_per_source) if max_results_per_source is not None else None
@@ -1221,6 +1235,13 @@ class OnboardingService(AssistantOnboardingService):
             else {}
         )
         return {
+            "country_code": country_code,
+            "region_code": region_code,
+            "language_code": language_code,
+            "listing_mode": listing_mode,
+            "property_type": property_type,
+            "location_query": location_query,
+            "all_of_vienna": all_of_vienna,
             "selected_platforms": selected_platforms,
             "max_results_per_source": normalized_max,
             "min_match_score": normalized_min_match_score,

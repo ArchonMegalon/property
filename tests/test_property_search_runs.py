@@ -1841,6 +1841,31 @@ def test_property_search_preferences_persist_and_merge_into_run(monkeypatch) -> 
     assert set(status_snapshot.json()["property_search_preferences"]["selected_platforms"]) == {"willhaben", "kalandra"}
 
 
+def test_property_search_preferences_persist_all_of_vienna_as_hard_location_scope() -> None:
+    principal_id = "exec-property-search-all-vienna-scope"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Vienna Scope")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "all_of_vienna": True,
+            "location_query": "",
+            "selected_platforms": ["willhaben"],
+            "property_commercial": {"active_plan_key": "agent", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"},
+        },
+    )
+
+    assert stored.status_code == 200, stored.text
+    preferences = stored.json()["property_search_preferences"]
+    assert preferences["country_code"] == "AT"
+    assert preferences["region_code"] == "vienna"
+    assert preferences["all_of_vienna"] is True
+    assert preferences["location_query"] == "Vienna"
+
+
 def test_direct_property_scout_uses_saved_preferences_and_respects_disabled_flag(monkeypatch) -> None:
     principal_id = "exec-property-direct-saved-preferences"
     client = build_property_client(principal_id=principal_id)
