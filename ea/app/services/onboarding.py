@@ -272,6 +272,84 @@ class OnboardingService(AssistantOnboardingService):
         )
         return self.status(principal_id=principal_id, state_override=saved)
 
+    def update_property_search_agent(
+        self,
+        *,
+        principal_id: str,
+        agent_id: str,
+        action: str,
+        patch: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        state = self._ensure_state(principal_id)
+        preferences = dict(state.property_search_preferences_json or {})
+        agents = self._normalize_property_search_agents(
+            preferences,
+            active_agent_id=str(preferences.get("active_search_agent_id") or "").strip(),
+        )
+        normalized_agent_id = str(agent_id or "").strip()
+        if normalized_agent_id in {"", "current"}:
+            normalized_agent_id = str(agents[0].get("agent_id") or "current")
+        matched_index = next(
+            (index for index, agent in enumerate(agents) if str(agent.get("agent_id") or "") == normalized_agent_id),
+            -1,
+        )
+        if matched_index < 0:
+            raise ValueError("property_search_agent_not_found")
+        normalized_action = str(action or "").strip().lower()
+        agent = dict(agents[matched_index])
+        if normalized_action in {"pause", "disable"}:
+            agent["enabled"] = False
+            agent["status"] = "paused"
+        elif normalized_action in {"resume", "enable"}:
+            agent["enabled"] = True
+            agent["status"] = "active"
+            preferences["active_search_agent_id"] = str(agent.get("agent_id") or normalized_agent_id)
+        elif normalized_action in {"delete", "remove"}:
+            agents.pop(matched_index)
+            preferences["search_agents"] = agents
+            if str(preferences.get("active_search_agent_id") or "") == normalized_agent_id:
+                preferences["active_search_agent_id"] = str(agents[0].get("agent_id") or "") if agents else ""
+            return self.upsert_property_search_preferences(
+                principal_id=principal_id,
+                property_search_preferences_json=preferences,
+            )
+        elif normalized_action in {"duplicate", "copy"}:
+            duplicate = dict(agent)
+            seed = f"{principal_id}|{agent.get('agent_id')}|{len(agents) + 1}"
+            duplicate["agent_id"] = f"agent-{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:12]}"
+            duplicate["name"] = f"{str(agent.get('name') or 'Saved search').strip()} copy"
+            duplicate["enabled"] = False
+            duplicate["status"] = "paused"
+            agents.append(duplicate)
+            preferences["search_agents"] = agents
+            return self.upsert_property_search_preferences(
+                principal_id=principal_id,
+                property_search_preferences_json=preferences,
+            )
+        elif normalized_action in {"save", "update"}:
+            for key, value in dict(patch or {}).items():
+                if key in {
+                    "name",
+                    "location_query",
+                    "country_code",
+                    "region_code",
+                    "listing_mode",
+                    "property_type",
+                    "notification_limit",
+                    "notification_period",
+                    "duration_days",
+                    "selected_platforms",
+                }:
+                    agent[key] = value
+        else:
+            raise ValueError("unsupported_property_search_agent_action")
+        agents[matched_index] = agent
+        preferences["search_agents"] = agents
+        return self.upsert_property_search_preferences(
+            principal_id=principal_id,
+            property_search_preferences_json=preferences,
+        )
+
     def start_flagship(
         self,
         *,
@@ -1245,7 +1323,7 @@ class OnboardingService(AssistantOnboardingService):
             if isinstance(raw.get("property_commercial"), dict)
             else {}
         )
-        return {
+        normalized_preferences = {
             "country_code": country_code,
             "region_code": region_code,
             "language_code": language_code,
@@ -1263,6 +1341,105 @@ class OnboardingService(AssistantOnboardingService):
             "search_agent_notification_period": notification_period,
             "property_commercial": property_commercial,
             "raw_preferences": dict(raw),
+        }
+        normalized_preferences["active_search_agent_id"] = str(raw.get("active_search_agent_id") or "").strip()
+        normalized_preferences["search_agents"] = OnboardingService._normalize_property_search_agents(
+            {**raw, **normalized_preferences},
+            active_agent_id=str(normalized_preferences.get("active_search_agent_id") or "").strip(),
+        )
+        if normalized_preferences["search_agents"] and not normalized_preferences["active_search_agent_id"]:
+            normalized_preferences["active_search_agent_id"] = str(normalized_preferences["search_agents"][0].get("agent_id") or "")
+        return normalized_preferences
+
+    @staticmethod
+    def _normalize_property_search_agents(
+        preferences: dict[str, object] | None,
+        *,
+        active_agent_id: str = "",
+    ) -> list[dict[str, object]]:
+        payload = dict(preferences or {})
+        raw_agents = payload.get("search_agents")
+        agents: list[dict[str, object]] = []
+        if isinstance(raw_agents, (list, tuple)):
+            for raw_agent in raw_agents:
+                if not isinstance(raw_agent, dict):
+                    continue
+                agents.append(OnboardingService._normalize_property_search_agent(raw_agent, fallback=payload))
+        if not agents:
+            agents.append(OnboardingService._normalize_property_search_agent(payload, fallback=payload))
+        seen: set[str] = set()
+        deduped: list[dict[str, object]] = []
+        for agent in agents[:25]:
+            agent_id = str(agent.get("agent_id") or "").strip()
+            if not agent_id or agent_id in seen:
+                seed = "|".join(
+                    str(agent.get(key) or "")
+                    for key in ("name", "country_code", "region_code", "location_query", "listing_mode", "property_type")
+                )
+                agent_id = f"agent-{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:12]}"
+                agent["agent_id"] = agent_id
+            if agent_id in seen:
+                continue
+            seen.add(agent_id)
+            agent["is_active"] = agent_id == active_agent_id or (not active_agent_id and not deduped)
+            deduped.append(agent)
+        return deduped
+
+    @staticmethod
+    def _normalize_property_search_agent(
+        value: dict[str, object],
+        *,
+        fallback: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        raw = dict(value or {})
+        base = dict(fallback or {})
+        country_code = normalize_country_code(raw.get("country_code") or base.get("country_code"))
+        region_code = str(raw.get("region_code") or base.get("region_code") or "").strip().lower()
+        location_query = str(raw.get("location_query") or base.get("location_query") or "").strip()
+        listing_mode = normalize_listing_mode(raw.get("listing_mode") or base.get("listing_mode"))
+        property_type = normalize_property_type(raw.get("property_type") or base.get("property_type"))
+        try:
+            duration_days = max(7, min(365, int(float(str(raw.get("duration_days") or raw.get("search_agent_duration_days") or base.get("search_agent_duration_days") or 30).strip()))))
+        except Exception:
+            duration_days = 30
+        notification_period = str(raw.get("notification_period") or raw.get("search_agent_notification_period") or base.get("search_agent_notification_period") or "day").strip().lower()
+        if notification_period not in {"day", "week"}:
+            notification_period = "day"
+        try:
+            notification_limit = max(1, min(50, int(float(str(raw.get("notification_limit") or raw.get("search_agent_notification_limit") or base.get("search_agent_notification_limit") or 5).strip()))))
+        except Exception:
+            notification_limit = 5
+        raw_selected_platforms = raw.get("selected_platforms") if isinstance(raw.get("selected_platforms"), (list, tuple, set)) else base.get("selected_platforms")
+        selected_platforms = [
+            item
+            for item in dict.fromkeys(str(item or "").strip().lower() for item in list(raw_selected_platforms or []))
+            if item
+        ]
+        enabled = raw.get("enabled")
+        if enabled is None:
+            enabled = raw.get("search_agent_enabled", base.get("search_agent_enabled"))
+        enabled_bool = enabled is True or str(enabled or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled", "active"}
+        name = str(raw.get("name") or "").strip()
+        if not name:
+            label_location = location_query or country_code
+            name = f"{listing_mode.title()} search · {label_location}"
+        seed = "|".join([name, country_code, region_code, location_query, listing_mode, property_type])
+        agent_id = str(raw.get("agent_id") or raw.get("id") or "").strip() or f"agent-{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:12]}"
+        return {
+            "agent_id": agent_id,
+            "name": name[:120],
+            "enabled": enabled_bool,
+            "status": "active" if enabled_bool else "paused",
+            "country_code": country_code,
+            "region_code": region_code,
+            "location_query": location_query,
+            "listing_mode": listing_mode,
+            "property_type": property_type,
+            "selected_platforms": selected_platforms,
+            "provider_count": len(selected_platforms),
+            "duration_days": duration_days,
+            "notification_limit": notification_limit,
+            "notification_period": notification_period,
         }
 
     @staticmethod

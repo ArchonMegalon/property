@@ -252,6 +252,13 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
                 "tour_existing_total": 1,
                 "research_task_total": 1,
                 "open_research_task_total": 1,
+                "notification_budget": {
+                    "limit": 1,
+                    "period": "day",
+                    "sent_in_window": 0,
+                    "remaining_after_run": 0,
+                },
+                "notification_budget_suppressed_total": 2,
                 "sources": [
                         {
                             "source_label": "ImmoScout24 Germany",
@@ -259,6 +266,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
                             "high_fit_total": 2,
                             "tour_created_total": 1,
                             "notified_total": 1,
+                            "notification_budget_suppressed_total": 2,
                             "top_candidates": [top_candidate, second_candidate, queued_candidate],
                         }
                     ],
@@ -377,8 +385,13 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Saved searches" in setup.text
     assert "Resume" in setup.text
     assert "Save limits" in setup.text
+    assert "Duplicate" in setup.text
+    assert "Delete" in setup.text
     assert "Run now" in setup.text
+    assert 'data-search-agent-id="' in setup.text
     assert 'data-search-agent-action="resume"' in setup.text
+    assert 'data-search-agent-action="duplicate"' in setup.text
+    assert 'data-search-agent-action="delete"' in setup.text
     assert 'data-search-agent-action="run"' in setup.text
 
     search = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)
@@ -458,6 +471,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Preferred because: Includes a live 360 source" not in search.text
     assert "Review details" in search.text
     assert 'data-candidate-packet-url="/app/research/' in search.text
+    assert 'data-pqx-notification-audit' in search.text
+    assert "Alert delivery" in search.text
+    assert "Held back" in search.text
+    assert "2 candidates held back after ranking" in search.text
     assert "Manage saved search" in search.text
     assert "Launch search" not in search.text
     assert "Morning Memo" not in search.text

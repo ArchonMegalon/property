@@ -296,6 +296,11 @@ class OnboardingPropertySearchPreferencesOut(OnboardingEnvelopeOut):
     selected_platforms: list[str] = Field(default_factory=list)
 
 
+class OnboardingPropertySearchAgentUpdateIn(BaseModel):
+    action: str = Field(default="save", min_length=1, max_length=40)
+    patch: dict[str, object] = Field(default_factory=dict)
+
+
 class OnboardingFlagshipStartIn(BaseModel):
     principal_id: str | None = Field(default=None, min_length=1, max_length=200)
     workspace_name: str = Field(default="PropertyQuarry Workspace", min_length=1, max_length=200)
@@ -593,6 +598,27 @@ def onboarding_get_property_search_preferences(
 ) -> dict[str, object]:
     resolved = resolve_principal_id(principal_id, context)
     return container.onboarding.status(principal_id=resolved)
+
+
+@router.post("/property-search/agents/{agent_id}", response_model=OnboardingPropertySearchPreferencesOut)
+def onboarding_update_property_search_agent(
+    agent_id: str,
+    body: OnboardingPropertySearchAgentUpdateIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    principal_id = resolve_principal_id(None, context)
+    try:
+        return container.onboarding.update_property_search_agent(
+            principal_id=principal_id,
+            agent_id=agent_id,
+            action=body.action,
+            patch=body.patch,
+        )
+    except ValueError as exc:
+        detail = str(exc) or "property_search_agent_update_failed"
+        status_code = 404 if detail == "property_search_agent_not_found" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
 @router.post("/google/start", response_model=OnboardingGoogleStartOut)

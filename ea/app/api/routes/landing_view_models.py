@@ -1448,25 +1448,71 @@ def app_section_payload(
     property_search_agent_notification_period = str(property_preferences.get("search_agent_notification_period") or "day").strip().lower()
     if property_search_agent_notification_period not in {"day", "week"}:
         property_search_agent_notification_period = "day"
-    property_search_agent = {
-        "enabled": property_search_agent_enabled,
-        "status_label": "Active" if property_search_agent_enabled else "Disabled",
-        "duration_days": property_search_agent_duration_days,
-        "duration_label": (
-            "1 week"
-            if property_search_agent_duration_days == 7
-            else "1 year"
-            if property_search_agent_duration_days == 365
-            else f"{property_search_agent_duration_days} days"
-        ),
-        "notification_limit": property_search_agent_notification_limit,
-        "notification_period": property_search_agent_notification_period,
-        "notification_period_label": "week" if property_search_agent_notification_period == "week" else "day",
-        "location_query": str(property_preferences.get("location_query") or "").strip(),
-        "listing_mode": selected_listing_mode,
-        "country_code": str(property_preferences.get("country_code") or "AT").strip().upper(),
-        "provider_count": len(selected_platforms),
-    }
+    def _format_property_search_agent(raw_agent: dict[str, object]) -> dict[str, object]:
+        agent_duration_days = _positive_int(raw_agent.get("duration_days"), default=property_search_agent_duration_days)
+        agent_duration_days = max(7, min(365, agent_duration_days or property_search_agent_duration_days))
+        agent_notification_limit = _positive_int(raw_agent.get("notification_limit"), default=property_search_agent_notification_limit)
+        agent_notification_limit = max(1, min(50, agent_notification_limit or property_search_agent_notification_limit))
+        agent_notification_period = str(raw_agent.get("notification_period") or property_search_agent_notification_period).strip().lower()
+        if agent_notification_period not in {"day", "week"}:
+            agent_notification_period = property_search_agent_notification_period
+        agent_selected_platforms = raw_agent.get("selected_platforms") if isinstance(raw_agent.get("selected_platforms"), list) else selected_platforms
+        agent_enabled = bool(raw_agent.get("enabled"))
+        agent_listing_mode = str(raw_agent.get("listing_mode") or selected_listing_mode).strip().lower() or selected_listing_mode
+        agent_country_code = str(raw_agent.get("country_code") or property_preferences.get("country_code") or "AT").strip().upper()
+        agent_location_query = str(raw_agent.get("location_query") or property_preferences.get("location_query") or "").strip()
+        agent_name = str(raw_agent.get("name") or "").strip()
+        if not agent_name:
+            agent_name = f"{agent_listing_mode.title()} search · {agent_location_query or agent_country_code}"
+        return {
+            "agent_id": str(raw_agent.get("agent_id") or "current").strip() or "current",
+            "name": agent_name,
+            "enabled": agent_enabled,
+            "is_active": bool(raw_agent.get("is_active")),
+            "status_label": "Active" if agent_enabled else "Paused",
+            "duration_days": agent_duration_days,
+            "duration_label": (
+                "1 week"
+                if agent_duration_days == 7
+                else "1 year"
+                if agent_duration_days == 365
+                else f"{agent_duration_days} days"
+            ),
+            "notification_limit": agent_notification_limit,
+            "notification_period": agent_notification_period,
+            "notification_period_label": "week" if agent_notification_period == "week" else "day",
+            "location_query": agent_location_query,
+            "listing_mode": agent_listing_mode,
+            "country_code": agent_country_code,
+            "region_code": str(raw_agent.get("region_code") or property_preferences.get("region_code") or "").strip().lower(),
+            "property_type": str(raw_agent.get("property_type") or property_preferences.get("property_type") or "any").strip().lower(),
+            "provider_count": len(agent_selected_platforms),
+        }
+
+    raw_property_search_agents = property_preferences.get("search_agents") if isinstance(property_preferences.get("search_agents"), list) else []
+    property_search_agents = [
+        _format_property_search_agent(agent)
+        for agent in raw_property_search_agents
+        if isinstance(agent, dict)
+    ]
+    if not property_search_agents:
+        property_search_agents = [
+            _format_property_search_agent(
+                {
+                    "agent_id": str(property_preferences.get("active_search_agent_id") or "current").strip() or "current",
+                    "enabled": property_search_agent_enabled,
+                    "duration_days": property_search_agent_duration_days,
+                    "notification_limit": property_search_agent_notification_limit,
+                    "notification_period": property_search_agent_notification_period,
+                    "location_query": str(property_preferences.get("location_query") or "").strip(),
+                    "listing_mode": selected_listing_mode,
+                    "country_code": str(property_preferences.get("country_code") or "AT").strip().upper(),
+                    "selected_platforms": selected_platforms,
+                    "is_active": True,
+                }
+            )
+        ]
+    property_search_agent = next((agent for agent in property_search_agents if agent.get("is_active")), property_search_agents[0])
     try:
         property_min_match_score_value = int(property_preferences.get("min_match_score") or min(65, property_plan_max_match_score))
     except Exception:
@@ -2532,7 +2578,8 @@ def app_section_payload(
             "billing_order_endpoint": str(property_state.get("billing_order_endpoint") or ""),
             "feedback_person_id": str(property_preferences.get("preference_person_id") or "self"),
             "search_agent": property_search_agent,
-            "search_agents": [property_search_agent],
+            "search_agents": property_search_agents,
+            "search_agent_update_endpoint_template": "/v1/onboarding/property-search/agents/__AGENT_ID__",
             "shortlist_candidates": property_shortlist_cards,
             "wizard_steps": [
                 {

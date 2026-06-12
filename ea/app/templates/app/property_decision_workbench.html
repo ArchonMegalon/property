@@ -1738,10 +1738,10 @@
             </div>
             <div class="pqx-pref-list">
               {% for agent in search_agents %}
-              <div class="pqx-pref-row" data-property-search-agent-row>
+              <div class="pqx-pref-row" data-property-search-agent-row data-search-agent-id="{{ agent.get('agent_id') or 'current' }}">
                 <div>
-                  <strong>{{ agent.get('status_label') }} · {{ agent.get('location_query') or 'No area saved' }}</strong>
-                  <small>{{ agent.get('duration_label') }} · {{ agent.get('notification_limit') }} alert{{ '' if agent.get('notification_limit') == 1 else 's' }} per {{ agent.get('notification_period_label') }} · {{ agent.get('provider_count') }} provider{{ '' if agent.get('provider_count') == 1 else 's' }}</small>
+                  <strong>{{ agent.get('name') or 'Saved search' }}{% if agent.get('is_active') %} · selected{% endif %}</strong>
+                  <small>{{ agent.get('status_label') }} · {{ agent.get('location_query') or agent.get('country_code') or 'No area saved' }} · {{ agent.get('duration_label') }} · {{ agent.get('notification_limit') }} alert{{ '' if agent.get('notification_limit') == 1 else 's' }} per {{ agent.get('notification_period_label') }} · {{ agent.get('provider_count') }} provider{{ '' if agent.get('provider_count') == 1 else 's' }}</small>
                 </div>
                 <div class="pqx-actions">
                   {% if agent.get('enabled') %}
@@ -1750,11 +1750,13 @@
                   <button class="pqx-button" type="button" data-search-agent-action="resume">Resume</button>
                   {% endif %}
                   <button class="pqx-button" type="button" data-search-agent-action="save">Save limits</button>
+                  <button class="pqx-button subtle" type="button" data-search-agent-action="duplicate">Duplicate</button>
+                  <button class="pqx-button subtle" type="button" data-search-agent-action="delete">Delete</button>
                   <button class="pqx-button primary" type="button" data-search-agent-action="run">Run now</button>
                 </div>
               </div>
               {% else %}
-              <div class="pqx-pref-row" data-property-search-agent-row>
+              <div class="pqx-pref-row" data-property-search-agent-row data-search-agent-id="current">
                 <div>
                   <strong>Disabled · current search settings</strong>
                   <small>Turn it on to keep this search running and send only the best-ranked alerts inside your budget.</small>
@@ -1968,6 +1970,31 @@
           {% else %}
           <div class="pqx-empty" data-pqx-ranked-candidates>No matches are ready yet.</div>
           {% endif %}
+          {% set notification_budget = run_summary.get('notification_budget') or {} %}
+          <details class="pqx-card" data-pqx-notification-audit>
+            <summary><strong>Alert delivery</strong><span class="pqx-note">Shows how ranking and message limits affected what was sent.</span></summary>
+            <div class="pqx-source-metrics">
+              <span>Budget <b>{{ notification_budget.get('limit') or property_meta.get('search_agent', {}).get('notification_limit') or 0 }}</b></span>
+              <span>Period <b>{{ notification_budget.get('period') or property_meta.get('search_agent', {}).get('notification_period_label') or 'day' }}</b></span>
+              <span>Already sent <b>{{ notification_budget.get('sent_in_window') or 0 }}</b></span>
+              <span>Remaining <b>{{ notification_budget.get('remaining_after_run') if notification_budget.get('remaining_after_run') is not none else notification_budget.get('remaining') or 0 }}</b></span>
+              <span>Held back <b>{{ run_summary.get('notification_budget_suppressed_total') or 0 }}</b></span>
+            </div>
+            <div class="pqx-note">When a search finds more homes than the alert budget allows, EA ranks the candidates and sends only the best fits. Lower-ranked candidates stay in the review table.</div>
+            {% if run_sources %}
+            <div class="pqx-source-grid">
+              {% for source in run_sources %}
+              {% set suppressed = source.get('notification_budget_suppressed_total') or 0 %}
+              {% if suppressed %}
+              <article class="pqx-source-card">
+                <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
+                <span class="pqx-note">{{ suppressed }} candidate{{ '' if suppressed == 1 else 's' }} held back after ranking because the alert budget was full.</span>
+              </article>
+              {% endif %}
+              {% endfor %}
+            </div>
+            {% endif %}
+          </details>
           {% if run_sources %}
           <details class="pqx-card">
             <summary><strong>Search diagnostics</strong><span class="pqx-note">Open only when results look wrong or too narrow.</span></summary>
@@ -2303,6 +2330,31 @@
             <span class="pqx-pill good">{{ run.get('status_label') or 'Completed' }}</span>
           </div>
           {{ research_queue_panel(research_tasks, run.get('run_id') or '', research_task_counts) }}
+          {% set notification_budget = run_summary.get('notification_budget') or {} %}
+          <details class="pqx-card" data-pqx-notification-audit>
+            <summary><strong>Alert delivery</strong><span class="pqx-note">Shows how ranking and message limits affected what was sent.</span></summary>
+            <div class="pqx-source-metrics">
+              <span>Budget <b>{{ notification_budget.get('limit') or property_meta.get('search_agent', {}).get('notification_limit') or 0 }}</b></span>
+              <span>Period <b>{{ notification_budget.get('period') or property_meta.get('search_agent', {}).get('notification_period_label') or 'day' }}</b></span>
+              <span>Already sent <b>{{ notification_budget.get('sent_in_window') or 0 }}</b></span>
+              <span>Remaining <b>{{ notification_budget.get('remaining_after_run') if notification_budget.get('remaining_after_run') is not none else notification_budget.get('remaining') or 0 }}</b></span>
+              <span>Held back <b>{{ run_summary.get('notification_budget_suppressed_total') or 0 }}</b></span>
+            </div>
+            <div class="pqx-note">When a search finds more homes than the alert budget allows, EA ranks the candidates and sends only the best fits. Lower-ranked candidates stay in the review table.</div>
+            {% if run_sources %}
+            <div class="pqx-source-grid">
+              {% for source in run_sources %}
+              {% set suppressed = source.get('notification_budget_suppressed_total') or 0 %}
+              {% if suppressed %}
+              <article class="pqx-source-card">
+                <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
+                <span class="pqx-note">{{ suppressed }} candidate{{ '' if suppressed == 1 else 's' }} held back after ranking because the alert budget was full.</span>
+              </article>
+              {% endif %}
+              {% endfor %}
+            </div>
+            {% endif %}
+          </details>
           <div class="pqx-results-list" data-workbench-results-table>
             {% for candidate in results %}
             <button class="pqx-result" type="button" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
@@ -4209,27 +4261,71 @@
       }
     });
     root.querySelector('[data-property-start]')?.addEventListener('click', startSearch);
+    const updateSearchAgent = async (agentId, action, patch = {}) => {
+      const template = String(meta.search_agent_update_endpoint_template || '/v1/onboarding/property-search/agents/__AGENT_ID__');
+      const resolvedAgentId = encodeURIComponent(String(agentId || 'current').trim() || 'current');
+      const endpoint = template.includes('__AGENT_ID__')
+        ? template.replace('__AGENT_ID__', resolvedAgentId)
+        : `${template.replace(/\/$/, '')}/${resolvedAgentId}`;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ action, patch }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body?.detail || body?.error || 'Could not update saved search.');
+      }
+      return body;
+    };
+    const currentSearchAgentPatch = () => {
+      const payload = collectPayload(form).property_preferences || {};
+      return {
+        location_query: payload.location_query || '',
+        country_code: payload.country_code || '',
+        region_code: payload.region_code || '',
+        listing_mode: payload.listing_mode || 'rent',
+        property_type: payload.property_type || 'any',
+        selected_platforms: Array.isArray(payload.selected_platforms) ? payload.selected_platforms : [],
+        duration_days: payload.search_agent_duration_days || 30,
+        notification_limit: payload.search_agent_notification_limit || 5,
+        notification_period: payload.search_agent_notification_period || 'day',
+      };
+    };
     root.querySelectorAll('[data-search-agent-action]').forEach((button) => {
       button.addEventListener('click', async () => {
         if (!form) return;
         const action = String(button.getAttribute('data-search-agent-action') || '').trim();
         const status = root.querySelector('[data-search-agent-status]');
-        const enabledInput = form.querySelector('input[name="search_agent_enabled"]');
+        const row = button.closest('[data-property-search-agent-row]');
+        const agentId = row?.getAttribute('data-search-agent-id') || 'current';
         try {
-          if (action === 'pause' && enabledInput) enabledInput.checked = false;
-          if (action === 'resume' && enabledInput) enabledInput.checked = true;
-          if (status) status.textContent = action === 'run' ? 'Saving and starting this search...' : 'Saving saved-search settings...';
+          if (status) {
+            status.textContent = action === 'run'
+              ? 'Selecting and starting this saved search...'
+              : action === 'delete'
+                ? 'Deleting saved search...'
+                : 'Updating saved search...';
+          }
           if (action === 'run') {
+            await updateSearchAgent(agentId, 'resume', currentSearchAgentPatch());
             await startSearch();
             return;
           }
-          await savePreferences();
+          await updateSearchAgent(agentId, action, action === 'save' ? currentSearchAgentPatch() : {});
           if (status) {
             status.textContent = action === 'pause'
               ? 'Saved search paused.'
               : action === 'resume'
                 ? 'Saved search resumed.'
-                : 'Saved search limits updated.';
+                : action === 'duplicate'
+                  ? 'Saved search duplicated.'
+                  : action === 'delete'
+                    ? 'Saved search deleted.'
+                    : 'Saved search limits updated.';
+          }
+          if (['delete', 'duplicate', 'resume', 'pause'].includes(action)) {
+            window.setTimeout(() => window.location.reload(), 450);
           }
         } catch (err) {
           if (status) status.textContent = err instanceof Error ? err.message : 'Could not update saved search.';

@@ -25,6 +25,7 @@ Runs the focused PropertyQuarry release bundle:
   - phase and master exit-gate specs plus flagship browser workflows
   - property workspace real-browser greenfield checks
   - property search run contracts
+  - saved search-agent management contracts
   - property market catalog contracts
   - privacy-safe Rybbit analytics snippet contracts
   - property browser journey contracts
@@ -87,5 +88,6 @@ if [[ -n "${PROPERTYQUARRY_SENT_LINKS_MANIFEST:-}" ]]; then
 fi
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_search_runs.py \
+  tests/test_property_search_agents.py \
   tests/test_property_market_catalog.py \
   tests/test_product_browser_journeys.py -k 'properties_workspace_surface or propertyquarry_settings_hide_generic_google_sync_metrics'
