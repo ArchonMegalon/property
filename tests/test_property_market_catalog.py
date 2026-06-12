@@ -273,10 +273,14 @@ def test_default_platforms_for_country_are_stable() -> None:
 
 
 def test_workspace_location_options_follow_supported_country_codes() -> None:
-    from app.api.routes.landing_view_models import _property_location_options
+    from app.api.routes.landing_view_models import _property_location_options, _property_region_options
 
     assert any(row["value"] == "London" for row in _property_location_options("UK"))
     assert any(row["value"] == "London" for row in _property_location_options("GB"))
+    assert any(row["value"] == "costa_rica" for row in _property_region_options("CR"))
+    assert any(row["value"] == "Costa Rica" for row in _property_location_options("CR", "costa_rica"))
+    assert any(row["value"] == "Tamarindo" for row in _property_location_options("CR", "guanacaste"))
+    assert any(row["value"] == "Puerto Viejo" for row in _property_location_options("CR", "caribbean"))
 
 
 def test_workspace_preference_schema_matches_backend_categories() -> None:
@@ -381,6 +385,28 @@ def test_generated_source_specs_cover_costa_rica_providers() -> None:
     assert {row["platform"] for row in buy_specs} == {"encuentra24_cr", "re_cr_mls", "realtor_cr", "coldwellbanker_cr"}
     assert any("realtor.com/international/cr" in str(row["url"]) for row in buy_specs)
     assert all(row["country_code"] == "CR" for row in [*rent_specs, *buy_specs])
+
+
+def test_generated_source_specs_allow_countrywide_costa_rica_without_target_area() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "CR",
+            "language_code": "es",
+            "listing_mode": "buy",
+            "property_type": "land",
+            "location_query": "",
+            "keywords": "beach access",
+        },
+        selected_platforms=(),
+        principal_id="exec-property-cr-countrywide",
+        default_person_id="self",
+        max_results=4,
+    )
+
+    assert {row["platform"] for row in specs} == {"encuentra24_cr", "re_cr_mls", "realtor_cr", "coldwellbanker_cr"}
+    assert all(row["location_query"] == "" for row in specs)
+    assert all(row["country_code"] == "CR" for row in specs)
+    assert any("beach+access" in str(row["url"]) or "q=beach" in str(row["url"]) for row in specs)
 
 
 def test_generated_source_specs_split_multi_area_queries_into_dedicated_sources() -> None:

@@ -7537,6 +7537,21 @@ def test_property_alert_review_telegram_text_prefers_review_link_over_listing() 
     assert "Top listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
 
 
+def test_property_telegram_url_buttons_include_direct_map_without_visible_link_text() -> None:
+    rows = product_service._property_telegram_url_button_rows(
+        property_url="https://www.immobilienscout24.at/expose/watch-fit-1",
+        review_url="https://propertyquarry.com/app/handoffs/human_task:watch-fit-1",
+        tour_url="https://propertyquarry.com/tours/watch-fit-1/matterport",
+        map_url="https://www.google.com/maps/search/?api=1&query=Brunnthalgasse%201B%2C%201020%20Wien",
+    )
+
+    flat = [(label, url) for row in rows for label, url in row]
+    assert ("Open Review", "https://propertyquarry.com/app/handoffs/human_task:watch-fit-1") in flat
+    assert ("Open 3D Tour", "https://propertyquarry.com/tours/watch-fit-1/matterport") in flat
+    assert ("Open Listing", "https://www.immobilienscout24.at/expose/watch-fit-1") in flat
+    assert ("Open Map", "https://www.google.com/maps/search/?api=1&query=Brunnthalgasse%201B%2C%201020%20Wien") in flat
+
+
 def test_generic_property_tour_creates_myexternalbrain_tour_for_immoscout(monkeypatch) -> None:
     from app.domain.models import Artifact
 

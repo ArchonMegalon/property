@@ -7867,6 +7867,7 @@ def _property_telegram_url_button_rows(
     property_url: str = "",
     tour_url: str = "",
     review_url: str = "",
+    map_url: str = "",
 ) -> list[list[tuple[str, str]]]:
     rows: list[list[tuple[str, str]]] = []
     primary: list[tuple[str, str]] = []
@@ -7876,8 +7877,13 @@ def _property_telegram_url_button_rows(
         primary.append(("Open 3D Tour", str(tour_url or "").strip()))
     if primary:
         rows.append(primary[:2])
+    secondary: list[tuple[str, str]] = []
     if str(property_url or "").strip():
-        rows.append([("Open Listing", str(property_url or "").strip())])
+        secondary.append(("Open Listing", str(property_url or "").strip()))
+    if str(map_url or "").strip():
+        secondary.append(("Open Map", str(map_url or "").strip()))
+    if secondary:
+        rows.append(secondary[:2])
     return rows
 
 
@@ -27482,6 +27488,7 @@ class ProductService:
                     "assessment": dict(row.get("assessment") or {}),
                     "property_facts": dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {},
                     "source_label": source_label,
+                    "map_url": _property_candidate_google_maps_url(row),
                 }
                 for row in ranked_rows[:3]
             )
@@ -31123,6 +31130,23 @@ class ProductService:
             suggestion_options=self._property_notification_feedback_suggestions(raw_signal_json=feedback_raw_signal),
         )
         try:
+            candidate_map_url = ""
+            if candidate_properties:
+                candidate_map_url = str(candidate_properties[0].get("map_url") or "").strip()
+                if not candidate_map_url:
+                    candidate_map_url = _property_candidate_google_maps_url(dict(candidate_properties[0] or {}))
+            if not candidate_map_url:
+                candidate_map_url = _property_candidate_google_maps_url(
+                    {
+                        "title": title,
+                        "property_url": property_url,
+                        "property_facts": dict(
+                            dict(candidate_properties[0]).get("property_facts") or {}
+                        )
+                        if candidate_properties and isinstance(dict(candidate_properties[0]).get("property_facts"), dict)
+                        else {},
+                    }
+                )
             telegram_receipt = send_telegram_message_for_principal(
                 self._container.tool_runtime,
                 principal_id=principal_id,
@@ -31144,6 +31168,7 @@ class ProductService:
                     property_url=property_url,
                     tour_url=tour_url,
                     review_url=review_url,
+                    map_url=candidate_map_url,
                 ),
             )
         except Exception as exc:

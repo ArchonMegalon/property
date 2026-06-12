@@ -499,6 +499,13 @@ def _property_region_options(country_code: str) -> list[dict[str, str]]:
             {"value": "carinthia", "label": "Carinthia", "detail": "Klagenfurt and Villach"},
             {"value": "burgenland", "label": "Burgenland", "detail": "Eisenstadt and the eastern commuter belt"},
         ],
+        "CR": [
+            {"value": "costa_rica", "label": "All Costa Rica", "detail": "Country-wide search"},
+            {"value": "central_valley", "label": "Central Valley", "detail": "San Jose, Escazu, Santa Ana, Heredia"},
+            {"value": "guanacaste", "label": "Guanacaste", "detail": "Tamarindo, Nosara, Flamingo, Liberia"},
+            {"value": "puntarenas", "label": "Puntarenas", "detail": "Jaco, Quepos, Dominical, Uvita"},
+            {"value": "caribbean", "label": "Caribbean coast", "detail": "Limon, Puerto Viejo, Cahuita"},
+        ],
     }
     return list(catalogs.get(str(country_code or "").strip().upper(), []))
 
@@ -626,6 +633,49 @@ def _property_location_options(country_code: str, region_code: str = "") -> list
             {"value": "San Francisco", "label": "San Francisco", "detail": "Bay Area"},
             {"value": "Boston", "label": "Boston", "detail": "City-wide"},
         ],
+        "CR": list(
+            {
+                "costa_rica": [
+                    {"value": "Costa Rica", "label": "All Costa Rica", "detail": "Country-wide"},
+                    {"value": "San Jose", "label": "San Jose", "detail": "Capital region"},
+                    {"value": "Escazu", "label": "Escazu", "detail": "West San Jose"},
+                    {"value": "Santa Ana", "label": "Santa Ana", "detail": "West valley"},
+                    {"value": "Tamarindo", "label": "Tamarindo", "detail": "Guanacaste beach market"},
+                    {"value": "Nosara", "label": "Nosara", "detail": "Nicoya Peninsula"},
+                    {"value": "Jaco", "label": "Jaco", "detail": "Central Pacific"},
+                    {"value": "Uvita", "label": "Uvita", "detail": "South Pacific"},
+                    {"value": "Puerto Viejo", "label": "Puerto Viejo", "detail": "Caribbean coast"},
+                ],
+                "central_valley": [
+                    {"value": "San Jose", "label": "San Jose", "detail": "Capital region"},
+                    {"value": "Escazu", "label": "Escazu", "detail": "West San Jose"},
+                    {"value": "Santa Ana", "label": "Santa Ana", "detail": "West valley"},
+                    {"value": "Heredia", "label": "Heredia", "detail": "North of San Jose"},
+                    {"value": "Alajuela", "label": "Alajuela", "detail": "Airport corridor"},
+                    {"value": "Cartago", "label": "Cartago", "detail": "Eastern valley"},
+                ],
+                "guanacaste": [
+                    {"value": "Tamarindo", "label": "Tamarindo", "detail": "Beach and expat market"},
+                    {"value": "Nosara", "label": "Nosara", "detail": "Nicoya Peninsula"},
+                    {"value": "Playa Flamingo", "label": "Playa Flamingo", "detail": "Marina and beach"},
+                    {"value": "Liberia", "label": "Liberia", "detail": "Guanacaste hub"},
+                    {"value": "Papagayo", "label": "Papagayo", "detail": "Resort corridor"},
+                ],
+                "puntarenas": [
+                    {"value": "Jaco", "label": "Jaco", "detail": "Central Pacific"},
+                    {"value": "Quepos", "label": "Quepos", "detail": "Manuel Antonio area"},
+                    {"value": "Dominical", "label": "Dominical", "detail": "South Pacific"},
+                    {"value": "Uvita", "label": "Uvita", "detail": "Osa gateway"},
+                    {"value": "Ojochal", "label": "Ojochal", "detail": "South Pacific"},
+                ],
+                "caribbean": [
+                    {"value": "Limon", "label": "Limon", "detail": "Caribbean port city"},
+                    {"value": "Puerto Viejo", "label": "Puerto Viejo", "detail": "South Caribbean"},
+                    {"value": "Cahuita", "label": "Cahuita", "detail": "National park area"},
+                    {"value": "Tortuguero", "label": "Tortuguero", "detail": "North Caribbean"},
+                ],
+            }.get(str(region_code or "").strip().lower() or "costa_rica", [])
+        ),
     }
     normalized_country = str(country_code or "").strip().upper()
     if normalized_country == "GB":
@@ -3478,6 +3528,7 @@ def property_workspace_payload(
         ]
         packet_url = str(candidate.get("packet_url") or candidate.get("review_url") or "").strip()
         packet_label = "Review packet" if packet_url else "Pending"
+        map_url = str(candidate.get("map_url") or "").strip() or _property_candidate_maps_url(candidate)
         tour_status_line = _tour_status_line(candidate)
         ooda_detail = _distance_line(candidate)
         candidate_ref = str(packet_url or "").split("/app/research/", 1)[-1].split("?", 1)[0] if "/app/research/" in packet_url else _property_candidate_ref(candidate)
@@ -3515,6 +3566,7 @@ def property_workspace_payload(
                 "packet_url": packet_url,
                 "review_url": str(candidate.get("review_url") or "").strip(),
                 "property_url": str(candidate.get("property_url") or "").strip(),
+                "map_url": map_url,
                 "source_url": str(candidate.get("property_url") or "").strip(),
                 "property_facts": facts,
                 "assessment": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
@@ -3562,8 +3614,9 @@ def property_workspace_payload(
             {
                 "cells": [
                     {"title": "Open 360" if str(candidate.get("tour_url") or "").strip() else tour_status_line, "detail": tour_status_line if str(candidate.get("tour_url") or "").strip() else "", "href": str(candidate.get("tour_url") or "").strip()},
-                    {"title": str(candidate.get("title") or "Candidate").strip() or "Candidate", "detail": str(candidate.get("source_label") or "").strip()},
+                    {"title": f"#{len(results_table_rows) + 1} {str(candidate.get('title') or 'Candidate').strip() or 'Candidate'}", "detail": str(candidate.get("source_label") or "").strip()},
                     {"title": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(), "detail": str(candidate.get("fit_summary") or "").strip()},
+                    {"title": "Open Map" if map_url else "Map pending", "detail": "", "href": map_url},
                     {"title": price_line, "detail": ""},
                     {"title": " | ".join(part for part in layout_parts if part) or "n/a", "detail": ""},
                     {"title": ooda_detail or "Packet explains the neighbourhood fit.", "detail": "", "href": packet_url},
@@ -3571,6 +3624,7 @@ def property_workspace_payload(
                 ],
                 "packet_url": packet_url,
                 "tour_url": str(candidate.get("tour_url") or "").strip(),
+                "map_url": map_url,
                 "source_url": str(candidate.get("property_url") or "").strip(),
             }
         )
@@ -3940,7 +3994,7 @@ def property_workspace_payload(
             "show_run_panel": run_in_progress,
             "show_shortlist_cards": False,
             "show_results_table": run_status_value in {"processed", "completed"} and bool(results_table_rows),
-            "results_table_headers": ["360", "Candidate", "Fit", "Price", "Layout", "OODA", "Review"],
+            "results_table_headers": ["360", "Candidate", "Fit", "Map", "Price", "Layout", "OODA", "Review"],
             "results_table_rows": results_table_rows,
         },
         "shortlist": {
