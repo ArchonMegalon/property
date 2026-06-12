@@ -652,10 +652,23 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     assert "Packet sharing" in body
     assert "Ready to send" in body
     assert "Privacy checked · PDF ready · Sharing controls active" in body
+    assert "Paste shared packet link" in body
+    assert "Copy response endpoint" in body
+    assert "https://packets.propertyquarry.com/p/..." not in body
+    assert "Copy response URL" not in body
     assert "Sharing cockpit" not in body
     assert "Publication queue" not in body
     assert "source_pdf_sha256" not in body
     assert "renderer_version" not in body
+
+
+def test_property_workbench_recent_reviews_do_not_render_fake_links() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    assert "href=\"{{ packet.get('url') or '#' }}\"" not in body
+    assert "packet.get('url')" in body
+    assert "<span class=\"pqx-pill\">{{ packet.get('title') }}</span>" in body
 
 
 def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(monkeypatch) -> None:

@@ -397,7 +397,7 @@
               </div>
             </form>
             <form class="pq-pack-form" data-fliplink-manual-form data-publication-id="{{ row.publication_id }}">
-              <input class="pq-pack-input" type="url" name="fliplink_url" placeholder="https://packets.propertyquarry.com/p/..." value="{{ row.fliplink_url }}" autocomplete="off">
+              <input class="pq-pack-input" type="url" name="fliplink_url" placeholder="Paste shared packet link" value="{{ row.fliplink_url }}" autocomplete="off">
               <input type="hidden" name="fliplink_format" value="{{ row.fliplink_format }}">
               <div class="pq-pack-inline">
                 <label class="pq-pack-check"><input type="checkbox" name="lead_capture_enabled" {% if row.lead_capture_enabled %}checked{% endif %}> Responses</label>
@@ -418,7 +418,7 @@
               <a class="pq-pack-button small" href="{{ row.artifact_download_path }}">Download PDF</a>
               <button class="pq-pack-button small" type="button" data-republish-publication data-publication-id="{{ row.publication_id }}">Republish revised packet</button>
               <button class="pq-pack-button small" type="button" data-copy-kind="title" data-copy-value="{{ row.recommended_title or row.property_ref }}">Copy title</button>
-              <button class="pq-pack-button small" type="button" data-copy-kind="webhook" data-copy-value="{{ fliplink_webhook_url }}">Copy response URL</button>
+              <button class="pq-pack-button small" type="button" data-copy-kind="webhook" data-copy-value="{{ fliplink_webhook_url }}">Copy response endpoint</button>
               <button class="pq-pack-button small" type="button" data-copy-lead-schema data-property-ref="{{ row.property_ref }}" data-packet-kind="{{ row.packet_kind }}" data-privacy-mode="{{ row.privacy_mode }}">Copy response fields</button>
               <button class="pq-pack-button small" type="button" data-browseract-publish data-publication-id="{{ row.publication_id }}">Publish assist</button>
               <button class="pq-pack-button small danger" type="button" data-archive-publication data-publication-id="{{ row.publication_id }}">Archive</button>

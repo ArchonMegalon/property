@@ -1548,7 +1548,11 @@
           <div class="pqx-brief-stack">
             <strong>Recent reviews</strong>
             {% for packet in recent_packets[:3] %}
-            <a class="pqx-link-button subtle" href="{{ packet.get('url') or '#' }}">{{ packet.get('title') }}</a>
+            {% if packet.get('url') %}
+            <a class="pqx-link-button subtle" href="{{ packet.get('url') }}">{{ packet.get('title') }}</a>
+            {% else %}
+            <span class="pqx-pill">{{ packet.get('title') }}</span>
+            {% endif %}
             {% endfor %}
           </div>
           {% endif %}
