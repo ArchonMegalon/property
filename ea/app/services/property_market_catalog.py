@@ -1309,6 +1309,8 @@ def normalize_language_code(value: object, *, country_code: str = "AT") -> str:
 
 def normalize_listing_mode(value: object) -> str:
     normalized = str(value or "").strip().lower()
+    if normalized in {"sale", "purchase", "for_sale", "for-sale", "kauf", "buying"}:
+        return "buy"
     return normalized if normalized in {"rent", "buy"} else "rent"
 
 

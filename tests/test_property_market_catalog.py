@@ -14,6 +14,7 @@ from app.services.property_market_catalog import (
     property_type_label,
     provider_options,
     provider_listing_markers_for_host,
+    normalize_listing_mode,
 )
 
 
@@ -78,6 +79,11 @@ def test_normalize_property_search_preferences_scopes_all_of_vienna_backend_runs
 
     assert payload["all_of_vienna"] is True
     assert payload["location_query"] == "Vienna"
+
+
+def test_normalize_listing_mode_accepts_sale_aliases() -> None:
+    assert normalize_listing_mode("sale") == "buy"
+    assert normalize_listing_mode("for-sale") == "buy"
 
 
 def test_country_normalization_understands_common_country_names() -> None:

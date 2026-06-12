@@ -1866,6 +1866,32 @@ def test_property_search_preferences_persist_all_of_vienna_as_hard_location_scop
     assert preferences["location_query"] == "Vienna"
 
 
+def test_property_search_preferences_normalize_country_names_before_saving() -> None:
+    principal_id = "exec-property-search-country-name-scope"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Country Name Scope")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "Costa Rica",
+            "listing_mode": "sale",
+            "property_type": "land",
+            "location_query": "Tamarindo",
+            "selected_platforms": ["encuentra24_cr"],
+            "property_commercial": {"active_plan_key": "agent", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"},
+        },
+    )
+
+    assert stored.status_code == 200, stored.text
+    preferences = stored.json()["property_search_preferences"]
+    assert preferences["country_code"] == "CR"
+    assert preferences["language_code"] == "es"
+    assert preferences["listing_mode"] == "buy"
+    assert preferences["property_type"] == "land"
+    assert preferences["location_query"] == "Tamarindo"
+
+
 def test_direct_property_scout_uses_saved_preferences_and_respects_disabled_flag(monkeypatch) -> None:
     principal_id = "exec-property-direct-saved-preferences"
     client = build_property_client(principal_id=principal_id)

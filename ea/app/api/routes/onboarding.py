@@ -574,9 +574,14 @@ def onboarding_upsert_property_search_preferences(
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
     principal_id = resolve_principal_id(None, context)
+    preferences_payload = dict(body.model_dump())
+    explicit_fields = set(getattr(body, "model_fields_set", set()) or set())
+    for implicit_default_key in ("language_code",):
+        if implicit_default_key not in explicit_fields:
+            preferences_payload.pop(implicit_default_key, None)
     return container.onboarding.upsert_property_search_preferences(
         principal_id=principal_id,
-        property_search_preferences_json=dict(body.model_dump()),
+        property_search_preferences_json=preferences_payload,
     )
 
 

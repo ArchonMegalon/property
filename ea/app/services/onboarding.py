@@ -31,6 +31,12 @@ except ImportError:
         return any(scope in supported_signal_scopes for scope in effective_scopes)
 from app.services.memory_runtime import MemoryRuntimeService
 from app.services.property_billing import normalize_property_commercial
+from app.services.property_market_catalog import (
+    normalize_country_code,
+    normalize_language_code,
+    normalize_listing_mode,
+    normalize_property_type,
+)
 from app.services.provider_registry import ProviderRegistryService
 from app.services.telegram_delivery import _telegram_binding_principal_candidates
 from app.services.tool_runtime import ToolRuntimeService
@@ -231,6 +237,11 @@ class OnboardingService(AssistantOnboardingService):
         state = self._ensure_state(principal_id)
         normalized_preferences = self._normalize_property_search_preferences(property_search_preferences_json)
         raw_incoming_preferences = dict(property_search_preferences_json or {})
+        if "language_code" not in raw_incoming_preferences and "language" not in raw_incoming_preferences:
+            normalized_preferences["language_code"] = normalize_language_code(
+                None,
+                country_code=str(normalized_preferences.get("country_code") or "AT"),
+            )
         existing_preferences = dict(state.property_search_preferences_json or {})
         existing_raw_preferences = dict(existing_preferences.get("raw_preferences") or {}) if isinstance(existing_preferences.get("raw_preferences"), dict) else {}
         incoming_commercial = dict(normalized_preferences.get("property_commercial") or {}) if isinstance(normalized_preferences.get("property_commercial"), dict) else {}
@@ -1185,7 +1196,7 @@ class OnboardingService(AssistantOnboardingService):
             if normalized_platform and normalized_platform not in selected_platforms:
                 selected_platforms.append(normalized_platform)
 
-        country_code = str(raw.get("country_code") or "AT").strip().upper() or "AT"
+        country_code = normalize_country_code(raw.get("country_code"))
         region_code = str(raw.get("region_code") or "").strip().lower()
         raw_all_of_vienna = raw.get("all_of_vienna")
         all_of_vienna = (
@@ -1195,9 +1206,9 @@ class OnboardingService(AssistantOnboardingService):
         location_query = str(raw.get("location_query") or "").strip()
         if country_code == "AT" and region_code in {"vienna", "wien"} and all_of_vienna and not location_query:
             location_query = "Vienna"
-        language_code = str(raw.get("language_code") or "").strip().lower()
-        listing_mode = str(raw.get("listing_mode") or "").strip().lower()
-        property_type = str(raw.get("property_type") or "").strip().lower()
+        language_code = normalize_language_code(raw.get("language_code"), country_code=country_code)
+        listing_mode = normalize_listing_mode(raw.get("listing_mode"))
+        property_type = normalize_property_type(raw.get("property_type"))
 
         max_results_per_source = raw.get("max_results_per_source")
         try:
