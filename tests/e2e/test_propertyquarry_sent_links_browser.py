@@ -49,11 +49,15 @@ def test_sent_property_links_open_in_real_browser() -> None:
                 tour_page.wait_for_timeout(1200)
                 hosted_cube = tour_page.locator("#cube").count() > 0
                 live_iframe = tour_page.locator("iframe[src*='matterport.com']").count() > 0
+                vista_marker = tour_page.locator("[data-viewer='3dvista'], iframe[src*='3dvista'], iframe[src*='3DVista']").count() > 0
                 status_text = ""
                 if tour_page.locator("#tour-status").count() > 0:
                     status_text = tour_page.locator("#tour-status").inner_text(timeout=3000)
-                assert hosted_cube or live_iframe or "Floorplan" in status_text or "Panorama" in status_text, (
-                    f"{title}: hosted 3D lane did not open cleanly"
+                page_text = tour_page.locator("body").inner_text(timeout=3000)
+                assert not hosted_cube, f"{title}: forbidden cube fallback was delivered as 3D tour"
+                assert "Marzipano" not in page_text, f"{title}: forbidden Marzipano fallback was delivered as 3D tour"
+                assert live_iframe or vista_marker or "Matterport" in status_text or "3DVista" in status_text, (
+                    f"{title}: hosted 3D lane did not open as Matterport or 3DVista"
                 )
                 tour_page.close()
 
