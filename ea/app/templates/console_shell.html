@@ -1831,6 +1831,7 @@
     const sources = Array.isArray(summary.sources) ? summary.sources : [];
     sourceNode.innerHTML = sources.slice(0, 6).map((source) => {
       const label = String(source.source_label || source.source_url || 'Source');
+      const pushdown = source.provider_filter_pushdown && typeof source.provider_filter_pushdown === 'object' ? source.provider_filter_pushdown : {};
       const detail = [
         `${Number(source.listing_total || 0)} listings`,
         `${Number(source.high_fit_total || 0)} high-fit`,
@@ -1838,7 +1839,15 @@
         `${Number(source.notified_total || 0)} client alerts`,
         Number(source.email_notified_total || 0) > 0 ? `${Number(source.email_notified_total || 0)} email` : '',
       ].filter(Boolean).join(' | ');
-      return `<div class="console-row"><div><strong>${label}</strong><small>${detail}</small></div><span class="console-tag">Scanned</span></div>`;
+      const notes = [
+        pushdown.filter_strength === 'weak_search_then_post_filter'
+          ? `Provider filter weak: EA post-filtered ${(Array.isArray(pushdown.post_filter_only) ? pushdown.post_filter_only : []).join(', ') || 'selected filters'}.`
+          : '',
+        source.location_mismatch_reason
+          ? `No selected-area matches: provider returned ${Number(source.location_mismatch_candidate_total || 0)} outside the chosen target area.`
+          : '',
+      ].filter(Boolean).join(' ');
+      return `<div class="console-row"><div><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail)}${notes ? ` | ${escapeHtml(notes)}` : ''}</small></div><span class="console-tag">Scanned</span></div>`;
     }).join('');
 
     const events = Array.isArray(payload.events) ? payload.events : [];

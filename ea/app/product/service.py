@@ -38,9 +38,11 @@ import requests
 import yaml
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageFilter, ImageStat
 except Exception:  # pragma: no cover - optional OCR fallback
     Image = None
+    ImageFilter = None
+    ImageStat = None
 
 try:
     import pytesseract
@@ -2739,7 +2741,9 @@ def _property_scout_is_floorplan_archive_candidate_url(*, url: str, context: str
         return False
     if any(marker in combined for marker in ("zip", "alldoc", "download", "dokument", "beilage", "anlage", "unterlag", "gutachten")):
         return True
-    if path.endswith(".pdf") and any(marker in combined for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
+    if urllib.parse.unquote(parsed.path or "").lower().endswith(".pdf") and any(
+        marker in combined for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS
+    ):
         return True
     return any(marker in lowered_context for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_CONTEXT_MARKERS)
 
@@ -2911,6 +2915,152 @@ def _property_scout_extract_detail_media_urls(*, source_url: str, html: str) -> 
         seen.add(normalized)
         media_urls.append(normalized)
     return tuple(media_urls)
+
+
+def _property_scout_image_looks_like_floorplan(payload: bytes) -> tuple[bool, dict[str, object]]:
+    if Image is None or ImageFilter is None or ImageStat is None:
+        return False, {"status": "image_library_unavailable"}
+    if not payload or len(payload) > 3 * 1024 * 1024:
+        return False, {"status": "image_too_large_or_empty", "size_bytes": len(payload or b"")}
+    try:
+        image = Image.open(io.BytesIO(payload))
+        image.load()
+    except Exception:
+        return False, {"status": "image_decode_failed"}
+    width, height = image.size
+    if width < 180 or height < 120:
+        return False, {"status": "image_too_small", "width": width, "height": height}
+    image.thumbnail((720, 720))
+    gray = image.convert("L")
+    edges = gray.filter(ImageFilter.FIND_EDGES)
+    edge_mean = float(ImageStat.Stat(edges).mean[0])
+    rgb = image.convert("RGB")
+    sample = rgb.resize((96, 96))
+    sample_pixels = sample.get_flattened_data() if hasattr(sample, "get_flattened_data") else sample.getdata()
+    pixels = list(sample_pixels)
+    if not pixels:
+        return False, {"status": "image_empty_sample"}
+    dark_ratio = sum(1 for r, g, b in pixels if (r + g + b) / 3 < 96) / len(pixels)
+    light_ratio = sum(1 for r, g, b in pixels if (r + g + b) / 3 > 206) / len(pixels)
+    saturation_values = [(max(r, g, b) - min(r, g, b)) for r, g, b in pixels]
+    avg_saturation = sum(saturation_values) / len(saturation_values)
+    ocr_text = ""
+    if pytesseract is not None and shutil.which("tesseract"):
+        try:
+            ocr_text = pytesseract.image_to_string(gray, config="--psm 11")[:800]
+        except Exception:
+            ocr_text = ""
+    normalized_ocr = re.sub(r"[^a-z0-9äöüß]+", " ", ocr_text.lower()).strip()
+    room_word_hits = sum(
+        1
+        for marker in (
+            "zimmer",
+            "kueche",
+            "küche",
+            "bad",
+            "wc",
+            "flur",
+            "gang",
+            "balkon",
+            "terrasse",
+            "bedroom",
+            "bath",
+            "kitchen",
+            "living",
+            "room",
+            "floor plan",
+            "floorplan",
+            "grundriss",
+        )
+        if marker in normalized_ocr
+    )
+    plan_like_geometry = edge_mean >= 10.0 and light_ratio >= 0.42 and 0.01 <= dark_ratio <= 0.42 and avg_saturation <= 62.0
+    ocr_like_plan = room_word_hits >= 2 and light_ratio >= 0.30 and avg_saturation <= 95.0
+    return bool(plan_like_geometry or ocr_like_plan), {
+        "status": "classified",
+        "width": width,
+        "height": height,
+        "edge_mean": round(edge_mean, 2),
+        "dark_ratio": round(dark_ratio, 3),
+        "light_ratio": round(light_ratio, 3),
+        "avg_saturation": round(avg_saturation, 2),
+        "room_word_hits": room_word_hits,
+        "ocr_used": bool(ocr_text),
+        "classifier": "geometry_or_ocr_floorplan_v1",
+    }
+
+
+def _property_scout_extract_gallery_floorplan_urls(
+    *,
+    source_url: str,
+    html: str,
+    media_urls: tuple[str, ...],
+    resolve_images: bool = False,
+) -> tuple[tuple[str, ...], dict[str, object]]:
+    normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
+    context_by_url: dict[str, str] = {}
+    attr_pattern = re.compile(
+        r"""(src|href|data-src|data-original|data-lazy-src|data-background-image|data-flickity-lazyload|data-flickity-bg-lazyload)=["']([^"']+)["']""",
+        re.IGNORECASE,
+    )
+    for match in attr_pattern.finditer(normalized_html):
+        raw_url = str(match.group(2) or "").strip()
+        try:
+            normalized = urllib.parse.urldefrag(urllib.parse.urljoin(source_url, raw_url))[0]
+        except ValueError:
+            continue
+        if not normalized:
+            continue
+        tag_start = normalized_html.rfind("<", 0, match.start())
+        tag_end = normalized_html.find(">", match.end())
+        if tag_start < 0:
+            tag_start = max(0, match.start() - 160)
+        if tag_end < 0:
+            tag_end = min(len(normalized_html), match.end() + 160)
+        context = normalized_html[tag_start : min(len(normalized_html), tag_end + 1)].lower()
+        context_by_url[normalized] = f"{context_by_url.get(normalized, '')} {context}"[:2500]
+    urls: list[str] = []
+    seen: set[str] = set()
+    visual_checks: list[dict[str, object]] = []
+    normalized_media_urls = [urllib.parse.urldefrag(str(url or "").strip())[0] for url in media_urls if str(url or "").strip()]
+    for url in normalized_media_urls:
+        if url in seen:
+            continue
+        lowered_url = urllib.parse.unquote(url).lower()
+        context = context_by_url.get(url, "")
+        marker_hit = any(marker in lowered_url or marker in context for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS)
+        if marker_hit:
+            seen.add(url)
+            urls.append(url)
+    if resolve_images:
+        visual_candidates = [
+            url
+            for url in normalized_media_urls
+            if url not in seen and _property_scout_is_asset_url(url, extensions=_PROPERTY_SCOUT_IMAGE_EXTENSIONS)
+        ]
+        if len(visual_candidates) > 8:
+            visual_candidates = [*visual_candidates[:4], *visual_candidates[-4:]]
+        for url in visual_candidates:
+            try:
+                payload, content_type = _property_scout_download_bytes(url, timeout_seconds=5.0, max_bytes=3 * 1024 * 1024)
+            except Exception as exc:
+                visual_checks.append({"url": url, "status": "download_failed", "error": compact_text(str(exc), fallback="", limit=120)})
+                continue
+            if "image" not in str(content_type or "").lower() and not _property_scout_is_asset_url(url, extensions=_PROPERTY_SCOUT_IMAGE_EXTENSIONS):
+                continue
+            looks_like, diagnostics = _property_scout_image_looks_like_floorplan(payload)
+            diagnostics["url"] = url
+            visual_checks.append(diagnostics)
+            if looks_like and url not in seen:
+                seen.add(url)
+                urls.append(url)
+    return tuple(urls), {
+        "status": "gallery_floorplan_scan_completed",
+        "media_url_count": len(normalized_media_urls),
+        "marker_detected_total": len(urls),
+        "visual_check_total": len(visual_checks),
+        "visual_checks": visual_checks[:8],
+    }
 
 
 def _property_scout_extract_context_links(
@@ -4322,6 +4472,14 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
     meta_description = _property_scout_extract_meta_content(html, "description")
     media_urls = _property_scout_extract_detail_media_urls(source_url=normalized, html=html)
     floorplan_urls = _property_scout_extract_floorplan_urls(source_url=normalized, html=html, resolve_archives=not prefer_fast)
+    gallery_floorplan_urls, gallery_floorplan_diagnostics = _property_scout_extract_gallery_floorplan_urls(
+        source_url=normalized,
+        html=html,
+        media_urls=tuple(media_urls),
+        resolve_images=not prefer_fast and not floorplan_urls,
+    )
+    if gallery_floorplan_urls:
+        floorplan_urls = tuple(dict.fromkeys([*floorplan_urls, *gallery_floorplan_urls]))
     source_virtual_tour_url = _property_scout_extract_source_virtual_tour_url(source_url=normalized, html=html)
     property_facts = _property_distressed_sale_preview_facts(normalized, html)
     if not prefer_fast and str(property_facts.get("provider_channel") or "").strip() == "justiz_edikte_at":
@@ -4365,8 +4523,12 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
     )
     if floorplan_urls:
         property_facts["floorplan_urls_json"] = list(floorplan_urls)
+        if gallery_floorplan_urls:
+            property_facts["floorplan_detection_method"] = "gallery_marker_or_visual_classifier"
     elif floorplan_recovery_diagnostics:
         property_facts["floorplan_recovery_diagnostics"] = floorplan_recovery_diagnostics
+    if gallery_floorplan_diagnostics:
+        property_facts["gallery_floorplan_diagnostics"] = gallery_floorplan_diagnostics
     summary = _property_preview_summary_from_facts(
         base_summary=og_description or meta_description,
         property_facts=property_facts,

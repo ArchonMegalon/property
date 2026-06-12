@@ -1935,6 +1935,13 @@
                 <span>Filtered <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
                 <span>No plan <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
               </div>
+              {% set pushdown = source.get('provider_filter_pushdown') or {} %}
+              {% if pushdown.get('filter_strength') == 'weak_search_then_post_filter' %}
+              <span class="pqx-note">Provider filter weak: EA post-filtered {{ (pushdown.get('post_filter_only') or [])|join(', ') }}.</span>
+              {% endif %}
+              {% if source.get('location_mismatch_reason') %}
+              <span class="pqx-note">No selected-area matches: provider returned {{ source.get('location_mismatch_candidate_total') or 0 }} outside the chosen target area.</span>
+              {% endif %}
               {% if source.get('top_candidates') %}
               <div class="pqx-source-candidates">
                 {% for candidate in source.get('top_candidates')[:3] %}
@@ -3737,9 +3744,25 @@
         return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(event?.message || 'No detail yet.')}</span></div>`;
       }).join('') || '<div class="pqx-empty">Waiting for the first crawler update.</div>';
     };
+    const renderSourceBreakdown = (sources) => {
+      const rows = Array.isArray(sources) ? sources.slice(0, 8) : [];
+      if (!rows.length) return '';
+      return rows.map((source) => {
+        const label = source?.source_label || source?.platform || source?.source_url || 'Provider';
+        const pushdown = source?.provider_filter_pushdown && typeof source.provider_filter_pushdown === 'object' ? source.provider_filter_pushdown : {};
+        const weakFilters = pushdown.filter_strength === 'weak_search_then_post_filter'
+          ? `<span class="pqx-note">Provider filter weak: EA post-filtered ${escapeHtml((Array.isArray(pushdown.post_filter_only) ? pushdown.post_filter_only : []).join(', ') || 'selected filters')}.</span>`
+          : '';
+        const areaMiss = source?.location_mismatch_reason
+          ? `<span class="pqx-note">No selected-area matches: provider returned ${escapeHtml(source?.location_mismatch_candidate_total || 0)} outside the chosen target area.</span>`
+          : '';
+        const message = source?.message || source?.error ? `<span class="pqx-note">${escapeHtml(source.message || source.error)}</span>` : '';
+        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Scanned')}</span><div class="pqx-source-metrics"><span>Reviewed <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>High fit <b>${escapeHtml(source?.high_fit_total || 0)}</b></span><span>Filtered <b>${escapeHtml(source?.filtered_low_fit_total || 0)}</b></span><span>No plan <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
+      }).join('');
+    };
     const renderRankedCandidates = (candidates) => {
       const rows = Array.isArray(candidates) ? candidates.slice(0, 20) : [];
-      if (!rows.length) return '<div class="pqx-empty" data-pqx-ranked-candidates>No ranked candidates are available yet.</div>';
+      if (!rows.length) return '<div class="pqx-empty" data-pqx-ranked-candidates>No ranked candidates are available yet. Check provider diagnostics below for area misses, weak provider filters, or missing facts.</div>';
       const body = rows.map((candidate, index) => {
         const title = candidate?.title || candidate?.property_url || 'Property candidate';
         const source = candidate?.source_label || candidate?.source_platform || 'Provider';
@@ -3765,12 +3788,14 @@
       const eventsNode = root.querySelector('[data-pqx-run-events]');
       const updatedNode = root.querySelector('[data-pqx-run-updated]');
       const rankedNode = root.querySelector('[data-pqx-ranked-candidates]');
+      const sourceNode = root.querySelector('[data-pqx-source-breakdown]');
       if (statusNode) statusNode.textContent = status.replaceAll('_', ' ');
       if (messageNode) messageNode.textContent = String(runPayload.message || 'Queued for execution.');
       if (ring) ring.style.setProperty('--progress', String(terminalStates.has(status) ? progress : Math.min(progress, 95)));
       if (progressLabel) progressLabel.textContent = `${terminalStates.has(status) ? progress : Math.min(progress, 95)}%`;
       if (summaryNode && runPayload.summary) summaryNode.textContent = runSummaryText(runPayload);
       if (rankedNode && runPayload.summary) rankedNode.outerHTML = renderRankedCandidates(runPayload.summary.ranked_candidates);
+      if (sourceNode && runPayload.summary) sourceNode.innerHTML = renderSourceBreakdown(runPayload.summary.sources);
       if (eventsNode) eventsNode.innerHTML = renderRunEvents(runPayload.events);
       if (updatedNode) updatedNode.textContent = `Last update ${runPayload.updated_at || runPayload.generated_at || new Date().toLocaleTimeString()}`;
       applyResearchTaskSnapshot(runPayload);

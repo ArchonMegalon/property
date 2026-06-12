@@ -8100,6 +8100,62 @@ def test_property_scout_page_preview_extracts_kalandra_justimmo_plan_pdf(monkeyp
     assert preview["property_facts_json"]["floorplan_count"] == 1
 
 
+def test_property_scout_page_preview_detects_unlabelled_gallery_floorplan_image(monkeypatch) -> None:
+    if product_service.Image is None:
+        pytest.skip("Pillow unavailable")
+    from PIL import ImageDraw
+
+    listing_url = "https://www.kalandra.at/objekt/plain-gallery-floorplan"
+    photo_url = "https://storage.justimmo.at/thumb/interior-01.jpg"
+    plan_url = "https://storage.justimmo.at/thumb/gallery-35.jpg"
+    image = product_service.Image.new("RGB", (900, 620), "white")
+    draw = ImageDraw.Draw(image)
+    for offset in (40, 90, 150, 220, 300, 390, 500, 610, 740):
+        draw.line((offset, 45, offset, 570), fill="black", width=7)
+    for offset in (45, 120, 210, 315, 430, 570):
+        draw.line((40, offset, 840, offset), fill="black", width=7)
+    draw.rectangle((55, 60, 310, 205), outline="black", width=9)
+    draw.rectangle((315, 60, 560, 315), outline="black", width=9)
+    draw.rectangle((565, 60, 835, 315), outline="black", width=9)
+    draw.rectangle((55, 320, 430, 565), outline="black", width=9)
+    draw.rectangle((435, 320, 835, 565), outline="black", width=9)
+    draw.text((85, 115), "Zimmer", fill="black")
+    draw.text((365, 170), "Kueche", fill="black")
+    draw.text((625, 170), "Bad/WC", fill="black")
+    draw.text((160, 440), "Wohnzimmer", fill="black")
+    plan_bytes = io.BytesIO()
+    image.save(plan_bytes, format="PNG")
+
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: f"""
+            <html>
+              <head><title>Gallery Listing</title></head>
+              <body>
+                <img alt="Bild 1" src="{photo_url}">
+                <img alt="Bild 35" src="{plan_url}">
+              </body>
+            </html>
+        """,
+    )
+
+    def _download(url: str, *, timeout_seconds: float = 5.0, max_bytes: int = 0) -> tuple[bytes, str]:
+        if url == plan_url:
+            return plan_bytes.getvalue(), "image/png"
+        return b"not-an-image", "image/jpeg"
+
+    monkeypatch.setattr(product_service, "_property_scout_download_bytes", _download)
+
+    preview = product_service._property_scout_page_preview(listing_url)
+    facts = preview["property_facts_json"]
+
+    assert preview["floorplan_urls_json"] == (plan_url,)
+    assert facts["has_floorplan"] is True
+    assert facts["floorplan_detection_method"] == "gallery_marker_or_visual_classifier"
+    assert facts["gallery_floorplan_diagnostics"]["visual_check_total"] >= 1
+
+
 def test_property_scout_page_preview_falls_back_to_fast_html_for_willhaben_when_packet_loader_times_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
