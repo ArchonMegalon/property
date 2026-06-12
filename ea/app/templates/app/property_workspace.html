@@ -1102,6 +1102,10 @@
                   <div style="margin-bottom:10px;">
                     <strong>{{ group.get('title') }}</strong>
                     <div class="pq-note">{{ group.get('detail') }}</div>
+                    <div class="pq-choice-tools" style="margin-top:8px;">
+                      <button class="pq-choice-action" type="button" data-checkbox-group-select-scope="section">Select group</button>
+                      <button class="pq-choice-action" type="button" data-checkbox-group-clear-scope="section">Clear group</button>
+                    </div>
                   </div>
                   <div class="pq-choice-grid">
                     {% for option in group.get('options') or [] %}
@@ -1854,7 +1858,7 @@
         .sort((a, b) => familyOrder.indexOf(a[0]) - familyOrder.indexOf(b[0]))
         .map(([family, items]) => {
           const [title, detail] = familyHeadings[family] || [String(family).replaceAll('_', ' '), 'Grouped provider lane.'];
-          return `<section class="pq-advanced-panel" style="margin-top:12px;"><div style="margin-bottom:10px;"><strong>${title}</strong><div class="pq-note">${detail}</div></div><div class="pq-choice-grid">${items.map(renderOption).join('')}</div></section>`;
+          return `<section class="pq-advanced-panel" style="margin-top:12px;"><div style="margin-bottom:10px;"><strong>${title}</strong><div class="pq-note">${detail}</div><div class="pq-choice-tools" style="margin-top:8px;"><button class="pq-choice-action" type="button" data-checkbox-group-select-scope="section">Select group</button><button class="pq-choice-action" type="button" data-checkbox-group-clear-scope="section">Clear group</button></div></div><div class="pq-choice-grid">${items.map(renderOption).join('')}</div></section>`;
         })
         .join('');
       return;
@@ -2960,6 +2964,18 @@
       form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));
       form.querySelectorAll('[data-property-show-unavailable]').forEach((node) => node.addEventListener('change', () => syncMarketAwareFields(form, meta)));
       form.addEventListener('click', (event) => {
+        const groupSelect = event.target?.closest?.('[data-checkbox-group-select-scope]');
+        const groupClear = event.target?.closest?.('[data-checkbox-group-clear-scope]');
+        if (groupSelect || groupClear) {
+          event.preventDefault();
+          const section = (groupSelect || groupClear).closest('section') || form;
+          section.querySelectorAll('input[type="checkbox"][name="selected_platforms"]').forEach((node) => {
+            node.checked = Boolean(groupSelect);
+            node.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+          setCheckboxGroupStatus(root, groupSelect ? 'Selected provider group.' : 'Cleared provider group.');
+          return;
+        }
         const button = event.target?.closest?.('[data-checkbox-group-select-all]');
         if (!button) return;
         event.preventDefault();

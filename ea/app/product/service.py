@@ -135,6 +135,8 @@ from app.services.property_market_catalog import (
     normalize_property_platform,
     normalize_property_search_preferences,
     normalize_property_type,
+    location_options_for_country_region,
+    region_options_for_country,
     resolve_country_code,
     property_platform_keys,
     property_provider_access_level,
@@ -378,6 +380,7 @@ _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS = (
     "sozialbau.at",
     "storage.justimmo.at",
     "justimmo.at",
+    "immobilien.derstandard.at",
 )
 _PROPERTY_SEARCH_RUN_TTL_SECONDS = 6 * 60 * 60
 _PROPERTY_SEARCH_RUN_STALE_DEFAULT_SECONDS = 20 * 60
@@ -2462,7 +2465,18 @@ def _property_scout_is_supported_listing_url(url: str) -> bool:
         return "/alldoc/" in path or "/0/" in path or path.endswith("!opendocument")
     if not any(domain in host for domain in _PROPERTY_SCOUT_LISTING_HOSTS):
         return False
-    return any(str(marker or "").lower() in combined for marker in provider_listing_markers_for_host(host))
+    for marker in provider_listing_markers_for_host(host):
+        normalized_marker = str(marker or "").lower()
+        if not normalized_marker or normalized_marker not in combined:
+            continue
+        marker_path = urllib.parse.urlparse(normalized_marker).path or normalized_marker.split("?", 1)[0]
+        marker_path = marker_path.strip()
+        if marker_path.endswith("/"):
+            path_remainder = path[len(marker_path) :].strip("/") if path.startswith(marker_path) else ""
+            if not path_remainder or path_remainder.lower() in {"view", "map", "search", "results"}:
+                continue
+        return True
+    return False
 
 
 def _property_scout_source_requested_min_area_m2(source_spec: dict[str, object] | None) -> float:
@@ -2713,9 +2727,19 @@ def _property_scout_is_floorplan_archive_candidate_url(*, url: str, context: str
     host = parsed.netloc.lower()
     combined = urllib.parse.unquote(f"{host}{parsed.path}?{parsed.query}").lower()
     lowered_context = str(context or "").lower()
+    provider_host = any(marker in host for marker in _PROPERTY_SCOUT_LISTING_HOSTS)
+    direct_provider_floorplan_pdf = (
+        urllib.parse.unquote(parsed.path or "").lower().endswith(".pdf")
+        and provider_host
+        and any(marker in f"{combined} {lowered_context}" for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS)
+    )
+    if direct_provider_floorplan_pdf:
+        return True
     if not any(marker in host for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS):
         return False
     if any(marker in combined for marker in ("zip", "alldoc", "download", "dokument", "beilage", "anlage", "unterlag", "gutachten")):
+        return True
+    if path.endswith(".pdf") and any(marker in combined for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
         return True
     return any(marker in lowered_context for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_CONTEXT_MARKERS)
 
@@ -2785,9 +2809,15 @@ def _property_scout_extract_floorplan_urls_from_archive(
             return ()
         lowered_context = str(context or "").lower()
         parsed_host = urllib.parse.urlparse(str(archive_url or "")).netloc.lower()
+        archive_combined = urllib.parse.unquote(f"{parsed_host}{archive_path} {lowered_context}").lower()
+        direct_provider_floorplan_pdf = (
+            archive_path.endswith(".pdf")
+            and any(marker in parsed_host for marker in _PROPERTY_SCOUT_LISTING_HOSTS)
+            and any(marker in archive_combined for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS)
+        )
         trusted_floorplan_document_context = any(marker in lowered_context for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_CONTEXT_MARKERS) or any(
             marker in parsed_host for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS
-        )
+        ) or direct_provider_floorplan_pdf
         if not trusted_floorplan_document_context:
             return ()
         slug = _property_scout_public_asset_slug(source_url=source_url, archive_url=archive_url)
@@ -5389,6 +5419,41 @@ def _property_search_source_scope_location(*, source_url: str = "", source_label
         if city.lower() == "wien":
             city = "Vienna"
         return f"{retfield_match.group(1)} {city}".strip()
+    label_parts = tuple(part.strip() for part in str(source_label or "").split("|") if part.strip())
+    scope_stopwords = {
+        "buy",
+        "rent",
+        "sale",
+        "miete",
+        "kaufen",
+        "verkauf",
+        "austria",
+        "costa rica",
+        "all costa rica",
+        "all austria",
+        "österreich",
+        "osterreich",
+        "country-wide",
+        "countrywide",
+    }
+    for part in reversed(label_parts):
+        normalized = re.sub(r"[^a-z0-9äöüß]+", " ", part.lower()).strip()
+        if not normalized or normalized in scope_stopwords:
+            continue
+        if len(normalized) <= 2:
+            continue
+        return part
+    try:
+        parsed = urllib.parse.urlparse(str(source_url or ""))
+        params = urllib.parse.parse_qs(parsed.query)
+    except Exception:
+        params = {}
+    for key in ("q", "query", "location", "city", "region", "search"):
+        for value in list(params.get(key) or []):
+            candidate = str(value or "").strip()
+            normalized = re.sub(r"[^a-z0-9äöüß]+", " ", candidate.lower()).strip()
+            if candidate and normalized not in scope_stopwords and len(normalized) > 2:
+                return candidate
     return ""
 
 
@@ -5506,6 +5571,83 @@ def _property_text_has_explicit_non_vienna_location(value: str) -> bool:
     return any(f" {marker} " in padded for marker in _PROPERTY_AT_NON_VIENNA_LOCATION_MARKERS)
 
 
+def _property_location_text_conflicts_with_hints(
+    *,
+    country_code: str,
+    region_code: str = "",
+    location_hints: tuple[str, ...],
+    concrete_text: str,
+) -> bool:
+    normalized_country = normalize_country_code(country_code)
+    if not normalized_country or not location_hints:
+        return False
+    raw_text = str(concrete_text or "").strip().lower()
+    normalized_text = re.sub(r"[^a-z0-9äöüß]+", "", raw_text)
+    if not raw_text and not normalized_text:
+        return False
+
+    hint_values: set[str] = set()
+    for hint in location_hints:
+        lowered_hint = str(hint or "").strip().lower()
+        if not lowered_hint:
+            continue
+        hint_values.add(lowered_hint)
+        normalized_hint = re.sub(r"[^a-z0-9äöüß]+", "", lowered_hint)
+        if normalized_hint:
+            hint_values.add(normalized_hint)
+
+    requested_all_country = any(
+        re.sub(r"[^a-z0-9äöüß]+", "", value) in {"costarica", "austria", "osterreich", "österreich"}
+        for value in hint_values
+    )
+    if requested_all_country:
+        return False
+
+    known_locations: set[str] = set()
+    region_keys = [str(region_code or "").strip().lower()]
+    try:
+        region_keys.extend(str(row.get("value") or "").strip().lower() for row in region_options_for_country(normalized_country))
+    except Exception:
+        pass
+    for key in dict.fromkeys(value for value in region_keys if value):
+        try:
+            options = location_options_for_country_region(normalized_country, key)
+        except Exception:
+            options = []
+        for option in options:
+            if not isinstance(option, dict):
+                continue
+            for field in ("value", "label"):
+                candidate = str(option.get(field) or "").strip().lower()
+                if candidate:
+                    known_locations.add(candidate)
+    known_locations = {
+        value
+        for value in known_locations
+        if len(re.sub(r"[^a-z0-9äöüß]+", "", value)) > 2
+        and re.sub(r"[^a-z0-9äöüß]+", "", value) not in hint_values
+        and value not in {"all costa rica", "costa rica", "all austria", "austria", "österreich", "osterreich"}
+    }
+    for known in known_locations:
+        normalized_known = re.sub(r"[^a-z0-9äöüß]+", "", known)
+        if not normalized_known or normalized_known in hint_values:
+            continue
+        if known in raw_text or normalized_known in normalized_text:
+            return True
+
+    if normalized_country == "CR":
+        for pattern in (
+            r"\bfor[-_\s]+sale[-_\s]+in[-_\s]+([a-z0-9-]{3,80})",
+            r"\bfor[-_\s]+rent[-_\s]+in[-_\s]+([a-z0-9-]{3,80})",
+            r"/real-estate/([a-z0-9-]{3,80})(?:[-_]costa[-_]rica)?(?:/|$)",
+        ):
+            for match in re.finditer(pattern, raw_text, flags=re.IGNORECASE):
+                slug = re.sub(r"[^a-z0-9äöüß]+", "", str(match.group(1) or "").lower())
+                if slug and not any(hint in slug or slug in hint for hint in hint_values):
+                    return True
+    return False
+
+
 def _property_search_notification_budget(preferences: dict[str, object] | None) -> tuple[int, str]:
     payload = dict(preferences or {})
     period = str(payload.get("search_agent_notification_period") or "").strip().lower()
@@ -5584,6 +5726,8 @@ def _property_candidate_matches_requested_location(
     title: str = "",
     summary: str = "",
     property_facts: dict[str, object] | None = None,
+    country_code: str = "",
+    region_code: str = "",
 ) -> bool:
     hints = tuple(str(item or "").strip() for item in location_hints if str(item or "").strip())
     if not hints:
@@ -5649,6 +5793,15 @@ def _property_candidate_matches_requested_location(
     if wants_vienna and real_concrete_postal_codes and not any(str(code).startswith("1") for code in real_concrete_postal_codes):
         return False
     if wants_vienna and _property_text_has_explicit_non_vienna_location(real_concrete_text):
+        return False
+    effective_country_code = str(country_code or facts.get("country_code") or "").strip()
+    effective_region_code = str(region_code or facts.get("region_code") or "").strip()
+    if _property_location_text_conflicts_with_hints(
+        country_code=effective_country_code,
+        region_code=effective_region_code,
+        location_hints=hints,
+        concrete_text=real_concrete_text,
+    ):
         return False
 
     concrete_postal_codes = tuple(re.findall(r"\b\d{4}\b", concrete_text))
@@ -20808,6 +20961,8 @@ class ProductService:
             title=candidate_title,
             summary=candidate_summary,
             property_facts=candidate_facts,
+            country_code=str(current_preferences.get("country_code") or "").strip(),
+            region_code=str(current_preferences.get("region_code") or "").strip(),
         ):
             payload = {
                 "status": "suppressed",
@@ -26774,6 +26929,8 @@ class ProductService:
                 preview_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
                 preview_facts["source_trust_tier"] = str(source_spec.get("provider_trust_tier") or "").strip().lower()
                 preview_facts["source_access_level"] = str(source_spec.get("source_access_level") or "").strip().lower()
+                preview_facts.setdefault("country_code", str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip().upper())
+                preview_facts.setdefault("region_code", str(request_preferences.get("region_code") or "").strip().lower())
                 preview_facts["verification_required"] = bool(source_spec.get("verification_required"))
                 preview_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
                 preview_facts = _property_enrich_future_change_research(
@@ -26827,6 +26984,8 @@ class ProductService:
                             preview_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
                             preview_facts["source_trust_tier"] = str(source_spec.get("provider_trust_tier") or "").strip().lower()
                             preview_facts["source_access_level"] = str(source_spec.get("source_access_level") or "").strip().lower()
+                            preview_facts.setdefault("country_code", str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip().upper())
+                            preview_facts.setdefault("region_code", str(request_preferences.get("region_code") or "").strip().lower())
                             preview_facts["verification_required"] = bool(source_spec.get("verification_required"))
                             preview_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
                             preview["property_facts_json"] = preview_facts
@@ -26919,6 +27078,8 @@ class ProductService:
                             preview_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
                             preview_facts["source_trust_tier"] = str(source_spec.get("provider_trust_tier") or "").strip().lower()
                             preview_facts["source_access_level"] = str(source_spec.get("source_access_level") or "").strip().lower()
+                            preview_facts.setdefault("country_code", str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip().upper())
+                            preview_facts.setdefault("region_code", str(request_preferences.get("region_code") or "").strip().lower())
                             preview_facts["verification_required"] = bool(source_spec.get("verification_required"))
                             preview_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
                             preview["property_facts_json"] = preview_facts
@@ -27021,6 +27182,8 @@ class ProductService:
                             title=preview_title,
                             summary=preview_summary,
                             property_facts=preview_facts,
+                            country_code=str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
+                            region_code=str(request_preferences.get("region_code") or "").strip(),
                         ),
                     }
                 )
@@ -27081,6 +27244,8 @@ class ProductService:
                 detailed_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
                 detailed_facts["source_trust_tier"] = str(source_spec.get("provider_trust_tier") or "").strip().lower()
                 detailed_facts["source_access_level"] = str(source_spec.get("source_access_level") or "").strip().lower()
+                detailed_facts.setdefault("country_code", str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip().upper())
+                detailed_facts.setdefault("region_code", str(request_preferences.get("region_code") or "").strip().lower())
                 detailed_facts["verification_required"] = bool(source_spec.get("verification_required"))
                 detailed_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
                 detailed_facts = _property_enrich_future_change_research(
@@ -27482,6 +27647,8 @@ class ProductService:
                             title=detailed_title,
                             summary=detailed_summary,
                             property_facts=detailed_facts,
+                            country_code=str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
+                            region_code=str(request_preferences.get("region_code") or "").strip(),
                         ),
                     }
                 )

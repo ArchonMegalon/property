@@ -35,10 +35,10 @@ class PropertyProviderSpec:
 
 
 COUNTRIES: tuple[PropertyCountrySpec, ...] = (
-    PropertyCountrySpec("AT", "Austria", "de", "EUR", "EUR", "Vienna, Graz, Linz", ("willhaben", "immmo", "immoscout_at", "remax_at", "kalandra", "broker_direct_at", "community_signals_at", "genossenschaften_at")),
+    PropertyCountrySpec("AT", "Austria", "de", "EUR", "EUR", "Vienna, Graz, Linz", ("willhaben", "immmo", "immoscout_at", "derstandard_at", "remax_at", "kalandra", "broker_direct_at", "community_signals_at", "genossenschaften_at")),
     PropertyCountrySpec("BE", "Belgium", "nl", "EUR", "EUR", "Brussels, Antwerp, Ghent", ("immoweb", "zimmo")),
     PropertyCountrySpec("CA", "Canada", "en", "CAD", "CAD", "Toronto, Montreal, Vancouver", ("realtor_ca", "rew_ca", "rentals_ca")),
-    PropertyCountrySpec("CR", "Costa Rica", "es", "CRC", "CRC", "All Costa Rica, Central Valley, Guanacaste, Puntarenas", ("encuentra24_cr", "re_cr_mls", "realtor_cr", "coldwellbanker_cr")),
+    PropertyCountrySpec("CR", "Costa Rica", "es", "CRC", "CRC", "All Costa Rica, Central Valley, Guanacaste, Puntarenas", ("encuentra24_cr", "re_cr_mls", "realtor_cr", "coldwellbanker_cr", "propertiesincostarica_cr", "costaricarealestateservice_cr", "twocostaricarealestate_cr")),
     PropertyCountrySpec("DE", "Germany", "de", "EUR", "EUR", "Berlin, Munich, Hamburg", ("immoscout_de", "immowelt", "immonet", "kleinanzeigen_immo")),
     PropertyCountrySpec("CH", "Switzerland", "de", "CHF", "CHF", "Zurich, Geneva, Basel", ("homegate", "newhome", "immoscout_ch")),
     PropertyCountrySpec("IE", "Ireland", "en", "EUR", "EUR", "Dublin, Cork, Galway", ("daft_ie", "myhome_ie")),
@@ -134,6 +134,42 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
             "buy": "https://www.immoscout24.at/liste/kauf",
         },
         description="Austria search portal for rentals and residential purchase.",
+    ),
+    PropertyProviderSpec(
+        key="immowelt_at",
+        label="immowelt Austria",
+        country_code="AT",
+        host_markers=("immowelt.at",),
+        listing_path_markers=("/expose/", "/immobilien/", "/anzeige/"),
+        search_urls={
+            "rent": "https://www.immowelt.at/suche/mietwohnungen",
+            "buy": "https://www.immowelt.at/suche/kaufen/wohnung",
+        },
+        description="Austria immowelt residential marketplace for rent and purchase inventory.",
+    ),
+    PropertyProviderSpec(
+        key="findmyhome_at",
+        label="FindMyHome.at",
+        country_code="AT",
+        host_markers=("findmyhome.at",),
+        listing_path_markers=("/immobilie/", "/immo/", "/objekt/", "/detail/"),
+        search_urls={
+            "rent": "https://findmyhome.at/immobilien/miete",
+            "buy": "https://findmyhome.at/immobilien/kauf",
+        },
+        description="Austria quality-oriented property portal with residential rental and purchase listings.",
+    ),
+    PropertyProviderSpec(
+        key="derstandard_at",
+        label="DER STANDARD Immobilien",
+        country_code="AT",
+        host_markers=("immobilien.derstandard.at",),
+        listing_path_markers=("/immobiliensuche/detail/", "/immobilien/detail/", "/detail/"),
+        search_urls={
+            "rent": "https://immobilien.derstandard.at/immobiliensuche/miete",
+            "buy": "https://immobilien.derstandard.at/immobiliensuche/kauf",
+        },
+        description="DER STANDARD Austria real-estate portal for residential rental and purchase inventory.",
     ),
     PropertyProviderSpec(
         key="kalandra",
@@ -1011,6 +1047,48 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         supported_listing_modes=("buy",),
     ),
     PropertyProviderSpec(
+        key="propertiesincostarica_cr",
+        label="Properties in Costa Rica",
+        country_code="CR",
+        host_markers=("propertiesincostarica.com",),
+        listing_path_markers=("/properties/", "/property/", "/real-estate/"),
+        search_urls={
+            "buy": "https://www.propertiesincostarica.com/properties/",
+        },
+        description="Costa Rica broker-direct portal covering San Jose, Uvita, Tamarindo, luxury, beach, investment, farms, and mountain properties.",
+        family="broker_direct",
+        trust_tier="standard",
+        supported_listing_modes=("buy",),
+    ),
+    PropertyProviderSpec(
+        key="costaricarealestateservice_cr",
+        label="Costa Rica Real Estate Service",
+        country_code="CR",
+        host_markers=("costaricarealestateservice.com",),
+        listing_path_markers=("/property/", "/properties/", "/listings/"),
+        search_urls={
+            "buy": "https://costaricarealestateservice.com/properties/",
+        },
+        description="Dominical and South Pacific Costa Rica broker-direct inventory, including Uvita, Ojochal, Quepos, and specialty land/waterfall properties.",
+        family="broker_direct",
+        trust_tier="standard",
+        supported_listing_modes=("buy",),
+    ),
+    PropertyProviderSpec(
+        key="twocostaricarealestate_cr",
+        label="2CostaRicaRealEstate",
+        country_code="CR",
+        host_markers=("2costaricarealestate.com",),
+        listing_path_markers=("/property/", "/properties/", "/real-estate/"),
+        search_urls={
+            "buy": "https://www.2costaricarealestate.com/properties/",
+        },
+        description="Costa Rica broker portal with beach, city, Tamarindo, Dominical, Jaco, Manuel Antonio, and Central Valley inventory.",
+        family="broker_direct",
+        trust_tier="standard",
+        supported_listing_modes=("buy",),
+    ),
+    PropertyProviderSpec(
         key="treasury_real_property_us",
         label="Treasury Real Property Auctions",
         country_code="US",
@@ -1085,6 +1163,17 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
     "immoscout": "immoscout_at",
     "immoscout24": "immoscout_at",
     "immoscoutat": "immoscout_at",
+    "immoweltat": "immowelt_at",
+    "immowelt_at": "immowelt_at",
+    "findmyhome": "findmyhome_at",
+    "findmyhomeat": "findmyhome_at",
+    "findmyhome_at": "findmyhome_at",
+    "derstandard": "derstandard_at",
+    "standard": "derstandard_at",
+    "derstandardat": "derstandard_at",
+    "standardat": "derstandard_at",
+    "immobilienderstandard": "derstandard_at",
+    "immobilienderstandardat": "derstandard_at",
     "justizedikte": "justiz_edikte_at",
     "edikte": "justiz_edikte_at",
     "immobilienscout": "immoscout_de",
@@ -1163,6 +1252,13 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
     "coldwellbankercr": "coldwellbanker_cr",
     "coldwellbanker_cr": "coldwellbanker_cr",
     "coldwellbankercostarica": "coldwellbanker_cr",
+    "propertiesincostarica": "propertiesincostarica_cr",
+    "propertiesincostarica_cr": "propertiesincostarica_cr",
+    "costaricarealestateservice": "costaricarealestateservice_cr",
+    "costaricarealestateservice_cr": "costaricarealestateservice_cr",
+    "2costaricarealestate": "twocostaricarealestate_cr",
+    "twocostaricarealestate": "twocostaricarealestate_cr",
+    "twocostaricarealestate_cr": "twocostaricarealestate_cr",
     "treasuryrealproperty": "treasury_real_property_us",
     "zvg": "zvg_de",
     "auctionhome": "auctionhome_ch",
@@ -1886,6 +1982,9 @@ def _provider_filter_pushdown_payload(
         "willhaben",
         "immmo",
         "immoscout_at",
+        "derstandard_at",
+        "immowelt_at",
+        "findmyhome_at",
         "remax_at",
         "kalandra",
         "flatbee",
@@ -1906,6 +2005,9 @@ def _provider_filter_pushdown_payload(
         "zillow",
         "encuentra24_cr",
         "re_cr_mls",
+        "propertiesincostarica_cr",
+        "costaricarealestateservice_cr",
+        "twocostaricarealestate_cr",
     }
     provider_side_price_keys = provider_side_area_keys | {
         "seloger",
@@ -2092,6 +2194,34 @@ def _build_provider_search_url(
             query_items["minArea"] = str(min_area_m2)
         return _append_query(scout_fallback, query_items)
     if provider.key == "remax_at":
+        query_items = {}
+        if search_terms:
+            query_items["q"] = search_terms
+        if max_price_eur:
+            query_items["maxPrice"] = str(max_price_eur)
+        if min_rooms:
+            query_items["minRooms"] = str(min_rooms)
+        if min_area_m2:
+            query_items["minArea"] = str(min_area_m2)
+        return _append_query(base_url, query_items)
+    if provider.key == "derstandard_at":
+        query_items = {}
+        if search_terms:
+            query_items["q"] = search_terms
+        if max_price_eur:
+            query_items["maxPrice"] = str(max_price_eur)
+        if min_rooms:
+            query_items["minRooms"] = str(min_rooms)
+        if min_area_m2:
+            query_items["minArea"] = str(min_area_m2)
+        return _append_query(base_url, query_items)
+    if provider.key in {
+        "immowelt_at",
+        "findmyhome_at",
+        "propertiesincostarica_cr",
+        "costaricarealestateservice_cr",
+        "twocostaricarealestate_cr",
+    }:
         query_items = {}
         if search_terms:
             query_items["q"] = search_terms

@@ -282,8 +282,26 @@ def test_generated_source_specs_build_provider_specific_market_urls() -> None:
 def test_default_platforms_for_country_are_stable() -> None:
     assert default_platforms_for_country("UK") == ("rightmove", "zoopla", "onthemarket")
     assert default_platforms_for_country("PT") == ("idealista_pt", "imovirtual", "casa_sapo")
-    assert default_platforms_for_country("CR") == ("encuentra24_cr", "re_cr_mls", "realtor_cr", "coldwellbanker_cr")
-    assert default_platforms_for_country("AT") == ("willhaben", "immmo", "immoscout_at", "remax_at", "kalandra", "broker_direct_at", "community_signals_at", "genossenschaften_at")
+    assert default_platforms_for_country("CR") == (
+        "encuentra24_cr",
+        "re_cr_mls",
+        "realtor_cr",
+        "coldwellbanker_cr",
+        "propertiesincostarica_cr",
+        "costaricarealestateservice_cr",
+        "twocostaricarealestate_cr",
+    )
+    assert default_platforms_for_country("AT") == (
+        "willhaben",
+        "immmo",
+        "immoscout_at",
+        "derstandard_at",
+        "remax_at",
+        "kalandra",
+        "broker_direct_at",
+        "community_signals_at",
+        "genossenschaften_at",
+    )
     assert default_language_for_country("SE") == "sv"
     assert default_language_for_country("CR") == "es"
 
@@ -425,7 +443,15 @@ def test_generated_source_specs_allow_countrywide_costa_rica_without_target_area
         max_results=4,
     )
 
-    assert {row["platform"] for row in specs} == {"encuentra24_cr", "re_cr_mls", "realtor_cr", "coldwellbanker_cr"}
+    assert {row["platform"] for row in specs} == {
+        "encuentra24_cr",
+        "re_cr_mls",
+        "realtor_cr",
+        "coldwellbanker_cr",
+        "propertiesincostarica_cr",
+        "costaricarealestateservice_cr",
+        "twocostaricarealestate_cr",
+    }
     assert all(row["location_query"] == "" for row in specs)
     assert all(row["country_code"] == "CR" for row in specs)
     assert any("beach+access" in str(row["url"]) or "q=beach" in str(row["url"]) for row in specs)
@@ -451,6 +477,31 @@ def test_generated_source_specs_drop_stale_austrian_postal_code_from_costa_rica_
     assert specs[0]["location_query"] == "Monteverde"
     assert "q=Monteverde" in str(specs[0]["url"])
     assert "1116" not in str(specs[0]["url"])
+
+
+def test_generated_source_specs_include_new_costa_rica_broker_direct_providers() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "CR",
+            "region_code": "puntarenas",
+            "language_code": "es",
+            "listing_mode": "buy",
+            "location_query": "Monteverde",
+            "keywords": "cloud forest",
+        },
+        selected_platforms=("propertiesincostarica_cr", "costaricarealestateservice_cr", "twocostaricarealestate_cr"),
+        principal_id="exec-property-cr-broker-direct",
+        default_person_id="self",
+        max_results=3,
+    )
+
+    by_platform = {row["platform"]: row for row in specs}
+    assert set(by_platform) == {"propertiesincostarica_cr", "costaricarealestateservice_cr", "twocostaricarealestate_cr"}
+    assert "propertiesincostarica.com" in by_platform["propertiesincostarica_cr"]["url"]
+    assert "costaricarealestateservice.com" in by_platform["costaricarealestateservice_cr"]["url"]
+    assert "2costaricarealestate.com" in by_platform["twocostaricarealestate_cr"]["url"]
+    assert all(row["provider_family"] == "broker_direct" for row in by_platform.values())
+    assert all("q=Monteverde+cloud+forest" in str(row["url"]) for row in by_platform.values())
 
 
 def test_generated_source_specs_split_multi_area_queries_into_dedicated_sources() -> None:

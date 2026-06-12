@@ -2810,6 +2810,25 @@ def test_property_scout_extract_listing_urls_filters_immmo_upstream_to_immoscout
     )
 
 
+def test_property_scout_extract_listing_urls_rejects_provider_index_pages_and_accepts_derstandard() -> None:
+    html = """
+    <a href="https://www.re.cr/en/costa-rica-real-estate/">RE.cr index</a>
+    <a href="https://www.re.cr/en/costa-rica-real-estate/view">RE.cr view shell</a>
+    <a href="https://www.realtor.com/international/cr/">Realtor CR index</a>
+    <a href="https://www.realtor.com/international/cr/map?lang=en">Realtor map</a>
+    <a href="https://immobilien.derstandard.at/immobiliensuche/detail/123456/wien-wohnung">Der Standard detail</a>
+    """
+
+    urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://immobilien.derstandard.at/immobiliensuche/kauf?q=Wien",
+        html=html,
+    )
+
+    assert urls == (
+        "https://immobilien.derstandard.at/immobiliensuche/detail/123456/wien-wohnung",
+    )
+
+
 def test_property_scout_extract_listing_urls_supports_justiz_alldoc_results() -> None:
     html = """
     <a href="alldoc/62af2c93a0d4c4e1c1258d1c00225860!OpenDocument">Eintrag 1</a>
@@ -3262,6 +3281,55 @@ def test_property_scout_floorplan_extractor_reads_willhaben_flickity_floorplan_i
     )
 
     assert urls == (image_url,)
+
+
+def test_property_scout_floorplan_extractor_reads_lazy_gallery_last_photo_floorplan() -> None:
+    photo_url = "https://cdn.example.test/listing/living-room.jpg"
+    floorplan_url = "https://cdn.example.test/listing/final-gallery-image.jpg"
+    html = f"""
+      <div class="gallery">
+        <img data-src="{photo_url}" alt="Wohnzimmer">
+        <img data-lazy-src="{floorplan_url}" alt="Grundriss letzte Abbildung">
+      </div>
+    """
+
+    urls = product_service._property_scout_extract_floorplan_urls(
+        source_url="https://example.test/listing/123",
+        html=html,
+        resolve_archives=False,
+    )
+
+    assert urls == (floorplan_url,)
+
+
+def test_property_scout_floorplan_extractor_reads_derstandard_gallery_and_pdf(monkeypatch, tmp_path: Path) -> None:
+    image_url = "https://immobilien.derstandard.at/assets/123/grundriss-top-12.webp"
+    pdf_url = "https://immobilien.derstandard.at/immobiliensuche/detail/123456/download/Plan.pdf"
+    floorplan_payload = b"%PDF-1.7 derstandard plan"
+
+    def _download(url: str, **_kwargs: object) -> tuple[bytes, str]:
+        assert url == pdf_url
+        return floorplan_payload, "application/pdf"
+
+    monkeypatch.setattr(product_service, "_property_scout_download_bytes", _download)
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", "https://propertyquarry.test")
+    html = f"""
+      <div class="gallery">
+        <img data-original="{image_url}" aria-label="Grundriss Top 12">
+      </div>
+      <a href="{pdf_url}" title="Plan.pdf herunterladen">Download Plan.pdf</a>
+    """
+
+    urls = product_service._property_scout_extract_floorplan_urls(
+        source_url="https://immobilien.derstandard.at/immobiliensuche/detail/123456/wien-wohnung",
+        html=html,
+        resolve_archives=True,
+    )
+
+    assert image_url in urls
+    assert any(url.endswith("/floorplan-01-plan.pdf") for url in urls)
+    _assert_public_floorplan_asset(next(url for url in urls if url.endswith("/floorplan-01-plan.pdf")), root=tmp_path, expected_payload=floorplan_payload)
 
 
 def test_property_scout_floorplan_extractor_materializes_justimmo_plan_pdf(
@@ -4233,9 +4301,9 @@ def test_generated_property_source_specs_push_min_area_into_supported_at_provide
             "listing_mode": "buy",
             "location_query": "Wien",
             "min_area_m2": 60,
-            "selected_platforms": ["willhaben", "immmo", "immoscout_at"],
+            "selected_platforms": ["willhaben", "immmo", "immoscout_at", "derstandard_at", "immowelt_at", "findmyhome_at"],
         },
-        selected_platforms=("willhaben", "immmo", "immoscout_at"),
+        selected_platforms=("willhaben", "immmo", "immoscout_at", "derstandard_at", "immowelt_at", "findmyhome_at"),
         principal_id="pq-source-pushdown-at",
         default_person_id="self",
         notify_telegram=False,
@@ -4246,9 +4314,18 @@ def test_generated_property_source_specs_push_min_area_into_supported_at_provide
     assert "ESTATE_SIZE%2FLIVING_AREA_FROM=60" in str(by_platform["willhaben"]["url"])
     assert "minArea=60" in str(by_platform["immmo"]["url"])
     assert "minArea=60" in str(by_platform["immoscout_at"]["url"])
+    assert "immobilien.derstandard.at" in str(by_platform["derstandard_at"]["url"])
+    assert "minArea=60" in str(by_platform["derstandard_at"]["url"])
+    assert "immowelt.at" in str(by_platform["immowelt_at"]["url"])
+    assert "minArea=60" in str(by_platform["immowelt_at"]["url"])
+    assert "findmyhome.at" in str(by_platform["findmyhome_at"]["url"])
+    assert "minArea=60" in str(by_platform["findmyhome_at"]["url"])
     assert by_platform["willhaben"]["provider_filter_pushdown"]["applied"]["min_area_m2"] == 60
     assert by_platform["immmo"]["provider_filter_pushdown"]["applied"]["min_area_m2"] == 60
     assert by_platform["immoscout_at"]["provider_filter_pushdown"]["applied"]["min_area_m2"] == 60
+    assert by_platform["derstandard_at"]["provider_filter_pushdown"]["applied"]["min_area_m2"] == 60
+    assert by_platform["immowelt_at"]["provider_filter_pushdown"]["applied"]["min_area_m2"] == 60
+    assert by_platform["findmyhome_at"]["provider_filter_pushdown"]["applied"]["min_area_m2"] == 60
 
 
 def test_generated_property_source_specs_push_min_area_into_immoscout_de_url() -> None:

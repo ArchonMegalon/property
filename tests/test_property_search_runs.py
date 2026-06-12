@@ -190,6 +190,50 @@ def test_property_search_location_matching_accepts_source_scope_location() -> No
     ) is True
 
 
+def test_property_search_location_matching_accepts_generic_provider_scope_location() -> None:
+    hints = _property_search_location_hints({"country_code": "CR", "region_code": "puntarenas", "location_query": "Monteverde"})
+    facts = product_service._property_facts_with_source_scope(
+        facts={"provider_channel": "re_cr_mls"},
+        source_url="https://re.cr/en/search?country=CR&q=Monteverde",
+        source_label="RE.cr Costa Rica MLS | Costa Rica | Buy | Monteverde",
+    )
+
+    assert facts["source_scope_location"] == "Monteverde"
+    assert facts["source_city"] == "Monteverde"
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://re.cr/en/listing/sparse-card",
+        title="Mountain view home",
+        summary="Sparse provider card.",
+        property_facts=facts,
+        country_code="CR",
+        region_code="puntarenas",
+    ) is True
+
+
+def test_property_search_location_matching_rejects_concrete_cr_location_conflict() -> None:
+    hints = _property_search_location_hints({"country_code": "CR", "region_code": "puntarenas", "location_query": "Monteverde"})
+
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://www.re.cr/en/real-estate/heredia-costa-rica",
+        title="Properties for sale and for rent in Heredia, Costa Rica",
+        summary="Provider result page was queried from a Monteverde source scope.",
+        property_facts={"source_scope_location": "Monteverde", "source_city": "Monteverde", "country_code": "CR", "region_code": "puntarenas"},
+        country_code="CR",
+        region_code="puntarenas",
+    ) is False
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://www.realtor.com/international/cr/limon-talamanca-puerto-viejo-limon-310108049873/",
+        title="Limón Talamanca Puerto Viejo, Limon 70403 Apartment for Sale",
+        summary="Provider result page was queried from a Monteverde source scope.",
+        property_facts={"source_scope_location": "Monteverde", "source_city": "Monteverde", "country_code": "CR", "region_code": "puntarenas"},
+        country_code="CR",
+        region_code="puntarenas",
+    ) is False
+
+
 def test_property_search_location_matching_rejects_source_scope_postal_conflict() -> None:
     hints = _property_search_location_hints({"location_query": "1020 Vienna, 1030 Vienna, Wien"})
 
@@ -1363,11 +1407,17 @@ def test_property_provider_greenfield_api_returns_country_scoped_catalog() -> No
     assert at_body["country_code"] == "AT"
     assert cr_body["country_code"] == "CR"
     assert any(row["value"] == "willhaben" for row in at_body["providers"])
+    assert any(row["value"] == "immowelt_at" and "immowelt" in row["label"].lower() for row in at_body["providers"])
+    assert any(row["value"] == "findmyhome_at" and "FindMyHome" in row["label"] for row in at_body["providers"])
+    assert any(row["value"] == "derstandard_at" and "STANDARD" in row["label"] for row in at_body["providers"])
     assert any(row["value"] == "remax_at" and "RE/MAX Austria" in row["label"] for row in at_body["providers"])
     assert all("Willhaben" not in row["label"] for row in uk_body["providers"])
     assert any(row["value"] == "rightmove" for row in uk_body["providers"])
     assert any(row["value"] == "encuentra24_cr" for row in cr_body["providers"])
     assert any(row["value"] == "re_cr_mls" for row in cr_body["providers"])
+    assert any(row["value"] == "propertiesincostarica_cr" and row["family"] == "broker_direct" for row in cr_body["providers"])
+    assert any(row["value"] == "costaricarealestateservice_cr" and row["family"] == "broker_direct" for row in cr_body["providers"])
+    assert any(row["value"] == "twocostaricarealestate_cr" and row["family"] == "broker_direct" for row in cr_body["providers"])
 
 
 def test_property_provider_catalog_generates_remax_austria_sources() -> None:
@@ -2007,6 +2057,7 @@ def test_property_search_run_uses_saved_platforms_before_family_toggles(monkeypa
         "willhaben",
         "immmo",
         "immoscout_at",
+        "derstandard_at",
         "remax_at",
         "kalandra",
         "broker_direct_at",
