@@ -472,7 +472,7 @@ def _public_packet_pdf_path(*, publication_id: str, source_pdf_sha256: str) -> s
 @authenticated_router.get("/app/properties/packets", response_class=HTMLResponse)
 def property_packets_dashboard(
     request: Request,
-    limit: int = Query(default=100, ge=1, le=300),
+    limit: int = Query(default=10, ge=1, le=50),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
@@ -575,7 +575,7 @@ def property_packets_dashboard(
 
 @authenticated_router.get("/app/api/properties/packets")
 def list_property_packets(
-    limit: int = Query(default=100, ge=1, le=300),
+    limit: int = Query(default=50, ge=1, le=150),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:

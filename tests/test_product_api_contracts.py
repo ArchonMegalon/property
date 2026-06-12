@@ -4294,6 +4294,136 @@ def test_property_scout_min_area_keeps_unknown_area_for_scoring(monkeypatch) -> 
     assert assessed[0]["min_area_m2_requested"] == 60
 
 
+def test_property_scout_softens_floorplan_requirement_for_costa_rica(monkeypatch) -> None:
+    principal_id = "cf-email:cr-soft-floorplan.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout CR Floorplan Office")
+    candidate_url = "https://www.re.cr/en/listing/monteverde-no-plan"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.re.cr/en/costa-rica-real-estate?q=Monteverde",
+                "label": "RE.cr Costa Rica MLS",
+                "platform": "re_cr_mls",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 1,
+                "country_code": "CR",
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: (candidate_url,))
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "cr-no-plan",
+            "title": "Monteverde house near cloud forest",
+            "summary": "House with mountain view and garden.",
+            "property_facts_json": {"property_type": "house", "country_code": "CR"},
+        },
+    )
+    assessed: list[dict[str, object]] = []
+
+    def _fake_assess_candidate(**kwargs):
+        assessed.append(dict(kwargs.get("object_payload") or {}))
+        return {
+            "fit_score": 66.0,
+            "confidence": 0.68,
+            "predicted_reaction": "consider",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Relevant Costa Rica location."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _fake_assess_candidate)
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("re_cr_mls",),
+        property_search_preferences={
+            "country_code": "CR",
+            "region_code": "puntarenas",
+            "location_query": "Monteverde",
+            "property_type": "house",
+            "require_floorplan": True,
+            "min_match_score": 50,
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["floorplan_requirement_mode"] == "soft"
+    assert result["listing_total"] == 1
+    assert result["filtered_floorplan_total"] == 0
+    assert assessed
+    assert assessed[0]["floorplan_research_status"] == "missing_or_unverified_soft_requirement"
+
+
+def test_property_scout_reports_precise_location_miss_for_costa_rica(monkeypatch) -> None:
+    principal_id = "cf-email:cr-location-miss.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout CR Location Office")
+    candidate_url = "https://www.re.cr/en/real-estate/lake-arenal"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.re.cr/en/costa-rica-real-estate?q=Monteverde",
+                "label": "RE.cr Costa Rica MLS",
+                "platform": "re_cr_mls",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 1,
+                "country_code": "CR",
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: (candidate_url,))
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "lake-arenal",
+            "title": "Lake Arenal Real Estate",
+            "summary": "Provider result page was queried from a Monteverde source scope.",
+            "property_facts_json": {"property_type": "house", "country_code": "CR"},
+        },
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("re_cr_mls",),
+        property_search_preferences={
+            "country_code": "CR",
+            "region_code": "puntarenas",
+            "location_query": "Monteverde",
+            "property_type": "house",
+            "min_match_score": 50,
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 0
+    assert result["sources"][0]["location_matched_candidate_total"] == 0
+    assert result["sources"][0]["location_mismatch_candidate_total"] == 1
+    assert result["sources"][0]["location_mismatch_reason"] == "provider_returned_candidates_outside_selected_location"
+
+
 def test_generated_property_source_specs_push_min_area_into_supported_at_provider_urls() -> None:
     rows = product_service.generated_property_source_specs(
         preferences={
@@ -7857,6 +7987,78 @@ def test_property_scout_page_preview_extracts_live_360_and_listing_images(monkey
     assert preview["property_facts_json"]["has_360"] is True
     assert preview["property_facts_json"]["panorama_source"] == "360.kalandra.at"
     assert preview["media_urls_json"] == ("https://storage.justimmo.at/thumb/photo-1.jpg",)
+
+
+def test_property_scout_page_preview_extracts_realestate_international_facts(monkeypatch) -> None:
+    listing_url = "https://www.realestate.com.au/international/cr/uvita-bahia-ballena-osa-puntarenas-osa-puntarenas-310104507161/"
+    page_schema = {
+        "url": listing_url,
+        "name": "Uvita, Puntarenas House for Sale",
+        "description": "This 3 bedrooms 6 bathrooms House is for sale.",
+        "breadCrumb": {
+            "itemListElement": [
+                {"position": 1, "item": {"name": "International"}},
+                {"position": 2, "item": {"name": "Costa Rica"}},
+                {"position": 3, "item": {"name": "Puntarenas"}},
+                {"position": 4, "item": {"name": "Uvita"}},
+            ]
+        },
+        "mainEntity": [
+            {
+                "name": "Uvita, Puntarenas",
+                "description": "This 3 bedrooms 6 bathrooms House is for sale.",
+                "offers": {"price": "795000.0", "priceCurrency": "USD"},
+            }
+        ],
+    }
+    next_payload = {
+        "props": {
+            "apolloState": {
+                "ListingDetail:310104507161": {
+                    "bedrooms": 3,
+                    "bathrooms": 6,
+                    "propertyTypes": {"type": "json", "json": ["House"]},
+                    'landSize({"language":"en","unit":"SQUARE_METERS"})': "9,460.00",
+                    "displayAddress": "Uvita , Bahía Ballena, Osa, Puntarenas, Osa, Puntarenas",
+                    'price({"currency":"AUD","language":"en"})': {
+                        "type": "id",
+                        "id": '$ListingDetail:310104507161.price({"currency":"AUD","language":"en"})',
+                    },
+                },
+                '$ListingDetail:310104507161.price({"currency":"AUD","language":"en"})': {
+                    "displayListingPrice": "USD $795,000"
+                },
+            }
+        }
+    }
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: f"""
+            <html>
+              <head>
+                <title>Uvita House</title>
+                <meta property="og:description" content="This 3 bedrooms 6 bathrooms House is for sale.">
+                <script type="application/ld+json">{product_service.html.escape(product_service.json.dumps(page_schema))}</script>
+                <script id="__NEXT_DATA__" type="application/json">{product_service.json.dumps(next_payload)}</script>
+              </head>
+              <body><img src="https://s1.rea.global/img/raw/realtor_global/cr/photo.jpg"></body>
+            </html>
+        """,
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url)
+    facts = preview["property_facts_json"]
+
+    assert facts["price_display"] == "USD $795,000"
+    assert facts["price_currency"] == "USD"
+    assert facts["price_amount"] == 795000.0
+    assert facts["bedrooms"] == 3
+    assert facts["bathrooms"] == 6
+    assert facts["rooms"] == 3
+    assert facts["property_type"] == "house"
+    assert facts["land_area_sqm"] == 9460.0
+    assert facts["location"].startswith("Uvita")
 
 
 def test_property_scout_page_preview_extracts_kalandra_justimmo_plan_pdf(monkeypatch) -> None:

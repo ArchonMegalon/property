@@ -288,7 +288,6 @@ def test_default_platforms_for_country_are_stable() -> None:
         "realtor_cr",
         "coldwellbanker_cr",
         "propertiesincostarica_cr",
-        "costaricarealestateservice_cr",
         "twocostaricarealestate_cr",
     )
     assert default_platforms_for_country("AT") == (
@@ -449,7 +448,6 @@ def test_generated_source_specs_allow_countrywide_costa_rica_without_target_area
         "realtor_cr",
         "coldwellbanker_cr",
         "propertiesincostarica_cr",
-        "costaricarealestateservice_cr",
         "twocostaricarealestate_cr",
     }
     assert all(row["location_query"] == "" for row in specs)
@@ -500,6 +498,7 @@ def test_generated_source_specs_include_new_costa_rica_broker_direct_providers()
     assert "propertiesincostarica.com" in by_platform["propertiesincostarica_cr"]["url"]
     assert "costaricarealestateservice.com" in by_platform["costaricarealestateservice_cr"]["url"]
     assert "2costaricarealestate.com" in by_platform["twocostaricarealestate_cr"]["url"]
+    assert by_platform["twocostaricarealestate_cr"]["url"].startswith("https://www.2costaricarealestate.com/?")
     assert all(row["provider_family"] == "broker_direct" for row in by_platform.values())
     assert all("q=Monteverde+cloud+forest" in str(row["url"]) for row in by_platform.values())
 
@@ -560,6 +559,35 @@ def test_generated_source_specs_pushes_coarse_filters_to_willhaben() -> None:
     assert "require_floorplan" in pushdown["post_filter_only"]
     assert str(pushdown["cache_key"]).startswith("willhaben:")
     assert specs[0]["provider_cache_key"] == pushdown["cache_key"]
+
+
+def test_generated_source_specs_marks_weak_costa_rica_provider_filters_as_attempted() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "CR",
+            "language_code": "es",
+            "listing_mode": "buy",
+            "location_query": "Monteverde",
+            "keywords": "cloud forest",
+            "min_area_m2": 60,
+            "require_floorplan": True,
+        },
+        selected_platforms=("twocostaricarealestate_cr",),
+        principal_id="exec-property-cr-pushdown",
+        default_person_id="self",
+        max_results=2,
+    )
+
+    assert len(specs) == 1
+    pushdown = dict(specs[0]["provider_filter_pushdown"])
+    assert pushdown["filter_strength"] == "weak_search_then_post_filter"
+    assert pushdown["attempted"]["location_query"] == "Monteverde"
+    assert pushdown["attempted"]["keywords"] == "cloud forest"
+    assert pushdown["attempted"]["min_area_m2"] == 60
+    assert "location_query" in pushdown["post_filter_only"]
+    assert "keywords" in pushdown["post_filter_only"]
+    assert "min_area_m2" in pushdown["post_filter_only"]
+    assert "require_floorplan" in pushdown["post_filter_only"]
 
 
 def test_generated_source_specs_expand_austria_cooperative_provider_group() -> None:

@@ -4077,6 +4077,170 @@ def _property_distressed_sale_preview_facts(source_url: str, source_html: str) -
     return {}
 
 
+def _property_realestate_international_preview_facts(source_url: str, source_html: str) -> dict[str, object]:
+    host = urllib.parse.urlparse(str(source_url or "")).netloc.lower()
+    if not any(marker in host for marker in ("realestate.com.au", "realtor.com")):
+        return {}
+    facts: dict[str, object] = {}
+
+    def _first_int(*values: object) -> int:
+        for value in values:
+            if isinstance(value, (int, float)) and value:
+                return int(value)
+            match = re.search(r"\b(\d{1,3})\b", str(value or ""))
+            if match:
+                try:
+                    return int(match.group(1))
+                except ValueError:
+                    continue
+        return 0
+
+    def _first_float(*values: object) -> float | None:
+        for value in values:
+            if isinstance(value, (int, float)) and float(value) > 0:
+                return float(value)
+            normalized = str(value or "").strip()
+            if not normalized:
+                continue
+            match = re.search(r"\d[\d,.\s]*", normalized)
+            if not match:
+                continue
+            try:
+                return float(match.group(0).replace(" ", "").replace(",", ""))
+            except ValueError:
+                continue
+        return None
+
+    schema_objects: list[dict[str, object]] = []
+    for match in re.finditer(
+        r"<script[^>]+type=[\"']application/ld\+json[\"'][^>]*>(.*?)</script>",
+        source_html,
+        flags=re.IGNORECASE | re.DOTALL,
+    ):
+        raw_json = html.unescape(match.group(1).strip())
+        try:
+            payload = json.loads(raw_json)
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            schema_objects.append(payload)
+        elif isinstance(payload, list):
+            schema_objects.extend(item for item in payload if isinstance(item, dict))
+
+    for schema in schema_objects:
+        main_entities = schema.get("mainEntity")
+        entities = list(main_entities or []) if isinstance(main_entities, list) else ([main_entities] if isinstance(main_entities, dict) else [])
+        for entity in entities:
+            if not isinstance(entity, dict):
+                continue
+            offers = entity.get("offers")
+            if isinstance(offers, dict):
+                price_amount = _first_float(offers.get("price"))
+                currency = compact_text(str(offers.get("priceCurrency") or "").strip().upper(), fallback="", limit=12)
+                if price_amount and not facts.get("price_amount"):
+                    facts["price_amount"] = price_amount
+                if currency and not facts.get("price_currency"):
+                    facts["price_currency"] = currency
+                if price_amount and currency and not facts.get("price_display"):
+                    facts["price_display"] = f"{currency} {price_amount:,.0f}"
+            if entity.get("description") and not facts.get("listing_description"):
+                facts["listing_description"] = compact_text(str(entity.get("description") or ""), fallback="", limit=500)
+            if entity.get("name") and not facts.get("listing_name"):
+                facts["listing_name"] = compact_text(str(entity.get("name") or ""), fallback="", limit=180)
+        breadcrumbs = schema.get("breadCrumb")
+        if isinstance(breadcrumbs, dict):
+            items = breadcrumbs.get("itemListElement")
+            if isinstance(items, list):
+                labels = []
+                for item in items:
+                    node = item.get("item") if isinstance(item, dict) else None
+                    if isinstance(node, dict) and str(node.get("name") or "").strip():
+                        labels.append(str(node.get("name") or "").strip())
+                if labels:
+                    facts.setdefault("country_label", labels[1] if len(labels) > 1 else labels[0])
+                    facts.setdefault("region_label", labels[2] if len(labels) > 2 else "")
+                    facts.setdefault("location", labels[-1])
+                    facts.setdefault("postal_name", labels[-1])
+
+    next_match = re.search(
+        r"<script[^>]+id=[\"']__NEXT_DATA__[\"'][^>]*>(.*?)</script>",
+        source_html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if next_match:
+        try:
+            next_payload = json.loads(next_match.group(1))
+        except Exception:
+            next_payload = {}
+        apollo_state = (
+            dict(next_payload.get("props", {}).get("apolloState") or {})
+            if isinstance(next_payload, dict) and isinstance(next_payload.get("props"), dict)
+            else {}
+        )
+        listing_nodes = [
+            value
+            for key, value in apollo_state.items()
+            if str(key).startswith("ListingDetail:") and isinstance(value, dict)
+        ]
+        for node in listing_nodes:
+            bedrooms = _first_int(node.get("bedrooms"))
+            bathrooms = _first_int(node.get("bathrooms"))
+            if bedrooms:
+                facts["bedrooms"] = bedrooms
+                facts.setdefault("rooms", bedrooms)
+            if bathrooms:
+                facts["bathrooms"] = bathrooms
+            property_types = node.get("propertyTypes") or node.get('propertyTypes({"language":"en"})')
+            if isinstance(property_types, dict) and isinstance(property_types.get("json"), list) and property_types.get("json"):
+                facts["property_type"] = str(property_types["json"][0]).strip().lower()
+            elif isinstance(property_types, list) and property_types:
+                facts["property_type"] = str(property_types[0]).strip().lower()
+            land_area = _first_float(node.get('landSize({"language":"en","unit":"SQUARE_METERS"})'))
+            if land_area:
+                facts["land_area_sqm"] = land_area
+                facts["land_area_display"] = f"{land_area:,.0f} m2"
+            if node.get("displayAddress"):
+                address = compact_text(str(node.get("displayAddress") or ""), fallback="", limit=180)
+                facts["postal_name"] = address
+                facts["location"] = address
+            price_ref = node.get('price({"currency":"AUD","language":"en"})')
+            price_node_id = str(price_ref.get("id") or "") if isinstance(price_ref, dict) else ""
+            price_node = dict(apollo_state.get(price_node_id) or {}) if price_node_id else {}
+            display_price = compact_text(str(price_node.get("displayListingPrice") or ""), fallback="", limit=80)
+            if display_price:
+                facts["price_display"] = display_price
+                price_match = re.search(r"\b([A-Z]{3})\b\s*\$?\s*([\d,]+(?:\.\d+)?)", display_price)
+                if price_match:
+                    facts["price_currency"] = price_match.group(1)
+                    facts["price_amount"] = float(price_match.group(2).replace(",", ""))
+            if node.get("description") and not facts.get("listing_description"):
+                facts["listing_description"] = compact_text(str(node.get("description") or ""), fallback="", limit=500)
+
+    description_blob = " ".join(
+        str(value or "")
+        for value in (
+            facts.get("listing_description"),
+            facts.get("listing_name"),
+            _property_scout_extract_meta_content(source_html, "og:description"),
+            _property_scout_extract_meta_content(source_html, "description"),
+        )
+    )
+    if not facts.get("bedrooms"):
+        bedrooms = _first_int(*(re.findall(r"\b(\d{1,2})\s+bedrooms?\b", description_blob, flags=re.IGNORECASE)[:1]))
+        if bedrooms:
+            facts["bedrooms"] = bedrooms
+            facts.setdefault("rooms", bedrooms)
+    if not facts.get("bathrooms"):
+        bathrooms = _first_int(*(re.findall(r"\b(\d{1,2})\s+bathrooms?\b", description_blob, flags=re.IGNORECASE)[:1]))
+        if bathrooms:
+            facts["bathrooms"] = bathrooms
+    if not facts.get("property_type") and re.search(r"\bhouse\b", description_blob, flags=re.IGNORECASE):
+        facts["property_type"] = "house"
+    if facts:
+        facts.setdefault("provider_channel", "realestate_international")
+    return facts
+
+
 def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False) -> dict[str, object]:
     normalized = urllib.parse.urldefrag(str(property_url or "").strip())[0]
     if not normalized:
@@ -4181,6 +4345,9 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
     cooperative_facts = _property_cooperative_housing_facts(normalized, html, _property_html_fragment_text(html))
     if cooperative_facts:
         property_facts.update(cooperative_facts)
+    international_facts = _property_realestate_international_preview_facts(normalized, html)
+    if international_facts:
+        property_facts.update({key: value for key, value in international_facts.items() if value not in (None, "", (), [])})
     floorplan_recovery_diagnostics = (
         {}
         if floorplan_urls
@@ -5639,7 +5806,8 @@ def _property_location_text_conflicts_with_hints(
         for pattern in (
             r"\bfor[-_\s]+sale[-_\s]+in[-_\s]+([a-z0-9-]{3,80})",
             r"\bfor[-_\s]+rent[-_\s]+in[-_\s]+([a-z0-9-]{3,80})",
-            r"/real-estate/([a-z0-9-]{3,80})(?:[-_]costa[-_]rica)?(?:/|$)",
+            r"(?:^|/)(?:[a-z]{2}/)?real-estate/([a-z0-9-]{3,120})(?:[-_]costa[-_]rica)?(?=$|[^a-z0-9-])",
+            r"(?:^|/)international/cr/([a-z0-9-]{3,180})(?=$|[^a-z0-9-])",
         ):
             for match in re.finditer(pattern, raw_text, flags=re.IGNORECASE):
                 slug = re.sub(r"[^a-z0-9äöüß]+", "", str(match.group(1) or "").lower())
@@ -5658,6 +5826,17 @@ def _property_search_notification_budget(preferences: dict[str, object] | None) 
     except Exception:
         limit = 5
     return max(1, min(50, limit)), period
+
+
+def _property_search_floorplan_hard_filter_enabled(preferences: dict[str, object] | None) -> bool:
+    payload = dict(preferences or {})
+    if not _property_truthy_flag(payload.get("require_floorplan")):
+        return False
+    country_code = normalize_country_code(payload.get("country_code"))
+    if country_code in {"AT"}:
+        return True
+    raw_policy = str(payload.get("floorplan_requirement_mode") or "").strip().lower()
+    return raw_policy in {"hard", "strict", "required"}
 
 
 def _property_review_page_neuronwriter_payload(
@@ -26596,6 +26775,7 @@ class ProductService:
         except Exception:
             available_within_years = 0
         require_floorplan = _property_truthy_flag(request_preferences.get("require_floorplan"))
+        enforce_floorplan_filter = _property_search_floorplan_hard_filter_enabled(request_preferences)
         enable_lifestyle_research = _property_truthy_flag(request_preferences.get("enable_lifestyle_research"))
         enable_family_mode = _property_truthy_flag(request_preferences.get("enable_family_mode"))
         enable_commute_research = _property_truthy_flag(request_preferences.get("enable_commute_research"))
@@ -26615,6 +26795,7 @@ class ProductService:
         else:
             request_preferences.pop("available_within_years", None)
         request_preferences["require_floorplan"] = require_floorplan
+        request_preferences["floorplan_requirement_mode"] = "hard" if enforce_floorplan_filter else ("soft" if require_floorplan else "off")
         request_preferences["use_stored_feedback_preferences"] = use_stored_feedback_preferences
         request_preferences["investment_research_mode"] = investment_research_mode
         request_preferences["enable_family_mode"] = enable_family_mode
@@ -27053,13 +27234,14 @@ class ProductService:
                         },
                     )
                     continue
-                if require_floorplan and not _property_candidate_has_floorplan(
+                has_preview_floorplan = _property_candidate_has_floorplan(
                     property_url=property_url,
                     title=preview_title,
                     summary=preview_summary,
                     property_facts=preview_facts,
                     preview=preview,
-                ):
+                )
+                if enforce_floorplan_filter and not has_preview_floorplan:
                     try:
                         detailed_floorplan_preview = _property_scout_page_preview(property_url)
                         if isinstance(detailed_floorplan_preview, dict) and detailed_floorplan_preview:
@@ -27087,13 +27269,28 @@ class ProductService:
                             preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
                     except Exception:
                         pass
-                if require_floorplan and not _property_candidate_has_floorplan(
+                has_preview_floorplan = _property_candidate_has_floorplan(
                     property_url=property_url,
                     title=preview_title,
                     summary=preview_summary,
                     property_facts=preview_facts,
                     preview=preview,
-                ):
+                )
+                if require_floorplan and not has_preview_floorplan and not enforce_floorplan_filter:
+                    preview_facts["floorplan_research_status"] = "missing_or_unverified_soft_requirement"
+                    preview_facts["unknowns_json"] = list(
+                        dict.fromkeys(
+                            [
+                                *[
+                                    str(item or "").strip()
+                                    for item in list(preview_facts.get("unknowns_json") or [])
+                                    if str(item or "").strip()
+                                ],
+                                "Floorplan is required by preference but not exposed by this provider before review.",
+                            ]
+                        )
+                    )
+                if enforce_floorplan_filter and not has_preview_floorplan:
                     recovery_diagnostics = (
                         dict(preview_facts.get("floorplan_recovery_diagnostics") or {})
                         if isinstance(preview_facts.get("floorplan_recovery_diagnostics"), dict)
@@ -27163,6 +27360,7 @@ class ProductService:
                         summary_updates={
                             "filtered_floorplan_total": filtered_floorplan_total,
                             "require_floorplan": True,
+                            "floorplan_requirement_mode": "hard",
                         },
                     )
                     continue
@@ -27205,8 +27403,11 @@ class ProductService:
                     )
 
             preliminary_rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
+            preliminary_before_location_count = len(preliminary_rows)
+            preliminary_location_miss_count = 0
             if location_hints:
                 preliminary_matching_rows = [row for row in preliminary_rows if bool(row.get("location_match"))]
+                preliminary_location_miss_count = max(0, preliminary_before_location_count - len(preliminary_matching_rows))
                 preliminary_rows = preliminary_matching_rows
             analysis_limit = len(preliminary_rows)
             ranked_rows: list[dict[str, object]] = []
@@ -27537,13 +27738,28 @@ class ProductService:
                         break
                 if distance_gate_failed:
                     continue
-                if require_floorplan and not _property_candidate_has_floorplan(
+                has_detailed_floorplan = _property_candidate_has_floorplan(
                     property_url=property_url,
                     title=detailed_title,
                     summary=detailed_summary,
                     property_facts=detailed_facts,
                     preview=preview,
-                ):
+                )
+                if require_floorplan and not has_detailed_floorplan and not enforce_floorplan_filter:
+                    detailed_facts["floorplan_research_status"] = "missing_or_unverified_soft_requirement"
+                    detailed_facts["unknowns_json"] = list(
+                        dict.fromkeys(
+                            [
+                                *[
+                                    str(item or "").strip()
+                                    for item in list(detailed_facts.get("unknowns_json") or [])
+                                    if str(item or "").strip()
+                                ],
+                                "Floorplan is required by preference but not exposed by this provider before review.",
+                            ]
+                        )
+                    )
+                if enforce_floorplan_filter and not has_detailed_floorplan:
                     recovery_diagnostics = (
                         dict(detailed_facts.get("floorplan_recovery_diagnostics") or {})
                         if isinstance(detailed_facts.get("floorplan_recovery_diagnostics"), dict)
@@ -27620,6 +27836,7 @@ class ProductService:
                         summary_updates={
                             "filtered_floorplan_total": filtered_floorplan_total,
                             "require_floorplan": True,
+                            "floorplan_requirement_mode": "hard",
                         },
                     )
                     continue
@@ -28141,6 +28358,7 @@ class ProductService:
                     "min_area_m2": request_preferences.get("min_area_m2") or 0,
                     "available_within_years": available_within_years,
                     "require_floorplan": require_floorplan,
+                    "floorplan_requirement_mode": str(request_preferences.get("floorplan_requirement_mode") or "").strip(),
                     "investment_research_mode": investment_research_mode,
                     "use_stored_feedback_preferences": use_stored_feedback_preferences,
                     "include_broker_direct_sources": bool(request_preferences.get("include_broker_direct_sources")),
@@ -28164,6 +28382,13 @@ class ProductService:
                     "enable_action_readiness_research": enable_action_readiness_research,
                     "raw_listing_total": raw_listing_count,
                     "scanned_listing_total": len(listing_urls),
+                    "location_matched_candidate_total": len(preliminary_rows),
+                    "location_mismatch_candidate_total": preliminary_location_miss_count,
+                    "location_mismatch_reason": (
+                        "provider_returned_candidates_outside_selected_location"
+                        if location_hints and preliminary_before_location_count > 0 and preliminary_location_miss_count == preliminary_before_location_count
+                        else ""
+                    ),
                     "scan_truncated": scan_truncated,
                     "review_created_total": created_for_source,
                     "review_existing_total": existing_for_source,
@@ -28269,6 +28494,7 @@ class ProductService:
             "min_area_m2": request_preferences.get("min_area_m2") or 0,
             "available_within_years": available_within_years,
             "require_floorplan": require_floorplan,
+            "floorplan_requirement_mode": str(request_preferences.get("floorplan_requirement_mode") or "").strip(),
             "investment_research_mode": investment_research_mode,
             "use_stored_feedback_preferences": use_stored_feedback_preferences,
             "include_broker_direct_sources": bool(request_preferences.get("include_broker_direct_sources")),

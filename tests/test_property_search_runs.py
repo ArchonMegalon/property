@@ -232,6 +232,24 @@ def test_property_search_location_matching_rejects_concrete_cr_location_conflict
         country_code="CR",
         region_code="puntarenas",
     ) is False
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://www.re.cr/en/real-estate/lake-arenal",
+        title="Lake Arenal Real Estate",
+        summary="Provider result page was queried from a Monteverde source scope.",
+        property_facts={"source_scope_location": "Monteverde", "source_city": "Monteverde", "country_code": "CR", "region_code": "puntarenas"},
+        country_code="CR",
+        region_code="puntarenas",
+    ) is False
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://www.realtor.com/international/cr/bella-vista-nuevo-arenal-lake-arenal-guanacaste-310101836907/",
+        title="Bella Vista Nuevo Arenal Lake Arenal Guanacaste House for Sale",
+        summary="Provider result page was queried from a Monteverde source scope.",
+        property_facts={"source_scope_location": "Monteverde", "source_city": "Monteverde", "country_code": "CR", "region_code": "puntarenas"},
+        country_code="CR",
+        region_code="puntarenas",
+    ) is False
 
 
 def test_property_search_location_matching_rejects_source_scope_postal_conflict() -> None:

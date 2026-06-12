@@ -38,7 +38,7 @@ COUNTRIES: tuple[PropertyCountrySpec, ...] = (
     PropertyCountrySpec("AT", "Austria", "de", "EUR", "EUR", "Vienna, Graz, Linz", ("willhaben", "immmo", "immoscout_at", "derstandard_at", "remax_at", "kalandra", "broker_direct_at", "community_signals_at", "genossenschaften_at")),
     PropertyCountrySpec("BE", "Belgium", "nl", "EUR", "EUR", "Brussels, Antwerp, Ghent", ("immoweb", "zimmo")),
     PropertyCountrySpec("CA", "Canada", "en", "CAD", "CAD", "Toronto, Montreal, Vancouver", ("realtor_ca", "rew_ca", "rentals_ca")),
-    PropertyCountrySpec("CR", "Costa Rica", "es", "CRC", "CRC", "All Costa Rica, Central Valley, Guanacaste, Puntarenas", ("encuentra24_cr", "re_cr_mls", "realtor_cr", "coldwellbanker_cr", "propertiesincostarica_cr", "costaricarealestateservice_cr", "twocostaricarealestate_cr")),
+    PropertyCountrySpec("CR", "Costa Rica", "es", "CRC", "CRC", "All Costa Rica, Central Valley, Guanacaste, Puntarenas", ("encuentra24_cr", "re_cr_mls", "realtor_cr", "coldwellbanker_cr", "propertiesincostarica_cr", "twocostaricarealestate_cr")),
     PropertyCountrySpec("DE", "Germany", "de", "EUR", "EUR", "Berlin, Munich, Hamburg", ("immoscout_de", "immowelt", "immonet", "kleinanzeigen_immo")),
     PropertyCountrySpec("CH", "Switzerland", "de", "CHF", "CHF", "Zurich, Geneva, Basel", ("homegate", "newhome", "immoscout_ch")),
     PropertyCountrySpec("IE", "Ireland", "en", "EUR", "EUR", "Dublin, Cork, Galway", ("daft_ie", "myhome_ie")),
@@ -1071,7 +1071,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         },
         description="Dominical and South Pacific Costa Rica broker-direct inventory, including Uvita, Ojochal, Quepos, and specialty land/waterfall properties.",
         family="broker_direct",
-        trust_tier="standard",
+        trust_tier="restricted",
         supported_listing_modes=("buy",),
     ),
     PropertyProviderSpec(
@@ -1081,7 +1081,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         host_markers=("2costaricarealestate.com",),
         listing_path_markers=("/property/", "/properties/", "/real-estate/"),
         search_urls={
-            "buy": "https://www.2costaricarealestate.com/properties/",
+            "buy": "https://www.2costaricarealestate.com/",
         },
         description="Costa Rica broker portal with beach, city, Tamarindo, Dominical, Jaco, Manuel Antonio, and Central Valley inventory.",
         family="broker_direct",
@@ -1978,6 +1978,14 @@ def _provider_filter_pushdown_payload(
         if value not in (None, "", False, "any"):
             requested[key] = value
 
+    weak_search_query_providers = {
+        "re_cr_mls",
+        "realtor_cr",
+        "coldwellbanker_cr",
+        "propertiesincostarica_cr",
+        "costaricarealestateservice_cr",
+        "twocostaricarealestate_cr",
+    }
     provider_side_area_keys = {
         "willhaben",
         "immmo",
@@ -2004,10 +2012,6 @@ def _provider_filter_pushdown_payload(
         "realtor",
         "zillow",
         "encuentra24_cr",
-        "re_cr_mls",
-        "propertiesincostarica_cr",
-        "costaricarealestateservice_cr",
-        "twocostaricarealestate_cr",
     }
     provider_side_price_keys = provider_side_area_keys | {
         "seloger",
@@ -2020,10 +2024,17 @@ def _provider_filter_pushdown_payload(
         "country_code": requested["country_code"],
         "listing_mode": requested["listing_mode"],
     }
+    attempted: dict[str, object] = {}
     if requested.get("location_query"):
-        applied["location_query"] = requested["location_query"]
+        if provider.key in weak_search_query_providers:
+            attempted["location_query"] = requested["location_query"]
+        else:
+            applied["location_query"] = requested["location_query"]
     if requested.get("keywords"):
-        applied["keywords"] = requested["keywords"]
+        if provider.key in weak_search_query_providers:
+            attempted["keywords"] = requested["keywords"]
+        else:
+            applied["keywords"] = requested["keywords"]
     if requested.get("property_type") and provider.key in {"willhaben", "funda"}:
         applied["property_type"] = requested["property_type"]
     if requested.get("max_price_eur") and provider.key in provider_side_price_keys:
@@ -2032,19 +2043,27 @@ def _provider_filter_pushdown_payload(
         applied["min_rooms"] = requested["min_rooms"]
     if requested.get("min_area_m2") and provider.key in provider_side_area_keys:
         applied["min_area_m2"] = requested["min_area_m2"]
+    elif requested.get("min_area_m2") and provider.key in weak_search_query_providers:
+        attempted["min_area_m2"] = requested["min_area_m2"]
 
     post_filter_only = sorted(key for key in requested if key not in applied)
+    cache_applied = {
+        **applied,
+        **{f"attempted_{key}": value for key, value in attempted.items()},
+    }
     cache_key = _provider_filter_pushdown_cache_key(
         provider_key=provider.key,
         country_code=requested["country_code"],
         listing_mode=requested["listing_mode"],
-        applied=applied,
+        applied=cache_applied,
     )
     return {
         "version": "property_provider_filter_pushdown_v1",
         "provider": provider.key,
         "requested": requested,
         "applied": applied,
+        "attempted": attempted,
+        "filter_strength": "weak_search_then_post_filter" if attempted else "provider_side",
         "post_filter_only": post_filter_only,
         "cache_key": cache_key,
     }
