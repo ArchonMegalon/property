@@ -765,6 +765,58 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         context.close()
 
 
+def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_compact(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
+        assert response is not None and response.ok
+        page.locator(".pqx-setup").wait_for(state="visible")
+
+        layout = page.evaluate(
+            """
+            () => {
+              const stage = document.querySelector('.pqx-setup');
+              const intro = document.querySelector('.pqx-setup-intro');
+              const command = document.querySelector('.pqx-command');
+              const facts = Array.from(document.querySelectorAll('.pqx-setup-intro .pqx-fact'));
+              const overflowFacts = facts.filter((node) => node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1);
+              const strongOverflow = facts
+                .map((node) => node.querySelector('strong'))
+                .filter(Boolean)
+                .filter((node) => node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1);
+              const stageBox = stage?.getBoundingClientRect();
+              const introBox = intro?.getBoundingClientRect();
+              const commandBox = command?.getBoundingClientRect();
+              return {
+                stageWidth: stageBox?.width || 0,
+                introWidth: introBox?.width || 0,
+                commandWidth: commandBox?.width || 0,
+                overflowFactCount: overflowFacts.length,
+                strongOverflowCount: strongOverflow.length,
+                visibleFactLabels: facts.map((node) => (node.querySelector('span')?.textContent || '').trim()),
+                visibleFactValues: facts.map((node) => (node.querySelector('strong')?.textContent || '').trim()),
+              };
+            }
+            """
+        )
+
+        assert layout["stageWidth"] > 0
+        assert layout["introWidth"] / layout["stageWidth"] <= 0.36
+        assert layout["commandWidth"] / layout["stageWidth"] >= 0.58
+        assert layout["overflowFactCount"] == 0
+        assert layout["strongOverflowCount"] == 0
+        assert {"Country", "Mode", "Providers", "Research"}.issubset(set(layout["visibleFactLabels"]))
+        assert len([value for value in layout["visibleFactValues"] if value]) == 4
+        _assert_property_shell_visual_gates(page, max_appbar_height=92)
+    finally:
+        context.close()
+
+
 def test_propertyquarry_setup_wizard_numeric_sliders_are_mobile_friendly(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],

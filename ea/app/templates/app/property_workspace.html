@@ -2436,7 +2436,7 @@
 
     const sources = Array.isArray(summary.sources) ? summary.sources : [];
     sourceNode.innerHTML = sources.slice(0, 6).map((source) => {
-      const label = String(source.source_label || source.source_url || 'Source');
+      const label = String(source.source_label || source.platform || 'Provider');
       const pushdown = source.provider_filter_pushdown && typeof source.provider_filter_pushdown === 'object' ? source.provider_filter_pushdown : {};
       const detail = [
         `${Number(source.listing_total || 0)} listings`,

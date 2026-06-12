@@ -356,21 +356,22 @@
       font-weight: 790;
       letter-spacing: 0;
     }
-    .pqx-title h1 { font-size: clamp(2rem, 4vw, 4.6rem); max-width: 11ch; }
+    .pqx-title h1 { font-size: clamp(1.9rem, 3.2vw, 3.7rem); max-width: 14ch; }
     .pqx-section-head h2 { font-size: 1.05rem; }
     .pqx-section-head h3 { font-size: 0.95rem; }
     .pqx-setup {
       min-height: calc(100vh - 172px);
       display: grid;
-      grid-template-columns: minmax(300px, 0.72fr) minmax(560px, 1.28fr);
-      gap: clamp(22px, 3vw, 42px);
-      align-items: stretch;
+      grid-template-columns: minmax(240px, 0.48fr) minmax(640px, 1.52fr);
+      gap: clamp(14px, 2vw, 26px);
+      align-items: start;
     }
     .pqx-setup-intro {
       display: grid;
-      align-content: space-between;
-      gap: 28px;
-      padding: clamp(20px, 3vw, 42px);
+      align-content: start;
+      gap: 16px;
+      align-self: start;
+      padding: clamp(16px, 2vw, 26px);
       border-radius: 10px;
       background: var(--pq-charcoal);
       color: #fff9ed;
@@ -397,27 +398,30 @@
     }
     .pqx-fact-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
     }
     .pqx-fact {
       display: grid;
       gap: 2px;
-      min-height: 76px;
-      padding: 12px;
+      min-height: 0;
+      padding: 9px 10px;
       border: 1px solid rgba(255, 249, 237, 0.18);
       border-radius: 8px;
       background: rgba(255, 249, 237, 0.07);
+      min-width: 0;
     }
     .pqx-fact span {
       color: #d7cdbb;
       font-size: 11px;
       text-transform: uppercase;
+      line-height: 1.1;
     }
     .pqx-fact strong {
-      overflow: hidden;
       color: #fff9ed;
-      font-size: 1.2rem;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      font-size: clamp(0.95rem, 1.25vw, 1.08rem);
+      line-height: 1.15;
+      overflow-wrap: anywhere;
+      white-space: normal;
     }
     .pqx-command {
       display: grid;
@@ -1959,7 +1963,7 @@
                 {% for candidate in ranked_candidates[:20] %}
                 <tr>
                   <td>{{ candidate.get('rank') or loop.index }}</td>
-                  <td>{{ candidate.get('title') or candidate.get('property_url') or 'Property candidate' }}<br><span class="pqx-small">{{ candidate.get('source_label') or candidate.get('source_platform') or 'Source' }}</span></td>
+                  <td>{{ candidate.get('title') or 'Property candidate' }}<br><span class="pqx-small">{{ candidate.get('source_label') or candidate.get('source_platform') or 'Source' }}</span></td>
                   <td>{{ candidate.get('fit_score') or 0 }}</td>
                   <td>{{ candidate.get('compare_reason') or candidate.get('fit_summary') or (candidate.get('match_reasons') or ['Review details for more context'])[0] }}</td>
                   <td>
@@ -2026,9 +2030,9 @@
                 {% for candidate in source.get('top_candidates')[:3] %}
                 <div class="pqx-source-candidate">
                   {% if candidate.get('packet_url') %}
-                  <a href="{{ candidate.get('packet_url') }}">{{ candidate.get('title') or candidate.get('property_url') or 'Review candidate' }}</a>
+                  <a href="{{ candidate.get('packet_url') }}">{{ candidate.get('title') or 'Review candidate' }}</a>
                   {% else %}
-                  <strong>{{ candidate.get('title') or candidate.get('property_url') or 'Review candidate' }}</strong>
+                  <strong>{{ candidate.get('title') or 'Review candidate' }}</strong>
                   {% endif %}
                   <span class="pqx-note">{{ candidate.get('fit_summary') or candidate.get('recommendation') or 'Open the review for details and feedback.' }}</span>
                   {% if candidate.get('property_url') %}<a class="pqx-note" href="{{ candidate.get('property_url') }}">Source listing</a>{% endif %}
@@ -3865,7 +3869,7 @@
       const rows = Array.isArray(sources) ? sources.slice(0, 8) : [];
       if (!rows.length) return '';
       return rows.map((source) => {
-        const label = source?.source_label || source?.platform || source?.source_url || 'Provider';
+        const label = source?.source_label || source?.platform || 'Provider';
         const pushdown = source?.provider_filter_pushdown && typeof source.provider_filter_pushdown === 'object' ? source.provider_filter_pushdown : {};
         const weakFilters = pushdown.filter_strength === 'weak_search_then_post_filter'
           ? `<span class="pqx-note">Provider filter weak: EA post-filtered ${escapeHtml((Array.isArray(pushdown.post_filter_only) ? pushdown.post_filter_only : []).join(', ') || 'selected filters')}.</span>`
@@ -3881,7 +3885,7 @@
       const rows = Array.isArray(candidates) ? candidates.slice(0, 20) : [];
       if (!rows.length) return '<div class="pqx-empty" data-pqx-ranked-candidates>No matches are ready yet. Open search diagnostics if the results look wrong or too narrow.</div>';
       const body = rows.map((candidate, index) => {
-        const title = candidate?.title || candidate?.property_url || 'Property candidate';
+        const title = candidate?.title || 'Property candidate';
         const source = candidate?.source_label || candidate?.source_platform || 'Source';
         const reason = candidate?.compare_reason || candidate?.fit_summary || (Array.isArray(candidate?.match_reasons) ? candidate.match_reasons[0] : '') || 'Review details for more context';
         const links = [

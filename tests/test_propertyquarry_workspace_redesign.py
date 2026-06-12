@@ -671,6 +671,25 @@ def test_property_workbench_recent_reviews_do_not_render_fake_links() -> None:
     assert "<span class=\"pqx-pill\">{{ packet.get('title') }}</span>" in body
 
 
+def test_property_workbench_sparse_candidates_do_not_display_raw_urls() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    assert "candidate.get('title') or candidate.get('property_url')" not in body
+    assert "candidate?.title || candidate?.property_url" not in body
+    assert "source?.source_label || source?.platform || source?.source_url" not in body
+    assert "candidate.get('title') or 'Property candidate'" in body
+    assert "candidate?.title || 'Property candidate'" in body
+
+
+def test_property_workspace_source_cards_do_not_display_raw_source_urls() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_workspace.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    assert "source.source_label || source.source_url" not in body
+    assert "source.source_label || source.platform || 'Provider'" in body
+
+
 def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(monkeypatch) -> None:
     principal_id = "pq-live-run-focus"
     client = build_property_client(principal_id=principal_id)
@@ -738,6 +757,28 @@ def test_propertyquarry_running_progress_ring_stays_compact_and_top_aligned() ->
     assert "width: 78px;" in template
     assert "align-content: space-between;" not in run_hero.group("body")
     assert "width: min(260px, 58vw);" not in template
+
+
+def test_propertyquarry_setup_intro_is_compact_and_allows_fact_text_to_wrap() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    template = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+    setup = re.search(r"\.pqx-setup \{(?P<body>.*?)\n    \}", template, re.S)
+    setup_intro = re.search(r"\.pqx-setup-intro \{(?P<body>.*?)\n    \}", template, re.S)
+    fact = re.search(r"\.pqx-fact \{(?P<body>.*?)\n    \}", template, re.S)
+    fact_strong = re.search(r"\.pqx-fact strong \{(?P<body>.*?)\n    \}", template, re.S)
+
+    assert setup is not None
+    assert setup_intro is not None
+    assert fact is not None
+    assert fact_strong is not None
+    assert "grid-template-columns: minmax(240px, 0.48fr) minmax(640px, 1.52fr);" in setup.group("body")
+    assert "align-items: start;" in setup.group("body")
+    assert "align-content: start;" in setup_intro.group("body")
+    assert "padding: clamp(16px, 2vw, 26px);" in setup_intro.group("body")
+    assert "min-height: 0;" in fact.group("body")
+    assert "overflow-wrap: anywhere;" in fact_strong.group("body")
+    assert "white-space: normal;" in fact_strong.group("body")
+    assert "white-space: nowrap;" not in fact_strong.group("body")
 
 
 def test_propertyquarry_workspace_supports_all_of_vienna_toggle() -> None:
