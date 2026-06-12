@@ -21959,6 +21959,134 @@ class ProductService:
                 dedupe_key=f"{principal_id}|{source_ref or property_url}|{variant_key}|property-tour-followup-telegram-failed",
             )
         return task
+
+    def _existing_property_provider_repair_task(
+        self,
+        *,
+        principal_id: str,
+        property_url: str,
+        filter_key: str,
+    ) -> HumanTask | None:
+        normalized_url = str(property_url or "").strip()
+        normalized_filter_key = str(filter_key or "").strip().lower()
+        if not normalized_url or not normalized_filter_key:
+            return None
+        for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=300):
+            if str(getattr(row, "task_type", "") or "").strip() != "property_provider_repair_ooda":
+                continue
+            input_json = dict(getattr(row, "input_json", {}) or {})
+            if str(input_json.get("property_url") or "").strip() != normalized_url:
+                continue
+            if str(input_json.get("filter_key") or "").strip().lower() != normalized_filter_key:
+                continue
+            return row
+        return None
+
+    def _open_property_provider_repair_task(
+        self,
+        *,
+        principal_id: str,
+        property_url: str,
+        title: str,
+        source_url: str,
+        source_label: str,
+        source_platform: str,
+        source_family: str,
+        filter_key: str,
+        diagnostics: dict[str, object],
+    ) -> dict[str, object]:
+        normalized_property_url = str(property_url or "").strip()
+        normalized_filter_key = str(filter_key or "").strip().lower()
+        if not normalized_property_url or not normalized_filter_key:
+            return {"status": "skipped", "reason": "property_provider_repair_key_missing"}
+        existing = self._existing_property_provider_repair_task(
+            principal_id=principal_id,
+            property_url=normalized_property_url,
+            filter_key=normalized_filter_key,
+        )
+        if existing is not None:
+            return {
+                "status": "existing",
+                "human_task_id": f"human_task:{existing.human_task_id}",
+                "queue_item_ref": f"human_task:{existing.human_task_id}",
+                "task_type": "property_provider_repair_ooda",
+            }
+        provider_host = str(dict(diagnostics or {}).get("provider_host") or urllib.parse.urlparse(str(source_url or "")).netloc).strip()
+        session_id = self._start_product_review_session(
+            principal_id=principal_id,
+            goal=f"Repair property provider extraction for {source_label or provider_host or source_platform or 'provider'}",
+            source_ref=normalized_property_url,
+        )
+        task = self._container.orchestrator.create_human_task(
+            session_id=session_id,
+            principal_id=principal_id,
+            task_type="property_provider_repair_ooda",
+            role_required="operator",
+            authority_required="ea_one_manager",
+            brief=compact_text(
+                f"EA Provider OODA: repair {source_label or provider_host or source_platform} {normalized_filter_key}",
+                fallback="EA Provider OODA: repair property provider extraction",
+                limit=140,
+            ),
+            why_human=(
+                "A provider page changed or exposed floorplan evidence in a shape the current extractor did not trust. "
+                "EA must inspect the provider HTML/media/document structure, patch the extractor, add a regression test, "
+                "rerun release gates, and deploy without sending the repair task to OpenAI."
+            ),
+            priority="high",
+            quality_rubric_json={
+                "must_not_use": ["openai_provider_fallback", "external_codex_session"],
+                "must_prove": [
+                    "source page was re-fetched or fixture captured",
+                    "extractor patch is generic or provider-scoped with clear guardrails",
+                    "regression test fails before patch and passes after patch",
+                    "property_release_gates.sh passes before deploy",
+                ],
+            },
+            input_json={
+                "repair_owner": "ea_one_manager",
+                "repair_workflow": "ea_provider_ooda",
+                "property_url": normalized_property_url,
+                "title": str(title or "").strip(),
+                "source_url": str(source_url or "").strip(),
+                "source_label": str(source_label or "").strip(),
+                "source_platform": str(source_platform or "").strip().lower(),
+                "source_family": str(source_family or "").strip().lower(),
+                "provider_host": provider_host,
+                "filter_key": normalized_filter_key,
+                "diagnostics": dict(diagnostics or {}),
+                "next_action": "EA Provider OODA: inspect provider HTML/media/document shape, patch extractor, add regression test, rerun gates.",
+            },
+            desired_output_json={
+                "status": "completed",
+                "provider_patch_commit": "",
+                "tests_added": [],
+                "release_gate_status": "passed",
+                "deploy_status": "deployed",
+            },
+        )
+        payload = {
+            "status": "opened",
+            "human_task_id": f"human_task:{task.human_task_id}",
+            "queue_item_ref": f"human_task:{task.human_task_id}",
+            "task_type": "property_provider_repair_ooda",
+            "repair_owner": "ea_one_manager",
+            "repair_workflow": "ea_provider_ooda",
+            "property_url": normalized_property_url,
+            "source_url": str(source_url or "").strip(),
+            "source_label": str(source_label or "").strip(),
+            "source_platform": str(source_platform or "").strip().lower(),
+            "filter_key": normalized_filter_key,
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="property_provider_repair_task_created",
+            payload=payload,
+            source_id=f"property-provider-repair:{normalized_property_url}",
+            dedupe_key=f"{principal_id}|{normalized_property_url}|{normalized_filter_key}|property-provider-repair-task-created",
+        )
+        return payload
+
     def _maybe_create_willhaben_property_tour_from_signal(
         self,
         *,
@@ -26627,6 +26755,17 @@ class ProductService:
                         if isinstance(preview_facts.get("floorplan_recovery_diagnostics"), dict)
                         else {}
                     )
+                    repair_task = self._open_property_provider_repair_task(
+                        principal_id=principal_id,
+                        property_url=property_url,
+                        title=preview_title,
+                        source_url=source_url,
+                        source_label=source_label,
+                        source_platform=str(source_spec.get("platform") or "").strip().lower(),
+                        source_family=str(source_spec.get("provider_family") or "").strip().lower(),
+                        filter_key="require_floorplan",
+                        diagnostics=recovery_diagnostics,
+                    )
                     self._record_product_event(
                         principal_id=principal_id,
                         event_type="property_provider_floorplan_recovery_needed",
@@ -26641,6 +26780,9 @@ class ProductService:
                             "diagnostics": recovery_diagnostics,
                             "repair_owner": "ea_one_manager",
                             "repair_workflow": "ea_provider_ooda",
+                            "repair_task": dict(repair_task),
+                            "human_task_id": str(repair_task.get("human_task_id") or "").strip(),
+                            "queue_item_ref": str(repair_task.get("queue_item_ref") or "").strip(),
                             "next_action": "EA Provider OODA: inspect provider HTML/media/document shape, patch extractor, add regression test, rerun gates.",
                         },
                         source_id=f"property-provider-floorplan-recovery:{property_url}",
@@ -27022,6 +27164,17 @@ class ProductService:
                         if isinstance(detailed_facts.get("floorplan_recovery_diagnostics"), dict)
                         else {}
                     )
+                    repair_task = self._open_property_provider_repair_task(
+                        principal_id=principal_id,
+                        property_url=property_url,
+                        title=detailed_title,
+                        source_url=source_url,
+                        source_label=source_label,
+                        source_platform=str(source_spec.get("platform") or "").strip().lower(),
+                        source_family=str(source_spec.get("provider_family") or "").strip().lower(),
+                        filter_key="require_floorplan",
+                        diagnostics=recovery_diagnostics,
+                    )
                     self._record_product_event(
                         principal_id=principal_id,
                         event_type="property_provider_floorplan_recovery_needed",
@@ -27036,6 +27189,9 @@ class ProductService:
                             "diagnostics": recovery_diagnostics,
                             "repair_owner": "ea_one_manager",
                             "repair_workflow": "ea_provider_ooda",
+                            "repair_task": dict(repair_task),
+                            "human_task_id": str(repair_task.get("human_task_id") or "").strip(),
+                            "queue_item_ref": str(repair_task.get("queue_item_ref") or "").strip(),
                             "next_action": "EA Provider OODA: inspect provider HTML/media/document shape, patch extractor, add regression test, rerun gates.",
                         },
                         source_id=f"property-provider-floorplan-recovery:{property_url}",

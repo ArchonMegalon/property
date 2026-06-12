@@ -3998,7 +3998,24 @@ def test_property_scout_floorplan_filter_records_provider_recovery_ooda_event(mo
     assert payload["diagnostics"]["provider_host"] == "www.gesiba.at"
     assert payload["repair_owner"] == "ea_one_manager"
     assert payload["repair_workflow"] == "ea_provider_ooda"
+    assert str(payload["queue_item_ref"]).startswith("human_task:")
     assert "EA Provider OODA" in payload["next_action"]
+    tasks = client.app.state.container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=20)
+    repair_tasks = [task for task in tasks if str(getattr(task, "task_type", "") or "") == "property_provider_repair_ooda"]
+    assert len(repair_tasks) == 1
+    repair_input = dict(repair_tasks[0].input_json or {})
+    assert repair_input["repair_owner"] == "ea_one_manager"
+    assert repair_input["repair_workflow"] == "ea_provider_ooda"
+    assert repair_input["property_url"] == property_url
+    assert repair_input["filter_key"] == "require_floorplan"
+    assert repair_input["diagnostics"]["provider_host"] == "www.gesiba.at"
+    assert "OpenAI" in str(repair_tasks[0].why_human)
+    created_events = [
+        row
+        for row in client.app.state.container.channel_runtime.list_recent_observations(limit=50, principal_id=principal_id)
+        if row.event_type == "property_provider_repair_task_created"
+    ]
+    assert len(created_events) == 1
 
 
 def test_property_scout_min_area_filters_before_scoring(monkeypatch) -> None:
