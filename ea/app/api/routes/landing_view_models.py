@@ -1359,7 +1359,7 @@ def app_section_payload(
                 row["action_label"] = "Review packet"
                 row["secondary_action_href"] = review_url
                 row["secondary_action_method"] = "get"
-                row["secondary_action_label"] = "Hosted review"
+                row["secondary_action_label"] = "Review details"
             else:
                 row["action_href"] = packet_url
                 row["action_method"] = "get"
@@ -1648,7 +1648,7 @@ def app_section_payload(
         "variant": "property_search",
         "title": "Run a premium market sweep",
         "eyebrow": "Flagship property desk",
-        "copy": "Set the market, shape the shortlist, choose the sources, then launch one visible research run with ranking, hosted review pages, and client-ready alerts.",
+        "copy": "Set the market, shape the shortlist, choose the sources, then launch one visible research run with ranking, review pages, and client-ready alerts.",
         "submit_label": "Launch search",
         "fields": [
             {
@@ -3267,7 +3267,7 @@ def property_workspace_payload(
                 "action_label": "Open packet",
                 "secondary_action_href": str(candidate.get("tour_url") or candidate.get("review_url") or "").strip(),
                 "secondary_action_method": "get" if (candidate.get("tour_url") or candidate.get("review_url")) else "",
-                "secondary_action_label": "Open 360" if candidate.get("tour_url") else ("Hosted review" if candidate.get("review_url") else ""),
+                "secondary_action_label": "Open 360" if candidate.get("tour_url") else ("Review details" if candidate.get("review_url") else ""),
             }
         )
 
@@ -4022,7 +4022,7 @@ def property_workspace_payload(
                 "action_label": "Open packet",
                 "secondary_action_href": str(candidate.get("review_url") or candidate.get("tour_url") or "").strip(),
                 "secondary_action_method": "get" if (candidate.get("review_url") or candidate.get("tour_url")) else "",
-                "secondary_action_label": "Hosted review" if candidate.get("review_url") else ("Open 360" if candidate.get("tour_url") else ""),
+                "secondary_action_label": "Review details" if candidate.get("review_url") else ("Open 360" if candidate.get("tour_url") else ""),
             }
         )
     if not research_rows:

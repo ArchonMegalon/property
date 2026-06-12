@@ -867,9 +867,9 @@ def send_property_tour_email(
     body = [
         "Hello,",
         "",
-        f"PropertyQuarry prepared a hosted 360 review for {title}.",
+        f"PropertyQuarry prepared a 360 review for {title}.",
         "",
-        "Open the titled hosted-review button in this email.",
+        "Open the titled review button in this email.",
     ]
     if property_url:
         body.append("Use the titled source-listing button if you need the original listing.")
@@ -894,7 +894,7 @@ def send_property_tour_email(
     body.extend(
         [
             "",
-            "Open the hosted 360 review first, then continue into the research packet if needed.",
+            "Open the 360 review first, then continue into the research packet if needed.",
         ]
     )
     facts_table_html = "".join(
@@ -911,13 +911,13 @@ def send_property_tour_email(
         if str(value or "").strip()
     )
     html_body = (
-        '<div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;margin:0 0 10px;">Hosted review</div>'
-        '<p style="margin:0 0 16px;font-size:15px;line-height:1.65;color:#51493f;">PropertyQuarry prepared a hosted 360 review for this property. Open the space first, then continue into the research packet and the decision desk.</p>'
+        '<div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;margin:0 0 10px;">Review page</div>'
+        '<p style="margin:0 0 16px;font-size:15px;line-height:1.65;color:#51493f;">PropertyQuarry prepared a 360 review page for this property. Open the space first, then continue into the research packet and the decision desk.</p>'
     )
     action_urls = _property_decision_action_urls(packet_url=property_url, tour_url=tour_url, property_url=property_url)
     html_body += _email_button_row(
         [
-            _email_button(href=tour_url, label="Open hosted 360"),
+            _email_button(href=tour_url, label="Open 360 review"),
             _email_button(href=property_url, label="Open research packet", kind="secondary") if str(property_url or "").strip() else "",
             _email_button(href=action_urls["yes"], label="Yes, shortlist", kind="secondary"),
             _email_button(href=action_urls["no"], label="No — tell us why", kind="secondary"),
@@ -932,14 +932,14 @@ def send_property_tour_email(
             + facts_table_html
             + "</table>"
         )
-    html_body += _email_footer_html(reason="You are receiving this because PropertyQuarry prepared a hosted review for a property in your workspace.")
+    html_body += _email_footer_html(reason="You are receiving this because PropertyQuarry prepared a review page for a property in your workspace.")
     return _send_emailit_email(
         recipient_email=recipient_email,
         subject=subject[:220],
         text="\n".join(body).strip() + "\n",
         html_body=_html_email_shell(
-            title=f"Hosted 360 review ready: {title}",
-            preheader="PropertyQuarry prepared a hosted 360 review for this property.",
+            title=f"360 review ready: {title}",
+            preheader="PropertyQuarry prepared a 360 review for this property.",
             body_html=html_body,
         ),
         kind="ea_property_tour_delivery",
@@ -980,7 +980,7 @@ def send_property_match_email(
     if fit_summary:
         body.extend(["", fit_summary])
     if primary_link:
-        body.extend(["", "Open the titled hosted-review button in this email."])
+        body.extend(["", "Open the titled review button in this email."])
     if review_url and review_url != primary_link:
         body.append("A titled research-packet button is included.")
     if tour_url and tour_url not in {primary_link, review_url}:
@@ -1285,7 +1285,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
         return {
             "template_key": normalized,
             "subject": "PropertyQuarry found 2 strong matches · 1 tour ready",
-            "preheader": "Your ranked shortlist, review packets, and hosted 360 reviews are ready.",
+            "preheader": "Your ranked shortlist, review packets, and 360 reviews are ready.",
             "text": (
                 "Hello,\n\n"
                 "Your PropertyQuarry results are ready.\n\n"
@@ -1319,7 +1319,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                 "PropertyQuarry shortlisted a property match: Altbau near U6\n"
                 "Source: ImmoScout24 Germany\n\n"
                 "Personal fit 92/100 · shortlist · Lift and transit fit.\n\n"
-                "Open the hosted review with the titled button in this email.\n"
+                "Open the review page with the titled button in this email.\n"
             ),
             "html": _property_match_html(
                 title="Altbau near U6",
@@ -1341,22 +1341,22 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
         return {
             "template_key": normalized,
             "subject": "Apartment tour ready: Family flat near Augarten · layout first",
-            "preheader": "PropertyQuarry prepared a hosted 360 review for this property.",
+            "preheader": "PropertyQuarry prepared a 360 review for this property.",
             "text": (
                 "Hello,\n\n"
-                "PropertyQuarry prepared a hosted 360 review for Family flat near Augarten:\n\n"
-                "Use the titled hosted-review and source-listing buttons in this email.\n\n"
-                "Open the hosted 360 review first, then continue into the research packet if needed.\n"
+                "PropertyQuarry prepared a 360 review page for Family flat near Augarten:\n\n"
+                "Use the titled review and source-listing buttons in this email.\n\n"
+                "Open the 360 review first, then continue into the research packet if needed.\n"
             ),
             "html": _html_email_shell(
-                title="Hosted 360 review ready",
+                title="360 review ready",
                 body_html=(
-                    '<div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;">Hosted review</div>'
-                    '<h1 style="margin:10px 0 12px 0;font-size:28px;line-height:1.2;color:#242321;">Hosted 360 review ready: Family flat near Augarten</h1>'
-                    '<p style="margin:0 0 16px 0;font-size:15px;line-height:1.65;color:#51493f;">PropertyQuarry prepared a hosted 360 review for this property. Open the space first, then review the risks and missing facts.</p>'
+                    '<div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;">Review page</div>'
+                    '<h1 style="margin:10px 0 12px 0;font-size:28px;line-height:1.2;color:#242321;">360 review ready: Family flat near Augarten</h1>'
+                    '<p style="margin:0 0 16px 0;font-size:15px;line-height:1.65;color:#51493f;">PropertyQuarry prepared a 360 review for this property. Open the space first, then review the risks and missing facts.</p>'
                     + _email_button_row(
                         [
-                            _email_button(href="https://propertyquarry.com/tours/family-flat-near-augarten", label="Open hosted 360"),
+                            _email_button(href="https://propertyquarry.com/tours/family-flat-near-augarten", label="Open 360 review"),
                             _email_button(href="https://propertyquarry.com/app/research/run-42/family-flat-near-augarten", label="Open research packet", kind="secondary"),
                             _email_button(href=action_urls["yes"], label="Yes, shortlist", kind="secondary"),
                             _email_button(href=action_urls["no"], label="No — tell us why", kind="secondary"),

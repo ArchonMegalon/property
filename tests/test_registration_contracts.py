@@ -694,9 +694,9 @@ def test_property_tour_email_uses_propertyquarry_branding(monkeypatch: pytest.Mo
     payload = dict(captured["payload"])
     assert payload["from"] == "PropertyQuarry <property@propertyquarry.com>"
     assert payload["subject"] == "Apartment tour ready: Family flat near Augarten · layout first"
-    assert "PropertyQuarry prepared a hosted 360 review for Family flat near Augarten." in payload["text"]
-    assert "Open the titled hosted-review button" in payload["text"]
-    assert "Open the hosted 360 review first" in payload["text"]
+    assert "PropertyQuarry prepared a 360 review for Family flat near Augarten." in payload["text"]
+    assert "Open the titled review button" in payload["text"]
+    assert "Open the 360 review first" in payload["text"]
     assert "http://" not in payload["text"]
     assert "https://" not in payload["text"]
     assert "EA prepared" not in payload["text"]

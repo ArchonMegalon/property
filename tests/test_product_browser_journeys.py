@@ -267,7 +267,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Review the properties that deserve attention now." in shortlist.text
     assert "Altbau near U6" in shortlist.text
     assert "Review packet" in shortlist.text
-    assert "Hosted review" in shortlist.text
+    assert "Review details" in shortlist.text
     assert "Open 360" in shortlist.text
     assert "data-feedback-save" in shortlist.text
 
@@ -287,7 +287,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert 'data-object-media-stage' in packet.text
     assert 'title="Property 360 review"' in packet.text
     assert packet.text.index("data-object-media-stage") < packet.text.index("Investment research")
-    assert "Hosted review" in packet.text
+    assert "Review page" in packet.text
     assert "Original listing" in packet.text
     assert "Investment research" in packet.text
     assert "Gross yield" in packet.text

@@ -472,7 +472,7 @@
         <div class="object-media-status">{{ object_media.get('status_label') or '360 ready' }}</div>
         <div class="object-actions">
           {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open 360' }}</a>{% endif %}
-          {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open hosted review' }}</a>{% endif %}
+          {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open review page' }}</a>{% endif %}
           {% if object_media.get('tertiary_href') %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ object_media.get('tertiary_label') or 'Open source' }}</a>{% endif %}
         </div>
       </div>
@@ -485,7 +485,7 @@
         </div>
         <div class="object-actions">
           {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open packet' }}</a>{% endif %}
-          {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open hosted review' }}</a>{% endif %}
+          {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open review page' }}</a>{% endif %}
           {% if object_media.get('tertiary_href') %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ object_media.get('tertiary_label') or 'Open source' }}</a>{% endif %}
         </div>
       </div>

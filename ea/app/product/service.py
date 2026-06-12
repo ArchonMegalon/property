@@ -9783,9 +9783,9 @@ def _property_tour_delivery_message(
     body = [
         "Hello,",
         "",
-        f"PropertyQuarry prepared a hosted 360 review for {title}.",
+        f"PropertyQuarry prepared a 360 review for {title}.",
         "",
-        "Open the titled hosted-review button in this message.",
+        "Open the titled review button in this message.",
     ]
     if property_url:
         body.append("Use the titled source-listing button if you need the original listing.")
@@ -9866,7 +9866,7 @@ def _property_tour_delivery_message(
         body.extend(["", "Why it may not fit:", *[f"- {entry}" for entry in bad_fit_reasons[:3]]])
     if unknowns:
         body.extend(["", "What still needs checking:", *[f"- {entry}" for entry in unknowns[:3]]])
-    body.extend(["", "Open the hosted 360 review first, then continue into the research packet if needed."])
+    body.extend(["", "Open the 360 review first, then continue into the research packet if needed."])
     return subject[:220], "\n".join(body).strip() + "\n"
 
 

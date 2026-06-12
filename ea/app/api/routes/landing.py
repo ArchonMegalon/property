@@ -1675,7 +1675,7 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
             else ("Open source 360" if vendor_tour_url else ("Open packet" if review_url else ""))
         ),
         "secondary_href": review_url,
-        "secondary_label": "Open hosted review" if review_url else "",
+        "secondary_label": "Open review page" if review_url else "",
         "tertiary_href": vendor_tour_url if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
         "tertiary_label": "Vendor 360" if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
     }
@@ -1694,8 +1694,8 @@ def _property_tour_detail_line(candidate: dict[str, object]) -> str:
 def _property_review_detail_line(candidate: dict[str, object]) -> str:
     review_url = str(candidate.get("review_url") or "").strip()
     if review_url:
-        return "Open the hosted review packet on PropertyQuarry."
-    return "No hosted review page exists for this candidate yet."
+        return "Open the review packet on PropertyQuarry."
+    return "No review page exists for this candidate yet."
 
 
 def _property_packet_provenance_rows(facts: dict[str, object]) -> list[dict[str, str]]:
@@ -2632,12 +2632,12 @@ def property_research_packet(
                 href=run_target,
             ),
             _object_detail_row(
-                "Hosted review",
+                "Review page",
                 _property_review_detail_line(candidate),
                 "Review",
                 href=review_url,
                 secondary_action_href=review_url,
-                secondary_action_label="Open hosted review" if review_url else "",
+                secondary_action_label="Open review page" if review_url else "",
                 secondary_action_method="get" if review_url else "",
             ),
             _object_detail_row(
@@ -2760,8 +2760,8 @@ def property_research_packet(
                 "title": "What still needs verification before this is trustworthy",
                 "items": missing_rows + investment_risk_rows + [
                     _object_detail_row(
-                        "Review the hosted surfaces",
-                        "Use the hosted review and 360 pages only after the internal packet already looks compelling.",
+                        "Review the shared surfaces",
+                        "Use the review and 360 pages only after the internal packet already looks compelling.",
                         "Review",
                     ),
                     _object_detail_row(

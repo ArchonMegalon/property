@@ -532,7 +532,11 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Compare the top shortlist before opening deeper packets" in shortlist.text
     assert "Altbau near U6" in shortlist.text
     assert "Review packet" in shortlist.text
-    assert "Hosted review" in shortlist.text
+    assert "Review details" in shortlist.text
+    assert "Packet follow-up" in shortlist.text
+    assert "Hosted review" not in shortlist.text
+    assert "Track packet follow-up" not in shortlist.text
+    assert "Open feedback" not in shortlist.text
 
     research = client.get("/app/research", params={"run_id": "run-42"}, headers=headers)
     assert research.status_code == 200
@@ -584,7 +588,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Layout" in packet.text
     assert "Family flat near Tiergarten" in packet.text
     assert "Researched" in packet.text
-    assert "Hosted review" in packet.text
+    assert "Review page" in packet.text
     assert "Original listing" in packet.text
     assert "Decision feedback" in packet.text
     assert "Decision pipeline" in packet.text
@@ -688,6 +692,24 @@ def test_property_workspace_source_cards_do_not_display_raw_source_urls() -> Non
 
     assert "source.source_label || source.source_url" not in body
     assert "source.source_label || source.platform || 'Provider'" in body
+
+
+def test_propertyquarry_user_facing_copy_avoids_hosted_review_jargon() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    checked_paths = [
+        repo_root / "ea/app/templates/app/property_workspace.html",
+        repo_root / "ea/app/templates/app/property_decision_workbench.html",
+        repo_root / "ea/app/templates/propertyquarry_home.html",
+        repo_root / "ea/app/templates/pricing_page.html",
+        repo_root / "ea/app/api/routes/landing.py",
+        repo_root / "ea/app/api/routes/landing_view_models.py",
+        repo_root / "ea/app/services/registration_email.py",
+    ]
+
+    for path in checked_paths:
+        body = path.read_text(encoding="utf-8")
+        assert "Hosted review" not in body, str(path)
+        assert "hosted-review" not in body, str(path)
 
 
 def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(monkeypatch) -> None:
