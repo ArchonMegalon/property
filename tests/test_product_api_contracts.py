@@ -4227,6 +4227,99 @@ def test_property_scout_min_area_filters_before_scoring(monkeypatch) -> None:
     assert assessed == ["large"]
 
 
+def test_property_scout_near_miss_does_not_fire_for_outside_vienna_area_failures(monkeypatch) -> None:
+    principal_id = "cf-email:near-miss-location-gate.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Near Miss Location Office")
+    candidate_urls = (
+        "https://immobilien.derstandard.at/detail/wohnung-mieten-in-4020-linz",
+        "https://www.immobilienscout24.at/expose/natters-top-05",
+    )
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://immobilien.derstandard.at/immobiliensuche/kauf?q=1020+Vienna",
+                "label": "DER STANDARD Immobilien | Austria | Buy | 1020 Vienna",
+                "platform": "derstandard_at",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": True,
+                "max_results": 2,
+                "country_code": "AT",
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: candidate_urls)
+    previews = {
+        candidate_urls[0]: {
+            "listing_id": "linz-small",
+            "title": "Wohnung mieten in 4020 Linz | 48.38 m² | 2 Zimmer | EUR 791,86",
+            "summary": "DER STANDARD listing outside Vienna.",
+            "property_facts_json": {
+                "property_type": "apartment",
+                "area_sqm": 48.38,
+                "postal_name": "4020 Linz",
+            },
+        },
+        candidate_urls[1]: {
+            "listing_id": "natters-small",
+            "title": "Wohnhausanlage Osteräcker 01 - Natters | TOP 05",
+            "summary": "ImmoScout listing outside Vienna.",
+            "property_facts_json": {
+                "property_type": "apartment",
+                "area_sqm": 47.0,
+                "postal_name": "6161 Natters",
+            },
+        },
+    }
+    monkeypatch.setattr(product_service, "_property_scout_page_preview", lambda url, prefer_fast=False: dict(previews[url]))
+    sent_near_miss: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: sent_near_miss.append(dict(kwargs)) or SimpleNamespace(chat_id="1", message_ids=("1",)),
+    )
+    assessed: list[str] = []
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: assessed.append(str(kwargs.get("object_id") or "")) or {"fit_score": 90.0},
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("derstandard_at",),
+        property_search_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1020 Vienna",
+            "property_type": "apartment",
+            "listing_mode": "buy",
+            "min_area_m2": 60,
+            "min_match_score": 65,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=2,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 0
+    assert result["filtered_area_total"] == 2
+    assert result["sources"][0]["filter_near_miss_total"] == 0
+    assert result["filter_near_miss_notified_total"] == 0
+    assert sent_near_miss == []
+    assert assessed == []
+
+
 def test_property_scout_min_area_keeps_unknown_area_for_scoring(monkeypatch) -> None:
     principal_id = "cf-email:min-area-unknown.search@example.com"
     client = build_product_client(principal_id=principal_id)
@@ -9022,6 +9115,15 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     assert any(item["key"] == "avoid_heating_types" for item in feedback_body["evidence"]["applied_nodes"])
     assert any(item["key"] == "prefer_lift" for item in feedback_body["evidence"]["applied_nodes"])
     assert feedback_body["updated_assessment"]["domain"] == "willhaben"
+    assert feedback_body["structured_feedback_status"] == "recorded"
+    assert feedback_body["structured_feedback_errors"] == []
+    assert feedback_body["decision_ledger"]["decision_state"] == "rejected"
+    assert feedback_body["decision_ledger"]["aggregate_candidate"] is True
+    assert any(item["claim_type"] == "decision" for item in feedback_body["evidence_graph"])
+    assert any(item["claim_type"] == "human_feedback" for item in feedback_body["evidence_graph"])
+    assert any(item["reason_key"] == "gas_heating" for item in feedback_body["agent_question_tasks"])
+    assert any(item["document_type"] == "energy_certificate" for item in feedback_body["document_intake"])
+    assert any("down-rank similar listings" in item for item in feedback_body["suppression_explanation"])
     timeline = client.get(
         "/app/api/properties/https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1180-waehring/waehring-flat-1/timeline"
     )

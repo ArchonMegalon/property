@@ -1136,6 +1136,8 @@ def record_property_feedback(
         normalized_ref = str(candidate_ref or "").strip()
         if normalized_ref and normalized_ref not in structured_property_refs:
             structured_property_refs.append(normalized_ref)
+    structured_feedback_errors: list[str] = []
+    structured_feedback_recorded = 0
     if structured_property_refs:
         reaction_category = {
             "like": "love",
@@ -1188,8 +1190,15 @@ def record_property_feedback(
                     decision_state=decision_state,
                     actor=actor,
                 )
-            except Exception:
-                pass
+                structured_feedback_recorded += 1
+            except Exception as exc:
+                structured_feedback_errors.append(f"{structured_property_ref}: {type(exc).__name__}")
+    result["structured_feedback_status"] = (
+        "failed"
+        if structured_feedback_errors and structured_feedback_recorded == 0
+        else ("partial" if structured_feedback_errors else ("recorded" if structured_feedback_recorded else "not_attempted"))
+    )
+    result["structured_feedback_errors"] = structured_feedback_errors[:5]
     return PropertyFeedbackRecordOut(**result)
 
 

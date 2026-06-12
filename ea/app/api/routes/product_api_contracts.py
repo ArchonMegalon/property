@@ -1415,6 +1415,13 @@ class PropertyFeedbackRecordOut(BaseModel):
     updated_assessment: PreferenceDecisionAssessmentOut
     learning_summary: PreferenceLearningSummaryOut
     preference_snapshot: PreferenceProfileBundleOut
+    decision_ledger: dict[str, object] = Field(default_factory=dict)
+    evidence_graph: list[dict[str, object]] = Field(default_factory=list)
+    agent_question_tasks: list[dict[str, object]] = Field(default_factory=list)
+    document_intake: list[dict[str, object]] = Field(default_factory=list)
+    suppression_explanation: list[str] = Field(default_factory=list)
+    structured_feedback_status: str = "not_attempted"
+    structured_feedback_errors: list[str] = Field(default_factory=list)
 
 
 class RuleSimulateIn(BaseModel):

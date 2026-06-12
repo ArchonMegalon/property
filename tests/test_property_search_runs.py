@@ -283,6 +283,20 @@ def test_property_search_location_matching_rejects_source_scope_postal_conflict(
         summary="Provider result page was queried from a Vienna source scope.",
         property_facts={"postal_name": "2020 Hollabrunn", "source_scope_location": "Wien", "source_city": "Wien"},
     ) is False
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://immobilien.derstandard.at/detail/wohnung-mieten-in-4020-linz",
+        title="Wohnung mieten in 4020 Linz | 48.38 m² | 2 Zimmer",
+        summary="Provider result page was queried from a Vienna source scope.",
+        property_facts={"postal_name": "4020 Linz", "source_scope_location": "1020 Vienna", "source_city": "Vienna"},
+    ) is False
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://www.immobilienscout24.at/expose/natters-top-05",
+        title="Wohnhausanlage Osteräcker 01 - Natters | TOP 05",
+        summary="Provider result page was queried from a Vienna source scope.",
+        property_facts={"postal_name": "6161 Natters", "source_scope_location": "1020 Vienna", "source_city": "Vienna"},
+    ) is False
 
 
 def test_property_search_location_matching_rejects_non_vienna_title_even_with_vienna_source_scope() -> None:

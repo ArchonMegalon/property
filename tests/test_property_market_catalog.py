@@ -14,6 +14,7 @@ from app.services.property_market_catalog import (
     property_type_label,
     property_type_options,
     provider_options,
+    provider_quality_labels,
     provider_listing_markers_for_host,
     normalize_listing_mode,
 )
@@ -34,6 +35,8 @@ def test_provider_options_are_filtered_by_country() -> None:
     assert any(row["value"] == "encuentra24_cr" for row in costa_rica)
     assert any(row["value"] == "re_cr_mls" and "MLS" in row["label"] for row in costa_rica)
     assert all("Germany" in str(row.get("description") or "") for row in germany)
+    assert all(str(row.get("floorplan_reliability") or "") for row in austria)
+    assert all(str(row.get("filter_pushdown_strength") or "") for row in costa_rica)
 
 
 def test_normalize_property_search_preferences_defaults_country_and_language() -> None:
@@ -141,6 +144,21 @@ def test_generated_source_specs_use_country_platform_defaults() -> None:
     assert specs[0]["listing_mode"] == "buy"
     assert "Berlin" in str(specs[0]["label"])
     assert "berlin" in str(specs[0]["url"]).lower()
+    assert specs[0]["provider_quality"]["floorplan_reliability"]
+    assert specs[0]["provider_quality"]["filter_pushdown_strength"]
+
+
+def test_provider_quality_labels_are_available_for_ui_and_ranking() -> None:
+    quality = provider_quality_labels("willhaben")
+
+    assert quality["coverage"]
+    assert quality["floorplan_reliability"]
+    assert quality["duplicate_rate"]
+    assert quality["tour_availability"]
+    assert quality["scan_reliability"]
+    assert quality["filter_pushdown_strength"]
+    assert quality["official_source_quality"]
+    assert quality["last_verified"]
 
 
 def test_generated_source_specs_support_distressed_sale_platforms() -> None:

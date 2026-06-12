@@ -52,6 +52,7 @@ except Exception:  # pragma: no cover - optional OCR fallback
 from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, IntentSpecV3, Stakeholder, TaskExecutionRequest, ToolInvocationRequest
 from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
 from app.services.property_billing import enforce_property_plan_limits, property_commercial_snapshot
+from app.services.property_decision_loop import build_property_decision_loop_snapshot
 from app.services.property_media_factory import MediaRequirement, route_property_media_task
 from app.product.extractors import extract_commitment_candidates
 from app.product.models import (
@@ -5907,6 +5908,19 @@ _PROPERTY_AT_NON_VIENNA_LOCATION_MARKERS = frozenset(
         "graz",
         "salzburg",
         "innsbruck",
+        "natters",
+        "tirol",
+        "tyrol",
+        "oberösterreich",
+        "oberoesterreich",
+        "niederösterreich",
+        "niederoesterreich",
+        "steiermark",
+        "styria",
+        "burgenland",
+        "vorarlberg",
+        "kärnten",
+        "kaernten",
         "klagenfurt",
         "villach",
         "wels",
@@ -16422,6 +16436,17 @@ class ProductService:
             principal_id=principal_id,
             person_id=normalized_person_id,
         )
+        decision_loop = build_property_decision_loop_snapshot(
+            property_ref=str(property_slug or property_url or property_title or "property").strip(),
+            reaction=normalized_reaction,
+            reason_keys=list(normalized_reason_keys),
+            note=note,
+            source="workbench",
+            actor=actor,
+            property_facts=property_facts,
+            learning_applied=True,
+            aggregate_candidate=normalized_reaction in {"dislike", "hide"},
+        )
         return {
             "status": "recorded",
             "reaction": normalized_reaction,
@@ -16433,6 +16458,11 @@ class ProductService:
                 "profile": dict(profile_bundle.get("profile") or {}),
                 "preference_nodes": list(profile_bundle.get("preference_nodes") or []),
             },
+            "decision_ledger": decision_loop.decision.model_dump(),
+            "evidence_graph": [claim.model_dump() for claim in decision_loop.evidence_claims],
+            "agent_question_tasks": [task.model_dump() for task in decision_loop.agent_question_tasks],
+            "document_intake": [document.model_dump() for document in decision_loop.document_records],
+            "suppression_explanation": list(decision_loop.suppression_explanation),
         }
 
     def property_decision_copilot(
@@ -27197,7 +27227,18 @@ class ProductService:
                 if normalized_filter_key not in _PROPERTY_SEARCH_FEEDBACK_PATCH_KEYS:
                     return
                 prefilter_score = float(row.get("fit_score") or 0.0)
-                if prefilter_score < float(min_match_score):
+                if prefilter_score < max(float(min_match_score), 50.0):
+                    return
+                near_miss_facts = dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {}
+                if location_hints and not _property_candidate_matches_requested_location(
+                    location_hints=location_hints,
+                    property_url=property_url,
+                    title=title,
+                    summary=summary,
+                    property_facts=near_miss_facts,
+                    country_code=str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
+                    region_code=str(request_preferences.get("region_code") or "").strip(),
+                ):
                     return
                 source_ref = f"property-scout:{str(row.get('listing_id') or property_url).strip() or property_url}"
                 if any(str(item.get("source_ref") or "") == source_ref for item in filter_near_misses_for_source):

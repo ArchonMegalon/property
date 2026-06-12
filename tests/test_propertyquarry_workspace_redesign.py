@@ -750,7 +750,11 @@ def test_propertyquarry_project_shape_docs_define_flagship_loop_and_design_gate(
     tone_guide = repo_root / "docs/PROPERTYQUARRY_TONE_GUIDE.md"
     dossier_art = repo_root / "docs/PREMIUM_DOSSIER_ART_DIRECTION.md"
     design_gate = repo_root / "docs/PROPERTYQUARRY_DESIGN_SYSTEM_GATE.md"
-    for path in (source_map, tone_guide, dossier_art, design_gate):
+    retention = repo_root / "docs/PROPERTYQUARRY_DATA_RETENTION.md"
+    analytics = repo_root / "docs/PROPERTYQUARRY_ANALYTICS_TAXONOMY.md"
+    provider_quality = repo_root / "docs/PROPERTYQUARRY_PROVIDER_QUALITY.md"
+    failure_ux = repo_root / "docs/PROPERTYQUARRY_FAILURE_UX.md"
+    for path in (source_map, tone_guide, dossier_art, design_gate, retention, analytics, provider_quality, failure_ux):
         assert path.exists(), str(path)
         assert path.read_text(encoding="utf-8").strip(), str(path)
 
@@ -773,6 +777,25 @@ def test_propertyquarry_project_shape_docs_define_flagship_loop_and_design_gate(
     design_body = design_gate.read_text(encoding="utf-8")
     assert "no plaintext URLs in Telegram or email body text" in design_body
     assert "show suppressed-candidate summaries" in design_body
+
+    retention_body = retention.read_text(encoding="utf-8")
+    assert "private PDFs and signed packet links must be revocable" in retention_body
+    assert "raw household feedback is owner-private by default" in retention_body
+
+    analytics_body = analytics.read_text(encoding="utf-8")
+    assert "pq.search.started" in analytics_body
+    assert "pq.decision.saved" in analytics_body
+    assert "signed link token" in analytics_body
+
+    provider_quality_body = provider_quality.read_text(encoding="utf-8")
+    assert "floorplan_reliability" in provider_quality_body
+    assert "filter_pushdown_strength" in provider_quality_body
+    assert "last_verified" in provider_quality_body
+
+    failure_body = failure_ux.read_text(encoding="utf-8")
+    assert "human message" in failure_body
+    assert "operator detail" in failure_body
+    assert "fallback action" in failure_body
 
 
 def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(monkeypatch) -> None:

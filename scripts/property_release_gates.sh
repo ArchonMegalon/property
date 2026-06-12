@@ -52,6 +52,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_missing_facts_ooda.py \
   tests/test_property_packet_engagement_contracts.py \
   tests/test_property_feedback_spine_contracts.py \
+  tests/test_property_decision_loop.py \
   tests/test_property_summary_artifacts.py \
   tests/test_property_packet_variant_contracts.py \
   tests/test_propertyquarry_timeline_contracts.py \

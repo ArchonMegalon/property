@@ -32,6 +32,14 @@ class PropertyProviderSpec:
     family: str = "marketplace"
     trust_tier: str = "standard"
     supported_listing_modes: tuple[str, ...] = ("rent", "buy")
+    coverage: str = "regional"
+    floorplan_reliability: str = "unknown"
+    duplicate_rate: str = "unknown"
+    tour_availability: str = "unknown"
+    scan_reliability: str = "unknown"
+    filter_pushdown_strength: str = "partial"
+    official_source_quality: str = "provider_only"
+    last_verified: str = "2026-06-13"
 
 
 COUNTRIES: tuple[PropertyCountrySpec, ...] = (
@@ -1461,16 +1469,53 @@ def provider_options(*, country_code: str | None = None) -> list[dict[str, str]]
             {
                 "value": provider.key,
                 "label": provider.label,
-                "description": f"{country_label} | {family_label} | Trust {trust_label} | {provider.description}",
+                "description": (
+                    f"{country_label} | {family_label} | Trust {trust_label} | "
+                    f"Floorplans {provider.floorplan_reliability} | Filters {provider.filter_pushdown_strength} | "
+                    f"{provider.description}"
+                ),
                 "country_code": provider.country_code,
                 "country_label": country_label,
                 "family": provider.family,
                 "family_label": family_label,
                 "trust_tier": provider.trust_tier,
                 "trust_label": trust_label,
+                "coverage": provider.coverage,
+                "floorplan_reliability": provider.floorplan_reliability,
+                "duplicate_rate": provider.duplicate_rate,
+                "tour_availability": provider.tour_availability,
+                "scan_reliability": provider.scan_reliability,
+                "filter_pushdown_strength": provider.filter_pushdown_strength,
+                "official_source_quality": provider.official_source_quality,
+                "last_verified": provider.last_verified,
             }
         )
     return rows
+
+
+def provider_quality_labels(provider_key: str) -> dict[str, str]:
+    provider = _PROVIDER_INDEX.get(normalize_property_platform(provider_key))
+    if provider is None:
+        return {
+            "coverage": "unknown",
+            "floorplan_reliability": "unknown",
+            "duplicate_rate": "unknown",
+            "tour_availability": "unknown",
+            "scan_reliability": "unknown",
+            "filter_pushdown_strength": "unknown",
+            "official_source_quality": "unknown",
+            "last_verified": "",
+        }
+    return {
+        "coverage": provider.coverage,
+        "floorplan_reliability": provider.floorplan_reliability,
+        "duplicate_rate": provider.duplicate_rate,
+        "tour_availability": provider.tour_availability,
+        "scan_reliability": provider.scan_reliability,
+        "filter_pushdown_strength": provider.filter_pushdown_strength,
+        "official_source_quality": provider.official_source_quality,
+        "last_verified": provider.last_verified,
+    }
 
 
 def default_platforms_for_country(country_code: object) -> tuple[str, ...]:
@@ -2599,6 +2644,7 @@ def generated_source_specs(
                             "platform": provider.key,
                             "provider_family": provider.family,
                             "provider_trust_tier": provider.trust_tier,
+                            "provider_quality": provider_quality_labels(provider.key),
                             "source_access_level": property_provider_access_level(provider.key),
                             "verification_required": provider.trust_tier in {"watch", "restricted"} or provider.family in {"community_signals", "community_meta"},
                             "provider_source_key": f"{provider.key}:{source_index}",
@@ -2653,6 +2699,7 @@ def generated_source_specs(
                 "platform": provider.key,
                 "provider_family": provider.family,
                 "provider_trust_tier": provider.trust_tier,
+                "provider_quality": provider_quality_labels(provider.key),
                 "source_access_level": property_provider_access_level(provider.key),
                 "verification_required": provider.trust_tier in {"watch", "restricted"} or provider.family in {"community_signals", "community_meta"},
                 "max_results": max(1, min(int(max_results or 5), 10)),
