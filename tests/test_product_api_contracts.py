@@ -3138,6 +3138,39 @@ def test_property_scout_floorplan_extractor_materializes_cooperative_download_zi
     _assert_public_floorplan_asset(urls[0], root=tmp_path, expected_payload=floorplan_payload)
 
 
+def test_property_scout_floorplan_extractor_materializes_frieden_direct_pdf_document(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source_url = "https://www.frieden.at/immobiliensuche/59442?returnUrl=%2Fimmobiliensuche"
+    pdf_url = "https://www.frieden.at/immobiliensuche/59442/plan.pdf"
+    floorplan_payload = b"%PDF-1.7 frieden floorplan"
+
+    def _download(url: str, **_kwargs: object) -> tuple[bytes, str]:
+        assert url == pdf_url
+        return floorplan_payload, "application/pdf"
+
+    monkeypatch.setattr(product_service, "_property_scout_download_bytes", _download)
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", "https://propertyquarry.test")
+    html = '<a href="/immobiliensuche/59442/plan.pdf">PDF</a>'
+
+    assert product_service._property_scout_extract_floorplan_urls(
+        source_url=source_url,
+        html=html,
+        resolve_archives=False,
+    ) == ()
+    urls = product_service._property_scout_extract_floorplan_urls(
+        source_url=source_url,
+        html=html,
+        resolve_archives=True,
+    )
+
+    assert len(urls) == 1
+    assert urls[0].endswith("/floorplan-01-plan.pdf")
+    _assert_public_floorplan_asset(urls[0], root=tmp_path, expected_payload=floorplan_payload)
+
+
 def test_property_scout_page_preview_materializes_direct_auction_document_bundle(
     monkeypatch,
     tmp_path: Path,
@@ -3412,6 +3445,303 @@ def test_property_scout_scans_beyond_result_limit_until_high_fit_matches(monkeyp
     assert titles == ["Familienwohnung nahe Park", "Helle Wohnung mit Lift und Balkon"]
     assert "high-one" in assessed
     assert "high-two" in assessed
+
+
+def test_property_scout_telegram_budget_sends_best_global_ranked_hits(monkeypatch) -> None:
+    principal_id = "cf-email:ranked-budget@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Ranked Budget Office")
+    source_a_url = "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/source-a"
+    source_b_url = "https://www.immobilienscout24.at/regional/wien/source-b"
+    weak_url = "https://www.willhaben.at/iad/object?adId=weaker-fit"
+    strong_url = "https://www.immobilienscout24.at/expose/stronger-fit"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": source_a_url,
+                "label": "Source A",
+                "platform": "willhaben",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": True,
+                "max_results": 1,
+            },
+            {
+                "url": source_b_url,
+                "label": "Source B",
+                "platform": "immoscout_at",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": True,
+                "max_results": 1,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_listing_urls_for_source",
+        lambda **kwargs: ((weak_url,), {"status": "miss"}) if kwargs.get("source_url") == source_a_url else ((strong_url,), {"status": "miss"}),
+    )
+    previews = {
+        weak_url: {
+            "listing_id": "weaker-fit",
+            "title": "Weaker early fit",
+            "summary": "A good but weaker apartment.",
+            "property_facts_json": {"property_type": "apartment"},
+        },
+        strong_url: {
+            "listing_id": "stronger-fit",
+            "title": "Stronger later fit",
+            "summary": "The best apartment found later in the source order.",
+            "property_facts_json": {"property_type": "apartment"},
+        },
+    }
+    monkeypatch.setattr(product_service, "_property_scout_page_preview", lambda url, prefer_fast=False: dict(previews[url]))
+
+    def _fake_assess_candidate(**kwargs):
+        object_id = str(kwargs.get("object_id") or "")
+        score = 91.0 if object_id.endswith("stronger-fit") else 82.0
+        return {
+            "fit_score": score,
+            "confidence": 0.9,
+            "predicted_reaction": "shortlist",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Clears the shortlist bar."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        }
+
+    sent_titles: list[str] = []
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _fake_assess_candidate)
+    monkeypatch.setattr(ProductService, "_maybe_auto_create_property_scout_tour", lambda self, **kwargs: {"status": "skipped", "tour_url": "", "blocked_reason": ""})
+    monkeypatch.setattr(
+        ProductService,
+        "_send_property_scout_hit_telegram",
+        lambda self, **kwargs: sent_titles.append(str(kwargs.get("title") or "")) or {"status": "sent", "telegram_message_ids": ["msg-ranked"]},
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben", "immoscout_at"),
+        property_search_preferences={
+            "property_type": "apartment",
+            "min_match_score": 70,
+            "search_agent_notification_limit": 1,
+            "search_agent_notification_period": "day",
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert sent_titles == ["Stronger later fit"]
+    assert result["notified_total"] >= 1
+    assert result["notification_budget"]["remaining_after_run"] == 0
+    assert result["notification_budget_suppressed_total"] >= 1
+
+
+def test_property_scout_fit_over_50_creates_tour_even_when_policy_disabled(monkeypatch) -> None:
+    principal_id = "cf-email:fit-over-50-tour@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Threshold Tour Office")
+    source_url = "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien"
+    property_url = "https://www.willhaben.at/iad/object?adId=fit-55"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": source_url,
+                "label": "Willhaben Vienna",
+                "platform": "willhaben",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 1,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_listing_urls_for_source",
+        lambda **kwargs: ((property_url,), {"status": "miss"}),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "fit-55",
+            "title": "Solide Wiener Wohnung",
+            "summary": "Wiener Wohnung mit Balkon und brauchbarem Grundriss.",
+            "property_facts_json": {"property_type": "apartment"},
+        },
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "fit_score": 55.0,
+            "confidence": 0.8,
+            "predicted_reaction": "consider",
+            "recommendation": "ask_for_clarification",
+            "match_reasons_json": ["Above the tour availability threshold."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+    tour_calls: list[dict[str, object]] = []
+
+    def _fake_create_tour(self, **kwargs):
+        tour_calls.append(dict(kwargs))
+        return {"status": "created", "tour_url": "https://propertyquarry.com/tours/fit-55", "blocked_reason": ""}
+
+    monkeypatch.setattr(ProductService, "create_willhaben_property_tour", _fake_create_tour)
+    service = product_service.build_product_service(client.app.state.container)
+    service.update_property_alert_policy(
+        principal_id=principal_id,
+        actor="test",
+        auto_generate_tour_for_good_fit=False,
+        good_fit_min_score=80.0,
+    )
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "property_type": "apartment",
+            "min_match_score": 1,
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["tour_auto_min_score"] == 50.0
+    assert result["tour_created_total"] == 1
+    assert len(tour_calls) == 1
+    assert result["sources"][0]["top_candidates"][0]["tour_status"] == "created"
+    assert result["sources"][0]["top_candidates"][0]["tour_url"] == "https://propertyquarry.com/tours/fit-55"
+
+
+def test_property_scout_fit_over_60_renders_magicfit_flythrough(monkeypatch) -> None:
+    principal_id = "cf-email:fit-over-60-flythrough@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Threshold Flythrough Office")
+    source_url = "https://www.immobilienscout24.at/regional/wien/flythrough"
+    property_url = "https://www.immobilienscout24.at/expose/fit-61"
+    tour_url = "https://propertyquarry.com/tours/fit-61"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": source_url,
+                "label": "ImmoScout Vienna",
+                "platform": "immoscout_at",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 1,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_listing_urls_for_source",
+        lambda **kwargs: ((property_url,), {"status": "miss"}),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "fit-61",
+            "title": "Sehr passende Wiener Wohnung",
+            "summary": "Wiener Wohnung mit Wohnzimmer, Schlafzimmer, Bad, WC und Balkon.",
+            "property_facts_json": {
+                "property_type": "apartment",
+                "room_labels": ["hall", "living room", "bedroom", "bath", "toilet", "balcony"],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "fit_score": 61.0,
+            "confidence": 0.85,
+            "predicted_reaction": "consider",
+            "recommendation": "view_if_compelling",
+            "match_reasons_json": ["Above the MagicFit fly-through threshold."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_maybe_auto_create_property_scout_tour",
+        lambda self, **kwargs: {"status": "created", "tour_url": tour_url, "blocked_reason": ""},
+    )
+    render_calls: list[dict[str, object]] = []
+
+    def _fake_delivery(url: str) -> dict[str, object]:
+        if render_calls:
+            return {
+                "video_url": "https://propertyquarry.com/tours/files/fit-61/tour-magicfit.mp4",
+                "provider_key": "magicfit",
+                "duration_seconds": 60.0,
+                "covered_route_labels": ["hall", "living room", "bedroom", "bath", "toilet", "balcony"],
+            }
+        return {}
+
+    def _fake_render(**kwargs):
+        render_calls.append(dict(kwargs))
+        return {"status": "rendered", "provider_key": "magicfit"}
+
+    monkeypatch.setattr(product_service, "_hosted_property_tour_video_delivery", _fake_delivery)
+    monkeypatch.setattr(product_service, "_render_property_flythrough_into_hosted_tour", _fake_render)
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("immoscout_at",),
+        property_search_preferences={
+            "property_type": "apartment",
+            "min_match_score": 1,
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["magicfit_flythrough_min_score"] == 60.0
+    assert result["flythrough_rendered_total"] == 1
+    assert len(render_calls) == 1
+    assert render_calls[0]["tour_url"] == tour_url
+    candidate = result["sources"][0]["top_candidates"][0]
+    assert candidate["flythrough_status"] == "rendered"
+    assert candidate["flythrough_provider"] == "magicfit"
+    assert candidate["flythrough_url"] == "https://propertyquarry.com/tours/files/fit-61/tour-magicfit.mp4"
 
 
 def test_property_scout_require_floorplan_filters_before_shortlist_and_prebuilds_tour(monkeypatch) -> None:

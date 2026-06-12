@@ -340,6 +340,7 @@ _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_CONTEXT_MARKERS = (
     "unterlagen",
     "dokument",
     "dokumente",
+    "pdf",
     "download",
     "beilage",
     "beilagen",
@@ -390,6 +391,8 @@ _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
 _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_LOCK = threading.Lock()
 _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY = False
 _PROPERTY_TOUR_PREBUILD_LIMIT = 5
+_PROPERTY_SCOUT_AUTO_TOUR_MIN_SCORE = 50.0
+_PROPERTY_SCOUT_MAGICFIT_FLYTHROUGH_MIN_SCORE = 60.0
 _PROPERTY_SEARCH_RESULTS_NOTIFY_TIMEOUT_SECONDS = 6 * 60 * 60
 _PROPERTY_SEARCH_RESULTS_NOTIFY_POLL_SECONDS = 20.0
 _PROPERTY_SEARCH_DEFAULT_HIGH_MATCH_MIN_SCORE = 65.0
@@ -2714,9 +2717,36 @@ def _property_scout_extract_floorplan_urls_from_archive(
     context: str,
 ) -> tuple[str, ...]:
     try:
-        payload, _content_type = _property_scout_download_bytes(archive_url)
+        payload, content_type = _property_scout_download_bytes(archive_url)
     except Exception:
         return ()
+    archive_path = urllib.parse.unquote(urllib.parse.urlparse(str(archive_url or "")).path or "").lower()
+    if payload.startswith(b"%PDF") or "application/pdf" in str(content_type or "").lower() or archive_path.endswith(".pdf"):
+        if not payload or len(payload) > _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MEMBER_MAX_BYTES:
+            return ()
+        lowered_context = str(context or "").lower()
+        parsed_host = urllib.parse.urlparse(str(archive_url or "")).netloc.lower()
+        trusted_floorplan_document_context = any(marker in lowered_context for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_CONTEXT_MARKERS) or any(
+            marker in parsed_host for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS
+        )
+        if not trusted_floorplan_document_context:
+            return ()
+        slug = _property_scout_public_asset_slug(source_url=source_url, archive_url=archive_url)
+        public_root = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+        target_dir = public_root / slug
+        target_dir.mkdir(parents=True, exist_ok=True)
+        filename = _property_scout_public_asset_filename(
+            member_name=Path(urllib.parse.urlparse(str(archive_url or "")).path or "floorplan.pdf").name or "floorplan.pdf",
+            ordinal=1,
+        )
+        target = target_dir / filename
+        target.write_bytes(payload)
+        public_base = _property_public_app_base_url().rstrip("/")
+        return (
+            f"{public_base}/tours/files/"
+            f"{urllib.parse.quote(slug, safe='')}/"
+            f"{urllib.parse.quote(filename, safe='-._~')}",
+        )
     try:
         archive = zipfile.ZipFile(io.BytesIO(payload))
     except (zipfile.BadZipFile, ValueError):
@@ -2894,6 +2924,22 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
             continue
         lowered_url = urllib.parse.unquote(normalized).lower()
         is_direct_floorplan_asset = _property_scout_is_asset_url(normalized, extensions=_PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS)
+        if (
+            resolve_archives
+            and lowered_url.endswith(".pdf")
+            and _property_scout_is_floorplan_archive_candidate_url(url=normalized, context=context)
+        ):
+            if normalized not in seen_archives:
+                seen_archives.add(normalized)
+                for archived_floorplan_url in _property_scout_extract_floorplan_urls_from_archive(
+                    source_url=source_url,
+                    archive_url=normalized,
+                    context=context,
+                ):
+                    if archived_floorplan_url not in seen:
+                        seen.add(archived_floorplan_url)
+                        floorplan_urls.append(archived_floorplan_url)
+            continue
         if resolve_archives and not is_direct_floorplan_asset and _property_scout_is_floorplan_archive_candidate_url(url=normalized, context=context):
             if normalized not in seen_archives:
                 seen_archives.add(normalized)
@@ -26120,6 +26166,11 @@ class ProductService:
                 "watch_notified_total": 0,
                 "notification_budget": dict(notification_budget),
                 "notification_budget_suppressed_total": 0,
+                "tour_auto_min_score": _PROPERTY_SCOUT_AUTO_TOUR_MIN_SCORE,
+                "magicfit_flythrough_min_score": _PROPERTY_SCOUT_MAGICFIT_FLYTHROUGH_MIN_SCORE,
+                "flythrough_rendered_total": 0,
+                "flythrough_existing_total": 0,
+                "flythrough_failed_total": 0,
                 "sources": [],
             }
 
@@ -26131,6 +26182,9 @@ class ProductService:
         email_notified_total = 0
         tour_created_total = 0
         tour_existing_total = 0
+        flythrough_rendered_total = 0
+        flythrough_existing_total = 0
+        flythrough_failed_total = 0
         high_fit_total = 0
         failed_total = 0
         filtered_property_type_total = 0
@@ -26144,6 +26198,7 @@ class ProductService:
         filter_near_miss_notified_total = 0
         policy = self.property_alert_policy(principal_id=principal_id)
         source_summaries: list[dict[str, object]] = []
+        pending_telegram_notifications: list[dict[str, object]] = []
         seen_listing_urls: set[str] = set()
         for source_spec in specs:
             source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
@@ -27010,6 +27065,9 @@ class ProductService:
             email_notified_for_source = 0
             tour_created_for_source = 0
             tour_existing_for_source = 0
+            flythrough_rendered_for_source = 0
+            flythrough_existing_for_source = 0
+            flythrough_failed_for_source = 0
             high_fit_for_source = 0
             watch_notified_for_source = 0
             notification_budget_suppressed_for_source = 0
@@ -27047,10 +27105,12 @@ class ProductService:
                     }
 
                 tour_result: dict[str, object] = {"status": "skipped", "tour_url": "", "blocked_reason": ""}
+                flythrough_result: dict[str, object] = {"status": "skipped", "video_url": "", "reason": "fit_below_threshold"}
+                should_force_tour = assessment_fit_score > _PROPERTY_SCOUT_AUTO_TOUR_MIN_SCORE
                 should_prebuild_tour = _property_candidate_supports_live_tour(row) and (
                     row_index <= _PROPERTY_TOUR_PREBUILD_LIMIT or require_floorplan
                 )
-                if is_good_fit or should_prebuild_tour:
+                if is_good_fit or should_prebuild_tour or should_force_tour:
                     tour_result = self._maybe_auto_create_property_scout_tour(
                         principal_id=principal_id,
                         actor=actor,
@@ -27058,7 +27118,7 @@ class ProductService:
                         source_ref=source_ref,
                         assessment=assessment,
                         policy=policy,
-                        allow_below_threshold=should_prebuild_tour,
+                        allow_below_threshold=should_prebuild_tour or should_force_tour,
                     )
                     if str(tour_result.get("status") or "").strip() == "created":
                         tour_created_for_source += 1
@@ -27066,6 +27126,27 @@ class ProductService:
                     elif str(tour_result.get("status") or "").strip() == "existing":
                         tour_existing_for_source += 1
                         tour_existing_total += 1
+                if assessment_fit_score > _PROPERTY_SCOUT_MAGICFIT_FLYTHROUGH_MIN_SCORE:
+                    flythrough_result = self._maybe_render_property_scout_flythrough(
+                        principal_id=principal_id,
+                        actor=actor,
+                        title=title,
+                        property_url=property_url,
+                        source_ref=source_ref,
+                        tour_result=tour_result,
+                        property_facts=dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {},
+                        fit_score=assessment_fit_score,
+                    )
+                    flythrough_status = str(flythrough_result.get("status") or "").strip().lower()
+                    if flythrough_status == "rendered":
+                        flythrough_rendered_for_source += 1
+                        flythrough_rendered_total += 1
+                    elif flythrough_status == "existing":
+                        flythrough_existing_for_source += 1
+                        flythrough_existing_total += 1
+                    elif flythrough_status == "failed":
+                        flythrough_failed_for_source += 1
+                        flythrough_failed_total += 1
 
                 opened = self._open_property_alert_review(
                     principal_id=principal_id,
@@ -27099,36 +27180,32 @@ class ProductService:
                     top_watch_candidate["review_url"] = str(opened.get("editor_url") or "").strip()
 
                 if notify_telegram and is_good_fit:
-                    if notification_budget_remaining <= 0:
-                        notification_budget_suppressed_for_source += 1
-                        notification_budget_suppressed_total += 1
-                    else:
-                        _report(
-                            step="source_notify",
-                            message=f"Sending client alert for {title[:72]}.",
-                            status="in_progress",
-                            steps_delta=1,
-                        )
-                        notify_result = self._send_property_scout_hit_telegram(
-                            principal_id=principal_id,
-                            actor=actor,
-                            title=title,
-                            summary=summary,
-                            counterparty=source_label,
-                            account_email=account_email,
-                            property_url=property_url,
-                            source_ref=source_ref,
-                            assessment=assessment,
-                            fit_score=fit_score,
-                            preference_person_id=source_preference_person_id,
-                            review_url=str(opened.get("editor_url") or "").strip(),
-                            tour_result=tour_result,
-                            candidate_properties=candidate_properties,
-                        )
-                        if str(notify_result.get("status") or "").strip() == "sent":
-                            notified_for_source += 1
-                            notified_total += 1
-                            notification_budget_remaining = max(0, notification_budget_remaining - 1)
+                    pending_telegram_notifications.append(
+                        {
+                            "kind": "hit",
+                            "priority": 0,
+                            "score": fit_score,
+                            "source_url": source_url,
+                            "source_label": source_label,
+                            "source_ref": source_ref,
+                            "kwargs": {
+                                "principal_id": principal_id,
+                                "actor": actor,
+                                "title": title,
+                                "summary": summary,
+                                "counterparty": source_label,
+                                "account_email": account_email,
+                                "property_url": property_url,
+                                "source_ref": source_ref,
+                                "assessment": assessment,
+                                "fit_score": fit_score,
+                                "preference_person_id": source_preference_person_id,
+                                "review_url": str(opened.get("editor_url") or "").strip(),
+                                "tour_result": tour_result,
+                                "candidate_properties": candidate_properties,
+                            },
+                        }
+                    )
                 email_notify_result = self._send_property_scout_hit_email(
                     principal_id=principal_id,
                     actor=actor,
@@ -27172,6 +27249,15 @@ class ProductService:
                         "tour_url": str(tour_result.get("tour_url") or "").strip(),
                         "tour_status": str(tour_result.get("status") or "").strip(),
                         "blocked_reason": str(tour_result.get("blocked_reason") or "").strip(),
+                        "flythrough_url": str(flythrough_result.get("video_url") or "").strip(),
+                        "flythrough_status": str(flythrough_result.get("status") or "").strip(),
+                        "flythrough_provider": str(
+                            flythrough_result.get("provider_key")
+                            or flythrough_result.get("delivery_provider_key")
+                            or flythrough_result.get("media_route_provider_key")
+                            or ""
+                        ).strip(),
+                        "flythrough_reason": str(flythrough_result.get("reason") or "").strip(),
                         "property_facts": dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {},
                         "map_url": _property_candidate_google_maps_url(
                             {
@@ -27236,58 +27322,59 @@ class ProductService:
                         existing_for_source += 1
                         review_existing_total += 1
                     top_watch_candidate["review_url"] = str(opened.get("editor_url") or "").strip()
-                if notification_budget_remaining <= 0:
-                    notification_budget_suppressed_for_source += 1
-                    notification_budget_suppressed_total += 1
-                else:
-                    notify_result = self._send_property_scout_hit_telegram(
-                        principal_id=principal_id,
-                        actor=actor,
-                        title=str(top_watch_candidate.get("title") or "").strip(),
-                        summary=str(top_watch_candidate.get("summary") or "").strip(),
-                        counterparty=source_label,
-                        account_email=account_email,
-                        property_url=str(top_watch_candidate.get("property_url") or "").strip(),
-                        source_ref=str(top_watch_candidate.get("source_ref") or "").strip(),
-                        assessment=dict(top_watch_candidate.get("assessment") or {}),
-                        fit_score=float(top_watch_candidate.get("fit_score") or 0.0),
-                        preference_person_id=source_preference_person_id,
-                        review_url=str(top_watch_candidate.get("review_url") or "").strip(),
-                        tour_result={"status": "skipped", "tour_url": "", "blocked_reason": ""},
-                        candidate_properties=candidate_properties,
-                    )
-                    if str(notify_result.get("status") or "").strip() == "sent":
-                        watch_notified_for_source += 1
-                        notified_for_source += 1
-                        notified_total += 1
-                        notification_budget_remaining = max(0, notification_budget_remaining - 1)
+                pending_telegram_notifications.append(
+                    {
+                        "kind": "watch",
+                        "priority": 1,
+                        "score": float(top_watch_candidate.get("fit_score") or 0.0),
+                        "source_url": source_url,
+                        "source_label": source_label,
+                        "source_ref": str(top_watch_candidate.get("source_ref") or "").strip(),
+                        "kwargs": {
+                            "principal_id": principal_id,
+                            "actor": actor,
+                            "title": str(top_watch_candidate.get("title") or "").strip(),
+                            "summary": str(top_watch_candidate.get("summary") or "").strip(),
+                            "counterparty": source_label,
+                            "account_email": account_email,
+                            "property_url": str(top_watch_candidate.get("property_url") or "").strip(),
+                            "source_ref": str(top_watch_candidate.get("source_ref") or "").strip(),
+                            "assessment": dict(top_watch_candidate.get("assessment") or {}),
+                            "fit_score": float(top_watch_candidate.get("fit_score") or 0.0),
+                            "preference_person_id": source_preference_person_id,
+                            "review_url": str(top_watch_candidate.get("review_url") or "").strip(),
+                            "tour_result": {"status": "skipped", "tour_url": "", "blocked_reason": ""},
+                            "candidate_properties": candidate_properties,
+                        },
+                    }
+                )
 
             filter_near_miss_notified_for_source = 0
             if notify_telegram and filter_near_misses_for_source:
                 for near_miss in filter_near_misses_for_source[:2]:
-                    if notification_budget_remaining <= 0:
-                        notification_budget_suppressed_for_source += 1
-                        notification_budget_suppressed_total += 1
-                        continue
-                    near_miss_result = self._send_property_scout_filter_near_miss_telegram(
-                        principal_id=principal_id,
-                        actor=actor,
-                        title=str(near_miss.get("title") or "").strip(),
-                        summary=str(near_miss.get("summary") or "").strip(),
-                        counterparty=source_label,
-                        property_url=str(near_miss.get("property_url") or "").strip(),
-                        source_ref=str(near_miss.get("source_ref") or "").strip(),
-                        preference_person_id=source_preference_person_id,
-                        failed_filter_key=str(near_miss.get("failed_filter_key") or "").strip(),
-                        failed_filter_label=str(near_miss.get("failed_filter_label") or "").strip(),
-                        prefilter_score=float(near_miss.get("prefilter_score") or 0.0),
+                    pending_telegram_notifications.append(
+                        {
+                            "kind": "near_miss",
+                            "priority": 2,
+                            "score": float(near_miss.get("prefilter_score") or 0.0),
+                            "source_url": source_url,
+                            "source_label": source_label,
+                            "source_ref": str(near_miss.get("source_ref") or "").strip(),
+                            "kwargs": {
+                                "principal_id": principal_id,
+                                "actor": actor,
+                                "title": str(near_miss.get("title") or "").strip(),
+                                "summary": str(near_miss.get("summary") or "").strip(),
+                                "counterparty": source_label,
+                                "property_url": str(near_miss.get("property_url") or "").strip(),
+                                "source_ref": str(near_miss.get("source_ref") or "").strip(),
+                                "preference_person_id": source_preference_person_id,
+                                "failed_filter_key": str(near_miss.get("failed_filter_key") or "").strip(),
+                                "failed_filter_label": str(near_miss.get("failed_filter_label") or "").strip(),
+                                "prefilter_score": float(near_miss.get("prefilter_score") or 0.0),
+                            },
+                        }
                     )
-                    if str(near_miss_result.get("status") or "").strip() == "sent":
-                        filter_near_miss_notified_for_source += 1
-                        filter_near_miss_notified_total += 1
-                        notified_for_source += 1
-                        notified_total += 1
-                        notification_budget_remaining = max(0, notification_budget_remaining - 1)
 
             source_summaries.append(
                 {
@@ -27343,6 +27430,9 @@ class ProductService:
                     "email_notified_total": email_notified_for_source,
                     "tour_created_total": tour_created_for_source,
                     "tour_existing_total": tour_existing_for_source,
+                    "flythrough_rendered_total": flythrough_rendered_for_source,
+                    "flythrough_existing_total": flythrough_existing_for_source,
+                    "flythrough_failed_total": flythrough_failed_for_source,
                     "high_fit_total": high_fit_for_source,
                     "watch_notified_total": watch_notified_for_source,
                     "notification_budget_suppressed_total": notification_budget_suppressed_for_source,
@@ -27361,6 +27451,62 @@ class ProductService:
                 steps_delta=1,
                 summary_updates={"sources": source_summaries},
             )
+
+        def _source_summary_for_notification(item: dict[str, object]) -> dict[str, object] | None:
+            item_source_url = str(item.get("source_url") or "").strip()
+            item_source_label = str(item.get("source_label") or "").strip()
+            for summary in source_summaries:
+                if item_source_url and str(summary.get("source_url") or "").strip() == item_source_url:
+                    return summary
+                if item_source_label and str(summary.get("source_label") or "").strip() == item_source_label:
+                    return summary
+            return None
+
+        pending_telegram_notifications.sort(
+            key=lambda item: (
+                int(item.get("priority") or 0),
+                -float(item.get("score") or 0.0),
+                str(item.get("source_label") or ""),
+                str(item.get("source_ref") or ""),
+            )
+        )
+        for pending_notification in pending_telegram_notifications:
+            source_summary = _source_summary_for_notification(pending_notification)
+            if notification_budget_remaining <= 0:
+                notification_budget_suppressed_total += 1
+                if source_summary is not None:
+                    source_summary["notification_budget_suppressed_total"] = int(
+                        source_summary.get("notification_budget_suppressed_total") or 0
+                    ) + 1
+                continue
+            kind = str(pending_notification.get("kind") or "").strip()
+            kwargs = dict(pending_notification.get("kwargs") or {}) if isinstance(pending_notification.get("kwargs"), dict) else {}
+            _report(
+                step="source_notify",
+                message=f"Sending ranked client alert for {str(kwargs.get('title') or '')[:72]}.",
+                status="in_progress",
+                steps_delta=1,
+            )
+            if kind == "near_miss":
+                notify_result = self._send_property_scout_filter_near_miss_telegram(**kwargs)
+            else:
+                notify_result = self._send_property_scout_hit_telegram(**kwargs)
+            if str(notify_result.get("status") or "").strip() != "sent":
+                continue
+            notified_total += 1
+            notification_budget_remaining = max(0, notification_budget_remaining - 1)
+            if source_summary is not None:
+                source_summary["notified_total"] = int(source_summary.get("notified_total") or 0) + 1
+            if kind == "watch":
+                watch_notified_total += 1
+                if source_summary is not None:
+                    source_summary["watch_notified_total"] = int(source_summary.get("watch_notified_total") or 0) + 1
+            elif kind == "near_miss":
+                filter_near_miss_notified_total += 1
+                if source_summary is not None:
+                    source_summary["filter_near_miss_notified_total"] = int(
+                        source_summary.get("filter_near_miss_notified_total") or 0
+                    ) + 1
 
         payload = {
             "generated_at": _now_iso(),
@@ -27412,6 +27558,11 @@ class ProductService:
             "notification_budget_suppressed_total": notification_budget_suppressed_total,
             "tour_created_total": tour_created_total,
             "tour_existing_total": tour_existing_total,
+            "tour_auto_min_score": _PROPERTY_SCOUT_AUTO_TOUR_MIN_SCORE,
+            "magicfit_flythrough_min_score": _PROPERTY_SCOUT_MAGICFIT_FLYTHROUGH_MIN_SCORE,
+            "flythrough_rendered_total": flythrough_rendered_total,
+            "flythrough_existing_total": flythrough_existing_total,
+            "flythrough_failed_total": flythrough_failed_total,
             "high_fit_total": high_fit_total,
             "watch_notified_total": watch_notified_total,
             "filter_near_miss_notified_total": filter_near_miss_notified_total,
@@ -30314,7 +30465,7 @@ class ProductService:
         if not normalized_url:
             return {"status": "skipped", "reason": "property_url_missing"}
         normalized_policy = _normalize_property_alert_policy(policy)
-        if not bool(normalized_policy.get("auto_generate_tour_for_good_fit")):
+        if not bool(normalized_policy.get("auto_generate_tour_for_good_fit")) and not allow_below_threshold:
             return {"status": "skipped", "reason": "policy_disabled"}
         if not allow_below_threshold and not _property_alert_is_good_fit(
             dict(assessment or {}) if isinstance(assessment, dict) else None,
@@ -30373,6 +30524,79 @@ class ProductService:
             "blocked_reason": str(created.get("blocked_reason") or "").strip(),
             "human_task_id": str(created.get("human_task_id") or "").strip(),
         }
+
+    def _maybe_render_property_scout_flythrough(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        title: str,
+        property_url: str,
+        source_ref: str,
+        tour_result: dict[str, object] | None,
+        property_facts: dict[str, object] | None,
+        fit_score: float,
+    ) -> dict[str, object]:
+        if float(fit_score or 0.0) <= _PROPERTY_SCOUT_MAGICFIT_FLYTHROUGH_MIN_SCORE:
+            return {"status": "skipped", "reason": "fit_below_threshold", "video_url": ""}
+        tour_payload = dict(tour_result or {})
+        renderable_tour_url = str(tour_payload.get("tour_url") or tour_payload.get("vendor_tour_url") or "").strip()
+        if not renderable_tour_url:
+            return {"status": "skipped", "reason": "tour_url_missing", "video_url": ""}
+        facts = dict(property_facts or {}) if isinstance(property_facts, dict) else {}
+        existing_delivery = _hosted_property_tour_video_delivery(renderable_tour_url)
+        if str(existing_delivery.get("video_url") or "").strip() and str(existing_delivery.get("provider_key") or "").strip().lower() == "magicfit":
+            duration_ok, duration_reason, actual_seconds, required_seconds = _magicfit_flythrough_duration_gate(
+                dict(existing_delivery),
+                title=title,
+                property_facts=facts,
+            )
+            if duration_ok:
+                return {
+                    "status": "existing",
+                    "provider_key": "magicfit",
+                    "tour_url": renderable_tour_url,
+                    "video_url": str(existing_delivery.get("video_url") or "").strip(),
+                    "duration_seconds": actual_seconds,
+                    "required_duration_seconds": required_seconds,
+                    "reason": "",
+                }
+            existing_delivery["duration_gate_reason"] = duration_reason
+        try:
+            rendered = _render_property_flythrough_into_hosted_tour(
+                tour_url=renderable_tour_url,
+                title=title,
+                property_facts=facts,
+                actor=actor,
+            )
+        except Exception as exc:
+            rendered = {
+                "status": "failed",
+                "reason": "magicfit_property_scout_render_exception",
+                "error": compact_text(str(exc or ""), fallback="", limit=240),
+            }
+        delivery_after_render = _hosted_property_tour_video_delivery(renderable_tour_url)
+        result = {
+            **dict(rendered or {}),
+            "tour_url": renderable_tour_url,
+            "video_url": str(delivery_after_render.get("video_url") or dict(rendered or {}).get("video_url") or "").strip(),
+            "delivery_provider_key": str(delivery_after_render.get("provider_key") or "").strip(),
+            "delivery_duration_seconds": float(delivery_after_render.get("duration_seconds") or 0.0),
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="property_scout_magicfit_flythrough_rendered",
+            payload={
+                "property_url": property_url,
+                "title": title,
+                "source_ref": source_ref,
+                "fit_score": float(fit_score or 0.0),
+                **result,
+            },
+            source_id=source_ref,
+            dedupe_key=f"{principal_id}|{source_ref}|property-scout-magicfit-flythrough",
+        )
+        return result
 
     def _send_property_scout_hit_telegram(
         self,
