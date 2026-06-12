@@ -462,7 +462,9 @@ def test_registration_email_payload_stays_english_and_uses_propertyquarry_sender
     assert payload["subject"] == "Verify your email for PropertyQuarry"
     assert "Use this verification code to create your PropertyQuarry workspace" in payload["text"]
     assert "Google is connected after sign-up as an identity and optional workspace data source for PropertyQuarry." in payload["text"]
-    assert "https://propertyquarry.com/register?token=test&code=654321" in payload["text"]
+    assert "titled secure-access button" in payload["text"]
+    assert "http://" not in payload["text"]
+    assert "https://" not in payload["text"]
     assert receipt.message_id == "emailit-live-1"
 
 
@@ -628,8 +630,10 @@ def test_property_search_results_email_serializes_emailit_meta(monkeypatch: pyte
     assert "Best current match: BG Leopoldstadt, 082 25 E 89/25g" in payload["text"]
     assert "Key facts: EUR 310,000 | 82 m2 | 3 rooms | 1020 Vienna" in payload["text"]
     assert "Best matches:" in payload["text"]
+    assert "http://" not in payload["text"]
+    assert "https://" not in payload["text"]
+    assert "titled" in payload["text"]
     assert "BG Leopoldstadt" in payload["text"]
-    assert "https://propertyquarry.com/app/properties?run_id=run-1" in payload["text"]
     html = str(payload["html"])
     assert "PropertyQuarry research brief" in html
     assert "Current read" in html
@@ -690,8 +694,11 @@ def test_property_tour_email_uses_propertyquarry_branding(monkeypatch: pytest.Mo
     payload = dict(captured["payload"])
     assert payload["from"] == "PropertyQuarry <property@propertyquarry.com>"
     assert payload["subject"] == "Apartment tour ready: Family flat near Augarten · layout first"
-    assert "PropertyQuarry prepared a hosted 360 review for Family flat near Augarten:" in payload["text"]
+    assert "PropertyQuarry prepared a hosted 360 review for Family flat near Augarten." in payload["text"]
+    assert "Open the titled hosted-review button" in payload["text"]
     assert "Open the hosted 360 review first" in payload["text"]
+    assert "http://" not in payload["text"]
+    assert "https://" not in payload["text"]
     assert "EA prepared" not in payload["text"]
     assert receipt.message_id == "emailit-property-tour-1"
 
@@ -793,8 +800,9 @@ def test_channel_digest_email_payload_uses_compact_preview(monkeypatch: pytest.M
     payload = dict(captured["payload"])
     assert payload["from"] == "Kleinhirn <kleinhirn@girschele.com>"
     assert payload["subject"] == "Morning memo digest"
-    assert "Open this secure workspace view:" in payload["text"]
-    assert "https://myexternalbrain.com/channel-loop/deliveries/token-123" in payload["text"]
+    assert "Open this secure workspace view with the titled button in this email." in payload["text"]
+    assert "http://" not in payload["text"]
+    assert "https://" not in payload["text"]
     assert "Digest preview" in payload["text"]
     assert "Open digest:" not in payload["text"]
     assert "Fix memo delivery blocker" in payload["text"]
@@ -847,7 +855,9 @@ def test_google_connect_email_uses_workspace_delivery_sender(monkeypatch: pytest
     assert payload["from"] == "Sprachenzentrum <sprachenzentrum@girschele.com>"
     assert payload["subject"] == "Connect Google to PropertyQuarry Workspace"
     assert "No Google inbox is connected in this workspace yet" in payload["text"]
-    assert "https://propertyquarry.com/workspace-access/token?return_to=%2Fapp%2Factions%2Fgoogle%2Fconnect" in payload["text"]
+    assert "titled Google-connect button" in payload["text"]
+    assert "http://" not in payload["text"]
+    assert "https://" not in payload["text"]
     assert "Google connection" in str(payload["html"])
     assert "Connect Google" in str(payload["html"])
     assert receipt.message_id == "emailit-google-connect-1"

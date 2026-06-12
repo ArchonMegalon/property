@@ -587,6 +587,26 @@ def test_property_search_type_filter_blocks_garage_for_residential_searches() ->
     )
     assert (
         product_service._property_candidate_matches_requested_property_type(
+            property_type="office",
+            property_url="https://www.immmo.at/expose/praxis",
+            title="Großzügige Praxisfläche in gepflegtem Zustand",
+            summary="Ideal für medizinische Nutzung.",
+            property_facts={},
+        )
+        is True
+    )
+    assert (
+        product_service._property_candidate_matches_requested_property_type(
+            property_type="apartment",
+            property_url="https://www.willhaben.at/iad/immobilien/d/gewerbeimmobilien/buero",
+            title="Bürofläche mit Balkon nahe U-Bahn",
+            summary="Gewerbefläche mit Teeküche, Besprechungszimmern und Lift.",
+            property_facts={"property_type": "office"},
+        )
+        is False
+    )
+    assert (
+        product_service._property_candidate_matches_requested_property_type(
             property_type="any",
             property_url="https://www.immmo.at/expose/praxis",
             title="Großzügige Praxisfläche in gepflegtem Zustand",

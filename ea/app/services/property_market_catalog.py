@@ -78,6 +78,7 @@ PROPERTY_TYPE_LABELS = {
     "any": "Any type",
     "apartment": "Apartment",
     "house": "House",
+    "office": "Office",
     "land": "Building land",
 }
 
@@ -1415,6 +1416,19 @@ def normalize_listing_mode(value: object) -> str:
 
 def normalize_property_type(value: object) -> str:
     normalized = str(value or "").strip().lower()
+    normalized = {
+        "büro": "office",
+        "buero": "office",
+        "bueroflaeche": "office",
+        "bürofläche": "office",
+        "office_space": "office",
+        "commercial": "office",
+        "gewerbe": "office",
+        "gewerbeflaeche": "office",
+        "gewerbefläche": "office",
+        "praxis": "office",
+        "ordination": "office",
+    }.get(normalized, normalized)
     return normalized if normalized in PROPERTY_TYPE_LABELS else "any"
 
 
@@ -1942,6 +1956,8 @@ def _willhaben_search_base_url(*, base_url: str, listing_mode: str, property_typ
     normalized_type = normalize_property_type(property_type)
     if normalized_type == "land":
         return "https://www.willhaben.at/iad/immobilien/grundstuecke" if normalize_listing_mode(listing_mode) == "buy" else base_url
+    if normalized_type == "office":
+        return "https://www.willhaben.at/iad/immobilien/gewerbeimmobilien"
     if normalized_type != "house":
         return base_url
     if normalize_listing_mode(listing_mode) == "buy":
@@ -2164,6 +2180,8 @@ def _provider_property_type_segment(property_type: str) -> str:
         return "apartment"
     if normalized == "house":
         return "house"
+    if normalized == "office":
+        return "office"
     if normalized == "land":
         return "land"
     return ""

@@ -341,6 +341,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-range-empty-label="Any budget"' in setup.text
     assert 'data-range-preset="listing_mode_price"' in setup.text
     assert "Max budget" in setup.text
+    assert 'value="office"' in setup.text
+    assert "Office" in setup.text
     assert 'data-tooltip-trigger' in setup.text
     assert 'aria-expanded="false"' in setup.text
     assert "Set a hard budget ceiling. Leave it at Any budget when you want PropertyQuarry to rank first and filter price later." in setup.text
@@ -640,6 +642,20 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert billing.status_code == 200
     assert "Current commercial state" in billing.text
     assert "Open pricing" in billing.text
+
+
+def test_property_packets_dashboard_uses_customer_facing_language() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_packets.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    assert "Send polished property packets and track the replies." in body
+    assert "Packet sharing" in body
+    assert "Ready to send" in body
+    assert "Privacy checked · PDF ready · Sharing controls active" in body
+    assert "Sharing cockpit" not in body
+    assert "Publication queue" not in body
+    assert "source_pdf_sha256" not in body
+    assert "renderer_version" not in body
 
 
 def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(monkeypatch) -> None:

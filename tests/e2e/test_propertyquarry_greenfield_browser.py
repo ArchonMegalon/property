@@ -1062,7 +1062,7 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
         response = page.goto(f"{base_url}/app/properties/packets", wait_until="networkidle")
         assert response is not None and response.ok
         assert page.locator("[data-property-packets-dashboard]").is_visible()
-        assert page.locator("body", has_text="Review packets ready for branded sharing.").is_visible()
+        assert page.locator("body", has_text="Send polished property packets and track the replies.").is_visible()
         assert page.locator("body", has_text="Household review").is_visible()
         assert page.locator("body", has_text="Risk signals").is_visible()
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()

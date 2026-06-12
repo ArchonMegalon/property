@@ -6234,16 +6234,25 @@ _PROPERTY_NON_RESIDENTIAL_ONLY_MARKERS = (
     "storage unit",
     "lagerraum zu vermieten",
     "lagerplatz",
+)
+
+_PROPERTY_OFFICE_TEXT_MARKERS = (
     "bueroflaeche",
     "bürofläche",
+    "büro",
+    "buero",
     "office space",
+    "office for rent",
+    "office for sale",
     "praxisfläche",
     "praxisflaeche",
     "praxisfläche in",
+    "praxis",
     "medizinische nutzung",
     "ordination",
     "gewerbefläche",
     "gewerbeflaeche",
+    "gewerbe",
     "geschaeftslokal",
     "geschäftslokal",
 )
@@ -6399,7 +6408,8 @@ def _property_candidate_matches_requested_property_type(
         or facts.get("category")
         or facts.get("listing_type")
     )
-    if requested_type in {"apartment", "house", "land"} and fact_type in {"apartment", "house", "land"}:
+    concrete_types = {"apartment", "house", "office", "land"}
+    if requested_type in concrete_types and fact_type in concrete_types:
         return fact_type == requested_type
     text = _property_candidate_text(
         property_url=property_url,
@@ -6408,7 +6418,12 @@ def _property_candidate_matches_requested_property_type(
         property_facts=facts,
     )
     compact_text_value = re.sub(r"[^a-z0-9äöüß]+", "", text)
+    has_office_marker = any(marker in text or marker.replace(" ", "") in compact_text_value for marker in _PROPERTY_OFFICE_TEXT_MARKERS)
     if any(marker in text or marker.replace(" ", "") in compact_text_value for marker in _PROPERTY_NON_RESIDENTIAL_ONLY_MARKERS):
+        return False
+    if requested_type == "office":
+        return has_office_marker
+    if has_office_marker:
         return False
     if requested_type not in {"apartment", "house", "land"}:
         return True
@@ -9768,12 +9783,12 @@ def _property_tour_delivery_message(
     body = [
         "Hello,",
         "",
-        f"PropertyQuarry prepared a hosted 360 review for {title}:",
+        f"PropertyQuarry prepared a hosted 360 review for {title}.",
         "",
-        tour_url,
-        "",
-        f"Listing: {property_url}",
+        "Open the titled hosted-review button in this message.",
     ]
+    if property_url:
+        body.append("Use the titled source-listing button if you need the original listing.")
     if listing_id:
         body.append(f"Listing ID: {listing_id}")
     facts = [value for value in (area_label, rooms_label, price_label) if str(value or "").strip()]
@@ -23626,7 +23641,7 @@ class ProductService:
                             principal_id=principal_id,
                             video_ref=telegram_video_url,
                             audio_probe_ref=str(video_delivery.get("audio_probe_ref") or "").strip(),
-                            caption=f"{title}\n{tour_url}",
+                            caption=f"{title}\nOpen the titled 3D-tour button from the property message.",
                         )
                         telegram_video_delivery_status = "sent"
                         telegram_video_message_ids = list(telegram_video_receipt.message_ids)
@@ -32513,12 +32528,12 @@ class ProductService:
                 lines = [
                     str(summary or "").strip() or "PropertyQuarry found a new property match.",
                     "",
-                    f"Listing: {property_url}",
+                    "Action: open the titled source-listing button.",
                 ]
                 if review_href:
-                    lines.append(f"Dossier: {review_href}")
+                    lines.append("Action: open the titled dossier button.")
                 if tour_url:
-                    lines.append(f"Tour: {tour_url}")
+                    lines.append("Action: open the titled 3D-tour button.")
                 recommendation = str(dict(assessment or {}).get("recommendation") or "").strip()
                 if recommendation:
                     lines.extend(["", f"Recommendation: {recommendation}"])
@@ -38952,7 +38967,7 @@ class ProductService:
         plain_text = "\n".join(
             part
             for part in (
-                f"Open digest: {absolute_delivery_url}",
+                "Open the digest with the titled secure-delivery button.",
                 self.channel_digest_text(
                     principal_id=principal_id,
                     digest_key=normalized_digest,

@@ -12,6 +12,7 @@ from app.services.property_market_catalog import (
     normalize_property_search_preferences,
     normalize_country_code,
     property_type_label,
+    property_type_options,
     provider_options,
     provider_listing_markers_for_host,
     normalize_listing_mode,
@@ -101,6 +102,15 @@ def test_normalize_listing_mode_accepts_sale_aliases() -> None:
     assert normalize_listing_mode("for-sale") == "buy"
 
 
+def test_property_type_options_include_office_as_separate_category() -> None:
+    values = {row["value"]: row["label"] for row in property_type_options()}
+
+    assert values["apartment"] == "Apartment"
+    assert values["office"] == "Office"
+    assert values["office"] != values["apartment"]
+    assert property_type_label("büro") == "Office"
+
+
 def test_country_normalization_understands_common_country_names() -> None:
     assert normalize_country_code("Germany") == "DE"
     assert normalize_country_code("GB") == "UK"
@@ -170,6 +180,7 @@ def test_market_labels_are_human_readable() -> None:
     assert language_label("fr", country_code="FR") == "Français"
     assert listing_mode_label("buy") == "Buy"
     assert property_type_label("house") == "House"
+    assert property_type_label("office") == "Office"
     assert property_type_label("land") == "Building land"
 
 
@@ -194,6 +205,29 @@ def test_generated_source_specs_support_austrian_land_searches() -> None:
     assert "grundstuecke" in str(specs[0]["url"])
     assert "Nieder" in urllib.parse.unquote(str(specs[0]["url"]))
     assert "seezugang" in urllib.parse.unquote(str(specs[0]["url"])).lower()
+
+
+def test_generated_source_specs_support_austrian_office_searches() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "office",
+            "location_query": "Wien",
+            "keywords": "büro praxis",
+        },
+        selected_platforms=("willhaben",),
+        principal_id="exec-property-office-at",
+        default_person_id="self",
+        max_results=4,
+    )
+
+    assert specs
+    assert specs[0]["provider_filter_pushdown"]["requested"]["property_type"] == "office"
+    decoded_url = urllib.parse.unquote(str(specs[0]["url"])).lower()
+    assert "gewerbeimmobilien" in decoded_url
+    assert "büro" in decoded_url
 
 
 def test_generated_source_specs_skip_buy_only_sources_for_rent_without_distress_signal() -> None:

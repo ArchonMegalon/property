@@ -23,7 +23,7 @@ def test_packet_dashboard_shows_variant_and_republish_controls(tmp_path: Path) -
     )
     page = client.get("/app/properties/packets")
     assert page.status_code == 200
-    assert "Share journey:" in page.text
+    assert "Sharing status:" in page.text
     assert "Republish revised packet" in page.text
 
 
@@ -90,7 +90,7 @@ def test_packet_dashboard_republishes_variant_in_real_browser(
         republish_response = republish_response_info.value
         assert republish_response.ok, republish_response.text()
         page.reload(wait_until="networkidle")
-        assert page.locator("body", has_text="Share journey:").is_visible()
+        assert page.locator("body", has_text="Sharing status:").is_visible()
         assert page.locator("body", has_text="Family Review Packet").is_visible()
         assert page.locator("body", has_text="What changed").is_visible()
     finally:

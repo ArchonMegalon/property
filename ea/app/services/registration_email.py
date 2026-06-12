@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -14,6 +15,7 @@ from datetime import datetime, timezone
 EMAILIT_API_BASE = "https://api.emailit.com/v2/emails"
 DEFAULT_SENDER_EMAIL = "property@propertyquarry.com"
 DEFAULT_SENDER_NAME = "PropertyQuarry"
+_PLAINTEXT_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -121,8 +123,7 @@ def _registration_text(*, verification_code: str, magic_link_url: str, expires_a
         "Hello,\n\n"
         "Use this verification code to create your PropertyQuarry workspace:\n\n"
         f"{verification_code}\n\n"
-        "Or open this secure link:\n\n"
-        f"{magic_link_url}\n\n"
+        "Or use the titled secure-access button in this email.\n\n"
         f"This link and code expire in about {minutes} minutes.\n\n"
         "Google is connected after sign-up as an identity and optional workspace data source for PropertyQuarry.\n\n"
         "If you did not request this email, you can ignore it.\n"
@@ -170,7 +171,7 @@ def _emailit_meta_payload(*, kind: str, recipient_email: str, meta: dict[str, ob
 def _digest_preview_excerpt(plain_text: str, *, max_lines: int = 8, max_chars: int = 800) -> str:
     lines: list[str] = []
     for raw_line in str(plain_text or "").splitlines():
-        stripped = raw_line.strip()
+        stripped = _strip_plaintext_urls(raw_line).strip()
         if not stripped:
             continue
         if stripped.lower().startswith("open digest:"):
@@ -184,6 +185,13 @@ def _digest_preview_excerpt(plain_text: str, *, max_lines: int = 8, max_chars: i
     if len(excerpt) > max_chars:
         excerpt = excerpt[: max_chars - 3].rstrip() + "..."
     return excerpt
+
+
+def _strip_plaintext_urls(value: object) -> str:
+    text = str(value or "")
+    if not text:
+        return ""
+    return _PLAINTEXT_URL_RE.sub("[titled link]", text)
 
 
 _EMAIL_LINK_STYLE = "color:#0b57d0;text-decoration:underline;"
@@ -545,7 +553,7 @@ def _send_emailit_email(
         "from": f"{resolved_sender_name} <{resolved_sender_email}>",
         "to": str(recipient_email or "").strip(),
         "subject": str(subject or "").strip(),
-        "text": str(text or "").strip(),
+        "text": _strip_plaintext_urls(text).strip(),
         "html": str(html_body or "").strip(),
         "reply_to": resolved_sender_email,
         "tracking": False,
@@ -724,9 +732,7 @@ def send_workspace_access_email(
     body = [
         "Hello,",
         "",
-        f"Open this secure link to return to {workspace_label}:",
-        "",
-        access_url,
+        f"Use the titled access button in this email to return to {workspace_label}.",
         "",
         f"This link expires in about {minutes} minutes.",
     ]
@@ -786,9 +792,7 @@ def send_google_connect_email(
     body = [
         "Hello,",
         "",
-        f"Open this secure link to connect a Google inbox to {workspace_label}:",
-        "",
-        connect_url,
+        f"Use the titled Google-connect button in this email to connect a Google inbox to {workspace_label}.",
         "",
         f"This link expires in about {minutes} minutes.",
         "",
@@ -863,12 +867,12 @@ def send_property_tour_email(
     body = [
         "Hello,",
         "",
-        f"PropertyQuarry prepared a hosted 360 review for {title}:",
+        f"PropertyQuarry prepared a hosted 360 review for {title}.",
         "",
-        tour_url,
-        "",
-        f"Listing: {property_url}",
+        "Open the titled hosted-review button in this email.",
     ]
+    if property_url:
+        body.append("Use the titled source-listing button if you need the original listing.")
     if listing_id:
         body.append(f"Listing ID: {listing_id}")
     facts = [value for value in (area_label, rooms_label, price_label) if str(value or "").strip()]
@@ -976,13 +980,13 @@ def send_property_match_email(
     if fit_summary:
         body.extend(["", fit_summary])
     if primary_link:
-        body.extend(["", f"Open the hosted review: {primary_link}"])
+        body.extend(["", "Open the titled hosted-review button in this email."])
     if review_url and review_url != primary_link:
-        body.append(f"Research page: {review_url}")
+        body.append("A titled research-packet button is included.")
     if tour_url and tour_url not in {primary_link, review_url}:
-        body.append(f"Hosted tour: {tour_url}")
+        body.append("A titled hosted-tour button is included.")
     if property_url and property_url not in {primary_link, review_url, tour_url}:
-        body.append(f"Original listing: {property_url}")
+        body.append("A titled original-listing button is included.")
     decision_summary = decision_summary_json if isinstance(decision_summary_json, dict) else {}
     good_fit_reasons = [str(value or "").strip() for value in list(decision_summary.get("good_fit_reasons") or []) if str(value or "").strip()]
     bad_fit_reasons = [str(value or "").strip() for value in list(decision_summary.get("bad_fit_reasons") or []) if str(value or "").strip()]
@@ -1036,7 +1040,7 @@ def send_property_market_ready_email(
         "Your market is now ready in PropertyQuarry. You can start the search now.",
     ]
     if review_url:
-        body.extend(["", f"Open PropertyQuarry: {review_url}"])
+        body.extend(["", "Open PropertyQuarry with the titled workspace button in this email."])
     return _send_emailit_email(
         recipient_email=recipient_email,
         subject=f"PropertyQuarry market ready: {label}"[:220],
@@ -1128,13 +1132,13 @@ def send_property_search_results_ready_email(
             if facts_line:
                 body.append(f"   Facts: {facts_line}")
             if review_url:
-                body.append(f"   Open review packet: {review_url}")
+                body.append("   Action: open the titled review-packet button.")
             elif property_url:
-                body.append(f"   Open property: {property_url}")
+                body.append("   Action: open the titled source-listing button.")
             if tour_url:
-                body.append(f"   Open 360 view: {tour_url}")
+                body.append("   Action: open the titled 360-view button.")
     if str(results_url or "").strip():
-        body.extend(["", f"Open the full search desk: {results_url}"])
+        body.extend(["", "Open the full search desk with the titled button in this email."])
     cards = []
     for row in property_rows[:5]:
         title = html.escape(str(row.get("title") or "Property match").strip() or "Property match")
@@ -1291,7 +1295,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                 f"- Assessment: {best_row['fit_summary']}\n"
                 f"- Why it won: {best_row['compare_reason']}\n"
                 "- Key facts: EUR 420,000 | 78 m2 | 3 rooms | Berlin Mitte\n\n"
-                "Open the full search desk: https://propertyquarry.com/app/properties?run_id=run-42\n"
+                "Open the full search desk with the titled button in this email.\n"
             ),
             "html": _property_search_results_ready_html(
                 results_url="https://propertyquarry.com/app/properties?run_id=run-42",
@@ -1315,7 +1319,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                 "PropertyQuarry shortlisted a property match: Altbau near U6\n"
                 "Source: ImmoScout24 Germany\n\n"
                 "Personal fit 92/100 · shortlist · Lift and transit fit.\n\n"
-                "Open the hosted review: https://propertyquarry.com/tours/altbau-u6\n"
+                "Open the hosted review with the titled button in this email.\n"
             ),
             "html": _property_match_html(
                 title="Altbau near U6",
@@ -1341,8 +1345,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
             "text": (
                 "Hello,\n\n"
                 "PropertyQuarry prepared a hosted 360 review for Family flat near Augarten:\n\n"
-                "https://propertyquarry.com/tours/family-flat-near-augarten\n\n"
-                "Listing: https://propertyquarry.com/source/property-1\n\n"
+                "Use the titled hosted-review and source-listing buttons in this email.\n\n"
                 "Open the hosted 360 review first, then continue into the research packet if needed.\n"
             ),
             "html": _html_email_shell(
@@ -1380,7 +1383,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                 "- Gross yield: 4.14%\n"
                 "- Net yield: 2.8-3.2%\n"
                 "- Missing documents: operating costs, energy certificate\n\n"
-                "Open investment packet: https://propertyquarry.com/app/research/run-42/altbau-u6?investment=1\n"
+                "Open the investment packet with the titled button in this email.\n"
             ),
             "html": _html_email_shell(
                 title="Investment research ready",
@@ -1409,8 +1412,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
             "text": (
                 "Hello,\n\n"
                 "Mara invited you to join a PropertyQuarry workspace as Advisor.\n\n"
-                "Open this secure link to accept the invite:\n\n"
-                f"{invite_url}\n\n"
+                "Use the titled workspace-invite button in this email to accept the invite.\n\n"
                 "This link expires in about 60 minutes.\n"
             ),
             "html": _workspace_email_shell(
@@ -1431,8 +1433,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
             "preheader": "Open your secure PropertyQuarry access link before it expires.",
             "text": (
                 "Hello,\n\n"
-                "Open this secure link to return to PropertyQuarry Workspace:\n\n"
-                f"{access_url}\n\n"
+                "Use the titled access button in this email to return to PropertyQuarry Workspace.\n\n"
                 "This link expires in about 60 minutes.\n"
             ),
             "html": _workspace_email_shell(
@@ -1453,8 +1454,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
             "preheader": "Return to PropertyQuarry and start the Google consent flow from a secure workspace link.",
             "text": (
                 "Hello,\n\n"
-                "Open this secure link to connect a Google inbox to PropertyQuarry Workspace:\n\n"
-                f"{connect_url}\n\n"
+                "Use the titled Google-connect button in this email to connect a Google inbox to PropertyQuarry Workspace.\n\n"
                 "This link expires in about 60 minutes.\n"
             ),
             "html": _workspace_email_shell(
@@ -1512,9 +1512,7 @@ def send_channel_digest_email(
         body.extend([preview, ""])
     body.extend(
         [
-            "Open this secure workspace view:",
-            "",
-            delivery_url,
+            "Open this secure workspace view with the titled button in this email.",
             "",
             f"This link expires in about {minutes} minutes.",
         ]
@@ -1545,7 +1543,7 @@ def send_plaintext_digest_email(
     body = [label, ""]
     if preview:
         body.extend([preview, ""])
-    body.extend([str(plain_text or "").strip()])
+    body.extend([_strip_plaintext_urls(plain_text).strip()])
     return _send_emailit_email(
         recipient_email=recipient_email,
         subject=label,

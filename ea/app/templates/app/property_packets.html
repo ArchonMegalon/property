@@ -249,9 +249,9 @@
 
     <section class="pq-pack-hero">
       <div class="pq-pack-panel">
-        <div class="pq-pack-kicker">Sharing cockpit</div>
-        <h1>Review packets ready for branded sharing.</h1>
-        <p class="pq-pack-copy">PropertyQuarry keeps ranking, evidence, privacy, and learning authority. Shared packets contain only the redacted decision material and viewer responses always wait for owner review.</p>
+        <div class="pq-pack-kicker">Packet sharing</div>
+        <h1>Send polished property packets and track the replies.</h1>
+        <p class="pq-pack-copy">Share only the material that is ready for another person to see: the property read, the key evidence, the open questions, and the actions you want back.</p>
       </div>
       <div class="pq-pack-panel">
         <div class="pq-pack-stat-grid">
@@ -260,42 +260,42 @@
           <div class="pq-pack-stat"><span>Published</span><strong>{{ publications|selectattr("status", "equalto", "published")|list|length }}</strong></div>
           <div class="pq-pack-stat"><span>Slots</span><strong>{{ fliplink_capacity.active }}/{{ fliplink_capacity.cap }}</strong></div>
         </div>
-        <p class="pq-pack-muted" style="margin:12px 0 0;">Publishing tier {{ fliplink_capacity.account_tier }} · {{ fliplink_capacity.remaining }} slot(s) remaining · {{ fliplink_capacity.state|replace("_", " ") }}</p>
+        <p class="pq-pack-muted" style="margin:12px 0 0;">{{ fliplink_capacity.remaining }} sharing slot(s) remain on the current packet plan.</p>
       </div>
     </section>
 
-    <section class="pq-pack-summary-grid" aria-label="Packet cockpit summary">
+    <section class="pq-pack-summary-grid" aria-label="Packet sharing summary">
       <article class="pq-pack-summary-card">
-        <div class="pq-pack-kicker">Share posture</div>
-        <strong>Which packets are actually ready to circulate</strong>
+        <div class="pq-pack-kicker">Ready to send</div>
+        <strong>Which packets can safely leave your workspace</strong>
         <ul>
           <li>{{ dashboard_summary.published_total }} packet(s) published and {{ dashboard_summary.share_total }} packet(s) already shared.</li>
-          <li>{{ fliplink_capacity.remaining }} publication slot(s) remain on the current {{ fliplink_capacity.account_tier }} tier.</li>
-          <li>Use this cockpit to keep the branded packet ahead of raw PDFs and ad hoc email attachments.</li>
+          <li>{{ fliplink_capacity.remaining }} sharing slot(s) remain on the current plan.</li>
+          <li>Use this page when a packet is ready to send instead of forwarding raw PDFs or scattered links.</li>
         </ul>
       </article>
       <article class="pq-pack-summary-card">
-        <div class="pq-pack-kicker">Review pressure</div>
-        <strong>Keep external responses governed</strong>
+        <div class="pq-pack-kicker">Replies</div>
+        <strong>Keep feedback visible before it changes the search</strong>
         <ul>
-          <li>{{ dashboard_summary.feedback_pending_total }} viewer response(s) still need owner review.</li>
+          <li>{{ dashboard_summary.feedback_pending_total }} viewer response(s) still need your review.</li>
           <li>{{ dashboard_summary.followup_open_total }} follow-up loop(s) remain open across shared packets.</li>
-          <li>Every outside reaction should come back through one review queue before it changes preferences or hard rules.</li>
+          <li>Outside reactions stay in this queue before they change preferences or hard rules.</li>
         </ul>
       </article>
       <article class="pq-pack-summary-card">
-        <div class="pq-pack-kicker">Optimization lane</div>
-        <strong>Use packet performance to sharpen the next send</strong>
+        <div class="pq-pack-kicker">Next improvement</div>
+        <strong>Use real reactions to improve the next packet</strong>
         <ul>
           <li>{{ dashboard_summary.optimization_open_total }} optimization recommendation(s) are still open.</li>
-          <li>Packet quality is not just publishing. It is share readiness, engagement, and what the next revision should improve.</li>
-          <li>Analytics, structured feedback, and summaries should all feed the next packet version.</li>
+          <li>Packet quality means clear evidence, useful actions, and fewer unanswered questions.</li>
+          <li>Views, replies, and objections should shape the next version.</li>
         </ul>
       </article>
     </section>
 
     <section class="pq-pack-panel">
-      <div class="pq-pack-kicker">Publication queue</div>
+      <div class="pq-pack-kicker">Packets</div>
       <h2>Packets</h2>
       {% if publications %}
       <div class="pq-pack-card-list">
@@ -308,8 +308,8 @@
               <span class="pq-pack-pill">{{ row.privacy_mode|replace("_", " ") }}</span>
               <span class="pq-pack-pill">{{ row.fliplink_format|replace("_", " ") }}</span>
             </div>
-            <div class="pq-pack-muted">{{ row.property_ref }} · {{ row.recommended_folder }} · {{ row.updated_at[:19] }}</div>
-            <div class="pq-pack-muted">{{ row.source_pdf_size_bytes }} bytes · {{ row.source_pdf_sha256[:12] }} · {{ row.redaction_policy_version }} · {{ row.renderer_version or 'renderer unknown' }}</div>
+            <div class="pq-pack-muted">{{ row.recommended_folder }} · Updated {{ row.updated_at[:19] }}</div>
+            <div class="pq-pack-muted">Privacy checked · PDF ready · Sharing controls active</div>
             <div class="pq-pack-muted" data-analytics-summary>
               Analytics:
               {{ row.analytics.views if row.analytics.views is not none else 'n/a' }} views ·
@@ -320,7 +320,7 @@
               Engagement: {{ row.engagement.summary.opened or 0 }} opened · {{ row.engagement.summary.responded or 0 }} responded · {{ row.engagement.summary.no_activity or 0 }} no activity
             </div>
             <div class="pq-pack-muted">
-              Next best action: {{ row.engagement.summary.next_best_action or 'share_packet' }} · Share journey: {{ row.share_journey.state or 'drafted' }}
+              Next best action: {{ (row.engagement.summary.next_best_action or 'share packet')|replace("_", " ") }} · Sharing status: {{ (row.share_journey.state or 'drafted')|replace("_", " ") }}
             </div>
             <div class="pq-pack-muted">
               Packet posture:
@@ -442,11 +442,11 @@
               {% endfor %}
             </div>
             <div class="pq-pack-muted">
-              <strong>Structured feedback</strong>
+              <strong>Reviewed feedback</strong>
               {% for item in row.structured_feedback[:3] %}
               <div>{{ item.stakeholder_label or item.stakeholder_id }} · {{ item.category }} · {{ item.text or item.sentiment }}</div>
               {% else %}
-              <div>No structured feedback yet. Viewer reactions will return here before they are allowed to shape preferences or rules.</div>
+                <div>No reviewed feedback yet. Viewer reactions will return here before they are allowed to shape preferences or rules.</div>
               {% endfor %}
             </div>
             <div class="pq-pack-muted">
@@ -471,12 +471,12 @@
         {% endfor %}
       </div>
       {% else %}
-      <div class="pq-pack-empty">The packet desk is empty because no result has been promoted into a branded review packet yet. Finish a search run, open a strong candidate, and publish the first governed packet from the research lane.</div>
+        <div class="pq-pack-empty">No property packet is ready to share yet. Finish a search, open a strong candidate, and create the first packet from the property review page.</div>
       {% endif %}
     </section>
 
     <section class="pq-pack-panel" style="margin-top:18px;">
-      <div class="pq-pack-kicker">External review inbox</div>
+      <div class="pq-pack-kicker">Replies</div>
       <h2>Viewer responses</h2>
       <div class="pq-pack-list">
         {% for item in feedback_items %}
@@ -505,7 +505,7 @@
           </div>
         </article>
         {% else %}
-        <div class="pq-pack-empty">No viewer responses have landed yet. Once a packet is shared, every reaction will return here for owner review before it changes the decision record.</div>
+        <div class="pq-pack-empty">No viewer responses have arrived yet. Once a packet is shared, every reaction will return here for your review before it changes the decision record.</div>
         {% endfor %}
       </div>
     </section>

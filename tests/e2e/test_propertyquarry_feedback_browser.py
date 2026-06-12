@@ -36,7 +36,7 @@ def test_packet_dashboard_and_workbench_show_feedback_language(monkeypatch, tmp_
 
     page = client.get("/app/properties/packets")
     assert page.status_code == 200
-    assert "Structured feedback" in page.text
+    assert "Reviewed feedback" in page.text
     assert "No structured feedback yet." not in page.text
 
     seed_property_search_preferences(client)

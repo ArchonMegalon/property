@@ -57,3 +57,20 @@ def test_search_results_ready_preview_includes_compare_reason() -> None:
     assert "Why it won:" in text
     assert "Why it won" in html
     assert "scored 5 points higher" in text or "includes a floorplan" in text
+
+
+def test_property_notification_preview_plaintext_never_exposes_raw_urls() -> None:
+    for key in (
+        "search_results_ready",
+        "property_match",
+        "tour_ready",
+        "investment_research_ready",
+        "workspace_invitation",
+        "workspace_access",
+        "google_connect",
+        "market_ready",
+    ):
+        text = str(property_notification_preview(key).get("text") or "")
+        assert "http://" not in text
+        assert "https://" not in text
+        assert "titled" in text or key == "market_ready"
