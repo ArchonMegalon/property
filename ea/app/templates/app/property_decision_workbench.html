@@ -1731,8 +1731,8 @@
           <section class="pqx-advanced-panel" data-property-search-agent-management>
             <div class="pqx-section-head">
               <div>
-                <h2>Saved searches</h2>
-                <div class="pqx-note">Manage the ongoing search that uses the settings above. If it finds more homes than your alert budget allows, only the best-ranked matches are sent.</div>
+                <h2>Search agents</h2>
+                <div class="pqx-note">Keep a search running, cap the number of messages, and send only the best-ranked homes.</div>
               </div>
               <span class="pqx-pill">{{ (search_agents|selectattr('enabled')|list)|length }} active</span>
             </div>
@@ -1741,8 +1741,8 @@
               <div class="pqx-pref-row" data-property-search-agent-row data-search-agent-id="{{ agent.get('agent_id') or 'current' }}">
                 <div>
                   <strong>{{ agent.get('name') or 'Saved search' }}{% if agent.get('is_active') %} · selected{% endif %}</strong>
-                  <small>{{ agent.get('status_label') }} · {{ agent.get('location_query') or agent.get('country_code') or 'No area saved' }} · {{ agent.get('duration_label') }} · {{ agent.get('notification_limit') }} alert{{ '' if agent.get('notification_limit') == 1 else 's' }} per {{ agent.get('notification_period_label') }} · {{ agent.get('provider_count') }} provider{{ '' if agent.get('provider_count') == 1 else 's' }}</small>
-                  <small>Last run: {{ agent.get('last_run_label') or 'not run yet' }} · Next run: {{ agent.get('next_run_label') or 'waiting for scheduler' }} · Sent this {{ agent.get('notification_period_label') or 'period' }}: {{ agent.get('sent_in_current_window') or 0 }}</small>
+                  <small>{{ agent.get('status_label') }} · {{ agent.get('scope_label') }} · {{ agent.get('duration_label') }} · {{ agent.get('provider_count') }} provider{{ '' if agent.get('provider_count') == 1 else 's' }}</small>
+                  <small>{{ agent.get('notification_label') }} · {{ agent.get('delivery_label') }} · {{ agent.get('run_label') }}</small>
                 </div>
                 <div class="pqx-actions">
                   {% if agent.get('enabled') %}
@@ -1759,8 +1759,8 @@
               {% else %}
               <div class="pqx-pref-row" data-property-search-agent-row data-search-agent-id="current">
                 <div>
-                  <strong>Disabled · current search settings</strong>
-                  <small>Turn it on to keep this search running and send only the best-ranked alerts inside your budget.</small>
+                  <strong>No active search agent</strong>
+                  <small>Turn it on to keep this search running and send only the best-ranked homes inside your message budget.</small>
                 </div>
                 <div class="pqx-actions">
                   <button class="pqx-button" type="button" data-search-agent-action="resume">Resume</button>
@@ -1770,7 +1770,7 @@
               </div>
               {% endfor %}
             </div>
-            <div class="pqx-note">Change duration, alert budget, and daily or weekly reset in the search settings above, then use Save limits.</div>
+            <div class="pqx-note">Change duration, message budget, and daily or weekly reset above, then save the limits.</div>
             <div class="pqx-inline-status" data-search-agent-status></div>
           </section>
           {% set preference_manager = preference_manager or {} %}
@@ -2319,6 +2319,14 @@
                 {% endfor %}
               </div>
             </details>
+            <details class="pqx-card" data-pw-artifact-receipts>
+              <summary><strong>Artifact receipts</strong><span class="pqx-note">What must be true before a packet is sent.</span></summary>
+              <div class="pqx-event-list">
+                {% for row in workbench.get('artifact_receipt_rows') or [] %}
+                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
+                {% endfor %}
+              </div>
+            </details>
             <details class="pqx-card">
               <summary><strong>Timeline</strong><span class="pqx-note">Who reacted, what changed, and when.</span></summary>
               <div class="pqx-event-list" data-pw-timeline>
@@ -2334,7 +2342,7 @@
           <div class="pqx-result-panel-head">
             <div>
               <h2>Best homes first</h2>
-              <div class="pqx-note">{{ results|length }} matches · choose one to update the tour and review panel</div>
+              <div class="pqx-note">{{ results|length }} ranked homes · price, layout, location, fit reason, and next action stay visible.</div>
             </div>
             <span class="pqx-pill good">{{ run.get('status_label') or 'Completed' }}</span>
           </div>
@@ -2372,7 +2380,7 @@
                 <span class="pqx-small">Match</span>
                 <span class="pqx-result-title">{{ candidate.get('title') }}</span>
                 <span class="pqx-meta">{{ candidate.get('source_label') }}{% if candidate.get('location_label') %} · {{ candidate.get('location_label') }}{% endif %}</span>
-                <span class="pqx-result-action">Select</span>
+                <span class="pqx-result-action">Review this home</span>
               </span>
               <span><span class="pqx-pill{% if candidate.get('tour', {}).get('status') == 'ready' %} good{% else %} warn{% endif %}">{{ candidate.get('tour', {}).get('label') }}</span><span class="pqx-small">{{ candidate.get('tour', {}).get('eta_label') }}</span></span>
               <span><span class="pqx-small">Price</span><strong>{{ candidate.get('price_display') or 'n/a' }}</strong><span class="pqx-small">Layout · {{ candidate.get('layout_display') or 'n/a' }}</span></span>

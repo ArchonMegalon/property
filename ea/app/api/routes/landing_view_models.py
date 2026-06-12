@@ -4,6 +4,8 @@ import hashlib
 import urllib.parse
 from typing import Any
 
+from app.services.property_artifact_contracts import required_artifact_receipt_rows
+
 
 def _csv_values(value: object) -> list[str]:
     seen: set[str] = set()
@@ -304,6 +306,30 @@ def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]
             "tag": "Visible proof",
         },
     ]
+
+
+def _artifact_receipt_rows(run_summary: dict[str, object]) -> list[dict[str, str]]:
+    rows = [dict(row) for row in required_artifact_receipt_rows()]
+    try:
+        telegram_sent = max(int(float(run_summary.get("telegram_sent_total") or run_summary.get("notified_total") or 0)), 0)
+    except Exception:
+        telegram_sent = 0
+    try:
+        tour_total = max(int(float(run_summary.get("tour_created_total") or 0)) + int(float(run_summary.get("tour_existing_total") or 0)), 0)
+    except Exception:
+        tour_total = 0
+    try:
+        flythrough_total = max(int(float(run_summary.get("flythrough_rendered_total") or 0)) + int(float(run_summary.get("flythrough_existing_total") or 0)), 0)
+    except Exception:
+        flythrough_total = 0
+    rows.append(
+        {
+            "title": "Current run receipts",
+            "detail": f"{tour_total} 3D tour receipts, {flythrough_total} fly-through receipts, {telegram_sent} Telegram sends recorded in this run summary.",
+            "tag": "Run proof",
+        }
+    )
+    return rows
 
 
 def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, str]]:
@@ -1542,6 +1568,9 @@ def app_section_payload(
             sent_in_current_window = max(int(float(raw_agent.get("sent_in_current_window") or 0)), 0)
         except Exception:
             sent_in_current_window = 0
+        remaining_notifications = max(agent_notification_limit - sent_in_current_window, 0)
+        area_label = agent_location_query or agent_country_code or "No area saved"
+        notification_label = f"{agent_notification_limit} per {('week' if agent_notification_period == 'week' else 'day')}"
         return {
             "agent_id": str(raw_agent.get("agent_id") or "current").strip() or "current",
             "name": agent_name,
@@ -1568,6 +1597,12 @@ def app_section_payload(
             "last_run_label": last_run_at or "not run yet",
             "next_run_label": next_run_at or ("waiting for scheduler" if agent_enabled else "paused"),
             "sent_in_current_window": sent_in_current_window,
+            "remaining_notifications": remaining_notifications,
+            "area_label": area_label,
+            "scope_label": f"{agent_listing_mode.title()} · {area_label} · {agent_country_code}",
+            "notification_label": notification_label,
+            "run_label": f"Last: {last_run_at or 'not run yet'} · Next: {next_run_at or ('waiting for scheduler' if agent_enabled else 'paused')}",
+            "delivery_label": f"Sent {sent_in_current_window}/{agent_notification_limit} this {('week' if agent_notification_period == 'week' else 'day')}",
         }
 
     raw_property_search_agents = property_preferences.get("search_agents") if isinstance(property_preferences.get("search_agents"), list) else []
@@ -3057,6 +3092,7 @@ def property_workspace_payload(
     selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
     provider_quality_rows = _provider_quality_rows(run_sources, provider_options)
     delivery_proof_rows = _delivery_proof_rows(run_summary)
+    artifact_receipt_rows = _artifact_receipt_rows(run_summary)
     selected_candidate_ref = str(property_state.get("selected_candidate_ref") or "").strip()
     run_id = str(run_payload.get("run_id") or "").strip()
     run_suffix = f"?run_id={run_id}" if run_id else ""
@@ -4348,6 +4384,7 @@ def property_workspace_payload(
         "results": workbench_results,
         "provider_quality_rows": provider_quality_rows,
         "delivery_proof_rows": delivery_proof_rows,
+        "artifact_receipt_rows": artifact_receipt_rows,
         "research_tasks": research_tasks[:50],
         "research_task_counts": {
             "total": research_task_total,

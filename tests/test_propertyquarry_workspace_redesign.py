@@ -392,10 +392,11 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-property-show-unavailable' in setup.text
     assert 'No practical zoo or Tiergarten signal is configured for this market yet.' in setup.text
     assert "Min area" in setup.text
-    assert "Saved searches" in setup.text
-    assert "Last run:" in setup.text
-    assert "Next run:" in setup.text
-    assert "Sent this" in setup.text
+    assert "Search agents" in setup.text
+    assert "Keep a search running, cap the number of messages" in setup.text
+    assert "Last:" in setup.text
+    assert "Next:" in setup.text
+    assert "Sent 0/" in setup.text
     assert "Resume" in setup.text
     assert "Save limits" in setup.text
     assert "Duplicate" in setup.text
@@ -426,7 +427,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Source" in search.text
     assert "Map" in search.text
     assert "https://www.google.com/maps/search/?api=1" in search.text
-    assert "choose one to update the tour and review panel" in search.text
+    assert "ranked homes" in search.text
+    assert "price, layout, location, fit reason, and next action stay visible" in search.text
     assert "Altbau near U6" in search.text
     assert "Family flat near Tiergarten" in search.text
     assert "360 ready" in search.text
@@ -456,6 +458,11 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Official checks" in search.text
     assert "Manual clearance required" in search.text
     assert "How this result was prepared" in search.text
+    assert 'data-pw-artifact-receipts' in search.text
+    assert "Artifact receipts" in search.text
+    assert "What must be true before a packet is sent" in search.text
+    assert "Fallback cube viewers are forbidden" in search.text
+    assert "Every outbound link must be sent as a titled hyperlink" in search.text
     assert "Your decision" in search.text
     assert "Would you pursue this property?" in search.text
     assert "Viewing requested" in search.text

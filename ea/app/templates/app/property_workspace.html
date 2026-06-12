@@ -1216,21 +1216,21 @@
           {% if search_agents %}
           <div class="pq-card" data-property-step-panel="providers" {% if wizard_steps %}hidden{% endif %}>
             <div class="pq-card-eyebrow">Search agents</div>
-            <h3>Saved search agent management</h3>
-            <p class="pq-note">The active agent uses the saved search settings, ranks matches first, and only sends the best results that fit the notification budget.</p>
+            <h3>Manage saved searches</h3>
+            <p class="pq-note">Keep searches running, control daily or weekly messages, and send only the best-ranked homes when there are more matches than the budget allows.</p>
             <div class="pq-table-wrap">
               <div style="overflow-x:auto;">
                 <table class="pq-results-table">
                   <thead>
-                    <tr><th>Status</th><th>Scope</th><th>Runtime</th><th>Notifications</th></tr>
+                    <tr><th>Status</th><th>Search</th><th>Schedule</th><th>Messages</th></tr>
                   </thead>
                   <tbody>
                     {% for agent in search_agents %}
                     <tr>
-                      <td><strong>{{ agent.get('status_label') }}</strong><small>{{ agent.get('listing_mode') }} | {{ agent.get('country_code') }}</small></td>
-                      <td><strong>{{ agent.get('location_query') or 'No area saved' }}</strong><small>{{ agent.get('provider_count') }} provider{{ '' if agent.get('provider_count') == 1 else 's' }}</small></td>
-                      <td><strong>{{ agent.get('duration_label') }}</strong><small>Review or disable before expiry</small></td>
-                      <td><strong>{{ agent.get('notification_limit') }} per {{ agent.get('notification_period_label') }}</strong><small>Only top-ranked matches are sent</small></td>
+                      <td><strong>{{ agent.get('status_label') }}</strong><small>{{ agent.get('duration_label') }}</small></td>
+                      <td><strong>{{ agent.get('area_label') or 'No area saved' }}</strong><small>{{ agent.get('listing_mode') }} · {{ agent.get('country_code') }} · {{ agent.get('provider_count') }} provider{{ '' if agent.get('provider_count') == 1 else 's' }}</small></td>
+                      <td><strong>{{ agent.get('next_run_label') or 'waiting for scheduler' }}</strong><small>Last run: {{ agent.get('last_run_label') or 'not run yet' }}</small></td>
+                      <td><strong>{{ agent.get('notification_label') }}</strong><small>{{ agent.get('delivery_label') }}</small></td>
                     </tr>
                     {% endfor %}
                   </tbody>
