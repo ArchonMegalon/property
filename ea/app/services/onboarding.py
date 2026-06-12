@@ -339,6 +339,9 @@ class OnboardingService(AssistantOnboardingService):
                     "notification_period",
                     "duration_days",
                     "selected_platforms",
+                    "last_run_at",
+                    "next_run_at",
+                    "sent_in_current_window",
                 }:
                     agent[key] = value
         else:
@@ -1425,6 +1428,13 @@ class OnboardingService(AssistantOnboardingService):
             name = f"{listing_mode.title()} search · {label_location}"
         seed = "|".join([name, country_code, region_code, location_query, listing_mode, property_type])
         agent_id = str(raw.get("agent_id") or raw.get("id") or "").strip() or f"agent-{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:12]}"
+        try:
+            sent_in_current_window = max(
+                0,
+                int(float(str(raw.get("sent_in_current_window") or base.get("sent_in_current_window") or 0).strip() or "0")),
+            )
+        except Exception:
+            sent_in_current_window = 0
         return {
             "agent_id": agent_id,
             "name": name[:120],
@@ -1440,6 +1450,9 @@ class OnboardingService(AssistantOnboardingService):
             "duration_days": duration_days,
             "notification_limit": notification_limit,
             "notification_period": notification_period,
+            "last_run_at": str(raw.get("last_run_at") or base.get("last_run_at") or "").strip(),
+            "next_run_at": str(raw.get("next_run_at") or base.get("next_run_at") or "").strip(),
+            "sent_in_current_window": sent_in_current_window,
         }
 
     @staticmethod

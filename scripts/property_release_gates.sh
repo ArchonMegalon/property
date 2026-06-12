@@ -28,6 +28,7 @@ Runs the focused PropertyQuarry release bundle:
   - saved search-agent management contracts
   - property market catalog contracts
   - privacy-safe Rybbit analytics snippet contracts
+  - Telegram titled-link delivery contracts
   - property browser journey contracts
   - dossier writer, Dadan video request, media factory, and premium dossier contracts
 EOF
@@ -67,6 +68,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_media_factory.py \
   tests/test_premium_dossier_contracts.py \
   tests/test_public_rybbit.py \
+  tests/test_telegram_delivery_service.py \
   tests/test_property_search_runs.py::test_property_search_run_surfaces_and_updates_missing_fact_research_tasks
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_product_api_contracts.py -k 'property_notification_preview or property_feedback'

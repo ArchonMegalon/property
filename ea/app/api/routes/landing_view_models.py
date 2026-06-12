@@ -198,12 +198,18 @@ def _provider_quality_rows(
         floorplan_filtered_total = 0
         review_total = 0
         tour_total = 0
+        repair_opened_total = 0
+        repair_existing_total = 0
+        repair_task_total = 0
         try:
             scanned_total = max(int(float(raw.get("scanned_listing_total") or raw.get("listing_total") or 0)), 0)
             shortlist_total = max(int(float(raw.get("high_fit_total") or 0)), 0)
             floorplan_filtered_total = max(int(float(raw.get("filtered_floorplan_total") or 0)), 0)
             review_total = max(int(float(raw.get("review_created_total") or 0)) + int(float(raw.get("review_existing_total") or 0)), 0)
             tour_total = max(int(float(raw.get("tour_created_total") or 0)) + int(float(raw.get("tour_existing_total") or 0)), 0)
+            repair_opened_total = max(int(float(raw.get("provider_repair_task_opened_total") or 0)), 0)
+            repair_existing_total = max(int(float(raw.get("provider_repair_task_existing_total") or 0)), 0)
+            repair_task_total = repair_opened_total + repair_existing_total
         except Exception:
             pass
         high_fit_rate = f"{round((shortlist_total / scanned_total) * 100)}%" if scanned_total else "n/a"
@@ -216,11 +222,18 @@ def _provider_quality_rows(
             f"{tour_success} tour readiness",
             f"best for {best_use_labels.get(family, family.replace('_', ' '))}",
         ]
+        if repair_task_total:
+            detail_parts.append(f"{repair_task_total} repair check{'s' if repair_task_total != 1 else ''} queued")
+        if floorplan_filtered_total:
+            detail_parts.append(f"{floorplan_filtered_total} floorplan miss{'es' if floorplan_filtered_total != 1 else ''} reviewed")
+        repair_tasks = [dict(task) for task in list(raw.get("provider_repair_tasks") or []) if isinstance(task, dict)]
+        repair_owner = str((repair_tasks[0] if repair_tasks else {}).get("repair_owner") or "").strip()
+        repair_tag = f" · Repair: {repair_owner}" if repair_owner else ""
         rows.append(
             {
                 "title": label,
                 "detail": " | ".join(detail_parts),
-                "tag": f"{trust.title()} · {family.replace('_', ' ').title()}",
+                "tag": f"{trust.title()} · {family.replace('_', ' ').title()}{repair_tag}",
             }
         )
     if not rows:
@@ -232,6 +245,65 @@ def _provider_quality_rows(
             }
         )
     return rows
+
+
+def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]:
+    neuronwriter_statuses: list[str] = []
+    for key in (
+        "dossier_writer_neuronwriter_status",
+        "notification_neuronwriter_status",
+        "review_page_neuronwriter_status",
+    ):
+        value = str(run_summary.get(key) or "").strip()
+        if value:
+            neuronwriter_statuses.append(value)
+    for source in list(run_summary.get("sources") or []):
+        if not isinstance(source, dict):
+            continue
+        for key in (
+            "dossier_writer_neuronwriter_status",
+            "notification_neuronwriter_status",
+            "review_page_neuronwriter_status",
+        ):
+            value = str(source.get(key) or "").strip()
+            if value:
+                neuronwriter_statuses.append(value)
+    normalized_neuronwriter_statuses = sorted(set(neuronwriter_statuses))
+    if normalized_neuronwriter_statuses:
+        neuronwriter_detail = "Editorial pass status: " + ", ".join(normalized_neuronwriter_statuses)
+        neuronwriter_tag = "Checked"
+    else:
+        neuronwriter_detail = "Dossiers, review pages, email, and Telegram notifications use the redacted NeuronWriter editorial lane when the integration is configured; private facts remain claim-bound."
+        neuronwriter_tag = "Required"
+    try:
+        telegram_sent = max(int(float(run_summary.get("telegram_sent_total") or run_summary.get("notified_total") or 0)), 0)
+    except Exception:
+        telegram_sent = 0
+    try:
+        tour_total = max(int(float(run_summary.get("tour_created_total") or 0)) + int(float(run_summary.get("tour_existing_total") or 0)), 0)
+    except Exception:
+        tour_total = 0
+    try:
+        packet_total = max(int(float(run_summary.get("packet_created_total") or run_summary.get("review_created_total") or 0)), 0)
+    except Exception:
+        packet_total = 0
+    return [
+        {
+            "title": "NeuronWriter editorial pass",
+            "detail": neuronwriter_detail,
+            "tag": neuronwriter_tag,
+        },
+        {
+            "title": "Telegram links",
+            "detail": "Messages render links as titled buttons or titled HTML links, so raw full URLs are not visible in chat copy.",
+            "tag": "Hard gate",
+        },
+        {
+            "title": "Generated asset receipts",
+            "detail": f"{packet_total} packet receipts, {tour_total} tour receipts, {telegram_sent} Telegram notification receipts summarized for this run.",
+            "tag": "Visible proof",
+        },
+    ]
 
 
 def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, str]]:
@@ -1464,6 +1536,12 @@ def app_section_payload(
         agent_name = str(raw_agent.get("name") or "").strip()
         if not agent_name:
             agent_name = f"{agent_listing_mode.title()} search · {agent_location_query or agent_country_code}"
+        last_run_at = str(raw_agent.get("last_run_at") or "").strip()
+        next_run_at = str(raw_agent.get("next_run_at") or "").strip()
+        try:
+            sent_in_current_window = max(int(float(raw_agent.get("sent_in_current_window") or 0)), 0)
+        except Exception:
+            sent_in_current_window = 0
         return {
             "agent_id": str(raw_agent.get("agent_id") or "current").strip() or "current",
             "name": agent_name,
@@ -1487,6 +1565,9 @@ def app_section_payload(
             "region_code": str(raw_agent.get("region_code") or property_preferences.get("region_code") or "").strip().lower(),
             "property_type": str(raw_agent.get("property_type") or property_preferences.get("property_type") or "any").strip().lower(),
             "provider_count": len(agent_selected_platforms),
+            "last_run_label": last_run_at or "not run yet",
+            "next_run_label": next_run_at or ("waiting for scheduler" if agent_enabled else "paused"),
+            "sent_in_current_window": sent_in_current_window,
         }
 
     raw_property_search_agents = property_preferences.get("search_agents") if isinstance(property_preferences.get("search_agents"), list) else []
@@ -2975,6 +3056,7 @@ def property_workspace_payload(
     selected_keywords = _csv_values(property_preferences.get("keywords"))
     selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
     provider_quality_rows = _provider_quality_rows(run_sources, provider_options)
+    delivery_proof_rows = _delivery_proof_rows(run_summary)
     selected_candidate_ref = str(property_state.get("selected_candidate_ref") or "").strip()
     run_id = str(run_payload.get("run_id") or "").strip()
     run_suffix = f"?run_id={run_id}" if run_id else ""
@@ -4265,6 +4347,7 @@ def property_workspace_payload(
         ],
         "results": workbench_results,
         "provider_quality_rows": provider_quality_rows,
+        "delivery_proof_rows": delivery_proof_rows,
         "research_tasks": research_tasks[:50],
         "research_task_counts": {
             "total": research_task_total,

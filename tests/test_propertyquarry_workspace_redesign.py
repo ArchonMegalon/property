@@ -250,8 +250,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
                 "listing_total": 7,
                 "tour_created_total": 1,
                 "tour_existing_total": 1,
+                "review_created_total": 1,
+                "packet_created_total": 1,
+                "telegram_sent_total": 1,
                 "research_task_total": 1,
                 "open_research_task_total": 1,
+                "dossier_writer_neuronwriter_status": "pending",
                 "notification_budget": {
                     "limit": 1,
                     "period": "day",
@@ -266,6 +270,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
                             "high_fit_total": 2,
                             "tour_created_total": 1,
                             "notified_total": 1,
+                            "filtered_floorplan_total": 1,
+                            "review_created_total": 1,
+                            "provider_repair_task_opened_total": 1,
+                            "provider_repair_task_existing_total": 0,
+                            "provider_repair_tasks": [{"repair_owner": "ea_one_manager"}],
+                            "dossier_writer_neuronwriter_status": "pending",
                             "notification_budget_suppressed_total": 2,
                             "top_candidates": [top_candidate, second_candidate, queued_candidate],
                         }
@@ -383,6 +393,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'No practical zoo or Tiergarten signal is configured for this market yet.' in setup.text
     assert "Min area" in setup.text
     assert "Saved searches" in setup.text
+    assert "Last run:" in setup.text
+    assert "Next run:" in setup.text
+    assert "Sent this" in setup.text
     assert "Resume" in setup.text
     assert "Save limits" in setup.text
     assert "Duplicate" in setup.text
@@ -458,6 +471,14 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Top objections" in search.text
     assert "Market warnings" in search.text
     assert "Timeline" in search.text
+    assert "Source quality" in search.text
+    assert "Delivery proof" in search.text
+    assert "NeuronWriter editorial pass" in search.text
+    assert "Telegram links" in search.text
+    assert "Generated asset receipts" in search.text
+    assert "repair check queued" in search.text
+    assert "floorplan miss reviewed" in search.text
+    assert "Repair: ea_one_manager" in search.text
     assert "Missing facts" in search.text
     assert "Facts still being completed from floorplans" in search.text
     assert "Rooms under review" in search.text

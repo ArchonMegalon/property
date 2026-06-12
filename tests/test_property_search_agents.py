@@ -51,6 +51,9 @@ def test_property_search_agents_can_be_managed_independently() -> None:
                 "notification_limit": 9,
                 "notification_period": "week",
                 "duration_days": 365,
+                "last_run_at": "2026-06-12T08:00:00+02:00",
+                "next_run_at": "2026-06-13T08:00:00+02:00",
+                "sent_in_current_window": 4,
             },
         },
     )
@@ -64,6 +67,9 @@ def test_property_search_agents_can_be_managed_independently() -> None:
     assert duplicate["notification_limit"] == 9
     assert duplicate["notification_period"] == "week"
     assert duplicate["duration_days"] == 365
+    assert duplicate["last_run_at"] == "2026-06-12T08:00:00+02:00"
+    assert duplicate["next_run_at"] == "2026-06-13T08:00:00+02:00"
+    assert duplicate["sent_in_current_window"] == 4
 
     paused = client.post(
         f"/v1/onboarding/property-search/agents/{agent_id}",
