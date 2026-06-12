@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import os
+from pathlib import Path
 import re
 import urllib.parse
 
@@ -1047,6 +1049,7 @@ _COUNTRY_ALIAS_INDEX.update(
         "switzerland": "CH",
         "ireland": "IE",
         "unitedkingdom": "UK",
+        "gb": "UK",
         "greatbritain": "UK",
         "britain": "UK",
         "england": "UK",
@@ -1371,6 +1374,103 @@ def default_language_for_country(country_code: object) -> str:
 
 def country_label(country_code: object) -> str:
     return _COUNTRY_INDEX.get(normalize_country_code(country_code), _COUNTRY_INDEX["AT"]).label
+
+
+def _property_location_catalog_path() -> Path:
+    configured = str(os.getenv("PROPERTYQUARRY_LOCATION_CATALOG_PATH") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path(__file__).resolve().parents[1] / "data" / "property_location_catalog.json"
+
+
+def _safe_location_option_rows(value: object) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in list(value or []) if isinstance(value, list) else []:
+        if not isinstance(item, dict):
+            continue
+        option_value = str(item.get("value") or "").strip()
+        if not option_value or option_value.lower() in seen:
+            continue
+        seen.add(option_value.lower())
+        rows.append(
+            {
+                "value": option_value,
+                "label": str(item.get("label") or option_value).strip() or option_value,
+                "detail": str(item.get("detail") or "").strip(),
+            }
+        )
+    return rows
+
+
+def _loaded_property_location_catalog() -> dict[str, object]:
+    path = _property_location_catalog_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return payload
+
+
+def _generic_country_region_key(country_code: object) -> str:
+    label = country_label(country_code)
+    token = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+    return token or normalize_country_code(country_code).lower()
+
+
+def _generic_country_location_options(country_code: object) -> list[dict[str, str]]:
+    country = _COUNTRY_INDEX.get(normalize_country_code(country_code), _COUNTRY_INDEX["AT"])
+    rows = [{"value": country.label, "label": f"All {country.label}", "detail": "Country-wide"}]
+    for value in [part.strip() for part in str(country.location_placeholder or "").split(",") if part.strip()]:
+        if value.lower().startswith("all "):
+            continue
+        if any(str(row["value"]).strip().lower() == value.lower() for row in rows):
+            continue
+        rows.append({"value": value, "label": value, "detail": "Suggested target area"})
+    return rows
+
+
+def region_options_for_country(country_code: object) -> list[dict[str, str]]:
+    normalized = normalize_country_code(country_code)
+    catalog = _loaded_property_location_catalog()
+    country_catalog = catalog.get(normalized)
+    if isinstance(country_catalog, dict):
+        rows = _safe_location_option_rows(country_catalog.get("regions"))
+        if rows:
+            return rows
+    country = _COUNTRY_INDEX.get(normalized)
+    if country is None:
+        return []
+    return [
+        {
+            "value": _generic_country_region_key(normalized),
+            "label": f"All {country.label}",
+            "detail": "Country-wide search",
+        }
+    ]
+
+
+def location_options_for_country_region(country_code: object, region_code: object = "") -> list[dict[str, str]]:
+    normalized = normalize_country_code(country_code)
+    requested_region = str(region_code or "").strip().lower()
+    catalog = _loaded_property_location_catalog()
+    country_catalog = catalog.get(normalized)
+    if isinstance(country_catalog, dict):
+        locations = country_catalog.get("locations")
+        if isinstance(locations, dict):
+            if requested_region and requested_region in locations:
+                rows = _safe_location_option_rows(locations.get(requested_region))
+                if rows:
+                    return rows
+            regions = region_options_for_country(normalized)
+            fallback_region = str(regions[0].get("value") or "").strip().lower() if regions else ""
+            if fallback_region and fallback_region in locations:
+                rows = _safe_location_option_rows(locations.get(fallback_region))
+                if rows:
+                    return rows
+    return _generic_country_location_options(normalized)
 
 
 def language_label(language_code: object, *, country_code: object = "AT") -> str:

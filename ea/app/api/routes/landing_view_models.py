@@ -486,6 +486,8 @@ def _property_preference_schema() -> dict[str, object]:
 
 
 def _property_region_options(country_code: str) -> list[dict[str, str]]:
+    from app.services.property_market_catalog import normalize_country_code, region_options_for_country
+
     catalogs: dict[str, list[dict[str, str]]] = {
         "AT": [
             {"value": "vienna", "label": "Vienna", "detail": "Wien and the close commuter ring"},
@@ -499,18 +501,16 @@ def _property_region_options(country_code: str) -> list[dict[str, str]]:
             {"value": "carinthia", "label": "Carinthia", "detail": "Klagenfurt and Villach"},
             {"value": "burgenland", "label": "Burgenland", "detail": "Eisenstadt and the eastern commuter belt"},
         ],
-        "CR": [
-            {"value": "costa_rica", "label": "All Costa Rica", "detail": "Country-wide search"},
-            {"value": "central_valley", "label": "Central Valley", "detail": "San Jose, Escazu, Santa Ana, Heredia"},
-            {"value": "guanacaste", "label": "Guanacaste", "detail": "Tamarindo, Nosara, Flamingo, Liberia"},
-            {"value": "puntarenas", "label": "Puntarenas", "detail": "Jaco, Quepos, Dominical, Uvita"},
-            {"value": "caribbean", "label": "Caribbean coast", "detail": "Limon, Puerto Viejo, Cahuita"},
-        ],
     }
-    return list(catalogs.get(str(country_code or "").strip().upper(), []))
+    normalized_country = normalize_country_code(country_code)
+    if normalized_country in catalogs:
+        return list(catalogs[normalized_country])
+    return region_options_for_country(normalized_country)
 
 
 def _property_location_options(country_code: str, region_code: str = "") -> list[dict[str, str]]:
+    from app.services.property_market_catalog import location_options_for_country_region, normalize_country_code
+
     austria_catalogs: dict[str, list[dict[str, str]]] = {
         "austria": [
             {"value": "Österreich", "label": "All Austria", "detail": "Nationwide"},
@@ -633,54 +633,11 @@ def _property_location_options(country_code: str, region_code: str = "") -> list
             {"value": "San Francisco", "label": "San Francisco", "detail": "Bay Area"},
             {"value": "Boston", "label": "Boston", "detail": "City-wide"},
         ],
-        "CR": list(
-            {
-                "costa_rica": [
-                    {"value": "Costa Rica", "label": "All Costa Rica", "detail": "Country-wide"},
-                    {"value": "San Jose", "label": "San Jose", "detail": "Capital region"},
-                    {"value": "Escazu", "label": "Escazu", "detail": "West San Jose"},
-                    {"value": "Santa Ana", "label": "Santa Ana", "detail": "West valley"},
-                    {"value": "Tamarindo", "label": "Tamarindo", "detail": "Guanacaste beach market"},
-                    {"value": "Nosara", "label": "Nosara", "detail": "Nicoya Peninsula"},
-                    {"value": "Jaco", "label": "Jaco", "detail": "Central Pacific"},
-                    {"value": "Uvita", "label": "Uvita", "detail": "South Pacific"},
-                    {"value": "Puerto Viejo", "label": "Puerto Viejo", "detail": "Caribbean coast"},
-                ],
-                "central_valley": [
-                    {"value": "San Jose", "label": "San Jose", "detail": "Capital region"},
-                    {"value": "Escazu", "label": "Escazu", "detail": "West San Jose"},
-                    {"value": "Santa Ana", "label": "Santa Ana", "detail": "West valley"},
-                    {"value": "Heredia", "label": "Heredia", "detail": "North of San Jose"},
-                    {"value": "Alajuela", "label": "Alajuela", "detail": "Airport corridor"},
-                    {"value": "Cartago", "label": "Cartago", "detail": "Eastern valley"},
-                ],
-                "guanacaste": [
-                    {"value": "Tamarindo", "label": "Tamarindo", "detail": "Beach and expat market"},
-                    {"value": "Nosara", "label": "Nosara", "detail": "Nicoya Peninsula"},
-                    {"value": "Playa Flamingo", "label": "Playa Flamingo", "detail": "Marina and beach"},
-                    {"value": "Liberia", "label": "Liberia", "detail": "Guanacaste hub"},
-                    {"value": "Papagayo", "label": "Papagayo", "detail": "Resort corridor"},
-                ],
-                "puntarenas": [
-                    {"value": "Jaco", "label": "Jaco", "detail": "Central Pacific"},
-                    {"value": "Quepos", "label": "Quepos", "detail": "Manuel Antonio area"},
-                    {"value": "Dominical", "label": "Dominical", "detail": "South Pacific"},
-                    {"value": "Uvita", "label": "Uvita", "detail": "Osa gateway"},
-                    {"value": "Ojochal", "label": "Ojochal", "detail": "South Pacific"},
-                ],
-                "caribbean": [
-                    {"value": "Limon", "label": "Limon", "detail": "Caribbean port city"},
-                    {"value": "Puerto Viejo", "label": "Puerto Viejo", "detail": "South Caribbean"},
-                    {"value": "Cahuita", "label": "Cahuita", "detail": "National park area"},
-                    {"value": "Tortuguero", "label": "Tortuguero", "detail": "North Caribbean"},
-                ],
-            }.get(str(region_code or "").strip().lower() or "costa_rica", [])
-        ),
     }
-    normalized_country = str(country_code or "").strip().upper()
-    if normalized_country == "GB":
-        normalized_country = "UK"
-    return list(catalogs.get(normalized_country, []))
+    normalized_country = normalize_country_code(country_code)
+    if normalized_country in catalogs:
+        return list(catalogs[normalized_country])
+    return location_options_for_country_region(normalized_country, region_code)
 
 
 def _property_keyword_options() -> list[dict[str, str]]:

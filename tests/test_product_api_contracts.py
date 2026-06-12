@@ -7708,6 +7708,45 @@ def test_property_scout_page_preview_extracts_live_360_and_listing_images(monkey
     assert preview["media_urls_json"] == ("https://storage.justimmo.at/thumb/photo-1.jpg",)
 
 
+def test_property_scout_page_preview_extracts_kalandra_justimmo_plan_pdf(monkeypatch) -> None:
+    listing_url = "https://www.kalandra.at/objekt/16665601"
+    plan_url = "https://storage.justimmo.at/file/W9Uz8ocyKGd6Fa6iQQEE9X.pdf"
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: f"""
+            <html>
+              <head><title>360 TOUR // GARTENWOHNUNG AM WILHELMINENBERG</title></head>
+              <body>
+                <div class="carousel">
+                  <img alt="360 TOUR // GARTENWOHNUNG AM WILHELMINENBERG - Bild 34" src="https://storage.justimmo.at/thumb/interior-34.jpg">
+                  <img alt="360 TOUR // GARTENWOHNUNG AM WILHELMINENBERG - Bild 35" src="https://storage.justimmo.at/thumb/opaque-image-35.jpg">
+                </div>
+                <h2>Lageplan</h2>
+                <h2>Dokumente</h2>
+                <strong>Plan.pdf</strong>
+                <a href="{plan_url}" title="Öffne Plan.pdf">Öffnen</a>
+                <a href="{plan_url}" title="Download Plan.pdf">Download</a>
+                <a href="https://360.kalandra.at/view/fullscreen/id/VZDZ7">360 Tour</a>
+              </body>
+            </html>
+        """,
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_extract_floorplan_urls_from_archive",
+        lambda *, source_url, archive_url, context: (),
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url)
+
+    assert preview["title"] == "360 TOUR // GARTENWOHNUNG AM WILHELMINENBERG"
+    assert preview["source_virtual_tour_url"] == "https://360.kalandra.at/view/fullscreen/id/VZDZ7"
+    assert preview["floorplan_urls_json"] == (plan_url,)
+    assert preview["property_facts_json"]["has_floorplan"] is True
+    assert preview["property_facts_json"]["floorplan_count"] == 1
+
+
 def test_property_scout_page_preview_falls_back_to_fast_html_for_willhaben_when_packet_loader_times_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

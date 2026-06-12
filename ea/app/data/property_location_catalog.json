@@ -1,0 +1,62 @@
+{
+  "CR": {
+    "regions": [
+      {"value": "costa_rica", "label": "All Costa Rica", "detail": "Country-wide search"},
+      {"value": "central_valley", "label": "Central Valley", "detail": "San Jose, Escazu, Santa Ana, Heredia"},
+      {"value": "guanacaste", "label": "Guanacaste", "detail": "Tamarindo, Nosara, Flamingo, Liberia"},
+      {"value": "puntarenas", "label": "Puntarenas", "detail": "Jaco, Quepos, Monteverde, Dominical, Uvita"},
+      {"value": "caribbean", "label": "Caribbean coast", "detail": "Limon, Puerto Viejo, Cahuita"}
+    ],
+    "locations": {
+      "costa_rica": [
+        {"value": "Costa Rica", "label": "All Costa Rica", "detail": "Country-wide"},
+        {"value": "San Jose", "label": "San Jose", "detail": "Capital region"},
+        {"value": "Escazu", "label": "Escazu", "detail": "West San Jose"},
+        {"value": "Santa Ana", "label": "Santa Ana", "detail": "West valley"},
+        {"value": "Tamarindo", "label": "Tamarindo", "detail": "Guanacaste beach market"},
+        {"value": "Nosara", "label": "Nosara", "detail": "Nicoya Peninsula"},
+        {"value": "Jaco", "label": "Jaco", "detail": "Central Pacific"},
+        {"value": "Monteverde", "label": "Monteverde", "detail": "Cloud forest and mountain market"},
+        {"value": "Uvita", "label": "Uvita", "detail": "South Pacific"},
+        {"value": "Puerto Viejo", "label": "Puerto Viejo", "detail": "Caribbean coast"}
+      ],
+      "central_valley": [
+        {"value": "San Jose", "label": "San Jose", "detail": "Capital region"},
+        {"value": "Escazu", "label": "Escazu", "detail": "West San Jose"},
+        {"value": "Santa Ana", "label": "Santa Ana", "detail": "West valley"},
+        {"value": "Heredia", "label": "Heredia", "detail": "North of San Jose"},
+        {"value": "Alajuela", "label": "Alajuela", "detail": "Airport corridor"},
+        {"value": "Cartago", "label": "Cartago", "detail": "Eastern valley"}
+      ],
+      "guanacaste": [
+        {"value": "Tamarindo", "label": "Tamarindo", "detail": "Beach and expat market"},
+        {"value": "Nosara", "label": "Nosara", "detail": "Nicoya Peninsula"},
+        {"value": "Playa Flamingo", "label": "Playa Flamingo", "detail": "Marina and beach"},
+        {"value": "Liberia", "label": "Liberia", "detail": "Guanacaste hub"},
+        {"value": "Papagayo", "label": "Papagayo", "detail": "Resort corridor"}
+      ],
+      "puntarenas": [
+        {"value": "Jaco", "label": "Jaco", "detail": "Central Pacific"},
+        {"value": "Quepos", "label": "Quepos", "detail": "Manuel Antonio area"},
+        {"value": "Manuel Antonio", "label": "Manuel Antonio", "detail": "Quepos coastal area"},
+        {"value": "Monteverde", "label": "Monteverde", "detail": "Cloud forest and mountain market"},
+        {"value": "Santa Elena", "label": "Santa Elena", "detail": "Monteverde gateway"},
+        {"value": "Tambor", "label": "Tambor", "detail": "Nicoya south coast"},
+        {"value": "Montezuma", "label": "Montezuma", "detail": "Nicoya south coast"},
+        {"value": "Santa Teresa", "label": "Santa Teresa", "detail": "Nicoya surf market"},
+        {"value": "Mal Pais", "label": "Mal Pais", "detail": "Nicoya surf market"},
+        {"value": "Dominical", "label": "Dominical", "detail": "South Pacific"},
+        {"value": "Uvita", "label": "Uvita", "detail": "Osa gateway"},
+        {"value": "Ojochal", "label": "Ojochal", "detail": "South Pacific"},
+        {"value": "Golfito", "label": "Golfito", "detail": "Southern gulf"},
+        {"value": "Pavones", "label": "Pavones", "detail": "South Pacific surf area"}
+      ],
+      "caribbean": [
+        {"value": "Limon", "label": "Limon", "detail": "Caribbean port city"},
+        {"value": "Puerto Viejo", "label": "Puerto Viejo", "detail": "South Caribbean"},
+        {"value": "Cahuita", "label": "Cahuita", "detail": "National park area"},
+        {"value": "Tortuguero", "label": "Tortuguero", "detail": "North Caribbean"}
+      ]
+    }
+  }
+}

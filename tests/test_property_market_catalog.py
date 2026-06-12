@@ -88,6 +88,7 @@ def test_normalize_listing_mode_accepts_sale_aliases() -> None:
 
 def test_country_normalization_understands_common_country_names() -> None:
     assert normalize_country_code("Germany") == "DE"
+    assert normalize_country_code("GB") == "UK"
     assert normalize_country_code("Great Britain") == "UK"
     assert normalize_country_code("United States") == "US"
     assert normalize_country_code("Costa Rica") == "CR"
@@ -280,7 +281,13 @@ def test_workspace_location_options_follow_supported_country_codes() -> None:
     assert any(row["value"] == "costa_rica" for row in _property_region_options("CR"))
     assert any(row["value"] == "Costa Rica" for row in _property_location_options("CR", "costa_rica"))
     assert any(row["value"] == "Tamarindo" for row in _property_location_options("CR", "guanacaste"))
+    assert any(row["value"] == "Monteverde" for row in _property_location_options("CR", "costa_rica"))
+    assert any(row["value"] == "Monteverde" for row in _property_location_options("CR", "puntarenas"))
+    assert any(row["value"] == "Santa Elena" for row in _property_location_options("CR", "puntarenas"))
     assert any(row["value"] == "Puerto Viejo" for row in _property_location_options("CR", "caribbean"))
+    assert any(row["value"] == "canada" for row in _property_region_options("CA"))
+    assert any(row["value"] == "Toronto" for row in _property_location_options("CA", "canada"))
+    assert any(row["value"] == "Switzerland" for row in _property_location_options("CH", "switzerland"))
 
 
 def test_workspace_preference_schema_matches_backend_categories() -> None:

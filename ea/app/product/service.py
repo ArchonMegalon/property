@@ -329,6 +329,9 @@ _PROPERTY_SCOUT_FLOORPLAN_MARKERS = (
     "lageplan",
     "raumplan",
     "raumskizze",
+    "plan.pdf",
+    "plan-pdf",
+    "plan_pdf",
     "plan_top",
     "plan top",
     "wohnungsplan",
@@ -3052,9 +3055,20 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
     )
     for match in embedded_download_pattern.finditer(normalized_html):
         raw_url = str(match.group(1) or "").strip()
+        if re.search(r"\s", raw_url):
+            continue
         context = normalized_html[max(0, match.start() - 180) : min(len(normalized_html), match.end() + 360)].lower()
         combined = f"{raw_url} {context}".lower()
         if not any(marker in combined for marker in ("zip", "alldoc", "download", "dokument", "beilage", "anlage", "unterlag", "gutachten", "grundriss", "floorplan", "plan")):
+            continue
+        try:
+            embedded_normalized = urllib.parse.urljoin(source_url, raw_url)
+        except ValueError:
+            continue
+        lowered_raw_url = urllib.parse.unquote(raw_url).lower()
+        if _property_scout_is_asset_url(embedded_normalized, extensions=_PROPERTY_SCOUT_IMAGE_EXTENSIONS) and not any(
+            marker in lowered_raw_url for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS
+        ):
             continue
         candidate_links.append(("embedded", raw_url, context))
     candidate_links.extend(_property_scout_extract_siedlungsunion_attachment_links(source_url=source_url, html=normalized_html))
@@ -3075,15 +3089,17 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
         ):
             if normalized not in seen_archives:
                 seen_archives.add(normalized)
-                for archived_floorplan_url in _property_scout_extract_floorplan_urls_from_archive(
+                archived_urls = _property_scout_extract_floorplan_urls_from_archive(
                     source_url=source_url,
                     archive_url=normalized,
                     context=context,
-                ):
+                )
+                for archived_floorplan_url in archived_urls:
                     if archived_floorplan_url not in seen:
                         seen.add(archived_floorplan_url)
                         floorplan_urls.append(archived_floorplan_url)
-            continue
+                if archived_urls:
+                    continue
         if resolve_archives and not is_direct_floorplan_asset and _property_scout_is_floorplan_archive_candidate_url(url=normalized, context=context):
             if normalized not in seen_archives:
                 seen_archives.add(normalized)
