@@ -80,6 +80,7 @@ from app.services.property_market_catalog import (
 )
 from app.services.public_branding import request_brand
 from app.services.public_clickrank import clickrank_head_snippet as _clickrank_head_snippet, request_hostname as _request_hostname
+from app.services.public_rybbit import rybbit_head_snippet as _rybbit_head_snippet
 from app.services.registration_email import email_delivery_enabled, property_notification_preview
 from app.services.fliplink import build_fliplink_packet_service
 
@@ -87,6 +88,7 @@ router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
 
 templates.env.globals["clickrank_head_snippet"] = lambda request=None: Markup(_clickrank_head_snippet(_request_hostname(request)))
+templates.env.globals["rybbit_head_snippet"] = lambda: Markup(_rybbit_head_snippet())
 
 
 @router.get("/robots.txt", include_in_schema=False, response_class=PlainTextResponse)

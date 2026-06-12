@@ -84,6 +84,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ page_title or 'PropertyQuarry' }}</title>
   {{ clickrank_head_snippet(request) }}
+  {{ rybbit_head_snippet() }}
   <style>
     :root {
       --pq-bg: #f6f3ee;
@@ -1695,6 +1696,29 @@
             <div class="pqx-inline-status" data-property-inline-status></div>
             <div class="pqx-inline-error" data-property-inline-error></div>
           </form>
+          {% set search_agents = property_meta.get('search_agents') or [] %}
+          {% if search_agents %}
+          <section class="pqx-advanced-panel" data-property-search-agent-management>
+            <div class="pqx-section-head">
+              <div>
+                <h2>Search agents</h2>
+                <div class="pqx-note">Saved agents reuse this search brief, rank matches first, and send only the best results inside the notification budget.</div>
+              </div>
+              <span class="pqx-pill">{{ (search_agents|selectattr('enabled')|list)|length }} active</span>
+            </div>
+            <div class="pqx-pref-list">
+              {% for agent in search_agents %}
+              <div class="pqx-pref-row">
+                <div>
+                  <strong>{{ agent.get('status_label') }} · {{ agent.get('location_query') or 'No area saved' }}</strong>
+                  <small>{{ agent.get('duration_label') }} · {{ agent.get('notification_limit') }} per {{ agent.get('notification_period_label') }} · {{ agent.get('provider_count') }} provider{{ '' if agent.get('provider_count') == 1 else 's' }}</small>
+                </div>
+                <span class="pqx-pill">{{ agent.get('listing_mode') }} | {{ agent.get('country_code') }}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </section>
+          {% endif %}
           {% set preference_manager = preference_manager or {} %}
           <details
             class="pqx-advanced-panel pqx-pref-manager"
@@ -3512,6 +3536,10 @@
           avoid_flood_risk_area: Boolean(form.querySelector('input[name="avoid_flood_risk_area"]')?.checked),
           max_results_per_source: integerValue(form, 'max_results_per_source'),
           min_match_score: integerValue(form, 'min_match_score'),
+          search_agent_enabled: Boolean(form.querySelector('input[name="search_agent_enabled"]')?.checked),
+          search_agent_duration_days: integerValue(form, 'search_agent_duration_days'),
+          search_agent_notification_limit: integerValue(form, 'search_agent_notification_limit'),
+          search_agent_notification_period: fieldValue(form, 'search_agent_notification_period') || 'day',
           require_floorplan: Boolean(form.querySelector('input[name="require_floorplan"]')?.checked),
           use_flatbee_reputation_penalty: Boolean(form.querySelector('input[name="use_flatbee_reputation_penalty"]')?.checked),
         },
@@ -3531,6 +3559,12 @@
         if (format === 'area_m2') return `${numberFormatter.format(Math.round(value))} m2+`;
         if (format === 'rooms') return value === 1 ? '1+ room' : `${numberFormatter.format(Math.round(value))}+ rooms`;
         if (format === 'count') return value === 1 ? '1 result' : `${numberFormatter.format(Math.round(value))} results`;
+        if (format === 'agent_duration_days') {
+          if (value <= 7) return '1 week';
+          if (value >= 365) return '1 year';
+          return `${numberFormatter.format(Math.round(value))} days`;
+        }
+        if (format === 'notification_count') return value === 1 ? '1 alert' : `${numberFormatter.format(Math.round(value))} alerts`;
         return `${numberFormatter.format(Math.round(value))}${suffix}`;
       };
       form?.querySelectorAll('input[type="range"][data-range-output]').forEach((input) => {

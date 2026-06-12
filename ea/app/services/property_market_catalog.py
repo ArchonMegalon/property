@@ -36,6 +36,7 @@ COUNTRIES: tuple[PropertyCountrySpec, ...] = (
     PropertyCountrySpec("AT", "Austria", "de", "EUR", "EUR", "Vienna, Graz, Linz", ("willhaben", "immmo", "immoscout_at", "remax_at", "kalandra", "broker_direct_at", "community_signals_at", "genossenschaften_at")),
     PropertyCountrySpec("BE", "Belgium", "nl", "EUR", "EUR", "Brussels, Antwerp, Ghent", ("immoweb", "zimmo")),
     PropertyCountrySpec("CA", "Canada", "en", "CAD", "CAD", "Toronto, Montreal, Vancouver", ("realtor_ca", "rew_ca", "rentals_ca")),
+    PropertyCountrySpec("CR", "Costa Rica", "es", "CRC", "CRC", "San José, Escazú, Santa Ana, Tamarindo", ("encuentra24_cr", "re_cr_mls", "realtor_cr", "coldwellbanker_cr")),
     PropertyCountrySpec("DE", "Germany", "de", "EUR", "EUR", "Berlin, Munich, Hamburg", ("immoscout_de", "immowelt", "immonet", "kleinanzeigen_immo")),
     PropertyCountrySpec("CH", "Switzerland", "de", "CHF", "CHF", "Zurich, Geneva, Basel", ("homegate", "newhome", "immoscout_ch")),
     PropertyCountrySpec("IE", "Ireland", "en", "EUR", "EUR", "Dublin, Cork, Galway", ("daft_ie", "myhome_ie")),
@@ -954,6 +955,60 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         supported_listing_modes=("rent",),
     ),
     PropertyProviderSpec(
+        key="encuentra24_cr",
+        label="Encuentra24 Costa Rica",
+        country_code="CR",
+        host_markers=("encuentra24.com",),
+        listing_path_markers=("/costa-rica-en/real-estate", "/costa-rica-es/bienes-raices"),
+        search_urls={
+            "rent": "https://www.encuentra24.com/costa-rica-en/real-estate-for-rent",
+            "buy": "https://www.encuentra24.com/costa-rica-en/real-estate-for-sale",
+        },
+        description="Costa Rica broad-market classifieds portal with large residential rent and sale inventory.",
+    ),
+    PropertyProviderSpec(
+        key="re_cr_mls",
+        label="RE.cr Costa Rica MLS",
+        country_code="CR",
+        host_markers=("re.cr",),
+        listing_path_markers=("/en/costa-rica-real-estate/", "/en/real-estate/", "/property/"),
+        search_urls={
+            "rent": "https://www.re.cr/en/costa-rica-real-estate",
+            "buy": "https://www.re.cr/en/costa-rica-real-estate",
+        },
+        description="Costa Rica independent MLS network for residential sales, rentals, land, and investment opportunities.",
+        family="mls",
+        trust_tier="standard",
+    ),
+    PropertyProviderSpec(
+        key="realtor_cr",
+        label="Realtor.com International Costa Rica",
+        country_code="CR",
+        host_markers=("realtor.com",),
+        listing_path_markers=("/international/cr/", "/international/costa-rica/"),
+        search_urls={
+            "buy": "https://www.realtor.com/international/cr/",
+        },
+        description="Realtor.com international Costa Rica sale inventory, useful as a broad English-language buyer lane.",
+        family="marketplace",
+        trust_tier="standard",
+        supported_listing_modes=("buy",),
+    ),
+    PropertyProviderSpec(
+        key="coldwellbanker_cr",
+        label="Coldwell Banker Costa Rica",
+        country_code="CR",
+        host_markers=("coldwellbankercostarica.com",),
+        listing_path_markers=("/property/", "/properties/", "/listing/"),
+        search_urls={
+            "buy": "https://www.coldwellbankercostarica.com/",
+        },
+        description="Costa Rica national Coldwell Banker broker network for residential, beachfront, land, and luxury sale inventory.",
+        family="broker_direct",
+        trust_tier="standard",
+        supported_listing_modes=("buy",),
+    ),
+    PropertyProviderSpec(
         key="treasury_real_property_us",
         label="Treasury Real Property Auctions",
         country_code="US",
@@ -985,6 +1040,9 @@ _COUNTRY_ALIAS_INDEX.update(
         "austria": "AT",
         "belgium": "BE",
         "canada": "CA",
+        "costarica": "CR",
+        "costarican": "CR",
+        "cr": "CR",
         "germany": "DE",
         "switzerland": "CH",
         "ireland": "IE",
@@ -1090,6 +1148,18 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
     "realtorca": "realtor_ca",
     "rew": "rew_ca",
     "rentalsca": "rentals_ca",
+    "encuentra24": "encuentra24_cr",
+    "encuentra24cr": "encuentra24_cr",
+    "encuentra24_cr": "encuentra24_cr",
+    "recr": "re_cr_mls",
+    "re_cr": "re_cr_mls",
+    "recrmls": "re_cr_mls",
+    "costaricamls": "re_cr_mls",
+    "realtorcr": "realtor_cr",
+    "realtor_cr": "realtor_cr",
+    "coldwellbankercr": "coldwellbanker_cr",
+    "coldwellbanker_cr": "coldwellbanker_cr",
+    "coldwellbankercostarica": "coldwellbanker_cr",
     "treasuryrealproperty": "treasury_real_property_us",
     "zvg": "zvg_de",
     "auctionhome": "auctionhome_ch",
@@ -1368,6 +1438,21 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     if normalized_alert_frequency not in ALERT_FREQUENCY_LABELS:
         normalized_alert_frequency = "daily"
     payload["alert_frequency"] = normalized_alert_frequency
+    raw_search_agent_enabled = payload.get("search_agent_enabled")
+    payload["search_agent_enabled"] = (
+        raw_search_agent_enabled is True
+        or str(raw_search_agent_enabled or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
+    )
+    try:
+        payload["search_agent_duration_days"] = max(7, min(365, int(float(str(payload.get("search_agent_duration_days") or 30).strip()))))
+    except Exception:
+        payload["search_agent_duration_days"] = 30
+    notification_period = str(payload.get("search_agent_notification_period") or "").strip().lower()
+    payload["search_agent_notification_period"] = notification_period if notification_period in {"day", "week"} else "day"
+    try:
+        payload["search_agent_notification_limit"] = max(1, min(50, int(float(str(payload.get("search_agent_notification_limit") or 5).strip()))))
+    except Exception:
+        payload["search_agent_notification_limit"] = 5
     raw_alert_channels = payload.get("alert_channels")
     if isinstance(raw_alert_channels, (list, tuple, set)):
         alert_channels = [
@@ -1688,6 +1773,8 @@ def _provider_filter_pushdown_payload(
         "zoopla",
         "realtor",
         "zillow",
+        "encuentra24_cr",
+        "re_cr_mls",
     }
     provider_side_price_keys = provider_side_area_keys | {
         "seloger",

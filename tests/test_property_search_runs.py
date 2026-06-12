@@ -207,6 +207,20 @@ def test_property_search_location_matching_rejects_source_scope_postal_conflict(
         summary="Provider result page was queried from a Vienna source scope.",
         property_facts={"postal_name": "8091 Jagerberg", "source_scope_location": "Wien", "source_city": "Wien"},
     ) is False
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://www.willhaben.at/iad/immobilien/d/eigentumswohnung/oberoesterreich/gmunden/wohnung-mit-seeblick",
+        title="Wohnung mit Seeblick in Gmunden",
+        summary="Provider result page was queried from a Vienna source scope.",
+        property_facts={"postal_name": "4810 Gmunden", "source_scope_location": "Wien", "source_city": "Wien"},
+    ) is False
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://www.willhaben.at/iad/immobilien/d/einfamilienhaus/niederoesterreich/hollabrunn/familienhaus",
+        title="Familienhaus in Hollabrunn",
+        summary="Provider result page was queried from a Vienna source scope.",
+        property_facts={"postal_name": "2020 Hollabrunn", "source_scope_location": "Wien", "source_city": "Wien"},
+    ) is False
 
 
 def test_property_search_location_hints_ignore_broad_austria_scope() -> None:
@@ -914,6 +928,62 @@ def test_property_alert_review_reuses_returned_review_packet() -> None:
     assert reused_events[0]["payload"]["review_task_status"] == "returned"
 
 
+def test_property_alert_review_suppresses_candidate_outside_active_location() -> None:
+    principal_id = "exec-property-alert-location-gate"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Review Location Gate Office")
+    seed_product_state(client, principal_id=principal_id)
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben", "flatbee"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service._open_property_alert_review(
+        principal_id=principal_id,
+        title="Familienfreundliche 3-Zimmer-Wohnung im Zentrum von Gmunden",
+        summary="Provider result was queried from a Vienna source scope.",
+        source_ref="property-scout:https://www.flatbee.at/properties/searchengine_property_detail/d05ee215-Gmunden",
+        external_id="flatbee-gmunden",
+        counterparty="Flatbee",
+        account_email="",
+        property_url="https://www.flatbee.at/properties/searchengine_property_detail/d05ee215-Gmunden",
+        actor="test",
+        notify_telegram=True,
+        candidate_properties=(
+            {
+                "property_url": "https://www.flatbee.at/properties/searchengine_property_detail/d05ee215-Gmunden",
+                "listing_title": "Familienfreundliche 3-Zimmer-Wohnung im Zentrum von Gmunden - Oberösterreich - 4810",
+                "property_facts_json": {"postal_name": "4810 Gmunden", "source_scope_location": "Wien", "source_city": "Wien"},
+            },
+        ),
+        personal_fit_assessment={"fit_score": 92.0, "recommendation": "shortlist"},
+        preference_person_id="self",
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+    assert not [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_alert_review"
+    ]
+    events = client.get("/app/api/events", params={"channel": "product", "event_type": "property_alert_review_suppressed_location_mismatch"})
+    assert events.status_code == 200
+    assert any("Gmunden" in str(item["payload"]) for item in events.json()["items"])
+
+
 def test_property_search_run_status_reconstructs_missing_status_url() -> None:
     principal_id = "exec-property-search-missing-status-url"
     client = build_property_client(principal_id=principal_id)
@@ -1263,16 +1333,22 @@ def test_property_provider_greenfield_api_returns_country_scoped_catalog() -> No
 
     at_response = client.get("/app/api/property/providers", params={"country": "AT"})
     uk_response = client.get("/app/api/property/providers", params={"country": "UK"})
+    cr_response = client.get("/app/api/property/providers", params={"country": "CR"})
 
     assert at_response.status_code == 200, at_response.text
     assert uk_response.status_code == 200, uk_response.text
+    assert cr_response.status_code == 200, cr_response.text
     at_body = at_response.json()
     uk_body = uk_response.json()
+    cr_body = cr_response.json()
     assert at_body["country_code"] == "AT"
+    assert cr_body["country_code"] == "CR"
     assert any(row["value"] == "willhaben" for row in at_body["providers"])
     assert any(row["value"] == "remax_at" and "RE/MAX Austria" in row["label"] for row in at_body["providers"])
     assert all("Willhaben" not in row["label"] for row in uk_body["providers"])
     assert any(row["value"] == "rightmove" for row in uk_body["providers"])
+    assert any(row["value"] == "encuentra24_cr" for row in cr_body["providers"])
+    assert any(row["value"] == "re_cr_mls" for row in cr_body["providers"])
 
 
 def test_property_provider_catalog_generates_remax_austria_sources() -> None:

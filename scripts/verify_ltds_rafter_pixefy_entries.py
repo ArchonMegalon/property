@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 
@@ -53,9 +54,19 @@ def _extract_discovery_row(lines: str, service: str) -> str | None:
     return None
 
 
+def _summary_total_at_least(lines: str, minimum: int) -> bool:
+    match = re.search(r"`(\d+)`\s+total LTD products tracked", lines)
+    if not match:
+        return False
+    try:
+        return int(match.group(1)) >= minimum
+    except Exception:
+        return False
+
+
 def main() -> int:
     text = _read_lines(LTD_PATH)
-    summary_has_forty_five = "`45` total LTD products tracked" in text
+    summary_has_minimum_total = _summary_total_at_least(text, 45)
     rafter_attention = "`Rafter` highest tier is now reported and Fleet security/proof provider verification now passes. It remains an auxiliary QA gate, not release truth." in text
     pixefy_attention = "`Pixefy` highest tier is tracked and Fleet responsive-visual-QA provider verification now passes. It remains an auxiliary QA gate, not product truth." in text
 
@@ -107,7 +118,7 @@ def main() -> int:
     elif "the.girscheles@gmail.com" not in pixefy_discovery or "fleet_verified" not in pixefy_discovery:
         pixefy_missing.append("pixefy_discovery_tracking_account")
 
-    if not summary_has_forty_five:
+    if not summary_has_minimum_total:
         rafter_missing.append("summary_total")
         pixefy_missing.append("summary_total")
 

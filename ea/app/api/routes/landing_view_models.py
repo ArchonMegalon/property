@@ -1433,6 +1433,33 @@ def app_section_payload(
     except Exception:
         property_results_value = property_plan_max_results
     property_results_value = max(1, min(property_results_value, property_plan_max_results))
+    property_search_agent_enabled = bool(property_preferences.get("search_agent_enabled"))
+    property_search_agent_duration_days = _positive_int(property_preferences.get("search_agent_duration_days"), default=30)
+    property_search_agent_duration_days = max(7, min(365, property_search_agent_duration_days or 30))
+    property_search_agent_notification_limit = _positive_int(property_preferences.get("search_agent_notification_limit"), default=5)
+    property_search_agent_notification_limit = max(1, min(50, property_search_agent_notification_limit or 5))
+    property_search_agent_notification_period = str(property_preferences.get("search_agent_notification_period") or "day").strip().lower()
+    if property_search_agent_notification_period not in {"day", "week"}:
+        property_search_agent_notification_period = "day"
+    property_search_agent = {
+        "enabled": property_search_agent_enabled,
+        "status_label": "Active" if property_search_agent_enabled else "Disabled",
+        "duration_days": property_search_agent_duration_days,
+        "duration_label": (
+            "1 week"
+            if property_search_agent_duration_days == 7
+            else "1 year"
+            if property_search_agent_duration_days == 365
+            else f"{property_search_agent_duration_days} days"
+        ),
+        "notification_limit": property_search_agent_notification_limit,
+        "notification_period": property_search_agent_notification_period,
+        "notification_period_label": "week" if property_search_agent_notification_period == "week" else "day",
+        "location_query": str(property_preferences.get("location_query") or "").strip(),
+        "listing_mode": selected_listing_mode,
+        "country_code": str(property_preferences.get("country_code") or "AT").strip().upper(),
+        "provider_count": len(selected_platforms),
+    }
     try:
         property_min_match_score_value = int(property_preferences.get("min_match_score") or min(65, property_plan_max_match_score))
     except Exception:
@@ -2389,6 +2416,59 @@ def app_section_payload(
             },
             {
                 "type": "checkbox",
+                "name": "search_agent_enabled",
+                "label": "Create permanent search agent",
+                "value": "true",
+                "checked": property_search_agent_enabled,
+                "tooltip": "Save these settings as an ongoing search agent. Disable this checkbox to keep the settings as a one-off search brief only.",
+                "step": "providers",
+            },
+            {
+                "type": "range",
+                "name": "search_agent_duration_days",
+                "label": "Search agent duration",
+                "value": str(property_search_agent_duration_days),
+                "min": "7",
+                "max": "365",
+                "visual_max": "365",
+                "range_step": "7",
+                "format": "agent_duration_days",
+                "scale_min_label": "1 week",
+                "scale_mid_label": "6 months",
+                "scale_max_label": "1 year",
+                "tooltip": "How long this saved search agent should stay active before it expires or needs review.",
+                "step": "providers",
+            },
+            {
+                "type": "range",
+                "name": "search_agent_notification_limit",
+                "label": "Notification budget",
+                "value": str(property_search_agent_notification_limit),
+                "min": "1",
+                "max": "50",
+                "visual_max": "50",
+                "range_step": "1",
+                "format": "notification_count",
+                "scale_min_label": "1",
+                "scale_mid_label": "25",
+                "scale_max_label": "50",
+                "tooltip": "Maximum Telegram property alerts to send in the selected period. If more matches exist, PropertyQuarry ranks them and sends only the best ones.",
+                "step": "providers",
+            },
+            {
+                "type": "select",
+                "name": "search_agent_notification_period",
+                "label": "Notification period",
+                "value": property_search_agent_notification_period,
+                "options": [
+                    {"value": "day", "label": "Per day"},
+                    {"value": "week", "label": "Per week"},
+                ],
+                "tooltip": "Choose whether the notification budget resets daily or weekly.",
+                "step": "providers",
+            },
+            {
+                "type": "checkbox",
                 "name": "require_floorplan",
                 "label": "Serious listings only - floor plan required",
                 "value": "true",
@@ -2444,6 +2524,8 @@ def app_section_payload(
             "billing_checkout_provider_label": str(property_state.get("billing_checkout_provider_label") or ""),
             "billing_order_endpoint": str(property_state.get("billing_order_endpoint") or ""),
             "feedback_person_id": str(property_preferences.get("preference_person_id") or "self"),
+            "search_agent": property_search_agent,
+            "search_agents": [property_search_agent],
             "shortlist_candidates": property_shortlist_cards,
             "wizard_steps": [
                 {

@@ -21,6 +21,7 @@ def test_provider_options_are_filtered_by_country() -> None:
     germany = provider_options(country_code="DE")
     austria = provider_options(country_code="AT")
     sweden = provider_options(country_code="SE")
+    costa_rica = provider_options(country_code="CR")
 
     assert any(row["value"] == "immoscout_de" for row in germany)
     assert any(row["value"] == "immowelt" for row in germany)
@@ -28,6 +29,8 @@ def test_provider_options_are_filtered_by_country() -> None:
     assert any(row["value"] == "genossenschaften_at" for row in austria)
     assert any(row["value"] == "justiz_edikte_at" for row in austria)
     assert any(row["value"] == "kronofogden_auktionstorget_se" for row in sweden)
+    assert any(row["value"] == "encuentra24_cr" for row in costa_rica)
+    assert any(row["value"] == "re_cr_mls" and "MLS" in row["label"] for row in costa_rica)
     assert all("Germany" in str(row.get("description") or "") for row in germany)
 
 
@@ -41,12 +44,33 @@ def test_normalize_property_search_preferences_defaults_country_and_language() -
     assert payload["property_type"] == "any"
     assert payload["alert_frequency"] == "daily"
     assert payload["alert_channels"] == ["telegram"]
+    assert payload["search_agent_enabled"] is False
+    assert payload["search_agent_duration_days"] == 30
+    assert payload["search_agent_notification_limit"] == 5
+    assert payload["search_agent_notification_period"] == "day"
+
+
+def test_normalize_property_search_preferences_clamps_search_agent_controls() -> None:
+    payload = normalize_property_search_preferences(
+        {
+            "search_agent_enabled": "on",
+            "search_agent_duration_days": 999,
+            "search_agent_notification_limit": 999,
+            "search_agent_notification_period": "week",
+        }
+    )
+
+    assert payload["search_agent_enabled"] is True
+    assert payload["search_agent_duration_days"] == 365
+    assert payload["search_agent_notification_limit"] == 50
+    assert payload["search_agent_notification_period"] == "week"
 
 
 def test_country_normalization_understands_common_country_names() -> None:
     assert normalize_country_code("Germany") == "DE"
     assert normalize_country_code("Great Britain") == "UK"
     assert normalize_country_code("United States") == "US"
+    assert normalize_country_code("Costa Rica") == "CR"
     assert is_supported_country_code("Spain") is True
     assert is_supported_country_code("NO") is False
 
@@ -222,8 +246,10 @@ def test_generated_source_specs_build_provider_specific_market_urls() -> None:
 def test_default_platforms_for_country_are_stable() -> None:
     assert default_platforms_for_country("UK") == ("rightmove", "zoopla", "onthemarket")
     assert default_platforms_for_country("PT") == ("idealista_pt", "imovirtual", "casa_sapo")
+    assert default_platforms_for_country("CR") == ("encuentra24_cr", "re_cr_mls", "realtor_cr", "coldwellbanker_cr")
     assert default_platforms_for_country("AT") == ("willhaben", "immmo", "immoscout_at", "remax_at", "kalandra", "broker_direct_at", "community_signals_at", "genossenschaften_at")
     assert default_language_for_country("SE") == "sv"
+    assert default_language_for_country("CR") == "es"
 
 
 def test_workspace_location_options_follow_supported_country_codes() -> None:
@@ -298,6 +324,43 @@ def test_generated_source_specs_cover_new_country_bundles() -> None:
     assert "daft.ie/property-for-rent/dublin" in str(ireland_specs[0]["url"]).lower()
     assert "domain.com.au" in str(australia_specs[0]["url"]).lower()
     assert "suburb=Sydney" in str(australia_specs[0]["url"])
+
+
+def test_generated_source_specs_cover_costa_rica_providers() -> None:
+    rent_specs = generated_source_specs(
+        preferences={
+            "country_code": "CR",
+            "language_code": "es",
+            "listing_mode": "rent",
+            "location_query": "Escazú",
+            "keywords": "condo seguridad",
+            "min_area_m2": 80,
+        },
+        selected_platforms=(),
+        principal_id="exec-property-cr",
+        default_person_id="self",
+        max_results=4,
+    )
+    buy_specs = generated_source_specs(
+        preferences={
+            "country_code": "CR",
+            "language_code": "es",
+            "listing_mode": "buy",
+            "location_query": "Tamarindo",
+            "keywords": "beach house",
+        },
+        selected_platforms=("encuentra24", "recr", "realtorcr", "coldwellbankercr"),
+        principal_id="exec-property-cr-buy",
+        default_person_id="self",
+        max_results=4,
+    )
+
+    assert {row["platform"] for row in rent_specs} == {"encuentra24_cr", "re_cr_mls"}
+    assert any("encuentra24.com/costa-rica-en/real-estate-for-rent" in str(row["url"]) for row in rent_specs)
+    assert any("Escaz" in str(row["label"]) for row in rent_specs)
+    assert {row["platform"] for row in buy_specs} == {"encuentra24_cr", "re_cr_mls", "realtor_cr", "coldwellbanker_cr"}
+    assert any("realtor.com/international/cr" in str(row["url"]) for row in buy_specs)
+    assert all(row["country_code"] == "CR" for row in [*rent_specs, *buy_specs])
 
 
 def test_generated_source_specs_split_multi_area_queries_into_dedicated_sources() -> None:

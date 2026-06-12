@@ -614,6 +614,21 @@ def handoff_detail(
                 "Blockers",
             ),
         ]
+        review_page_neuronwriter = (
+            dict(input_json.get("review_page_neuronwriter") or {})
+            if isinstance(input_json.get("review_page_neuronwriter"), dict)
+            else {}
+        )
+        neuronwriter_status = str(review_page_neuronwriter.get("status") or "").strip() or "not recorded"
+        neuronwriter_detail = " | ".join(
+            part
+            for part in (
+                str(review_page_neuronwriter.get("mode") or "").strip(),
+                str(review_page_neuronwriter.get("query_id") or "").strip(),
+                str(review_page_neuronwriter.get("reason") or "").strip(),
+            )
+            if part
+        ) or "Public-safe editorial intelligence pass is recorded for this review page."
         candidate_rows = []
         for item in candidate_properties[:8]:
             candidate_url = str(item.get("property_url") or "").strip()
@@ -684,6 +699,7 @@ def handoff_detail(
                     secondary_action_method="get" if property_url else "",
                 ),
                 _object_detail_row("Recommendation", str(assessment.get("recommendation") or "No recommendation projected.").replace("_", " "), "Decision"),
+                _object_detail_row("NeuronWriter", neuronwriter_detail, neuronwriter_status),
                 _object_detail_row("Account", str(input_json.get("account_email") or "No account email stored.").strip(), "Inbox"),
                 _object_detail_row("Source ref", handoff.source_ref or str(input_json.get("source_ref") or "").strip() or "No source ref stored.", "Ref"),
             ],

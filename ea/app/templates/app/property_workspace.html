@@ -1208,6 +1208,34 @@
           <div class="pq-inline-status" data-property-inline-status data-property-step-panel="providers" {% if wizard_steps %}hidden{% endif %}></div>
           <div class="pq-inline-error" data-property-inline-error data-property-step-panel="providers" {% if wizard_steps %}hidden{% endif %}></div>
 
+          {% set search_agents = property_meta.get('search_agents') or [] %}
+          {% if search_agents %}
+          <div class="pq-card" data-property-step-panel="providers" {% if wizard_steps %}hidden{% endif %}>
+            <div class="pq-card-eyebrow">Search agents</div>
+            <h3>Saved search agent management</h3>
+            <p class="pq-note">The active agent uses the saved search settings, ranks matches first, and only sends the best results that fit the notification budget.</p>
+            <div class="pq-table-wrap">
+              <div style="overflow-x:auto;">
+                <table class="pq-results-table">
+                  <thead>
+                    <tr><th>Status</th><th>Scope</th><th>Runtime</th><th>Notifications</th></tr>
+                  </thead>
+                  <tbody>
+                    {% for agent in search_agents %}
+                    <tr>
+                      <td><strong>{{ agent.get('status_label') }}</strong><small>{{ agent.get('listing_mode') }} | {{ agent.get('country_code') }}</small></td>
+                      <td><strong>{{ agent.get('location_query') or 'No area saved' }}</strong><small>{{ agent.get('provider_count') }} provider{{ '' if agent.get('provider_count') == 1 else 's' }}</small></td>
+                      <td><strong>{{ agent.get('duration_label') }}</strong><small>Review or disable before expiry</small></td>
+                      <td><strong>{{ agent.get('notification_limit') }} per {{ agent.get('notification_period_label') }}</strong><small>Only top-ranked matches are sent</small></td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
           <div class="pq-nav" data-property-wizard-nav>
             <button class="pq-action" type="button" data-property-step-back hidden>Back</button>
             <div class="pq-progress" data-property-step-progress>{% if wizard_steps %}Step 1 of {{ wizard_steps|length }}{% endif %}</div>
@@ -2185,6 +2213,10 @@
         avoid_flood_risk_area: checkedValue(form, 'avoid_flood_risk_area'),
         max_results_per_source: parsedMaxResults,
         min_match_score: integerValue(form, 'min_match_score'),
+        search_agent_enabled: checkedValue(form, 'search_agent_enabled'),
+        search_agent_duration_days: integerValue(form, 'search_agent_duration_days'),
+        search_agent_notification_limit: integerValue(form, 'search_agent_notification_limit'),
+        search_agent_notification_period: fieldValue(form, 'search_agent_notification_period') || 'day',
         require_floorplan: checkedValue(form, 'require_floorplan'),
         use_flatbee_reputation_penalty: checkedValue(form, 'use_flatbee_reputation_penalty'),
       },
@@ -2204,6 +2236,12 @@
       if (format === 'area_m2') return `${numberFormatter.format(Math.round(value))} m2+`;
       if (format === 'rooms') return value === 1 ? '1+ room' : `${numberFormatter.format(Math.round(value))}+ rooms`;
       if (format === 'availability_years') return value === 1 ? 'Within 1 year' : `Within ${numberFormatter.format(Math.round(value))} years`;
+      if (format === 'agent_duration_days') {
+        if (value <= 7) return '1 week';
+        if (value >= 365) return '1 year';
+        return `${numberFormatter.format(Math.round(value))} days`;
+      }
+      if (format === 'notification_count') return value === 1 ? '1 alert' : `${numberFormatter.format(Math.round(value))} alerts`;
       if (format === 'minutes') return `${numberFormatter.format(Math.round(value))} min max`;
       if (format === 'meters_cap') return value < 1000 ? `${numberFormatter.format(Math.round(value))} m max` : `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)} km max`;
       if (format === 'count') return value === 1 ? '1 result' : `${numberFormatter.format(Math.round(value))} results`;

@@ -26,6 +26,7 @@ Runs the focused PropertyQuarry release bundle:
   - property workspace real-browser greenfield checks
   - property search run contracts
   - property market catalog contracts
+  - privacy-safe Rybbit analytics snippet contracts
   - property browser journey contracts
   - dossier writer, Dadan video request, media factory, and premium dossier contracts
 EOF
@@ -64,11 +65,12 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_dadan_video_request_workflow.py \
   tests/test_property_media_factory.py \
   tests/test_premium_dossier_contracts.py \
+  tests/test_public_rybbit.py \
   tests/test_property_search_runs.py::test_property_search_run_surfaces_and_updates_missing_fact_research_tasks
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_product_api_contracts.py -k 'property_notification_preview or property_feedback'
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
-  tests/test_product_api_contracts.py -k 'telegram_property_link_bundle or property_scout_dossier_promotes_media'
+  tests/test_product_api_contracts.py -k 'telegram_property_link_bundle or property_scout_dossier_promotes_media or property_scout_hit_telegram_sends_dossier or property_scout_hit_email_prefers_public_dossier_link or property_alert_review_handoff_page_renders_research_packet'
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_propertyquarry_workspace_redesign.py \
   tests/e2e/test_propertyquarry_greenfield_browser.py \

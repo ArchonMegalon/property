@@ -22,7 +22,7 @@ def neuronwriter_api_key() -> str:
 
 
 def neuronwriter_allowed_for_draft(draft: DossierNarrativeDraft) -> tuple[bool, str]:
-    mode = str(os.getenv("PROPERTYQUARRY_NEURONWRITER_DOSSIER_MODE") or "public_only").strip().lower()
+    mode = str(os.getenv("PROPERTYQUARRY_NEURONWRITER_DOSSIER_MODE") or "public_safe").strip().lower()
     if mode in {"0", "off", "disabled", "none", "no_external"}:
         return False, "neuronwriter_dossier_mode_disabled"
     if draft.packet_kind in PUBLIC_PACKET_KINDS:
@@ -112,7 +112,20 @@ def recommend_for_draft(draft: DossierNarrativeDraft, *, query_id: str = "") -> 
             return get_neuronwriter_query(query_id)
         except Exception as exc:
             return NeuronWriterRecommendation(status="failed", mode="api_live", query_id=query_id, reason=str(exc)[:240])
-    topic = public_safe_topic_text(" ".join(section.title for section in draft.sections))
+    topic = public_safe_topic_text(
+        " ".join(
+            part
+            for section in draft.sections
+            for part in (
+                section.title,
+                section.subtitle,
+                section.body_markdown,
+                " ".join(str(item or "") for item in section.bullets),
+                section.cta,
+            )
+            if str(part or "").strip()
+        )
+    )
     key = neuronwriter_api_key()
     if not key:
         return NeuronWriterRecommendation(status="blocked", mode="api_live", reason="neuronwriter_api_key_missing")

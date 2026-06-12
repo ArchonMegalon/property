@@ -5227,7 +5227,10 @@ def _property_scout_objective_review_boost(*, property_url: str, preview: dict[s
 
 
 def _property_search_location_hints(preferences: dict[str, object] | None) -> tuple[str, ...]:
-    raw_value = str(dict(preferences or {}).get("location_query") or "").strip()
+    preference_payload = dict(preferences or {})
+    raw_value = str(preference_payload.get("location_query") or "").strip()
+    if not raw_value and isinstance(preference_payload.get("raw_preferences"), dict):
+        raw_value = str(dict(preference_payload.get("raw_preferences") or {}).get("location_query") or "").strip()
     if not raw_value:
         return ()
     values = [str(item or "").strip() for item in raw_value.split(",")]
@@ -5247,6 +5250,77 @@ def _property_search_location_hints(preferences: dict[str, object] | None) -> tu
             continue
         hints.append(value)
     return tuple(hints)
+
+
+def _property_search_notification_budget(preferences: dict[str, object] | None) -> tuple[int, str]:
+    payload = dict(preferences or {})
+    period = str(payload.get("search_agent_notification_period") or "").strip().lower()
+    if period not in {"day", "week"}:
+        period = "day"
+    try:
+        limit = int(float(str(payload.get("search_agent_notification_limit") or 5).strip()))
+    except Exception:
+        limit = 5
+    return max(1, min(50, limit)), period
+
+
+def _property_review_page_neuronwriter_payload(
+    *,
+    title: str,
+    summary: str,
+    counterparty: str,
+    assessment: dict[str, object] | None,
+) -> dict[str, object]:
+    try:
+        from app.services.dossier_writer.models import DossierNarrativeDraft, DossierSectionDraft
+        from app.services.dossier_writer.neuronwriter_adapter import recommend_for_draft
+        from app.services.dossier_writer.redaction import public_safe_topic_text
+    except Exception:
+        return {"status": "unavailable", "reason": "neuronwriter_adapter_unavailable"}
+    safe_topic = public_safe_topic_text(
+        " ".join(
+            part
+            for part in (
+                title,
+                summary,
+                counterparty,
+                " ".join(str(item or "") for item in list(dict(assessment or {}).get("match_reasons_json") or [])[:3]),
+                " ".join(str(item or "") for item in list(dict(assessment or {}).get("mismatch_reasons_json") or [])[:2]),
+            )
+            if str(part or "").strip()
+        ),
+        limit=420,
+    )
+    draft = DossierNarrativeDraft(
+        dossier_id="property_review_page",
+        privacy_mode="agent_share",
+        packet_kind="agent_brief",
+        language=str(os.getenv("PROPERTYQUARRY_NEURONWRITER_LANGUAGE") or "German").strip() or "German",
+        tone="premium analytical",
+        sections=[
+            DossierSectionDraft(
+                section_key="review_page",
+                title="Property review page",
+                claims_used=[],
+                body_markdown=safe_topic,
+                confidence="medium",
+            )
+        ],
+        generated_by="propertyquarry_review_page.neuronwriter_public_safe.v1",
+    )
+    recommendation = recommend_for_draft(draft)
+    dump = recommendation.model_dump() if hasattr(recommendation, "model_dump") else dict(recommendation or {})
+    return {
+        "status": str(dump.get("status") or "").strip(),
+        "mode": str(dump.get("mode") or "").strip(),
+        "reason": str(dump.get("reason") or "").strip(),
+        "query_id": str(dump.get("query_id") or "").strip(),
+        "query_url": str(dump.get("query_url") or "").strip(),
+        "share_url": str(dump.get("share_url") or "").strip(),
+        "readonly_url": str(dump.get("readonly_url") or "").strip(),
+        "safe_topic": safe_topic,
+        "generated_by": "propertyquarry_review_page.neuronwriter_public_safe.v1",
+    }
 
 
 def _property_candidate_matches_requested_location(
@@ -5278,9 +5352,25 @@ def _property_candidate_matches_requested_location(
         str(facts.get("source_postal_code") or "").strip(),
         str(facts.get("source_city") or "").strip(),
     ]
+    source_scope_location = str(facts.get("source_scope_location") or "").strip().lower()
+    source_postal_code = str(facts.get("source_postal_code") or "").strip()
+    real_concrete_parts = [
+        str(property_url or "").strip(),
+        str(title or "").strip(),
+        str(summary or "").strip(),
+        str(facts.get("district") or "").strip(),
+        str(facts.get("postal_name") or "").strip()
+        if str(facts.get("postal_name") or "").strip().lower() != source_scope_location
+        else "",
+        str(facts.get("location") or "").strip(),
+        str(facts.get("street_address") or "").strip(),
+        str(facts.get("exact_address") or "").strip(),
+        *address_lines,
+    ]
 
     concrete_text = " ".join(part for part in concrete_parts if part).lower()
     normalized_concrete_text = re.sub(r"[^a-z0-9äöüß]+", "", concrete_text)
+    real_concrete_text = " ".join(part for part in real_concrete_parts if part).lower()
 
     def _matches_text(raw_text: str, normalized_text: str) -> bool:
         for hint in hints:
@@ -5297,15 +5387,21 @@ def _property_candidate_matches_requested_location(
                 return True
         return False
 
-    if _matches_text(concrete_text, normalized_concrete_text):
-        return True
+    hint_text = " ".join(hints).lower()
+    wants_vienna = "wien" in hint_text or "vienna" in hint_text or any(str(code).startswith("1") for code in re.findall(r"\b\d{4}\b", hint_text))
+    real_concrete_postal_codes = tuple(
+        code for code in re.findall(r"\b\d{4}\b", real_concrete_text) if not source_postal_code or code != source_postal_code
+    )
+    if wants_vienna and real_concrete_postal_codes and not any(str(code).startswith("1") for code in real_concrete_postal_codes):
+        return False
 
     concrete_postal_codes = tuple(re.findall(r"\b\d{4}\b", concrete_text))
     if concrete_postal_codes:
-        hint_text = " ".join(hints).lower()
-        wants_vienna = "wien" in hint_text or "vienna" in hint_text or any(str(code).startswith("1") for code in re.findall(r"\b\d{4}\b", hint_text))
         if wants_vienna and not any(str(code).startswith("1") for code in concrete_postal_codes):
             return False
+
+    if _matches_text(concrete_text, normalized_concrete_text):
+        return True
 
     scope_text = " ".join(part for part in scope_parts if part).lower()
     normalized_scope_text = re.sub(r"[^a-z0-9äöüß]+", "", scope_text)
@@ -17436,6 +17532,40 @@ class ProductService:
                 source_id=str(source_id or event.observation_id or "").strip(),
             )
 
+    def _property_search_notification_budget_state(
+        self,
+        *,
+        principal_id: str,
+        preferences: dict[str, object],
+    ) -> dict[str, object]:
+        limit, period = _property_search_notification_budget(preferences)
+        now = datetime.now(timezone.utc)
+        window_start = now - (timedelta(days=7) if period == "week" else timedelta(days=1))
+        sent_in_window = 0
+        for row in self.list_office_events(
+            principal_id=principal_id,
+            event_type="property_scout_hit_telegram_sent",
+            channel="product",
+            limit=1000,
+        ):
+            raw_created_at = str(row.get("created_at") or "").strip()
+            try:
+                created_at = datetime.fromisoformat(raw_created_at.replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            if created_at >= window_start:
+                sent_in_window += 1
+        remaining = max(0, limit - sent_in_window)
+        return {
+            "limit": limit,
+            "period": period,
+            "window_start": window_start.isoformat(),
+            "sent_in_window": sent_in_window,
+            "remaining": remaining,
+        }
+
     def _resolve_google_location_history_import_path(self, path: str) -> Path:
         raw = str(path or "").strip()
         if not raw:
@@ -20440,6 +20570,43 @@ class ProductService:
         preference_person_id: str = "self",
         tour_url: str = "",
     ) -> dict[str, object]:
+        current_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
+        location_hints = _property_search_location_hints(current_preferences)
+        first_candidate = dict(candidate_properties[0] or {}) if candidate_properties else {}
+        candidate_property_url = str(first_candidate.get("property_url") or property_url or "").strip()
+        candidate_title = str(first_candidate.get("listing_title") or first_candidate.get("title") or title or "").strip()
+        candidate_summary = str(first_candidate.get("summary") or first_candidate.get("fit_summary") or summary or "").strip()
+        candidate_facts = (
+            dict(first_candidate.get("property_facts_json") or {})
+            if isinstance(first_candidate.get("property_facts_json"), dict)
+            else dict(first_candidate.get("property_facts") or {})
+            if isinstance(first_candidate.get("property_facts"), dict)
+            else {}
+        )
+        if location_hints and not _property_candidate_matches_requested_location(
+            location_hints=location_hints,
+            property_url=candidate_property_url,
+            title=candidate_title,
+            summary=candidate_summary,
+            property_facts=candidate_facts,
+        ):
+            payload = {
+                "status": "suppressed",
+                "task_type": "property_alert_review",
+                "property_url": str(candidate_property_url or property_url or "").strip(),
+                "source_ref": str(source_ref or "").strip(),
+                "external_id": str(external_id or "").strip(),
+                "reason": "property_location_conflicts_with_active_search",
+                "location_hints": list(location_hints),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_alert_review_suppressed_location_mismatch",
+                payload={**payload, "title": candidate_title, "actor": str(actor or "").strip() or "property_scout"},
+                source_id=str(source_ref or external_id or candidate_property_url or property_url).strip(),
+                dedupe_key=f"{principal_id}|{source_ref or external_id or candidate_property_url or property_url}|property-alert-review-location-mismatch",
+            )
+            return payload
         if _is_invalid_property_scout_task_url(property_url, source_ref=source_ref):
             payload = {
                 "status": "invalid",
@@ -20468,6 +20635,12 @@ class ProductService:
             )
         task_priority = _property_alert_priority_from_fit(personal_fit_assessment)
         fit_score = _property_alert_fit_score(personal_fit_assessment)
+        review_page_neuronwriter = _property_review_page_neuronwriter_payload(
+            title=str(title or "").strip(),
+            summary=str(summary or "").strip(),
+            counterparty=str(counterparty or "").strip(),
+            assessment=dict(personal_fit_assessment or {}) if isinstance(personal_fit_assessment, dict) else {},
+        )
         existing = self._existing_property_alert_review_task(
             principal_id=principal_id,
             source_ref=source_ref,
@@ -20540,6 +20713,7 @@ class ProductService:
                 "personal_fit_assessment": dict(personal_fit_assessment or {}) if isinstance(personal_fit_assessment, dict) else {},
                 "candidate_properties": [dict(item) for item in candidate_properties],
                 "tour_url": normalized_tour_url,
+                "review_page_neuronwriter": dict(review_page_neuronwriter),
             },
             desired_output_json={
                 "resolution": "reviewed",
@@ -20582,6 +20756,7 @@ class ProductService:
                 "personal_fit_assessment": dict(personal_fit_assessment or {}) if isinstance(personal_fit_assessment, dict) else {},
                 "candidate_properties": [dict(item) for item in candidate_properties],
                 "tour_url": normalized_tour_url,
+                "review_page_neuronwriter": dict(review_page_neuronwriter),
             },
             source_id=str(source_ref or external_id or task.human_task_id).strip(),
             dedupe_key=f"{principal_id}|{source_ref or external_id or task.human_task_id}|property-alert-review-created",
@@ -25900,6 +26075,12 @@ class ProductService:
             investment_research_mode = "off"
         min_match_score = _property_search_effective_min_match_score(request_preferences)
         match_score_cap = _property_search_match_score_cap(request_preferences)
+        notification_budget = self._property_search_notification_budget_state(
+            principal_id=principal_id,
+            preferences=request_preferences,
+        )
+        notification_budget_remaining = int(notification_budget.get("remaining") or 0)
+        notification_budget_suppressed_total = 0
         min_area_m2 = _float_or_none(request_preferences.get("min_area_m2")) or 0.0
         if min_area_m2 < 0.0:
             min_area_m2 = 0.0
@@ -25978,6 +26159,7 @@ class ProductService:
                 "require_floorplan": require_floorplan,
                 "investment_research_mode": investment_research_mode,
                 "use_stored_feedback_preferences": use_stored_feedback_preferences,
+                "notification_budget": dict(notification_budget),
             },
             steps_delta=1,
             stages_total_override=2 + (len(specs) * max(8, (max(1, int(resolved_max_results or 2)) * 3) + 5)),
@@ -26031,6 +26213,8 @@ class ProductService:
                 "apply_unknowns_penalty": apply_unknowns_penalty,
                 "enable_action_readiness_research": enable_action_readiness_research,
                 "watch_notified_total": 0,
+                "notification_budget": dict(notification_budget),
+                "notification_budget_suppressed_total": 0,
                 "sources": [],
             }
 
@@ -26409,8 +26593,7 @@ class ProductService:
             preliminary_rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
             if location_hints:
                 preliminary_matching_rows = [row for row in preliminary_rows if bool(row.get("location_match"))]
-                if preliminary_matching_rows:
-                    preliminary_rows = preliminary_matching_rows
+                preliminary_rows = preliminary_matching_rows
             analysis_limit = len(preliminary_rows)
             ranked_rows: list[dict[str, object]] = []
             top_watch_candidate_for_source: dict[str, object] | None = None
@@ -26881,8 +27064,7 @@ class ProductService:
             ranked_rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
             if location_hints:
                 matching_rows = [row for row in ranked_rows if bool(row.get("location_match"))]
-                if matching_rows:
-                    ranked_rows = matching_rows
+                ranked_rows = matching_rows
             duplicate_for_source = 0
             unique_ranked_rows: list[dict[str, object]] = []
             for row in ranked_rows:
@@ -26925,6 +27107,7 @@ class ProductService:
             tour_existing_for_source = 0
             high_fit_for_source = 0
             watch_notified_for_source = 0
+            notification_budget_suppressed_for_source = 0
             top_watch_candidate: dict[str, object] | None = (
                 dict(top_watch_candidate_for_source)
                 if isinstance(top_watch_candidate_for_source, dict) and top_watch_candidate_for_source
@@ -27011,31 +27194,36 @@ class ProductService:
                     top_watch_candidate["review_url"] = str(opened.get("editor_url") or "").strip()
 
                 if notify_telegram and is_good_fit:
-                    _report(
-                        step="source_notify",
-                        message=f"Sending client alert for {title[:72]}.",
-                        status="in_progress",
-                        steps_delta=1,
-                    )
-                    notify_result = self._send_property_scout_hit_telegram(
-                        principal_id=principal_id,
-                        actor=actor,
-                        title=title,
-                        summary=summary,
-                        counterparty=source_label,
-                        account_email=account_email,
-                        property_url=property_url,
-                        source_ref=source_ref,
-                        assessment=assessment,
-                        fit_score=fit_score,
-                        preference_person_id=source_preference_person_id,
-                        review_url=str(opened.get("editor_url") or "").strip(),
-                        tour_result=tour_result,
-                        candidate_properties=candidate_properties,
-                    )
-                    if str(notify_result.get("status") or "").strip() == "sent":
-                        notified_for_source += 1
-                        notified_total += 1
+                    if notification_budget_remaining <= 0:
+                        notification_budget_suppressed_for_source += 1
+                        notification_budget_suppressed_total += 1
+                    else:
+                        _report(
+                            step="source_notify",
+                            message=f"Sending client alert for {title[:72]}.",
+                            status="in_progress",
+                            steps_delta=1,
+                        )
+                        notify_result = self._send_property_scout_hit_telegram(
+                            principal_id=principal_id,
+                            actor=actor,
+                            title=title,
+                            summary=summary,
+                            counterparty=source_label,
+                            account_email=account_email,
+                            property_url=property_url,
+                            source_ref=source_ref,
+                            assessment=assessment,
+                            fit_score=fit_score,
+                            preference_person_id=source_preference_person_id,
+                            review_url=str(opened.get("editor_url") or "").strip(),
+                            tour_result=tour_result,
+                            candidate_properties=candidate_properties,
+                        )
+                        if str(notify_result.get("status") or "").strip() == "sent":
+                            notified_for_source += 1
+                            notified_total += 1
+                            notification_budget_remaining = max(0, notification_budget_remaining - 1)
                 email_notify_result = self._send_property_scout_hit_email(
                     principal_id=principal_id,
                     actor=actor,
@@ -27143,30 +27331,39 @@ class ProductService:
                         existing_for_source += 1
                         review_existing_total += 1
                     top_watch_candidate["review_url"] = str(opened.get("editor_url") or "").strip()
-                notify_result = self._send_property_scout_hit_telegram(
-                    principal_id=principal_id,
-                    actor=actor,
-                    title=str(top_watch_candidate.get("title") or "").strip(),
-                    summary=str(top_watch_candidate.get("summary") or "").strip(),
-                    counterparty=source_label,
-                    account_email=account_email,
-                    property_url=str(top_watch_candidate.get("property_url") or "").strip(),
-                    source_ref=str(top_watch_candidate.get("source_ref") or "").strip(),
-                    assessment=dict(top_watch_candidate.get("assessment") or {}),
-                    fit_score=float(top_watch_candidate.get("fit_score") or 0.0),
-                    preference_person_id=source_preference_person_id,
-                    review_url=str(top_watch_candidate.get("review_url") or "").strip(),
-                    tour_result={"status": "skipped", "tour_url": "", "blocked_reason": ""},
-                    candidate_properties=candidate_properties,
-                )
-                if str(notify_result.get("status") or "").strip() == "sent":
-                    watch_notified_for_source += 1
-                    notified_for_source += 1
-                    notified_total += 1
+                if notification_budget_remaining <= 0:
+                    notification_budget_suppressed_for_source += 1
+                    notification_budget_suppressed_total += 1
+                else:
+                    notify_result = self._send_property_scout_hit_telegram(
+                        principal_id=principal_id,
+                        actor=actor,
+                        title=str(top_watch_candidate.get("title") or "").strip(),
+                        summary=str(top_watch_candidate.get("summary") or "").strip(),
+                        counterparty=source_label,
+                        account_email=account_email,
+                        property_url=str(top_watch_candidate.get("property_url") or "").strip(),
+                        source_ref=str(top_watch_candidate.get("source_ref") or "").strip(),
+                        assessment=dict(top_watch_candidate.get("assessment") or {}),
+                        fit_score=float(top_watch_candidate.get("fit_score") or 0.0),
+                        preference_person_id=source_preference_person_id,
+                        review_url=str(top_watch_candidate.get("review_url") or "").strip(),
+                        tour_result={"status": "skipped", "tour_url": "", "blocked_reason": ""},
+                        candidate_properties=candidate_properties,
+                    )
+                    if str(notify_result.get("status") or "").strip() == "sent":
+                        watch_notified_for_source += 1
+                        notified_for_source += 1
+                        notified_total += 1
+                        notification_budget_remaining = max(0, notification_budget_remaining - 1)
 
             filter_near_miss_notified_for_source = 0
             if notify_telegram and filter_near_misses_for_source:
                 for near_miss in filter_near_misses_for_source[:2]:
+                    if notification_budget_remaining <= 0:
+                        notification_budget_suppressed_for_source += 1
+                        notification_budget_suppressed_total += 1
+                        continue
                     near_miss_result = self._send_property_scout_filter_near_miss_telegram(
                         principal_id=principal_id,
                         actor=actor,
@@ -27185,6 +27382,7 @@ class ProductService:
                         filter_near_miss_notified_total += 1
                         notified_for_source += 1
                         notified_total += 1
+                        notification_budget_remaining = max(0, notification_budget_remaining - 1)
 
             source_summaries.append(
                 {
@@ -27242,6 +27440,7 @@ class ProductService:
                     "tour_existing_total": tour_existing_for_source,
                     "high_fit_total": high_fit_for_source,
                     "watch_notified_total": watch_notified_for_source,
+                    "notification_budget_suppressed_total": notification_budget_suppressed_for_source,
                     "filter_near_miss_total": len(filter_near_misses_for_source),
                     "filter_near_miss_notified_total": filter_near_miss_notified_for_source,
                     "filter_near_misses": filter_near_misses_for_source[:5],
@@ -27301,6 +27500,11 @@ class ProductService:
             "review_existing_total": review_existing_total,
             "notified_total": notified_total,
             "email_notified_total": email_notified_total,
+            "notification_budget": {
+                **dict(notification_budget),
+                "remaining_after_run": notification_budget_remaining,
+            },
+            "notification_budget_suppressed_total": notification_budget_suppressed_total,
             "tour_created_total": tour_created_total,
             "tour_existing_total": tour_existing_total,
             "high_fit_total": high_fit_total,
@@ -30312,6 +30516,12 @@ class ProductService:
             tour_result=tour_payload,
             candidate_properties=candidate_properties,
         )
+        notification_neuronwriter = _property_review_page_neuronwriter_payload(
+            title=title,
+            summary=summary,
+            counterparty=counterparty,
+            assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
+        )
         feedback_raw_signal = {
             "title": str(title or "").strip(),
             "summary": str(summary or "").strip(),
@@ -30320,6 +30530,7 @@ class ProductService:
             "fit_score": float(fit_score or 0.0),
             "account_email": str(account_email or "").strip(),
             "tour_url": tour_url,
+            "notification_neuronwriter": dict(notification_neuronwriter),
         }
         if candidate_properties:
             feedback_raw_signal["candidate_property"] = dict(candidate_properties[0] or {})
@@ -30378,6 +30589,7 @@ class ProductService:
                 "blocked_reason": blocked_reason,
                 "actor": str(actor or "").strip() or "property_scout",
                 "error": compact_text(str(exc or ""), fallback="telegram_delivery_failed", limit=160),
+                "notification_neuronwriter": dict(notification_neuronwriter),
             }
             self._record_product_event(
                 principal_id=principal_id,
@@ -30396,6 +30608,7 @@ class ProductService:
             "actor": str(actor or "").strip() or "property_scout",
             "telegram_chat_ref": str(telegram_receipt.chat_id or "").strip(),
             "telegram_message_ids": list(telegram_receipt.message_ids),
+            "notification_neuronwriter": dict(notification_neuronwriter),
         }
         if str(dossier_render.get("status") or "").strip() == "rendered":
             try:
@@ -30906,6 +31119,12 @@ class ProductService:
             tour_result=tour_payload,
             candidate_properties=(),
         )
+        notification_neuronwriter = _property_review_page_neuronwriter_payload(
+            title=title,
+            summary=summary,
+            counterparty=counterparty,
+            assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
+        )
         review_href = str(dossier_render.get("public_pdf_url") or review_url or "").strip()
         try:
             receipt = send_property_match_email(
@@ -30968,6 +31187,7 @@ class ProductService:
                         "actor": str(actor or "").strip() or "property_scout",
                         "recipient_email": recipient_email,
                         "error": normalized_error,
+                        "notification_neuronwriter": dict(notification_neuronwriter),
                     }
                     self._record_product_event(
                         principal_id=principal_id,
@@ -30986,6 +31206,7 @@ class ProductService:
                     "actor": str(actor or "").strip() or "property_scout",
                     "recipient_email": recipient_email,
                     "error": compact_text(str(exc or ""), fallback="email_delivery_failed", limit=160),
+                    "notification_neuronwriter": dict(notification_neuronwriter),
                 }
                 self._record_product_event(
                     principal_id=principal_id,
@@ -31006,6 +31227,7 @@ class ProductService:
             "message_id": message_id,
             "dossier_publication_id": str(dossier_render.get("publication_id") or "").strip(),
             "dossier_public_pdf_url": str(dossier_render.get("public_pdf_url") or "").strip(),
+            "notification_neuronwriter": dict(notification_neuronwriter),
         }
         self._record_product_event(
             principal_id=principal_id,

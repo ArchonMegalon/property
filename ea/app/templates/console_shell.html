@@ -1656,6 +1656,10 @@
         min_area_m2: integerValue(form, 'min_area_m2'),
         max_results_per_source: parsedMaxResults,
         min_match_score: integerValue(form, 'min_match_score'),
+        search_agent_enabled: Boolean(form.querySelector('input[name="search_agent_enabled"]')?.checked),
+        search_agent_duration_days: integerValue(form, 'search_agent_duration_days'),
+        search_agent_notification_limit: integerValue(form, 'search_agent_notification_limit'),
+        search_agent_notification_period: fieldValue(form, 'search_agent_notification_period') || 'day',
         require_floorplan: Boolean(form.querySelector('input[name="require_floorplan"]')?.checked),
       },
       force_refresh: form.querySelector('input[name="force_refresh"]')?.checked || false,
@@ -1671,7 +1675,15 @@
       const selectableMax = Number(input.getAttribute('data-range-selectable-max') || input.max || 0);
       const sync = () => {
         if (selectableMax > 0 && Number(input.value) > selectableMax) input.value = String(selectableMax);
-        if (output) output.textContent = `${input.value}${suffix}`;
+        const format = String(input.getAttribute('data-range-format') || '').trim();
+        let label = `${input.value}${suffix}`;
+        const numericValue = Number(input.value || 0);
+        if (format === 'agent_duration_days') {
+          label = numericValue <= 7 ? '1 week' : (numericValue >= 365 ? '1 year' : `${Math.round(numericValue)} days`);
+        } else if (format === 'notification_count') {
+          label = numericValue === 1 ? '1 alert' : `${Math.round(numericValue)} alerts`;
+        }
+        if (output) output.textContent = label;
       };
       input.addEventListener('input', sync);
       sync();

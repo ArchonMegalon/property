@@ -1199,6 +1199,20 @@ class OnboardingService(AssistantOnboardingService):
                 normalized_min_match_score = max(1, min(100, normalized_min_match_score))
         except Exception:
             normalized_min_match_score = None
+        search_agent_enabled = raw.get("search_agent_enabled") is True or str(raw.get("search_agent_enabled") or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
+        try:
+            search_agent_duration_days = int(float(str(raw.get("search_agent_duration_days") or "").strip()))
+        except Exception:
+            search_agent_duration_days = 30
+        search_agent_duration_days = max(7, min(365, search_agent_duration_days))
+        notification_period = str(raw.get("search_agent_notification_period") or "").strip().lower()
+        if notification_period not in {"day", "week"}:
+            notification_period = "day"
+        try:
+            notification_limit = int(float(str(raw.get("search_agent_notification_limit") or "").strip()))
+        except Exception:
+            notification_limit = 5
+        notification_limit = max(1, min(50, notification_limit))
 
         preference_person_id = str(raw.get("preference_person_id") or "self").strip() or "self"
         property_commercial = normalize_property_commercial(
@@ -1211,6 +1225,10 @@ class OnboardingService(AssistantOnboardingService):
             "max_results_per_source": normalized_max,
             "min_match_score": normalized_min_match_score,
             "preference_person_id": preference_person_id,
+            "search_agent_enabled": search_agent_enabled,
+            "search_agent_duration_days": search_agent_duration_days,
+            "search_agent_notification_limit": notification_limit,
+            "search_agent_notification_period": notification_period,
             "property_commercial": property_commercial,
             "raw_preferences": dict(raw),
         }
