@@ -32,7 +32,7 @@ def test_claim_extraction_marks_missing_operating_costs_with_next_action() -> No
     assert "24 months" in claim.next_action
 
 
-def test_private_claim_bound_writer_uses_public_safe_neuronwriter_lane_without_live_flag(monkeypatch) -> None:
+def test_private_claim_bound_writer_blocks_neuronwriter_without_explicit_private_override(monkeypatch) -> None:
     monkeypatch.delenv("PROPERTYQUARRY_NEURONWRITER_PRIVATE_PACKET_ALLOWED", raising=False)
     monkeypatch.delenv("PROPERTYQUARRY_NEURONWRITER_ENABLED", raising=False)
     monkeypatch.delenv("PROPERTYQUARRY_NEURONWRITER_DOSSIER_MODE", raising=False)
@@ -46,9 +46,9 @@ def test_private_claim_bound_writer_uses_public_safe_neuronwriter_lane_without_l
     recommendation = recommend_for_draft(draft)
 
     assert draft.sections
-    assert recommendation.status == "disabled"
-    assert recommendation.reason == "neuronwriter_disabled"
-    assert recommendation.mode == "public_safe"
+    assert recommendation.status == "blocked"
+    assert recommendation.reason == "neuronwriter_private_packet_blocked"
+    assert recommendation.mode == "private_packet_guard"
 
 
 def test_public_market_report_can_use_neuronwriter_guard_but_stays_disabled_without_flag(monkeypatch) -> None:
@@ -94,7 +94,7 @@ def test_private_packet_neuronwriter_live_mode_uses_public_safe_topic(monkeypatc
     assert "https://" not in str(observed["payload"]["keyword"])
 
 
-def test_neuronwriter_runs_by_default_when_api_key_is_configured(monkeypatch) -> None:
+def test_neuronwriter_api_key_alone_does_not_enable_private_packet(monkeypatch) -> None:
     observed: dict[str, object] = {}
 
     def fake_post(method: str, payload: dict[str, object], *, api_key: str) -> dict[str, object]:
@@ -115,10 +115,9 @@ def test_neuronwriter_runs_by_default_when_api_key_is_configured(monkeypatch) ->
 
     recommendation = recommend_for_draft(draft)
 
-    assert recommendation.status == "pending"
-    assert recommendation.query_id == "auto-key-query"
-    assert observed["method"] == "new-query"
-    assert observed["api_key"] == "test-key"
+    assert recommendation.status == "disabled"
+    assert recommendation.reason == "neuronwriter_disabled"
+    assert observed == {}
 
 
 def test_neuronwriter_explicit_disabled_flag_overrides_api_key(monkeypatch) -> None:
@@ -190,8 +189,8 @@ def test_write_verified_dossier_from_research_returns_claim_coverage() -> None:
     assert verified.status == "verified"
     assert verified.claim_coverage["claims_used"] > 0
     assert verified.neuronwriter is not None
-    assert verified.neuronwriter.status == "disabled"
-    assert verified.neuronwriter.mode == "public_safe"
+    assert verified.neuronwriter.status == "blocked"
+    assert verified.neuronwriter.mode == "private_packet_guard"
 
 
 def test_neuronwriter_new_query_uses_official_header_and_payload(monkeypatch) -> None:

@@ -60,7 +60,7 @@ def property_artifact_provider_lanes() -> tuple[PropertyArtifactProviderLane, ..
             allowed_use="Photorealistic lived-in fly-through and reference imagery.",
             forbidden_use="No choppy slowdowns, no slide transitions, no synthetic object-only render.",
             privacy_posture="private render input allowed only through controlled worker receipts",
-            configured=_configured("MAGICFIT_EMAIL", "CHUMMER_EA_MAGICFIT_EMAIL"),
+            configured=_configured("PROPERTYQUARRY_MAGICFIT_EMAIL", "MAGICFIT_EMAIL"),
             live_tested_env="PROPERTYQUARRY_MAGICFIT_LIVE_SMOKE=1",
             fail_closed_rule="Continuous-shot, room-coverage, speed, and duration gates must pass before delivery.",
         ),
@@ -151,7 +151,7 @@ def required_artifact_receipt_rows() -> tuple[dict[str, str], ...]:
             "tag": "Required",
         },
         {
-            "title": "Telegram links",
+            "title": "Message links",
             "detail": "Every outbound link must be sent as a titled hyperlink, never as a bare full URL.",
             "tag": "Required",
         },

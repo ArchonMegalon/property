@@ -21,7 +21,6 @@ ENV_FILES = [
     ROOT / ".env",
     Path("/app/.env"),
     Path("/config/.env"),
-    Path("/docker/chummercomplete/chummer.run-services/.env"),
 ]
 
 

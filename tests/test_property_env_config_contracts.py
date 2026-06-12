@@ -10,10 +10,12 @@ def test_env_example_lists_flagship_property_provider_switches() -> None:
     env = (ROOT / ".env.example").read_text(encoding="utf-8")
 
     for required in (
-        "PROPERTYQUARRY_NEURONWRITER_ENABLED=1",
-        "PROPERTYQUARRY_NEURONWRITER_REQUIRED=1",
+        "PROPERTYQUARRY_NEURONWRITER_ENABLED=0",
+        "PROPERTYQUARRY_NEURONWRITER_REQUIRED=0",
+        "PROPERTYQUARRY_NEURONWRITER_DOSSIER_MODE=public_only",
         "NEURONWRITER_API_KEY=",
         "PROPERTYQUARRY_DADAN_ENABLED=0",
+        "PROPERTYQUARRY_DADAN_WEBHOOK_ALLOW_BASIC_AUTH=0",
         "DADAN_API_KEY=",
         "DADAN_WEBHOOK_SECRET=",
         "MATTERPORT_API_KEY=",
@@ -24,6 +26,8 @@ def test_env_example_lists_flagship_property_provider_switches() -> None:
         "PROPERTYQUARRY_3DVISTA_LIVE_SMOKE=0",
         "MAGICFIT_EMAIL=",
         "MAGICFIT_PASSWORD=",
+        "PROPERTYQUARRY_MAGICFIT_EMAIL=",
+        "PROPERTYQUARRY_MAGICFIT_PASSWORD=",
         "PROPERTYQUARRY_MAGICFIT_LIVE_SMOKE=0",
         "ONEMIN_AI_API_KEY=",
         "PROPERTYQUARRY_ONEMIN_LIVE_SMOKE=0",

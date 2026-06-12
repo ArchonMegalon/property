@@ -60,8 +60,29 @@ def test_propertyquarry_magicfit_renderer_fails_fast_on_credit_blocker() -> None
     assert "magicfit_not_enough_credits" in render_script
     assert "Not enough credits" not in render_script
     assert "not enough credits" in render_script
+    assert "/docker/chummercomplete" not in render_script
+    assert "CHUMMER_EA_MAGICFIT" not in render_script
+    assert "PROPERTYQUARRY_MAGICFIT_EMAIL" in render_script
+    assert "PROPERTYQUARRY_MAGICFIT_PASSWORD" in render_script
     assert "MAGICFIT_DEBUG_DIR" in render_script
     assert "write_debug_snapshot(page" in render_script
+
+
+def test_propertyquarry_magicfit_helpers_do_not_read_chummer_credentials() -> None:
+    helper_paths = [
+        ROOT / "scripts" / "render_magicfit_property_flythrough.py",
+        ROOT / "scripts" / "diagnose_magicfit_video_ui.py",
+        ROOT / "scripts" / "inspect_magicfit_session_assets.py",
+        ROOT / "scripts" / "diagnose_magicfit_extend_ui.py",
+        ROOT / "scripts" / "magicfit_render_propertyquarry_promo.cjs",
+        ROOT / "scripts" / "materialize_magicfit_provider_completion.py",
+        ROOT / "scripts" / "verify_magicfit_provider.py",
+        ROOT / "scripts" / "render_onemin_property_i2v_segment.py",
+    ]
+    for path in helper_paths:
+        body = path.read_text(encoding="utf-8")
+        assert "CHUMMER_EA_MAGICFIT" not in body, str(path)
+        assert "chummer.run-services/.env" not in body, str(path)
 
 
 def test_propertyquarry_release_gates_include_magicfit_promo_contract() -> None:

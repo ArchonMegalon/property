@@ -264,7 +264,8 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert memo_plain.status_code == 200
     assert "Morning memo digest" in memo_plain.text
     assert "Support closure grounding" in memo_plain.text
-    assert "/app/channel-actions/" in memo_plain.text
+    assert "use the titled button." in memo_plain.text
+    assert "/app/channel-actions/" not in memo_plain.text
 
     webhook = client.post(
         "/app/api/webhooks",
@@ -753,8 +754,8 @@ def test_signal_ingest_property_alert_sends_telegram_dossier_document(monkeypatc
     assert observed["document_ref"] == str(dossier_path)
     assert "PropertyQuarry dossier" in str(observed["document_caption"])
     notification_neuronwriter = dict(result.get("notification_neuronwriter") or {})
-    assert notification_neuronwriter["status"] == "disabled"
-    assert notification_neuronwriter["mode"] == "public_safe"
+    assert notification_neuronwriter["status"] == "blocked"
+    assert notification_neuronwriter["mode"] == "private_packet_guard"
 
 
 def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(monkeypatch, tmp_path: Path) -> None:
@@ -2287,7 +2288,8 @@ def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> No
     )
 
     assert result["status"] == "sent"
-    assert dict(result["notification_neuronwriter"])["mode"] == "public_safe"
+    assert dict(result["notification_neuronwriter"])["mode"] == "private_packet_guard"
+    assert dict(result["notification_neuronwriter"])["status"] == "blocked"
     assert observed["review_url"] == "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/test-token"
     assert observed["property_url"] == "https://www.immobilienscout24.at/expose/telegram-test-property-dossier"
     sent_events = product_service.build_product_service(client.app.state.container).list_office_events(
@@ -2298,8 +2300,8 @@ def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> No
     )
     assert sent_events
     notification_neuronwriter = dict(dict(sent_events[0].get("payload") or {}).get("notification_neuronwriter") or {})
-    assert notification_neuronwriter["status"] == "disabled"
-    assert notification_neuronwriter["mode"] == "public_safe"
+    assert notification_neuronwriter["status"] == "blocked"
+    assert notification_neuronwriter["mode"] == "private_packet_guard"
 
 
 def test_poppy_provider_operator_routes_verify_and_list(monkeypatch) -> None:
@@ -2423,7 +2425,9 @@ def test_property_scout_hit_email_falls_back_to_google_gmail_on_unverified_sende
     assert result["status"] == "sent"
     assert result["message_id"] == "gmail-message-1"
     assert observed_gmail["recipient_email"] == "tibor.girschele@gmail.com"
-    assert "Dossier: https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/test-token-gmail" in str(observed_gmail["body_text"])
+    gmail_body = str(observed_gmail["body_text"])
+    assert "Action: open the titled dossier button." in gmail_body
+    assert "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/test-token-gmail" not in gmail_body
 
 
 def test_signal_ingest_property_alert_sends_workspace_review_link_for_cf_email_principal(monkeypatch) -> None:
@@ -2522,7 +2526,7 @@ def test_property_alert_handoff_page_compacts_unavailable_360_state() -> None:
     assert handoff_page.status_code == 200
     assert 'class="object-media-grid is-compact"' in handoff_page.text
     assert "360 unavailable" in handoff_page.text
-    assert "OODA summary" in handoff_page.text
+    assert "Decision summary" in handoff_page.text
 
 
 def test_signal_ingest_willhaben_property_alert_review_uses_personal_fit_priority(monkeypatch) -> None:
@@ -3141,11 +3145,12 @@ def test_property_scout_floorplan_extractor_materializes_cooperative_download_zi
     html = '<a href="/download?id=42">Wohnungsunterlagen herunterladen</a>'
     source_url = "https://www.gesiba.at/immobilien/wohnungen/objekt?objektnummer=01000103511"
 
-    assert product_service._property_scout_extract_floorplan_urls(
+    direct_urls = product_service._property_scout_extract_floorplan_urls(
         source_url=source_url,
         html=html,
         resolve_archives=False,
-    ) == ()
+    )
+    assert direct_urls == ()
     urls = product_service._property_scout_extract_floorplan_urls(
         source_url=source_url,
         html=html,
@@ -3174,11 +3179,12 @@ def test_property_scout_floorplan_extractor_materializes_frieden_direct_pdf_docu
     monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", "https://propertyquarry.test")
     html = '<a href="/immobiliensuche/59442/plan.pdf">PDF</a>'
 
-    assert product_service._property_scout_extract_floorplan_urls(
+    direct_urls = product_service._property_scout_extract_floorplan_urls(
         source_url=source_url,
         html=html,
         resolve_archives=False,
-    ) == ()
+    )
+    assert direct_urls == (pdf_url,)
     urls = product_service._property_scout_extract_floorplan_urls(
         source_url=source_url,
         html=html,
@@ -3361,6 +3367,7 @@ def test_property_scout_floorplan_extractor_materializes_justimmo_plan_pdf(
 
     assert len(urls) == 1
     assert urls[0].endswith("/floorplan-01-w9uz8ocykgd6fa6iqqee9x.pdf")
+    assert pdf_url not in urls
     _assert_public_floorplan_asset(urls[0], root=tmp_path, expected_payload=floorplan_payload)
 
 
@@ -6051,7 +6058,8 @@ def test_property_alert_review_handoff_page_renders_research_packet() -> None:
     assert "https://myexternalbrain.com/tours/watch-fit-1" in page.text
     assert "https://www.immobilienscout24.at/expose/watch-fit-1" in page.text
     assert "NeuronWriter" in page.text
-    assert "public_safe" in page.text
+    assert "private_packet_guard" in page.text
+    assert "public_safe" not in page.text
 
 
 def test_property_scout_feedback_buttons_include_reason_suggestions(monkeypatch) -> None:
@@ -6144,7 +6152,7 @@ def test_property_scout_feedback_buttons_include_reason_suggestions(monkeypatch)
     monkeypatch.setattr(
         product_service,
         "send_telegram_message_for_principal",
-        lambda tool_runtime, *, principal_id, text, inline_buttons=None: observed_telegram.update({"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons}) or _TelegramReceipt(),
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None: observed_telegram.update({"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons, "url_buttons": url_buttons}) or _TelegramReceipt(),
     )
     response = client.post("/app/api/signals/property/scout")
     assert response.status_code == 200
@@ -6447,7 +6455,7 @@ def test_property_alert_preference_scoring_flows_through_queue_and_telegram(monk
     monkeypatch.setattr(
         product_service,
         "send_telegram_message_for_principal",
-        lambda tool_runtime, *, principal_id, text, inline_buttons=None: observed_telegram.update({"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons}) or _TelegramReceipt(),
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None: observed_telegram.update({"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons, "url_buttons": url_buttons}) or _TelegramReceipt(),
     )
 
     signal = client.post(
@@ -6474,7 +6482,8 @@ def test_property_alert_preference_scoring_flows_through_queue_and_telegram(monk
         },
     )
     assert signal.status_code == 200
-    assert "Top candidate: Personal fit 96/100" in str(observed_telegram["text"])
+    assert "Personal fit 96/100" in str(observed_telegram["text"])
+    assert "Top candidate: Personal fit 96/100" not in str(observed_telegram["text"])
     assert "high-fit-telegram-1" in str(observed_telegram["text"])
 
     queue = client.get("/app/api/queue")
@@ -14980,7 +14989,9 @@ def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_t
     assert body["synced_total"] == 1
     assert observed_email["recipient_email"] == "tibor.girschele@gmail.com"
     assert observed_email["binding_id"] == "google-binding-elisabeth"
-    assert "google-sync-apartment-777" in observed_email["body_text"]
+    google_body = str(observed_email["body_text"])
+    assert "Open the titled review button" in google_body
+    assert "google-sync-apartment-777" not in google_body
     assert observed_sync_kwargs["account_email_filter"] == "elisabeth.girschele@gmail.com"
     assert observed_sync_kwargs["gmail_query"] == (
         "from:("
@@ -15491,7 +15502,8 @@ def test_google_property_sync_reranks_digest_using_learned_feedback_conflicts(mo
     primary = next(item for item in created if item["payload"]["source_ref"] == "gmail-thread:elisabeth.girschele@gmail.com:feedback-rank-1")
     assert primary["payload"]["property_url"].endswith("good-flat-2")
     if sent:
-        assert "good-flat-2" in sent[0]["kwargs"]["text"]
+        assert "Good flat" in sent[0]["kwargs"]["text"]
+        assert "good-flat-2" not in sent[0]["kwargs"]["text"]
         assert "conflict-flat-1" not in sent[0]["kwargs"]["text"]
 
 
@@ -17442,7 +17454,7 @@ def test_support_fix_verification_tracks_request_receipt_and_confirmation() -> N
     memo_plain = client.get("/app/api/channel-loop/memo/plain")
     assert memo_plain.status_code == 200
     assert "Confirm the fix reached you" in memo_plain.text
-    assert "/app/channel-actions/" in memo_plain.text
+    assert "/app/channel-actions/" not in memo_plain.text
 
     opened_delivery = client.get(verification["delivery_url"], follow_redirects=False)
     assert opened_delivery.status_code == 303
@@ -17589,8 +17601,8 @@ def test_channel_loop_surfaces_memo_delivery_blocker_fix_action() -> None:
     assert memo_plain.status_code == 200
     assert "Fix memo delivery blocker" in memo_plain.text
     assert "Domain not verified" in memo_plain.text
-    assert "/app/settings/support" in memo_plain.text
-    assert "Open support:" in memo_plain.text
+    assert "/app/settings/support" not in memo_plain.text
+    assert "Open support diagnostics: use the titled button." in memo_plain.text
     assert "Open: http://testserver/app/settings/support" not in memo_plain.text
 
 
@@ -17615,9 +17627,10 @@ def test_channel_digest_delivery_uses_public_host_fallback(monkeypatch) -> None:
     )
     assert delivery.status_code == 200
     delivery_body = delivery.json()
-    assert "https://public.example.com/channel-loop/deliveries/" in delivery_body["plain_text"]
-    assert "https://public.example.com/workspace-access/" in delivery_body["plain_text"]
-    assert "return_to=/app/" in delivery_body["plain_text"]
+    assert "secure-delivery button" in delivery_body["plain_text"]
+    assert "https://public.example.com/channel-loop/deliveries/" not in delivery_body["plain_text"]
+    assert "https://public.example.com/workspace-access/" not in delivery_body["plain_text"]
+    assert "return_to=/app/" not in delivery_body["plain_text"]
     assert "/app/api/" not in delivery_body["plain_text"]
 
 
@@ -18078,7 +18091,8 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert delivery_body["delivery_url"].startswith("/channel-loop/deliveries/")
     assert delivery_body["open_url"] == "/app/channel-loop/memo"
     assert "Morning memo digest" in delivery_body["plain_text"]
-    assert "Open digest:" in delivery_body["plain_text"]
+    assert "secure-delivery button" in delivery_body["plain_text"]
+    assert "Open digest:" not in delivery_body["plain_text"]
 
     opened_delivery = client.get(delivery_body["delivery_url"], follow_redirects=False)
     assert opened_delivery.status_code == 303
@@ -18648,7 +18662,7 @@ def test_magicfit_flythrough_duration_gate_rejects_short_multi_room_clip() -> No
     assert ok is False
     assert reason.startswith("flythrough_too_short:")
     assert actual_seconds == pytest.approx(5.088)
-    assert required_seconds == pytest.approx(60.0)
+    assert required_seconds == pytest.approx(70.0)
 
 
 def test_magicfit_flythrough_duration_gate_rejects_missing_room_coverage() -> None:
@@ -18668,7 +18682,7 @@ def test_magicfit_flythrough_duration_gate_rejects_missing_room_coverage() -> No
     assert ok is False
     assert reason == "flythrough_route_coverage_proof_missing"
     assert actual_seconds == pytest.approx(120.0)
-    assert required_seconds == pytest.approx(60.0)
+    assert required_seconds == pytest.approx(70.0)
 
 
 def test_magicfit_flythrough_duration_gate_rejects_proof_without_room_labels() -> None:
@@ -18689,7 +18703,7 @@ def test_magicfit_flythrough_duration_gate_rejects_proof_without_room_labels() -
     assert ok is False
     assert reason == "flythrough_route_coverage_unverified"
     assert actual_seconds == pytest.approx(120.0)
-    assert required_seconds == pytest.approx(60.0)
+    assert required_seconds == pytest.approx(70.0)
 
 
 def test_magicfit_flythrough_duration_gate_accepts_all_room_coverage() -> None:
@@ -18717,7 +18731,7 @@ def test_magicfit_flythrough_duration_gate_accepts_all_room_coverage() -> None:
     assert ok is True
     assert reason == ""
     assert actual_seconds == pytest.approx(120.0)
-    assert required_seconds == pytest.approx(60.0)
+    assert required_seconds == pytest.approx(70.0)
 
 
 def test_flythrough_gate_rejects_unverified_duration() -> None:
@@ -18736,7 +18750,7 @@ def test_flythrough_gate_rejects_unverified_duration() -> None:
     assert ok is False
     assert reason == "flythrough_duration_unverified"
     assert actual_seconds == pytest.approx(0.0)
-    assert required_seconds >= 90.0
+    assert required_seconds >= 70.0
 
 
 def test_pdf_appendix_exit_gate_rejects_missing_hero_poster(tmp_path: Path) -> None:
@@ -19581,12 +19595,13 @@ def test_magicfit_visit_plan_counts_functional_route_stops_not_just_listing_room
         },
     )
 
-    assert room_count == 6
+    assert room_count == 7
     assert route_labels == [
         "entry/hall",
         "storage room",
         "bath/WC",
         "living kitchen",
+        "living room",
         "bedroom",
         "balcony/terrace",
     ]
@@ -19596,4 +19611,4 @@ def test_magicfit_visit_plan_counts_functional_route_stops_not_just_listing_room
             "room_count": 2,
             "description": "2 Zimmer inklusive Wohnküche, 1 Vorraum, 1 Bad mit WC, 1 Abstellraum, 1 Balkon.",
         },
-    ) == 60.0
+    ) == 70.0

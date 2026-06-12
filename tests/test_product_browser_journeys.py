@@ -252,7 +252,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Match" in response.text
     assert "Price" in response.text
     assert "Layout" in response.text
-    assert "OODA" in response.text
+    assert "Quick read" in response.text
     assert "Risk and investment" in response.text
     assert "360 ready" in response.text
     assert "Berlin" in response.text

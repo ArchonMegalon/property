@@ -461,7 +461,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Manual clearance required" in search.text
     assert "How this result was prepared" in search.text
     assert 'data-pw-artifact-receipts' in search.text
-    assert "Artifact receipts" in search.text
+    assert "Send checklist" in search.text
+    assert "Artifact receipts" not in search.text
     assert "What must be true before a packet is sent" in search.text
     assert "Fallback cube viewers are forbidden" in search.text
     assert "Every outbound link must be sent as a titled hyperlink" in search.text
@@ -481,10 +482,14 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Market warnings" in search.text
     assert "Timeline" in search.text
     assert "Source quality" in search.text
-    assert "Delivery proof" in search.text
-    assert "NeuronWriter editorial pass" in search.text
-    assert "Telegram links" in search.text
-    assert "Generated asset receipts" in search.text
+    assert "Delivery status" in search.text
+    assert "Delivery proof" not in search.text
+    assert "Writing quality check" in search.text
+    assert "Message links" in search.text
+    assert "Generated files" in search.text
+    assert "NeuronWriter editorial pass" not in search.text
+    assert "Telegram links" not in search.text
+    assert "Generated asset receipts" not in search.text
     assert "repair check queued" in search.text
     assert "floorplan miss reviewed" in search.text
     assert "Repair: ea_one_manager" in search.text
@@ -553,9 +558,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "360 review first" not in packet.text
     assert 'data-object-media-stage' in packet.text
     assert 'title="Property 360 review"' in packet.text
-    assert packet.text.index("data-object-media-stage") < packet.text.index("OODA summary")
+    assert packet.text.index("data-object-media-stage") < packet.text.index("Decision summary")
     assert "Live 360 ready" in packet.text
-    assert "OODA summary" in packet.text
+    assert "Decision summary" in packet.text
     assert "Why this was selected" in packet.text
     assert "Nearest supermarket" in packet.text
     assert "https://www.google.com/maps/dir/" not in packet.text
@@ -710,6 +715,64 @@ def test_propertyquarry_user_facing_copy_avoids_hosted_review_jargon() -> None:
         body = path.read_text(encoding="utf-8")
         assert "Hosted review" not in body, str(path)
         assert "hosted-review" not in body, str(path)
+
+
+def test_propertyquarry_customer_surfaces_avoid_operator_jargon() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    checked_paths = [
+        repo_root / "ea/app/templates/app/property_decision_workbench.html",
+        repo_root / "ea/app/templates/app/object_detail.html",
+        repo_root / "ea/app/api/routes/landing.py",
+        repo_root / "ea/app/api/routes/landing_view_models.py",
+        repo_root / "ea/app/api/routes/landing_objects.py",
+    ]
+    forbidden = (
+        "Artifact receipts",
+        "Delivery proof",
+        "NeuronWriter editorial pass",
+        "Telegram links",
+        "Generated asset receipts",
+        "Missing-fact OODA queued.",
+        "Open the packet to inspect OODA.",
+        '"OODA"',
+        ">OODA<",
+    )
+
+    for path in checked_paths:
+        body = path.read_text(encoding="utf-8")
+        for phrase in forbidden:
+            assert phrase not in body, f"{phrase!r} leaked in {path}"
+
+
+def test_propertyquarry_project_shape_docs_define_flagship_loop_and_design_gate() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    source_map = repo_root / "docs/PROPERTYQUARRY_SOURCE_OF_TRUTH_MAP.md"
+    tone_guide = repo_root / "docs/PROPERTYQUARRY_TONE_GUIDE.md"
+    dossier_art = repo_root / "docs/PREMIUM_DOSSIER_ART_DIRECTION.md"
+    design_gate = repo_root / "docs/PROPERTYQUARRY_DESIGN_SYSTEM_GATE.md"
+    for path in (source_map, tone_guide, dossier_art, design_gate):
+        assert path.exists(), str(path)
+        assert path.read_text(encoding="utf-8").strip(), str(path)
+
+    source_body = source_map.read_text(encoding="utf-8")
+    assert "Brief -> Search -> Compare -> Dossier -> Tour -> Decide -> Explain why -> Learn" in source_body
+    assert "property_decision_ledger" in source_body
+    assert "property_evidence_graph" in source_body
+    assert "NeuronWriter" in source_body
+    assert "private owner/family/agent packets by default" in source_body
+
+    tone_body = tone_guide.read_text(encoding="utf-8")
+    assert "raw URLs in message text" in tone_body
+    assert "OODA summary" in tone_body
+    assert "Decision summary" in tone_body
+
+    dossier_body = dossier_art.read_text(encoding="utf-8")
+    assert "cover image or poster visible on page one" in dossier_body
+    assert "no artifact status tables" in dossier_body
+
+    design_body = design_gate.read_text(encoding="utf-8")
+    assert "no plaintext URLs in Telegram or email body text" in design_body
+    assert "show suppressed-candidate summaries" in design_body
 
 
 def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(monkeypatch) -> None:

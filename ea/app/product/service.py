@@ -2351,7 +2351,7 @@ def _property_scout_listing_urls_for_source(
         fetch_timeout_seconds = 60.0
     cache_key = _property_source_listing_cache_key(source_url=normalized_url, source_spec=source_spec)
     if not cache_key:
-        html = _property_scout_fetch_html(normalized_url, timeout_seconds=fetch_timeout_seconds)
+        html = _property_scout_fetch_html_compat(normalized_url, timeout_seconds=fetch_timeout_seconds)
         listing_urls = _property_scout_extract_listing_urls(source_url=normalized_url, html=html, source_spec=source_spec)
         return listing_urls, {"status": "disabled", "cache_key": "", "listing_total": len(listing_urls)}
     if not force_refresh:
@@ -2359,7 +2359,7 @@ def _property_scout_listing_urls_for_source(
         if cached_urls:
             return cached_urls, cached_state
     try:
-        html = _property_scout_fetch_html(normalized_url, timeout_seconds=fetch_timeout_seconds)
+        html = _property_scout_fetch_html_compat(normalized_url, timeout_seconds=fetch_timeout_seconds)
         listing_urls = _property_scout_extract_listing_urls(source_url=normalized_url, html=html, source_spec=source_spec)
     except Exception:
         cached_urls, cached_state = _property_source_listing_cache_get(cache_key, allow_stale=True)
@@ -2448,6 +2448,15 @@ def _property_scout_fetch_html(url: str, *, timeout_seconds: float = 60.0) -> st
     with urllib.request.urlopen(request, timeout=float(timeout_seconds)) as response:
         content = response.read()
     return content.decode("utf-8", "ignore")
+
+
+def _property_scout_fetch_html_compat(url: str, *, timeout_seconds: float = 60.0) -> str:
+    try:
+        return _property_scout_fetch_html(url, timeout_seconds=timeout_seconds)
+    except TypeError as exc:
+        if "timeout_seconds" not in str(exc):
+            raise
+        return _property_scout_fetch_html(url)
 
 
 def _property_scout_is_supported_listing_url(url: str) -> bool:
@@ -2737,13 +2746,13 @@ def _property_scout_is_floorplan_archive_candidate_url(*, url: str, context: str
     )
     if direct_provider_floorplan_pdf:
         return True
+    if urllib.parse.unquote(parsed.path or "").lower().endswith(".pdf") and any(
+        marker in f"{combined} {lowered_context}" for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS
+    ):
+        return True
     if not any(marker in host for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS):
         return False
     if any(marker in combined for marker in ("zip", "alldoc", "download", "dokument", "beilage", "anlage", "unterlag", "gutachten")):
-        return True
-    if urllib.parse.unquote(parsed.path or "").lower().endswith(".pdf") and any(
-        marker in combined for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS
-    ):
         return True
     return any(marker in lowered_context for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_CONTEXT_MARKERS)
 
@@ -2821,7 +2830,10 @@ def _property_scout_extract_floorplan_urls_from_archive(
         )
         trusted_floorplan_document_context = any(marker in lowered_context for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_CONTEXT_MARKERS) or any(
             marker in parsed_host for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS
-        ) or direct_provider_floorplan_pdf
+        ) or direct_provider_floorplan_pdf or (
+            archive_path.endswith(".pdf")
+            and any(marker in f"{archive_combined} {lowered_context}" for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS)
+        )
         if not trusted_floorplan_document_context:
             return ()
         slug = _property_scout_public_asset_slug(source_url=source_url, archive_url=archive_url)
@@ -3279,6 +3291,7 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
                         seen.add(archived_floorplan_url)
                         floorplan_urls.append(archived_floorplan_url)
                 if archived_urls:
+                    seen.add(normalized)
                     continue
         if resolve_archives and not is_direct_floorplan_asset and _property_scout_is_floorplan_archive_candidate_url(url=normalized, context=context):
             if normalized not in seen_archives:
@@ -3291,6 +3304,7 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
                     if archived_floorplan_url not in seen:
                         seen.add(archived_floorplan_url)
                         floorplan_urls.append(archived_floorplan_url)
+                seen.add(normalized)
             continue
         if not is_direct_floorplan_asset:
             continue
@@ -4551,6 +4565,15 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
         "source_virtual_tour_url": source_virtual_tour_url,
         "panorama_source": urllib.parse.urlparse(source_virtual_tour_url).netloc.lower() if source_virtual_tour_url else "",
     }
+
+
+def _property_scout_page_preview_compat(property_url: str, *, prefer_fast: bool = False) -> dict[str, object]:
+    try:
+        return _property_scout_page_preview(property_url, prefer_fast=prefer_fast)
+    except TypeError as exc:
+        if "prefer_fast" not in str(exc):
+            raise
+        return _property_scout_page_preview(property_url)
 
 
 def _property_research_distance_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> int:
@@ -9704,6 +9727,8 @@ def _property_alert_review_telegram_text(
             fit_summary = re.sub(r"Personal fit \d+/100", score_text, fit_summary)
         else:
             fit_summary = score_text
+    if fit_summary:
+        extra_lines.append(fit_summary)
     next_action = ""
     if str(property_url or "").strip():
         pass
@@ -9718,7 +9743,7 @@ def _property_alert_review_telegram_text(
         listing_title = str(top.get('listing_title') or '').strip()
         if listing_title and listing_title != headline:
             extra_lines.append(f"Top listing title: {compact_text(listing_title, fallback='', limit=140)}")
-        if top_summary:
+        if top_summary and top_summary != fit_summary:
             extra_lines.append(f"Top candidate: {top_summary}")
         if compare_reason:
             extra_lines.append(f"Why it won: {compact_text(compare_reason, fallback='', limit=220)}")
@@ -12309,7 +12334,7 @@ def _magicfit_property_room_visit_plan(
         ),
         (
             "hall",
-            r"\b(?:hallway|hall|foyer|flur|entry|entryway|eingang|vorraum|vorr(?:a|ä)ume)\b",
+            r"\b(?:hallway|hall|foyer|flur|entry|entryway|eingang|vorraum|vorr(?:a|ä)um|vorr(?:a|ä)ume)\b",
             "entry/hall",
             ("flur", "hall", "foyer", "eingang", "entrance", "entry", "egress", "vorraum"),
         ),
@@ -12377,11 +12402,20 @@ def _magicfit_property_room_visit_plan(
                 flags=re.IGNORECASE,
             )
         )
-        if bonus.get("toilet") and (not bonus.get("bathroom") or separate_toilet_signal):
+        bathroom_and_wc_listed_separately = bool(
+            bonus.get("bathroom")
+            and bonus.get("toilet")
+            and re.search(
+                r"\b(?:bad|bathroom|badezimmer)\s*[,;/+&]\s*(?:w\.?c\.?|wc|toilette|toilet)\b",
+                room_signal_text,
+                flags=re.IGNORECASE,
+            )
+        )
+        if bonus.get("toilet") and (not bonus.get("bathroom") or separate_toilet_signal or bathroom_and_wc_listed_separately):
             _add_route_label(room_visit_labels, "toilet")
         if bonus.get("kitchen"):
             _add_route_label(room_visit_labels, "living kitchen")
-        if base_room_count >= 1 and not bonus.get("kitchen"):
+        if base_room_count >= 1:
             _add_route_label(room_visit_labels, "living room")
         if base_room_count >= 2:
             _add_route_label(room_visit_labels, "bedroom")
@@ -27272,7 +27306,7 @@ class ProductService:
                 )
                 preview: dict[str, object]
                 try:
-                    preview = _property_scout_page_preview(property_url, prefer_fast=True)
+                    preview = _property_scout_page_preview_compat(property_url, prefer_fast=True)
                 except Exception:
                     preview = {
                         "listing_id": property_url,
@@ -27328,7 +27362,7 @@ class ProductService:
                 )
                 if min_area_m2 > 0.0 and area_filter_status == "fail":
                     try:
-                        detailed_area_preview = _property_scout_page_preview(property_url)
+                        detailed_area_preview = _property_scout_page_preview_compat(property_url)
                         if isinstance(detailed_area_preview, dict) and detailed_area_preview:
                             preview = detailed_area_preview
                             preview_facts = (
@@ -27423,7 +27457,7 @@ class ProductService:
                 )
                 if enforce_floorplan_filter and not has_preview_floorplan:
                     try:
-                        detailed_floorplan_preview = _property_scout_page_preview(property_url)
+                        detailed_floorplan_preview = _property_scout_page_preview_compat(property_url)
                         if isinstance(detailed_floorplan_preview, dict) and detailed_floorplan_preview:
                             preview = detailed_floorplan_preview
                             preview_facts = (
@@ -27610,7 +27644,7 @@ class ProductService:
                 }
                 if str(preview.get("title") or "").strip() == property_url:
                     try:
-                        detailed_preview = _property_scout_page_preview(property_url)
+                        detailed_preview = _property_scout_page_preview_compat(property_url)
                         if isinstance(detailed_preview, dict) and detailed_preview:
                             preview = detailed_preview
                     except Exception:
@@ -28223,7 +28257,7 @@ class ProductService:
                 if is_good_fit:
                     high_fit_for_source += 1
                     high_fit_total += 1
-                elif is_watch_fit and (
+                elif is_watch_fit and not bool(row.get("fallback_shortlist")) and (
                     top_watch_candidate is None or assessment_fit_score > float(top_watch_candidate.get("fit_score") or 0.0)
                 ):
                     top_watch_candidate = {
@@ -28367,6 +28401,7 @@ class ProductService:
                         "title": title,
                         "summary": summary,
                         "fit_score": fit_score,
+                        "assessment_fit_score": assessment_fit_score,
                         "fit_summary": _property_alert_fit_summary(assessment),
                         "recommendation": str(assessment.get("recommendation") or "").strip(),
                         "source_platform": str(source_spec.get("platform") or "").strip().lower(),
@@ -28479,7 +28514,17 @@ class ProductService:
                             "preference_person_id": source_preference_person_id,
                             "review_url": str(top_watch_candidate.get("review_url") or "").strip(),
                             "tour_result": {"status": "skipped", "tour_url": "", "blocked_reason": ""},
-                            "candidate_properties": candidate_properties,
+                            "candidate_properties": (
+                                {
+                                    "property_url": str(top_watch_candidate.get("property_url") or "").strip(),
+                                    "listing_title": str(top_watch_candidate.get("title") or "").strip(),
+                                    "fit_score": float(top_watch_candidate.get("fit_score") or 0.0),
+                                    "fit_summary": _property_alert_fit_summary(dict(top_watch_candidate.get("assessment") or {})),
+                                    "assessment": dict(top_watch_candidate.get("assessment") or {}),
+                                    "summary": str(top_watch_candidate.get("summary") or "").strip(),
+                                    "source_label": source_label,
+                                },
+                            ),
                         },
                     }
                 )
@@ -31944,7 +31989,7 @@ class ProductService:
                     property_url=property_url,
                     personal_fit_assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
                     candidate_properties=candidate_properties,
-                    score_override=float(fit_score or 0.0),
+                    score_override=_property_alert_fit_score(dict(assessment or {})) if isinstance(assessment, dict) else float(fit_score or 0.0),
                     tour_url=tour_url,
                     review_url=review_url,
                     preference_person_id=preference_person_id,
@@ -38867,19 +38912,19 @@ class ProductService:
             if detail:
                 lines.append(f"   {detail}")
             if action_label and action_href:
-                lines.append(f"   {action_label}: {action_href}")
+                lines.append(f"   {action_label}: use the titled button.")
                 wrote_action = True
             if secondary_label and secondary_href:
-                lines.append(f"   {secondary_label}: {secondary_href}")
+                lines.append(f"   {secondary_label}: use the titled button.")
                 wrote_action = True
             if tertiary_label and tertiary_href:
-                lines.append(f"   {tertiary_label}: {tertiary_href}")
+                lines.append(f"   {tertiary_label}: use the titled button.")
                 wrote_action = True
             if quaternary_label and quaternary_href:
-                lines.append(f"   {quaternary_label}: {quaternary_href}")
+                lines.append(f"   {quaternary_label}: use the titled button.")
                 wrote_action = True
             if not wrote_action and href:
-                lines.append(f"   Open: {href}")
+                lines.append("   Open: use the titled item link.")
             lines.append("")
         return "\n".join(line for line in lines if line or (lines and line == ""))
 

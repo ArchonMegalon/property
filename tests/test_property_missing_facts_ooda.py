@@ -58,4 +58,4 @@ def test_packet_missing_rows_surface_missing_fact_ooda() -> None:
 
     rows = _property_packet_missing_rows(facts=facts, preferences={})
 
-    assert any(row["title"] == "Rooms" and row["tag"] == "OODA" for row in rows)
+    assert any(row["title"] == "Rooms" and row["tag"] == "Research" for row in rows)

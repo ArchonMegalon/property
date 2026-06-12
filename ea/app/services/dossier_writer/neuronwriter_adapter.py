@@ -19,7 +19,7 @@ def neuronwriter_enabled() -> bool:
         return False
     if explicit in {"1", "true", "yes", "on", "enabled", "always"}:
         return True
-    return bool(neuronwriter_api_key())
+    return False
 
 
 def neuronwriter_required() -> bool:
@@ -32,7 +32,7 @@ def neuronwriter_api_key() -> str:
 
 
 def neuronwriter_allowed_for_draft(draft: DossierNarrativeDraft) -> tuple[bool, str]:
-    mode = str(os.getenv("PROPERTYQUARRY_NEURONWRITER_DOSSIER_MODE") or "public_safe").strip().lower()
+    mode = str(os.getenv("PROPERTYQUARRY_NEURONWRITER_DOSSIER_MODE") or "public_only").strip().lower()
     if mode in {"0", "off", "disabled", "none", "no_external"}:
         return False, "neuronwriter_dossier_mode_disabled"
     if draft.packet_kind in PUBLIC_PACKET_KINDS:

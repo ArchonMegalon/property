@@ -2320,7 +2320,7 @@
               </div>
             </details>
             <details class="pqx-card" data-pw-delivery-proof>
-              <summary><strong>Delivery proof</strong><span class="pqx-note">PDFs, tours, messages, and writing pass status.</span></summary>
+              <summary><strong>Delivery status</strong><span class="pqx-note">PDFs, tours, messages, and writing status.</span></summary>
               <div class="pqx-event-list">
                 {% for row in workbench.get('delivery_proof_rows') or [] %}
                 <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
@@ -2328,7 +2328,7 @@
               </div>
             </details>
             <details class="pqx-card" data-pw-artifact-receipts>
-              <summary><strong>Artifact receipts</strong><span class="pqx-note">What must be true before a packet is sent.</span></summary>
+              <summary><strong>Send checklist</strong><span class="pqx-note">What must be true before a packet is sent.</span></summary>
               <div class="pqx-event-list">
                 {% for row in workbench.get('artifact_receipt_rows') or [] %}
                 <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>

@@ -222,7 +222,7 @@ def verify_dadan_webhook_secret(*, headers: dict[str, str], query_secret: str = 
         return "header"
     if str(query_secret or "").strip():
         raise PermissionError("dadan_webhook_query_secret_disabled")
-    if str(os.getenv("PROPERTYQUARRY_DADAN_WEBHOOK_ALLOW_BASIC_AUTH") or "1").strip().lower() in {"1", "true", "yes", "on"}:
+    if str(os.getenv("PROPERTYQUARRY_DADAN_WEBHOOK_ALLOW_BASIC_AUTH") or "0").strip().lower() in {"1", "true", "yes", "on"}:
         auth = str(headers.get("authorization") or "").strip()
         if auth.lower().startswith("basic "):
             try:

@@ -130,8 +130,8 @@ async function login(page) {
   await page.waitForTimeout(4000);
   const body = await page.locator('body').innerText({ timeout: 10000 }).catch(() => '');
   if (!/login|sign in|email|password/i.test(body)) return;
-  const email = process.env.CHUMMER_EA_MAGICFIT_EMAIL || process.env.MAGICFIT_EMAIL || '';
-  const password = process.env.CHUMMER_EA_MAGICFIT_PASSWORD || process.env.MAGICFIT_PASSWORD || '';
+  const email = process.env.PROPERTYQUARRY_MAGICFIT_EMAIL || process.env.MAGICFIT_EMAIL || '';
+  const password = process.env.PROPERTYQUARRY_MAGICFIT_PASSWORD || process.env.MAGICFIT_PASSWORD || '';
   if (!email || !password) throw new Error('MagicFit credentials are missing from env.');
   const emailField = page.locator('input[type=email], input[name*=email i], input[placeholder*=email i]').first();
   if (await emailField.count()) await emailField.fill(email);

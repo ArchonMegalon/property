@@ -8,10 +8,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 
-ROOT = Path("/docker/chummercomplete/_completion/magicfit_provider")
+ROOT = Path(os.environ.get("PROPERTYQUARRY_MAGICFIT_COMPLETION_DIR") or "/docker/property/_completion/magicfit_provider")
 GENERATED = ROOT / "generated"
 REVIEW_FRAMES = ROOT / "review_frames"
-RUN_SERVICES_ENV = Path("/docker/chummercomplete/chummer.run-services/.env")
+RUN_SERVICES_ENV = Path(os.environ.get("PROPERTYQUARRY_ENV_FILE") or "/docker/property/.env")
 
 
 def utc_now() -> str:
@@ -75,10 +75,14 @@ def get_env_or_file(name: str, default: str = "") -> str:
 
 def build_provider_verification(results: list[dict], direct_t2v_path: Path) -> dict:
     direct_t2v = summarize_video(direct_t2v_path)
-    password = get_env_or_file("CHUMMER_EA_MAGICFIT_PASSWORD")
+    password = get_env_or_file("PROPERTYQUARRY_MAGICFIT_PASSWORD") or get_env_or_file("MAGICFIT_PASSWORD")
     local_credential_present = bool(password)
-    email = get_env_or_file("CHUMMER_EA_MAGICFIT_EMAIL", "tibor.girschele@gmail.com").strip() or "tibor.girschele@gmail.com"
-    tier = get_env_or_file("CHUMMER_EA_MAGICFIT_TIER", "5").strip() or "5"
+    email = (
+        get_env_or_file("PROPERTYQUARRY_MAGICFIT_EMAIL")
+        or get_env_or_file("MAGICFIT_EMAIL")
+        or "tibor.girschele@gmail.com"
+    ).strip() or "tibor.girschele@gmail.com"
+    tier = get_env_or_file("PROPERTYQUARRY_MAGICFIT_TIER", "5").strip() or "5"
     account_user_hash = subprocess.check_output(
         ["python3", "-c", "import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:16])", email]
     ).decode("utf-8").strip()

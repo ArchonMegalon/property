@@ -1931,8 +1931,8 @@ def _property_packet_missing_rows(
             continue
         label = str(item.get("label") or item.get("field") or "Missing fact").strip()
         ooda = dict(item.get("ooda") or {}) if isinstance(item.get("ooda"), dict) else {}
-        detail = str(ooda.get("act") or item.get("evidence") or "Missing-fact OODA queued.").strip()
-        rows.append(_object_detail_row(label, detail, "OODA"))
+        detail = str(ooda.get("act") or item.get("evidence") or "Missing-fact research queued.").strip()
+        rows.append(_object_detail_row(label, detail, "Research"))
     return rows
 
 
@@ -2419,7 +2419,7 @@ def property_research_packet(
             "Best reason to act",
             str(decision_rows[0].get("detail") or fit_summary).strip()
             or "The current packet sees enough signal to keep this candidate open.",
-            "OODA",
+            "Quick read",
         ),
         _object_detail_row("Main concern", mismatch_reasons[0], "Risk")
         if mismatch_reasons
@@ -2618,7 +2618,7 @@ def property_research_packet(
             {"label": "Run", "value": str(run_id or "latest").strip() or "latest"},
             {"label": "Packet", "value": str(candidate_ref)},
         ],
-        object_ooda_title="OODA summary",
+        object_ooda_title="Decision summary",
         object_ooda_copy="Start here. Why this candidate was selected, what makes it compelling now, what still argues against it, and what the immediate neighbourhood looks like.",
         object_ooda_rows=ooda_summary_rows,
         object_sidebar_title="Packet actions",

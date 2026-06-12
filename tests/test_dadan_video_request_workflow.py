@@ -122,6 +122,19 @@ def test_dadan_recording_webhook_requires_secret_and_stores_untrusted_response(m
     assert accepted.json()["review_state"] == "pending_owner_review"
 
     basic = base64.b64encode(b"dadan:dadan-secret").decode("ascii")
+    basic_denied = client.post(
+        "/v1/integrations/dadan/webhooks/recording-submitted",
+        headers={"authorization": f"Basic {basic}"},
+        json={
+            "recordingTitle": "Family review",
+            "recordingUrl": "https://dadan.io/watch/def",
+            "requestCode": code,
+            "submittedAt": "2026-06-10T20:01:00Z",
+        },
+    )
+    assert basic_denied.status_code == 401
+
+    monkeypatch.setenv("PROPERTYQUARRY_DADAN_WEBHOOK_ALLOW_BASIC_AUTH", "1")
     basic_accepted = client.post(
         "/v1/integrations/dadan/webhooks/recording-submitted",
         headers={"authorization": f"Basic {basic}"},

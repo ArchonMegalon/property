@@ -19,7 +19,6 @@ from playwright.sync_api import sync_playwright
 ROOT = Path("/docker/property")
 ENV_FILES = [
     ROOT / ".env",
-    Path("/docker/chummercomplete/chummer.run-services/.env"),
 ]
 MAGICFIT_HOME_URL = "https://magicfit.pushowl.com/home"
 MAGICFIT_VIDEO_URL = "https://magicfit.pushowl.com/agents/generate?mode=video"
@@ -126,8 +125,8 @@ def maybe_login(page) -> None:
     if not re.search(r"login|sign in|email|password", body, re.I):
         print("magicfit: already logged in", flush=True)
         return
-    email = (os.environ.get("CHUMMER_EA_MAGICFIT_EMAIL") or os.environ.get("MAGICFIT_EMAIL") or "").strip()
-    password = (os.environ.get("CHUMMER_EA_MAGICFIT_PASSWORD") or os.environ.get("MAGICFIT_PASSWORD") or "").strip()
+    email = (os.environ.get("PROPERTYQUARRY_MAGICFIT_EMAIL") or os.environ.get("MAGICFIT_EMAIL") or "").strip()
+    password = (os.environ.get("PROPERTYQUARRY_MAGICFIT_PASSWORD") or os.environ.get("MAGICFIT_PASSWORD") or "").strip()
     if not email or not password:
         raise RuntimeError("magicfit_credentials_missing")
     email_field = page.locator("input[type=email], input[name*=email i], input[placeholder*=email i]").first

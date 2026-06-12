@@ -291,17 +291,17 @@ def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]
         packet_total = 0
     return [
         {
-            "title": "NeuronWriter editorial pass",
+            "title": "Writing quality check",
             "detail": neuronwriter_detail,
             "tag": neuronwriter_tag,
         },
         {
-            "title": "Telegram links",
+            "title": "Message links",
             "detail": "Messages render links as titled buttons or titled HTML links, so raw full URLs are not visible in chat copy.",
             "tag": "Hard gate",
         },
         {
-            "title": "Generated asset receipts",
+            "title": "Generated files",
             "detail": f"{packet_total} packet receipts, {tour_total} tour receipts, {telegram_sent} Telegram notification receipts summarized for this run.",
             "tag": "Visible proof",
         },
@@ -3448,7 +3448,7 @@ def property_workspace_payload(
                 {
                     "label": "Research",
                     "value": str(item.get("display_value") or label).strip(),
-                    "detail": str(ooda.get("act") or item.get("evidence") or "Missing-fact OODA queued.").strip(),
+                    "detail": str(ooda.get("act") or item.get("evidence") or "Missing-fact research queued.").strip(),
                 }
             )
         for risk_key, label, detail in (
@@ -3678,7 +3678,7 @@ def property_workspace_payload(
                 "fit_summary": str(candidate.get("fit_summary") or "").strip(),
                 "tour": tour_payload,
                 "ooda": {
-                    "summary": ooda_detail or (match_reasons[0] if match_reasons else "Open the packet to inspect OODA."),
+                    "summary": ooda_detail or (match_reasons[0] if match_reasons else "Open the packet to inspect the decision read."),
                     "rows": ooda_rows,
                 },
                 "risk": risk_payload,
@@ -4116,7 +4116,7 @@ def property_workspace_payload(
             "show_run_panel": run_in_progress,
             "show_shortlist_cards": False,
             "show_results_table": run_status_value in {"processed", "completed"} and bool(results_table_rows),
-            "results_table_headers": ["360", "Candidate", "Fit", "Map", "Price", "Layout", "OODA", "Review"],
+            "results_table_headers": ["360", "Candidate", "Fit", "Map", "Price", "Layout", "Quick read", "Review"],
             "results_table_rows": results_table_rows,
         },
         "shortlist": {

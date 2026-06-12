@@ -15,7 +15,6 @@ ENV_FILES = (
     Path("/docker/property/.env"),
     Path("/app/.env"),
     Path("/app/config/.env"),
-    Path("/docker/chummercomplete/chummer.run-services/.env"),
 )
 
 
@@ -41,8 +40,8 @@ def _login_if_needed(page) -> None:
     body = page.locator("body").inner_text(timeout=10_000)
     if not re.search(r"login|sign in|email|password", body, re.I):
         return
-    email = (os.environ.get("CHUMMER_EA_MAGICFIT_EMAIL") or os.environ.get("MAGICFIT_EMAIL") or "").strip()
-    password = (os.environ.get("CHUMMER_EA_MAGICFIT_PASSWORD") or os.environ.get("MAGICFIT_PASSWORD") or "").strip()
+    email = (os.environ.get("PROPERTYQUARRY_MAGICFIT_EMAIL") or os.environ.get("MAGICFIT_EMAIL") or "").strip()
+    password = (os.environ.get("PROPERTYQUARRY_MAGICFIT_PASSWORD") or os.environ.get("MAGICFIT_PASSWORD") or "").strip()
     if not email or not password:
         raise RuntimeError("magicfit_credentials_missing")
     page.locator("input[type=email], input[name*=email i], input[placeholder*=email i]").first.fill(email)

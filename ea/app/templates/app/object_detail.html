@@ -502,8 +502,8 @@
     <p class="object-copy">{{ object_summary }}</p>
     {% if object_ooda_rows %}
     <section class="object-section" style="margin-top:14px;">
-      <div class="object-kicker">OODA</div>
-      <h2>{{ object_ooda_title or 'OODA summary' }}</h2>
+      <div class="object-kicker">Quick read</div>
+      <h2>{{ object_ooda_title or 'Decision summary' }}</h2>
       {% if object_ooda_copy %}<p class="object-copy">{{ object_ooda_copy }}</p>{% endif %}
       <div class="object-list">
         {% for item in object_ooda_rows %}
