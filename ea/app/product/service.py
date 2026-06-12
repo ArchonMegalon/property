@@ -5981,6 +5981,27 @@ def _property_candidate_matches_min_area(
     return isinstance(area, float) and area >= min_area_m2
 
 
+def _property_candidate_min_area_status(
+    *,
+    min_area_m2: float,
+    property_url: str,
+    title: str = "",
+    summary: str = "",
+    property_facts: dict[str, object] | None = None,
+) -> str:
+    if min_area_m2 <= 0.0:
+        return "pass"
+    area = _property_candidate_area_sqm(
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=property_facts,
+    )
+    if not isinstance(area, float):
+        return "unknown"
+    return "pass" if area >= min_area_m2 else "fail"
+
+
 _PROPERTY_MONTH_NAME_INDEX = {
     "jan": 1,
     "january": 1,
@@ -26780,13 +26801,14 @@ class ProductService:
                         summary_updates={"filtered_property_type_total": filtered_property_type_total},
                     )
                     continue
-                if min_area_m2 > 0.0 and not _property_candidate_matches_min_area(
+                area_filter_status = _property_candidate_min_area_status(
                     min_area_m2=min_area_m2,
                     property_url=property_url,
                     title=preview_title,
                     summary=preview_summary,
                     property_facts=preview_facts,
-                ):
+                )
+                if min_area_m2 > 0.0 and area_filter_status == "fail":
                     try:
                         detailed_area_preview = _property_scout_page_preview(property_url)
                         if isinstance(detailed_area_preview, dict) and detailed_area_preview:
@@ -26812,18 +26834,26 @@ class ProductService:
                             preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
                     except Exception:
                         pass
-                if min_area_m2 > 0.0 and not _property_candidate_matches_min_area(
-                    min_area_m2=min_area_m2,
-                    property_url=property_url,
-                    title=preview_title,
-                    summary=preview_summary,
-                    property_facts=preview_facts,
-                ):
+                    area_filter_status = _property_candidate_min_area_status(
+                        min_area_m2=min_area_m2,
+                        property_url=property_url,
+                        title=preview_title,
+                        summary=preview_summary,
+                        property_facts=preview_facts,
+                    )
+                if min_area_m2 > 0.0 and area_filter_status == "fail":
+                    _remember_filter_near_miss(
+                        row={"fit_score": min_match_score},
+                        property_url=property_url,
+                        title=preview_title,
+                        summary=preview_summary,
+                        filter_key="min_area_m2",
+                    )
                     filtered_area_total += 1
                     filtered_area_for_source += 1
                     _report(
                         step="source_area_filter",
-                        message=f"Skipped candidate {ordinal} of {len(listing_urls)} below {int(min_area_m2)}/m2 or without clear area for {source_label}.",
+                        message=f"Skipped candidate {ordinal} of {len(listing_urls)} below {int(min_area_m2)}/m2 for {source_label}.",
                         status="in_progress",
                         steps_delta=0,
                         summary_updates={
@@ -26832,6 +26862,21 @@ class ProductService:
                         },
                     )
                     continue
+                if min_area_m2 > 0.0 and area_filter_status == "unknown":
+                    preview_facts["area_research_status"] = "unknown_after_provider_preview"
+                    preview_facts["min_area_m2_requested"] = int(min_area_m2) if float(min_area_m2).is_integer() else round(min_area_m2, 2)
+                    preview_facts["unknowns_json"] = list(
+                        dict.fromkeys(
+                            [
+                                *[
+                                    str(item or "").strip()
+                                    for item in list(preview_facts.get("unknowns_json") or [])
+                                    if str(item or "").strip()
+                                ],
+                                "Living area is not clear in the provider preview.",
+                            ]
+                        )
+                    )
                 if available_within_years > 0 and not _property_candidate_matches_availability_horizon(
                     available_within_years=available_within_years,
                     property_facts=preview_facts,
@@ -27068,13 +27113,14 @@ class ProductService:
                         summary_updates={"filtered_property_type_total": filtered_property_type_total},
                     )
                     continue
-                if min_area_m2 > 0.0 and not _property_candidate_matches_min_area(
+                shortlist_area_filter_status = _property_candidate_min_area_status(
                     min_area_m2=min_area_m2,
                     property_url=property_url,
                     title=detailed_title,
                     summary=detailed_summary,
                     property_facts=detailed_facts,
-                ):
+                )
+                if min_area_m2 > 0.0 and shortlist_area_filter_status == "fail":
                     _remember_filter_near_miss(
                         row=row,
                         property_url=property_url,
@@ -27086,7 +27132,7 @@ class ProductService:
                     filtered_area_for_source += 1
                     _report(
                         step="source_area_filter",
-                        message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} below {int(min_area_m2)}/m2 or without clear area for {source_label}.",
+                        message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} below {int(min_area_m2)}/m2 for {source_label}.",
                         status="in_progress",
                         steps_delta=0,
                         summary_updates={
@@ -27095,6 +27141,21 @@ class ProductService:
                         },
                     )
                     continue
+                if min_area_m2 > 0.0 and shortlist_area_filter_status == "unknown":
+                    detailed_facts["area_research_status"] = "unknown_after_detailed_provider_preview"
+                    detailed_facts["min_area_m2_requested"] = int(min_area_m2) if float(min_area_m2).is_integer() else round(min_area_m2, 2)
+                    detailed_facts["unknowns_json"] = list(
+                        dict.fromkeys(
+                            [
+                                *[
+                                    str(item or "").strip()
+                                    for item in list(detailed_facts.get("unknowns_json") or [])
+                                    if str(item or "").strip()
+                                ],
+                                "Living area is not clear in the provider detail page.",
+                            ]
+                        )
+                    )
                 if available_within_years > 0 and not _property_candidate_matches_availability_horizon(
                     available_within_years=available_within_years,
                     property_facts=detailed_facts,

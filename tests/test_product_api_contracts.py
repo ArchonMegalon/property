@@ -4152,6 +4152,80 @@ def test_property_scout_min_area_filters_before_scoring(monkeypatch) -> None:
     assert assessed == ["large"]
 
 
+def test_property_scout_min_area_keeps_unknown_area_for_scoring(monkeypatch) -> None:
+    principal_id = "cf-email:min-area-unknown.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Unknown Area Office")
+    candidate_url = "https://www.re.cr/en/listing/monteverde-unknown-area"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.re.cr/en/costa-rica-real-estate?q=Monteverde",
+                "label": "RE.cr Costa Rica MLS",
+                "platform": "re_cr_mls",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 1,
+                "country_code": "CR",
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: (candidate_url,))
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "unknown-area",
+            "title": "Monteverde house near cloud forest",
+            "summary": "House with mountain view and garden.",
+            "property_facts_json": {"property_type": "house", "country_code": "CR"},
+        },
+    )
+    assessed: list[dict[str, object]] = []
+
+    def _fake_assess_candidate(**kwargs):
+        assessed.append(dict(kwargs.get("object_payload") or {}))
+        return {
+            "fit_score": 68.0,
+            "confidence": 0.7,
+            "predicted_reaction": "consider",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Location remains relevant."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": ["Area needs verification."],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _fake_assess_candidate)
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("re_cr_mls",),
+        property_search_preferences={
+            "country_code": "CR",
+            "region_code": "puntarenas",
+            "location_query": "Monteverde",
+            "property_type": "house",
+            "min_area_m2": 60,
+            "min_match_score": 50,
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 1
+    assert result["filtered_area_total"] == 0
+    assert assessed
+    assert assessed[0]["area_research_status"] == "unknown_after_detailed_provider_preview"
+    assert assessed[0]["min_area_m2_requested"] == 60
+
+
 def test_generated_property_source_specs_push_min_area_into_supported_at_provider_urls() -> None:
     rows = product_service.generated_property_source_specs(
         preferences={
