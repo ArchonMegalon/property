@@ -3008,7 +3008,7 @@ def test_telegram_ingest_answers_google_photos_capability_request_from_grounded_
     assert "I do not see a connected Google account" in body["reply_text"]
     assert "Google Photos Picker" in body["reply_text"]
     assert "https://accounts.google.com/o/oauth2/v2/auth?scope_bundle=full_workspace_photos" in body["reply_text"]
-    assert sent[-1]["text"] == body["reply_text"]
+    assert '<a href="https://accounts.google.com/o/oauth2/v2/auth?scope_bundle=full_workspace_photos">Open Google navigation</a>' in sent[-1]["text"]
 
 
 def test_telegram_resolve_message_payload_transcribes_voice(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3751,7 +3751,7 @@ def test_telegram_ingest_answers_start_picker_immediately(monkeypatch: pytest.Mo
     assert body["reply_sent"] is True
     assert "Google Photos Picker is ready" in body["reply_text"]
     assert "https://photos.app/picker/session-456/autoclose" in body["reply_text"]
-    assert sent[-1]["text"] == body["reply_text"]
+    assert '<a href="https://photos.app/picker/session-456/autoclose">Autoclose</a>' in sent[-1]["text"]
 
 
 def test_telegram_ingest_surfaces_google_photos_picker_forbidden(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -7865,6 +7865,7 @@ def test_public_tour_feedback_updates_learning_loop_and_live_assessment(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_360_ALLOWED_HOSTS", "360.kalandra.at")
     slug = "pioche-lecombe-feedback-loop"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
@@ -7877,9 +7878,10 @@ def test_public_tour_feedback_updates_learning_loop_and_live_assessment(
                 "listing_url": "https://www.kalandra.at/objekt/14997053",
                 "property_url": "https://www.kalandra.at/objekt/14997053",
                 "hosted_url": f"https://ea.example/tours/{slug}",
-                "scene_strategy": "pure_360_cube",
+                "scene_strategy": "live_360_embed",
                 "scene_count": 1,
                 "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "source_virtual_tour_url": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {
                     "postal_name": "Waehring",
@@ -7893,20 +7895,14 @@ def test_public_tour_feedback_updates_learning_loop_and_live_assessment(
                     "nearest_subway_m": 1400,
                 },
                 "scenes": [
-                    {
-                        "name": "Living room",
-                        "role": "pure_360",
-                        "scene_id": "living",
-                        "asset_relpath": "scene-01-f.jpg",
-                        "cube_faces": {
-                            "f": "scene-01-f.jpg",
-                            "b": "scene-01-b.jpg",
-                            "r": "scene-01-r.jpg",
-                            "l": "scene-01-l.jpg",
-                            "u": "scene-01-u.jpg",
-                            "d": "scene-01-d.jpg",
-                        },
-                    }
+                        {
+                            "name": "Live 360",
+                            "role": "live_360",
+                            "scene_id": "living",
+                            "image_url": "https://my.matterport.com/api/v2/player/models/VZ8P1/thumb/",
+                            "source_url": "https://360.kalandra.at/view/portal/id/VZ8P1",
+                            "mime_type": "image/jpeg",
+                        }
                 ],
             },
             ensure_ascii=False,
@@ -7919,7 +7915,9 @@ def test_public_tour_feedback_updates_learning_loop_and_live_assessment(
     first_page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
     assert first_page.status_code == 200
     assert "Teach the system what to rank higher or lower" in first_page.text
-    assert "Save feedback" in first_page.text
+    assert "Public-link feedback is captured as an external signal" in first_page.text
+    assert "Too expensive" in first_page.text
+    assert "No lift" in first_page.text
     assert "tour-action-tokens" not in first_page.text
     assert '"feedback":' not in first_page.text
 
@@ -8340,6 +8338,7 @@ def test_public_tour_renders_shortlist_compare_cards(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_360_ALLOWED_HOSTS", "360.kalandra.at")
     slug = "pioche-lecombe-shortlist-compare"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
@@ -8352,9 +8351,10 @@ def test_public_tour_renders_shortlist_compare_cards(
                 "listing_url": "https://www.kalandra.at/objekt/14997053",
                 "property_url": "https://www.kalandra.at/objekt/14997053",
                 "hosted_url": f"https://ea.example/tours/{slug}",
-                "scene_strategy": "pure_360_cube",
+                "scene_strategy": "live_360_embed",
                 "scene_count": 1,
                 "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "source_virtual_tour_url": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {
                     "postal_name": "1190 Wien",
@@ -8368,20 +8368,14 @@ def test_public_tour_renders_shortlist_compare_cards(
                     },
                 },
                 "scenes": [
-                    {
-                        "name": "Living room",
-                        "role": "pure_360",
-                        "scene_id": "living",
-                        "asset_relpath": "scene-01-f.jpg",
-                        "cube_faces": {
-                            "f": "scene-01-f.jpg",
-                            "b": "scene-01-b.jpg",
-                            "r": "scene-01-r.jpg",
-                            "l": "scene-01-l.jpg",
-                            "u": "scene-01-u.jpg",
-                            "d": "scene-01-d.jpg",
-                        },
-                    }
+                        {
+                            "name": "Live 360",
+                            "role": "live_360",
+                            "scene_id": "living",
+                            "image_url": "https://my.matterport.com/api/v2/player/models/VZ8P1/thumb/",
+                            "source_url": "https://360.kalandra.at/view/portal/id/VZ8P1",
+                            "mime_type": "image/jpeg",
+                        }
                 ],
             },
             ensure_ascii=False,
@@ -8487,13 +8481,10 @@ def test_public_tour_renders_shortlist_compare_cards(
     assert "Current property against active shortlist items" in page.text
     assert "Strong Waehring listing" in page.text
     assert "Strong Doebling listing" in page.text
-    assert "Fit 97/100" in page.text
-    assert "Rent" in page.text
-    assert "Area" in page.text
-    assert "Rooms" in page.text
-    assert "Lift" in page.text
-    assert "shortlist-delta-better" in page.text
-    assert "shortlist-delta-worse" in page.text
+    assert "High-fit property alert with 360 media and preferred district match." in page.text
+    assert "Another high-fit property alert with lift and bike access." in page.text
+    assert "pure_360_cube" not in page.text
+    assert "3D fallback blocked" not in page.text
 
 
 def test_public_tour_routes_ignore_unsafe_live_360_source_urls(
