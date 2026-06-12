@@ -1529,7 +1529,24 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         raw_all_of_vienna is True
         or str(raw_all_of_vienna or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
     )
-    payload["location_query"] = str(payload.get("location_query") or "").strip()
+    raw_location_query = str(payload.get("location_query") or "").strip()
+    raw_custom_location_query = str(payload.get("custom_location_query") or "").strip()
+    if country_code != "AT":
+        stale_at_postal_code_pattern = re.compile(r"^(?:1[0-2]\d{2}|[2-9]\d{3})$")
+        location_values = [
+            value
+            for value in (part.strip() for part in raw_location_query.split(","))
+            if value and not stale_at_postal_code_pattern.fullmatch(value)
+        ]
+        custom_location_values = [
+            value
+            for value in (part.strip() for part in raw_custom_location_query.split(","))
+            if value and not stale_at_postal_code_pattern.fullmatch(value)
+        ]
+        raw_location_query = ", ".join(dict.fromkeys(location_values))
+        raw_custom_location_query = ", ".join(dict.fromkeys(custom_location_values))
+    payload["location_query"] = raw_location_query
+    payload["custom_location_query"] = raw_custom_location_query
     if (
         payload["country_code"] == "AT"
         and payload["region_code"] in {"vienna", "wien"}

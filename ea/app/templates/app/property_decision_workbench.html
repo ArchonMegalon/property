@@ -4032,12 +4032,16 @@
         const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
         const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, planPlatformCap);
         renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
+        const customLocationField = form.querySelector('[name="custom_location_query"]');
+        if (customLocationField) customLocationField.value = '';
         refreshRegionAndLocationChoices();
         syncMarketAwareFields(form, meta);
       });
       preferencePersonField?.addEventListener('change', applyPreferenceProfile);
       preferencePersonField?.addEventListener('blur', applyPreferenceProfile);
       regionField?.addEventListener('change', () => {
+        const customLocationField = form.querySelector('[name="custom_location_query"]');
+        if (customLocationField) customLocationField.value = '';
         refreshRegionAndLocationChoices();
         syncMarketAwareFields(form, meta);
       });

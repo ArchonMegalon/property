@@ -11914,6 +11914,21 @@ def _property_float_text(facts: dict[str, object], *keys: str) -> str:
 
 def _magicfit_property_daylight_context(*, property_facts: dict[str, object] | None) -> str:
     facts = dict(property_facts or {})
+    country_code = str(facts.get("country_code") or "").strip().upper()
+    location_hint = " ".join(
+        str(facts.get(key) or "").strip()
+        for key in (
+            "location_query",
+            "region_code",
+            "location_label",
+            "postal_name",
+            "district",
+            "city",
+            "country",
+        )
+        if str(facts.get(key) or "").strip()
+    ).lower()
+    is_costa_rica = country_code == "CR" or "costa rica" in location_hint
     address_text = _property_first_text(
         facts,
         "street_address",
@@ -11970,10 +11985,15 @@ def _magicfit_property_daylight_context(*, property_facts: dict[str, object] | N
     exterior_sentence = (
         f"Use the known exterior context ({exterior_clause}) for the window and balcony-door views."
         if exterior_clause
-        else "For windows and balcony doors, show a plausible Vienna urban exterior view consistent with the listing location; do not leave windows blank or glowing."
+        else (
+            "For windows and balcony doors, show a plausible Costa Rica exterior view consistent with the listing location; do not leave windows blank or glowing."
+            if is_costa_rica
+            else "For windows and balcony doors, show a plausible Vienna urban exterior view consistent with the listing location; do not leave windows blank or glowing."
+        )
     )
+    local_time_label = "Costa Rica time" if is_costa_rica else "Vienna time"
     return (
-        "Daylight and exterior simulation is mandatory: render the flat at 13:00 local Vienna time on a sunny day. "
+        f"Daylight and exterior simulation is mandatory: render the flat at 13:00 local {local_time_label} on a sunny day. "
         "Use physically plausible solar direction, bright but not overexposed daylight, natural contrast, and room-by-room changes in light. "
         f"{exterior_sentence}"
         f"{coordinate_clause}"
@@ -11983,6 +12003,40 @@ def _magicfit_property_daylight_context(*, property_facts: dict[str, object] | N
         "When precise orientation or obstruction data is missing, represent uncertainty visually with plausible partial sun, soft shadows, and neighboring building/tree silhouettes rather than inventing exact landmarks. "
         "If nearby buildings or trees could block light, include believable shade bands and darker corners so the viewer can judge whether the flat may feel dark at midday. "
         "Through balcony doors and windows, show exterior geometry, sky brightness, street/courtyard depth, and any likely greenery or neighboring facades."
+    )
+
+
+def _magicfit_property_location_easter_egg(
+    *,
+    title: str,
+    property_facts: dict[str, object] | None,
+) -> str:
+    facts = dict(property_facts or {})
+    location_text = " ".join(
+        str(value or "").strip()
+        for value in (
+            title,
+            facts.get("country_code"),
+            facts.get("country"),
+            facts.get("region_code"),
+            facts.get("location_query"),
+            facts.get("location_label"),
+            facts.get("city"),
+            facts.get("district"),
+            facts.get("postal_name"),
+            facts.get("neighbourhood_context"),
+            facts.get("nearby_context"),
+        )
+        if str(value or "").strip()
+    ).lower()
+    if "monteverde" not in location_text:
+        return ""
+    if "cr" not in location_text and "costa rica" not in location_text and "puntarenas" not in location_text:
+        return ""
+    return (
+        "Monteverde exterior easter egg: during exactly one slow window or balcony-door view, include a subtle photorealistic "
+        "toucan, hummingbird/colibri, or sloth outside in the greenery. Keep it outside the flat, small but visible, natural, "
+        "and never turn it into a main subject or cartoon element. "
     )
 
 
@@ -12029,6 +12083,7 @@ def _default_magicfit_property_flythrough_prompt(
     title_text = compact_text(str(title or "modern Vienna apartment").strip(), fallback="modern Vienna apartment", limit=140)
     motion_hint_text = compact_text(str(person_motion_hint or "").strip(), fallback="", limit=260)
     daylight_context = _magicfit_property_daylight_context(property_facts=property_facts)
+    location_easter_egg = _magicfit_property_location_easter_egg(title=title, property_facts=property_facts)
     visit_directive = (
         f"Prioritize a strict room-by-room route through: {room_visit_plan_text}. "
         "Do not skip any listed room and keep motion continuous enough to clearly show each space. "
@@ -12070,6 +12125,7 @@ def _default_magicfit_property_flythrough_prompt(
         f"{birthday_directive}"
         f"{movement_directive}"
         f"{daylight_context} "
+        f"{location_easter_egg}"
         "Realistic inhabited family-home styling, not an empty showroom: jackets and shoes in the entry, "
         "someone naturally cooking in the kitchen where the layout allows it, TV running in the living area, "
         "toys or school items in one room, laundry or towels near bath/storage zones, open books, plants, cups, "
@@ -27577,6 +27633,10 @@ class ProductService:
                         tour_existing_for_source += 1
                         tour_existing_total += 1
                 if assessment_fit_score > _PROPERTY_SCOUT_MAGICFIT_FLYTHROUGH_MIN_SCORE:
+                    flythrough_property_facts = dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {}
+                    for context_key in ("country_code", "region_code", "location_query"):
+                        if request_preferences.get(context_key) not in (None, "", (), []):
+                            flythrough_property_facts.setdefault(context_key, request_preferences.get(context_key))
                     flythrough_result = self._maybe_render_property_scout_flythrough(
                         principal_id=principal_id,
                         actor=actor,
@@ -27584,7 +27644,7 @@ class ProductService:
                         property_url=property_url,
                         source_ref=source_ref,
                         tour_result=tour_result,
-                        property_facts=dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {},
+                        property_facts=flythrough_property_facts,
                         fit_score=assessment_fit_score,
                     )
                     flythrough_status = str(flythrough_result.get("status") or "").strip().lower()

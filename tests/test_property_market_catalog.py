@@ -81,6 +81,21 @@ def test_normalize_property_search_preferences_scopes_all_of_vienna_backend_runs
     assert payload["location_query"] == "Vienna"
 
 
+def test_normalize_property_search_preferences_drops_stale_austrian_postal_codes_for_foreign_searches() -> None:
+    payload = normalize_property_search_preferences(
+        {
+            "country_code": "CR",
+            "region_code": "puntarenas",
+            "location_query": "Monteverde, 1116",
+            "custom_location_query": "1116",
+        }
+    )
+
+    assert payload["country_code"] == "CR"
+    assert payload["location_query"] == "Monteverde"
+    assert payload["custom_location_query"] == ""
+
+
 def test_normalize_listing_mode_accepts_sale_aliases() -> None:
     assert normalize_listing_mode("sale") == "buy"
     assert normalize_listing_mode("for-sale") == "buy"
@@ -414,6 +429,28 @@ def test_generated_source_specs_allow_countrywide_costa_rica_without_target_area
     assert all(row["location_query"] == "" for row in specs)
     assert all(row["country_code"] == "CR" for row in specs)
     assert any("beach+access" in str(row["url"]) or "q=beach" in str(row["url"]) for row in specs)
+
+
+def test_generated_source_specs_drop_stale_austrian_postal_code_from_costa_rica_urls() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "CR",
+            "region_code": "puntarenas",
+            "language_code": "es",
+            "listing_mode": "buy",
+            "location_query": "Monteverde, 1116",
+            "custom_location_query": "1116",
+        },
+        selected_platforms=("encuentra24_cr",),
+        principal_id="exec-property-cr-clean-location",
+        default_person_id="self",
+        max_results=3,
+    )
+
+    assert len(specs) == 1
+    assert specs[0]["location_query"] == "Monteverde"
+    assert "q=Monteverde" in str(specs[0]["url"])
+    assert "1116" not in str(specs[0]["url"])
 
 
 def test_generated_source_specs_split_multi_area_queries_into_dedicated_sources() -> None:

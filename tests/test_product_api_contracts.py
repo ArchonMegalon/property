@@ -19140,6 +19140,29 @@ def test_magicfit_flythrough_prompt_includes_midday_sun_and_exterior_context() -
     assert "balcony doors and windows" in prompt
 
 
+def test_magicfit_flythrough_prompt_adds_monteverde_window_easter_egg() -> None:
+    prompt = product_service._default_magicfit_property_flythrough_prompt(
+        title="Monteverde family house with forest view",
+        property_facts={
+            "country_code": "CR",
+            "region_code": "puntarenas",
+            "location_query": "Monteverde",
+            "view_description": "cloud forest greenery outside the windows",
+        },
+        room_count=4,
+        room_visit_plan=["entry", "living room", "kitchen", "bathroom"],
+    )
+
+    lowered = prompt.lower()
+    assert "13:00 local costa rica time" in lowered
+    assert "monteverde exterior easter egg" in lowered
+    assert "toucan" in lowered
+    assert "hummingbird/colibri" in lowered
+    assert "sloth" in lowered
+    assert "outside in the greenery" in lowered
+    assert "main subject" in lowered
+
+
 def test_magicfit_visit_plan_counts_functional_route_stops_not_just_listing_rooms() -> None:
     room_count, route_labels = product_service._magicfit_property_room_visit_plan(
         title="2-Zimmer-Wohnung mit Balkon, Top 22",
