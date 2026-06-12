@@ -836,6 +836,59 @@ def _property_research_tasks_from_result(
         if not isinstance(source, dict):
             continue
         source_label = compact_text(str(source.get("source_label") or "").strip(), fallback="", limit=120)
+        for repair in list(source.get("provider_repair_tasks") or []):
+            if not isinstance(repair, dict):
+                continue
+            queue_item_ref = str(repair.get("queue_item_ref") or repair.get("human_task_id") or "").strip()
+            property_url = urllib.parse.urldefrag(str(repair.get("property_url") or "").strip())[0]
+            filter_key = str(repair.get("filter_key") or "provider_extraction").strip().lower()
+            repair_key = queue_item_ref or f"{property_url}|{source_label}|{filter_key}"
+            task_id = "pr_" + hashlib.sha256(f"{run_id}|{repair_key}".encode("utf-8")).hexdigest()[:18]
+            if task_id in seen:
+                continue
+            seen.add(task_id)
+            diagnostics = dict(repair.get("diagnostics") or {}) if isinstance(repair.get("diagnostics"), dict) else {}
+            status = "queued" if str(repair.get("status") or "").strip().lower() in {"opened", "existing", "queued"} else _property_missing_fact_task_status(repair.get("status"))
+            tasks.append(
+                {
+                    "task_id": task_id,
+                    "kind": "provider_repair",
+                    "field": filter_key,
+                    "label": "Repair provider extraction",
+                    "status": status,
+                    "priority": "high",
+                    "property_ref": queue_item_ref[:500],
+                    "property_url": property_url[:800],
+                    "title": compact_text(str(repair.get("title") or property_url or source_label), fallback="Provider repair", limit=180),
+                    "source_label": source_label,
+                    "review_url": "",
+                    "fit_score": 0.0,
+                    "display_value": compact_text(str(diagnostics.get("provider_host") or source.get("platform") or source_label), fallback="", limit=120),
+                    "evidence": compact_text(
+                        str(diagnostics.get("status") or "Provider extractor recovery was queued after a strict filter failure."),
+                        fallback="Provider extractor recovery was queued after a strict filter failure.",
+                        limit=280,
+                    ),
+                    "ooda": {
+                        "observe": "A provider candidate failed a strict filter after the detail page was inspected.",
+                        "orient": "This may indicate provider HTML/media/document layout drift rather than a truly missing fact.",
+                        "decide": "Route the repair to EA One Manager as an internal provider OODA task.",
+                        "act": "Inspect provider HTML, patch extractor, add regression test, rerun release gates, and deploy.",
+                    },
+                    "next_actions": [
+                        "Re-fetch the provider detail page and capture a fixture.",
+                        "Patch the extractor generically or with a tightly scoped provider adapter.",
+                        "Add a regression test that proves the previous miss is fixed.",
+                        "Run property_release_gates.sh and deploy.",
+                    ],
+                    "human_task_id": queue_item_ref,
+                    "queue_item_ref": queue_item_ref,
+                    "repair_owner": str(repair.get("repair_owner") or "ea_one_manager").strip(),
+                    "repair_workflow": str(repair.get("repair_workflow") or "ea_provider_ooda").strip(),
+                    "created_at": str(payload.get("generated_at") or _now_iso()),
+                    "updated_at": str(payload.get("generated_at") or _now_iso()),
+                }
+            )
         candidate_rows = list(source.get("research_candidates") or source.get("top_candidates") or [])
         for candidate in candidate_rows:
             if not isinstance(candidate, dict):
@@ -26477,6 +26530,7 @@ class ProductService:
             filtered_low_fit_for_source = 0
             provider_repair_task_opened_for_source = 0
             provider_repair_task_existing_for_source = 0
+            provider_repair_tasks_for_source: list[dict[str, object]] = []
             filter_near_misses_for_source: list[dict[str, object]] = []
             provider_cache_state: dict[str, object] = {"status": "not_started", "cache_key": provider_cache_key}
 
@@ -26779,6 +26833,20 @@ class ProductService:
                     elif repair_task_status == "existing":
                         provider_repair_task_existing_for_source += 1
                         provider_repair_task_existing_total += 1
+                    if str(repair_task.get("queue_item_ref") or "").strip():
+                        provider_repair_tasks_for_source.append(
+                            {
+                                "status": repair_task_status or "queued",
+                                "property_url": property_url,
+                                "title": preview_title,
+                                "filter_key": "require_floorplan",
+                                "diagnostics": recovery_diagnostics,
+                                "human_task_id": str(repair_task.get("human_task_id") or "").strip(),
+                                "queue_item_ref": str(repair_task.get("queue_item_ref") or "").strip(),
+                                "repair_owner": "ea_one_manager",
+                                "repair_workflow": "ea_provider_ooda",
+                            }
+                        )
                     self._record_product_event(
                         principal_id=principal_id,
                         event_type="property_provider_floorplan_recovery_needed",
@@ -27195,6 +27263,20 @@ class ProductService:
                     elif repair_task_status == "existing":
                         provider_repair_task_existing_for_source += 1
                         provider_repair_task_existing_total += 1
+                    if str(repair_task.get("queue_item_ref") or "").strip():
+                        provider_repair_tasks_for_source.append(
+                            {
+                                "status": repair_task_status or "queued",
+                                "property_url": property_url,
+                                "title": detailed_title,
+                                "filter_key": "require_floorplan",
+                                "diagnostics": recovery_diagnostics,
+                                "human_task_id": str(repair_task.get("human_task_id") or "").strip(),
+                                "queue_item_ref": str(repair_task.get("queue_item_ref") or "").strip(),
+                                "repair_owner": "ea_one_manager",
+                                "repair_workflow": "ea_provider_ooda",
+                            }
+                        )
                     self._record_product_event(
                         principal_id=principal_id,
                         event_type="property_provider_floorplan_recovery_needed",
@@ -27742,6 +27824,7 @@ class ProductService:
                     "filtered_low_fit_total": filtered_low_fit_for_source,
                     "provider_repair_task_opened_total": provider_repair_task_opened_for_source,
                     "provider_repair_task_existing_total": provider_repair_task_existing_for_source,
+                    "provider_repair_tasks": provider_repair_tasks_for_source[:10],
                     "high_match_min_score": min_match_score,
                     "max_match_score": match_score_cap,
                     "min_area_m2": request_preferences.get("min_area_m2") or 0,

@@ -3990,6 +3990,15 @@ def test_property_scout_floorplan_filter_records_provider_recovery_ooda_event(mo
     assert result["provider_repair_task_existing_total"] == 0
     assert result["sources"][0]["provider_repair_task_opened_total"] == 1
     assert result["sources"][0]["provider_repair_task_existing_total"] == 0
+    assert result["sources"][0]["provider_repair_tasks"][0]["repair_owner"] == "ea_one_manager"
+    provider_research_tasks = [task for task in result["research_tasks"] if task.get("kind") == "provider_repair"]
+    assert len(provider_research_tasks) == 1
+    assert provider_research_tasks[0]["status"] == "queued"
+    assert provider_research_tasks[0]["priority"] == "high"
+    assert provider_research_tasks[0]["repair_owner"] == "ea_one_manager"
+    assert provider_research_tasks[0]["repair_workflow"] == "ea_provider_ooda"
+    assert provider_research_tasks[0]["queue_item_ref"].startswith("human_task:")
+    assert result["open_research_task_total"] >= 1
     events = [
         row
         for row in client.app.state.container.channel_runtime.list_recent_observations(limit=50, principal_id=principal_id)
@@ -4043,6 +4052,9 @@ def test_property_scout_floorplan_filter_records_provider_recovery_ooda_event(mo
     assert repeated["provider_repair_task_existing_total"] == 1
     assert repeated["sources"][0]["provider_repair_task_opened_total"] == 0
     assert repeated["sources"][0]["provider_repair_task_existing_total"] == 1
+    repeated_provider_research_tasks = [task for task in repeated["research_tasks"] if task.get("kind") == "provider_repair"]
+    assert len(repeated_provider_research_tasks) == 1
+    assert repeated_provider_research_tasks[0]["queue_item_ref"] == provider_research_tasks[0]["queue_item_ref"]
     repeated_tasks = client.app.state.container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=20)
     repeated_repair_tasks = [
         task for task in repeated_tasks if str(getattr(task, "task_type", "") or "") == "property_provider_repair_ooda"
