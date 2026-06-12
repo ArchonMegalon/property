@@ -373,6 +373,8 @@ _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS = (
     "wbv-gpa.at",
     "frieden.at",
     "sozialbau.at",
+    "storage.justimmo.at",
+    "justimmo.at",
 )
 _PROPERTY_SEARCH_RUN_TTL_SECONDS = 6 * 60 * 60
 _PROPERTY_SEARCH_RUN_STALE_DEFAULT_SECONDS = 20 * 60
@@ -2694,10 +2696,11 @@ def _property_scout_public_asset_slug(*, source_url: str, archive_url: str) -> s
 
 
 def _property_scout_public_asset_filename(*, member_name: str, ordinal: int) -> str:
-    suffix = Path(str(member_name or "floorplan.pdf")).suffix.lower()
+    decoded_member_name = urllib.parse.unquote(str(member_name or "floorplan.pdf"))
+    suffix = Path(decoded_member_name).suffix.lower()
     if suffix not in _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS:
         suffix = ".pdf"
-    stem = Path(str(member_name or "floorplan")).stem
+    stem = Path(decoded_member_name or "floorplan").stem
     safe_stem = re.sub(r"[^a-zA-Z0-9._-]+", "-", stem).strip(".-").lower()[:72] or "floorplan"
     return f"floorplan-{ordinal:02d}-{safe_stem}{suffix}"
 
@@ -2866,6 +2869,93 @@ def _property_scout_extract_context_links(
     return tuple(urls)
 
 
+def _property_scout_extract_siedlungsunion_attachment_links(*, source_url: str, html: str) -> tuple[tuple[str, str, str], ...]:
+    if "siedlungsunion.at" not in urllib.parse.urlparse(str(source_url or "")).netloc.lower():
+        return ()
+    match = re.search(r"app\.attachments\s*=\s*(\[.*?\])\s*;", str(html or ""), re.IGNORECASE | re.DOTALL)
+    if not match:
+        return ()
+    try:
+        attachments = json.loads(match.group(1))
+    except Exception:
+        return ()
+    if not isinstance(attachments, list):
+        return ()
+    links: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    for attachment in attachments:
+        if not isinstance(attachment, dict):
+            continue
+        attachment_type = dict(attachment.get("attachmentType") or {}) if isinstance(attachment.get("attachmentType"), dict) else {}
+        if str(attachment_type.get("name") or "").strip().lower() != "file":
+            continue
+        file_key = str(attachment.get("file") or "").strip()
+        name = str(attachment.get("name") or "").strip()
+        if not file_key or not name:
+            continue
+        lowered_name = name.lower()
+        if any(marker in lowered_name for marker in ("energieausweis", "energy", "ausweis")):
+            continue
+        if not any(marker in lowered_name for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MEMBER_MARKERS):
+            continue
+        raw_url = f"/rest/file/{urllib.parse.quote(file_key, safe='')}/{urllib.parse.quote(name, safe='-._~')}"
+        normalized = urllib.parse.urljoin(source_url, raw_url)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        links.append(("siedlungsunion_attachment", normalized, name.lower()))
+    return tuple(links)
+
+
+def _property_scout_floorplan_recovery_diagnostics(*, source_url: str, html: str) -> dict[str, object]:
+    normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
+    host = urllib.parse.urlparse(str(source_url or "")).netloc.lower()
+    lowered = normalized_html.lower()
+    marker_hits = [
+        marker
+        for marker in (*_PROPERTY_SCOUT_FLOORPLAN_MARKERS, "pdf", "download", "dokument", "unterlagen")
+        if marker in lowered
+    ][:20]
+    attr_names = (
+        "href",
+        "src",
+        "data-src",
+        "data-original",
+        "data-lazy-src",
+        "data-background-image",
+        "data-flickity-lazyload",
+        "data-flickity-bg-lazyload",
+    )
+    candidate_urls: list[str] = []
+    for attr_name in attr_names:
+        for raw_url in _property_scout_extract_html_attr_urls(source_url=source_url, html=normalized_html, attr_name=attr_name):
+            normalized = urllib.parse.urljoin(source_url, str(raw_url or "").strip())
+            lowered_url = urllib.parse.unquote(normalized).lower()
+            if any(marker in lowered_url for marker in ("pdf", "download", "file", "plan", "grundriss", "mmo/", "storage.justimmo.at")):
+                candidate_urls.append(normalized)
+            if len(candidate_urls) >= 12:
+                break
+        if len(candidate_urls) >= 12:
+            break
+    attachment_links = _property_scout_extract_siedlungsunion_attachment_links(source_url=source_url, html=normalized_html)
+    return {
+        "status": "floorplan_not_found_after_deep_scan",
+        "provider_host": host,
+        "html_size_bytes": len(normalized_html.encode("utf-8", errors="ignore")),
+        "floorplan_marker_hits": marker_hits,
+        "candidate_document_or_media_url_count": len(candidate_urls),
+        "candidate_document_or_media_urls": candidate_urls[:8],
+        "siedlungsunion_attachment_candidate_count": len(attachment_links),
+        "siedlungsunion_attachment_candidate_urls": [item[1] for item in attachment_links[:4]],
+        "recommended_ooda": [
+            "Re-fetch the detail page.",
+            "Inspect media/gallery/document/link attributes around marker hits.",
+            "Patch provider extractor with a regression fixture.",
+            "Rerun property_release_gates.sh before deploy.",
+        ],
+    }
+
+
 def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolve_archives: bool = False) -> tuple[str, ...]:
     normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
     floorplan_urls: list[str] = []
@@ -2873,7 +2963,7 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
     seen_archives: set[str] = set()
     candidate_links: list[tuple[str, str, str]] = []
     attr_pattern = re.compile(
-        r"""(href|src|action|data-href|data-url|data-src|data-original|data-lazy-src|data-background-image)=["']([^"']+)["']""",
+        r"""(href|src|action|data-href|data-url|data-src|data-original|data-lazy-src|data-background-image|data-flickity-lazyload|data-flickity-bg-lazyload)=["']([^"']+)["']""",
         re.IGNORECASE,
     )
     for match in attr_pattern.finditer(normalized_html):
@@ -2914,6 +3004,7 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
         if not any(marker in combined for marker in ("zip", "alldoc", "download", "dokument", "beilage", "anlage", "unterlag", "gutachten", "grundriss", "floorplan", "plan")):
             continue
         candidate_links.append(("embedded", raw_url, context))
+    candidate_links.extend(_property_scout_extract_siedlungsunion_attachment_links(source_url=source_url, html=normalized_html))
     for attr_name, raw_url, context in candidate_links:
         try:
             normalized = urllib.parse.urljoin(source_url, raw_url)
@@ -2955,10 +3046,10 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
         if not is_direct_floorplan_asset:
             continue
         is_image_floorplan_asset = _property_scout_is_asset_url(normalized, extensions=_PROPERTY_SCOUT_IMAGE_EXTENSIONS)
-        if is_image_floorplan_asset and not any(marker in lowered_url for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
+        if is_image_floorplan_asset and not any((marker in lowered_url) or (marker in context) for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
             continue
         if attr_name in {"src", "data-src", "data-original", "data-lazy-src", "data-background-image"} and not any(
-            marker in lowered_url for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS
+            (marker in lowered_url) or (marker in context) for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS
         ):
             continue
         is_edikte_valuation_pdf = (
@@ -3991,6 +4082,11 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
     cooperative_facts = _property_cooperative_housing_facts(normalized, html, _property_html_fragment_text(html))
     if cooperative_facts:
         property_facts.update(cooperative_facts)
+    floorplan_recovery_diagnostics = (
+        {}
+        if floorplan_urls
+        else _property_scout_floorplan_recovery_diagnostics(source_url=normalized, html=html)
+    )
     property_facts.update(
         {
             "has_360": bool(source_virtual_tour_url),
@@ -4003,6 +4099,8 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
     )
     if floorplan_urls:
         property_facts["floorplan_urls_json"] = list(floorplan_urls)
+    elif floorplan_recovery_diagnostics:
+        property_facts["floorplan_recovery_diagnostics"] = floorplan_recovery_diagnostics
     summary = _property_preview_summary_from_facts(
         base_summary=og_description or meta_description,
         property_facts=property_facts,
@@ -5669,6 +5767,16 @@ def _property_candidate_has_floorplan(
     )
     if preview_facts and _property_facts_have_floorplan(preview_facts, preview=preview_payload):
         return True
+    text_facts = {
+        key: value
+        for key, value in {**preview_facts, **facts}.items()
+        if str(key or "").strip()
+        not in {
+            "floorplan_recovery_diagnostics",
+            "missing_floorplan_diagnostics",
+            "provider_recovery_diagnostics",
+        }
+    }
     text = " ".join(
         part
         for part in (
@@ -5676,7 +5784,7 @@ def _property_candidate_has_floorplan(
                 property_url=property_url,
                 title=title,
                 summary=summary,
-                property_facts={**preview_facts, **facts},
+                property_facts=text_facts,
             ),
             str(preview_payload.get("title") or "").lower(),
             str(preview_payload.get("summary") or "").lower(),
@@ -5684,6 +5792,19 @@ def _property_candidate_has_floorplan(
         )
         if str(part or "").strip()
     )
+    negative_markers = (
+        "no floorplan",
+        "no floor plan",
+        "no extracted floorplan",
+        "without floorplan",
+        "without a floor plan",
+        "without clear floorplan",
+        "kein grundriss",
+        "keinen grundriss",
+        "ohne grundriss",
+    )
+    if any(marker in text for marker in negative_markers):
+        return False
     compact_text_value = re.sub(r"[^a-z0-9äöüß]+", "", text)
     markers = (
         "grundriss",
@@ -26501,6 +26622,30 @@ class ProductService:
                     property_facts=preview_facts,
                     preview=preview,
                 ):
+                    recovery_diagnostics = (
+                        dict(preview_facts.get("floorplan_recovery_diagnostics") or {})
+                        if isinstance(preview_facts.get("floorplan_recovery_diagnostics"), dict)
+                        else {}
+                    )
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="property_provider_floorplan_recovery_needed",
+                        payload={
+                            "property_url": property_url,
+                            "title": preview_title,
+                            "source_url": source_url,
+                            "source_label": source_label,
+                            "source_platform": str(source_spec.get("platform") or "").strip().lower(),
+                            "source_family": str(source_spec.get("provider_family") or "").strip().lower(),
+                            "filter_key": "require_floorplan",
+                            "diagnostics": recovery_diagnostics,
+                            "repair_owner": "ea_one_manager",
+                            "repair_workflow": "ea_provider_ooda",
+                            "next_action": "EA Provider OODA: inspect provider HTML/media/document shape, patch extractor, add regression test, rerun gates.",
+                        },
+                        source_id=f"property-provider-floorplan-recovery:{property_url}",
+                        dedupe_key=f"{principal_id}|{property_url}|property-provider-floorplan-recovery-needed",
+                    )
                     filtered_floorplan_total += 1
                     filtered_floorplan_for_source += 1
                     _report(
@@ -26872,6 +27017,30 @@ class ProductService:
                     property_facts=detailed_facts,
                     preview=preview,
                 ):
+                    recovery_diagnostics = (
+                        dict(detailed_facts.get("floorplan_recovery_diagnostics") or {})
+                        if isinstance(detailed_facts.get("floorplan_recovery_diagnostics"), dict)
+                        else {}
+                    )
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="property_provider_floorplan_recovery_needed",
+                        payload={
+                            "property_url": property_url,
+                            "title": detailed_title,
+                            "source_url": source_url,
+                            "source_label": source_label,
+                            "source_platform": str(source_spec.get("platform") or "").strip().lower(),
+                            "source_family": str(source_spec.get("provider_family") or "").strip().lower(),
+                            "filter_key": "require_floorplan",
+                            "diagnostics": recovery_diagnostics,
+                            "repair_owner": "ea_one_manager",
+                            "repair_workflow": "ea_provider_ooda",
+                            "next_action": "EA Provider OODA: inspect provider HTML/media/document shape, patch extractor, add regression test, rerun gates.",
+                        },
+                        source_id=f"property-provider-floorplan-recovery:{property_url}",
+                        dedupe_key=f"{principal_id}|{property_url}|property-provider-floorplan-recovery-needed",
+                    )
                     _remember_filter_near_miss(
                         row=row,
                         property_url=property_url,

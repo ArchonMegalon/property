@@ -3248,6 +3248,88 @@ def test_property_scout_floorplan_extractor_reads_script_and_form_archive_links(
     )
 
 
+def test_property_scout_floorplan_extractor_reads_willhaben_flickity_floorplan_image() -> None:
+    image_url = "https://cache.willhaben.at/mmo/0/120/329/7660_1204598730.jpg"
+    html = f"""
+      <div data-flickity-bg-lazyload="{image_url}" role="image" aria-label="Grundriss 1 von 1"></div>
+      <img data-flickity-lazyload="{image_url}" alt="Grundriss 1 von 1">
+    """
+
+    urls = product_service._property_scout_extract_floorplan_urls(
+        source_url="https://www.willhaben.at/iad/object?adId=1203297660",
+        html=html,
+        resolve_archives=False,
+    )
+
+    assert urls == (image_url,)
+
+
+def test_property_scout_floorplan_extractor_materializes_justimmo_plan_pdf(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pdf_url = "https://storage.justimmo.at/file/W9Uz8ocyKGd6Fa6iQQEE9X.pdf"
+    floorplan_payload = b"%PDF-1.7 justimmo plan"
+
+    def _download(url: str, **_kwargs: object) -> tuple[bytes, str]:
+        assert url == pdf_url
+        return floorplan_payload, "application/pdf"
+
+    monkeypatch.setattr(product_service, "_property_scout_download_bytes", _download)
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", "https://propertyquarry.test")
+    html = f"""
+      <div class="realty-detail-attachments">
+        <strong>Plan.pdf</strong>
+        <a href="{pdf_url}" title="Download Plan.pdf">Download</a>
+      </div>
+    """
+
+    urls = product_service._property_scout_extract_floorplan_urls(
+        source_url="https://www.kalandra.at/objekt/16665601",
+        html=html,
+        resolve_archives=True,
+    )
+
+    assert len(urls) == 1
+    assert urls[0].endswith("/floorplan-01-w9uz8ocykgd6fa6iqqee9x.pdf")
+    _assert_public_floorplan_asset(urls[0], root=tmp_path, expected_payload=floorplan_payload)
+
+
+def test_property_scout_floorplan_extractor_materializes_siedlungsunion_top_pdf_attachment(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    floorplan_payload = b"%PDF-1.7 siedlungsunion top plan"
+    expected_url = "https://www.siedlungsunion.at/rest/file/file-1401ad6e-c583-4c1c-be40-dc0ef35b3cc0/Top%203.pdf"
+
+    def _download(url: str, **_kwargs: object) -> tuple[bytes, str]:
+        assert url == expected_url
+        return floorplan_payload, "application/pdf"
+
+    monkeypatch.setattr(product_service, "_property_scout_download_bytes", _download)
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", "https://propertyquarry.test")
+    html = """
+      <script>
+        app.attachments = [
+          {"attachmentType":{"name":"file"},"file":"file-82db4de3-56df-4f9a-9607-78c24245c19f","name":"Energieausweis-.pdf"},
+          {"attachmentType":{"name":"file"},"file":"file-1401ad6e-c583-4c1c-be40-dc0ef35b3cc0","name":"Top 3.pdf"}
+        ];
+      </script>
+    """
+
+    urls = product_service._property_scout_extract_floorplan_urls(
+        source_url="https://www.siedlungsunion.at/wohnen/sofort/1100-wien-leibnizgasse-68-2-eg-3",
+        html=html,
+        resolve_archives=True,
+    )
+
+    assert len(urls) == 1
+    assert urls[0].endswith("/floorplan-01-top-3.pdf")
+    _assert_public_floorplan_asset(urls[0], root=tmp_path, expected_payload=floorplan_payload)
+
+
 def test_property_scout_source_specs_infers_platform_from_url_host() -> None:
     monkeypatch_json = json.dumps(
         [
@@ -3841,6 +3923,82 @@ def test_property_scout_require_floorplan_filters_before_shortlist_and_prebuilds
     assert assessed == ["with-plan"]
     assert len(tour_calls) == 1
     assert tour_calls[0]["allow_below_threshold"] is True
+
+
+def test_property_scout_floorplan_filter_records_provider_recovery_ooda_event(monkeypatch) -> None:
+    principal_id = "cf-email:floorplan-ooda@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Floorplan OODA Office")
+    property_url = "https://www.gesiba.at/immobilien/wohnungen/objekt?objektnummer=no-floorplan"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.gesiba.at/immobilien/wohnungen",
+                "label": "GESIBA",
+                "platform": "genossenschaften_at",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 1,
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_listing_urls_for_source", lambda **kwargs: ((property_url,), {"status": "miss"}))
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "no-floorplan",
+            "title": "Provider changed media layout",
+            "summary": "Looks relevant but no extracted floorplan.",
+            "property_facts_json": {
+                "property_type": "apartment",
+                "has_floorplan": False,
+                "floorplan_recovery_diagnostics": {
+                    "status": "floorplan_not_found_after_deep_scan",
+                    "provider_host": "www.gesiba.at",
+                    "floorplan_marker_hits": ["pdf", "download"],
+                    "candidate_document_or_media_url_count": 1,
+                },
+            },
+        },
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("genossenschaften_at",),
+        property_search_preferences={
+            "property_type": "apartment",
+            "require_floorplan": True,
+            "min_match_score": 1,
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["filtered_floorplan_total"] == 1
+    events = [
+        row
+        for row in client.app.state.container.channel_runtime.list_recent_observations(limit=50, principal_id=principal_id)
+        if row.event_type == "property_provider_floorplan_recovery_needed"
+    ]
+    assert len(events) == 1
+    payload = dict(events[0].payload or {})
+    assert payload["property_url"] == property_url
+    assert payload["filter_key"] == "require_floorplan"
+    assert payload["diagnostics"]["provider_host"] == "www.gesiba.at"
+    assert payload["repair_owner"] == "ea_one_manager"
+    assert payload["repair_workflow"] == "ea_provider_ooda"
+    assert "EA Provider OODA" in payload["next_action"]
 
 
 def test_property_scout_min_area_filters_before_scoring(monkeypatch) -> None:
