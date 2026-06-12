@@ -7586,7 +7586,7 @@ def _property_scout_brief_text(
         lines.append(f"Mailbox: {compact_text(str(mailbox or '').strip().lower(), fallback='', limit=80)}")
     if str(property_url or "").strip():
         link_label = compact_text(str(property_link_label or "Listing").strip(), fallback="Listing", limit=40)
-        lines.append(f"{link_label}: {str(property_url or '').strip()}")
+        lines.append(f"{link_label}: use the button below.")
     if str(fit_summary or "").strip():
         lines.append(str(fit_summary or "").strip())
     if str(status_text or "").strip():
@@ -7597,6 +7597,25 @@ def _property_scout_brief_text(
         lines.append(f"Why now: {str(why_now or '').strip()}")
     lines.extend(str(line or "").strip() for line in extra_lines if str(line or "").strip())
     return "\n".join(line for line in lines if str(line or "").strip())
+
+
+def _property_telegram_url_button_rows(
+    *,
+    property_url: str = "",
+    tour_url: str = "",
+    review_url: str = "",
+) -> list[list[tuple[str, str]]]:
+    rows: list[list[tuple[str, str]]] = []
+    primary: list[tuple[str, str]] = []
+    if str(review_url or "").strip():
+        primary.append(("Open Review", str(review_url or "").strip()))
+    if str(tour_url or "").strip():
+        primary.append(("Open 3D Tour", str(tour_url or "").strip()))
+    if primary:
+        rows.append(primary[:2])
+    if str(property_url or "").strip():
+        rows.append([("Open Listing", str(property_url or "").strip())])
+    return rows
 
 
 def _property_alert_ranked_candidates(
@@ -8889,7 +8908,7 @@ def _property_alert_review_telegram_text(
         if compare_reason:
             extra_lines.append(f"Why it won: {compact_text(compare_reason, fallback='', limit=220)}")
         if top_url and top_url != str(property_url or '').strip() and not str(tour_url or "").strip() and not str(review_url or "").strip():
-            extra_lines.append(f"Top listing: {top_url}")
+            extra_lines.append("Top listing: use the button below.")
         top_assessment = dict(top.get("assessment") or {}) if isinstance(top.get("assessment"), dict) else {}
         next_action = _property_alert_next_action_text(top_assessment, property_url=top_url)
     elif fit_summary:
@@ -20806,21 +20825,26 @@ class ProductService:
                 telegram_receipt = send_telegram_message_for_principal(
                     self._container.tool_runtime,
                     principal_id=principal_id,
-                    text=_property_alert_review_telegram_text(
-                        title=title,
-                        summary=summary,
-                        counterparty=counterparty,
-                        account_email=account_email,
-                        property_url=property_url,
-                        personal_fit_assessment=personal_fit_assessment,
-                        candidate_properties=candidate_properties,
-                score_override=fit_score,
-                tour_url=normalized_tour_url,
-                review_url=review_url,
-                preference_person_id=preference_person_id,
-            ),
-            inline_buttons=list(feedback_prompt.get("button_rows") or []),
-        )
+	                    text=_property_alert_review_telegram_text(
+	                        title=title,
+	                        summary=summary,
+	                        counterparty=counterparty,
+	                        account_email=account_email,
+	                        property_url=property_url,
+	                        personal_fit_assessment=personal_fit_assessment,
+	                        candidate_properties=candidate_properties,
+	                        score_override=fit_score,
+	                        tour_url=normalized_tour_url,
+	                        review_url=review_url,
+	                        preference_person_id=preference_person_id,
+	                    ),
+	                    inline_buttons=list(feedback_prompt.get("button_rows") or []),
+	                    url_buttons=_property_telegram_url_button_rows(
+	                        property_url=property_url,
+	                        tour_url=normalized_tour_url,
+	                        review_url=review_url,
+	                    ),
+	                )
                 payload["telegram_delivery_status"] = "sent"
                 payload["telegram_message_ids"] = list(telegram_receipt.message_ids)
                 payload["telegram_chat_ref"] = str(telegram_receipt.chat_id or "").strip()
@@ -30579,6 +30603,11 @@ class ProductService:
                     preference_person_id=preference_person_id,
                 ),
                 inline_buttons=list(feedback_prompt.get("button_rows") or []),
+                url_buttons=_property_telegram_url_button_rows(
+                    property_url=property_url,
+                    tour_url=tour_url,
+                    review_url=review_url,
+                ),
             )
         except Exception as exc:
             payload = {
@@ -30678,7 +30707,12 @@ class ProductService:
             source_id=source_ref,
             dedupe_key=dedupe_key,
         )
-        return {"status": "sent", "tour_url": tour_url, "telegram_message_ids": list(telegram_receipt.message_ids)}
+        return {
+            "status": "sent",
+            "tour_url": tour_url,
+            "telegram_message_ids": list(telegram_receipt.message_ids),
+            "notification_neuronwriter": dict(notification_neuronwriter),
+        }
 
     def _render_property_scout_dossier(
         self,
@@ -31236,7 +31270,12 @@ class ProductService:
             source_id=source_ref,
             dedupe_key=dedupe_key,
         )
-        return {"status": "sent", "recipient_email": recipient_email, "message_id": message_id}
+        return {
+            "status": "sent",
+            "recipient_email": recipient_email,
+            "message_id": message_id,
+            "notification_neuronwriter": dict(notification_neuronwriter),
+        }
 
     def property_alert_policy(self, *, principal_id: str) -> dict[str, object]:
         event = self._latest_product_event(

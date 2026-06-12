@@ -643,8 +643,8 @@ def test_signal_ingest_property_alert_sends_telegram_review_summary(monkeypatch)
     monkeypatch.setattr(
         product_service,
         "send_telegram_message_for_principal",
-        lambda tool_runtime, *, principal_id, text, inline_buttons=None: observed_telegram.update(
-            {"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons}
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None: observed_telegram.update(
+            {"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons, "url_buttons": url_buttons}
         ) or _TelegramReceipt(),
     )
 
@@ -670,7 +670,13 @@ def test_signal_ingest_property_alert_sends_telegram_review_summary(monkeypatch)
     assert signal.status_code == 200
     assert observed_telegram["principal_id"] == principal_id
     assert "Scout update." in str(observed_telegram["text"])
-    assert "Listing: https://www.immoscout24.at/expose/telegram-test-property-1" in str(observed_telegram["text"])
+    assert "Listing: use the button below." in str(observed_telegram["text"])
+    assert "https://www.immoscout24.at/expose/telegram-test-property-1" not in str(observed_telegram["text"])
+    assert ("Open Listing", "https://www.immoscout24.at/expose/telegram-test-property-1") in [
+        tuple(item)
+        for row in list(observed_telegram["url_buttons"] or [])
+        for item in row
+    ]
     assert observed_telegram["inline_buttons"]
 
 
@@ -714,8 +720,8 @@ def test_signal_ingest_property_alert_sends_telegram_dossier_document(monkeypatc
     monkeypatch.setattr(
         product_service,
         "send_telegram_message_for_principal",
-        lambda tool_runtime, *, principal_id, text, inline_buttons=None: observed.update(
-            {"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons}
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None: observed.update(
+            {"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons, "url_buttons": url_buttons}
         ) or _TelegramReceipt(),
     )
     monkeypatch.setattr(
@@ -746,14 +752,7 @@ def test_signal_ingest_property_alert_sends_telegram_dossier_document(monkeypatc
     assert observed["document_principal_id"] == principal_id
     assert observed["document_ref"] == str(dossier_path)
     assert "PropertyQuarry dossier" in str(observed["document_caption"])
-    sent_events = product_service.build_product_service(client.app.state.container).list_office_events(
-        principal_id=principal_id,
-        event_type="property_scout_hit_telegram_sent",
-        channel="product",
-        limit=3,
-    )
-    assert sent_events
-    notification_neuronwriter = dict(dict(sent_events[0].get("payload") or {}).get("notification_neuronwriter") or {})
+    notification_neuronwriter = dict(result.get("notification_neuronwriter") or {})
     assert notification_neuronwriter["status"] == "disabled"
     assert notification_neuronwriter["mode"] == "public_safe"
 
@@ -2288,6 +2287,7 @@ def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> No
     )
 
     assert result["status"] == "sent"
+    assert dict(result["notification_neuronwriter"])["mode"] == "public_safe"
     assert observed["review_url"] == "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/test-token"
     assert observed["property_url"] == "https://www.immobilienscout24.at/expose/telegram-test-property-dossier"
     sent_events = product_service.build_product_service(client.app.state.container).list_office_events(
@@ -2450,8 +2450,8 @@ def test_signal_ingest_property_alert_sends_workspace_review_link_for_cf_email_p
     monkeypatch.setattr(
         product_service,
         "send_telegram_message_for_principal",
-        lambda tool_runtime, *, principal_id, text, inline_buttons=None: observed_telegram.update(
-            {"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons}
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None: observed_telegram.update(
+            {"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons, "url_buttons": url_buttons}
         ) or _TelegramReceipt(),
     )
 
@@ -2476,7 +2476,9 @@ def test_signal_ingest_property_alert_sends_workspace_review_link_for_cf_email_p
     )
     assert signal.status_code == 200
     assert observed_telegram["principal_id"] == principal_id
-    assert "Review: https://myexternalbrain.com/workspace-access/" in str(observed_telegram["text"])
+    assert "Review: use the button below." in str(observed_telegram["text"])
+    assert "https://myexternalbrain.com/workspace-access/" not in str(observed_telegram["text"])
+    assert any(label == "Open Review" and str(url).startswith("https://myexternalbrain.com/workspace-access/") for row in list(observed_telegram["url_buttons"] or []) for label, url in row)
     assert "Listing: https://www.immobilienscout24.at/expose/telegram-test-property-2" not in str(observed_telegram["text"])
 
     handoffs = client.get("/app/api/handoffs")
@@ -4909,7 +4911,9 @@ def test_property_scout_route_notifies_high_fit_and_creates_tour_for_existing_re
     monkeypatch.setattr(
         product_service,
         "send_telegram_message_for_principal",
-        lambda tool_runtime, *, principal_id, text, inline_buttons=None: observed_telegram.update({"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons}) or _TelegramReceipt(),
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None: observed_telegram.update(
+            {"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons, "url_buttons": url_buttons}
+        ) or _TelegramReceipt(),
     )
     monkeypatch.setattr(
         ProductService,
@@ -4930,7 +4934,12 @@ def test_property_scout_route_notifies_high_fit_and_creates_tour_for_existing_re
     assert body["tour_created_total"] == 1
     assert body["high_fit_total"] == 1
     assert "Personal fit 96/100" in str(observed_telegram["text"])
-    assert "https://myexternalbrain.com/tours/test-scout-flat" in str(observed_telegram["text"])
+    assert "https://myexternalbrain.com/tours/test-scout-flat" not in str(observed_telegram["text"])
+    assert ("Open 3D Tour", "https://myexternalbrain.com/tours/test-scout-flat") in [
+        tuple(item)
+        for row in list(observed_telegram["url_buttons"] or [])
+        for item in row
+    ]
     assert observed_telegram["inline_buttons"]
     feedback_events = client.get("/app/api/events", params={"channel": "product", "event_type": "notification_feedback_prompted"})
     assert feedback_events.status_code == 200
@@ -5139,7 +5148,9 @@ def test_property_scout_route_notifies_top_watch_hit_when_no_good_fit(monkeypatc
     monkeypatch.setattr(
         product_service,
         "send_telegram_message_for_principal",
-        lambda tool_runtime, *, principal_id, text, inline_buttons=None: observed_telegram.update({"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons}) or _TelegramReceipt(),
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None: observed_telegram.update(
+            {"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons, "url_buttons": url_buttons}
+        ) or _TelegramReceipt(),
     )
     response = client.post("/app/api/signals/property/scout")
     assert response.status_code == 200
@@ -5149,7 +5160,9 @@ def test_property_scout_route_notifies_top_watch_hit_when_no_good_fit(monkeypatc
     assert body["notified_total"] == 1
     assert body["sources"][0]["watch_notified_total"] == 1
     assert "Personal fit 37/100" in str(observed_telegram["text"])
-    assert "Review: https://myexternalbrain.com/workspace-access/" in str(observed_telegram["text"])
+    assert "Review: use the button below." in str(observed_telegram["text"])
+    assert "https://myexternalbrain.com/workspace-access/" not in str(observed_telegram["text"])
+    assert any(label == "Open Review" and str(url).startswith("https://myexternalbrain.com/workspace-access/") for row in list(observed_telegram["url_buttons"] or []) for label, url in row)
     assert f"Listing: {listing_url}" not in str(observed_telegram["text"])
 
 
@@ -6815,7 +6828,8 @@ def test_property_alert_review_telegram_text_includes_top_candidate_summary() ->
     assert "Title: Bright Waehring apartment with balcony" in text
     assert "EA found 2 concrete listings in this alert." in text
     assert "Top candidate: Personal fit 91/100" in text
-    assert "Top listing: https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/top-fit-1" in text
+    assert "Top listing: use the button below." in text
+    assert "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/top-fit-1" not in text
     assert "Next: open the listing and generate a tour." in text
 
 
@@ -6911,7 +6925,8 @@ def test_property_alert_review_telegram_text_prefers_internal_tour_link() -> Non
         tour_url="https://myexternalbrain.com/tours/watch-fit-1",
     )
 
-    assert "3D tour: https://myexternalbrain.com/tours/watch-fit-1" in text
+    assert "3D tour: use the button below." in text
+    assert "https://myexternalbrain.com/tours/watch-fit-1" not in text
     assert "Listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
     assert "Top listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
 
@@ -6961,7 +6976,8 @@ def test_property_alert_review_telegram_text_prefers_review_link_over_listing() 
         review_url="https://myexternalbrain.com/workspace-access/test-token?return_to=%2Fapp%2Fhandoffs%2Fhuman_task%3Atest-1",
     )
 
-    assert "Review: https://myexternalbrain.com/workspace-access/test-token" in text
+    assert "Review: use the button below." in text
+    assert "https://myexternalbrain.com/workspace-access/test-token" not in text
     assert "Listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
     assert "Top listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
 
@@ -14146,7 +14162,13 @@ def test_google_property_sync_scores_elisabeth_mailbox_against_elisabeth_profile
     )
     assert sent
     assert "Preference profile: elisabeth" in sent[0]["kwargs"]["text"]
-    assert "3D tour: https://myexternalbrain.com/tours/high-fit-mailbox-1" in sent[0]["kwargs"]["text"]
+    assert "3D tour: use the button below." in sent[0]["kwargs"]["text"]
+    assert "https://myexternalbrain.com/tours/high-fit-mailbox-1" not in sent[0]["kwargs"]["text"]
+    assert ("Open 3D Tour", "https://myexternalbrain.com/tours/high-fit-mailbox-1") in [
+        tuple(item)
+        for row in list(sent[0]["kwargs"].get("url_buttons") or [])
+        for item in row
+    ]
     assert listing_url not in sent[0]["kwargs"]["text"]
 
     events = client.get("/app/api/events", params={"channel": "product", "event_type": "property_alert_review_created"})
