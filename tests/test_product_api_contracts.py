@@ -9098,6 +9098,7 @@ def test_kalandra_cube_360_bundle_generation_is_disabled(monkeypatch, tmp_path: 
             property_facts_json={"has_360": True},
             source_host="www.kalandra.at",
         )
+    assert list(tmp_path.glob("*/tour.json")) == []
 
 
 def test_willhaben_property_tour_route_blocks_when_only_flat_listing_photos_exist_and_360_is_required(monkeypatch) -> None:

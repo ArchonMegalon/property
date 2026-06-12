@@ -11122,168 +11122,6 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     if "360.kalandra.at" not in live_host and "feelestate" not in live_host:
         raise RuntimeError("pure_360_source_unsupported")
     raise RuntimeError("property_tour_cube_fallback_disabled")
-    base_url = _hosted_property_tour_public_base_url()
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
-    slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
-    existing_payload = _existing_hosted_property_tour_payload(slug)
-    if existing_payload:
-        return existing_payload
-    bundle_dir = public_dir / slug
-    bundle_dir.mkdir(parents=True, exist_ok=True)
-    root = _feelestate_json_rpc("getLocationWithAuthentication", ["", 6489, None, 63379, None, ""])
-    tour = dict(root.get("tour") or {})
-    floors = [dict(row) for row in list(tour.get("floors") or []) if isinstance(row, dict)]
-    floor_id = int(str((floors[0] if floors else {}).get("id") or 85470))
-    locations_payload = _feelestate_json_rpc("getAllFloorLocations", [floor_id])
-    locations = [dict(row) for row in list(locations_payload.get("locations") or []) if isinstance(row, dict)]
-    if not locations:
-        raise RuntimeError("pure_360_locations_missing")
-    face_names = ("r", "l", "u", "d", "f", "b")
-    scenes: list[dict[str, object]] = []
-    for ordinal, location_ref in enumerate(locations[:24], start=1):
-        location_id = int(str(location_ref.get("id") or "0"))
-        if location_id <= 0:
-            continue
-        detail = _feelestate_json_rpc("getLocationWithAuthentication", ["", 6489, location_id, 63379, None, ""])
-        location = dict(detail.get("location") or {})
-        if not location:
-            continue
-        rel_dir = f"panorama/{location_id}"
-        cube_faces: dict[str, str] = {}
-        source_base = (
-            "https://s3.eu-central-1.amazonaws.com/feelestate-userdata/"
-            f"userdata/customer_6489/tour_63379/floor_{floor_id}/location_{location_id}/panorama"
-        )
-        for face in face_names:
-            rel = f"{rel_dir}/tablet_{face}.jpg"
-            _download_public_tour_asset(f"{source_base}/tablet_{face}.jpg", bundle_dir / rel)
-            cube_faces[face] = rel
-        preview_rel = f"{rel_dir}/preview.jpg"
-        try:
-            _download_public_tour_asset(f"{source_base}/preview.jpg", bundle_dir / preview_rel)
-        except Exception:
-            preview_rel = cube_faces["f"]
-        scenes.append(
-            {
-                "ordinal": ordinal,
-                "name": str(location.get("name") or location_ref.get("name") or f"Location {location_id}").strip(),
-                "role": "pure_360",
-                "location_id": location_id,
-                "asset_relpath": preview_rel,
-                "cube_faces": cube_faces,
-                "yaw": float(location.get("gotoYaw") or 0),
-                "pitch": float(location.get("gotoPitch") or 0),
-                "source_url": live_url,
-                "property_url": property_url,
-                "mime_type": "image/jpeg",
-            }
-        )
-    for index, scene in enumerate(scenes):
-        if not scenes:
-            break
-        location_ids = [str(entry.get("location_id") or "").strip() for entry in scenes]
-        prev_index = (index - 1) % len(scenes)
-        next_index = (index + 1) % len(scenes)
-        prev_id = location_ids[prev_index]
-        next_id = location_ids[next_index]
-        if prev_id:
-            scene["prev_scene_id"] = prev_id
-            scene["prev_scene_index"] = prev_index
-        if next_id:
-            scene["next_scene_id"] = next_id
-            scene["next_scene_index"] = next_index
-    if not scenes:
-        raise RuntimeError("pure_360_scenes_missing")
-    normalized_floorplan_urls = [
-        _safe_live_property_tour_url(value)
-        for value in list(floorplan_urls or [])
-        if _safe_live_property_tour_url(value)
-    ]
-    for ordinal, asset_url in enumerate(normalized_floorplan_urls[:8], start=1):
-        try:
-            rel_dir = "floorplans"
-            suffix = _hosted_property_tour_asset_suffix(url=asset_url, content_type="")
-            if suffix.lower() not in _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS:
-                suffix = ".pdf"
-            relpath = f"{rel_dir}/floorplan-{ordinal:02d}{suffix}"
-            content_type = _download_public_tour_asset_with_type(asset_url, bundle_dir / relpath)
-            corrected_suffix = _hosted_property_tour_asset_suffix(url=asset_url, content_type=content_type)
-            if corrected_suffix and not relpath.endswith(corrected_suffix):
-                corrected_relpath = f"{rel_dir}/floorplan-{ordinal:02d}{corrected_suffix}"
-                (bundle_dir / relpath).rename(bundle_dir / corrected_relpath)
-                relpath = corrected_relpath
-            scenes.append(
-                {
-                    "ordinal": len(scenes) + 1,
-                    "name": f"Floorplan {ordinal}",
-                    "role": "floorplan",
-                    "asset_relpath": relpath,
-                    "source_url": asset_url,
-                    "property_url": property_url,
-                    "mime_type": content_type or mimetypes.guess_type(relpath)[0] or "application/octet-stream",
-                }
-            )
-        except Exception:
-            continue
-    facts = dict(property_facts_json or {})
-    existing_address_lines = [str(value or "").strip() for value in list(facts.get("address_lines") or []) if str(value or "").strip()]
-    existing_teasers = [str(value or "").strip() for value in list(facts.get("teaser_attributes") or []) if str(value or "").strip()]
-    facts.update(
-        {
-            "has_360": True,
-            "tour_media_mode": "panorama_360",
-            "source_virtual_tour_url": "",
-            "panorama_source": "feelestate_mirrored",
-            "has_floorplan": bool(facts.get("has_floorplan") or normalized_floorplan_urls),
-            "floorplan_count": max(int(facts.get("floorplan_count") or 0), len(normalized_floorplan_urls)),
-            "floorplan_urls_json": normalized_floorplan_urls or list(facts.get("floorplan_urls_json") or []),
-            "address_lines": existing_address_lines or ([source_host] if source_host else []),
-            "teaser_attributes": existing_teasers or [
-                "Hosted white-label 360 tour",
-                f"{len([scene for scene in scenes if str(scene.get('role') or '') == 'pure_360'])} mirrored panorama locations",
-                f"{len(normalized_floorplan_urls)} floorplan document(s)" if normalized_floorplan_urls else "",
-            ],
-        }
-    )
-    display_title = compact_text(title, fallback="Pure 360 Property Tour", limit=180)
-    payload = {
-        "slug": slug,
-        "hosted_url": f"{base_url}/{slug}",
-        "public_url": f"{base_url}/{slug}",
-        "principal_id": str(principal_id or "").strip(),
-        "listing_url": property_url,
-        "property_url": property_url,
-        "source_ref": str(source_ref or "").strip(),
-        "external_id": str(external_id or "").strip(),
-        "recipient_email": str(recipient_email or "").strip().lower(),
-        "source_virtual_tour_url": "",
-        "source_virtual_tour_origin": live_url,
-        "title": f"{display_title} - pure 360",
-        "display_title": display_title,
-        "tour_title": f"{display_title} - pure 360",
-        "tour_id": None,
-        "variant_key": variant_key,
-        "variant_label": "pure 360",
-        "scene_strategy": "pure_360_cube",
-        "control_mode": "3dvista",
-        "viewer_provider": "3dvista",
-        "scene_count": len(scenes),
-        "facts": facts,
-        "brief": {
-            "theme_name": "clean_light",
-            "tour_style": "pure_mirrored_360_cube",
-            "audience": "tenant_screening",
-            "creative_brief": "Render mirrored 360 cube assets directly inside the hosted PropertyQuarry tour without embedding the source provider.",
-            "call_to_action": "Open pure 360 tour.",
-        },
-        "editor_url": "",
-        "crezlo_public_url": "",
-        "scenes": scenes,
-        "generated_at": _now_iso(),
-        "creation_mode": "pure_hosted_360",
-    }
-    (bundle_dir / "tour.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return payload
 
 
 def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, object]:
@@ -22208,7 +22046,7 @@ class ProductService:
                         "tour_media_mode": "panorama_360",
                         "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
                         "personal_fit_assessment": dict(personal_fit_assessment or {}),
-                        "creation_mode": "pure_hosted_360",
+                        "creation_mode": str(structured_output.get("creation_mode") or "embedded_live_360").strip(),
                         "source_virtual_tour_url": source_virtual_tour_url,
                     }
                     try:
@@ -22446,7 +22284,7 @@ class ProductService:
                         "tour_media_mode": "panorama_360",
                         "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
                         "personal_fit_assessment": dict(personal_fit_assessment or {}),
-                        "creation_mode": "pure_hosted_360",
+                        "creation_mode": str(structured_output.get("creation_mode") or "embedded_live_360").strip(),
                         "source_virtual_tour_url": source_virtual_tour_url,
                         "upstream_blocked_reason": blocked_reason,
                     }
@@ -23106,7 +22944,7 @@ class ProductService:
                         "tour_media_mode": "panorama_360",
                         "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
                         "personal_fit_assessment": dict(personal_fit_assessment or {}),
-                        "creation_mode": "pure_hosted_360",
+                        "creation_mode": str(structured_output.get("creation_mode") or "embedded_live_360").strip(),
                         "source_virtual_tour_url": source_virtual_tour_url,
                     }
                     try:
@@ -23302,7 +23140,7 @@ class ProductService:
                         "tour_media_mode": "panorama_360",
                         "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
                         "personal_fit_assessment": dict(personal_fit_assessment or {}),
-                        "creation_mode": "pure_hosted_360",
+                        "creation_mode": str(structured_output.get("creation_mode") or "embedded_live_360").strip(),
                         "source_virtual_tour_url": source_virtual_tour_url,
                         "upstream_blocked_reason": blocked_reason,
                     }
