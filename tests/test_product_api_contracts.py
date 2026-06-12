@@ -4017,6 +4017,36 @@ def test_property_scout_floorplan_filter_records_provider_recovery_ooda_event(mo
     ]
     assert len(created_events) == 1
 
+    repeated = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("genossenschaften_at",),
+        property_search_preferences={
+            "property_type": "apartment",
+            "require_floorplan": True,
+            "min_match_score": 1,
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+    assert repeated["filtered_floorplan_total"] == 1
+    repeated_tasks = client.app.state.container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=20)
+    repeated_repair_tasks = [
+        task for task in repeated_tasks if str(getattr(task, "task_type", "") or "") == "property_provider_repair_ooda"
+    ]
+    assert len(repeated_repair_tasks) == 1
+    repeated_created_events = [
+        row
+        for row in client.app.state.container.channel_runtime.list_recent_observations(limit=100, principal_id=principal_id)
+        if row.event_type == "property_provider_repair_task_created"
+    ]
+    assert len(repeated_created_events) == 1
+
 
 def test_property_scout_min_area_filters_before_scoring(monkeypatch) -> None:
     principal_id = "cf-email:min-area.search@example.com"
