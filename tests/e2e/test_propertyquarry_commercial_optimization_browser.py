@@ -32,7 +32,7 @@ def test_workspace_and_packet_dashboard_show_commercial_and_optimization_languag
     workspace = client.get("/app/properties", params={"run_id": "run-phase6"})
     assert workspace.status_code == 200
     assert "View plan tiers" in workspace.text
-    assert "Open billing controls" in workspace.text
+    assert "Billing controls" in workspace.text
 
     packets = client.get("/app/properties/packets")
     assert packets.status_code == 200
@@ -77,7 +77,7 @@ def test_packet_dashboard_acknowledges_optimization_in_real_browser(
         response = page.goto(f"{base_url}/app/properties?run_id=run-phase6", wait_until="networkidle")
         assert response is not None and response.ok
         assert page.locator("body", has_text="View plan tiers").is_visible()
-        assert page.locator("body", has_text="Open billing controls").is_visible()
+        assert page.locator("body", has_text="Billing controls").is_visible()
 
         response = page.goto(f"{base_url}/app/properties/packets", wait_until="networkidle")
         assert response is not None and response.ok

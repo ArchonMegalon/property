@@ -88,7 +88,7 @@ router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
 
 templates.env.globals["clickrank_head_snippet"] = lambda request=None: Markup(_clickrank_head_snippet(_request_hostname(request)))
-templates.env.globals["rybbit_head_snippet"] = lambda: Markup(_rybbit_head_snippet())
+templates.env.globals["rybbit_head_snippet"] = lambda request=None: Markup(_rybbit_head_snippet(request))
 
 
 @router.get("/robots.txt", include_in_schema=False, response_class=PlainTextResponse)

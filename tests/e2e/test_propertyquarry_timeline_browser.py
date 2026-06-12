@@ -18,5 +18,5 @@ def test_workbench_surface_timeline_language(monkeypatch, tmp_path: Path) -> Non
     install_property_run(monkeypatch, property_url="https://example.com/listing-phase5")
     workbench = client.get("/app/properties", params={"run_id": "run-phase5"})
     assert workbench.status_code == 200
-    assert "Stakeholder timeline" in workbench.text
+    assert "Timeline" in workbench.text
     assert "Top objections" in workbench.text

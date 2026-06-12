@@ -23,7 +23,7 @@
   <div class="pqx-section-head">
     <div>
       <h2>Missing facts</h2>
-      <div class="pqx-note">Facts still being completed from floorplans, source bundles, and review packets.</div>
+      <div class="pqx-note">Facts still being completed from floorplans, source files, and property reviews.</div>
     </div>
     <span class="pqx-pill warn" data-research-task-count>{{ counts.get('open') or 0 }} open</span>
   </div>
@@ -84,7 +84,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ page_title or 'PropertyQuarry' }}</title>
   {{ clickrank_head_snippet(request) }}
-  {{ rybbit_head_snippet() }}
+  {{ rybbit_head_snippet(request) }}
   <style>
     :root {
       --pq-bg: #f6f3ee;
@@ -304,9 +304,9 @@
       font-size: 12px;
     }
     .pqx-main {
-      width: min(1760px, calc(100vw - 32px));
+      width: min(1840px, calc(100vw - 40px));
       margin: 0 auto;
-      padding: clamp(16px, 2.6vw, 34px) 0 88px;
+      padding: clamp(18px, 3vw, 44px) 0 96px;
     }
     .pqx-mobile-switch {
       display: none;
@@ -326,7 +326,7 @@
     }
     .pqx-stage {
       display: grid;
-      gap: 16px;
+      gap: clamp(18px, 2.2vw, 30px);
     }
     .pqx-panel,
     .pqx-command,
@@ -362,8 +362,8 @@
     .pqx-setup {
       min-height: calc(100vh - 172px);
       display: grid;
-      grid-template-columns: minmax(280px, 0.84fr) minmax(460px, 1.16fr);
-      gap: 16px;
+      grid-template-columns: minmax(300px, 0.72fr) minmax(560px, 1.28fr);
+      gap: clamp(22px, 3vw, 42px);
       align-items: stretch;
     }
     .pqx-setup-intro {
@@ -421,8 +421,8 @@
     }
     .pqx-command {
       display: grid;
-      gap: 16px;
-      padding: clamp(16px, 2.4vw, 28px);
+      gap: clamp(18px, 2.2vw, 28px);
+      padding: clamp(22px, 3vw, 40px);
     }
     .pqx-workflow {
       display: grid;
@@ -1062,9 +1062,12 @@
     }
     .pqx-results {
       display: grid;
-      grid-template-columns: minmax(420px, 1.02fr) minmax(420px, 0.98fr);
-      gap: 16px;
+      grid-template-columns: minmax(540px, 1.18fr) minmax(380px, 0.82fr);
+      gap: clamp(18px, 2.4vw, 34px);
       align-items: start;
+    }
+    .pqx-results > .pqx-result-panel {
+      order: -1;
     }
     .pqx-review {
       position: sticky;
@@ -1190,7 +1193,7 @@
     .pqx-result-panel {
       min-width: 0;
       display: grid;
-      gap: 12px;
+      gap: 14px;
     }
     .pqx-result-panel-head {
       display: flex;
@@ -1206,12 +1209,21 @@
     .pqx-result {
       width: 100%;
       display: grid;
-      grid-template-columns: 54px minmax(0, 1.25fr) minmax(120px, 0.55fr) minmax(120px, 0.55fr) minmax(130px, 0.65fr);
-      gap: 12px;
+      grid-template-columns: 54px minmax(0, 1.35fr) minmax(118px, 0.44fr) minmax(118px, 0.44fr);
+      gap: 14px;
       align-items: center;
-      padding: 12px;
+      padding: 14px;
       text-align: left;
       cursor: pointer;
+    }
+    .pqx-card summary {
+      display: grid;
+      gap: 3px;
+      cursor: pointer;
+      list-style: none;
+    }
+    .pqx-card summary::-webkit-details-marker {
+      display: none;
     }
     .pqx-result[aria-selected="true"] {
       border-color: var(--pq-charcoal);
@@ -1227,6 +1239,12 @@
     .pqx-result > span strong {
       display: block;
       line-height: 1.2;
+    }
+    .pqx-result-action {
+      width: fit-content;
+      color: var(--pq-muted);
+      font-size: 12px;
+      font-weight: 720;
     }
     .pqx-rank {
       width: 38px;
@@ -1251,6 +1269,12 @@
       font-size: 12px;
       font-weight: 720;
       white-space: nowrap;
+      cursor: default;
+      user-select: none;
+    }
+    button .pqx-pill,
+    a .pqx-pill {
+      cursor: inherit;
     }
     .pqx-pill.good {
       border-color: rgba(39, 107, 83, 0.25);
@@ -1476,13 +1500,16 @@
         </div>
       </div>
       <div class="pqx-top-actions" data-pq-context-actions>
-        <a class="pqx-link-button subtle" href="/app/properties/packets">Packets</a>
+        <a class="pqx-link-button subtle" href="/app/properties/packets">Reviews</a>
+        {% if has_results %}
+        <a class="pqx-link-button subtle" href="/app/properties">Manage saved search</a>
+        {% endif %}
         <button class="pqx-button subtle" type="button" data-pqx-browser-alerts hidden>Browser alerts</button>
         {% if has_results and selected.get('tour', {}).get('url') %}
         <a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}" data-pqx-top-tour>Open 360</a>
         {% endif %}
         {% if has_results and selected.get('packet_url') %}
-        <a class="pqx-link-button" href="{{ selected.get('packet_url') }}" data-pqx-top-packet>Review packet</a>
+        <a class="pqx-link-button" href="{{ selected.get('packet_url') }}" data-pqx-top-packet>Review details</a>
         {% endif %}
         {% if run_active %}
         <button class="pqx-button primary" type="button" data-pqx-refresh-status>Refresh status</button>
@@ -1498,7 +1525,7 @@
       <div class="pqx-mobile-switch" aria-label="PropertyQuarry workspace mode" data-property-mobile-dock>
         <button class="pqx-mode-button active" type="button" data-pw-mode="results" data-workbench-mobile-mode="results">Results</button>
         <button class="pqx-mode-button" type="button" data-pw-mode="property" data-workbench-mobile-mode="property">Property</button>
-        {% if setup_mode %}<button class="pqx-mode-button" type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">Brief</button>{% endif %}
+        {% if setup_mode %}<button class="pqx-mode-button" type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">Search</button>{% endif %}
       </div>
 
       {% if setup_mode %}
@@ -1506,7 +1533,7 @@
         <aside class="pqx-setup-intro active" data-pqx-mobile-panel="results">
           <div class="pqx-title">
             <span>New search</span>
-            <h1>Build the brief. Then let the agents work.</h1>
+            <h1>Tell us what to find.</h1>
           </div>
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
@@ -1515,11 +1542,11 @@
               <div class="pqx-fact"><span>Providers</span><strong>{{ (brief.get('providers') or [])|length }}</strong></div>
               <div class="pqx-fact"><span>Research</span><strong>{{ brief.get('research_depth') or 'deep' }}</strong></div>
             </div>
-            <p class="pqx-note">Only the controls needed for the current setup step are visible. Launching replaces this screen with live run progress.</p>
+            <p class="pqx-note">Start with the essentials. Extra filters stay grouped so the search stays readable.</p>
           </div>
           {% if recent_packets %}
           <div class="pqx-brief-stack">
-            <strong>Recent internal packets</strong>
+            <strong>Recent reviews</strong>
             {% for packet in recent_packets[:3] %}
             <a class="pqx-link-button subtle" href="{{ packet.get('url') or '#' }}">{{ packet.get('title') }}</a>
             {% endfor %}
@@ -1531,7 +1558,7 @@
           <div class="pqx-section-head">
             <div>
               <h2>{{ console_form.get('title') or 'Run a premium market sweep' }}</h2>
-              <div class="pqx-note" data-property-step-summary>What this search is optimizing for: choose the market, search posture, areas, and providers.</div>
+              <div class="pqx-note" data-property-step-summary>Choose the market, areas, budget, must-haves, and how many updates you want.</div>
             </div>
             <span class="pqx-pill" data-property-step-progress>Step 1</span>
           </div>
@@ -1693,7 +1720,7 @@
                 <button class="pqx-button" type="button" data-property-step-next>Next</button>
               </div>
               <div class="pqx-actions" data-property-actions hidden>
-                <button class="pqx-button subtle" type="button" data-property-save>Save brief</button>
+                <button class="pqx-button subtle" type="button" data-property-save>Save search</button>
                 <button class="pqx-button primary" type="button" data-property-start>{{ console_form.get('submit_label') or 'Launch search' }}</button>
               </div>
             </div>
@@ -1701,28 +1728,48 @@
             <div class="pqx-inline-error" data-property-inline-error></div>
           </form>
           {% set search_agents = property_meta.get('search_agents') or [] %}
-          {% if search_agents %}
           <section class="pqx-advanced-panel" data-property-search-agent-management>
             <div class="pqx-section-head">
               <div>
-                <h2>Search agents</h2>
-                <div class="pqx-note">Saved agents reuse this search brief, rank matches first, and send only the best results inside the notification budget.</div>
+                <h2>Saved searches</h2>
+                <div class="pqx-note">Manage the ongoing search that uses the settings above. If it finds more homes than your alert budget allows, only the best-ranked matches are sent.</div>
               </div>
               <span class="pqx-pill">{{ (search_agents|selectattr('enabled')|list)|length }} active</span>
             </div>
             <div class="pqx-pref-list">
               {% for agent in search_agents %}
-              <div class="pqx-pref-row">
+              <div class="pqx-pref-row" data-property-search-agent-row>
                 <div>
                   <strong>{{ agent.get('status_label') }} · {{ agent.get('location_query') or 'No area saved' }}</strong>
-                  <small>{{ agent.get('duration_label') }} · {{ agent.get('notification_limit') }} per {{ agent.get('notification_period_label') }} · {{ agent.get('provider_count') }} provider{{ '' if agent.get('provider_count') == 1 else 's' }}</small>
+                  <small>{{ agent.get('duration_label') }} · {{ agent.get('notification_limit') }} alert{{ '' if agent.get('notification_limit') == 1 else 's' }} per {{ agent.get('notification_period_label') }} · {{ agent.get('provider_count') }} provider{{ '' if agent.get('provider_count') == 1 else 's' }}</small>
                 </div>
-                <span class="pqx-pill">{{ agent.get('listing_mode') }} | {{ agent.get('country_code') }}</span>
+                <div class="pqx-actions">
+                  {% if agent.get('enabled') %}
+                  <button class="pqx-button subtle" type="button" data-search-agent-action="pause">Pause</button>
+                  {% else %}
+                  <button class="pqx-button" type="button" data-search-agent-action="resume">Resume</button>
+                  {% endif %}
+                  <button class="pqx-button" type="button" data-search-agent-action="save">Save limits</button>
+                  <button class="pqx-button primary" type="button" data-search-agent-action="run">Run now</button>
+                </div>
+              </div>
+              {% else %}
+              <div class="pqx-pref-row" data-property-search-agent-row>
+                <div>
+                  <strong>Disabled · current search settings</strong>
+                  <small>Turn it on to keep this search running and send only the best-ranked alerts inside your budget.</small>
+                </div>
+                <div class="pqx-actions">
+                  <button class="pqx-button" type="button" data-search-agent-action="resume">Resume</button>
+                  <button class="pqx-button" type="button" data-search-agent-action="save">Save limits</button>
+                  <button class="pqx-button primary" type="button" data-search-agent-action="run">Run now</button>
+                </div>
               </div>
               {% endfor %}
             </div>
+            <div class="pqx-note">Change duration, alert budget, and daily or weekly reset in the search settings above, then use Save limits.</div>
+            <div class="pqx-inline-status" data-search-agent-status></div>
           </section>
-          {% endif %}
           {% set preference_manager = preference_manager or {} %}
           <details
             class="pqx-advanced-panel pqx-pref-manager"
@@ -1762,7 +1809,7 @@
               {% else %}
               <div class="pqx-empty" data-preference-empty>
                 <strong>No active learned preferences yet</strong>
-                <span class="pqx-note">Add explicit profile rules here or save feedback on review packets.</span>
+                <span class="pqx-note">Add explicit profile rules here or save feedback on property reviews.</span>
               </div>
               {% endfor %}
             </div>
@@ -1830,7 +1877,7 @@
             </div>
           </details>
           {% else %}
-          <div class="pqx-empty">The search brief is not editable while this run is active or completed.</div>
+          <div class="pqx-empty">Search settings are locked while this search is running or already completed.</div>
           {% endif %}
         </section>
       </section>
@@ -1839,7 +1886,7 @@
         <aside class="pqx-run-hero active" data-pqx-mobile-panel="results">
           <div class="pqx-title">
             <span>{% if run_status == 'failed' %}Run stopped{% else %}Run complete{% endif %}</span>
-            <h1>{% if run_status == 'failed' %}The search did not finish cleanly.{% else %}No strong matches met this brief.{% endif %}</h1>
+            <h1>{% if run_status == 'failed' %}The search could not finish.{% else %}No strong matches found yet.{% endif %}</h1>
           </div>
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
@@ -1848,7 +1895,7 @@
               <div class="pqx-fact"><span>Listings</span><strong>{{ run_summary.get('listing_total') or 0 }}</strong></div>
               <div class="pqx-fact"><span>Min score</span><strong>{{ run_summary.get('high_match_min_score') or 'n/a' }}</strong></div>
             </div>
-            <p class="pqx-note">{% if run_status == 'failed' %}The activity log names the blocking step. Retry the same brief once the provider lane is healthy, or start a new search with fewer constraints.{% else %}The crawler scanned the provider lanes and filtered weak matches below the selected score. Lower the threshold, widen the area, or add providers if you want a broader pass.{% endif %}</p>
+            <p class="pqx-note">{% if run_status == 'failed' %}Try again after changing the search, or reduce the number of strict requirements.{% else %}Widen the area, lower the fit threshold, or make one must-have optional to see more homes.{% endif %}</p>
             <div class="pqx-actions">
               <a class="pqx-link-button primary" href="/app/properties">New search</a>
               <button class="pqx-button subtle" type="button" data-pqx-refresh-status>Refresh delivery</button>
@@ -1856,8 +1903,8 @@
             {% if workbench.get('counterfactual_rows') %}
             <div class="pqx-section-head" style="margin-top:18px;">
               <div>
-                <h2>What would unlock more matches?</h2>
-                <div class="pqx-note">Apply one broader brief change and reopen the search desk without rebuilding the whole brief manually.</div>
+                <h2>Ways to get more matches</h2>
+                <div class="pqx-note">Apply one broader setting and run the search again.</div>
               </div>
             </div>
             <div class="pqx-event-list" data-pqx-counterfactuals>
@@ -1871,7 +1918,7 @@
                     class="pqx-button"
                     type="button"
                     data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}'
-                  >{{ row.get('action_label') or 'Apply and reopen brief' }}</button>
+                  >{{ row.get('action_label') or 'Apply and search again' }}</button>
                 </div>
               </div>
               {% endfor %}
@@ -1883,8 +1930,8 @@
         <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property">
           <div class="pqx-section-head">
             <div>
-              <h2>Provider coverage report</h2>
-              <div class="pqx-note" data-pqx-run-summary>{{ run_summary.get('sources_total') or run_sources|length or 0 }} providers checked · {{ run_summary.get('listing_total') or 0 }} listings reviewed · {{ run_summary.get('filtered_low_fit_total') or 0 }} below threshold · {{ run_summary.get('filtered_floorplan_total') or 0 }} without floor plan</div>
+              <h2>Best matches</h2>
+              <div class="pqx-note" data-pqx-run-summary>{{ run_summary.get('sources_total') or run_sources|length or 0 }} sources checked · {{ run_summary.get('listing_total') or 0 }} homes reviewed · {{ run_summary.get('filtered_low_fit_total') or 0 }} below your fit threshold · {{ run_summary.get('filtered_floorplan_total') or 0 }} without floor plan</div>
             </div>
             <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
           </div>
@@ -1894,11 +1941,10 @@
             <table class="pqx-table">
               <thead>
                 <tr>
-                  <th>Rank</th>
+                  <th>#</th>
                   <th>Property</th>
-                  <th>Provider</th>
                   <th>Fit</th>
-                  <th>Reason</th>
+                  <th>Why it matched</th>
                   <th>Open</th>
                 </tr>
               </thead>
@@ -1906,10 +1952,9 @@
                 {% for candidate in ranked_candidates[:20] %}
                 <tr>
                   <td>{{ candidate.get('rank') or loop.index }}</td>
-                  <td>{{ candidate.get('title') or candidate.get('property_url') or 'Property candidate' }}</td>
-                  <td>{{ candidate.get('source_label') or candidate.get('source_platform') or 'Provider' }}</td>
+                  <td>{{ candidate.get('title') or candidate.get('property_url') or 'Property candidate' }}<br><span class="pqx-small">{{ candidate.get('source_label') or candidate.get('source_platform') or 'Source' }}</span></td>
                   <td>{{ candidate.get('fit_score') or 0 }}</td>
-                  <td>{{ candidate.get('compare_reason') or candidate.get('fit_summary') or (candidate.get('match_reasons') or ['Review packet for details'])[0] }}</td>
+                  <td>{{ candidate.get('compare_reason') or candidate.get('fit_summary') or (candidate.get('match_reasons') or ['Review details for more context'])[0] }}</td>
                   <td>
                     {% if candidate.get('packet_url') %}<a href="{{ candidate.get('packet_url') }}">Review</a>{% endif %}
                     {% if candidate.get('map_url') %}<a href="{{ candidate.get('map_url') }}">Map</a>{% endif %}
@@ -1921,9 +1966,11 @@
             </table>
           </div>
           {% else %}
-          <div class="pqx-empty" data-pqx-ranked-candidates>No ranked candidates are available yet.</div>
+          <div class="pqx-empty" data-pqx-ranked-candidates>No matches are ready yet.</div>
           {% endif %}
           {% if run_sources %}
+          <details class="pqx-card">
+            <summary><strong>Search diagnostics</strong><span class="pqx-note">Open only when results look wrong or too narrow.</span></summary>
           <div class="pqx-source-grid" data-pqx-source-breakdown>
             {% for source in run_sources %}
             <article class="pqx-source-card">
@@ -1951,7 +1998,7 @@
                   {% else %}
                   <strong>{{ candidate.get('title') or candidate.get('property_url') or 'Review candidate' }}</strong>
                   {% endif %}
-                  <span class="pqx-note">{{ candidate.get('fit_summary') or candidate.get('recommendation') or 'Open the review packet for OODA and feedback.' }}</span>
+                  <span class="pqx-note">{{ candidate.get('fit_summary') or candidate.get('recommendation') or 'Open the review for details and feedback.' }}</span>
                   {% if candidate.get('property_url') %}<a class="pqx-note" href="{{ candidate.get('property_url') }}">Source listing</a>{% endif %}
                 </div>
                 {% endfor %}
@@ -1963,16 +2010,19 @@
             </article>
             {% endfor %}
           </div>
+          </details>
           {% else %}
           <div class="pqx-empty">No provider breakdown was recorded for this run.</div>
           {% endif %}
           {{ research_queue_panel(research_tasks, run.get('run_id') or '', research_task_counts) }}
           <div class="pqx-section-head">
             <div>
-              <h2>Run activity</h2>
+              <h2>Search progress</h2>
               <div class="pqx-note" data-pqx-run-updated>Last update {{ run.get('updated_at') or run.get('generated_at') or 'not available' }}</div>
             </div>
           </div>
+          <details class="pqx-card">
+            <summary><strong>Search progress details</strong><span class="pqx-note">Open if you need to troubleshoot.</span></summary>
           <div class="pqx-event-list" data-pqx-run-events>
             {% for event in (run.get('events') or [])|reverse %}
             <div class="pqx-event-card">
@@ -1984,6 +2034,7 @@
             <div class="pqx-empty">No run events were recorded.</div>
             {% endif %}
           </div>
+          </details>
         </section>
       </section>
       {% elif run_visible %}
@@ -2003,13 +2054,13 @@
           </div>
           <div>
             <strong data-pqx-run-message>{{ run.get('message') or 'The search is queued.' }}</strong>
-            <p class="pqx-note">{% if run_active %}When the final shortlist is ready, this page becomes the result desk automatically.{% elif run_status == 'failed' %}The activity log shows the blocking step. Start a new search after changing the brief or retrying the provider lane.{% else %}No ranked shortlist was produced for this run. Adjust providers or target areas and launch a new search when ready.{% endif %}</p>
+            <p class="pqx-note">{% if run_active %}When results are ready, this page will show the best homes first.{% elif run_status == 'failed' %}Start a new search after changing the settings or reducing strict requirements.{% else %}No ranked matches were produced for this search. Adjust sources or target areas and launch a new search when ready.{% endif %}</p>
           </div>
         </aside>
         <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property">
           <div class="pqx-section-head">
             <div>
-              <h2>Run activity</h2>
+              <h2>Search progress</h2>
               <div class="pqx-note" data-pqx-run-summary>{{ (run.get('summary') or {}).get('sources_total') or 0 }} sources · {{ (run.get('summary') or {}).get('listing_total') or 0 }} listings · {{ ((run.get('summary') or {}).get('tour_created_total') or 0) + ((run.get('summary') or {}).get('tour_existing_total') or 0) }} tours</div>
             </div>
             {% if run_active %}<button class="pqx-button" type="button" data-pqx-refresh-status>Refresh</button>{% else %}<a class="pqx-link-button" href="/app/properties">New search</a>{% endif %}
@@ -2023,7 +2074,7 @@
             </div>
             {% endfor %}
             {% if not run.get('events') %}
-            <div class="pqx-empty">Waiting for the first crawler update.</div>
+            <div class="pqx-empty">Waiting for the first search update.</div>
             {% endif %}
           </div>
         </section>
@@ -2049,34 +2100,35 @@
               </div>
               <div class="pqx-context-actions" data-pw-actions>
                 {% if selected.get('tour', {}).get('url') %}<a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}">Open 360</a>{% endif %}
-                {% if selected.get('packet_url') %}<a class="pqx-link-button" href="{{ selected.get('packet_url') }}">Review packet</a>{% endif %}
-                <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}">Create share packet</button>
-                <a class="pqx-link-button" href="/app/properties/packets">Track packet follow-up</a>
-                <a class="pqx-link-button" href="/app/properties/packets">Open feedback</a>
-                <a class="pqx-link-button" href="/app/properties/packets">Open packet engagement</a>
-                <a class="pqx-link-button" href="/pricing">View plan tiers</a>
-                <a class="pqx-link-button" href="/app/billing">Open billing controls</a>
+                {% if selected.get('packet_url') %}<a class="pqx-link-button" href="{{ selected.get('packet_url') }}">Review details</a>{% endif %}
+                <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}">Create share review</button>
                 {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}">Source</a>{% endif %}
               </div>
             </div>
           </div>
           <div class="pqx-evidence">
-            <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Decision pipeline</h2><span class="pqx-pill">Operating loop</span></div>
+            <details class="pqx-card">
+              <summary><strong>How this result was prepared</strong><span class="pqx-note">Search steps, hidden by default.</span></summary>
               <div class="pqx-event-list">
-                <div class="pqx-event-card"><strong>Brief set</strong><span class="pqx-note">Budget, providers, school posture, and hard rules are already active for this run.</span><span class="pqx-small">Completed</span></div>
-                <div class="pqx-event-card"><strong>Providers scanned</strong><span class="pqx-note">The selected providers already produced the shortlist now shown on this desk.</span><span class="pqx-small">Completed</span></div>
-                <div class="pqx-event-card"><strong>Ranked shortlist</strong><span class="pqx-note">This candidate stack is the ranked decision queue, not just raw search output.</span><span class="pqx-small">Completed</span></div>
-                <div class="pqx-event-card"><strong>Review packet</strong><span class="pqx-note">Packet, feedback, and decision controls are already live for the selected property.</span><span class="pqx-small">Active</span></div>
-                <div class="pqx-event-card"><strong>360 and research</strong><span class="pqx-note">Use hosted review and underwriting before locking the final decision.</span><span class="pqx-small">Active</span></div>
-                <div class="pqx-event-card"><strong>Decide</strong><span class="pqx-note">Save Yes, Maybe, No, or Hide so the next sweep and follow-up queue learn from the result.</span><span class="pqx-small">Next</span></div>
+                <div class="pqx-event-card"><strong>Search settings saved</strong><span class="pqx-note">Budget, area, providers, school needs, and must-haves were used for this run.</span><span class="pqx-small">Done</span></div>
+                <div class="pqx-event-card"><strong>Homes checked</strong><span class="pqx-note">The selected sources produced the matches shown here.</span><span class="pqx-small">Done</span></div>
+                <div class="pqx-event-card"><strong>Best matches ranked</strong><span class="pqx-note">The list is ordered by fit, not by raw provider order.</span><span class="pqx-small">Done</span></div>
+                <div class="pqx-event-card"><strong>Review ready</strong><span class="pqx-note">Use the tour, details, and decision controls for the selected property.</span><span class="pqx-small">Ready</span></div>
               </div>
-            </section>
+            </details>
+            <details class="pqx-card">
+              <summary><strong>More actions</strong><span class="pqx-note">Sharing, follow-up, and account controls.</span></summary>
+              <div class="pqx-actions">
+                <a class="pqx-link-button" href="/app/properties/packets">Track follow-up</a>
+                <a class="pqx-link-button" href="/pricing">View plan tiers</a>
+                <a class="pqx-link-button" href="/app/billing">Billing controls</a>
+              </div>
+            </details>
             <section class="pqx-card">
               <div class="pqx-section-head">
                 <div>
-                  <h2>OODA</h2>
-                  <span class="pqx-note" data-pw-ooda-summary>{{ selected.get('ooda', {}).get('summary') or ('Start with the tour, then use the OODA rows to decide whether this property deserves deeper action.' if (selected.get('tour', {}).get('url') or selected.get('tour', {}).get('embed_url')) else 'No 360 is available here. Use the review packet and the OODA rows to decide whether this property deserves deeper action.') }}</span>
+                  <h2>Quick read</h2>
+                  <span class="pqx-note" data-pw-ooda-summary>{{ selected.get('ooda', {}).get('summary') or ('Start with the tour, then check the facts below before deciding.' if (selected.get('tour', {}).get('url') or selected.get('tour', {}).get('embed_url')) else 'No 360 is available here. Use the review details and the facts below before deciding.') }}</span>
                 </div>
               </div>
               <div class="pqx-ooda-grid" data-pw-ooda>
@@ -2086,7 +2138,7 @@
               </div>
             </section>
             <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Decision reasons</h2><span class="pqx-pill">{{ selected.get('fit_label') or 'Candidate' }}</span></div>
+              <div class="pqx-section-head"><h2>Why it fits</h2><span class="pqx-pill">{{ selected.get('fit_label') or 'Candidate' }}</span></div>
               <div class="pqx-event-list" data-pw-match>
                 {% for reason in selected.get('match_reasons') or [] %}
                 <div class="pqx-event-card"><strong>For</strong><span class="pqx-note">{{ reason }}</span></div>
@@ -2095,14 +2147,14 @@
               </div>
             </section>
             <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Risk and investment</h2><span class="pqx-pill warn" data-pw-risk-level>{{ selected.get('risk', {}).get('level') or 'unknown' }}</span></div>
+              <div class="pqx-section-head"><h2>What to check</h2><span class="pqx-pill warn" data-pw-risk-level>{{ selected.get('risk', {}).get('level') or 'unknown' }}</span></div>
               <div class="pqx-event-list">
                 <div class="pqx-event-card" data-pw-risk><strong>Risk</strong><span class="pqx-note">{{ selected.get('risk', {}).get('summary') or 'No risk summary captured yet.' }}</span></div>
-                <div class="pqx-event-card"><strong>Investment</strong><span class="pqx-note" data-pw-investment>{{ selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Open the packet for detailed underwriting when buy mode is active.' }}</span></div>
+                <div class="pqx-event-card"><strong>Money</strong><span class="pqx-note" data-pw-investment>{{ selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Open the review details for cost checks when buy mode is active.' }}</span></div>
               </div>
             </section>
-            <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Authority posture</h2><span class="pqx-pill">Proof</span></div>
+            <details class="pqx-card">
+              <summary><strong>Official checks</strong><span class="pqx-note">Open for source-backed location and risk evidence.</span></summary>
               <div class="pqx-event-list" data-pw-official-posture>
                 {% for row in selected.get('official_posture_rows') or [] %}
                 <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
@@ -2110,9 +2162,6 @@
                 <div class="pqx-note">No authority posture has been attached yet for the selected property.</div>
                 {% endfor %}
               </div>
-            </section>
-            <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Official risk evidence</h2><span class="pqx-pill">Authority</span></div>
               <div class="pqx-event-list" data-pw-official-evidence>
                 {% for row in selected.get('official_evidence_rows') or [] %}
                 <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
@@ -2120,9 +2169,9 @@
                 <div class="pqx-note">No authoritative risk-evidence row is attached yet for the selected property.</div>
                 {% endfor %}
               </div>
-            </section>
+            </details>
             <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Decision feedback</h2><span class="pqx-pill">Learning</span></div>
+              <div class="pqx-section-head"><h2>Your decision</h2><span class="pqx-pill">Saved to preferences</span></div>
               <div class="pqx-decision-copy">Would you pursue this property? The answer updates future ranking, keeps missing-fact follow-up visible, and only later contributes to anonymized market risk signals.</div>
               <div class="pqx-decision-row" aria-label="Property decision reaction">
                 <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="like">Yes</button>
@@ -2138,7 +2187,7 @@
                 <button class="pqx-button" type="button" data-pw-decision-state="archived">Archived</button>
               </div>
               <div class="pqx-decision-status" data-pw-decision-state-status></div>
-              <div class="pqx-decision-copy"><strong>What drove that?</strong> Pick the strongest reasons first. If the answer is No, these become the clearest suppressors for the next shortlist.</div>
+              <div class="pqx-decision-copy"><strong>What drove that?</strong> Pick the strongest reasons first. If the answer is No, these reduce similar matches next time.</div>
               <div class="pqx-decision-reasons" data-pw-feedback-reasons></div>
               <div class="pqx-decision-copy"><strong>Ask agent next</strong></div>
               <div class="pqx-event-list" data-pw-feedback-questions>
@@ -2156,10 +2205,10 @@
               <div class="pqx-decision-status" data-pw-feedback-status></div>
             </section>
             <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Clippy</h2><span class="pqx-pill">Opt-in</span></div>
-              <div class="pqx-decision-copy">Open Clippy only when you want a grounded answer about this property. It answers from shortlist fit, packet feedback, timeline changes, and investment context already loaded here.</div>
+              <div class="pqx-section-head"><h2>Ask about this home</h2><span class="pqx-pill">Optional</span></div>
+              <div class="pqx-decision-copy">Ask a focused question about blockers, documents, household concerns, or cost risk.</div>
               <div class="pqx-actions">
-                <button class="pqx-button" type="button" data-pw-clippy-toggle>Open Clippy</button>
+                <button class="pqx-button" type="button" data-pw-clippy-toggle>Ask a question</button>
               </div>
               <div data-pw-clippy-panel hidden>
                 <div class="pqx-actions">
@@ -2168,13 +2217,13 @@
                   <button class="pqx-button" type="button" data-pw-clippy-prompt="What changed since last time?">What changed?</button>
                   <button class="pqx-button" type="button" data-pw-clippy-prompt="What is the biggest investment risk here?">Investment risk</button>
                 </div>
-                <textarea class="pqx-decision-note" rows="3" placeholder="Ask Clippy about blockers, household disagreement, timeline shifts, or underwriting risk." data-pw-clippy-question></textarea>
+                <textarea class="pqx-decision-note" rows="3" placeholder="Ask about blockers, household disagreement, changes, or cost risk." data-pw-clippy-question></textarea>
                 <div class="pqx-actions">
-                  <button class="pqx-button primary" type="button" data-pw-clippy-ask>Ask Clippy</button>
+                  <button class="pqx-button primary" type="button" data-pw-clippy-ask>Ask</button>
                 </div>
                 <div class="pqx-decision-status" data-pw-clippy-status></div>
                 <div class="pqx-event-list" data-pw-clippy-answer>
-                  <div class="pqx-note">Clippy stays off until you open it.</div>
+                  <div class="pqx-note">No question asked yet.</div>
                 </div>
               </div>
             </section>
@@ -2208,14 +2257,14 @@
                 {% endfor %}
               </div>
             </section>
-            <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Risk signals</h2><span class="pqx-pill">Privacy gated</span></div>
+            <details class="pqx-card">
+              <summary><strong>Market warnings</strong><span class="pqx-note">Signals learned from previous decisions and similar listings.</span></summary>
               <div class="pqx-event-list" data-pw-risk-signals>
                 {% for row in selected.get('risk_signal_rows') or [] %}
                 <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
                 {% endfor %}
               </div>
-            </section>
+            </details>
             <section class="pqx-card">
               <div class="pqx-section-head"><h2>What changed</h2><span class="pqx-pill">Delta</span></div>
               <div class="pqx-event-list" data-pw-recent-changes>
@@ -2224,53 +2273,49 @@
                 {% endfor %}
               </div>
             </section>
-            <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Provider quality</h2><span class="pqx-pill">Operator read</span></div>
+            <details class="pqx-card">
+              <summary><strong>Source quality</strong><span class="pqx-note">Open when a listing looks incomplete or suspicious.</span></summary>
               <div class="pqx-event-list" data-pw-provider-quality>
                 {% for row in workbench.get('provider_quality_rows') or [] %}
                 <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
                 {% else %}
-                <div class="pqx-note">Provider quality will appear after the first run completes.</div>
+                <div class="pqx-note">Source quality notes will appear after the first search completes.</div>
                 {% endfor %}
               </div>
-            </section>
-            <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Stakeholder timeline</h2><span class="pqx-pill">Timeline</span></div>
+            </details>
+            <details class="pqx-card">
+              <summary><strong>Timeline</strong><span class="pqx-note">Who reacted, what changed, and when.</span></summary>
               <div class="pqx-event-list" data-pw-timeline>
                 {% for row in selected.get('timeline_rows') or [] %}
                 <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span></div>
                 {% endfor %}
               </div>
-            </section>
+            </details>
           </div>
         </section>
 
         <section class="pqx-result-panel active" data-pqx-mobile-panel="results">
           <div class="pqx-result-panel-head">
             <div>
-              <h2>Ranked shortlist</h2>
-              <div class="pqx-note">{{ results|length }} candidates · select one to update the 360 and decision panel</div>
+              <h2>Best homes first</h2>
+              <div class="pqx-note">{{ results|length }} matches · choose one to update the tour and review panel</div>
             </div>
             <span class="pqx-pill good">{{ run.get('status_label') or 'Completed' }}</span>
           </div>
           {{ research_queue_panel(research_tasks, run.get('run_id') or '', research_task_counts) }}
           <div class="pqx-results-list" data-workbench-results-table>
             {% for candidate in results %}
-            {% if candidate.get('packet_url') %}
-            <a class="pqx-result" href="{{ candidate.get('packet_url') }}" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
-            {% else %}
-            <button class="pqx-result" type="button" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
-            {% endif %}
+            <button class="pqx-result" type="button" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
               <span class="pqx-rank">{{ candidate.get('rank') }}</span>
               <span>
-                <span class="pqx-small">Candidate</span>
+                <span class="pqx-small">Match</span>
                 <span class="pqx-result-title">{{ candidate.get('title') }}</span>
                 <span class="pqx-meta">{{ candidate.get('source_label') }}{% if candidate.get('location_label') %} · {{ candidate.get('location_label') }}{% endif %}</span>
+                <span class="pqx-result-action">Select</span>
               </span>
               <span><span class="pqx-pill{% if candidate.get('tour', {}).get('status') == 'ready' %} good{% else %} warn{% endif %}">{{ candidate.get('tour', {}).get('label') }}</span><span class="pqx-small">{{ candidate.get('tour', {}).get('eta_label') }}</span></span>
               <span><span class="pqx-small">Price</span><strong>{{ candidate.get('price_display') or 'n/a' }}</strong><span class="pqx-small">Layout · {{ candidate.get('layout_display') or 'n/a' }}</span></span>
-              <span><span class="pqx-small">Investment</span><strong>{{ candidate.get('investment', {}).get('price_per_sqm') or 'n/a' }}</strong><span class="pqx-small">{{ candidate.get('risk', {}).get('summary') }}</span></span>
-            {% if candidate.get('packet_url') %}</a>{% else %}</button>{% endif %}
+            </button>
             {% endfor %}
           </div>
         </section>
@@ -2384,7 +2429,7 @@
     const propertyFeedbackSaveEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback`;
     const renderOoda = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
       <div class="pqx-ooda-item"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value)}</strong><small>${escapeHtml(row.detail)}</small></div>
-    `).join('') || '<div class="pqx-note">No OODA detail captured yet.</div>';
+    `).join('') || '<div class="pqx-note">No quick-read detail captured yet.</div>';
     const renderMatch = (rows) => (Array.isArray(rows) ? rows : []).map((reason) => `
       <div class="pqx-event-card"><strong>For</strong><span class="pqx-note">${escapeHtml(reason)}</span></div>
     `).join('') || '<div class="pqx-note">No explicit match reason captured yet.</div>';
@@ -2427,8 +2472,8 @@
       const tour = candidate.tour || {};
       return [
         tour.url ? `<a class="pqx-link-button primary" href="${escapeHtml(tour.url)}">Open 360</a>` : '',
-        candidate.packet_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.packet_url)}">Review packet</a>` : '',
-        `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${escapeHtml(candidate.candidate_ref || '')}">Create share packet</button>`,
+        candidate.packet_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.packet_url)}">Review details</a>` : '',
+        `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${escapeHtml(candidate.candidate_ref || '')}">Create share review</button>`,
         candidate.source_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.source_url)}">Source</a>` : '',
       ].filter(Boolean).join('');
     };
@@ -2481,7 +2526,7 @@
         body: JSON.stringify(nextPreferences),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not apply the broader brief.'));
+      if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not apply the broader search.'));
       return nextPreferences;
     };
     const recordDecisionState = async (candidate, decisionState, statusNode) => {
@@ -2513,10 +2558,10 @@
     };
     const createFlipLinkPacket = async (candidate, button) => {
       if (!candidate) return;
-      const original = button?.textContent || 'Create share packet';
+      const original = button?.textContent || 'Create share review';
       if (button) {
         button.disabled = true;
-        button.textContent = 'Rendering share packet...';
+        button.textContent = 'Creating share review...';
       }
       try {
         const response = await fetch(`/app/api/properties/${encodeURIComponent(candidatePropertyRef(candidate))}/packets/render`, {
@@ -2531,7 +2576,7 @@
           }),
         });
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error, 'Could not render share packet.'));
+        if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error, 'Could not create the share review.'));
         window.location.href = '/app/properties/packets';
       } catch (error) {
         if (button) {
@@ -2546,7 +2591,7 @@
       const evidence = Array.isArray(body?.evidence) ? body.evidence : [];
       const actions = Array.isArray(body?.actions) ? body.actions : [];
       clippyAnswerNode.innerHTML = `
-        <div class="pqx-event-card"><strong>${escapeHtml(body?.name || 'Clippy')}</strong><span class="pqx-note">${escapeHtml(body?.answer || 'No answer returned.')}</span></div>
+        <div class="pqx-event-card"><strong>${escapeHtml(body?.name || 'Property answer')}</strong><span class="pqx-note">${escapeHtml(body?.answer || 'No answer returned.')}</span></div>
         ${evidence.map((row) => `
           <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Evidence')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.confidence || row.source || '')}</span></div>
         `).join('')}
@@ -2572,7 +2617,7 @@
               selectedFeedbackReasonKeys.add(String(row.reason_key || ''));
               reasonButton.classList.add('active');
             }
-            if (feedbackStatusNode) feedbackStatusNode.textContent = `Clippy marked ${String(row.detail || 'a blocker').trim()} as the main blocker. Save decision when ready.`;
+            if (feedbackStatusNode) feedbackStatusNode.textContent = `Marked ${String(row.detail || 'a blocker').trim()} as the main blocker. Save decision when ready.`;
             return;
           }
           if (action === 'ask_agent' && row.question) {
@@ -2607,7 +2652,7 @@
     clippyToggle?.addEventListener('click', () => {
       const open = Boolean(clippyPanel?.hidden);
       if (clippyPanel) clippyPanel.hidden = !open;
-      clippyToggle.textContent = open ? 'Hide Clippy' : 'Open Clippy';
+      clippyToggle.textContent = open ? 'Hide question box' : 'Ask a question';
     });
     root.querySelectorAll('[data-pw-clippy-prompt]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -2618,10 +2663,10 @@
       const candidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
       const question = String(clippyQuestionNode?.value || '').trim();
       if (!candidate || !question) {
-        if (clippyStatusNode) clippyStatusNode.textContent = 'Ask Clippy a specific property question first.';
+        if (clippyStatusNode) clippyStatusNode.textContent = 'Ask a specific property question first.';
         return;
       }
-      if (clippyStatusNode) clippyStatusNode.textContent = 'Clippy is reviewing the property context...';
+      if (clippyStatusNode) clippyStatusNode.textContent = 'Reviewing the current property context...';
       try {
         const response = await fetch('/app/api/property/decision-copilot', {
           method: 'POST',
@@ -2636,16 +2681,16 @@
             assessment: candidate.assessment || {},
             investment_context: [
               { title: 'Risk', detail: String(candidate.risk?.summary || 'No risk summary captured yet.'), tag: String(candidate.risk?.level || 'risk') },
-              { title: 'Investment', detail: String(candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the packet for detailed underwriting when buy mode is active.'), tag: 'investment' },
+              { title: 'Cost check', detail: String(candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the review details for cost checks when buy mode is active.'), tag: 'cost' },
             ],
           }),
         });
         const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(readableErrorDetail(body.detail || body.error || body, 'Clippy could not answer right now.'));
+        if (!response.ok) throw new Error(readableErrorDetail(body.detail || body.error || body, 'Could not answer right now.'));
         renderClippyAnswer(body);
-        if (clippyStatusNode) clippyStatusNode.textContent = 'Clippy answered from the current property context.';
+        if (clippyStatusNode) clippyStatusNode.textContent = 'Answered from the current property context.';
       } catch (error) {
-        if (clippyStatusNode) clippyStatusNode.textContent = error instanceof Error ? error.message : 'Clippy could not answer right now.';
+        if (clippyStatusNode) clippyStatusNode.textContent = error instanceof Error ? error.message : 'Could not answer right now.';
       }
     });
     const renderFeedbackReasonChips = (suggestions) => {
@@ -2840,7 +2885,7 @@
       if (feedbackStatusNode) feedbackStatusNode.textContent = '';
       if (feedbackNoteNode) feedbackNoteNode.value = '';
       feedbackReactionButtons.forEach((button) => button.classList.remove('active'));
-      root.querySelectorAll('[data-candidate-ref]').forEach((row) => {
+      root.querySelectorAll('[data-workbench-row]').forEach((row) => {
         row.setAttribute('aria-selected', row.getAttribute('data-candidate-ref') === candidate.candidate_ref ? 'true' : 'false');
       });
       const title = root.querySelector('[data-pw-title]');
@@ -2865,8 +2910,8 @@
       if (oodaSummary) {
         const hasTour = Boolean(tour.url || tour.embed_url);
         oodaSummary.textContent = candidate.ooda?.summary || (hasTour
-          ? 'Start with the tour, then use the OODA rows to decide whether this property deserves deeper action.'
-          : 'No 360 is available here. Use the review packet and the OODA rows to decide whether this property deserves deeper action.');
+          ? 'Start with the tour, then check the facts below before deciding.'
+          : 'No 360 is available here. Use the review details and the facts below before deciding.');
       }
       const match = root.querySelector('[data-pw-match]');
       if (match) match.innerHTML = renderMatch(candidate.match_reasons);
@@ -2881,7 +2926,7 @@
         const rows = Array.isArray(candidate.official_posture_rows) ? candidate.official_posture_rows : [];
         officialPostureNode.innerHTML = rows.length
           ? rows.map((row) => `
-            <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Authority posture')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
+            <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Official check')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
           `).join('')
           : '<div class="pqx-note">No authority posture has been attached yet for the selected property.</div>';
       }
@@ -2927,7 +2972,7 @@
       const riskLevel = root.querySelector('[data-pw-risk-level]');
       if (riskLevel) riskLevel.textContent = candidate.risk?.level || 'unknown';
       const investment = root.querySelector('[data-pw-investment]');
-      if (investment) investment.textContent = candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the packet for detailed underwriting when buy mode is active.';
+      if (investment) investment.textContent = candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the review details for cost checks when buy mode is active.';
       root.querySelectorAll('[data-pw-actions], [data-pqx-top-packet], [data-pqx-top-tour]').forEach((node) => {
         if (node.matches('[data-pw-actions]')) node.innerHTML = actionMarkup(candidate);
       });
@@ -2942,9 +2987,8 @@
         window.history.replaceState({}, '', url);
       }
     };
-    root.querySelectorAll('[data-candidate-ref]').forEach((row) => {
+    root.querySelectorAll('[data-workbench-row]').forEach((row) => {
       row.addEventListener('click', () => {
-        if (row.matches('[data-fliplink-packet]')) return;
         selectCandidate(row.getAttribute('data-candidate-ref'));
         setMode('property');
       });
@@ -3196,7 +3240,7 @@
         grid.innerHTML = [...grouped.entries()]
           .sort((a, b) => familyOrder.indexOf(a[0]) - familyOrder.indexOf(b[0]))
           .map(([family, items]) => {
-            const [title, detail] = familyHeadings[family] || [String(family).replaceAll('_', ' '), 'Grouped provider lane.'];
+            const [title, detail] = familyHeadings[family] || [String(family).replaceAll('_', ' '), 'Grouped source.'];
             return `<details class="pqx-advanced-panel" data-provider-group-panel style="margin-top:12px;"><summary><strong>${escapeHtml(title)}</strong><div class="pqx-note">${escapeHtml(detail)}</div></summary><div class="pqx-field-tools" style="margin:8px 0 10px;"><button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Select group</button><button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear group</button></div><div class="pqx-check-grid" data-pqx-check-grid="${escapeHtml(name)}-group">${items.map(renderOption).join('')}</div></details>`;
           })
           .join('');
@@ -3366,7 +3410,7 @@
           syncCount();
           return;
         }
-        listNode.innerHTML = '<div class="pqx-empty" data-preference-empty><strong>No active learned preferences yet</strong><span class="pqx-note">Add explicit profile rules here or save feedback on review packets.</span></div>';
+        listNode.innerHTML = '<div class="pqx-empty" data-preference-empty><strong>No active learned preferences yet</strong><span class="pqx-note">Add explicit profile rules here or save feedback on property reviews.</span></div>';
         syncCount();
       };
       const bindRemoveButtons = () => {
@@ -3742,7 +3786,7 @@
         const step = String(event?.step || 'Update').replaceAll('_', ' ');
         const label = step ? step.charAt(0).toUpperCase() + step.slice(1) : 'Update';
         return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(event?.message || 'No detail yet.')}</span></div>`;
-      }).join('') || '<div class="pqx-empty">Waiting for the first crawler update.</div>';
+      }).join('') || '<div class="pqx-empty">Waiting for the first search update.</div>';
     };
     const renderSourceBreakdown = (sources) => {
       const rows = Array.isArray(sources) ? sources.slice(0, 8) : [];
@@ -3762,11 +3806,11 @@
     };
     const renderRankedCandidates = (candidates) => {
       const rows = Array.isArray(candidates) ? candidates.slice(0, 20) : [];
-      if (!rows.length) return '<div class="pqx-empty" data-pqx-ranked-candidates>No ranked candidates are available yet. Check provider diagnostics below for area misses, weak provider filters, or missing facts.</div>';
+      if (!rows.length) return '<div class="pqx-empty" data-pqx-ranked-candidates>No matches are ready yet. Open search diagnostics if the results look wrong or too narrow.</div>';
       const body = rows.map((candidate, index) => {
         const title = candidate?.title || candidate?.property_url || 'Property candidate';
-        const source = candidate?.source_label || candidate?.source_platform || 'Provider';
-        const reason = candidate?.compare_reason || candidate?.fit_summary || (Array.isArray(candidate?.match_reasons) ? candidate.match_reasons[0] : '') || 'Review packet for details';
+        const source = candidate?.source_label || candidate?.source_platform || 'Source';
+        const reason = candidate?.compare_reason || candidate?.fit_summary || (Array.isArray(candidate?.match_reasons) ? candidate.match_reasons[0] : '') || 'Review details for more context';
         const links = [
           candidate?.packet_url ? `<a href="${escapeHtml(candidate.packet_url)}">Review</a>` : '',
           candidate?.map_url ? `<a href="${escapeHtml(candidate.map_url)}">Map</a>` : '',
@@ -3774,7 +3818,7 @@
         ].filter(Boolean).join('');
         return `<tr><td>${escapeHtml(candidate?.rank || index + 1)}</td><td>${escapeHtml(title)}</td><td>${escapeHtml(source)}</td><td>${escapeHtml(candidate?.fit_score || 0)}</td><td>${escapeHtml(reason)}</td><td>${links}</td></tr>`;
       }).join('');
-      return `<div class="pqx-table-wrap" data-pqx-ranked-candidates><table class="pqx-table"><thead><tr><th>Rank</th><th>Property</th><th>Provider</th><th>Fit</th><th>Reason</th><th>Open</th></tr></thead><tbody>${body}</tbody></table></div>`;
+      return `<div class="pqx-table-wrap" data-pqx-ranked-candidates><table class="pqx-table"><thead><tr><th>#</th><th>Property</th><th>Source</th><th>Fit</th><th>Why it matched</th><th>Open</th></tr></thead><tbody>${body}</tbody></table></div>`;
     };
     const renderRun = (runPayload) => {
       if (!runPayload || typeof runPayload !== 'object') return;
@@ -4124,7 +4168,7 @@
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body.property_preferences),
       });
-      if (!response.ok) throw new Error(await responseErrorMessage(response, 'Could not save the brief.'));
+      if (!response.ok) throw new Error(await responseErrorMessage(response, 'Could not save the search.'));
       status.textContent = 'Saved.';
       return body;
     };
@@ -4161,10 +4205,37 @@
     };
     root.querySelector('[data-property-save]')?.addEventListener('click', async () => {
       try { await savePreferences(); } catch (err) {
-        root.querySelector('[data-property-inline-error]').textContent = err.message || 'Could not save the brief.';
+        root.querySelector('[data-property-inline-error]').textContent = err.message || 'Could not save the search.';
       }
     });
     root.querySelector('[data-property-start]')?.addEventListener('click', startSearch);
+    root.querySelectorAll('[data-search-agent-action]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        if (!form) return;
+        const action = String(button.getAttribute('data-search-agent-action') || '').trim();
+        const status = root.querySelector('[data-search-agent-status]');
+        const enabledInput = form.querySelector('input[name="search_agent_enabled"]');
+        try {
+          if (action === 'pause' && enabledInput) enabledInput.checked = false;
+          if (action === 'resume' && enabledInput) enabledInput.checked = true;
+          if (status) status.textContent = action === 'run' ? 'Saving and starting this search...' : 'Saving saved-search settings...';
+          if (action === 'run') {
+            await startSearch();
+            return;
+          }
+          await savePreferences();
+          if (status) {
+            status.textContent = action === 'pause'
+              ? 'Saved search paused.'
+              : action === 'resume'
+                ? 'Saved search resumed.'
+                : 'Saved search limits updated.';
+          }
+        } catch (err) {
+          if (status) status.textContent = err instanceof Error ? err.message : 'Could not update saved search.';
+        }
+      });
+    });
     root.querySelector('[data-pqx-launch-top]')?.addEventListener('click', () => {
       const lastStep = [...root.querySelectorAll('[data-property-step-trigger]')].at(-1);
       lastStep?.click();
@@ -4178,13 +4249,13 @@
         } catch (_error) {
           adjustments = {};
         }
-        if (counterfactualStatusNode) counterfactualStatusNode.textContent = 'Applying broader brief...';
+        if (counterfactualStatusNode) counterfactualStatusNode.textContent = 'Applying broader search...';
         try {
           await saveCounterfactualBrief(adjustments);
-          if (counterfactualStatusNode) counterfactualStatusNode.textContent = 'Broader brief saved. Reopening the search desk...';
+          if (counterfactualStatusNode) counterfactualStatusNode.textContent = 'Broader search saved. Reopening results...';
           window.location.href = '/app/properties';
         } catch (error) {
-          if (counterfactualStatusNode) counterfactualStatusNode.textContent = error instanceof Error ? error.message : 'Could not apply the broader brief.';
+          if (counterfactualStatusNode) counterfactualStatusNode.textContent = error instanceof Error ? error.message : 'Could not apply the broader search.';
         }
       });
     });
@@ -4224,9 +4295,9 @@
     }
     if (shouldOpenClippy) {
       if (clippyPanel) clippyPanel.hidden = false;
-      if (clippyToggle) clippyToggle.textContent = 'Hide Clippy';
+      if (clippyToggle) clippyToggle.textContent = 'Hide question box';
       if (clippyQuestionNode && presetPrompt) clippyQuestionNode.value = presetPrompt;
-      if (clippyStatusNode && presetPrompt) clippyStatusNode.textContent = 'Clippy prompt loaded from the email or shared link.';
+      if (clippyStatusNode && presetPrompt) clippyStatusNode.textContent = 'Question loaded from the email or shared link.';
     }
     initPreferenceManager();
   })();

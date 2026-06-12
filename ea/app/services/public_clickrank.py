@@ -33,6 +33,8 @@ def _clickrank_enabled() -> bool:
 
 
 def _rybbit_enabled() -> bool:
+    if str(os.getenv("EA_PUBLIC_RYBBIT_RENDER_IN_CLICKRANK") or "").strip().lower() not in {"1", "true", "yes", "on"}:
+        return False
     for env_name in ("EA_ENABLE_RYBBIT", "EA_PUBLIC_RYBBIT_ENABLED"):
         if str(os.getenv(env_name) or "").strip().lower() in {"1", "true", "yes", "on"}:
             return True

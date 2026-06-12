@@ -274,6 +274,8 @@ def _assert_property_shell_visual_gates(page: Page, *, max_appbar_height: int) -
             const boxRect = box.getBoundingClientRect();
             if (boxRect.width <= 0 || boxRect.height <= 0) continue;
             for (const child of box.querySelectorAll(textSelectors.join(','))) {
+              const closedDetails = child.closest('details:not([open])');
+              if (closedDetails && !child.closest('summary')) continue;
               const childRect = child.getBoundingClientRect();
               if (childRect.width <= 0 || childRect.height <= 0) continue;
               if (
@@ -329,26 +331,23 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert 'data-pq-theater' in content
         assert 'data-workbench-results-table' in content
         assert 'data-workbench-dossier' in content
-        assert "Ranked shortlist" in content
+        assert "Best homes first" in content
         assert "Altbau near U6" in content
         assert "Family flat near Tiergarten" in content
         assert "360 ready" in content
-        assert "Review packet" in content
+        assert "Review details" in content
         assert "Open 360" in content
-        assert "OODA" in content
+        assert "Quick read" in content
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
-        page.wait_for_url(lambda url: "/app/research/" in str(url) and "run_id=run-42" in str(url), wait_until="domcontentloaded", timeout=5000)
-        packet_content = page.content()
-        assert "Open the space before you read the rest" not in packet_content
-        assert "360 review first" not in packet_content
-        _assert_research_packet_360_first(page, min_stage_height=420)
-        assert page.locator("body", has_text="OODA summary").is_visible()
-        assert page.locator("body", has_text="Decision pipeline").is_visible()
-        assert page.locator("body", has_text="Decision feedback").is_visible()
+        assert "/app/properties" in page.url
+        assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()
+        assert page.locator("body", has_text="Quick read").is_visible()
+        assert page.locator("body", has_text="How this result was prepared").is_visible()
+        assert page.locator("body", has_text="Your decision").is_visible()
         assert page.get_by_role("button", name="Save decision").is_visible()
-        assert page.get_by_role("button", name="Open Clippy").is_visible()
+        assert page.get_by_role("button", name="Ask a question").is_visible()
     finally:
         context.close()
 
@@ -375,11 +374,12 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         assert mobile_dock.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
-        page.wait_for_url(lambda url: "/app/research/" in str(url) and "run_id=run-42" in str(url), wait_until="domcontentloaded", timeout=5000)
-        assert page.locator("body", has_text="OODA summary").is_visible()
-        assert page.locator("body", has_text="Decision pipeline").is_visible()
-        assert page.locator("body", has_text="Decision feedback").is_visible()
-        assert page.get_by_role("button", name="Open Clippy").is_visible()
+        assert "/app/properties" in page.url
+        assert page.locator("[data-pw-title]", has_text="Family flat near Tiergarten").is_visible()
+        assert page.locator("body", has_text="Quick read").is_visible()
+        assert page.locator("body", has_text="How this result was prepared").is_visible()
+        assert page.locator("body", has_text="Your decision").is_visible()
+        assert page.get_by_role("button", name="Ask a question").is_visible()
         review_action = page.get_by_role("button", name="Save decision").bounding_box()
         assert review_action is not None and review_action["width"] <= 430
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
@@ -520,10 +520,10 @@ def test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser(
         assert save_response.ok, save_response.text()
         assert page.locator("[data-pw-feedback-status]", has_text="Saved.").is_visible()
 
-        page.get_by_role("button", name="Open Clippy").click()
+        page.get_by_role("button", name="Ask a question").click()
         page.get_by_role("button", name="Ask agent next").click()
         with page.expect_response("**/app/api/property/decision-copilot") as clippy_response_info:
-            page.get_by_role("button", name="Ask Clippy").click()
+            page.get_by_role("button", name="Ask", exact=True).click()
         clippy_response = clippy_response_info.value
         assert clippy_response.ok, clippy_response.text()
         with page.expect_response("**/app/api/property-feedback") as ask_agent_response_info:
@@ -588,10 +588,11 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
             timeout=7000,
         )
         page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
-        assert page.locator("[data-pqx-empty-results]", has_text="No strong matches met this brief").is_visible()
-        assert page.locator("body", has_text="What would unlock more matches?").is_visible()
+        assert page.locator("[data-pqx-empty-results]", has_text="No strong matches found yet").is_visible()
+        assert page.locator("body", has_text="Ways to get more matches").is_visible()
         assert page.locator("[data-pqx-counterfactuals]").is_visible()
         assert page.get_by_role("button", name=re.compile("Apply|Allow|Use|Raise|Relax|Reopen")).first.is_visible()
+        page.get_by_text("Search diagnostics", exact=True).click()
         assert page.locator("[data-pqx-source-breakdown]", has_text="Genossenschaften Austria").is_visible()
         assert page.evaluate("window.localStorage.getItem('pq-test-notification-title')") == "PropertyQuarry results are ready"
         assert "0 high-fit matches" in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
@@ -979,15 +980,14 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert len(observed["selected_platforms"]) == 3
         page.wait_for_function("document.querySelector('[data-pqx-run-status]')?.textContent.toLowerCase().includes('processed')")
         assert page.locator("body", has_text="Altbau near U6").is_visible()
-        assert page.locator("body", has_text="Review packet").is_visible()
+        assert page.locator("body", has_text="Review details").is_visible()
         assert page.locator("body", has_text="Open 360").is_visible()
-        assert page.locator("body", has_text="Risk and investment").is_visible()
+        assert page.locator("body", has_text="What to check").is_visible()
         page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
-        page.wait_for_url(lambda url: "/app/research/" in str(url) and f"run_id={run_id}" in str(url), wait_until="domcontentloaded", timeout=5000)
-        assert page.locator("body", has_text="OODA summary").is_visible()
-        assert page.locator("body", has_text="Alltagsfit").is_visible()
-        assert page.locator("body", has_text="Risikofit").is_visible()
-        assert page.locator("body", has_text="Decision feedback").is_visible()
+        assert "/app/properties" in page.url
+        assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()
+        assert page.locator("body", has_text="Quick read").is_visible()
+        assert page.locator("body", has_text="Your decision").is_visible()
     finally:
         context.close()
 
@@ -1144,29 +1144,28 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
     try:
         response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Provider quality").is_visible()
+        assert page.locator("body", has_text="Source quality").is_visible()
         candidate_ref = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-ref")
         packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
         assert candidate_ref
         assert packet_path
         response = page.goto(f"{base_url}/app/properties?run_id=run-42&candidate={candidate_ref}", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Authority posture").is_visible()
-        assert page.locator("body", has_text="Official risk evidence").is_visible()
+        assert page.locator("body", has_text="Official checks").is_visible()
         with page.expect_response("**/app/api/people/*/preference-profile/property-feedback") as save_response_info:
             page.get_by_role("button", name="No", exact=True).click()
             page.get_by_role("button", name="Save decision").click()
         assert save_response_info.value.ok
-        page.get_by_role("button", name="Open Clippy").click()
+        page.get_by_role("button", name="Ask a question").click()
         page.get_by_role("button", name="Ask agent next").click()
         with page.expect_response("**/app/api/property/decision-copilot") as clippy_response_info:
-            page.get_by_role("button", name="Ask Clippy").click()
+            page.get_by_role("button", name="Ask", exact=True).click()
         assert clippy_response_info.value.ok
         with page.expect_response("**/app/api/property-feedback") as followup_response_info:
             page.get_by_role("button", name=re.compile(r"Ask agent:")).first.click()
         assert followup_response_info.value.ok
         with page.expect_response("**/app/api/properties/*/packets/render") as packet_response_info:
-            page.get_by_role("button", name="Create share packet").first.click()
+            page.get_by_role("button", name="Create share review").first.click()
         assert packet_response_info.value.ok
         page.wait_for_url(lambda url: "/app/properties/packets" in str(url), wait_until="networkidle", timeout=5000)
         assert page.locator("body", has_text="Household review").is_visible()
@@ -1188,7 +1187,7 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
         separator = "&" if "?" in packet_url else "?"
         response = page.goto(f"{packet_url}{separator}run_id=run-42&decision=no&clippy=1&prompt=What%20is%20the%20strongest%20blocker%20here%3F", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Authority posture").is_visible()
+        assert page.locator("body", has_text="OODA summary").is_visible()
         assert page.locator("body", has_text="Decision shortcut loaded from the email or shared link.").is_visible()
         assert page.locator("body", has_text="Clippy prompt loaded from the email or shared link.").is_visible()
         assert page.locator("body", has_text="Tracked follow-up").is_visible()

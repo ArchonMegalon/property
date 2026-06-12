@@ -98,5 +98,5 @@ def test_workspace_shortlist_surfaces_packet_followup_entry(monkeypatch, tmp_pat
     install_property_run(monkeypatch, property_url="https://example.com/listing-1")
     page = client.get("/app/properties", params={"run_id": "run-phase1"})
     assert page.status_code == 200
-    assert "Track packet follow-up" in page.text
-    assert "Open feedback" in page.text
+    assert "Track follow-up" in page.text
+    assert "More actions" in page.text

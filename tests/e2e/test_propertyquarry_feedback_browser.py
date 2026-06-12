@@ -44,4 +44,4 @@ def test_packet_dashboard_and_workbench_show_feedback_language(monkeypatch, tmp_
     workbench = client.get("/app/properties", params={"run_id": "run-phase2"})
     assert workbench.status_code == 200
     assert "Top objections" in workbench.text
-    assert "Stakeholder timeline" in workbench.text
+    assert "Timeline" in workbench.text

@@ -374,6 +374,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-property-show-unavailable' in setup.text
     assert 'No practical zoo or Tiergarten signal is configured for this market yet.' in setup.text
     assert "Min area" in setup.text
+    assert "Saved searches" in setup.text
+    assert "Resume" in setup.text
+    assert "Save limits" in setup.text
+    assert "Run now" in setup.text
+    assert 'data-search-agent-action="resume"' in setup.text
+    assert 'data-search-agent-action="run"' in setup.text
 
     search = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)
     assert search.status_code == 200
@@ -387,12 +393,14 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-workbench-results-table' in search.text
     assert 'data-workbench-dossier' in search.text
     assert 'data-workbench-row' in search.text
-    assert "Ranked shortlist" in search.text
-    assert "Rank" in search.text
-    assert "Provider" in search.text
+    assert '<a class="pqx-result"' not in search.text
+    assert '<button class="pqx-result"' in search.text
+    assert "Best homes first" in search.text
+    assert "Match" in search.text
+    assert "Source" in search.text
     assert "Map" in search.text
     assert "https://www.google.com/maps/search/?api=1" in search.text
-    assert "select one to update the 360 and decision panel" in search.text
+    assert "choose one to update the tour and review panel" in search.text
     assert "Altbau near U6" in search.text
     assert "Family flat near Tiergarten" in search.text
     assert "360 ready" in search.text
@@ -405,10 +413,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "not scheduled yet" not in search.text
     assert "360 not ready" not in search.text
     assert "360" in search.text
-    assert "Candidate" in search.text
+    assert "Match" in search.text
     assert "Price" in search.text
     assert "Layout" in search.text
-    assert "OODA" in search.text
+    assert "Quick read" in search.text
     assert "Playground" in search.text
     assert "Supermarket" in search.text
     assert "Starbucks" in search.text
@@ -417,26 +425,26 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Bouldering" in search.text
     assert "SchoolAtlas" in search.text
     assert "Gymnasium path" in search.text
-    assert "Decision reasons" in search.text
-    assert "Risk and investment" in search.text
-    assert "Authority posture" in search.text
+    assert "Why it fits" in search.text
+    assert "What to check" in search.text
+    assert "Official checks" in search.text
     assert "Manual clearance required" in search.text
-    assert "Decision pipeline" in search.text
-    assert "Decision feedback" in search.text
+    assert "How this result was prepared" in search.text
+    assert "Your decision" in search.text
     assert "Would you pursue this property?" in search.text
     assert "Viewing requested" in search.text
     assert "Documents requested" in search.text
     assert "Offer candidate" in search.text
     assert "Save decision" in search.text
-    assert "Open Clippy" in search.text
+    assert "Ask a question" in search.text
     assert "Household review" in search.text
     assert "Agent follow-up" in search.text
     assert "Contradicted" in search.text
     assert "Resolved" in search.text
     assert "What changed" in search.text
     assert "Top objections" in search.text
-    assert "Risk signals" in search.text
-    assert "Stakeholder timeline" in search.text
+    assert "Market warnings" in search.text
+    assert "Timeline" in search.text
     assert "Missing facts" in search.text
     assert "Facts still being completed from floorplans" in search.text
     assert "Rooms under review" in search.text
@@ -448,8 +456,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Chosen ahead of the next option because it scored 5 points higher on the current brief" in search.text
     assert "Preferred because: Lift and transit fit." in search.text
     assert "Preferred because: Includes a live 360 source" not in search.text
-    assert "Review packet" in search.text
+    assert "Review details" in search.text
     assert 'data-candidate-packet-url="/app/research/' in search.text
+    assert "Manage saved search" in search.text
     assert "Launch search" not in search.text
     assert "Morning Memo" not in search.text
     assert "Office signals ingested" not in search.text
@@ -638,7 +647,7 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert "Search is running. Inputs are locked." in live.text
     assert 'class="pqx-run-head"' in live.text
     assert live.text.index("data-pqx-progress-ring") < live.text.index("Search is running. Inputs are locked.")
-    assert "Run activity" in live.text
+    assert "Search progress" in live.text
     assert "Scoring shortlist candidate 2 of 4" in live.text
     assert "Launch search" not in live.text
     assert "Save defaults" not in live.text
@@ -745,14 +754,15 @@ def test_propertyquarry_workspace_hides_investment_research_for_rent() -> None:
     assert 'name="investment_research_mode"' not in search.text
 
 
-def test_propertyquarry_workspace_provider_quality_surface_is_visible() -> None:
+def test_propertyquarry_workspace_setup_stays_user_facing() -> None:
     principal_id = "pq-provider-quality"
     client = build_property_client(principal_id=principal_id)
     headers = {"host": "propertyquarry.com"}
     start_workspace(client, mode="personal", workspace_name="Property Office")
     response = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)
     assert response.status_code == 200
-    assert "Provider quality" in response.text
+    assert "Tell us what to find." in response.text
+    assert "Build the brief. Then let the agents work." not in response.text
 
 
 def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> None:
@@ -780,14 +790,14 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     page = client.get("/app/properties", params={"run_id": "run-failed"}, headers=headers)
     assert page.status_code == 200
     assert 'data-pqx-state="empty_results"' in page.text
-    assert "The search did not finish cleanly." in page.text
-    assert "Provider coverage report" in page.text
+    assert "The search could not finish." in page.text
+    assert "Best matches" in page.text
     assert "Provider returned 403 while fetching Willhaben." in page.text
-    assert "What would unlock more matches?" in page.text
+    assert "Ways to get more matches" in page.text
     assert ("Lower the match threshold" in page.text) or ("Reopen the brief with broader constraints" in page.text)
-    assert "Run activity" in page.text
+    assert "Search progress" in page.text
     assert 'data-workbench-brief-drawer' not in page.text
-    assert "Build the brief. Then let the agents work." not in page.text
+    assert "Tell us what to find." not in page.text
 
 
 def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(monkeypatch) -> None:
