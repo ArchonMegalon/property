@@ -52,3 +52,32 @@ def test_property_release_gates_include_phase_and_master_regressions() -> None:
         "tests/e2e/test_propertyquarry_public_tour_browser.py",
     ):
         assert required in script
+
+
+def test_property_release_workflow_runs_the_gold_gate_bundle() -> None:
+    workflow = _read(".github/workflows/smoke-runtime.yml")
+    release_gate = _read("scripts/property_release_gates.sh")
+
+    for required in (
+        "push:",
+        "pull_request:",
+        "workflow_dispatch:",
+        "property-security-posture:",
+        "security-static:",
+        "product-browser-e2e:",
+        "smoke-runtime-api:",
+        "smoke-runtime-postgres:",
+        "postgres-runtime-contracts:",
+        "make property-release-gates",
+    ):
+        assert required in workflow
+    for required in (
+        "tests/test_dossier_writer.py",
+        "tests/test_dadan_video_request_workflow.py",
+        "tests/test_property_media_factory.py",
+        "tests/test_premium_dossier_contracts.py",
+        "tests/test_public_rybbit.py",
+        "tests/test_telegram_delivery_service.py",
+        "tests/test_property_live_provider_smoke.py",
+    ):
+        assert required in release_gate

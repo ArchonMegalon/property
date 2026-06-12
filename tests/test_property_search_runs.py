@@ -2082,6 +2082,65 @@ def test_property_search_run_uses_saved_platforms_before_family_toggles(monkeypa
     }
 
 
+def test_property_search_run_updates_active_search_agent_lifecycle(monkeypatch) -> None:
+    principal_id = "exec-property-search-agent-lifecycle"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Agent Lifecycle")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": True,
+            "alert_frequency": "daily",
+            "search_agent_enabled": True,
+            "search_agent_notification_limit": 3,
+            "search_agent_notification_period": "day",
+            "property_commercial": {"active_plan_key": "agent", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"},
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien",
+                "label": "Willhaben Vienna",
+                "platform": "willhaben",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 1,
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_listing_urls_for_source", lambda **kwargs: ((), {"status": "miss"}))
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="scheduler",
+        selected_platforms=("willhaben",),
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    lifecycle = dict(result.get("search_agent_lifecycle") or {})
+    assert lifecycle["notification_period"] == "day"
+    assert lifecycle["notification_limit"] == 3
+    assert lifecycle["last_run_at"]
+    assert lifecycle["next_run_at"]
+    state = client.app.state.container.onboarding.status(principal_id=principal_id)
+    agents = list(dict(state.get("property_search_preferences") or {}).get("search_agents") or [])
+    assert agents[0]["last_run_at"] == lifecycle["last_run_at"]
+    assert agents[0]["next_run_at"] == lifecycle["next_run_at"]
+    assert agents[0]["sent_in_current_window"] == 0
+
+
 def test_property_search_run_explicit_empty_keywords_clear_saved_keywords(monkeypatch) -> None:
     principal_id = "exec-property-search-clear-keywords"
     client = build_property_client(principal_id=principal_id)

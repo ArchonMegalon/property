@@ -25745,7 +25745,10 @@ class ProductService:
         try:
             onboarding_state = self._container.onboarding.status(principal_id=principal_id)
             onboarding_preferences_payload = dict(onboarding_state.get("property_search_preferences") or {})
-            onboarding_preferences = dict(onboarding_preferences_payload.get("raw_preferences") or onboarding_preferences_payload)
+            onboarding_preferences = {
+                **dict(onboarding_preferences_payload.get("raw_preferences") or {}),
+                **{key: value for key, value in onboarding_preferences_payload.items() if key != "raw_preferences"},
+            }
             for key, value in onboarding_preferences.items():
                 if key in explicit_clearable_text_keys:
                     continue
@@ -28704,6 +28707,13 @@ class ProductService:
         research_tasks = _property_research_tasks_from_result(payload)
         payload.update(_property_research_task_counts(research_tasks))
         payload["research_tasks"] = research_tasks[:50]
+        lifecycle = self._record_property_search_agent_run_metadata(
+            principal_id=principal_id,
+            request_preferences=request_preferences,
+            payload=payload,
+        )
+        if lifecycle:
+            payload["search_agent_lifecycle"] = lifecycle
         self._record_product_event(
             principal_id=principal_id,
             event_type="property_scout_sync_completed",
@@ -28719,6 +28729,75 @@ class ProductService:
             summary_updates=payload,
         )
         return payload
+
+    def _record_property_search_agent_run_metadata(
+        self,
+        *,
+        principal_id: str,
+        request_preferences: dict[str, object],
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        agents = request_preferences.get("search_agents") if isinstance(request_preferences.get("search_agents"), list) else []
+        if not agents:
+            return {}
+        active_agent_id = str(request_preferences.get("active_search_agent_id") or "").strip()
+        active_agent = next(
+            (dict(agent) for agent in agents if isinstance(agent, dict) and str(agent.get("agent_id") or "").strip() == active_agent_id),
+            None,
+        )
+        if active_agent is None:
+            active_agent = next((dict(agent) for agent in agents if isinstance(agent, dict)), None)
+        if not active_agent:
+            return {}
+        agent_id = str(active_agent.get("agent_id") or active_agent_id or "current").strip() or "current"
+        generated_at = str(payload.get("generated_at") or _now_iso()).strip() or _now_iso()
+        try:
+            run_at = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+        except Exception:
+            run_at = datetime.now(timezone.utc)
+        if run_at.tzinfo is None:
+            run_at = run_at.replace(tzinfo=timezone.utc)
+        period = str(
+            active_agent.get("notification_period")
+            or request_preferences.get("search_agent_notification_period")
+            or "day"
+        ).strip().lower()
+        if period not in {"day", "week"}:
+            period = "day"
+        delta = timedelta(days=7 if period == "week" else 1)
+        try:
+            notification_limit = int(float(str(active_agent.get("notification_limit") or request_preferences.get("search_agent_notification_limit") or 5).strip()))
+        except Exception:
+            notification_limit = 5
+        notification_limit = max(1, min(50, notification_limit))
+        try:
+            previous_sent = int(float(str(active_agent.get("sent_in_current_window") or 0).strip()))
+        except Exception:
+            previous_sent = 0
+        try:
+            notified_total = int(float(str(payload.get("notified_total") or 0).strip()))
+        except Exception:
+            notified_total = 0
+        patch = {
+            "last_run_at": run_at.isoformat(),
+            "next_run_at": (run_at + delta).isoformat(),
+            "sent_in_current_window": max(0, min(notification_limit, previous_sent + max(0, notified_total))),
+        }
+        try:
+            self._container.onboarding.update_property_search_agent(
+                principal_id=principal_id,
+                agent_id=agent_id,
+                action="save",
+                patch=patch,
+            )
+        except Exception:
+            return {}
+        return {
+            "agent_id": agent_id,
+            "notification_period": period,
+            "notification_limit": notification_limit,
+            **patch,
+        }
 
     def cleanup_invalid_property_scout_tasks(
         self,

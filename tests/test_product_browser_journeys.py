@@ -1434,6 +1434,12 @@ def test_operator_admin_providers_page_surfaces_codex_governance() -> None:
     providers = client.get("/admin/providers")
     assert providers.status_code == 200
     assert "Providers" in providers.text
+    assert "Allowed engines and fail-closed lanes" in providers.text
+    assert "Matterport" in providers.text
+    assert "3DVista" in providers.text
+    assert "MagicFit" in providers.text
+    assert "Dadan" in providers.text
+    assert "NeuronWriter" in providers.text
     assert "Lane routing state" in providers.text
     assert "What each codex lane is expected to do" in providers.text
     assert "Hard coder lane" in providers.text

@@ -22,6 +22,11 @@ def neuronwriter_enabled() -> bool:
     return bool(neuronwriter_api_key())
 
 
+def neuronwriter_required() -> bool:
+    value = str(os.getenv("PROPERTYQUARRY_NEURONWRITER_REQUIRED") or "").strip().lower()
+    return value in {"1", "true", "yes", "on", "enabled", "always"}
+
+
 def neuronwriter_api_key() -> str:
     return str(os.getenv("NEURONWRITER_API_KEY") or "").strip()
 
@@ -111,6 +116,12 @@ def recommend_for_draft(draft: DossierNarrativeDraft, *, query_id: str = "") -> 
     if not allowed:
         return NeuronWriterRecommendation(status="blocked", mode="private_packet_guard", reason=reason)
     if not neuronwriter_enabled():
+        if neuronwriter_required():
+            return NeuronWriterRecommendation(
+                status="blocked",
+                mode="public_safe_required",
+                reason="neuronwriter_required_but_not_configured",
+            )
         return NeuronWriterRecommendation(status="disabled", mode="public_safe", reason="neuronwriter_disabled")
     if query_id:
         try:

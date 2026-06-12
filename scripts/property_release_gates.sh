@@ -27,6 +27,7 @@ Runs the focused PropertyQuarry release bundle:
   - property search run contracts
   - saved search-agent management contracts
   - property market catalog contracts
+  - live provider smoke receipt contracts
   - privacy-safe Rybbit analytics snippet contracts
   - Telegram titled-link delivery contracts
   - property browser journey contracts
@@ -92,4 +93,5 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_search_runs.py \
   tests/test_property_search_agents.py \
   tests/test_property_market_catalog.py \
+  tests/test_property_live_provider_smoke.py \
   tests/test_product_browser_journeys.py -k 'properties_workspace_surface or propertyquarry_settings_hide_generic_google_sync_metrics'

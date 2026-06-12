@@ -138,6 +138,25 @@ def test_neuronwriter_explicit_disabled_flag_overrides_api_key(monkeypatch) -> N
     assert recommendation.reason == "neuronwriter_disabled"
 
 
+def test_neuronwriter_required_blocks_dossiers_when_not_configured(monkeypatch) -> None:
+    monkeypatch.delenv("PROPERTYQUARRY_NEURONWRITER_ENABLED", raising=False)
+    monkeypatch.delenv("NEURONWRITER_API_KEY", raising=False)
+    monkeypatch.setenv("PROPERTYQUARRY_NEURONWRITER_REQUIRED", "1")
+    claims = claims_from_deep_research(_research())
+    draft = write_claim_bound_dossier(
+        dossier_id="dossier-neuronwriter-required",
+        claims=claims,
+        packet_kind="paid_market_report",
+        privacy_mode="paid_customer",
+    )
+
+    recommendation = recommend_for_draft(draft)
+
+    assert recommendation.status == "blocked"
+    assert recommendation.mode == "public_safe_required"
+    assert recommendation.reason == "neuronwriter_required_but_not_configured"
+
+
 def test_verifier_rejects_unsupported_salesy_claim() -> None:
     claims = claims_from_deep_research(_research())
     draft = write_claim_bound_dossier(

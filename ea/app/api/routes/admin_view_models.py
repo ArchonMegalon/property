@@ -974,6 +974,18 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             "summary": "Provider health, capacity, routing lanes, and codex governance from the live runtime and canon-backed control loop.",
             "cards": [
                 {"eyebrow": "Bindings", "title": "Configured providers", "items": provider_rows or [_row("No provider bindings", "No providers are currently bound for this principal.", "Empty")]},
+                {
+                    "eyebrow": "Property artifacts",
+                    "title": "Allowed engines and fail-closed lanes",
+                    "items": [
+                        _row("Matterport", "3D tour viewer only. No cube fallback; missing export must fail closed.", "3D Tour"),
+                        _row("3DVista", "Self-hosted or exported 3D tour viewer lane. Missing export must fail closed.", "3D Tour"),
+                        _row("MagicFit", "Photorealistic fly-through and lived-in reference imagery lane. Must pass continuous-shot and room-coverage gates.", "Video"),
+                        _row("Jogg / One Minute AI / Poppy", "Candidate video fallback lane only when the output is photorealistic and passes the same continuity gate.", "Video"),
+                        _row("Dadan", "Human video feedback and recording requests only. It is not a 3D tour or fly-through renderer.", "Feedback"),
+                        _row("NeuronWriter", "Redacted editorial intelligence for dossiers, reviews, email, and Telegram copy. It cannot author truth.", "Writing"),
+                    ],
+                },
                 {"eyebrow": "Routing", "title": "Lane routing state", "items": lane_rows or [_row("No active lanes", "No provider lanes are currently active.", "Empty")]},
                 {
                     "eyebrow": "Codex governance",
@@ -1002,6 +1014,16 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             "summary": "Approvals, outbound work, and deployment readiness visible in one operator surface.",
             "cards": [
                 {"eyebrow": "Approval receipts", "title": "Recent approval decisions", "items": approval_history_rows or [_row("No recent approval decisions", "No approval receipts have been recorded yet.", "Empty")]},
+                {
+                    "eyebrow": "Artifact receipts",
+                    "title": "What a delivered property packet must prove",
+                    "items": [
+                        _row("Premium PDF", "MarkupGo or Playwright render receipt, PDF QA result, no artifact status text in the customer PDF.", "Required"),
+                        _row("3D tours", "Matterport and 3DVista export receipts. Fallback cube viewers are forbidden.", "Required"),
+                        _row("Fly-through", "Provider, duration, room coverage, continuity, and speed receipts before Telegram delivery.", "Required"),
+                        _row("Telegram links", "Every outbound link must be sent as a titled hyperlink, never as a bare full URL.", "Required"),
+                    ],
+                },
                 {"eyebrow": "Outbound work", "title": "Pending delivery", "items": delivery_rows or [_row("No pending delivery", "The outbound queue is currently clear.", "Clear")]},
                 {"eyebrow": "System posture", "title": "Current deployment state", "items": [_row("Readiness", readiness_label, readiness_state.title()), _row("Provider count", str(registry.get("provider_count") or 0), "Runtime")]},
             ],
