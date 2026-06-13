@@ -240,7 +240,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
                     "review_url": "https://propertyquarry.com/app/handoffs/human_task:review-2",
                     "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
                     "fit_score": 87,
-                    "display_value": "Rooms under review",
+                    "display_value": "Room count not verified yet",
                     "evidence": "Floorplan exists, but no structured room count was extracted yet.",
                     "next_actions": ["Parse the floorplan and source PDF bundle."],
                 }
@@ -441,6 +441,13 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Source" in search.text
     assert "Map" in search.text
     assert "https://www.google.com/maps/search/?api=1" in search.text
+    assert "https://www.google.com/maps/dir/?api=1" in search.text
+    assert "Evidence" in search.text
+    assert "CART" in search.text
+    assert "Supermarket" in search.text
+    assert "280 m" in search.text
+    assert 'class="pqx-route-evidence"' in search.text
+    assert 'class="pqx-thumb"' in search.text
     assert "ranked homes" in search.text
     assert "price, layout, location, fit reason, and next action stay visible" in search.text
     assert "Altbau near U6" in search.text
@@ -504,11 +511,23 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Generated asset receipts" not in search.text
     assert "repair check queued" not in search.text
     assert "Repair: ea_one_manager" not in search.text
-    assert "unverified floorplan" in search.text
+    assert "layout check" in search.text or "layout not verified" in search.text
     assert "Repair provider extraction" not in search.text
-    assert "Missing facts" in search.text
-    assert "Facts still being completed from floorplans" in search.text
-    assert "Rooms under review" in search.text
+    assert "Missing facts" not in search.text
+    assert "Facts still being completed from floorplans" not in search.text
+    assert "Needs verification" in search.text
+    assert "Items that can change the decision" in search.text
+    assert "Room count not verified yet" in search.text
+    assert "Save answer" in search.text
+    assert "Save fact" not in search.text
+    assert 'data-pqx-progress-board' in search.text
+    assert "Concierge is assembling the evidence" in search.text or "Evidence assembled" in search.text
+    assert 'class="pqx-source-radar"' in search.text
+    assert 'class="pqx-funnel"' in search.text
+    assert 'class="pqx-evidence-stack"' in search.text
+    assert 'class="pqx-route-trace"' in search.text
+    assert 'class="pqx-floorplan-scan"' in search.text
+    assert 'class="pqx-dossier-rail"' in search.text
     assert 'data-research-task-id="mf_rooms_run_42"' in search.text
     assert 'data-research-task-action="fill"' in search.text
     assert 'data-research-task-action="dismiss"' in search.text
@@ -920,6 +939,10 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert 'class="pqx-run-head"' in live.text
     assert live.text.index("data-pqx-progress-ring") < live.text.index("Search is running. Inputs are locked.")
     assert "Search progress" in live.text
+    assert "Concierge is assembling the evidence" in live.text
+    assert 'data-pqx-progress-board' in live.text
+    assert 'class="pqx-source-radar"' in live.text
+    assert 'class="pqx-route-trace"' in live.text
     assert "Scoring shortlist candidate 2 of 4" in live.text
     assert "Launch search" not in live.text
     assert "Save defaults" not in live.text
@@ -934,6 +957,11 @@ def test_propertyquarry_running_progress_ring_stays_compact_and_top_aligned() ->
     assert "grid-template-columns: auto minmax(0, 1fr);" in template
     assert "width: clamp(86px, 10vw, 118px);" in template
     assert "width: 78px;" in template
+    assert ".pqx-progress-board" in template
+    assert "@keyframes pqxPulseSlide" in template
+    assert "@keyframes pqxRouteTrace" in template
+    assert "@keyframes pqxScanSweep" in template
+    assert "@media (prefers-reduced-motion: reduce)" in template
     assert "align-content: space-between;" not in run_hero.group("body")
     assert "width: min(260px, 58vw);" not in template
 

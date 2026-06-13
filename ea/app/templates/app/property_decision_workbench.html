@@ -60,8 +60,8 @@
 <section class="pqx-research-queue" data-pqx-research-queue data-run-id="{{ run_id }}">
   <div class="pqx-section-head">
     <div>
-      <h2>Missing facts</h2>
-      <div class="pqx-note">Facts still being completed from floorplans, source files, and property reviews.</div>
+      <h2>Needs verification</h2>
+      <div class="pqx-note">Items that can change the decision: layout proof, documents, or answers worth checking before you shortlist.</div>
     </div>
     <span class="pqx-pill warn" data-research-task-count>{{ counts.get('open') or 0 }} open</span>
   </div>
@@ -75,38 +75,38 @@
     >
       <div class="pqx-research-task-head">
         <div>
-          <strong>{{ task.get('label') or 'Missing fact' }}</strong>
+          <strong>{{ task.get('label') or 'Decision check' }}</strong>
           <span>{{ task.get('title') or 'Property' }}{% if task.get('source_label') %} · {{ task.get('source_label') }}{% endif %}</span>
         </div>
         <span class="pqx-pill{% if task.get('status') == 'filled' %} good{% elif task.get('status') == 'dismissed' %}{% else %} warn{% endif %}" data-research-task-status-label>{{ task.get('status_label') or 'Queued' }}</span>
       </div>
-      <p class="pqx-note" data-research-task-detail>{{ task.get('detail') or 'PropertyQuarry is trying to complete this fact.' }}</p>
+      <p class="pqx-note" data-research-task-detail>{{ task.get('detail') or 'This point is not verified enough to rely on for a decision yet.' }}</p>
       {% if task.get('display_value') %}
-      <div class="pqx-research-value"><span>Current value</span><strong data-research-task-value>{{ task.get('display_value') }}</strong></div>
+      <div class="pqx-research-value"><span>Current answer</span><strong data-research-task-value>{{ task.get('display_value') }}</strong></div>
       {% else %}
-      <div class="pqx-research-value"><span>Current value</span><strong data-research-task-value>Under review</strong></div>
+      <div class="pqx-research-value"><span>Current answer</span><strong data-research-task-value>Not verified yet</strong></div>
       {% endif %}
       <form class="pqx-research-task-form" data-research-task-form>
         <label>
-          Value
-          <input name="value" value="{{ task.get('display_value') or '' }}" maxlength="240" placeholder="e.g. 4 rooms">
+          Answer
+          <input name="value" value="{{ task.get('display_value') or '' }}" maxlength="240" placeholder="e.g. 4 rooms, confirmed by agent">
         </label>
         <label>
           Note
-          <input name="note" value="{{ task.get('owner_note') or '' }}" maxlength="500" placeholder="Where this came from">
+          <input name="note" value="{{ task.get('owner_note') or '' }}" maxlength="500" placeholder="Where this answer came from">
         </label>
         <div class="pqx-research-task-actions">
-          <button class="pqx-button primary" type="submit" data-research-task-action="fill">Save fact</button>
+          <button class="pqx-button primary" type="submit" data-research-task-action="fill">Save answer</button>
           {% if task.get('status') == 'dismissed' %}
           <button class="pqx-button subtle" type="button" data-research-task-action="reopen">Reopen</button>
           {% else %}
-          <button class="pqx-button subtle" type="button" data-research-task-action="dismiss">Dismiss</button>
+          <button class="pqx-button subtle" type="button" data-research-task-action="dismiss">Not relevant</button>
           {% endif %}
         </div>
       </form>
       <div class="pqx-research-task-foot">
         {% if task.get('review_url') %}<a href="{{ task.get('review_url') }}">Open review</a>{% endif %}
-        {% if task.get('property_url') %}<a href="{{ task.get('property_url') }}">Source</a>{% endif %}
+        {% if task.get('property_url') %}<a href="{{ task.get('property_url') }}">Open listing</a>{% endif %}
         <span data-research-task-message></span>
       </div>
     </article>
@@ -114,6 +114,62 @@
   </div>
 </section>
 {% endif %}
+{%- endmacro %}
+{% macro progress_board(run, run_sources, research_task_counts) -%}
+{% set summary = run.get('summary') or {} %}
+{% set status = run.get('status') or summary.get('status') or 'queued' %}
+{% set source_total = (summary.get('sources_total') or run_sources|length or 0)|int %}
+{% set listing_total = (summary.get('listing_total') or summary.get('raw_listing_total') or 0)|int %}
+{% set high_fit_total = (summary.get('high_fit_total') or 0)|int %}
+{% set notified_total = (summary.get('notified_total') or summary.get('watch_notified_total') or 0)|int %}
+{% set tour_total = ((summary.get('tour_created_total') or 0)|int) + ((summary.get('tour_existing_total') or 0)|int) %}
+{% set layout_unverified = (summary.get('filtered_floorplan_total') or 0)|int %}
+{% set open_checks = (research_task_counts.get('open') or summary.get('open_research_task_total') or 0)|int %}
+<div class="pqx-progress-board" data-pqx-progress-board data-progress-state="{{ status }}">
+  <div class="pqx-concierge-pulse">
+    <strong data-pqx-progress-board-title>{% if status in ['processed', 'completed'] %}Evidence assembled{% elif status == 'failed' %}Search stopped{% else %}Concierge is assembling the evidence{% endif %}</strong>
+    <div class="pqx-pulse-line" aria-hidden="true"></div>
+    <div class="pqx-progress-labels">
+      <span>Searching</span><span>Ranking</span><span>Verifying</span><span>Preparing review</span>
+    </div>
+  </div>
+  <div class="pqx-source-radar">
+    <strong data-pqx-radar-count>{{ source_total }} source check{{ '' if source_total == 1 else 's' }}</strong>
+    <div class="pqx-radar-dots" aria-hidden="true">
+      {% for index in range(8) %}
+      <span class="{{ 'is-active' if index < [source_total, 8]|min else '' }}"></span>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="pqx-funnel" data-pqx-shortlist-funnel>
+    <div class="pqx-funnel-row"><span>Sources</span><span class="pqx-funnel-track"><i class="pqx-funnel-fill" style="--fill: 100;"></i></span><b>{{ source_total }}</b></div>
+    <div class="pqx-funnel-row"><span>Homes</span><span class="pqx-funnel-track"><i class="pqx-funnel-fill" style="--fill: {{ [listing_total, 100]|min }};"></i></span><b>{{ listing_total }}</b></div>
+    <div class="pqx-funnel-row"><span>Strong fit</span><span class="pqx-funnel-track"><i class="pqx-funnel-fill" style="--fill: {{ [high_fit_total * 14, 100]|min }};"></i></span><b>{{ high_fit_total }}</b></div>
+    <div class="pqx-funnel-row"><span>Sent</span><span class="pqx-funnel-track"><i class="pqx-funnel-fill" style="--fill: {{ [notified_total * 20, 100]|min }};"></i></span><b>{{ notified_total }}</b></div>
+  </div>
+  <div class="pqx-evidence-stack" data-pqx-evidence-stack>
+    <span class="pqx-evidence-chip {{ 'is-ready' if listing_total else 'is-active' }}">Facts</span>
+    <span class="pqx-evidence-chip {{ 'is-ready' if high_fit_total else ('is-active' if listing_total else '') }}">Ranking</span>
+    <span class="pqx-evidence-chip {{ 'is-ready' if layout_unverified == 0 and listing_total else ('is-active' if layout_unverified else '') }}">Layout</span>
+    <span class="pqx-evidence-chip {{ 'is-ready' if tour_total else ('is-active' if high_fit_total else '') }}">Tour</span>
+    <span class="pqx-evidence-chip {{ 'is-ready' if open_checks == 0 and listing_total else ('is-active' if open_checks else '') }}">Decision checks</span>
+  </div>
+  <div class="pqx-route-trace" data-pqx-route-trace>
+    <span class="pqx-route-chip">Home to school</span>
+    <span class="pqx-route-chip">Home to supermarket</span>
+    <span class="pqx-route-chip">Home to commute</span>
+  </div>
+  <div class="pqx-floorplan-scan" data-pqx-floorplan-scan>
+    <strong>Layout check</strong>
+    <span class="pqx-note">{{ layout_unverified }} candidate{{ '' if layout_unverified == 1 else 's' }} still need layout verification.</span>
+  </div>
+  <div class="pqx-dossier-rail" data-pqx-dossier-rail>
+    <span class="pqx-dossier-step {{ 'is-ready' if listing_total else 'is-active' }}">Facts</span>
+    <span class="pqx-dossier-step {{ 'is-ready' if high_fit_total else '' }}">Evidence</span>
+    <span class="pqx-dossier-step {{ 'is-ready' if tour_total else '' }}">Tour links</span>
+    <span class="pqx-dossier-step {{ 'is-ready' if open_checks == 0 and listing_total else 'is-active' }}">Review</span>
+  </div>
+</div>
 {%- endmacro %}
 <!doctype html>
 <html lang="en">
@@ -947,6 +1003,255 @@
       line-height: 1;
     }
     .pqx-progress-ring span { color: #d7cdbb; font-size: 10px; }
+    .pqx-progress-board {
+      display: grid;
+      gap: 12px;
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid rgba(255, 249, 237, 0.18);
+      border-radius: 10px;
+      background: rgba(255, 249, 237, 0.08);
+    }
+    .pqx-progress-board strong,
+    .pqx-progress-board span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .pqx-concierge-pulse {
+      display: grid;
+      gap: 8px;
+    }
+    .pqx-pulse-line {
+      position: relative;
+      height: 4px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(255, 249, 237, 0.16);
+    }
+    .pqx-pulse-line::after {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 -34%;
+      width: 34%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, transparent, var(--pq-gold), transparent);
+      animation: pqxPulseSlide 2.8s ease-in-out infinite;
+    }
+    .pqx-progress-board[data-progress-state="processed"] .pqx-pulse-line::after,
+    .pqx-progress-board[data-progress-state="completed"] .pqx-pulse-line::after {
+      animation: none;
+      inset: 0;
+      width: 100%;
+      background: var(--pq-green);
+    }
+    .pqx-progress-labels {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .pqx-progress-labels span,
+    .pqx-evidence-chip,
+    .pqx-route-chip,
+    .pqx-dossier-step {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: rgba(255, 249, 237, 0.11);
+      color: #eadfcc;
+      font-size: 11px;
+      font-weight: 720;
+    }
+    .pqx-source-radar {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+    }
+    .pqx-radar-dots {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .pqx-radar-dots span {
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(255, 249, 237, 0.16);
+    }
+    .pqx-radar-dots span.is-active {
+      background: var(--pq-gold);
+      box-shadow: 0 0 16px rgba(189, 139, 47, 0.55);
+      animation: pqxDotBreathe 1.6s ease-in-out infinite;
+    }
+    .pqx-funnel {
+      display: grid;
+      gap: 7px;
+    }
+    .pqx-funnel-row {
+      display: grid;
+      grid-template-columns: 82px minmax(0, 1fr) 42px;
+      gap: 8px;
+      align-items: center;
+      color: #eadfcc;
+      font-size: 11px;
+    }
+    .pqx-funnel-track {
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(255, 249, 237, 0.14);
+    }
+    .pqx-funnel-fill {
+      display: block;
+      height: 100%;
+      width: calc(max(4, min(100, var(--fill, 0))) * 1%);
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--pq-gold), #f4d188);
+      transition: width 0.5s ease;
+    }
+    .pqx-evidence-stack,
+    .pqx-route-trace,
+    .pqx-dossier-rail {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+    .pqx-evidence-chip::before,
+    .pqx-dossier-step::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: rgba(255, 249, 237, 0.32);
+    }
+    .pqx-evidence-chip.is-ready::before,
+    .pqx-dossier-step.is-ready::before {
+      background: var(--pq-green);
+    }
+    .pqx-evidence-chip.is-active::before,
+    .pqx-dossier-step.is-active::before {
+      background: var(--pq-gold);
+      animation: pqxDotBreathe 1.4s ease-in-out infinite;
+    }
+    .pqx-route-chip {
+      position: relative;
+      overflow: hidden;
+    }
+    .pqx-route-chip::after {
+      content: "";
+      width: 22px;
+      height: 2px;
+      border-radius: 999px;
+      background: currentColor;
+      opacity: 0.55;
+      transform-origin: left center;
+      animation: pqxRouteTrace 2.4s ease-in-out infinite;
+    }
+    .pqx-floorplan-scan {
+      position: relative;
+      display: grid;
+      gap: 6px;
+      min-height: 58px;
+      overflow: hidden;
+      padding: 10px;
+      border: 1px solid rgba(255, 249, 237, 0.16);
+      border-radius: 8px;
+      background:
+        linear-gradient(90deg, rgba(255, 249, 237, 0.08) 1px, transparent 1px),
+        linear-gradient(rgba(255, 249, 237, 0.08) 1px, transparent 1px);
+      background-size: 18px 18px;
+    }
+    .pqx-floorplan-scan::after {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 -20%;
+      width: 18%;
+      background: linear-gradient(90deg, transparent, rgba(244, 209, 136, 0.35), transparent);
+      animation: pqxScanSweep 2.2s ease-in-out infinite;
+    }
+    .pqx-progress-board[data-progress-state="processed"] .pqx-floorplan-scan::after,
+    .pqx-progress-board[data-progress-state="completed"] .pqx-floorplan-scan::after {
+      display: none;
+    }
+    .pqx-result-media {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+    }
+    .pqx-thumb {
+      width: 72px;
+      aspect-ratio: 4 / 3;
+      overflow: hidden;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: linear-gradient(135deg, #f2eadc, #fffdf8);
+      display: grid;
+      place-items: center;
+      color: var(--pq-muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .pqx-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .pqx-route-evidence {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .pqx-route-evidence a,
+    .pqx-route-evidence span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      max-width: 100%;
+      min-height: 28px;
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: #fffefa;
+      color: var(--pq-ink);
+      border: 1px solid var(--pq-line);
+      font-size: 11px;
+      font-weight: 760;
+      text-decoration: none;
+    }
+    .pqx-route-evidence i {
+      font-style: normal;
+      color: var(--pq-gold-strong);
+    }
+    @keyframes pqxPulseSlide {
+      0% { transform: translateX(0); }
+      52%, 100% { transform: translateX(395%); }
+    }
+    @keyframes pqxDotBreathe {
+      0%, 100% { opacity: 0.62; transform: scaleX(0.84); }
+      50% { opacity: 1; transform: scaleX(1); }
+    }
+    @keyframes pqxRouteTrace {
+      0%, 100% { transform: scaleX(0.35); opacity: 0.35; }
+      50% { transform: scaleX(1); opacity: 0.85; }
+    }
+    @keyframes pqxScanSweep {
+      0% { transform: translateX(0); }
+      55%, 100% { transform: translateX(680%); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .pqx-pulse-line::after,
+      .pqx-radar-dots span.is-active,
+      .pqx-evidence-chip.is-active::before,
+      .pqx-dossier-step.is-active::before,
+      .pqx-route-chip::after,
+      .pqx-floorplan-scan::after {
+        animation: none !important;
+      }
+    }
     .pqx-event-card {
       padding: 14px;
       border: 1px solid var(--pq-line);
@@ -2108,7 +2413,7 @@
           <div class="pqx-section-head">
             <div>
               <h2>Best matches</h2>
-              <div class="pqx-note" data-pqx-run-summary>{{ run_summary.get('sources_total') or run_sources|length or 0 }} sources checked · {{ run_summary.get('listing_total') or 0 }} homes reviewed · {{ run_summary.get('filtered_low_fit_total') or 0 }} below your fit threshold · {{ run_summary.get('filtered_floorplan_total') or 0 }} without floor plan</div>
+              <div class="pqx-note" data-pqx-run-summary>{{ run_summary.get('sources_total') or run_sources|length or 0 }} sources checked · {{ run_summary.get('listing_total') or 0 }} homes reviewed · {{ run_summary.get('filtered_low_fit_total') or 0 }} below your fit threshold · {{ run_summary.get('filtered_floorplan_total') or 0 }} with layout not verified</div>
             </div>
             <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
           </div>
@@ -2122,6 +2427,7 @@
                 <tr>
                   <th>#</th>
                   <th>Property</th>
+                  <th>Evidence</th>
                   <th>Fit</th>
                   <th>Why it matched</th>
                   <th>Open</th>
@@ -2132,11 +2438,38 @@
                 <tr>
                   <td>{{ candidate.get('rank') or loop.index }}</td>
                   <td>
-                    {{ candidate.get('title') or 'Property candidate' }}<br>
-                    <span class="pqx-small">{{ candidate.get('source_label') or candidate.get('source_platform') or 'Source' }}</span>
+                    <div class="pqx-result-media">
+                      <span class="pqx-thumb">
+                        {% if candidate.get('preview_image_url') %}
+                        <img src="{{ candidate.get('preview_image_url') }}" alt="">
+                        {% else %}
+                        HOME
+                        {% endif %}
+                      </span>
+                      <span>
+                        {{ candidate.get('title') or 'Property candidate' }}<br>
+                        <span class="pqx-small">{{ candidate.get('source_label') or candidate.get('source_platform') or 'Source' }}</span>
+                      </span>
+                    </div>
                     {% set provider_quality = candidate.get('provider_quality') or {} %}
                     {% if provider_quality.get('floorplan_reliability') or provider_quality.get('filter_pushdown_strength') or provider_quality.get('last_verified') %}
                     <br><span class="pqx-small">Floorplans {{ provider_quality.get('floorplan_reliability') or 'n/a' }} · Filters {{ provider_quality.get('filter_pushdown_strength') or 'n/a' }}{% if provider_quality.get('last_verified') %} · Verified {{ provider_quality.get('last_verified') }}{% endif %}</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% set route_evidence = candidate.get('route_evidence') or [] %}
+                    {% if route_evidence %}
+                    <div class="pqx-route-evidence">
+                      {% for route in route_evidence[:4] %}
+                      {% if route.get('map_url') %}
+                      <a href="{{ route.get('map_url') }}"><i>{{ route.get('icon') }}</i>{{ route.get('label') }} · {{ route.get('distance') }}</a>
+                      {% else %}
+                      <span><i>{{ route.get('icon') }}</i>{{ route.get('label') }} · {{ route.get('distance') }}</span>
+                      {% endif %}
+                      {% endfor %}
+                    </div>
+                    {% else %}
+                    <span class="pqx-small">Routes not verified yet</span>
                     {% endif %}
                   </td>
                   <td>{{ candidate.get('fit_score') or 0 }}</td>
@@ -2191,7 +2524,7 @@
                 <span>Reviewed <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
                 <span>High fit <b>{{ source.get('high_fit_total') or 0 }}</b></span>
                 <span>Filtered <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
-                <span>No plan <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
+                <span>Layout unverified <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
               </div>
               {% set source_quality = source.get('provider_quality') or {} %}
               {% if source_quality.get('floorplan_reliability') or source_quality.get('filter_pushdown_strength') or source_quality.get('last_verified') %}
@@ -2270,6 +2603,7 @@
           <div>
             <strong data-pqx-run-message>{{ run.get('message') or 'The search is queued.' }}</strong>
             <p class="pqx-note">{% if run_active %}When results are ready, this page will show the best homes first.{% elif run_status == 'failed' %}Start a new search after changing the settings or reducing strict requirements.{% else %}No ranked matches were produced for this search. Adjust sources or target areas and launch a new search when ready.{% endif %}</p>
+            {{ progress_board(run, run_sources, research_task_counts) }}
             {% if run_active %}
             {% set active_provider_lanes = (run.get('summary') or {}).get('sources_total') or run_sources|length or 0 %}
             <div class="pqx-dashboard-stack" data-pqx-running-provider-state>
@@ -2290,6 +2624,7 @@
             </div>
             {% if run_active %}<button class="pqx-button" type="button" data-pqx-refresh-status>Refresh</button>{% else %}<a class="pqx-link-button" href="/app/properties">New search</a>{% endif %}
           </div>
+          {{ progress_board(run, run_sources, research_task_counts) }}
           {{ research_queue_panel(research_tasks, run.get('run_id') or '', research_task_counts) }}
           <div class="pqx-event-list" data-pqx-run-events>
             {% for event in (run.get('events') or [])|reverse %}
@@ -4049,7 +4384,7 @@
       const listings = Number(summary.listing_total || 0);
       const tours = Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
-      return `${sources} sources · ${listings} listings · ${tours} tours · ${noPlan} without floor plan`;
+      return `${sources} sources · ${listings} listings · ${tours} tours · ${noPlan} with layout not verified`;
     };
     const renderRunEvents = (events) => {
       const rows = Array.isArray(events) ? [...events].reverse().slice(0, 12) : [];
@@ -4072,8 +4407,69 @@
           ? `<span class="pqx-note">No selected-area matches: provider returned ${escapeHtml(source?.location_mismatch_candidate_total || 0)} outside the chosen target area.</span>`
           : '';
         const message = source?.message || source?.error ? `<span class="pqx-note">${escapeHtml(source.message || source.error)}</span>` : '';
-        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Scanned')}</span><div class="pqx-source-metrics"><span>Reviewed <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>High fit <b>${escapeHtml(source?.high_fit_total || 0)}</b></span><span>Filtered <b>${escapeHtml(source?.filtered_low_fit_total || 0)}</b></span><span>No plan <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
+        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Scanned')}</span><div class="pqx-source-metrics"><span>Reviewed <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>High fit <b>${escapeHtml(source?.high_fit_total || 0)}</b></span><span>Filtered <b>${escapeHtml(source?.filtered_low_fit_total || 0)}</b></span><span>Layout unverified <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
       }).join('');
+    };
+    const renderRouteEvidence = (routes) => {
+      const rows = Array.isArray(routes) ? routes.slice(0, 4) : [];
+      if (!rows.length) return '<span class="pqx-small">Routes not verified yet</span>';
+      return `<div class="pqx-route-evidence">${rows.map((route) => {
+        const label = `${route?.label || 'Route'} · ${route?.distance || 'checking'}`;
+        const inner = `<i>${escapeHtml(route?.icon || 'MAP')}</i>${escapeHtml(label)}`;
+        return route?.map_url ? `<a href="${escapeHtml(route.map_url)}">${inner}</a>` : `<span>${inner}</span>`;
+      }).join('')}</div>`;
+    };
+    const progressBoardHtml = (runPayload) => {
+      const summary = runPayload?.summary || {};
+      const status = String(runPayload?.status || summary.status || 'queued');
+      const sources = Number(summary.sources_total || 0);
+      const listings = Number(summary.listing_total || summary.raw_listing_total || 0);
+      const highFit = Number(summary.high_fit_total || 0);
+      const sent = Number(summary.notified_total || summary.watch_notified_total || 0);
+      const tours = Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0);
+      const layout = Number(summary.filtered_floorplan_total || 0);
+      const checks = Number(runPayload?.open_research_task_total || summary.open_research_task_total || 0);
+      const dotCount = Math.max(0, Math.min(8, sources));
+      const title = status === 'processed' || status === 'completed' ? 'Evidence assembled' : (status === 'failed' ? 'Search stopped' : 'Concierge is assembling the evidence');
+      const dots = Array.from({ length: 8 }, (_, index) => `<span class="${index < dotCount ? 'is-active' : ''}"></span>`).join('');
+      const funnel = [
+        ['Sources', sources, 100],
+        ['Homes', listings, Math.min(listings, 100)],
+        ['Strong fit', highFit, Math.min(highFit * 14, 100)],
+        ['Sent', sent, Math.min(sent * 20, 100)],
+      ].map(([label, value, fill]) => `<div class="pqx-funnel-row"><span>${escapeHtml(label)}</span><span class="pqx-funnel-track"><i class="pqx-funnel-fill" style="--fill: ${escapeHtml(fill)};"></i></span><b>${escapeHtml(value)}</b></div>`).join('');
+      const chip = (label, cls) => `<span class="pqx-evidence-chip ${cls}">${escapeHtml(label)}</span>`;
+      const step = (label, cls) => `<span class="pqx-dossier-step ${cls}">${escapeHtml(label)}</span>`;
+      return `
+        <div class="pqx-concierge-pulse">
+          <strong data-pqx-progress-board-title>${escapeHtml(title)}</strong>
+          <div class="pqx-pulse-line" aria-hidden="true"></div>
+          <div class="pqx-progress-labels"><span>Searching</span><span>Ranking</span><span>Verifying</span><span>Preparing review</span></div>
+        </div>
+        <div class="pqx-source-radar"><strong data-pqx-radar-count>${escapeHtml(sources)} source check${sources === 1 ? '' : 's'}</strong><div class="pqx-radar-dots" aria-hidden="true">${dots}</div></div>
+        <div class="pqx-funnel" data-pqx-shortlist-funnel>${funnel}</div>
+        <div class="pqx-evidence-stack" data-pqx-evidence-stack>
+          ${chip('Facts', listings ? 'is-ready' : 'is-active')}
+          ${chip('Ranking', highFit ? 'is-ready' : (listings ? 'is-active' : ''))}
+          ${chip('Layout', layout === 0 && listings ? 'is-ready' : (layout ? 'is-active' : ''))}
+          ${chip('Tour', tours ? 'is-ready' : (highFit ? 'is-active' : ''))}
+          ${chip('Decision checks', checks === 0 && listings ? 'is-ready' : (checks ? 'is-active' : ''))}
+        </div>
+        <div class="pqx-route-trace" data-pqx-route-trace><span class="pqx-route-chip">Home to school</span><span class="pqx-route-chip">Home to supermarket</span><span class="pqx-route-chip">Home to commute</span></div>
+        <div class="pqx-floorplan-scan" data-pqx-floorplan-scan><strong>Layout check</strong><span class="pqx-note">${escapeHtml(layout)} candidate${layout === 1 ? '' : 's'} still need layout verification.</span></div>
+        <div class="pqx-dossier-rail" data-pqx-dossier-rail>
+          ${step('Facts', listings ? 'is-ready' : 'is-active')}
+          ${step('Evidence', highFit ? 'is-ready' : '')}
+          ${step('Tour links', tours ? 'is-ready' : '')}
+          ${step('Review', checks === 0 && listings ? 'is-ready' : 'is-active')}
+        </div>
+      `;
+    };
+    const updateProgressBoards = (runPayload) => {
+      root.querySelectorAll('[data-pqx-progress-board]').forEach((board) => {
+        board.dataset.progressState = String(runPayload?.status || runPayload?.summary?.status || 'queued');
+        board.innerHTML = progressBoardHtml(runPayload);
+      });
     };
     const renderRankedCandidates = (candidates) => {
       const rows = Array.isArray(candidates) ? candidates.slice(0, 20) : [];
@@ -4082,14 +4478,18 @@
         const title = candidate?.title || 'Property candidate';
         const source = candidate?.source_label || candidate?.source_platform || 'Source';
         const reason = candidate?.compare_reason || candidate?.fit_summary || (Array.isArray(candidate?.match_reasons) ? candidate.match_reasons[0] : '') || 'Review details for more context';
+        const image = candidate?.preview_image_url
+          ? `<img src="${escapeHtml(candidate.preview_image_url)}" alt="">`
+          : 'HOME';
+        const media = `<div class="pqx-result-media"><span class="pqx-thumb">${image}</span><span>${escapeHtml(title)}<br><span class="pqx-small">${escapeHtml(source)}</span></span></div>`;
         const links = [
           candidate?.packet_url ? `<a href="${escapeHtml(candidate.packet_url)}">Review</a>` : '',
           candidate?.map_url ? `<a href="${escapeHtml(candidate.map_url)}">Map</a>` : '',
           candidate?.property_url ? `<a href="${escapeHtml(candidate.property_url)}">Listing</a>` : '',
         ].filter(Boolean).join('');
-        return `<tr><td>${escapeHtml(candidate?.rank || index + 1)}</td><td>${escapeHtml(title)}</td><td>${escapeHtml(source)}</td><td>${escapeHtml(candidate?.fit_score || 0)}</td><td>${escapeHtml(reason)}</td><td>${links}</td></tr>`;
+        return `<tr><td>${escapeHtml(candidate?.rank || index + 1)}</td><td>${media}</td><td>${renderRouteEvidence(candidate?.route_evidence)}</td><td>${escapeHtml(candidate?.fit_score || 0)}</td><td>${escapeHtml(reason)}</td><td>${links}</td></tr>`;
       }).join('');
-      return `<div class="pqx-table-wrap" data-pqx-ranked-candidates><table class="pqx-table"><thead><tr><th>#</th><th>Property</th><th>Source</th><th>Fit</th><th>Why it matched</th><th>Open</th></tr></thead><tbody>${body}</tbody></table></div>`;
+      return `<div class="pqx-table-wrap" data-pqx-ranked-candidates><table class="pqx-table"><thead><tr><th>#</th><th>Property</th><th>Evidence</th><th>Fit</th><th>Why it matched</th><th>Open</th></tr></thead><tbody>${body}</tbody></table></div>`;
     };
     const renderRun = (runPayload) => {
       if (!runPayload || typeof runPayload !== 'object') return;
@@ -4113,6 +4513,7 @@
       if (sourceNode && runPayload.summary) sourceNode.innerHTML = renderSourceBreakdown(runPayload.summary.sources);
       if (eventsNode) eventsNode.innerHTML = renderRunEvents(runPayload.events);
       if (updatedNode) updatedNode.textContent = `Last update ${runPayload.updated_at || runPayload.generated_at || new Date().toLocaleTimeString()}`;
+      updateProgressBoards(runPayload);
       applyResearchTaskSnapshot(runPayload);
       notifyRunComplete(runPayload);
     };

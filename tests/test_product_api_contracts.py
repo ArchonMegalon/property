@@ -4066,6 +4066,11 @@ def test_property_scout_floorplan_filter_records_provider_recovery_ooda_event(mo
     assert result["sources"][0]["provider_repair_task_opened_total"] == 1
     assert result["sources"][0]["provider_repair_task_existing_total"] == 0
     assert result["sources"][0]["provider_repair_tasks"][0]["repair_owner"] == "ea_one_manager"
+    assert result["sources"][0]["floorplan_unverified_candidates"][0]["property_url"] == property_url
+    assert result["sources"][0]["floorplan_unverified_candidates"][0]["candidate_stage"] in {
+        "provider_preview",
+        "shortlist_detail",
+    }
     provider_research_tasks = [task for task in result["research_tasks"] if task.get("kind") == "provider_repair"]
     assert provider_research_tasks == []
     assert "Repair provider extraction" not in json.dumps(result, ensure_ascii=False)
@@ -4122,6 +4127,7 @@ def test_property_scout_floorplan_filter_records_provider_recovery_ooda_event(mo
     assert repeated["provider_repair_task_existing_total"] == 1
     assert repeated["sources"][0]["provider_repair_task_opened_total"] == 0
     assert repeated["sources"][0]["provider_repair_task_existing_total"] == 1
+    assert repeated["sources"][0]["floorplan_unverified_candidates"][0]["property_url"] == property_url
     repeated_provider_research_tasks = [task for task in repeated["research_tasks"] if task.get("kind") == "provider_repair"]
     assert repeated_provider_research_tasks == []
     assert "Repair provider extraction" not in json.dumps(repeated, ensure_ascii=False)

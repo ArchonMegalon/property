@@ -87,6 +87,109 @@ def _property_candidate_maps_url(candidate: dict[str, object]) -> str:
     return f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(query)}"
 
 
+def _property_candidate_directions_url(
+    candidate: dict[str, object],
+    *,
+    target_lat: object = "",
+    target_lng: object = "",
+    target_query: object = "",
+    mode: str = "walking",
+) -> str:
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    if isinstance(candidate.get("property_facts_json"), dict):
+        facts = {**facts, **dict(candidate.get("property_facts_json") or {})}
+    if isinstance(facts.get("listing_research_snapshot"), dict):
+        facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
+
+    def _text(*values: object) -> str:
+        return next((str(value or "").strip() for value in values if str(value or "").strip()), "")
+
+    origin_lat = _text(facts.get("map_lat"), facts.get("lat"), facts.get("latitude"))
+    origin_lng = _text(facts.get("map_lng"), facts.get("lng"), facts.get("lon"), facts.get("longitude"))
+    address_lines = " ".join(str(item or "").strip() for item in list(facts.get("address_lines") or []) if str(item or "").strip())
+    origin = (
+        f"{origin_lat},{origin_lng}"
+        if origin_lat and origin_lng
+        else _text(facts.get("exact_address"), facts.get("street_address"), address_lines, facts.get("postal_name"), candidate.get("title"))
+    )
+    destination = f"{target_lat},{target_lng}" if _text(target_lat) and _text(target_lng) else _text(target_query)
+    if not origin or not destination:
+        return ""
+    travel_mode = mode if mode in {"walking", "transit", "driving", "bicycling"} else "walking"
+    return (
+        "https://www.google.com/maps/dir/?api=1"
+        f"&origin={urllib.parse.quote(origin, safe=',')}"
+        f"&destination={urllib.parse.quote(destination, safe=',')}"
+        f"&travelmode={urllib.parse.quote(travel_mode)}"
+    )
+
+
+def _property_candidate_route_evidence(candidate: dict[str, object]) -> list[dict[str, str]]:
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    if isinstance(candidate.get("property_facts_json"), dict):
+        facts = {**facts, **dict(candidate.get("property_facts_json") or {})}
+    if isinstance(facts.get("listing_research_snapshot"), dict):
+        facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
+
+    specs = (
+        ("BOOK", "School", "nearest_school_m", "nearest_school_name", "nearest_school_lat", "nearest_school_lng", "transit"),
+        ("CART", "Supermarket", "nearest_supermarket_m", "nearest_supermarket_name", "nearest_supermarket_lat", "nearest_supermarket_lng", "walking"),
+        ("PLAY", "Playground", "nearest_playground_m", "nearest_playground_name", "nearest_playground_lat", "nearest_playground_lng", "walking"),
+        ("RX", "Pharmacy", "nearest_pharmacy_m", "nearest_pharmacy_name", "nearest_pharmacy_lat", "nearest_pharmacy_lng", "walking"),
+        ("U", "Transit", "nearest_subway_m", "nearest_subway_name", "nearest_subway_lat", "nearest_subway_lng", "transit"),
+    )
+    rows: list[dict[str, str]] = []
+    for icon, label, distance_key, name_key, lat_key, lng_key, mode in specs:
+        raw_distance = facts.get(distance_key)
+        if raw_distance in (None, "", []):
+            continue
+        try:
+            meters = int(float(raw_distance))
+        except Exception:
+            continue
+        place_name = str(facts.get(name_key) or label).strip() or label
+        row = {
+            "icon": icon,
+            "label": label,
+            "distance": f"{meters} m",
+            "detail": place_name,
+            "mode": mode,
+            "map_url": _property_candidate_directions_url(
+                candidate,
+                target_lat=facts.get(lat_key),
+                target_lng=facts.get(lng_key),
+                target_query=place_name,
+                mode=mode,
+            ),
+        }
+        rows.append(row)
+    return rows[:4]
+
+
+def _property_candidate_preview_image(candidate: dict[str, object]) -> str:
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    for key in (
+        "diorama_image_url",
+        "diorama_preview_url",
+        "telegram_preview_url",
+        "preview_image_url",
+        "thumbnail_url",
+        "image_url",
+        "hero_image_url",
+    ):
+        value = str(candidate.get(key) or facts.get(key) or "").strip()
+        if value.startswith(("https://", "/")):
+            return value
+    for key in ("media_urls_json", "photo_urls_json", "image_urls_json"):
+        values = facts.get(key) or candidate.get(key)
+        if isinstance(values, (list, tuple)):
+            for value in values:
+                normalized = str(value or "").strip()
+                if normalized.startswith(("https://", "/")):
+                    return normalized
+    return ""
+
+
 def _group_property_provider_options(options: list[dict[str, object]]) -> list[dict[str, object]]:
     family_order = {
         "marketplace": 0,
@@ -225,7 +328,7 @@ def _provider_quality_rows(
             f"best for {best_use_labels.get(family, family.replace('_', ' '))}",
         ]
         if floorplan_filtered_total:
-            detail_parts.append(f"{floorplan_filtered_total} unverified floorplan{'s' if floorplan_filtered_total != 1 else ''}")
+            detail_parts.append(f"{floorplan_filtered_total} layout check{'s' if floorplan_filtered_total != 1 else ''} still unverified")
         rows.append(
             {
                 "title": label,
@@ -1380,6 +1483,8 @@ def app_section_payload(
         for index, candidate_row in enumerate(ranked_candidates, start=1):
             candidate_row["rank"] = index
             candidate_row.setdefault("map_url", _property_candidate_maps_url(candidate_row))
+            candidate_row.setdefault("preview_image_url", _property_candidate_preview_image(candidate_row))
+            candidate_row.setdefault("route_evidence", _property_candidate_route_evidence(candidate_row))
             if not str(candidate_row.get("packet_url") or "").strip():
                 candidate_row["packet_url"] = _packet_url_for_candidate(
                     candidate_row,
@@ -1396,7 +1501,7 @@ def app_section_payload(
                 for part in (
                     f"{int(source.get('listing_total') or 0)} listings",
                     f"{int(source.get('high_fit_total') or 0)} high-fit",
-                    f"{int(source.get('filtered_floorplan_total') or 0)} without floor plan"
+                    f"{int(source.get('filtered_floorplan_total') or 0)} with layout not verified"
                     if int(source.get('filtered_floorplan_total') or 0)
                     else "",
                     f"{int(source.get('tour_created_total') or 0)} hosted tours",
@@ -3747,7 +3852,7 @@ def property_workspace_payload(
         if pending_missing:
             rows.append(
                 {
-                    "title": "Missing facts queued",
+                    "title": "Decision checks queued",
                     "detail": ", ".join(pending_missing[:3]),
                     "tag": "Research",
                 }
@@ -4328,12 +4433,12 @@ def property_workspace_payload(
                 {"label": "Run state", "value": run_status_label, "detail": run_message or "The current live run status."},
                 {"label": "Sources", "value": str(int(run_summary.get("sources_total") or 0)), "detail": "Provider lanes in the current sweep."},
                 {"label": "Listings", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Listings recovered so far."},
-                {"label": "Research gaps", "value": str(open_research_task_total), "detail": "Missing facts still under review."},
+                {"label": "Needs verification", "value": str(open_research_task_total), "detail": "Decision-relevant answers still being checked."},
             ] if run_in_progress else (hero_highlights["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
                 {"label": "Results", "value": str(len(results_table_rows)), "detail": "Final ranked candidates in this run."},
                 {"label": "Packets", "value": str(packet_ready_total), "detail": "Internal review packets ready now."},
                 {"label": "360 ready", "value": str(tour_ready_total), "detail": "Hosted tours available right now."},
-                {"label": "Research gaps", "value": str(open_research_task_total), "detail": "Facts still worth completing."},
+                {"label": "Needs verification", "value": str(open_research_task_total), "detail": "Decision-relevant answers still worth checking."},
             ]),
             "primary_cards": [] if (run_status_value in {"processed", "completed"} and results_table_rows) or run_in_progress else [search_posture_card, market_coverage_card],
             "secondary_cards": [] if run_status_value in {"processed", "completed"} and results_table_rows else ([run_card] if run_in_progress else [run_card, recent_matches_card]),
@@ -4372,7 +4477,7 @@ def property_workspace_payload(
             "summary": "Turn high-fit candidates into property dossiers with evidence, packets, and hosted follow-ups.",
             "hero_kicker": "Research packets",
             "hero_title": "Inspect the evidence before you open the raw listing.",
-            "hero_summary": "This lane should feel like a property dossier desk: fit reasons, missing facts, packet links, and hosted tours where they exist.",
+            "hero_summary": "This lane should feel like a property dossier desk: fit reasons, decision checks, packet links, and hosted tours where they exist.",
             "hero_actions": hero_actions["research"],
             "hero_highlights": hero_highlights["research"],
             "primary_cards": [

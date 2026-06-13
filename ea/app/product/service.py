@@ -27520,6 +27520,7 @@ class ProductService:
             provider_repair_task_opened_for_source = 0
             provider_repair_task_existing_for_source = 0
             provider_repair_tasks_for_source: list[dict[str, object]] = []
+            floorplan_unverified_candidates_for_source: list[dict[str, object]] = []
             filter_near_misses_for_source: list[dict[str, object]] = []
             provider_cache_state: dict[str, object] = {"status": "not_started", "cache_key": provider_cache_key}
 
@@ -27861,6 +27862,17 @@ class ProductService:
                         if isinstance(preview_facts.get("floorplan_recovery_diagnostics"), dict)
                         else {}
                     )
+                    if len(floorplan_unverified_candidates_for_source) < 25:
+                        floorplan_unverified_candidates_for_source.append(
+                            {
+                                "property_url": property_url,
+                                "title": preview_title,
+                                "summary": preview_summary,
+                                "source_label": source_label,
+                                "candidate_stage": "provider_preview",
+                                "floorplan_recovery_diagnostics": recovery_diagnostics,
+                            }
+                        )
                     repair_task = self._open_property_provider_repair_task(
                         principal_id=principal_id,
                         property_url=property_url,
@@ -28330,6 +28342,17 @@ class ProductService:
                         if isinstance(detailed_facts.get("floorplan_recovery_diagnostics"), dict)
                         else {}
                     )
+                    if len(floorplan_unverified_candidates_for_source) < 25:
+                        floorplan_unverified_candidates_for_source.append(
+                            {
+                                "property_url": property_url,
+                                "title": detailed_title,
+                                "summary": detailed_summary,
+                                "source_label": source_label,
+                                "candidate_stage": "shortlist_detail",
+                                "floorplan_recovery_diagnostics": recovery_diagnostics,
+                            }
+                        )
                     repair_task = self._open_property_provider_repair_task(
                         principal_id=principal_id,
                         property_url=property_url,
@@ -28937,6 +28960,7 @@ class ProductService:
                     "provider_repair_task_opened_total": provider_repair_task_opened_for_source,
                     "provider_repair_task_existing_total": provider_repair_task_existing_for_source,
                     "provider_repair_tasks": provider_repair_tasks_for_source[:10],
+                    "floorplan_unverified_candidates": floorplan_unverified_candidates_for_source[:25],
                     "high_match_min_score": min_match_score,
                     "max_match_score": match_score_cap,
                     "min_area_m2": request_preferences.get("min_area_m2") or 0,
