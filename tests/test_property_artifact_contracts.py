@@ -7,7 +7,7 @@ from app.services.property_media_factory import MediaRequirement, route_property
 def test_property_artifact_provider_matrix_covers_owned_delivery_lanes() -> None:
     lanes = {lane.provider_key: lane for lane in property_artifact_provider_lanes()}
 
-    for required in ("matterport", "3dvista", "magicfit", "onemin", "jogg", "poppy_ai", "dadan", "neuronwriter", "rafter"):
+    for required in ("matterport", "3dvista", "magicfit", "onemin", "jogg", "poppy_ai", "dadan", "neuronwriter", "pixefy", "rafter"):
         assert required in lanes
     assert "cube" not in " ".join(lane.allowed_use.lower() for lane in lanes.values())
     assert "cube fallback" in lanes["matterport"].forbidden_use.lower()
@@ -15,6 +15,8 @@ def test_property_artifact_provider_matrix_covers_owned_delivery_lanes() -> None
     assert lanes["magicfit"].role == "Video"
     assert "continuous-shot" in lanes["magicfit"].fail_closed_rule.lower()
     assert "public-safe" in lanes["neuronwriter"].privacy_posture
+    assert lanes["pixefy"].role == "Visual QA"
+    assert "overflow gates" in lanes["pixefy"].forbidden_use
 
 
 def test_required_artifact_receipts_forbid_cube_and_bare_links() -> None:

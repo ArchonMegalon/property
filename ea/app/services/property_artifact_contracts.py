@@ -120,6 +120,17 @@ def property_artifact_provider_lanes() -> tuple[PropertyArtifactProviderLane, ..
             fail_closed_rule="If required, missing config must block with an explicit receipt.",
         ),
         PropertyArtifactProviderLane(
+            provider_key="pixefy",
+            title="Pixefy",
+            role="Visual QA",
+            allowed_use="Responsive screenshot review and visual-regression evidence for customer surfaces.",
+            forbidden_use="Not product truth, not a renderer, and not a substitute for browser overflow gates.",
+            privacy_posture="public-safe screenshots only unless operator-private mode is explicit",
+            configured=_configured("PIXEFY_API_KEY", "PIXEFY_LOGIN_EMAIL"),
+            live_tested_env="PROPERTYQUARRY_PIXEFY_LIVE_SMOKE=1",
+            fail_closed_rule="Screenshot findings must create local design-gate failures or repair tasks before release.",
+        ),
+        PropertyArtifactProviderLane(
             provider_key="rafter",
             title="Rafter",
             role="Ops/LTD",

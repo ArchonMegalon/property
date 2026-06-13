@@ -33,6 +33,8 @@ def test_env_example_lists_flagship_property_provider_switches() -> None:
         "PROPERTYQUARRY_ONEMIN_LIVE_SMOKE=0",
         "JOGG_API_KEY=",
         "PROPERTYQUARRY_JOGG_LIVE_SMOKE=0",
+        "PIXEFY_API_KEY=",
+        "PROPERTYQUARRY_PIXEFY_LIVE_SMOKE=0",
         "RAFTER_API_KEY=",
         "PROPERTYQUARRY_RAFTER_LIVE_SMOKE=0",
     ):

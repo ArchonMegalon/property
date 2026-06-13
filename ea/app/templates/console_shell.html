@@ -1449,7 +1449,7 @@
       grid.innerHTML = [...grouped.entries()]
         .sort((a, b) => familyOrder.indexOf(a[0]) - familyOrder.indexOf(b[0]))
         .map(([family, items]) => {
-          const [title, detail] = familyHeadings[family] || [String(family).replaceAll('_', ' '), 'Grouped provider lane.'];
+          const [title, detail] = familyHeadings[family] || [String(family).replaceAll('_', ' '), 'Grouped source set.'];
           return `<details class="console-advanced-panel" data-provider-group-panel style="margin-top:12px;"><summary><strong>${title}</strong><div class="console-note">${detail}</div></summary><div class="console-choice-tools" style="margin:8px 0 10px;"><button class="console-choice-action" type="button" data-checkbox-group-select-scope="group">Select group</button><button class="console-choice-action" type="button" data-checkbox-group-clear-scope="group">Clear group</button></div><div class="console-choice-grid">${items.map(renderOption).join('')}</div></details>`;
         })
         .join('');

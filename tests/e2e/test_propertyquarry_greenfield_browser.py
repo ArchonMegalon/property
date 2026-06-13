@@ -786,6 +786,36 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
         response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
         assert response is not None and response.ok
         page.locator(".pqx-setup").wait_for(state="visible")
+        page.evaluate(
+            """
+            () => {
+              const list = document.querySelector('[data-pqx-previous-searches]');
+              if (!list || list.querySelector('[data-pqx-previous-search-card]')) return;
+              const card = document.createElement('article');
+              card.className = 'pqx-previous-search';
+              card.setAttribute('data-pqx-previous-search-card', '');
+              const longTitle = 'Review apartment alert: Ruhige und moderne 2-Zimmer Wohnung - sehr gepflegt - optimale Raumaufteilung / Top Innenhoflage mit extra langem Titel fuer Layout Gate';
+              card.innerHTML = `
+                <div class="pqx-previous-search-head">
+                  <div>
+                    <strong class="pqx-previous-title">${longTitle}</strong>
+                    <span class="pqx-note">Buy · 1020 Vienna with a deliberately long scope label</span>
+                  </div>
+                  <span class="pqx-pill good">Finished</span>
+                </div>
+                <div class="pqx-previous-candidates">
+                  <div class="pqx-previous-candidate">
+                    <div>
+                      <strong class="pqx-previous-candidate-title">${longTitle}</strong>
+                      <small>DER STANDARD Immobilien · fit 64</small>
+                    </div>
+                    <div class="pqx-actions"><a class="pqx-link-button subtle" href="#">Review</a></div>
+                  </div>
+                </div>`;
+              list.prepend(card);
+            }
+            """
+        )
 
         layout = page.evaluate(
             """
@@ -794,11 +824,22 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
               const intro = document.querySelector('.pqx-setup-intro');
               const command = document.querySelector('.pqx-command');
               const rows = Array.from(document.querySelectorAll('.pqx-setup-intro .pqx-dashboard-row'));
+              const previousCards = Array.from(document.querySelectorAll('[data-pqx-previous-search-card]'));
               const overflowRows = rows.filter((node) => node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1);
               const strongOverflow = rows
                 .map((node) => node.querySelector('strong'))
                 .filter(Boolean)
                 .filter((node) => node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1);
+              const previousCardHorizontalOverflow = previousCards.filter((node) => node.scrollWidth > node.clientWidth + 1);
+              const previousTitleVisibleOverflow = previousCards
+                .flatMap((card) => {
+                  const cardBox = card.getBoundingClientRect();
+                  return Array.from(card.querySelectorAll('.pqx-previous-title, .pqx-previous-candidate-title')).map((node) => ({
+                    cardBox,
+                    nodeBox: node.getBoundingClientRect(),
+                  }));
+                })
+                .filter(({ cardBox, nodeBox }) => nodeBox.left < cardBox.left - 1 || nodeBox.right > cardBox.right + 1);
               const stageBox = stage?.getBoundingClientRect();
               const introBox = intro?.getBoundingClientRect();
               const commandBox = command?.getBoundingClientRect();
@@ -808,6 +849,9 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
                 commandWidth: commandBox?.width || 0,
                 overflowRowCount: overflowRows.length,
                 strongOverflowCount: strongOverflow.length,
+                previousCardCount: previousCards.length,
+                previousCardHorizontalOverflowCount: previousCardHorizontalOverflow.length,
+                previousTitleVisibleOverflowCount: previousTitleVisibleOverflow.length,
                 visibleRowLabels: rows.map((node) => (node.querySelector('span')?.textContent || '').trim()),
                 visibleRowValues: rows.map((node) => (node.querySelector('strong')?.textContent || '').trim()),
               };
@@ -820,6 +864,9 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
         assert layout["commandWidth"] / layout["stageWidth"] >= 0.58
         assert layout["overflowRowCount"] == 0
         assert layout["strongOverflowCount"] == 0
+        assert layout["previousCardCount"] >= 1
+        assert layout["previousCardHorizontalOverflowCount"] == 0
+        assert layout["previousTitleVisibleOverflowCount"] == 0
         assert {"Saved searches", "Next action"}.issubset(set(layout["visibleRowLabels"]))
         assert len([value for value in layout["visibleRowValues"] if value]) >= 2
         _assert_property_shell_visual_gates(page, max_appbar_height=92)

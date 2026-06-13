@@ -599,10 +599,10 @@ def _property_search_broaden_suggestions(
     if bool(request_preferences.get("require_floorplan")) and floorplan_total > 0:
         suggestions.append(
             {
-                "title": "Allow listings while recovering floorplans",
-                "detail": "Treat floorplans as a follow-up task instead of a hard gate for the next sweep.",
+                "title": "Run one discovery pass without layout proof",
+                "detail": "Keep these homes visible while layout proof is recovered in the background.",
                 "tag": "Evidence",
-                "action_label": "Allow missing floorplans",
+                "action_label": "Run discovery pass",
                 "adjustments": {"require_floorplan": False},
             }
         )
@@ -611,10 +611,10 @@ def _property_search_broaden_suggestions(
     if failed_sources:
         suggestions.append(
             {
-                "title": "Repair blocked provider lanes",
-                "detail": f"{len(failed_sources)} provider lane(s) failed during this run. Keep the search, but schedule provider repair before judging the market as empty.",
+                "title": "Some sources need another pass",
+                "detail": f"{len(failed_sources)} source{' needs' if len(failed_sources) == 1 else 's need'} a retry before this market read is complete.",
                 "tag": "Providers",
-                "action_label": "Review providers",
+                "action_label": "Retry sources",
                 "adjustments": {},
             }
         )
@@ -21021,7 +21021,7 @@ class ProductService:
                     failover_ready_lanes += 1
         if failed_keys or (provider_rows and not ready_keys and not degraded_keys):
             risk_state = "critical"
-            risk_detail = "At least one provider lane is failed or no ready provider remains bound for this workspace."
+            risk_detail = "At least one source failed or no ready provider remains bound for this workspace."
         elif degraded_keys or degraded_primary_lanes:
             risk_state = "watch"
             risk_detail = "At least one provider or primary routing lane is degraded and needs operator attention."
@@ -27999,7 +27999,7 @@ class ProductService:
                     filtered_floorplan_for_source += 1
                     _report(
                         step="source_floorplan_filter",
-                        message=f"Skipped candidate {ordinal} of {len(listing_urls)} without a floor plan for {source_label}.",
+                        message=f"Candidate {ordinal} of {len(listing_urls)} still needs layout verification for {source_label}.",
                         status="in_progress",
                         steps_delta=0,
                         summary_updates={
@@ -28503,7 +28503,7 @@ class ProductService:
                     filtered_floorplan_for_source += 1
                     _report(
                         step="source_floorplan_filter",
-                        message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} without a floor plan for {source_label}.",
+                        message=f"Shortlist candidate {ordinal} of {analysis_limit} still needs layout verification for {source_label}.",
                         status="in_progress",
                         steps_delta=0,
                         summary_updates={

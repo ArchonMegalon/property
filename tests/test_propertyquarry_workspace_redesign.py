@@ -450,6 +450,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'class="pqx-thumb"' in search.text
     assert "ranked homes" in search.text
     assert "price, layout, location, fit reason, and next action stay visible" in search.text
+    assert 'class="pqx-result-trust"' in search.text
+    assert 'class="pqx-trust-chip">Rank #' in search.text
+    assert 'class="pqx-trust-chip">Fit ' in search.text
+    assert "Layout verified" in search.text
+    assert "Layout needs check" in search.text
+    assert "Tour queued" in search.text
     assert "Altbau near U6" in search.text
     assert "Family flat near Tiergarten" in search.text
     assert "360 ready" in search.text
@@ -458,7 +464,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "about 12 min" in search.text
     assert 'data-tour-status="queued"' in search.text
     assert 'data-tour-eta="about 12 min"' in search.text
-    assert "Floorplan missing" in search.text
+    assert "Pending layout proof" in search.text
     assert "not scheduled yet" not in search.text
     assert "360 not ready" not in search.text
     assert "360" in search.text
@@ -511,7 +517,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Generated asset receipts" not in search.text
     assert "repair check queued" not in search.text
     assert "Repair: ea_one_manager" not in search.text
-    assert "layout check" in search.text or "layout not verified" in search.text
+    assert "Pending layout proof" in search.text
+    assert "Pending layout proof" in search.text
+    assert "They are not invalid" in search.text
+    assert 'data-pqx-layout-eta' in search.text
     assert "Repair provider extraction" not in search.text
     assert "Missing facts" not in search.text
     assert "Facts still being completed from floorplans" not in search.text
@@ -545,10 +554,15 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Search guard" in search.text
     assert "Target area guard" in search.text
     assert "Outside-area results suppressed" in search.text
-    assert "Provider filters needed cleanup" in search.text
-    assert "Floorplan gate" in search.text
+    assert "Source filters are limited" in search.text
+    assert "Provider filters needed cleanup" not in search.text
+    assert "Layout proof rule" in search.text
+    assert "Floorplan gate" not in search.text
     assert "Held back by rules" in search.text
-    assert "Missing floorplan" in search.text
+    assert "Pending layout proof" in search.text
+    assert "These are not invalid" in search.text
+    assert "Layout not verified" not in search.text
+    assert "Missing floorplan" not in search.text
     assert "Below fit threshold" in search.text
     assert "Outside selected area" in search.text
     assert "Alert budget" in search.text
@@ -729,6 +743,32 @@ def test_property_workbench_recent_reviews_do_not_render_fake_links() -> None:
     assert "overflow-wrap: anywhere;" in body
 
 
+def test_property_workbench_previous_search_cards_have_explicit_overflow_gate() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    assert 'data-pqx-previous-search-card' in body
+    assert 'class="pqx-previous-title"' in body
+    assert 'class="pqx-previous-candidate-title"' in body
+    assert ".pqx-previous-title" in body
+    assert "-webkit-line-clamp: 2;" in body
+    assert ".pqx-previous-search {" in body
+    assert "max-width: 100%;" in body
+    assert "overflow: hidden;" in body
+
+
+def test_propertyquarry_pixefy_visual_watch_audits_periodic_screenshots() -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts/propertyquarry_visual_watch.py"
+    body = script.read_text(encoding="utf-8")
+
+    assert "PROPERTYQUARRY_PIXEFY_INTERVAL_SECONDS" in body
+    assert "page.screenshot" in body
+    assert "escaped" in body
+    assert "offscreenMedia" in body
+    assert "duplicateGraphics" in body
+    assert "visual-watch-report.json" in body
+
+
 def test_property_workbench_sparse_candidates_do_not_display_raw_urls() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
     body = template_path.read_text(encoding="utf-8")
@@ -760,6 +800,11 @@ def test_property_search_agents_can_load_saved_filters_into_form() -> None:
     assert "Saved search ready to edit. Tweak the filters or run it again." in body
     assert "data-search-agent-loaded-state" in body
     assert "Loaded: ${label}" in body
+    assert "data-search-agent-dirty-label" in body
+    assert "Unsaved changes. Run now, save changes, or save as a new search." in body
+    assert "data-search-agent-save-current" in body
+    assert "data-search-agent-save-new" in body
+    assert "Save as new" in body
 
 
 def test_property_dashboard_renders_previous_searches_with_compact_finished_results(monkeypatch) -> None:

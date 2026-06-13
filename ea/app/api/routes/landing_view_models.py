@@ -340,7 +340,7 @@ def _provider_quality_rows(
         rows.append(
             {
                 "title": "Provider quality will appear after the first run",
-                "detail": "Search at least one provider lane before PropertyQuarry can compare shortlist yield, floorplan completeness, and tour readiness.",
+                "detail": "Search at least one source before PropertyQuarry can compare shortlist yield, layout proof, and tour readiness.",
                 "tag": "Waiting",
             }
         )
@@ -409,16 +409,16 @@ def _property_search_guard_rows(
     if weak_filter_sources:
         rows.append(
             {
-                "title": "Provider filters needed cleanup",
-                "detail": f"{', '.join(weak_filter_sources[:3])} could not push every filter upstream, so PropertyQuarry post-filtered the raw results.",
-                "tag": "Provider",
+                "title": "Source filters are limited",
+                "detail": f"{', '.join(weak_filter_sources[:3])} could not apply every filter directly, so PropertyQuarry checked the listings after reading them.",
+                "tag": "Source",
             }
         )
     if no_plan_total:
         rows.append(
             {
-                "title": "Floorplan gate",
-                "detail": f"{no_plan_total} candidate{' is' if no_plan_total == 1 else 's are'} missing a verified floorplan or still need floorplan recovery.",
+                "title": "Layout proof rule",
+                "detail": f"{no_plan_total} candidate{' still needs' if no_plan_total == 1 else 's still need'} verified layout evidence.",
                 "tag": "Evidence",
             }
         )
@@ -432,7 +432,7 @@ def _property_suppression_rows(
 ) -> list[dict[str, str]]:
     counters = {
         "Outside selected area": 0,
-        "Missing floorplan": 0,
+        "Pending layout proof": 0,
         "Below fit threshold": 0,
         "Wrong property type": 0,
         "Outside area/size rule": 0,
@@ -443,7 +443,7 @@ def _property_suppression_rows(
     source_labels: dict[str, set[str]] = {key: set() for key in counters}
     field_map = (
         ("Outside selected area", "location_mismatch_candidate_total"),
-        ("Missing floorplan", "filtered_floorplan_total"),
+        ("Pending layout proof", "filtered_floorplan_total"),
         ("Below fit threshold", "filtered_low_fit_total"),
         ("Wrong property type", "filtered_property_type_total"),
         ("Outside area/size rule", "filtered_area_total"),
@@ -469,7 +469,7 @@ def _property_suppression_rows(
         counters["Alert budget"] = summary_budget
     action_map = {
         "Outside selected area": "Keep suppressed unless you widen the target area.",
-        "Missing floorplan": "Recover floorplans first; relax only if layout proof is not required.",
+        "Pending layout proof": "These are not invalid. PropertyQuarry is still looking for floorplans in photos, PDFs, downloads, and 360 media.",
         "Below fit threshold": "Lower the fit threshold only for a broader discovery run.",
         "Wrong property type": "Change property category if these should be included.",
         "Outside area/size rule": "Relax area limits only after reviewing the near-miss table.",
@@ -487,6 +487,16 @@ def _property_suppression_rows(
                 "title": label,
                 "detail": f"{total} candidate{' was' if total == 1 else 's were'} held back. {action_map[label]}",
                 "tag": providers or "Search rule",
+                "action_label": {
+                    "Outside selected area": "Review area",
+                    "Pending layout proof": "Run layout recovery",
+                    "Below fit threshold": "Show near misses",
+                    "Wrong property type": "Edit category",
+                    "Outside area/size rule": "Relax size",
+                    "Availability mismatch": "Edit timing",
+                    "Duplicate listing": "Keep collapsed",
+                    "Alert budget": "Edit alert budget",
+                }.get(label, "Review rule"),
             }
         )
     return rows[:8]
@@ -693,10 +703,10 @@ def _property_counterfactual_rows(
     if bool(preferences.get("require_floorplan")) and filtered_floorplan_total > 0:
         rows.append(
             {
-                "title": "Remove the floorplan hard gate",
-                "detail": f"{filtered_floorplan_total} listing(s) were rejected because no usable floorplan was attached yet.",
+                "title": "Try a discovery run without requiring layout proof",
+                "detail": f"{filtered_floorplan_total} listing(s) were held back because layout proof was not verified yet. Use this only to inspect the wider market, then restore the requirement.",
                 "tag": "Research",
-                "action_label": "Allow missing floorplans",
+                "action_label": "Run discovery pass",
                 "adjustments": {"require_floorplan": False},
             }
         )
@@ -1501,7 +1511,7 @@ def app_section_payload(
                 for part in (
                     f"{int(source.get('listing_total') or 0)} listings",
                     f"{int(source.get('high_fit_total') or 0)} high-fit",
-                    f"{int(source.get('filtered_floorplan_total') or 0)} with layout not verified"
+                    f"{int(source.get('filtered_floorplan_total') or 0)} pending layout proof"
                     if int(source.get('filtered_floorplan_total') or 0)
                     else "",
                     f"{int(source.get('tour_created_total') or 0)} hosted tours",
@@ -3609,9 +3619,9 @@ def property_workspace_payload(
         blocked_reason = str(candidate.get("blocked_reason") or "").strip()
         if blocked_reason:
             reason_map = {
-                "listing_360_media_missing": "Floorplan or source 360 media missing: the listing does not expose usable tour material yet.",
-                "pure_360_assets_unavailable": "Source 360 assets are not accessible enough to rebuild a hosted PropertyQuarry tour.",
-                "property_tour_fallback_disabled": "Generated fallback tours are disabled until source floorplan or 360 material is available.",
+                "listing_360_media_missing": "Tour not ready yet: the listing does not expose usable layout or 360 material.",
+                "pure_360_assets_unavailable": "Tour not ready yet: the source media cannot be opened reliably.",
+                "property_tour_fallback_disabled": "Tour not ready yet: PropertyQuarry needs source layout or 360 material first.",
             }
             return reason_map.get(blocked_reason, blocked_reason.replace("_", " "))
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
@@ -3631,10 +3641,10 @@ def property_workspace_payload(
             return False
 
         if _false_flag(facts.get("has_floorplan")) or _zero_count("floorplan_count", "floorplans_count"):
-            return "Floorplan missing: this listing exposes no floorplan or source 360 media, so PropertyQuarry cannot generate a hosted tour yet."
+            return "Tour not ready yet: layout proof or source 360 media is not verified."
         if _false_flag(facts.get("has_360")) or _zero_count("media_count", "image_count"):
-            return "Tour source media missing: the source did not expose a 360, floorplan, or usable room media."
-        return "Floorplan or source 360 media missing, so PropertyQuarry cannot generate a hosted tour yet."
+            return "Tour not ready yet: source room media is not verified."
+        return "Tour not ready yet: source layout or 360 media is not verified."
 
     def _candidate_fact_line(candidate: dict[str, object]) -> str:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
@@ -4052,6 +4062,13 @@ def property_workspace_payload(
             f"{facts.get('area_m2') or facts.get('area_sqm')} m2" if (facts.get("area_m2") or facts.get("area_sqm")) else "",
             str(facts.get("postal_name") or "").strip(),
         ]
+        layout_verified = bool(
+            facts.get("has_floorplan")
+            or facts.get("floorplan_count")
+            or facts.get("floorplans_count")
+            or facts.get("floorplan_urls_json")
+            or facts.get("floorplan_urls")
+        )
         packet_url = str(candidate.get("packet_url") or candidate.get("review_url") or "").strip()
         packet_label = "Review packet" if packet_url else "Pending"
         map_url = str(candidate.get("map_url") or "").strip() or _property_candidate_maps_url(candidate)
@@ -4088,6 +4105,7 @@ def property_workspace_payload(
                 "price_display": price_line,
                 "price_per_sqm_display": investment_payload["price_per_sqm"],
                 "layout_display": " | ".join(part for part in layout_parts if part) or "n/a",
+                "layout_verification_label": "verified" if layout_verified else "needs check",
                 "fit_label": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(),
                 "fit_summary": str(candidate.get("fit_summary") or "").strip(),
                 "provider_quality": provider_quality,
@@ -4334,7 +4352,7 @@ def property_workspace_payload(
         ),
         row_item(
             "Coverage",
-            f"{commercial.get('max_platforms') or 'Multi'} provider lane | up to {commercial.get('max_results_per_source') or 2} results per provider",
+            f"{commercial.get('max_platforms') or 'Multi'} sources | up to {commercial.get('max_results_per_source') or 2} results per source",
             "Limits",
         ),
         row_item(
