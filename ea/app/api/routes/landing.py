@@ -569,6 +569,12 @@ def _property_console_context(
         summary["sources"] = sources
         run_payload["summary"] = summary
 
+    recent_search_runs: list[dict[str, object]] = []
+    try:
+        recent_search_runs = product.list_property_search_runs(principal_id=principal_id, limit=8)
+    except Exception:
+        recent_search_runs = []
+
     recent_matches: list[dict[str, object]] = []
     learning_summary: dict[str, object] = {}
     preference_bundle: dict[str, object] = {}
@@ -656,6 +662,7 @@ def _property_console_context(
         "preferences": preferences,
         "selected_platforms": list(selected_platforms),
         "run": run_payload,
+        "recent_search_runs": recent_search_runs,
         "recent_matches": recent_matches,
         "learning_summary": learning_summary,
         "preference_bundle": preference_bundle,

@@ -3484,6 +3484,78 @@ def property_workspace_payload(
     dismissed_research_task_total = int(run_payload.get("dismissed_research_task_total") or run_summary.get("dismissed_research_task_total") or sum(1 for task in research_tasks if str(task.get("status") or "") == "dismissed"))
     research_task_total = int(run_payload.get("research_task_total") or run_summary.get("research_task_total") or len(research_tasks))
 
+    def _previous_run_int(value: object, default: int = 0) -> int:
+        try:
+            return max(0, int(float(str(value or "").strip())))
+        except Exception:
+            return default
+
+    def _format_previous_search_run(raw_run: dict[str, object]) -> dict[str, object]:
+        summary = dict(raw_run.get("summary") or {}) if isinstance(raw_run.get("summary"), dict) else {}
+        preferences_json = dict(raw_run.get("property_search_preferences") or raw_run.get("preferences") or {}) if isinstance(raw_run.get("property_search_preferences") or raw_run.get("preferences"), dict) else {}
+        run_status = str(raw_run.get("status") or summary.get("status") or "queued").strip().lower()
+        run_id_value = str(raw_run.get("run_id") or "").strip()
+        country = str(preferences_json.get("country_code") or summary.get("country_code") or "").strip().upper()
+        region = str(preferences_json.get("region_code") or summary.get("region_code") or "").strip()
+        location = str(preferences_json.get("location_query") or summary.get("location_query") or "").strip()
+        mode = str(preferences_json.get("listing_mode") or summary.get("listing_mode") or "").strip().title()
+        scope_parts = [part for part in (country, region, location) if part]
+        ranked_candidates = [
+            dict(row)
+            for row in list(summary.get("ranked_candidates") or [])
+            if isinstance(row, dict)
+        ]
+        top_candidates: list[dict[str, object]] = []
+        for candidate in ranked_candidates[:3]:
+            title = str(candidate.get("title") or "Property").strip() or "Property"
+            source_label = str(candidate.get("source_label") or candidate.get("source_platform") or "Source").strip() or "Source"
+            top_candidates.append(
+                {
+                    "title": title,
+                    "source_label": source_label,
+                    "fit_score": _previous_run_int(candidate.get("fit_score")),
+                    "detail": str(
+                        candidate.get("compare_reason")
+                        or candidate.get("fit_summary")
+                        or (list(candidate.get("match_reasons") or [""])[0] if isinstance(candidate.get("match_reasons"), list) else "")
+                        or "Open the finished search to review this candidate."
+                    ).strip(),
+                    "review_url": str(candidate.get("packet_url") or candidate.get("review_url") or "").strip(),
+                    "map_url": str(candidate.get("map_url") or _property_candidate_maps_url(candidate)).strip(),
+                }
+            )
+        held_back_total = max(
+            0,
+            _previous_run_int(summary.get("filtered_floorplan_total"))
+            + _previous_run_int(summary.get("filtered_area_total"))
+            + _previous_run_int(summary.get("filtered_low_fit_total"))
+            + _previous_run_int(summary.get("notification_budget_suppressed_total")),
+        )
+        return {
+            "run_id": run_id_value,
+            "status": run_status,
+            "status_label": run_status.replace("_", " ").title() if run_status else "Queued",
+            "title": location or region or country or "Saved search",
+            "scope_label": " · ".join(scope_parts) or "No scope saved",
+            "mode_label": mode or "Search",
+            "href": f"/app/properties?run_id={urllib.parse.quote(run_id_value, safe='')}" if run_id_value else "/app/properties",
+            "updated_at": str(raw_run.get("updated_at") or raw_run.get("generated_at") or "").strip(),
+            "source_total": _previous_run_int(summary.get("sources_total")),
+            "listing_total": _previous_run_int(summary.get("listing_total") or summary.get("raw_listing_total")),
+            "ranked_total": len(ranked_candidates),
+            "sent_total": _previous_run_int(summary.get("notified_total") or summary.get("watch_notified_total")),
+            "held_back_total": held_back_total,
+            "top_fit_score": _previous_run_int(summary.get("top_fit_score") or (top_candidates[0].get("fit_score") if top_candidates else 0)),
+            "top_candidates": top_candidates,
+            "is_finished": run_status in {"processed", "completed", "failed", "noop", "cancelled"},
+        }
+
+    previous_search_runs = [
+        _format_previous_search_run(dict(row))
+        for row in list(property_state.get("recent_search_runs") or [])
+        if isinstance(row, dict) and str(row.get("run_id") or "").strip()
+    ]
+
     def _preference_value_label(value: object) -> str:
         if isinstance(value, list):
             return ", ".join(str(item).strip() for item in value if str(item).strip()) or "empty list"
@@ -4719,6 +4791,7 @@ def property_workspace_payload(
             for item in list(recent_matches_card.get("items") or [])[:5]
             if isinstance(item, dict)
         ],
+        "previous_search_runs": previous_search_runs,
         "results": workbench_results,
         "search_guard_rows": search_guard_rows,
         "suppression_rows": suppression_rows,

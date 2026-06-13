@@ -754,24 +754,76 @@ def test_property_search_agents_can_load_saved_filters_into_form() -> None:
 
     assert "data-search-agent-payload" in body
     assert 'data-search-agent-action="load"' in body
-    assert "Load filters" in body
+    assert ">Edit</button>" in body
+    assert "Load filters" not in body
     assert "applySearchAgentPayloadToForm" in body
-    assert "Saved search loaded. Tweak the filters or run it again." in body
+    assert "Saved search ready to edit. Tweak the filters or run it again." in body
     assert "data-search-agent-loaded-state" in body
     assert "Loaded: ${label}" in body
+
+
+def test_property_dashboard_renders_previous_searches_with_compact_finished_results(monkeypatch) -> None:
+    principal_id = "pq-previous-searches"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Previous Search Office")
+
+    def _fake_runs(self, *, principal_id: str, limit: int = 8):
+        return [
+            {
+                "run_id": "run-finished",
+                "principal_id": principal_id,
+                "status": "completed",
+                "updated_at": "2026-06-13T08:00:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "region_code": "vienna",
+                    "location_query": "1020 Vienna",
+                    "listing_mode": "rent",
+                },
+                "summary": {
+                    "sources_total": 12,
+                    "listing_total": 21,
+                    "notified_total": 2,
+                    "top_fit_score": 68,
+                    "filtered_floorplan_total": 4,
+                    "ranked_candidates": [
+                        {
+                            "title": "Ruhige 2-Zimmer Wohnung mit Balkon",
+                            "source_label": "Willhaben",
+                            "fit_score": 68,
+                            "compare_reason": "Strong district and layout fit.",
+                            "packet_url": "/app/research/candidate-1?run_id=run-finished",
+                        }
+                    ],
+                },
+            }
+        ]
+
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_runs)
+    page = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+
+    assert page.status_code == 200
+    assert "Previous searches." in page.text
+    assert "1020 Vienna" in page.text
+    assert "Ruhige 2-Zimmer Wohnung mit Balkon" in page.text
+    assert "Open results" in page.text
+    assert "4 held back by rules" in page.text
+    assert "Load filters" not in page.text
 
 
 def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
     body = template_path.read_text(encoding="utf-8")
 
-    assert "Your property search desk." in body
+    assert "Previous searches." in body
+    assert "data-pqx-previous-searches" in body
+    assert "Open results" in body
+    assert "top_candidates" in body
     assert "data-pqx-dashboard-summary" in body
     assert "Saved searches" in body
-    assert "Latest run" in body
     assert "Next action" in body
     assert "Recent decisions and reviews" in body
-    assert "grid-template-columns: minmax(220px, 320px) minmax(640px, 1fr);" in body
+    assert "grid-template-columns: minmax(480px, 1fr) minmax(380px, 0.78fr);" in body
     assert "Tell us what to find." not in body
 
 

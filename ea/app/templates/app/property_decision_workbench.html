@@ -8,6 +8,7 @@
 {% set run_status = (run.get('status') or 'not_started')|string %}
 {% set run_summary = run.get('summary') or {} %}
 {% set run_sources = run_summary.get('sources') or [] %}
+{% set previous_search_runs = workbench.get('previous_search_runs') or [] %}
 {% set terminal_states = ['processed', 'completed', 'failed', 'noop', 'cancelled'] %}
 {% set run_active = run.get('run_id') and run_status not in terminal_states %}
 {% set run_terminal_no_results = run.get('run_id') and run_status in terminal_states and not results %}
@@ -481,7 +482,7 @@
     .pqx-setup {
       min-height: calc(100vh - 172px);
       display: grid;
-      grid-template-columns: minmax(220px, 320px) minmax(640px, 1fr);
+      grid-template-columns: minmax(480px, 1fr) minmax(380px, 0.78fr);
       gap: clamp(14px, 2vw, 26px);
       align-items: start;
     }
@@ -536,6 +537,78 @@
     .pqx-dashboard-row span {
       min-width: 0;
       overflow-wrap: anywhere;
+    }
+    .pqx-previous-search-list {
+      display: grid;
+      gap: 10px;
+    }
+    .pqx-previous-search {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid rgba(255, 249, 237, 0.16);
+      border-radius: 8px;
+      background: rgba(255, 249, 237, 0.07);
+      min-width: 0;
+    }
+    .pqx-previous-search-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: flex-start;
+      min-width: 0;
+    }
+    .pqx-previous-search-head strong,
+    .pqx-previous-search-head span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .pqx-previous-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .pqx-previous-metrics span {
+      display: grid;
+      gap: 1px;
+      padding: 7px 8px;
+      border: 1px solid rgba(255, 249, 237, 0.14);
+      border-radius: 7px;
+      background: rgba(255, 249, 237, 0.05);
+      color: #d7cdbb;
+      font-size: 10px;
+      text-transform: uppercase;
+      line-height: 1.12;
+    }
+    .pqx-previous-metrics b {
+      color: #fff9ed;
+      font-size: 14px;
+      text-transform: none;
+    }
+    .pqx-previous-candidates {
+      display: grid;
+      gap: 6px;
+    }
+    .pqx-previous-candidate {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px;
+      border-radius: 7px;
+      background: rgba(0, 0, 0, 0.12);
+    }
+    .pqx-previous-candidate strong,
+    .pqx-previous-candidate small {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pqx-previous-candidate small {
+      color: #d7cdbb;
+      font-size: 11px;
     }
     .pqx-loaded-agent {
       display: none;
@@ -1975,7 +2048,7 @@
       <div class="pqx-mobile-switch" aria-label="PropertyQuarry workspace mode" data-property-mobile-dock>
         <button class="pqx-mode-button active" type="button" data-pw-mode="results" data-workbench-mobile-mode="results">Results</button>
         <button class="pqx-mode-button" type="button" data-pw-mode="property" data-workbench-mobile-mode="property">Property</button>
-        {% if setup_mode %}<button class="pqx-mode-button" type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">Search</button>{% endif %}
+        {% if setup_mode %}<button class="pqx-mode-button" type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">Edit</button>{% endif %}
       </div>
 
       {% if setup_mode %}
@@ -1986,16 +2059,10 @@
           {% set selected_dashboard_agent = property_meta.get('search_agent') or (dashboard_agents[0] if dashboard_agents else {}) %}
           <div class="pqx-title">
             <span>Dashboard</span>
-            <h1>Your property search desk.</h1>
+            <h1>Previous searches.</h1>
           </div>
           <div class="pqx-brief-stack">
-            <div class="pqx-fact-grid">
-              <div class="pqx-fact"><span>Country</span><strong>{{ brief.get('country') or 'Austria' }}</strong></div>
-              <div class="pqx-fact"><span>Mode</span><strong>{{ brief.get('mode') or 'Buy' }}</strong></div>
-              <div class="pqx-fact"><span>Providers</span><strong>{{ (brief.get('providers') or [])|length }}</strong></div>
-              <div class="pqx-fact"><span>Research</span><strong>{{ brief.get('research_depth') or 'deep' }}</strong></div>
-            </div>
-            <p class="pqx-note">Start from the current brief, active saved searches, and recent reviews. The filter form stays beside this dashboard so it can be adjusted without losing context.</p>
+            <p class="pqx-note">Start from searches you already ran. Open a finished search for its compact ranked results, or edit a saved search beside this dashboard.</p>
           </div>
           <div class="pqx-dashboard-stack" data-pqx-dashboard-summary>
             <div class="pqx-dashboard-row">
@@ -2004,15 +2071,55 @@
               <span class="pqx-note">{% if selected_dashboard_agent %}Selected: {{ selected_dashboard_agent.get('name') or 'Saved search' }}{% else %}Create a saved search from the form when this brief should keep running.{% endif %}</span>
             </div>
             <div class="pqx-dashboard-row">
-              <span class="pqx-small">Latest run</span>
-              <strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong>
-              <span class="pqx-note">{{ run.get('message') or 'No active run. Launch the next sweep when the brief is ready.' }}</span>
-            </div>
-            <div class="pqx-dashboard-row">
               <span class="pqx-small">Next action</span>
-              <strong>{% if dashboard_agents %}Load, tweak, or run a saved search{% else %}Launch the first search{% endif %}</strong>
-              <span class="pqx-note">Only the best-ranked matches should be messaged when the alert budget is limited.</span>
+              <strong>{% if dashboard_agents %}Edit or run a saved search{% else %}Create your first saved search{% endif %}</strong>
+              <span class="pqx-note">Message limits are handled by ranking first and sending only the strongest homes.</span>
             </div>
+          </div>
+          <div class="pqx-previous-search-list" data-pqx-previous-searches>
+            {% for previous in previous_search_runs[:6] %}
+            <article class="pqx-previous-search">
+              <div class="pqx-previous-search-head">
+                <div>
+                  <strong>{{ previous.get('title') or 'Search' }}</strong>
+                  <span class="pqx-note">{{ previous.get('mode_label') }} · {{ previous.get('scope_label') }}</span>
+                </div>
+                <span class="pqx-pill{% if previous.get('is_finished') %} good{% else %} warn{% endif %}">{{ previous.get('status_label') }}</span>
+              </div>
+              <div class="pqx-previous-metrics">
+                <span>Homes <b>{{ previous.get('listing_total') }}</b></span>
+                <span>Ranked <b>{{ previous.get('ranked_total') }}</b></span>
+                <span>Best fit <b>{{ previous.get('top_fit_score') }}</b></span>
+                <span>Sent <b>{{ previous.get('sent_total') }}</b></span>
+              </div>
+              {% if previous.get('top_candidates') %}
+              <div class="pqx-previous-candidates">
+                {% for candidate in previous.get('top_candidates') %}
+                <div class="pqx-previous-candidate">
+                  <div>
+                    <strong>{{ candidate.get('title') }}</strong>
+                    <small>{{ candidate.get('source_label') }} · fit {{ candidate.get('fit_score') }}</small>
+                  </div>
+                  <div class="pqx-actions">
+                    {% if candidate.get('review_url') %}<a class="pqx-link-button subtle" href="{{ candidate.get('review_url') }}">Review</a>{% endif %}
+                    {% if candidate.get('map_url') %}<a class="pqx-link-button subtle" href="{{ candidate.get('map_url') }}">Map</a>{% endif %}
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+              {% endif %}
+              <div class="pqx-actions">
+                <a class="pqx-link-button primary" href="{{ previous.get('href') }}">Open results</a>
+                {% if previous.get('held_back_total') %}<span class="pqx-note">{{ previous.get('held_back_total') }} held back by rules</span>{% endif %}
+              </div>
+            </article>
+            {% else %}
+            <div class="pqx-dashboard-row">
+              <span class="pqx-small">No previous searches yet</span>
+              <strong>Run a search once, then it will appear here.</strong>
+              <span class="pqx-note">The dashboard will keep finished searches, compact results, and saved search agents together.</span>
+            </div>
+            {% endfor %}
           </div>
           {% if recent_packets %}
           <div class="pqx-brief-stack">
@@ -2031,7 +2138,7 @@
         <section class="pqx-command active" data-pqx-mobile-panel="brief" data-workbench-brief-drawer>
           <div class="pqx-section-head">
             <div>
-              <h2>{{ console_form.get('title') or 'Run a premium market sweep' }}</h2>
+              <h2>Edit search</h2>
               <div class="pqx-note" data-property-step-summary>Choose the market, areas, budget, must-haves, and how many updates you want.</div>
             </div>
             <span class="pqx-pill" data-property-step-progress>Step 1</span>
@@ -2223,7 +2330,7 @@
                   <small>{{ agent.get('notification_label') }} · {{ agent.get('delivery_label') }} · {{ agent.get('run_label') }}</small>
                 </div>
                 <div class="pqx-actions">
-                  <button class="pqx-button" type="button" data-search-agent-action="load">Load filters</button>
+                  <button class="pqx-button" type="button" data-search-agent-action="load">Edit</button>
                   {% if agent.get('enabled') %}
                   <button class="pqx-button subtle" type="button" data-search-agent-action="pause">Pause</button>
                   {% else %}
@@ -5051,7 +5158,7 @@
         try {
           if (status) {
             status.textContent = action === 'load'
-              ? 'Loading saved search into filters...'
+              ? 'Opening saved search for editing...'
               : action === 'run'
               ? 'Selecting and starting this saved search...'
               : action === 'delete'
@@ -5064,7 +5171,7 @@
             applySearchAgentPayloadToForm(payload);
             showLoadedSearchAgent(row);
             await updateSearchAgent(agentId, 'load', {});
-            if (status) status.textContent = 'Saved search loaded. Tweak the filters or run it again.';
+            if (status) status.textContent = 'Saved search ready to edit. Tweak the filters or run it again.';
             return;
           }
           if (action === 'run') {
