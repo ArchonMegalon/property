@@ -16509,6 +16509,99 @@ class ProductService:
         except Exception as exc:
             return {"persisted": False, "reason": "decision_loop_persistence_failed", "detail": str(exc)[:240]}
 
+    def property_decision_loop_state(
+        self,
+        *,
+        principal_id: str,
+        property_ref: str = "",
+        limit: int = 50,
+    ) -> dict[str, object]:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_property_ref = str(property_ref or "").strip()
+        database_url = _property_search_run_database_url()
+        if not normalized_principal:
+            return {
+                "status": "blocked",
+                "property_ref": normalized_property_ref,
+                "decisions": [],
+                "evidence_claims": [],
+                "agent_question_tasks": [],
+                "document_intake": [],
+                "latest_decision": {},
+                "next_actions": [],
+                "persistence": {"available": False, "reason": "principal_id_missing"},
+            }
+        if not database_url:
+            return {
+                "status": "blocked",
+                "property_ref": normalized_property_ref,
+                "decisions": [],
+                "evidence_claims": [],
+                "agent_question_tasks": [],
+                "document_intake": [],
+                "latest_decision": {},
+                "next_actions": [],
+                "persistence": {"available": False, "reason": "database_url_missing"},
+            }
+        try:
+            from app.repositories.property_decision_loop_postgres import PostgresPropertyDecisionLoopRepository
+
+            rows = PostgresPropertyDecisionLoopRepository(database_url).export_teable_projection_rows(
+                principal_id=normalized_principal,
+                limit=max(int(limit or 50), 50),
+            )
+        except Exception as exc:
+            return {
+                "status": "blocked",
+                "property_ref": normalized_property_ref,
+                "decisions": [],
+                "evidence_claims": [],
+                "agent_question_tasks": [],
+                "document_intake": [],
+                "latest_decision": {},
+                "next_actions": [],
+                "persistence": {
+                    "available": False,
+                    "reason": "decision_loop_read_failed",
+                    "detail": compact_text(str(exc or ""), fallback="decision loop read failed", limit=180),
+                },
+            }
+
+        def _matches(row: dict[str, object]) -> bool:
+            return not normalized_property_ref or str(row.get("property_ref") or "").strip() == normalized_property_ref
+
+        decisions = [dict(row) for row in list(rows.get("propertyquarry_decision_ledger") or []) if isinstance(row, dict) and _matches(row)]
+        evidence_claims = [dict(row) for row in list(rows.get("propertyquarry_evidence_claims") or []) if isinstance(row, dict) and _matches(row)]
+        agent_questions = [dict(row) for row in list(rows.get("propertyquarry_agent_questions") or []) if isinstance(row, dict) and _matches(row)]
+        documents = [dict(row) for row in list(rows.get("propertyquarry_documents") or []) if isinstance(row, dict) and _matches(row)]
+        latest_decision = dict(decisions[0]) if decisions else {}
+        next_actions: list[str] = []
+        drafted_questions = [row for row in agent_questions if str(row.get("status") or "").strip().lower() == "drafted"]
+        if drafted_questions:
+            next_actions.append("Send the drafted agent question.")
+        missing_documents = [
+            row
+            for row in documents
+            if str(row.get("verification_state") or "").strip().lower() in {"missing", "rejected"}
+        ]
+        if missing_documents:
+            next_actions.append("Upload or request the missing document.")
+        if latest_decision and str(latest_decision.get("decision_state") or "").strip() in {"rejected", "archived"}:
+            next_actions.append("Keep the raw reason private and use the normalized reason for future ranking.")
+        if not next_actions and latest_decision:
+            next_actions.append("Review the latest decision state before changing the search rules.")
+        return {
+            "status": "ready",
+            "property_ref": normalized_property_ref,
+            "decisions": decisions[: max(1, min(int(limit or 50), 200))],
+            "evidence_claims": evidence_claims[: max(1, min(int(limit or 50), 200))],
+            "agent_question_tasks": agent_questions[: max(1, min(int(limit or 50), 200))],
+            "document_intake": documents[: max(1, min(int(limit or 50), 200))],
+            "latest_decision": latest_decision,
+            "next_actions": next_actions,
+            "persistence": {"available": True, "source": "postgres"},
+        }
+
     def property_decision_copilot(
         self,
         *,

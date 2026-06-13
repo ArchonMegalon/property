@@ -1429,6 +1429,18 @@ class PropertyFeedbackRecordOut(BaseModel):
     structured_feedback_errors: list[str] = Field(default_factory=list)
 
 
+class PropertyDecisionStateOut(BaseModel):
+    status: str = "ready"
+    property_ref: str = ""
+    decisions: list[dict[str, object]] = Field(default_factory=list)
+    evidence_claims: list[dict[str, object]] = Field(default_factory=list)
+    agent_question_tasks: list[dict[str, object]] = Field(default_factory=list)
+    document_intake: list[dict[str, object]] = Field(default_factory=list)
+    latest_decision: dict[str, object] = Field(default_factory=dict)
+    next_actions: list[str] = Field(default_factory=list)
+    persistence: dict[str, object] = Field(default_factory=dict)
+
+
 class RuleSimulateIn(BaseModel):
     proposed_value: str = Field(min_length=1)
 

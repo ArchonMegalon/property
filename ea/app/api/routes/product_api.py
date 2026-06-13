@@ -58,6 +58,7 @@ from app.api.routes.product_api_contracts import (
     PropertyFeedbackRecordOut,
     PropertyDecisionCopilotIn,
     PropertyDecisionCopilotOut,
+    PropertyDecisionStateOut,
     PropertyMagicFitSceneCreateIn,
     PropertyMagicFitReferenceAssetOut,
     PropertyMagicFitReferenceUploadIn,
@@ -1261,6 +1262,22 @@ def record_property_decision(
     result["structured_feedback_status"] = "not_attempted"
     result["structured_feedback_errors"] = []
     return PropertyFeedbackRecordOut(**result)
+
+
+@router.get("/property/decisions", response_model=PropertyDecisionStateOut)
+def property_decision_state(
+    property_ref: str = Query(default="", max_length=500),
+    limit: int = Query(default=50, ge=1, le=200),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyDecisionStateOut:
+    service = build_product_service(container)
+    result = service.property_decision_loop_state(
+        principal_id=context.principal_id,
+        property_ref=property_ref,
+        limit=limit,
+    )
+    return PropertyDecisionStateOut(**result)
 
 
 @router.post("/property/decision-copilot", response_model=PropertyDecisionCopilotOut)

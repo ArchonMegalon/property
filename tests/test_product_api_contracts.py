@@ -9746,6 +9746,75 @@ def test_property_decision_api_persists_decision_ledger(monkeypatch) -> None:
     assert any(item["document_type"] == "floorplan" for item in body["document_intake"])
 
 
+def test_property_decision_state_api_returns_visible_consequences(monkeypatch) -> None:
+    principal_id = "pref-property-decision-state-api"
+    client = build_product_client(principal_id=principal_id)
+
+    def _fake_decision_loop_state(self, *, principal_id: str, property_ref: str = "", limit: int = 50) -> dict[str, object]:
+        return {
+            "status": "ready",
+            "property_ref": property_ref,
+            "decisions": [
+                {
+                    "decision_id": "decision-state-1",
+                    "principal_id": principal_id,
+                    "person_id": "self",
+                    "property_ref": property_ref,
+                    "decision_state": "needs_documents",
+                    "reason_keys_json": ["operating_costs_missing"],
+                    "source": "workbench",
+                    "confidence": 0.7,
+                    "learning_applied": True,
+                    "aggregate_candidate": False,
+                    "created_at": "2026-06-13T08:00:00+00:00",
+                }
+            ],
+            "evidence_claims": [
+                {
+                    "claim_id": "claim-state-1",
+                    "property_ref": property_ref,
+                    "decision_id": "decision-state-1",
+                    "claim_type": "risk",
+                    "claim_text": "Missing or unclear: operating costs missing.",
+                    "verification_state": "missing",
+                }
+            ],
+            "agent_question_tasks": [
+                {
+                    "task_id": "question-state-1",
+                    "property_ref": property_ref,
+                    "decision_id": "decision-state-1",
+                    "question_text": "Please send the latest operating-cost statement.",
+                    "reason_key": "operating_costs_missing",
+                    "status": "drafted",
+                }
+            ],
+            "document_intake": [
+                {
+                    "document_id": "document-state-1",
+                    "property_ref": property_ref,
+                    "decision_id": "decision-state-1",
+                    "document_type": "operating_cost_statement",
+                    "verification_state": "missing",
+                }
+            ],
+            "latest_decision": {"decision_id": "decision-state-1", "decision_state": "needs_documents"},
+            "next_actions": ["Send the drafted agent question.", "Upload or request the missing document."],
+            "persistence": {"available": True, "source": "postgres"},
+        }
+
+    monkeypatch.setattr(ProductService, "property_decision_loop_state", _fake_decision_loop_state)
+
+    response = client.get("/app/api/property/decisions?property_ref=listing-state-1")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["latest_decision"]["decision_state"] == "needs_documents"
+    assert body["agent_question_tasks"][0]["status"] == "drafted"
+    assert body["document_intake"][0]["document_type"] == "operating_cost_statement"
+    assert "Send the drafted agent question." in body["next_actions"]
+
+
 def test_property_decision_api_fails_closed_when_ledger_is_not_durable(monkeypatch) -> None:
     principal_id = "pref-property-decision-api-fail"
     client = build_product_client(principal_id=principal_id)
