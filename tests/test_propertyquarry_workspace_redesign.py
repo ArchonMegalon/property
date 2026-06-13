@@ -728,6 +728,17 @@ def test_property_workspace_source_cards_do_not_display_raw_source_urls() -> Non
     assert "source.source_label || source.platform || 'Provider'" in body
 
 
+def test_property_search_agents_can_load_saved_filters_into_form() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    assert "data-search-agent-payload" in body
+    assert 'data-search-agent-action="load"' in body
+    assert "Load filters" in body
+    assert "applySearchAgentPayloadToForm" in body
+    assert "Saved search loaded. Tweak the filters or run it again." in body
+
+
 def test_propertyquarry_user_facing_copy_avoids_hosted_review_jargon() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     checked_paths = [

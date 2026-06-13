@@ -1855,13 +1855,14 @@
             </div>
             <div class="pqx-pref-list">
               {% for agent in search_agents %}
-              <div class="pqx-pref-row" data-property-search-agent-row data-search-agent-id="{{ agent.get('agent_id') or 'current' }}">
+              <div class="pqx-pref-row" data-property-search-agent-row data-search-agent-id="{{ agent.get('agent_id') or 'current' }}" data-search-agent-payload='{{ (agent.get("load_payload") or {})|tojson|safe }}'>
                 <div>
                   <strong>{{ agent.get('name') or 'Saved search' }}{% if agent.get('is_active') %} · selected{% endif %}</strong>
                   <small>{{ agent.get('status_label') }} · {{ agent.get('scope_label') }} · {{ agent.get('duration_label') }} · {{ agent.get('provider_count') }} provider{{ '' if agent.get('provider_count') == 1 else 's' }}</small>
                   <small>{{ agent.get('notification_label') }} · {{ agent.get('delivery_label') }} · {{ agent.get('run_label') }}</small>
                 </div>
                 <div class="pqx-actions">
+                  <button class="pqx-button" type="button" data-search-agent-action="load">Load filters</button>
                   {% if agent.get('enabled') %}
                   <button class="pqx-button subtle" type="button" data-search-agent-action="pause">Pause</button>
                   {% else %}
@@ -4437,6 +4438,7 @@
     const currentSearchAgentPatch = () => {
       const payload = collectPayload(form).property_preferences || {};
       return {
+        preferences_json: payload,
         location_query: payload.location_query || '',
         country_code: payload.country_code || '',
         region_code: payload.region_code || '',
@@ -4448,6 +4450,122 @@
         notification_period: payload.search_agent_notification_period || 'day',
       };
     };
+    const setFieldValue = (fieldName, value) => {
+      if (!form || !fieldName) return;
+      const nodes = [...form.querySelectorAll(`[name="${CSS.escape(fieldName)}"]`)];
+      if (!nodes.length) return;
+      const first = nodes[0];
+      if (first.type === 'checkbox' && nodes.length === 1) {
+        first.checked = value === true || ['1', 'true', 'yes', 'on', 'enabled', 'active'].includes(String(value || '').toLowerCase());
+        first.dispatchEvent(new Event('change', { bubbles: true }));
+        return;
+      }
+      if (first.type === 'checkbox') {
+        const values = Array.isArray(value) ? value.map((item) => String(item)) : csvValues(value).map((item) => String(item));
+        nodes.forEach((node) => {
+          node.checked = values.includes(String(node.value));
+          node.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        return;
+      }
+      first.value = value == null ? '' : String(value);
+      first.dispatchEvent(new Event('input', { bubbles: true }));
+      first.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const applySearchAgentPayloadToForm = (payload) => {
+      if (!form || !payload || typeof payload !== 'object') return;
+      const directKeys = [
+        'country_code',
+        'region_code',
+        'listing_mode',
+        'property_type',
+        'custom_location_query',
+        'custom_keywords',
+        'preference_person_id',
+        'investment_research_mode',
+        'max_price_eur',
+        'min_rooms',
+        'min_area_m2',
+        'available_within_years',
+        'max_results_per_source',
+        'min_match_score',
+        'search_agent_duration_days',
+        'search_agent_notification_limit',
+        'search_agent_notification_period',
+        'commute_destination',
+        'additional_reachability_targets',
+        'university_name',
+        'max_commute_minutes_transit',
+        'max_commute_minutes_drive',
+        'max_commute_minutes_bike',
+        'max_commute_minutes_walk',
+        'max_distance_to_playground_m',
+        'max_distance_to_playground_importance',
+        'max_distance_to_library_m',
+        'max_distance_to_library_importance',
+        'max_distance_to_zoo_m',
+        'max_distance_to_university_m',
+        'max_distance_to_starbucks_m',
+        'max_distance_to_fitness_center_m',
+        'max_distance_to_cinema_m',
+        'max_distance_to_bouldering_m',
+        'max_distance_to_dog_park_m',
+        'max_distance_to_good_cafe_m',
+        'max_distance_to_supermarket_m',
+        'max_distance_to_supermarket_importance',
+        'max_distance_to_market_m',
+        'max_distance_to_hardware_store_m',
+        'max_distance_to_shopping_center_m',
+        'max_distance_to_shopping_street_m',
+        'max_distance_to_theatre_m',
+        'max_distance_to_public_pool_m',
+        'max_distance_to_medical_care_m',
+      ];
+      directKeys.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(payload, key)) setFieldValue(key, payload[key]);
+      });
+      const listKeys = ['selected_platforms', 'keywords', 'preferred_reachability_modes', 'school_stage_preferences', 'desired_project_stages'];
+      listKeys.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(payload, key)) setFieldValue(key, payload[key]);
+      });
+      const boolKeys = [
+        'use_stored_feedback_preferences',
+        'include_broker_direct_sources',
+        'include_community_signals',
+        'require_manual_validation_for_community',
+        'include_developer_project_signals',
+        'include_public_housing_signals',
+        'include_distressed_sale_signals',
+        'enable_building_risk_research',
+        'enable_market_supply_research',
+        'enable_location_risk_research',
+        'enable_trust_risk_scoring',
+        'enable_family_mode',
+        'enable_commute_research',
+        'apply_unknowns_penalty',
+        'enable_action_readiness_research',
+        'enable_lifestyle_research',
+        'prefer_good_air_quality',
+        'prefer_low_crime_area',
+        'require_drinking_water_quality_research',
+        'require_parking_pressure_check',
+        'avoid_cesspit_or_septic_risk',
+        'require_winter_access_research',
+        'avoid_flood_risk_area',
+        'search_agent_enabled',
+        'require_floorplan',
+        'use_flatbee_reputation_penalty',
+      ];
+      boolKeys.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(payload, key)) setFieldValue(key, payload[key]);
+      });
+      if (payload.location_query && !payload.custom_location_query) setFieldValue('custom_location_query', payload.location_query);
+      if (payload.keywords && !payload.custom_keywords) setFieldValue('custom_keywords', payload.keywords);
+      bindRangeOutputs(form);
+      syncMarketAwareFields(form, meta);
+      syncSchoolStageVariantVisibility(form);
+      setMode('brief');
+    };
     root.querySelectorAll('[data-search-agent-action]').forEach((button) => {
       button.addEventListener('click', async () => {
         if (!form) return;
@@ -4457,13 +4575,27 @@
         const agentId = row?.getAttribute('data-search-agent-id') || 'current';
         try {
           if (status) {
-            status.textContent = action === 'run'
+            status.textContent = action === 'load'
+              ? 'Loading saved search into filters...'
+              : action === 'run'
               ? 'Selecting and starting this saved search...'
               : action === 'delete'
                 ? 'Deleting saved search...'
                 : 'Updating saved search...';
           }
+          if (action === 'load') {
+            let payload = {};
+            try { payload = JSON.parse(String(row?.getAttribute('data-search-agent-payload') || '{}')); } catch (_) { payload = {}; }
+            applySearchAgentPayloadToForm(payload);
+            await updateSearchAgent(agentId, 'load', {});
+            if (status) status.textContent = 'Saved search loaded. Tweak the filters or run it again.';
+            return;
+          }
           if (action === 'run') {
+            let payload = {};
+            try { payload = JSON.parse(String(row?.getAttribute('data-search-agent-payload') || '{}')); } catch (_) { payload = {}; }
+            applySearchAgentPayloadToForm(payload);
+            await updateSearchAgent(agentId, 'load', {});
             await updateSearchAgent(agentId, 'resume', currentSearchAgentPatch());
             await startSearch();
             return;

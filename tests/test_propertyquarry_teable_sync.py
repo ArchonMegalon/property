@@ -41,6 +41,28 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
                 "location_query": "1020 Wien",
                 "selected_platforms": ["willhaben"],
                 "min_area_m2": 80,
+                "active_search_agent_id": "agent-cr",
+                "search_agents": [
+                    {
+                        "agent_id": "agent-cr",
+                        "name": "Monteverde land search",
+                        "enabled": True,
+                        "country_code": "CR",
+                        "region_code": "puntarenas",
+                        "location_query": "Monteverde",
+                        "listing_mode": "buy",
+                        "property_type": "land",
+                        "selected_platforms": ["re_cr_mls"],
+                        "preferences_json": {
+                            "country_code": "CR",
+                            "region_code": "puntarenas",
+                            "location_query": "Monteverde",
+                            "property_type": "land",
+                            "selected_platforms": ["re_cr_mls"],
+                            "min_area_m2": 1200,
+                        },
+                    }
+                ],
                 "property_commercial": {
                     "active_plan_key": "plus",
                     "status": "active",
@@ -155,6 +177,10 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert records["propertyquarry_preferences"][0]["min_area_m2"] == 80
     assert "property_commercial" not in records["propertyquarry_preferences"][0]["preferences_json"]
     assert "raw_preferences" not in records["propertyquarry_preferences"][0]["preferences_json"]
+    projected_preferences = records["propertyquarry_preferences"][0]["preferences_json"]
+    assert projected_preferences["active_search_agent_id"] == "agent-cr"
+    assert projected_preferences["search_agents"][0]["preferences_json"]["location_query"] == "Monteverde"
+    assert projected_preferences["search_agents"][0]["preferences_json"]["property_type"] == "land"
     assert records["propertyquarry_search_runs"][0]["run_id"] == "run-1"
     assert "property_commercial" not in records["propertyquarry_search_runs"][0]["preferences_json"]
     assert records["propertyquarry_provider_sources"][0]["platform"] == "willhaben"

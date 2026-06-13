@@ -304,6 +304,34 @@ class OnboardingService(AssistantOnboardingService):
             agent["enabled"] = True
             agent["status"] = "active"
             preferences["active_search_agent_id"] = str(agent.get("agent_id") or normalized_agent_id)
+        elif normalized_action in {"load", "select"}:
+            preferences["active_search_agent_id"] = str(agent.get("agent_id") or normalized_agent_id)
+            loaded_preferences = (
+                dict(agent.get("preferences_json") or {})
+                if isinstance(agent.get("preferences_json"), dict)
+                else {}
+            )
+            if not loaded_preferences:
+                loaded_preferences = {
+                    "country_code": agent.get("country_code"),
+                    "region_code": agent.get("region_code"),
+                    "location_query": agent.get("location_query"),
+                    "listing_mode": agent.get("listing_mode"),
+                    "property_type": agent.get("property_type"),
+                    "selected_platforms": list(agent.get("selected_platforms") or []),
+                    "search_agent_enabled": bool(agent.get("enabled")),
+                    "search_agent_duration_days": agent.get("duration_days"),
+                    "search_agent_notification_limit": agent.get("notification_limit"),
+                    "search_agent_notification_period": agent.get("notification_period"),
+                }
+            for key, value in loaded_preferences.items():
+                if key in {"search_agents", "active_search_agent_id", "property_commercial"}:
+                    continue
+                preferences[key] = value
+            preferences["search_agent_enabled"] = bool(agent.get("enabled"))
+            preferences["search_agent_duration_days"] = agent.get("duration_days")
+            preferences["search_agent_notification_limit"] = agent.get("notification_limit")
+            preferences["search_agent_notification_period"] = agent.get("notification_period")
         elif normalized_action in {"delete", "remove"}:
             agents.pop(matched_index)
             preferences["search_agents"] = agents
@@ -342,6 +370,7 @@ class OnboardingService(AssistantOnboardingService):
                     "last_run_at",
                     "next_run_at",
                     "sent_in_current_window",
+                    "preferences_json",
                 }:
                     agent[key] = value
         else:
@@ -1326,6 +1355,96 @@ class OnboardingService(AssistantOnboardingService):
             if isinstance(raw.get("property_commercial"), dict)
             else {}
         )
+        promoted_numeric: dict[str, int] = {}
+        for numeric_key in (
+            "max_price_eur",
+            "min_rooms",
+            "min_area_m2",
+            "available_within_years",
+            "max_commute_minutes_transit",
+            "max_commute_minutes_drive",
+            "max_commute_minutes_bike",
+            "max_commute_minutes_walk",
+            "max_distance_to_playground_m",
+            "max_distance_to_library_m",
+            "max_distance_to_university_m",
+            "max_distance_to_supermarket_m",
+            "max_distance_to_market_m",
+            "max_distance_to_hardware_store_m",
+            "max_distance_to_shopping_center_m",
+            "max_distance_to_shopping_street_m",
+            "max_distance_to_theatre_m",
+            "max_distance_to_public_pool_m",
+            "max_distance_to_medical_care_m",
+            "max_distance_to_starbucks_m",
+            "max_distance_to_fitness_center_m",
+            "max_distance_to_cinema_m",
+            "max_distance_to_bouldering_m",
+            "max_distance_to_dog_park_m",
+            "max_distance_to_good_cafe_m",
+            "max_distance_to_zoo_m",
+        ):
+            try:
+                value = int(float(str(raw.get(numeric_key) or "").strip()))
+            except Exception:
+                value = 0
+            if value > 0:
+                promoted_numeric[numeric_key] = value
+        promoted_strings = {
+            key: str(raw.get(key) or "").strip()
+            for key in (
+                "keywords",
+                "custom_location_query",
+                "custom_keywords",
+                "investment_research_mode",
+                "commute_destination",
+                "additional_reachability_targets",
+                "university_name",
+                "max_distance_to_playground_importance",
+                "max_distance_to_library_importance",
+                "max_distance_to_supermarket_importance",
+            )
+            if str(raw.get(key) or "").strip()
+        }
+        promoted_lists = {
+            key: [str(item or "").strip() for item in list(raw.get(key) or []) if str(item or "").strip()]
+            for key in ("keywords", "preferred_reachability_modes", "school_stage_preferences", "desired_project_stages")
+            if isinstance(raw.get(key), (list, tuple, set))
+        }
+        promoted_flags = {
+            key: (
+                raw.get(key) is True
+                or str(raw.get(key) or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
+            )
+            for key in (
+                "use_stored_feedback_preferences",
+                "include_broker_direct_sources",
+                "include_community_signals",
+                "require_manual_validation_for_community",
+                "include_developer_project_signals",
+                "include_public_housing_signals",
+                "include_distressed_sale_signals",
+                "enable_building_risk_research",
+                "enable_market_supply_research",
+                "enable_location_risk_research",
+                "enable_trust_risk_scoring",
+                "enable_family_mode",
+                "enable_commute_research",
+                "apply_unknowns_penalty",
+                "enable_action_readiness_research",
+                "enable_lifestyle_research",
+                "prefer_good_air_quality",
+                "prefer_low_crime_area",
+                "require_drinking_water_quality_research",
+                "require_parking_pressure_check",
+                "avoid_cesspit_or_septic_risk",
+                "require_winter_access_research",
+                "avoid_flood_risk_area",
+                "require_floorplan",
+                "use_flatbee_reputation_penalty",
+            )
+            if key in raw
+        }
         normalized_preferences = {
             "country_code": country_code,
             "region_code": region_code,
@@ -1344,6 +1463,10 @@ class OnboardingService(AssistantOnboardingService):
             "search_agent_notification_period": notification_period,
             "property_commercial": property_commercial,
             "raw_preferences": dict(raw),
+            **promoted_numeric,
+            **promoted_strings,
+            **promoted_lists,
+            **promoted_flags,
         }
         normalized_preferences["active_search_agent_id"] = str(raw.get("active_search_agent_id") or "").strip()
         normalized_preferences["search_agents"] = OnboardingService._normalize_property_search_agents(
@@ -1435,6 +1558,31 @@ class OnboardingService(AssistantOnboardingService):
             )
         except Exception:
             sent_in_current_window = 0
+        preferences_json = (
+            dict(raw.get("preferences_json") or {})
+            if isinstance(raw.get("preferences_json"), dict)
+            else {}
+        )
+        if not preferences_json:
+            preferences_json = {
+                key: value
+                for key, value in base.items()
+                if key not in {"search_agents", "active_search_agent_id", "raw_preferences", "property_commercial"}
+            }
+        preferences_json.update(
+            {
+                "country_code": country_code,
+                "region_code": region_code,
+                "location_query": location_query,
+                "listing_mode": listing_mode,
+                "property_type": property_type,
+                "selected_platforms": selected_platforms,
+                "search_agent_enabled": enabled_bool,
+                "search_agent_duration_days": duration_days,
+                "search_agent_notification_limit": notification_limit,
+                "search_agent_notification_period": notification_period,
+            }
+        )
         return {
             "agent_id": agent_id,
             "name": name[:120],
@@ -1453,6 +1601,7 @@ class OnboardingService(AssistantOnboardingService):
             "last_run_at": str(raw.get("last_run_at") or base.get("last_run_at") or "").strip(),
             "next_run_at": str(raw.get("next_run_at") or base.get("next_run_at") or "").strip(),
             "sent_in_current_window": sent_in_current_window,
+            "preferences_json": preferences_json,
         }
 
     @staticmethod

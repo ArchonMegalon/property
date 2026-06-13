@@ -1763,6 +1763,22 @@ def app_section_payload(
             "notification_label": notification_label,
             "run_label": f"Last: {last_run_at or 'not run yet'} · Next: {next_run_at or ('waiting for scheduler' if agent_enabled else 'paused')}",
             "delivery_label": f"Sent {sent_in_current_window}/{agent_notification_limit} this {('week' if agent_notification_period == 'week' else 'day')}",
+            "load_payload": (
+                dict(raw_agent.get("preferences_json") or {})
+                if isinstance(raw_agent.get("preferences_json"), dict)
+                else {
+                    "country_code": agent_country_code,
+                    "region_code": str(raw_agent.get("region_code") or property_preferences.get("region_code") or "").strip().lower(),
+                    "location_query": agent_location_query,
+                    "listing_mode": agent_listing_mode,
+                    "property_type": str(raw_agent.get("property_type") or property_preferences.get("property_type") or "any").strip().lower(),
+                    "selected_platforms": list(agent_selected_platforms or []),
+                    "search_agent_enabled": agent_enabled,
+                    "search_agent_duration_days": agent_duration_days,
+                    "search_agent_notification_limit": agent_notification_limit,
+                    "search_agent_notification_period": agent_notification_period,
+                }
+            ),
         }
 
     raw_property_search_agents = property_preferences.get("search_agents") if isinstance(property_preferences.get("search_agents"), list) else []
