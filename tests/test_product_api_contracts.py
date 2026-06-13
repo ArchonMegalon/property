@@ -4321,6 +4321,92 @@ def test_property_scout_near_miss_does_not_fire_for_outside_vienna_area_failures
     assert assessed == []
 
 
+def test_property_scout_rejects_unselected_vienna_districts_before_review_packets(monkeypatch) -> None:
+    principal_id = "cf-email:district-post-filter.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout District Gate Office")
+    candidate_url = "https://generic-provider.example/listing/1150-westbahnhof"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://generic-provider.example/search?q=1020+Vienna",
+                "label": "Generic Provider | Austria | Rent | 1020 Vienna",
+                "platform": "derstandard_at",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": True,
+                "max_results": 1,
+                "country_code": "AT",
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: (candidate_url,))
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "westbahnhof-1150",
+            "title": "Top Lage Nähe Westbahnhof, 69 m², € 838,13, (1150 Wien) - willhaben",
+            "summary": "Provider result page was queried from a selected Vienna source scope.",
+            "property_facts_json": {
+                "property_type": "apartment",
+                "area_sqm": 69.0,
+                "postal_name": "1150 Wien",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("outside-area listings must not notify Telegram"),
+    )
+    opened_reviews: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review",
+        lambda self, **kwargs: opened_reviews.append(dict(kwargs)) or {"status": "opened", "editor_url": "/review"},
+    )
+    assessed: list[str] = []
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: assessed.append(str(kwargs.get("object_id") or "")) or {"fit_score": 95.0},
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("derstandard_at",),
+        property_search_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1020 Vienna, 1070 Vienna, 1090 Vienna, 1100 Vienna, 1110 Vienna, 1180 Vienna, 1200 Vienna, 1220 Vienna, Aspern",
+            "property_type": "apartment",
+            "listing_mode": "rent",
+            "min_area_m2": 60,
+            "min_match_score": 40,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 0
+    assert result["review_created_total"] == 0
+    assert result["sources"][0]["location_mismatch_candidate_total"] == 1
+    assert result["sources"][0]["research_candidates"] == []
+    assert opened_reviews == []
+    assert assessed == []
+
+
 def test_property_scout_min_area_keeps_unknown_area_for_scoring(monkeypatch) -> None:
     principal_id = "cf-email:min-area-unknown.search@example.com"
     client = build_product_client(principal_id=principal_id)
@@ -18404,6 +18490,9 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert opened_access.status_code == 303
     assert opened_access.headers["location"] == "/app/properties"
     assert "ea_workspace_session=" in str(opened_access.headers.get("set-cookie") or "")
+    property_root = client.get("/", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+    assert property_root.status_code == 307
+    assert property_root.headers["location"] == "/app/properties"
     opened_access_secure = client.get(
         access_body["access_url"],
         follow_redirects=False,

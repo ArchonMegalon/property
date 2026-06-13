@@ -6273,10 +6273,20 @@ def _property_candidate_matches_requested_location(
         return False
 
     hint_text = " ".join(hints).lower()
-    wants_vienna = "wien" in hint_text or "vienna" in hint_text or any(str(code).startswith("1") for code in re.findall(r"\b\d{4}\b", hint_text))
+    explicit_hint_postal_codes = frozenset(re.findall(r"\b\d{4}\b", hint_text))
+    wants_vienna = "wien" in hint_text or "vienna" in hint_text or any(str(code).startswith("1") for code in explicit_hint_postal_codes)
     real_concrete_postal_codes = tuple(
         code for code in re.findall(r"\b\d{4}\b", real_concrete_text) if not source_postal_code or code != source_postal_code
     )
+    exact_postal_match = bool(
+        explicit_hint_postal_codes
+        and real_concrete_postal_codes
+        and any(code in explicit_hint_postal_codes for code in real_concrete_postal_codes)
+    )
+    if explicit_hint_postal_codes and real_concrete_postal_codes and not any(
+        code in explicit_hint_postal_codes for code in real_concrete_postal_codes
+    ):
+        return False
     if wants_vienna and real_concrete_postal_codes and not any(str(code).startswith("1") for code in real_concrete_postal_codes):
         return False
     if wants_vienna and _property_text_has_explicit_non_vienna_location(real_concrete_text):
@@ -6288,11 +6298,13 @@ def _property_candidate_matches_requested_location(
         region_code=effective_region_code,
         location_hints=hints,
         concrete_text=real_concrete_text,
-    ):
+    ) and not exact_postal_match:
         return False
 
     concrete_postal_codes = tuple(re.findall(r"\b\d{4}\b", concrete_text))
     if concrete_postal_codes:
+        if explicit_hint_postal_codes and not any(code in explicit_hint_postal_codes for code in concrete_postal_codes):
+            return False
         if wants_vienna and not any(str(code).startswith("1") for code in concrete_postal_codes):
             return False
 
@@ -6304,6 +6316,29 @@ def _property_candidate_matches_requested_location(
     if scope_text and _matches_text(scope_text, normalized_scope_text):
         return True
     return False
+
+
+def _property_candidate_matches_search_area(
+    *,
+    location_hints: tuple[str, ...],
+    request_preferences: dict[str, object] | None,
+    source_spec: dict[str, object] | None,
+    property_url: str,
+    title: str = "",
+    summary: str = "",
+    property_facts: dict[str, object] | None = None,
+) -> bool:
+    preferences = dict(request_preferences or {})
+    source = dict(source_spec or {})
+    return _property_candidate_matches_requested_location(
+        location_hints=location_hints,
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=dict(property_facts or {}),
+        country_code=str(preferences.get("country_code") or source.get("country_code") or "").strip(),
+        region_code=str(preferences.get("region_code") or "").strip(),
+    )
 
 
 def _property_candidate_google_maps_url(candidate: dict[str, object]) -> str:
@@ -27523,6 +27558,7 @@ class ProductService:
             floorplan_unverified_candidates_for_source: list[dict[str, object]] = []
             filter_near_misses_for_source: list[dict[str, object]] = []
             provider_cache_state: dict[str, object] = {"status": "not_started", "cache_key": provider_cache_key}
+            detailed_location_miss_count = 0
 
             def _remember_filter_near_miss(
                 *,
@@ -27541,14 +27577,14 @@ class ProductService:
                 if prefilter_score < max(float(min_match_score), 50.0):
                     return
                 near_miss_facts = dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {}
-                if location_hints and not _property_candidate_matches_requested_location(
+                if location_hints and not _property_candidate_matches_search_area(
                     location_hints=location_hints,
+                    request_preferences=request_preferences,
+                    source_spec=source_spec,
                     property_url=property_url,
                     title=title,
                     summary=summary,
                     property_facts=near_miss_facts,
-                    country_code=str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
-                    region_code=str(request_preferences.get("region_code") or "").strip(),
                 ):
                     return
                 source_ref = f"property-scout:{str(row.get('listing_id') or property_url).strip() or property_url}"
@@ -27951,14 +27987,14 @@ class ProductService:
                         "assessment": {},
                         "fit_score": 0.0,
                         "ordinal": ordinal,
-                        "location_match": _property_candidate_matches_requested_location(
+                        "location_match": _property_candidate_matches_search_area(
                             location_hints=location_hints,
+                            request_preferences=request_preferences,
+                            source_spec=source_spec,
                             property_url=property_url,
                             title=preview_title,
                             summary=preview_summary,
                             property_facts=preview_facts,
-                            country_code=str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
-                            region_code=str(request_preferences.get("region_code") or "").strip(),
                         ),
                     }
                 )
@@ -28039,6 +28075,23 @@ class ProductService:
                 preview["property_facts_json"] = detailed_facts
                 detailed_title = str(preview.get("title") or property_url).strip() or property_url
                 detailed_summary = str(preview.get("summary") or "").strip()
+                if location_hints and not _property_candidate_matches_search_area(
+                    location_hints=location_hints,
+                    request_preferences=request_preferences,
+                    source_spec=source_spec,
+                    property_url=property_url,
+                    title=detailed_title,
+                    summary=detailed_summary,
+                    property_facts=detailed_facts,
+                ):
+                    detailed_location_miss_count += 1
+                    _report(
+                        step="source_location_filter",
+                        message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the selected target area for {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                    )
+                    continue
                 if not _property_candidate_matches_requested_property_type(
                     property_type=requested_property_type,
                     property_url=property_url,
@@ -28446,14 +28499,14 @@ class ProductService:
                         "property_facts": detailed_facts,
                         "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
                         "fit_score": 0.0,
-                        "location_match": _property_candidate_matches_requested_location(
+                        "location_match": _property_candidate_matches_search_area(
                             location_hints=location_hints,
+                            request_preferences=request_preferences,
+                            source_spec=source_spec,
                             property_url=property_url,
                             title=detailed_title,
                             summary=detailed_summary,
                             property_facts=detailed_facts,
-                            country_code=str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
-                            region_code=str(request_preferences.get("region_code") or "").strip(),
                         ),
                     }
                 )
@@ -28563,6 +28616,7 @@ class ProductService:
             if location_hints:
                 matching_rows = [row for row in ranked_rows if bool(row.get("location_match"))]
                 ranked_rows = matching_rows
+            preliminary_location_miss_count += detailed_location_miss_count
             duplicate_for_source = 0
             unique_ranked_rows: list[dict[str, object]] = []
             for row in ranked_rows:

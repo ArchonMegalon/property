@@ -353,3 +353,48 @@ def test_property_search_agent_plan_limits_are_enforced() -> None:
     assert len(free_agents) == 1
     assert len(plus_agents) == 3
     assert len(agent_agents) == 30
+
+
+def test_property_search_agent_payloads_do_not_embed_other_agents() -> None:
+    agents = OnboardingService._normalize_property_search_agents(
+        {
+            "country_code": "AT",
+            "location_query": "Vienna",
+            "active_search_agent_id": "agent-vienna",
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+            "search_agents": [
+                {
+                    "agent_id": "agent-vienna",
+                    "country_code": "AT",
+                    "location_query": "Vienna",
+                    "selected_platforms": ["willhaben"],
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "location_query": "Vienna",
+                        "search_agents": [{"agent_id": "stale-nested"}],
+                        "active_search_agent_id": "stale-nested",
+                        "raw_preferences": {"private": True},
+                        "property_commercial": {"active_plan_key": "agent"},
+                    },
+                },
+                {
+                    "agent_id": "agent-monteverde",
+                    "country_code": "CR",
+                    "location_query": "Monteverde",
+                    "selected_platforms": ["re_cr_mls"],
+                },
+            ],
+        }
+    )
+
+    assert len(agents) == 2
+    for agent in agents:
+        payload = agent["preferences_json"]
+        assert "search_agents" not in payload
+        assert "active_search_agent_id" not in payload
+        assert "raw_preferences" not in payload
+        assert "property_commercial" not in payload

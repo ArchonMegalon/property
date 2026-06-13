@@ -1811,6 +1811,13 @@ def app_section_payload(
     if property_search_agent_notification_period not in {"day", "week"}:
         property_search_agent_notification_period = "day"
     def _format_property_search_agent(raw_agent: dict[str, object]) -> dict[str, object]:
+        def _safe_agent_load_payload(value: dict[str, object]) -> dict[str, object]:
+            return {
+                key: item
+                for key, item in dict(value or {}).items()
+                if key not in {"search_agents", "active_search_agent_id", "raw_preferences", "property_commercial"}
+            }
+
         agent_duration_days = _positive_int(raw_agent.get("duration_days"), default=property_search_agent_duration_days)
         agent_duration_days = max(7, min(365, agent_duration_days or property_search_agent_duration_days))
         agent_notification_limit = _positive_int(raw_agent.get("notification_limit"), default=property_search_agent_notification_limit)
@@ -1868,7 +1875,7 @@ def app_section_payload(
             "run_label": f"Last: {last_run_at or 'not run yet'} · Next: {next_run_at or ('waiting for scheduler' if agent_enabled else 'paused')}",
             "delivery_label": f"Sent {sent_in_current_window}/{agent_notification_limit} this {('week' if agent_notification_period == 'week' else 'day')}",
             "load_payload": (
-                dict(raw_agent.get("preferences_json") or {})
+                _safe_agent_load_payload(dict(raw_agent.get("preferences_json") or {}))
                 if isinstance(raw_agent.get("preferences_json"), dict)
                 else {
                     "country_code": agent_country_code,

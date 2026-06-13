@@ -1587,6 +1587,15 @@ class OnboardingService(AssistantOnboardingService):
             return 1
 
     @staticmethod
+    def _search_agent_preferences_payload(value: dict[str, object] | None) -> dict[str, object]:
+        payload = {
+            key: item
+            for key, item in dict(value or {}).items()
+            if key not in {"search_agents", "active_search_agent_id", "raw_preferences", "property_commercial"}
+        }
+        return payload
+
+    @staticmethod
     def _normalize_property_search_agent(
         value: dict[str, object],
         *,
@@ -1639,16 +1648,12 @@ class OnboardingService(AssistantOnboardingService):
         except Exception:
             sent_in_current_window = 0
         preferences_json = (
-            dict(raw.get("preferences_json") or {})
+            OnboardingService._search_agent_preferences_payload(dict(raw.get("preferences_json") or {}))
             if isinstance(raw.get("preferences_json"), dict)
             else {}
         )
         if not preferences_json:
-            preferences_json = {
-                key: value
-                for key, value in base.items()
-                if key not in {"search_agents", "active_search_agent_id", "raw_preferences", "property_commercial"}
-            }
+            preferences_json = OnboardingService._search_agent_preferences_payload(base)
         preferences_json.update(
             {
                 "country_code": country_code,

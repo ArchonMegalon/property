@@ -169,6 +169,32 @@ def test_property_search_location_matching_prefers_requested_districts() -> None
     ) is False
 
 
+def test_property_search_location_matching_rejects_unselected_vienna_districts() -> None:
+    hints = _property_search_location_hints(
+        {
+            "location_query": (
+                "1020 Vienna, 1070 Vienna, 1090 Vienna, 1100 Vienna, 1110 Vienna, "
+                "1180 Vienna, 1200 Vienna, 1220 Vienna, Aspern"
+            )
+        }
+    )
+
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1150-rudolfsheim-fuenfhaus/top-lage-naehe-westbahnhof",
+        title="Top Lage Nähe Westbahnhof, 69 m², € 838,13, (1150 Wien) - willhaben",
+        summary="Provider result page was queried from a selected Vienna source scope.",
+        property_facts={"source_scope_location": "1020 Vienna", "source_city": "Vienna"},
+    ) is False
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/familienwohnung",
+        title="Helle Familienwohnung, 69 m², € 938,13, (1020 Wien) - willhaben",
+        summary="Provider result page was queried from a selected Vienna source scope.",
+        property_facts={"source_scope_location": "1020 Vienna", "source_city": "Vienna"},
+    ) is True
+
+
 def test_property_search_location_matching_accepts_source_scope_location() -> None:
     hints = _property_search_location_hints({"location_query": "1200 Vienna, 1020 Vienna, 1090"})
     facts = product_service._property_facts_with_source_scope(

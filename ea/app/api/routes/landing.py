@@ -17,6 +17,7 @@ from markupsafe import Markup
 
 from app.api.dependencies import (
     RequestContext,
+    _workspace_session_payload,
     browser_principal_override_allowed,
     get_cloudflare_access_identity,
     get_container,
@@ -686,7 +687,9 @@ def landing(
 ) -> Response:
     principal_id, status = _load_status(container=container, access_identity=access_identity)
     brand = request_brand(request)
-    if access_identity is not None and brand["key"] == "propertyquarry":
+    if brand["key"] == "propertyquarry" and (
+        access_identity is not None or _workspace_session_payload(request, container) is not None
+    ):
         return RedirectResponse(str(brand.get("app_home") or "/app/properties"), status_code=307)
     commercial = property_commercial_snapshot(None)
     return _render_public_template(

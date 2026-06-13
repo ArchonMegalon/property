@@ -134,7 +134,7 @@
     </div>
   </div>
   <div class="pqx-source-radar">
-    <strong data-pqx-radar-count>{{ source_total }} source check{{ '' if source_total == 1 else 's' }}</strong>
+    <strong data-pqx-radar-count>{{ source_total }} source{{ '' if source_total == 1 else 's' }}</strong>
     <div class="pqx-radar-dots" aria-hidden="true">
       {% for index in range(8) %}
       <span class="{{ 'is-active' if index < [source_total, 8]|min else '' }}"></span>
@@ -2608,9 +2608,9 @@
             {% set active_provider_lanes = (run.get('summary') or {}).get('sources_total') or run_sources|length or 0 %}
             <div class="pqx-dashboard-stack" data-pqx-running-provider-state>
               <div class="pqx-dashboard-row">
-                <span class="pqx-small">{% if active_provider_lanes > 0 %}Provider checks{% else %}Preparing search{% endif %}</span>
-                <strong>{% if active_provider_lanes > 0 %}Checking {{ active_provider_lanes }} source check{{ '' if active_provider_lanes == 1 else 's' }}{% else %}Waiting for the first provider response{% endif %}</strong>
-                <span class="pqx-note">{% if active_provider_lanes > 0 %}These are provider and target-area checks. You can leave this page open or refresh status; the best ranked homes will appear here when checks finish.{% else %}The run has started, but no provider has returned progress yet. Refresh in a moment if this does not update automatically.{% endif %}</span>
+                <span class="pqx-small">{% if active_provider_lanes > 0 %}Sources checking{% else %}Search starting{% endif %}</span>
+                <strong>{% if active_provider_lanes > 0 %}Checking {{ active_provider_lanes }} source{{ '' if active_provider_lanes == 1 else 's' }}{% else %}Waiting for the first source result{% endif %}</strong>
+                <span class="pqx-note">{% if active_provider_lanes > 0 %}The search is applying your area, price, size, and layout rules. Ranked homes will appear here as soon as the source checks finish.{% else %}The run has started and is preparing the selected sources. The first real source result will replace this message automatically.{% endif %}</span>
               </div>
             </div>
             {% endif %}
@@ -3819,12 +3819,12 @@
       if (!grid) return;
       const selected = new Set(selectedValues.map((item) => String(item || '').trim()).filter(Boolean));
       const familyHeadings = {
-        marketplace: ['Core marketplaces', 'Primary broad-market search lanes for this country.'],
-        broker_direct: ['Broker direct', 'Broker-owned inventory and direct source lanes.'],
+        marketplace: ['Core marketplaces', 'Primary broad-market search sources for this country.'],
+        broker_direct: ['Broker direct', 'Broker-owned inventory and direct sources.'],
         cooperative: ['Cooperatives', 'Genossenschaften and cooperative housing sources.'],
         public_housing: ['Public housing', 'Municipal and public-housing-adjacent sources.'],
         developer_projects: ['Developer projects', 'New-build and launch pipeline sources.'],
-        distressed_sales: ['Distressed and judicial', 'Auction, forced-sale, and judicial lanes.'],
+        distressed_sales: ['Distressed and judicial', 'Auction, forced-sale, and judicial sources.'],
         community_signals: ['Community signals', 'Facebook, Telegram, and other weakly verified off-market hints.'],
         community_meta: ['Watch-tier meta', 'Long-tail meta or watch-tier sources with lower trust.'],
       };
@@ -4446,7 +4446,7 @@
           <div class="pqx-pulse-line" aria-hidden="true"></div>
           <div class="pqx-progress-labels"><span>Searching</span><span>Ranking</span><span>Verifying</span><span>Preparing review</span></div>
         </div>
-        <div class="pqx-source-radar"><strong data-pqx-radar-count>${escapeHtml(sources)} source check${sources === 1 ? '' : 's'}</strong><div class="pqx-radar-dots" aria-hidden="true">${dots}</div></div>
+        <div class="pqx-source-radar"><strong data-pqx-radar-count>${escapeHtml(sources)} source${sources === 1 ? '' : 's'}</strong><div class="pqx-radar-dots" aria-hidden="true">${dots}</div></div>
         <div class="pqx-funnel" data-pqx-shortlist-funnel>${funnel}</div>
         <div class="pqx-evidence-stack" data-pqx-evidence-stack>
           ${chip('Facts', listings ? 'is-ready' : 'is-active')}
