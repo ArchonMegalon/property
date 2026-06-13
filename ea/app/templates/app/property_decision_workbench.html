@@ -2275,8 +2275,8 @@
             <div class="pqx-dashboard-stack" data-pqx-running-provider-state>
               <div class="pqx-dashboard-row">
                 <span class="pqx-small">{% if active_provider_lanes > 0 %}Provider checks{% else %}Preparing search{% endif %}</span>
-                <strong>{% if active_provider_lanes > 0 %}Checking {{ active_provider_lanes }} provider{{ '' if active_provider_lanes == 1 else 's' }}{% else %}Waiting for the first provider response{% endif %}</strong>
-                <span class="pqx-note">{% if active_provider_lanes > 0 %}You can leave this page open or refresh status; the best ranked homes will appear here when checks finish.{% else %}The run has started, but no provider has returned progress yet. Refresh in a moment if this does not update automatically.{% endif %}</span>
+                <strong>{% if active_provider_lanes > 0 %}Checking {{ active_provider_lanes }} source check{{ '' if active_provider_lanes == 1 else 's' }}{% else %}Waiting for the first provider response{% endif %}</strong>
+                <span class="pqx-note">{% if active_provider_lanes > 0 %}These are provider and target-area checks. You can leave this page open or refresh status; the best ranked homes will appear here when checks finish.{% else %}The run has started, but no provider has returned progress yet. Refresh in a moment if this does not update automatically.{% endif %}</span>
               </div>
             </div>
             {% endif %}

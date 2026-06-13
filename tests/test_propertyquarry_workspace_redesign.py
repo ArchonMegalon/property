@@ -761,7 +761,8 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
 
     assert "data-pqx-running-provider-state" in body
     assert "Provider checks" in body
-    assert "Checking {{ active_provider_lanes }} provider" in body
+    assert "Checking {{ active_provider_lanes }} source check" in body
+    assert "provider and target-area checks" in body
     assert "Waiting for the first provider response" in body
     assert "Refresh in a moment" in body
     assert "0 lanes in progress" not in body
