@@ -335,3 +335,147 @@ class PostgresPropertyDecisionLoopRepository:
             )
         return out
 
+    def export_teable_projection_rows(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 200,
+    ) -> dict[str, list[dict[str, object]]]:
+        principal = str(principal_id or "").strip()
+        if not principal:
+            return {
+                "propertyquarry_decision_ledger": [],
+                "propertyquarry_evidence_claims": [],
+                "propertyquarry_agent_questions": [],
+                "propertyquarry_documents": [],
+            }
+        n = max(1, min(int(limit or 200), 1000))
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT decision_id, principal_id, person_id, property_ref, decision_state,
+                           reason_keys_json, source, actor, confidence, supersedes_decision_id,
+                           learning_applied, aggregate_candidate, created_at
+                    FROM property_decision_ledger
+                    WHERE principal_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (principal, n),
+                )
+                decision_rows = [
+                    {
+                        "decision_id": str(row[0] or ""),
+                        "principal_id": str(row[1] or ""),
+                        "person_id": str(row[2] or ""),
+                        "property_ref": str(row[3] or ""),
+                        "decision_state": str(row[4] or ""),
+                        "reason_keys_json": list(row[5] or []),
+                        "source": str(row[6] or ""),
+                        "actor": str(row[7] or ""),
+                        "confidence": float(row[8] or 0.0),
+                        "supersedes_decision_id": str(row[9] or ""),
+                        "learning_applied": bool(row[10]),
+                        "aggregate_candidate": bool(row[11]),
+                        "created_at": _to_iso(row[12]),
+                    }
+                    for row in cur.fetchall()
+                ]
+                cur.execute(
+                    """
+                    SELECT claim_id, principal_id, person_id, property_ref, decision_id, claim_type,
+                           text, source_type, source_ref, confidence, verification_state, privacy_class,
+                           allowed_outputs_json, expires_at, created_at
+                    FROM property_evidence_claims
+                    WHERE principal_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (principal, n),
+                )
+                evidence_rows = [
+                    {
+                        "claim_id": str(row[0] or ""),
+                        "principal_id": str(row[1] or ""),
+                        "person_id": str(row[2] or ""),
+                        "property_ref": str(row[3] or ""),
+                        "decision_id": str(row[4] or ""),
+                        "claim_type": str(row[5] or ""),
+                        "text": str(row[6] or ""),
+                        "source_type": str(row[7] or ""),
+                        "source_ref": str(row[8] or ""),
+                        "confidence": str(row[9] or ""),
+                        "verification_state": str(row[10] or ""),
+                        "privacy_class": str(row[11] or ""),
+                        "allowed_outputs_json": list(row[12] or []),
+                        "expires_at": str(row[13] or ""),
+                        "created_at": _to_iso(row[14]),
+                    }
+                    for row in cur.fetchall()
+                ]
+                cur.execute(
+                    """
+                    SELECT task_id, principal_id, person_id, property_ref, decision_id, question_text,
+                           reason_key, source_claim_id, status, answer_source, updated_claim_id, created_at
+                    FROM property_agent_question_tasks
+                    WHERE principal_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (principal, n),
+                )
+                agent_question_rows = [
+                    {
+                        "task_id": str(row[0] or ""),
+                        "principal_id": str(row[1] or ""),
+                        "person_id": str(row[2] or ""),
+                        "property_ref": str(row[3] or ""),
+                        "decision_id": str(row[4] or ""),
+                        "question_text": str(row[5] or ""),
+                        "reason_key": str(row[6] or ""),
+                        "source_claim_id": str(row[7] or ""),
+                        "status": str(row[8] or ""),
+                        "answer_source": str(row[9] or ""),
+                        "updated_claim_id": str(row[10] or ""),
+                        "created_at": _to_iso(row[11]),
+                    }
+                    for row in cur.fetchall()
+                ]
+                cur.execute(
+                    """
+                    SELECT document_id, principal_id, person_id, property_ref, decision_id, document_type,
+                           source, privacy_class, verification_state, extracted_claims_json,
+                           missing_pages_json, redaction_state, linked_risks_json, created_at
+                    FROM property_documents
+                    WHERE principal_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (principal, n),
+                )
+                document_rows = [
+                    {
+                        "document_id": str(row[0] or ""),
+                        "principal_id": str(row[1] or ""),
+                        "person_id": str(row[2] or ""),
+                        "property_ref": str(row[3] or ""),
+                        "decision_id": str(row[4] or ""),
+                        "document_type": str(row[5] or ""),
+                        "source": str(row[6] or ""),
+                        "privacy_class": str(row[7] or ""),
+                        "verification_state": str(row[8] or ""),
+                        "extracted_claims_json": list(row[9] or []),
+                        "missing_pages_json": list(row[10] or []),
+                        "redaction_state": str(row[11] or ""),
+                        "linked_risks_json": list(row[12] or []),
+                        "created_at": _to_iso(row[13]),
+                    }
+                    for row in cur.fetchall()
+                ]
+        return {
+            "propertyquarry_decision_ledger": decision_rows,
+            "propertyquarry_evidence_claims": evidence_rows,
+            "propertyquarry_agent_questions": agent_question_rows,
+            "propertyquarry_documents": document_rows,
+        }

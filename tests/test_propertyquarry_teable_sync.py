@@ -165,6 +165,78 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
                 ],
             },
         ),
+        decision_loop_rows={
+            "propertyquarry_decision_ledger": [
+                {
+                    "decision_id": "decision-1",
+                    "principal_id": "pq-user-1",
+                    "person_id": "self",
+                    "property_ref": "property:abc",
+                    "decision_state": "needs_documents",
+                    "reason_keys_json": ["no_floorplan"],
+                    "source": "workbench",
+                    "actor": "owner",
+                    "confidence": 0.7,
+                    "supersedes_decision_id": "",
+                    "learning_applied": True,
+                    "aggregate_candidate": False,
+                    "created_at": "2026-06-13T08:00:00+00:00",
+                }
+            ],
+            "propertyquarry_evidence_claims": [
+                {
+                    "claim_id": "claim-1",
+                    "principal_id": "pq-user-1",
+                    "person_id": "self",
+                    "property_ref": "property:abc",
+                    "decision_id": "decision-1",
+                    "claim_type": "risk",
+                    "text": "Missing or unclear: no floorplan.",
+                    "source_type": "workbench",
+                    "source_ref": "decision-1",
+                    "confidence": "high",
+                    "verification_state": "missing",
+                    "privacy_class": "owner_private",
+                    "allowed_outputs_json": ["owner_private", "agent_share"],
+                    "expires_at": "",
+                    "created_at": "2026-06-13T08:00:01+00:00",
+                }
+            ],
+            "propertyquarry_agent_questions": [
+                {
+                    "task_id": "task-1",
+                    "principal_id": "pq-user-1",
+                    "person_id": "self",
+                    "property_ref": "property:abc",
+                    "decision_id": "decision-1",
+                    "question_text": "Please send the floorplan with readable room dimensions.",
+                    "reason_key": "no_floorplan",
+                    "source_claim_id": "claim-1",
+                    "status": "drafted",
+                    "answer_source": "",
+                    "updated_claim_id": "",
+                    "created_at": "2026-06-13T08:00:02+00:00",
+                }
+            ],
+            "propertyquarry_documents": [
+                {
+                    "document_id": "doc-1",
+                    "principal_id": "pq-user-1",
+                    "person_id": "self",
+                    "property_ref": "property:abc",
+                    "decision_id": "decision-1",
+                    "document_type": "floorplan",
+                    "source": "agent_request",
+                    "privacy_class": "owner_private",
+                    "verification_state": "missing",
+                    "extracted_claims_json": [],
+                    "missing_pages_json": [],
+                    "redaction_state": "not_started",
+                    "linked_risks_json": ["no_floorplan"],
+                    "created_at": "2026-06-13T08:00:03+00:00",
+                }
+            ],
+        },
     )
 
     assert records["propertyquarry_tenants"][0]["tenant_key"] == "propertyquarry"
@@ -213,6 +285,14 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert "internal_debug" not in artifact_dump
     assert "oauth_token" not in artifact_dump
     assert records["propertyquarry_research_tasks"][0]["field_key"] == "rooms"
+    assert records["propertyquarry_decision_ledger"][0]["decision_state"] == "needs_documents"
+    assert records["propertyquarry_decision_ledger"][0]["reason_keys_json"] == ["no_floorplan"]
+    assert records["propertyquarry_evidence_claims"][0]["claim_text"] == "Missing or unclear: no floorplan."
+    assert records["propertyquarry_evidence_claims"][0]["privacy_class"] == "owner_private"
+    assert records["propertyquarry_agent_questions"][0]["reason_key"] == "no_floorplan"
+    assert records["propertyquarry_agent_questions"][0]["question_text"].startswith("Please send the floorplan")
+    assert records["propertyquarry_documents"][0]["document_type"] == "floorplan"
+    assert records["propertyquarry_documents"][0]["linked_risks_json"] == ["no_floorplan"]
 
 
 def test_propertyquarry_teable_sync_preview_fails_closed_without_property_table_mapping(monkeypatch) -> None:

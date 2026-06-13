@@ -17,6 +17,10 @@ PROPERTYQUARRY_TEABLE_TABLE_NAMES = (
     "propertyquarry_property_evaluations",
     "propertyquarry_review_artifacts",
     "propertyquarry_research_tasks",
+    "propertyquarry_decision_ledger",
+    "propertyquarry_evidence_claims",
+    "propertyquarry_agent_questions",
+    "propertyquarry_documents",
 )
 
 
@@ -225,6 +229,80 @@ PROPERTYQUARRY_TEABLE_TABLE_FIELDS: dict[str, list[dict[str, object]]] = {
         {"name": "task_json", "type": "longText"},
         {"name": "last_projected_at", "type": "singleLineText"},
     ],
+    "propertyquarry_decision_ledger": [
+        {"name": "projection_id", "type": "singleLineText", "notNull": True, "unique": True},
+        {"name": "tenant_key", "type": "singleLineText"},
+        {"name": "principal_id", "type": "singleLineText"},
+        {"name": "person_id", "type": "singleLineText"},
+        {"name": "decision_id", "type": "singleLineText"},
+        {"name": "property_ref", "type": "singleLineText"},
+        {"name": "decision_state", "type": "singleLineText"},
+        {"name": "reason_keys_json", "type": "longText"},
+        {"name": "source", "type": "singleLineText"},
+        {"name": "actor", "type": "singleLineText"},
+        {"name": "confidence", "type": "number"},
+        {"name": "supersedes_decision_id", "type": "singleLineText"},
+        {"name": "learning_applied", "type": "checkbox"},
+        {"name": "aggregate_candidate", "type": "checkbox"},
+        {"name": "created_at", "type": "singleLineText"},
+        {"name": "last_projected_at", "type": "singleLineText"},
+    ],
+    "propertyquarry_evidence_claims": [
+        {"name": "projection_id", "type": "singleLineText", "notNull": True, "unique": True},
+        {"name": "tenant_key", "type": "singleLineText"},
+        {"name": "principal_id", "type": "singleLineText"},
+        {"name": "person_id", "type": "singleLineText"},
+        {"name": "claim_id", "type": "singleLineText"},
+        {"name": "property_ref", "type": "singleLineText"},
+        {"name": "decision_id", "type": "singleLineText"},
+        {"name": "claim_type", "type": "singleLineText"},
+        {"name": "claim_text", "type": "longText"},
+        {"name": "source_type", "type": "singleLineText"},
+        {"name": "source_ref", "type": "singleLineText"},
+        {"name": "confidence", "type": "singleLineText"},
+        {"name": "verification_state", "type": "singleLineText"},
+        {"name": "privacy_class", "type": "singleLineText"},
+        {"name": "allowed_outputs_json", "type": "longText"},
+        {"name": "expires_at", "type": "singleLineText"},
+        {"name": "created_at", "type": "singleLineText"},
+        {"name": "last_projected_at", "type": "singleLineText"},
+    ],
+    "propertyquarry_agent_questions": [
+        {"name": "projection_id", "type": "singleLineText", "notNull": True, "unique": True},
+        {"name": "tenant_key", "type": "singleLineText"},
+        {"name": "principal_id", "type": "singleLineText"},
+        {"name": "person_id", "type": "singleLineText"},
+        {"name": "task_id", "type": "singleLineText"},
+        {"name": "property_ref", "type": "singleLineText"},
+        {"name": "decision_id", "type": "singleLineText"},
+        {"name": "question_text", "type": "longText"},
+        {"name": "reason_key", "type": "singleLineText"},
+        {"name": "source_claim_id", "type": "singleLineText"},
+        {"name": "status", "type": "singleLineText"},
+        {"name": "answer_source", "type": "singleLineText"},
+        {"name": "updated_claim_id", "type": "singleLineText"},
+        {"name": "created_at", "type": "singleLineText"},
+        {"name": "last_projected_at", "type": "singleLineText"},
+    ],
+    "propertyquarry_documents": [
+        {"name": "projection_id", "type": "singleLineText", "notNull": True, "unique": True},
+        {"name": "tenant_key", "type": "singleLineText"},
+        {"name": "principal_id", "type": "singleLineText"},
+        {"name": "person_id", "type": "singleLineText"},
+        {"name": "document_id", "type": "singleLineText"},
+        {"name": "property_ref", "type": "singleLineText"},
+        {"name": "decision_id", "type": "singleLineText"},
+        {"name": "document_type", "type": "singleLineText"},
+        {"name": "source", "type": "singleLineText"},
+        {"name": "privacy_class", "type": "singleLineText"},
+        {"name": "verification_state", "type": "singleLineText"},
+        {"name": "extracted_claims_json", "type": "longText"},
+        {"name": "missing_pages_json", "type": "longText"},
+        {"name": "redaction_state", "type": "singleLineText"},
+        {"name": "linked_risks_json", "type": "longText"},
+        {"name": "created_at", "type": "singleLineText"},
+        {"name": "last_projected_at", "type": "singleLineText"},
+    ],
 }
 
 
@@ -421,6 +499,7 @@ def build_propertyquarry_teable_projection_records(
     principal_id: str,
     onboarding_status: dict[str, object] | None = None,
     search_runs: tuple[dict[str, object], ...] = (),
+    decision_loop_rows: dict[str, list[dict[str, object]]] | None = None,
     tenant_key: str = "",
     tenant_name: str = "",
 ) -> dict[str, list[dict[str, object]]]:
@@ -459,6 +538,10 @@ def build_propertyquarry_teable_projection_records(
     evaluation_rows: dict[str, dict[str, object]] = {}
     review_artifact_rows: dict[str, dict[str, object]] = {}
     research_task_rows: dict[str, dict[str, object]] = {}
+    decision_rows: dict[str, dict[str, object]] = {}
+    evidence_rows: dict[str, dict[str, object]] = {}
+    agent_question_rows: dict[str, dict[str, object]] = {}
+    document_rows: dict[str, dict[str, object]] = {}
 
     if normalized_principal:
         users[f"user:{normalized_tenant}:{normalized_principal}"] = {
@@ -723,6 +806,125 @@ def build_propertyquarry_teable_projection_records(
                 "last_projected_at": projected_at,
             }
 
+    decision_loop_payload = dict(decision_loop_rows or {})
+    for row in list(decision_loop_payload.get("propertyquarry_decision_ledger") or []):
+        if not isinstance(row, dict):
+            continue
+        decision_id = _text(row.get("decision_id"), limit=240)
+        if not decision_id:
+            continue
+        row_principal = _text(row.get("principal_id") or normalized_principal, limit=240)
+        if normalized_principal and row_principal != normalized_principal:
+            continue
+        projection_id = f"decision:{normalized_tenant}:{row_principal}:{decision_id}"
+        decision_rows[projection_id] = {
+            "projection_id": projection_id,
+            "tenant_key": normalized_tenant,
+            "principal_id": row_principal,
+            "person_id": _text(row.get("person_id") or "self", limit=120),
+            "decision_id": decision_id,
+            "property_ref": _text(row.get("property_ref"), limit=500),
+            "decision_state": _text(row.get("decision_state"), limit=80),
+            "reason_keys_json": list(row.get("reason_keys_json") or row.get("reason_keys") or []),
+            "source": _text(row.get("source"), limit=80),
+            "actor": _text(row.get("actor"), limit=120),
+            "confidence": _number(row.get("confidence")),
+            "supersedes_decision_id": _text(row.get("supersedes_decision_id"), limit=240),
+            "learning_applied": bool(row.get("learning_applied")),
+            "aggregate_candidate": bool(row.get("aggregate_candidate")),
+            "created_at": _text(row.get("created_at"), limit=120),
+            "last_projected_at": projected_at,
+        }
+
+    for row in list(decision_loop_payload.get("propertyquarry_evidence_claims") or []):
+        if not isinstance(row, dict):
+            continue
+        claim_id = _text(row.get("claim_id"), limit=240)
+        if not claim_id:
+            continue
+        row_principal = _text(row.get("principal_id") or normalized_principal, limit=240)
+        if normalized_principal and row_principal != normalized_principal:
+            continue
+        projection_id = f"evidence_claim:{normalized_tenant}:{row_principal}:{claim_id}"
+        evidence_rows[projection_id] = {
+            "projection_id": projection_id,
+            "tenant_key": normalized_tenant,
+            "principal_id": row_principal,
+            "person_id": _text(row.get("person_id") or "self", limit=120),
+            "claim_id": claim_id,
+            "property_ref": _text(row.get("property_ref"), limit=500),
+            "decision_id": _text(row.get("decision_id"), limit=240),
+            "claim_type": _text(row.get("claim_type"), limit=80),
+            "claim_text": _text(row.get("text") or row.get("claim_text"), limit=1200),
+            "source_type": _text(row.get("source_type"), limit=120),
+            "source_ref": _text(row.get("source_ref"), limit=240),
+            "confidence": _text(row.get("confidence"), limit=40),
+            "verification_state": _text(row.get("verification_state"), limit=80),
+            "privacy_class": _text(row.get("privacy_class"), limit=80),
+            "allowed_outputs_json": list(row.get("allowed_outputs_json") or row.get("allowed_outputs") or []),
+            "expires_at": _text(row.get("expires_at"), limit=120),
+            "created_at": _text(row.get("created_at"), limit=120),
+            "last_projected_at": projected_at,
+        }
+
+    for row in list(decision_loop_payload.get("propertyquarry_agent_questions") or []):
+        if not isinstance(row, dict):
+            continue
+        task_id = _text(row.get("task_id"), limit=240)
+        if not task_id:
+            continue
+        row_principal = _text(row.get("principal_id") or normalized_principal, limit=240)
+        if normalized_principal and row_principal != normalized_principal:
+            continue
+        projection_id = f"agent_question:{normalized_tenant}:{row_principal}:{task_id}"
+        agent_question_rows[projection_id] = {
+            "projection_id": projection_id,
+            "tenant_key": normalized_tenant,
+            "principal_id": row_principal,
+            "person_id": _text(row.get("person_id") or "self", limit=120),
+            "task_id": task_id,
+            "property_ref": _text(row.get("property_ref"), limit=500),
+            "decision_id": _text(row.get("decision_id"), limit=240),
+            "question_text": _text(row.get("question_text"), limit=1200),
+            "reason_key": _text(row.get("reason_key"), limit=120),
+            "source_claim_id": _text(row.get("source_claim_id"), limit=240),
+            "status": _text(row.get("status"), limit=80),
+            "answer_source": _text(row.get("answer_source"), limit=120),
+            "updated_claim_id": _text(row.get("updated_claim_id"), limit=240),
+            "created_at": _text(row.get("created_at"), limit=120),
+            "last_projected_at": projected_at,
+        }
+
+    for row in list(decision_loop_payload.get("propertyquarry_documents") or []):
+        if not isinstance(row, dict):
+            continue
+        document_id = _text(row.get("document_id"), limit=240)
+        if not document_id:
+            continue
+        row_principal = _text(row.get("principal_id") or normalized_principal, limit=240)
+        if normalized_principal and row_principal != normalized_principal:
+            continue
+        projection_id = f"document:{normalized_tenant}:{row_principal}:{document_id}"
+        document_rows[projection_id] = {
+            "projection_id": projection_id,
+            "tenant_key": normalized_tenant,
+            "principal_id": row_principal,
+            "person_id": _text(row.get("person_id") or "self", limit=120),
+            "document_id": document_id,
+            "property_ref": _text(row.get("property_ref"), limit=500),
+            "decision_id": _text(row.get("decision_id"), limit=240),
+            "document_type": _text(row.get("document_type"), limit=120),
+            "source": _text(row.get("source"), limit=120),
+            "privacy_class": _text(row.get("privacy_class"), limit=80),
+            "verification_state": _text(row.get("verification_state"), limit=80),
+            "extracted_claims_json": list(row.get("extracted_claims_json") or row.get("extracted_claims") or []),
+            "missing_pages_json": list(row.get("missing_pages_json") or row.get("missing_pages") or []),
+            "redaction_state": _text(row.get("redaction_state"), limit=80),
+            "linked_risks_json": list(row.get("linked_risks_json") or row.get("linked_risks") or []),
+            "created_at": _text(row.get("created_at"), limit=120),
+            "last_projected_at": projected_at,
+        }
+
     return {
         "propertyquarry_tenants": _table_rows(tenants),
         "propertyquarry_users": _table_rows(users),
@@ -734,6 +936,10 @@ def build_propertyquarry_teable_projection_records(
         "propertyquarry_property_evaluations": _table_rows(evaluation_rows),
         "propertyquarry_review_artifacts": _table_rows(review_artifact_rows),
         "propertyquarry_research_tasks": _table_rows(research_task_rows),
+        "propertyquarry_decision_ledger": _table_rows(decision_rows),
+        "propertyquarry_evidence_claims": _table_rows(evidence_rows),
+        "propertyquarry_agent_questions": _table_rows(agent_question_rows),
+        "propertyquarry_documents": _table_rows(document_rows),
     }
 
 

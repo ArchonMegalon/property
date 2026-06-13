@@ -16801,10 +16801,23 @@ class ProductService:
                     run_id=run_record_id,
                 ) if run_record_id else None
                 runs.append(dict(snapshot or record))
+        decision_loop_rows: dict[str, list[dict[str, object]]] = {}
+        database_url = _property_search_run_database_url()
+        if normalized_principal and database_url:
+            try:
+                from app.repositories.property_decision_loop_postgres import PostgresPropertyDecisionLoopRepository
+
+                decision_loop_rows = PostgresPropertyDecisionLoopRepository(database_url).export_teable_projection_rows(
+                    principal_id=normalized_principal,
+                    limit=max(int(limit or 20), 20),
+                )
+            except Exception:
+                decision_loop_rows = {}
         return build_propertyquarry_teable_projection_records(
             principal_id=normalized_principal,
             onboarding_status=dict(onboarding_status or {}),
             search_runs=tuple(runs),
+            decision_loop_rows=decision_loop_rows,
         )
 
     def propertyquarry_teable_projection_summary(
