@@ -52,7 +52,7 @@ except Exception:  # pragma: no cover - optional OCR fallback
 from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, IntentSpecV3, Stakeholder, TaskExecutionRequest, ToolInvocationRequest
 from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
 from app.services.property_billing import enforce_property_plan_limits, property_commercial_snapshot
-from app.services.property_decision_loop import build_property_decision_loop_snapshot
+from app.services.property_decision_loop import PropertyDecisionLoopSnapshot, build_property_decision_loop_snapshot
 from app.services.property_media_factory import MediaRequirement, route_property_media_task
 from app.product.extractors import extract_commitment_candidates
 from app.product.models import (
@@ -16451,6 +16451,11 @@ class ProductService:
             learning_applied=True,
             aggregate_candidate=normalized_reaction in {"dislike", "hide"},
         )
+        decision_persistence = self._persist_property_decision_loop(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+            snapshot=decision_loop,
+        )
         return {
             "status": "recorded",
             "reaction": normalized_reaction,
@@ -16467,7 +16472,29 @@ class ProductService:
             "agent_question_tasks": [task.model_dump() for task in decision_loop.agent_question_tasks],
             "document_intake": [document.model_dump() for document in decision_loop.document_records],
             "suppression_explanation": list(decision_loop.suppression_explanation),
+            "decision_persistence": decision_persistence,
         }
+
+    def _persist_property_decision_loop(
+        self,
+        *,
+        principal_id: str,
+        person_id: str,
+        snapshot: PropertyDecisionLoopSnapshot,
+    ) -> dict[str, object]:
+        database_url = _property_search_run_database_url()
+        if not database_url:
+            return {"persisted": False, "reason": "database_url_missing"}
+        try:
+            from app.repositories.property_decision_loop_postgres import PostgresPropertyDecisionLoopRepository
+
+            return PostgresPropertyDecisionLoopRepository(database_url).persist_snapshot(
+                principal_id=principal_id,
+                person_id=person_id,
+                snapshot=snapshot,
+            )
+        except Exception as exc:
+            return {"persisted": False, "reason": "decision_loop_persistence_failed", "detail": str(exc)[:240]}
 
     def property_decision_copilot(
         self,

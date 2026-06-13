@@ -1420,6 +1420,7 @@ class PropertyFeedbackRecordOut(BaseModel):
     agent_question_tasks: list[dict[str, object]] = Field(default_factory=list)
     document_intake: list[dict[str, object]] = Field(default_factory=list)
     suppression_explanation: list[str] = Field(default_factory=list)
+    decision_persistence: dict[str, object] = Field(default_factory=dict)
     structured_feedback_status: str = "not_attempted"
     structured_feedback_errors: list[str] = Field(default_factory=list)
 

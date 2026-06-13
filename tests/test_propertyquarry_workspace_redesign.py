@@ -270,6 +270,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
                             "high_fit_total": 2,
                             "tour_created_total": 1,
                             "notified_total": 1,
+                            "filtered_low_fit_total": 3,
                             "filtered_floorplan_total": 1,
                             "location_mismatch_candidate_total": 2,
                             "location_mismatch_reason": "provider_returned_candidates_outside_selected_location",
@@ -526,6 +527,11 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Outside-area results suppressed" in search.text
     assert "Provider filters needed cleanup" in search.text
     assert "Floorplan gate" in search.text
+    assert "Held back by rules" in search.text
+    assert "Missing floorplan" in search.text
+    assert "Below fit threshold" in search.text
+    assert "Outside selected area" in search.text
+    assert "Alert budget" in search.text
     assert "Floorplans medium" in search.text
     assert "Filters partial" in search.text
     assert "Verified 2026-06-13" in search.text

@@ -39,6 +39,22 @@
 </section>
 {% endif %}
 {%- endmacro %}
+{% macro suppression_panel(rows) -%}
+{% if rows %}
+<details class="pqx-card pqx-suppression-panel" data-pqx-suppression-summary>
+  <summary><strong>Held back by rules</strong><span class="pqx-note">What did not reach the shortlist and what to relax deliberately.</span></summary>
+  <div class="pqx-suppression-grid">
+    {% for row in rows %}
+    <article class="pqx-suppression-item">
+      <strong>{{ row.get('title') }}</strong>
+      <span class="pqx-note">{{ row.get('detail') }}</span>
+      <span class="pqx-small">{{ row.get('tag') }}</span>
+    </article>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+{%- endmacro %}
 {% macro research_queue_panel(tasks, run_id, counts) -%}
 {% if tasks %}
 <section class="pqx-research-queue" data-pqx-research-queue data-run-id="{{ run_id }}">
@@ -1040,6 +1056,28 @@
       font-size: 13px;
       line-height: 1.25;
     }
+    .pqx-suppression-panel {
+      margin-bottom: 14px;
+    }
+    .pqx-suppression-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .pqx-suppression-item {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: #fffefa;
+    }
+    .pqx-suppression-item strong {
+      color: var(--pq-ink);
+      font-size: 13px;
+      line-height: 1.25;
+    }
     .pqx-table-wrap {
       width: 100%;
       overflow-x: auto;
@@ -1485,6 +1523,7 @@
       .pqx-fact-grid,
       .pqx-source-grid,
       .pqx-guard-grid,
+      .pqx-suppression-grid,
       .pqx-ooda-grid,
       .pqx-pref-form-grid,
       .pqx-research-task-form,
@@ -2017,6 +2056,7 @@
             <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
           </div>
           {{ search_guard_panel(workbench.get('search_guard_rows') or []) }}
+          {{ suppression_panel(workbench.get('suppression_rows') or []) }}
           {% set ranked_candidates = run_summary.get('ranked_candidates') or [] %}
           {% if ranked_candidates %}
           <div class="pqx-table-wrap" data-pqx-ranked-candidates>
@@ -2438,6 +2478,7 @@
           </div>
           {{ research_queue_panel(research_tasks, run.get('run_id') or '', research_task_counts) }}
           {{ search_guard_panel(workbench.get('search_guard_rows') or []) }}
+          {{ suppression_panel(workbench.get('suppression_rows') or []) }}
           {% set notification_budget = run_summary.get('notification_budget') or {} %}
           <details class="pqx-card" data-pqx-notification-audit>
             <summary><strong>Alert delivery</strong><span class="pqx-note">Shows how ranking and message limits affected what was sent.</span></summary>

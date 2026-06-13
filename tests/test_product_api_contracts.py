@@ -9124,6 +9124,7 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     assert any(item["reason_key"] == "gas_heating" for item in feedback_body["agent_question_tasks"])
     assert any(item["document_type"] == "energy_certificate" for item in feedback_body["document_intake"])
     assert any("down-rank similar listings" in item for item in feedback_body["suppression_explanation"])
+    assert "persisted" in feedback_body["decision_persistence"]
     timeline = client.get(
         "/app/api/properties/https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1180-waehring/waehring-flat-1/timeline"
     )

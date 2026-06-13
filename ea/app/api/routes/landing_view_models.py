@@ -327,6 +327,73 @@ def _property_search_guard_rows(
     return rows[:5]
 
 
+def _property_suppression_rows(
+    *,
+    run_summary: dict[str, object],
+    source_rows: list[dict[str, object]],
+) -> list[dict[str, str]]:
+    counters = {
+        "Outside selected area": 0,
+        "Missing floorplan": 0,
+        "Below fit threshold": 0,
+        "Wrong property type": 0,
+        "Outside area/size rule": 0,
+        "Availability mismatch": 0,
+        "Duplicate listing": 0,
+        "Alert budget": 0,
+    }
+    source_labels: dict[str, set[str]] = {key: set() for key in counters}
+    field_map = (
+        ("Outside selected area", "location_mismatch_candidate_total"),
+        ("Missing floorplan", "filtered_floorplan_total"),
+        ("Below fit threshold", "filtered_low_fit_total"),
+        ("Wrong property type", "filtered_property_type_total"),
+        ("Outside area/size rule", "filtered_area_total"),
+        ("Availability mismatch", "filtered_availability_total"),
+        ("Duplicate listing", "duplicate_listing_total"),
+        ("Alert budget", "notification_budget_suppressed_total"),
+    )
+    for source in source_rows:
+        source_label = str(source.get("source_label") or source.get("platform") or "Provider").strip() or "Provider"
+        for label, field_name in field_map:
+            try:
+                value = max(int(float(source.get(field_name) or 0)), 0)
+            except Exception:
+                value = 0
+            if value:
+                counters[label] += value
+                source_labels[label].add(source_label)
+    try:
+        summary_budget = max(int(float(run_summary.get("notification_budget_suppressed_total") or 0)), 0)
+    except Exception:
+        summary_budget = 0
+    if summary_budget > counters["Alert budget"]:
+        counters["Alert budget"] = summary_budget
+    action_map = {
+        "Outside selected area": "Keep suppressed unless you widen the target area.",
+        "Missing floorplan": "Recover floorplans first; relax only if layout proof is not required.",
+        "Below fit threshold": "Lower the fit threshold only for a broader discovery run.",
+        "Wrong property type": "Change property category if these should be included.",
+        "Outside area/size rule": "Relax area limits only after reviewing the near-miss table.",
+        "Availability mismatch": "Adjust timing if move-in date is flexible.",
+        "Duplicate listing": "No action needed; duplicates stay collapsed.",
+        "Alert budget": "Increase daily/weekly message limits or review the held-back table.",
+    }
+    rows: list[dict[str, str]] = []
+    for label, total in counters.items():
+        if total <= 0:
+            continue
+        providers = ", ".join(sorted(source_labels[label])[:3])
+        rows.append(
+            {
+                "title": label,
+                "detail": f"{total} candidate{' was' if total == 1 else 's were'} held back. {action_map[label]}",
+                "tag": providers or "Search rule",
+            }
+        )
+    return rows[:8]
+
+
 def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]:
     neuronwriter_statuses: list[str] = []
     for key in (
@@ -3219,6 +3286,10 @@ def property_workspace_payload(
         run_summary=run_summary,
         source_rows=run_sources,
     )
+    suppression_rows = _property_suppression_rows(
+        run_summary=run_summary,
+        source_rows=run_sources,
+    )
     delivery_proof_rows = _delivery_proof_rows(run_summary)
     artifact_receipt_rows = _artifact_receipt_rows(run_summary)
     selected_candidate_ref = str(property_state.get("selected_candidate_ref") or "").strip()
@@ -4523,6 +4594,7 @@ def property_workspace_payload(
         ],
         "results": workbench_results,
         "search_guard_rows": search_guard_rows,
+        "suppression_rows": suppression_rows,
         "provider_quality_rows": provider_quality_rows,
         "delivery_proof_rows": delivery_proof_rows,
         "artifact_receipt_rows": artifact_receipt_rows,
