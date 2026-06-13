@@ -35,7 +35,9 @@ from app.services.property_market_catalog import (
     normalize_country_code,
     normalize_language_code,
     normalize_listing_mode,
+    normalize_property_platform,
     normalize_property_type,
+    provider_options,
 )
 from app.services.provider_registry import ProviderRegistryService
 from app.services.telegram_delivery import _telegram_binding_principal_candidates
@@ -192,6 +194,49 @@ class OnboardingService(AssistantOnboardingService):
         )
         return self.status(principal_id=principal_id, state_override=saved)
 
+    @staticmethod
+    def _merge_current_property_search_agent(
+        *,
+        existing_preferences: dict[str, object],
+        normalized_preferences: dict[str, object],
+    ) -> dict[str, object]:
+        existing_agents = OnboardingService._normalize_property_search_agents(
+            existing_preferences,
+            active_agent_id=str(existing_preferences.get("active_search_agent_id") or "").strip(),
+            enforce_plan_limit=False,
+        )
+        current_agent = OnboardingService._normalize_property_search_agent(
+            normalized_preferences,
+            fallback=normalized_preferences,
+        )
+        active_agent_id = str(normalized_preferences.get("active_search_agent_id") or "").strip()
+        if not active_agent_id:
+            active_agent_id = str(existing_preferences.get("active_search_agent_id") or "").strip()
+        if active_agent_id:
+            current_agent["agent_id"] = active_agent_id
+        current_agent["is_active"] = True
+        merged: list[dict[str, object]] = []
+        replaced = False
+        for agent in existing_agents:
+            if str(agent.get("agent_id") or "") == str(current_agent.get("agent_id") or ""):
+                merged.append(current_agent)
+                replaced = True
+            else:
+                agent["is_active"] = False
+                merged.append(agent)
+        if not replaced:
+            merged.append(current_agent)
+        normalized_preferences["search_agents"] = OnboardingService._normalize_property_search_agents(
+            {
+                **normalized_preferences,
+                "search_agents": merged,
+            },
+            active_agent_id=str(current_agent.get("agent_id") or ""),
+            enforce_plan_limit=False,
+        )
+        normalized_preferences["active_search_agent_id"] = str(current_agent.get("agent_id") or "")
+        return normalized_preferences
+
     def _registration_principal_alias(self, principal_id: str) -> str:
         normalized = str(principal_id or "").strip().lower()
         prefix = "cf-email:"
@@ -255,6 +300,12 @@ class OnboardingService(AssistantOnboardingService):
         if not incoming_has_explicit_commercial and not incoming_raw_commercial and existing_raw_commercial:
             raw_preferences["property_commercial"] = existing_raw_commercial
             normalized_preferences["raw_preferences"] = raw_preferences
+        existing_has_saved_agents = isinstance(existing_preferences.get("search_agents"), (list, tuple)) and bool(existing_preferences.get("search_agents"))
+        if existing_has_saved_agents and not isinstance(raw_incoming_preferences.get("search_agents"), (list, tuple)):
+            normalized_preferences = self._merge_current_property_search_agent(
+                existing_preferences=existing_preferences,
+                normalized_preferences=normalized_preferences,
+            )
         saved = self._repo.upsert_state(
             principal_id=state.principal_id,
             onboarding_id=state.onboarding_id,
@@ -1472,12 +1523,21 @@ class OnboardingService(AssistantOnboardingService):
             **promoted_flags,
         }
         normalized_preferences["active_search_agent_id"] = str(raw.get("active_search_agent_id") or "").strip()
-        normalized_preferences["search_agents"] = OnboardingService._normalize_property_search_agents(
-            {**raw, **normalized_preferences},
-            active_agent_id=str(normalized_preferences.get("active_search_agent_id") or "").strip(),
-        )
-        if normalized_preferences["search_agents"] and not normalized_preferences["active_search_agent_id"]:
-            normalized_preferences["active_search_agent_id"] = str(normalized_preferences["search_agents"][0].get("agent_id") or "")
+        explicit_agents = isinstance(raw.get("search_agents"), (list, tuple))
+        if explicit_agents:
+            normalized_preferences["search_agents"] = OnboardingService._normalize_property_search_agents(
+                {**raw, **normalized_preferences},
+                active_agent_id=str(normalized_preferences.get("active_search_agent_id") or "").strip(),
+            )
+            if normalized_preferences["search_agents"] and not normalized_preferences["active_search_agent_id"]:
+                normalized_preferences["active_search_agent_id"] = str(normalized_preferences["search_agents"][0].get("agent_id") or "")
+        else:
+            normalized_preferences["search_agents"] = OnboardingService._normalize_property_search_agents(
+                normalized_preferences,
+                active_agent_id=str(normalized_preferences.get("active_search_agent_id") or "").strip(),
+            )
+            if normalized_preferences["search_agents"] and not normalized_preferences["active_search_agent_id"]:
+                normalized_preferences["active_search_agent_id"] = str(normalized_preferences["search_agents"][0].get("agent_id") or "")
         return normalized_preferences
 
     @staticmethod
@@ -1485,6 +1545,7 @@ class OnboardingService(AssistantOnboardingService):
         preferences: dict[str, object] | None,
         *,
         active_agent_id: str = "",
+        enforce_plan_limit: bool = True,
     ) -> list[dict[str, object]]:
         payload = dict(preferences or {})
         raw_agents = payload.get("search_agents")
@@ -1496,7 +1557,7 @@ class OnboardingService(AssistantOnboardingService):
                 agents.append(OnboardingService._normalize_property_search_agent(raw_agent, fallback=payload))
         if not agents:
             agents.append(OnboardingService._normalize_property_search_agent(payload, fallback=payload))
-        agent_limit = OnboardingService._property_search_agent_limit(payload)
+        agent_limit = OnboardingService._property_search_agent_limit(payload) if enforce_plan_limit else 0
         seen: set[str] = set()
         deduped: list[dict[str, object]] = []
         for agent in agents:
@@ -1550,10 +1611,15 @@ class OnboardingService(AssistantOnboardingService):
         except Exception:
             notification_limit = 5
         raw_selected_platforms = raw.get("selected_platforms") if isinstance(raw.get("selected_platforms"), (list, tuple, set)) else base.get("selected_platforms")
+        allowed_platforms = {
+            str(option.get("value") or "").strip().lower()
+            for option in provider_options(country_code=country_code)
+            if str(option.get("value") or "").strip()
+        }
         selected_platforms = [
-            item
-            for item in dict.fromkeys(str(item or "").strip().lower() for item in list(raw_selected_platforms or []))
-            if item
+            normalized
+            for normalized in dict.fromkeys(normalize_property_platform(item) for item in list(raw_selected_platforms or []))
+            if normalized and (not allowed_platforms or normalized in allowed_platforms)
         ]
         enabled = raw.get("enabled")
         if enabled is None:

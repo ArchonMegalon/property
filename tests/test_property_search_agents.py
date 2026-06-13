@@ -197,6 +197,108 @@ def test_property_search_agent_loads_saved_filters_into_current_preferences() ->
     assert preferences["search_agent_notification_period"] == "week"
 
 
+def test_property_search_preference_save_preserves_other_agents_and_sanitizes_provider_country() -> None:
+    client = build_property_client(principal_id="exec-property-search-agent-preserve")
+    start_workspace(client, mode="personal", workspace_name="Property office")
+
+    created = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "1020 Vienna",
+            "selected_platforms": ["willhaben", "encuentra24_cr"],
+            "search_agent_enabled": True,
+            "search_agent_duration_days": 56,
+            "search_agent_notification_limit": 5,
+            "search_agent_notification_period": "day",
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+    )
+    assert created.status_code == 200, created.text
+    first_agent_id = created.json()["property_search_preferences"]["active_search_agent_id"]
+    assert len(created.json()["property_search_preferences"]["search_agents"]) == 1
+    assert created.json()["property_search_preferences"]["search_agents"][0]["selected_platforms"] == ["willhaben"]
+
+    duplicated = client.post(f"/v1/onboarding/property-search/agents/{first_agent_id}", json={"action": "duplicate"})
+    assert duplicated.status_code == 200, duplicated.text
+    second_agent_id = next(
+        agent["agent_id"]
+        for agent in duplicated.json()["property_search_preferences"]["search_agents"]
+        if agent["agent_id"] != first_agent_id
+    )
+    saved_second = client.post(
+        f"/v1/onboarding/property-search/agents/{second_agent_id}",
+        json={
+            "action": "save",
+            "patch": {
+                "name": "Monteverde buy watch",
+                "country_code": "CR",
+                "region_code": "puntarenas",
+                "location_query": "Monteverde",
+                "listing_mode": "buy",
+                "property_type": "house",
+                "selected_platforms": ["re_cr_mls", "willhaben"],
+                "preferences_json": {
+                    "country_code": "CR",
+                    "region_code": "puntarenas",
+                    "location_query": "Monteverde",
+                    "listing_mode": "buy",
+                    "property_type": "house",
+                    "selected_platforms": ["re_cr_mls", "willhaben"],
+                    "search_agent_enabled": True,
+                    "search_agent_duration_days": 365,
+                    "search_agent_notification_limit": 7,
+                    "search_agent_notification_period": "week",
+                },
+            },
+        },
+    )
+    assert saved_second.status_code == 200, saved_second.text
+
+    saved_current = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "1040 Vienna",
+            "selected_platforms": ["willhaben", "encuentra24_cr"],
+            "active_search_agent_id": first_agent_id,
+            "search_agent_enabled": True,
+            "search_agent_duration_days": 90,
+            "search_agent_notification_limit": 4,
+            "search_agent_notification_period": "day",
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+    )
+    assert saved_current.status_code == 200, saved_current.text
+    preferences = saved_current.json()["property_search_preferences"]
+    assert preferences["active_search_agent_id"] == first_agent_id
+    assert len(preferences["search_agents"]) == 2
+    vienna_agent = next(agent for agent in preferences["search_agents"] if agent["agent_id"] == first_agent_id)
+    monteverde_agent = next(agent for agent in preferences["search_agents"] if agent["agent_id"] == second_agent_id)
+    assert vienna_agent["location_query"] == "1040 Vienna"
+    assert vienna_agent["selected_platforms"] == ["willhaben"]
+    assert vienna_agent["preferences_json"]["selected_platforms"] == ["willhaben"]
+    assert monteverde_agent["location_query"] == "Monteverde"
+    assert monteverde_agent["selected_platforms"] == ["re_cr_mls"]
+    assert monteverde_agent["preferences_json"]["selected_platforms"] == ["re_cr_mls"]
+
+
 def test_property_search_agent_update_rejects_unknown_agent() -> None:
     client = build_property_client(principal_id="exec-property-search-agent-missing")
     start_workspace(client, mode="personal", workspace_name="Property office")
