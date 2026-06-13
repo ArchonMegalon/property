@@ -11,6 +11,7 @@ PROPERTYQUARRY_TEABLE_TABLE_NAMES = (
     "propertyquarry_users",
     "propertyquarry_subscriptions",
     "propertyquarry_preferences",
+    "propertyquarry_search_agents",
     "propertyquarry_search_runs",
     "propertyquarry_provider_sources",
     "propertyquarry_properties",
@@ -86,6 +87,29 @@ PROPERTYQUARRY_TEABLE_TABLE_FIELDS: dict[str, list[dict[str, object]]] = {
         {"name": "max_results_per_source", "type": "number"},
         {"name": "use_stored_feedback_preferences", "type": "checkbox"},
         {"name": "alert_frequency", "type": "singleLineText"},
+        {"name": "preferences_json", "type": "longText"},
+        {"name": "last_projected_at", "type": "singleLineText"},
+    ],
+    "propertyquarry_search_agents": [
+        {"name": "projection_id", "type": "singleLineText", "notNull": True, "unique": True},
+        {"name": "tenant_key", "type": "singleLineText"},
+        {"name": "principal_id", "type": "singleLineText"},
+        {"name": "agent_id", "type": "singleLineText"},
+        {"name": "name", "type": "singleLineText"},
+        {"name": "enabled", "type": "checkbox"},
+        {"name": "is_active", "type": "checkbox"},
+        {"name": "country_code", "type": "singleLineText"},
+        {"name": "region_code", "type": "singleLineText"},
+        {"name": "location_query", "type": "singleLineText"},
+        {"name": "listing_mode", "type": "singleLineText"},
+        {"name": "property_type", "type": "singleLineText"},
+        {"name": "selected_platforms_json", "type": "longText"},
+        {"name": "duration_days", "type": "number"},
+        {"name": "notification_limit", "type": "number"},
+        {"name": "notification_period", "type": "singleLineText"},
+        {"name": "sent_in_current_window", "type": "number"},
+        {"name": "last_run_at", "type": "singleLineText"},
+        {"name": "next_run_at", "type": "singleLineText"},
         {"name": "preferences_json", "type": "longText"},
         {"name": "last_projected_at", "type": "singleLineText"},
     ],
@@ -532,6 +556,7 @@ def build_propertyquarry_teable_projection_records(
     users: dict[str, dict[str, object]] = {}
     subscriptions: dict[str, dict[str, object]] = {}
     preference_rows: dict[str, dict[str, object]] = {}
+    search_agent_rows: dict[str, dict[str, object]] = {}
     search_run_rows: dict[str, dict[str, object]] = {}
     provider_source_rows: dict[str, dict[str, object]] = {}
     property_rows: dict[str, dict[str, object]] = {}
@@ -599,6 +624,53 @@ def build_propertyquarry_teable_projection_records(
             "preferences_json": safe_preferences,
             "last_projected_at": projected_at,
         }
+        active_agent_id = _text(effective_preferences.get("active_search_agent_id"), limit=180)
+        for agent in list(effective_preferences.get("search_agents") or []):
+            if not isinstance(agent, dict):
+                continue
+            agent_id = _text(agent.get("agent_id") or agent.get("id"), limit=180)
+            if not agent_id:
+                continue
+            agent_preferences = (
+                dict(agent.get("preferences_json") or {})
+                if isinstance(agent.get("preferences_json"), dict)
+                else {}
+            )
+            safe_agent_preferences = _safe_teable_preferences(agent_preferences)
+            selected_platforms = agent.get("selected_platforms")
+            if not selected_platforms:
+                selected_platforms = agent_preferences.get("selected_platforms")
+            projection_id = f"search_agent:{normalized_tenant}:{normalized_principal}:{agent_id}"
+            search_agent_rows[projection_id] = {
+                "projection_id": projection_id,
+                "tenant_key": normalized_tenant,
+                "principal_id": normalized_principal,
+                "agent_id": agent_id,
+                "name": _text(agent.get("name") or agent_preferences.get("name") or "Saved search", limit=200),
+                "enabled": bool(agent.get("enabled", True)),
+                "is_active": bool(agent.get("is_active")) or bool(active_agent_id and agent_id == active_agent_id),
+                "country_code": _text(agent.get("country_code") or agent_preferences.get("country_code"), limit=20),
+                "region_code": _text(agent.get("region_code") or agent_preferences.get("region_code"), limit=80),
+                "location_query": _text(agent.get("location_query") or agent_preferences.get("location_query"), limit=240),
+                "listing_mode": _text(agent.get("listing_mode") or agent_preferences.get("listing_mode"), limit=40),
+                "property_type": _text(agent.get("property_type") or agent_preferences.get("property_type"), limit=80),
+                "selected_platforms_json": list(selected_platforms or []),
+                "duration_days": _number(agent.get("duration_days") or agent_preferences.get("search_agent_duration_days")),
+                "notification_limit": _number(
+                    agent.get("notification_limit")
+                    or agent.get("max_notifications")
+                    or agent_preferences.get("search_agent_notification_limit")
+                ),
+                "notification_period": _text(
+                    agent.get("notification_period") or agent_preferences.get("search_agent_notification_period"),
+                    limit=40,
+                ),
+                "sent_in_current_window": _number(agent.get("sent_in_current_window")),
+                "last_run_at": _text(agent.get("last_run_at"), limit=120),
+                "next_run_at": _text(agent.get("next_run_at"), limit=120),
+                "preferences_json": safe_agent_preferences,
+                "last_projected_at": projected_at,
+            }
 
     for run in search_runs:
         if not isinstance(run, dict):
@@ -930,6 +1002,7 @@ def build_propertyquarry_teable_projection_records(
         "propertyquarry_users": _table_rows(users),
         "propertyquarry_subscriptions": _table_rows(subscriptions),
         "propertyquarry_preferences": _table_rows(preference_rows),
+        "propertyquarry_search_agents": _table_rows(search_agent_rows),
         "propertyquarry_search_runs": _table_rows(search_run_rows),
         "propertyquarry_provider_sources": _table_rows(provider_source_rows),
         "propertyquarry_properties": _table_rows(property_rows),

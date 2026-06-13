@@ -31,6 +31,7 @@ PROPERTY_APP_NAV_GROUPS = (
             {"href": "/app/properties/packets", "label": "Packets", "key": "packets"},
             {"href": "/app/profile", "label": "Profile", "key": "profile"},
             {"href": "/app/alerts", "label": "Alerts", "key": "alerts"},
+            {"href": "/app/agents", "label": "Search agents", "key": "agents"},
             {"href": "/app/billing", "label": "Billing", "key": "billing"},
             {"href": "/app/settings", "label": "Settings", "key": "settings"},
         ),

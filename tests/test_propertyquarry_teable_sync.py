@@ -253,6 +253,17 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert projected_preferences["active_search_agent_id"] == "agent-cr"
     assert projected_preferences["search_agents"][0]["preferences_json"]["location_query"] == "Monteverde"
     assert projected_preferences["search_agents"][0]["preferences_json"]["property_type"] == "land"
+    assert records["propertyquarry_search_agents"][0]["agent_id"] == "agent-cr"
+    assert records["propertyquarry_search_agents"][0]["name"] == "Monteverde land search"
+    assert records["propertyquarry_search_agents"][0]["is_active"] is True
+    assert records["propertyquarry_search_agents"][0]["country_code"] == "CR"
+    assert records["propertyquarry_search_agents"][0]["region_code"] == "puntarenas"
+    assert records["propertyquarry_search_agents"][0]["location_query"] == "Monteverde"
+    assert records["propertyquarry_search_agents"][0]["property_type"] == "land"
+    assert records["propertyquarry_search_agents"][0]["selected_platforms_json"] == ["re_cr_mls"]
+    assert records["propertyquarry_search_agents"][0]["preferences_json"]["min_area_m2"] == 1200
+    assert "property_commercial" not in records["propertyquarry_search_agents"][0]["preferences_json"]
+    assert "raw_preferences" not in records["propertyquarry_search_agents"][0]["preferences_json"]
     assert records["propertyquarry_search_runs"][0]["run_id"] == "run-1"
     assert "property_commercial" not in records["propertyquarry_search_runs"][0]["preferences_json"]
     assert records["propertyquarry_provider_sources"][0]["platform"] == "willhaben"

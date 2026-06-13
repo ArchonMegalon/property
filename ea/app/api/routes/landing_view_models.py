@@ -3337,6 +3337,12 @@ def property_workspace_payload(
     }
     property_form = dict(base.get("console_form") or {})
     property_meta = dict(property_form.get("meta") or {})
+    property_search_agents = [
+        dict(agent)
+        for agent in list(property_meta.get("search_agents") or [])
+        if isinstance(agent, dict)
+    ]
+    property_search_agent = next((agent for agent in property_search_agents if agent.get("is_active")), property_search_agents[0] if property_search_agents else {})
     provider_options = []
     for field in list(property_form.get("schema") or []):
         if not isinstance(field, dict):
@@ -4184,8 +4190,13 @@ def property_workspace_payload(
         ],
         "alerts": [
             {"href": f"/app/properties{run_suffix}", "label": "Open search desk", "tone": "primary"},
-            {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
+            {"href": f"/app/agents{run_suffix}", "label": "Search agents"},
             {"href": f"/app/settings{run_suffix}", "label": "Notifications"},
+        ],
+        "agents": [
+            {"href": f"/app/properties{run_suffix}", "label": "Create or edit", "tone": "primary"},
+            {"href": f"/app/alerts{run_suffix}", "label": "Recent alerts"},
+            {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
         ],
         "billing": [
             {"href": "/pricing", "label": "Open pricing", "tone": "primary"},
@@ -4233,6 +4244,12 @@ def property_workspace_payload(
             {"label": "Run events", "value": str(len(run_events[-4:])), "detail": "Recent run updates visible to the user.", "href": f"/app/alerts{run_suffix}"},
             {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "Portals currently feeding the alert lane.", "href": f"/app/properties{run_suffix}"},
             {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest saved-search sweep.", "href": f"/app/properties{run_suffix}"},
+        ],
+        "agents": [
+            {"label": "Saved agents", "value": str(len(property_search_agents)), "detail": "Reusable searches available for editing and rerunning.", "href": f"/app/agents{run_suffix}"},
+            {"label": "Active", "value": str(sum(1 for agent in property_search_agents if agent.get("enabled"))), "detail": "Agents allowed to send matching updates.", "href": f"/app/agents{run_suffix}"},
+            {"label": "Notification window", "value": str(property_search_agent.get("notification_label") or "Set per agent"), "detail": "Each agent ranks down to the allowed message budget.", "href": f"/app/agents{run_suffix}"},
+            {"label": "Next run", "value": str(property_search_agent.get("next_run_label") or "waiting"), "detail": str(property_search_agent.get("area_label") or "Saved search area"), "href": f"/app/properties{run_suffix}"},
         ],
         "billing": [
             {"label": "Plan", "value": current_plan_label, "detail": "Current commercial posture.", "href": f"/app/billing{run_suffix}"},
@@ -4475,6 +4492,38 @@ def property_workspace_payload(
             "action_label": "Review settings",
         },
     ]
+    agent_management_rows = []
+    for agent in property_search_agents:
+        if not isinstance(agent, dict):
+            continue
+        label = str(agent.get("name") or agent.get("area_label") or "Saved search").strip() or "Saved search"
+        status_label = "Active" if bool(agent.get("enabled")) else "Paused"
+        detail_parts = [
+            str(agent.get("scope_label") or "").strip(),
+            str(agent.get("notification_label") or "").strip(),
+            str(agent.get("run_label") or "").strip(),
+        ]
+        agent_management_rows.append(
+            {
+                "title": label,
+                "detail": " | ".join(part for part in detail_parts if part) or "Saved search settings can be edited from the search desk.",
+                "tag": status_label,
+                "action_href": f"/app/properties{run_suffix}",
+                "action_method": "get",
+                "action_label": "Edit",
+                "secondary_action_href": f"/app/alerts{run_suffix}",
+                "secondary_action_method": "get",
+                "secondary_action_label": "Alerts",
+            }
+        )
+    if not agent_management_rows:
+        agent_management_rows = [
+            row_item(
+                "No saved search agent yet",
+                "Create one from the search desk, then return here to edit, pause, or review its notification budget.",
+                "First agent",
+            )
+        ]
 
     sections: dict[str, dict[str, object]] = {
         "properties": {
@@ -4510,7 +4559,7 @@ def property_workspace_payload(
             ]),
             "hero_highlights": [
                 {"label": "Run state", "value": run_status_label, "detail": run_message or "The current live run status."},
-                {"label": "Sources", "value": str(int(run_summary.get("sources_total") or 0)), "detail": "Provider lanes in the current sweep."},
+                {"label": "Sources", "value": str(int(run_summary.get("sources_total") or 0)), "detail": "Places being checked for this search."},
                 {"label": "Listings", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Listings recovered so far."},
                 {"label": "Needs verification", "value": str(open_research_task_total), "detail": "Decision-relevant answers still being checked."},
             ] if run_in_progress else (hero_highlights["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
@@ -4621,6 +4670,39 @@ def property_workspace_payload(
                     "title": "The alert lane should still expose the search brief driving it",
                     "body": "Recurring alerts are only useful when the user can still see and revise the search posture behind them.",
                     "items": saved_search_rows,
+                },
+                run_card,
+            ],
+            "console_form": {},
+            "show_brief_form": False,
+            "show_shortlist_cards": False,
+        },
+        "agents": {
+            "title": "Search agents",
+            "summary": "Manage reusable searches, notification budgets, and the saved filters behind each recurring run.",
+            "hero_kicker": "Search agents",
+            "hero_title": "Edit the searches that keep watching the market.",
+            "hero_summary": "Each agent owns one saved brief, its allowed message volume, and whether it is active. When more listings fit than the budget allows, PropertyQuarry ranks them and sends only the strongest matches.",
+            "hero_actions": hero_actions["agents"],
+            "hero_highlights": hero_highlights["agents"],
+            "primary_cards": [
+                {
+                    "eyebrow": "Saved agents",
+                    "title": "Reusable searches",
+                    "body": "Use Edit to load an agent back into the search desk, adjust the filters, and run or save it again.",
+                    "items": agent_management_rows,
+                }
+            ],
+            "secondary_cards": [
+                {
+                    "eyebrow": "Notification budget",
+                    "title": "Strongest matches leave first",
+                    "body": "If an agent finds more candidates than its daily or weekly limit, the shortlist is ranked and only the best-fit matches are sent.",
+                    "items": [
+                        row_item("Free", "1 active search agent.", "Plan"),
+                        row_item("Plus", "3 active search agents.", "Plan"),
+                        row_item("Agent", "Unlimited active search agents.", "Plan"),
+                    ],
                 },
                 run_card,
             ],

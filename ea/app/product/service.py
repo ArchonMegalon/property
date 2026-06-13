@@ -10133,6 +10133,10 @@ def _property_tour_followup_is_customer_actionable(blocked_reason: str) -> bool:
         "property_tour_execution_failed",
         "property_tour_delivery_failed",
         "property_tour_video_delivery_failed",
+        "floorplan_assets_unavailable",
+        "floorplan_missing",
+        "pure_360_assets_unavailable",
+        "provider_export_missing",
     }
 
 

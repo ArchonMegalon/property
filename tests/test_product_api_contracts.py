@@ -11227,6 +11227,23 @@ def test_willhaben_property_tour_block_followup_sends_telegram_scout_update(monk
     assert any(item["payload"]["reason"] == "not_customer_actionable" for item in events.json()["items"])
 
 
+def test_property_tour_followup_suppresses_internal_repair_blockers() -> None:
+    internal_repair_reasons = {
+        "browseract_connector_unconfigured",
+        "listing_360_media_missing",
+        "floorplan_assets_unavailable",
+        "floorplan_missing",
+        "pure_360_assets_unavailable",
+        "provider_export_missing",
+        "property_tour_execution_failed",
+        "property_tour_delivery_failed",
+        "property_tour_video_delivery_failed",
+    }
+    assert internal_repair_reasons
+    for blocked_reason in internal_repair_reasons:
+        assert product_service._property_tour_followup_is_customer_actionable(blocked_reason) is False
+
+
 def test_willhaben_property_tour_without_browseract_binding_uses_hosted_floorplan_when_available(monkeypatch) -> None:
     monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")

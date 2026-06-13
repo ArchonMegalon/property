@@ -482,7 +482,7 @@
     .pqx-setup {
       min-height: calc(100vh - 172px);
       display: grid;
-      grid-template-columns: minmax(480px, 1fr) minmax(380px, 0.78fr);
+      grid-template-columns: minmax(220px, 320px) minmax(640px, 1fr);
       gap: clamp(14px, 2vw, 26px);
       align-items: start;
     }
@@ -609,6 +609,67 @@
     .pqx-previous-candidate small {
       color: #d7cdbb;
       font-size: 11px;
+    }
+    .pqx-finished-compare {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid var(--pq-line);
+      border-radius: 10px;
+      background: var(--pq-paper);
+      box-shadow: var(--pq-shadow);
+    }
+    .pqx-compare-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 10px;
+    }
+    .pqx-compare-card {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: var(--pq-panel);
+    }
+    .pqx-compare-card.is-selected {
+      border-color: #c89c48;
+      box-shadow: inset 0 0 0 1px rgba(200, 156, 72, 0.34);
+    }
+    .pqx-compare-card h3 {
+      margin: 0;
+      font-size: 0.98rem;
+      line-height: 1.18;
+      overflow-wrap: anywhere;
+    }
+    .pqx-compare-meta {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .pqx-compare-meta span {
+      display: grid;
+      gap: 1px;
+      padding: 7px;
+      border-radius: 7px;
+      background: rgba(36, 35, 33, 0.06);
+      color: var(--pq-muted);
+      font-size: 10px;
+      text-transform: uppercase;
+      line-height: 1.12;
+    }
+    .pqx-compare-meta b {
+      color: var(--pq-ink);
+      font-size: 13px;
+      text-transform: none;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pqx-decision-consequence-grid {
+      display: grid;
+      gap: 8px;
     }
     .pqx-loaded-agent {
       display: none;
@@ -990,7 +1051,7 @@
     .pqx-running {
       min-height: calc(100vh - 172px);
       display: grid;
-      grid-template-columns: minmax(320px, 0.72fr) minmax(520px, 1.28fr);
+      grid-template-columns: minmax(0, 1fr);
       gap: 16px;
       align-items: stretch;
     }
@@ -1079,6 +1140,9 @@
     .pqx-progress-board {
       display: grid;
       gap: 12px;
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
       margin-top: 14px;
       padding: 12px;
       border: 1px solid rgba(255, 249, 237, 0.18);
@@ -1142,11 +1206,14 @@
       grid-template-columns: auto minmax(0, 1fr);
       gap: 10px;
       align-items: center;
+      min-width: 0;
+      overflow: hidden;
     }
     .pqx-radar-dots {
       display: grid;
       grid-template-columns: repeat(8, minmax(0, 1fr));
       gap: 6px;
+      min-width: 0;
     }
     .pqx-radar-dots span {
       height: 7px;
@@ -1190,6 +1257,9 @@
       display: flex;
       flex-wrap: wrap;
       gap: 7px;
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
     }
     .pqx-evidence-chip::before,
     .pqx-dossier-step::before {
@@ -1211,6 +1281,7 @@
     .pqx-route-chip {
       position: relative;
       overflow: hidden;
+      max-width: 100%;
     }
     .pqx-route-chip::after {
       content: "";
@@ -1227,6 +1298,7 @@
       display: grid;
       gap: 6px;
       min-height: 58px;
+      max-height: 96px;
       overflow: hidden;
       padding: 10px;
       border: 1px solid rgba(255, 249, 237, 0.16);
@@ -1241,8 +1313,10 @@
       position: absolute;
       inset: 0 auto 0 -20%;
       width: 18%;
+      max-width: 90px;
       background: linear-gradient(90deg, transparent, rgba(244, 209, 136, 0.35), transparent);
       animation: pqxScanSweep 2.2s ease-in-out infinite;
+      pointer-events: none;
     }
     .pqx-progress-board[data-progress-state="processed"] .pqx-floorplan-scan::after,
     .pqx-progress-board[data-progress-state="completed"] .pqx-floorplan-scan::after {
@@ -1923,6 +1997,24 @@
       }
       .pqx-progress-ring {
         width: 78px;
+      }
+      .pqx-progress-board {
+        gap: 10px;
+        padding: 10px;
+      }
+      .pqx-source-radar {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .pqx-funnel-row {
+        grid-template-columns: 68px minmax(0, 1fr) 34px;
+      }
+      .pqx-progress-labels span,
+      .pqx-evidence-chip,
+      .pqx-route-chip,
+      .pqx-dossier-step {
+        max-width: 100%;
+        min-height: 26px;
+        padding: 5px 7px;
       }
       .pqx-run-head .pqx-title h1 {
         font-size: clamp(1.45rem, 8vw, 2rem);
@@ -2694,60 +2786,75 @@
       </section>
       {% elif run_visible %}
       <section class="pqx-stage pqx-running">
-        <aside class="pqx-run-hero active" data-pqx-mobile-panel="results">
-          <div class="pqx-run-head">
-            <div class="pqx-progress-ring" style="--progress: {{ run.get('progress') or 0 }};" data-pqx-progress-ring>
-              <div>
-                <strong data-pw-run-progress-label>{{ run.get('progress') or 0 }}%</strong>
-                <span>complete</span>
-              </div>
-            </div>
-            <div class="pqx-title">
-              <span>{% if run_active %}Live run{% elif run_status == 'failed' %}Run failed{% else %}Run complete{% endif %}</span>
-              <h1>{% if run_active %}Search is running. Inputs are locked.{% elif run_status == 'failed' %}Search stopped before results.{% else %}Search finished. No ranked matches yet.{% endif %}</h1>
-            </div>
-          </div>
-          <div>
-            <strong data-pqx-run-message>{{ run.get('message') or 'The search is queued.' }}</strong>
-            <p class="pqx-note">{% if run_active %}When results are ready, this page will show the best homes first.{% elif run_status == 'failed' %}Start a new search after changing the settings or reducing strict requirements.{% else %}No ranked matches were produced for this search. Adjust sources or target areas and launch a new search when ready.{% endif %}</p>
-            {{ progress_board(run, run_sources, research_task_counts) }}
-            {% if run_active %}
-            {% set active_provider_lanes = (run.get('summary') or {}).get('sources_total') or run_sources|length or 0 %}
-            <div class="pqx-dashboard-stack" data-pqx-running-provider-state>
-              <div class="pqx-dashboard-row">
-                <span class="pqx-small">{% if active_provider_lanes > 0 %}Sources checking{% else %}Search starting{% endif %}</span>
-                <strong>{% if active_provider_lanes > 0 %}Checking {{ active_provider_lanes }} source{{ '' if active_provider_lanes == 1 else 's' }}{% else %}Waiting for the first source result{% endif %}</strong>
-                <span class="pqx-note">{% if active_provider_lanes > 0 %}The search is applying your area, price, size, and layout rules. Ranked homes will appear here as soon as the source checks finish.{% else %}The run has started and is preparing the selected sources. The first real source result will replace this message automatically.{% endif %}</span>
-              </div>
-            </div>
-            {% endif %}
-          </div>
-        </aside>
         <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property">
           <div class="pqx-section-head">
             <div>
-              <h2>Search progress</h2>
+              <h2>{% if run_active %}Search is running. Inputs are locked.{% else %}Search progress{% endif %}</h2>
               <div class="pqx-note" data-pqx-run-summary>{{ (run.get('summary') or {}).get('sources_total') or 0 }} sources · {{ (run.get('summary') or {}).get('listing_total') or 0 }} listings · {{ ((run.get('summary') or {}).get('tour_created_total') or 0) + ((run.get('summary') or {}).get('tour_existing_total') or 0) }} tours</div>
             </div>
             {% if run_active %}<button class="pqx-button" type="button" data-pqx-refresh-status>Refresh</button>{% else %}<a class="pqx-link-button" href="/app/properties">New search</a>{% endif %}
           </div>
+          <div class="pqx-note" data-pqx-run-message>{{ run.get('message') or 'The search is queued.' }}</div>
           {{ progress_board(run, run_sources, research_task_counts) }}
-          {{ research_queue_panel(research_tasks, run.get('run_id') or '', research_task_counts) }}
-          <div class="pqx-event-list" data-pqx-run-events>
-            {% for event in (run.get('events') or [])|reverse %}
-            <div class="pqx-event-card">
-              <strong>{{ (event.get('step') or 'Update')|replace('_', ' ')|title }}</strong>
-              <span class="pqx-note">{{ event.get('message') or 'No detail yet.' }}</span>
+          {% if run_active %}
+          {% set active_provider_lanes = (run.get('summary') or {}).get('sources_total') or run_sources|length or 0 %}
+          <div class="pqx-dashboard-stack" data-pqx-running-provider-state>
+            <div class="pqx-dashboard-row">
+              <span class="pqx-small">{% if active_provider_lanes > 0 %}Sources checking{% else %}Search starting{% endif %}</span>
+              <strong>{% if active_provider_lanes > 0 %}Checking {{ active_provider_lanes }} source{{ '' if active_provider_lanes == 1 else 's' }}{% else %}Waiting for the first source result{% endif %}</strong>
+              <span class="pqx-note">{% if active_provider_lanes > 0 %}The search is applying your area, price, size, and layout rules. Ranked homes will appear here as soon as the source checks finish.{% else %}The run has started and is preparing the selected sources. The first real source result will replace this message automatically.{% endif %}</span>
             </div>
-            {% endfor %}
-            {% if not run.get('events') %}
-            <div class="pqx-empty">Waiting for the first search update.</div>
-            {% endif %}
           </div>
+          {% endif %}
+          <details class="pqx-card" data-pqx-running-details>
+            <summary><strong>Search details</strong><span class="pqx-note">Open for source events and decision checks.</span></summary>
+            {{ research_queue_panel(research_tasks, run.get('run_id') or '', research_task_counts) }}
+            <div class="pqx-event-list" data-pqx-run-events>
+              {% for event in (run.get('events') or [])|reverse %}
+              <div class="pqx-event-card">
+                <strong>{{ (event.get('step') or 'Update')|replace('_', ' ')|title }}</strong>
+                <span class="pqx-note">{{ event.get('message') or 'No detail yet.' }}</span>
+              </div>
+              {% endfor %}
+              {% if not run.get('events') %}
+              <div class="pqx-empty">Waiting for the first search update.</div>
+              {% endif %}
+            </div>
+          </details>
         </section>
       </section>
       {% else %}
       <section class="pqx-stage pqx-results">
+        {% if results %}
+        <section class="pqx-finished-compare" data-pqx-finished-compare>
+          <div class="pqx-section-head">
+            <div>
+              <h2>Compare this search</h2>
+              <div class="pqx-note">Ranked from best fit to weakest fit in this finished run. Open the details only after the top options are clear.</div>
+            </div>
+            <span class="pqx-pill good">{{ results|length }} ranked</span>
+          </div>
+          <div class="pqx-compare-strip">
+            {% for candidate in results[:4] %}
+            <article class="pqx-compare-card{% if candidate.get('candidate_ref') == selected.get('candidate_ref') %} is-selected{% endif %}">
+              <span class="pqx-small">#{{ candidate.get('rank') }} · {{ candidate.get('source_label') or 'Source' }}</span>
+              <h3>{{ candidate.get('title') or 'Property' }}</h3>
+              <div class="pqx-compare-meta">
+                <span>Fit <b>{{ candidate.get('fit_label') or 'Candidate' }}</b></span>
+                <span>Price <b>{{ candidate.get('price_display') or 'n/a' }}</b></span>
+                <span>Layout <b>{{ candidate.get('layout_display') or 'n/a' }}</b></span>
+              </div>
+              <p class="pqx-note">{{ candidate.get('ooda', {}).get('summary') or candidate.get('fit_summary') or 'Open the review details for the decision read.' }}</p>
+              <div class="pqx-actions">
+                {% if candidate.get('packet_url') %}<a class="pqx-link-button primary" href="{{ candidate.get('packet_url') }}">Review</a>{% endif %}
+                {% if candidate.get('tour', {}).get('url') %}<a class="pqx-link-button" href="{{ candidate.get('tour', {}).get('url') }}">360</a>{% endif %}
+                {% if candidate.get('map_url') %}<a class="pqx-link-button" href="{{ candidate.get('map_url') }}">Map</a>{% endif %}
+              </div>
+            </article>
+            {% endfor %}
+          </div>
+        </section>
+        {% endif %}
         <section class="pqx-review" data-pqx-mobile-panel="property" data-workbench-dossier>
           <div class="pqx-theater" data-pq-theater>
             <div class="pqx-theater-frame{% if not selected.get('tour', {}).get('embed_url') %} is-unavailable{% endif %}" data-pw-tour>
@@ -3137,7 +3244,7 @@
 
     const candidateByRef = new Map(candidates.map((candidate) => [String(candidate.candidate_ref || ''), candidate]));
     const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
-    const propertyFeedbackSaveEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback`;
+    const propertyDecisionSaveEndpoint = () => '/app/api/property/decisions';
     const renderOoda = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
       <div class="pqx-ooda-item"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value)}</strong><small>${escapeHtml(row.detail)}</small></div>
     `).join('') || '<div class="pqx-note">No quick-read detail captured yet.</div>';
@@ -3444,6 +3551,24 @@
         <div class="pqx-event-card"><strong>Next</strong><span class="pqx-note">${escapeHtml(line || '')}</span></div>
       `).join('') || '<div class="pqx-note">Decision consequences will appear here.</div>';
     };
+    const renderSavedDecisionConsequences = (body) => {
+      if (!feedbackConsequencesNode) return;
+      const ledger = body?.decision_ledger && typeof body.decision_ledger === 'object' ? body.decision_ledger : {};
+      const questions = Array.isArray(body?.agent_question_tasks) ? body.agent_question_tasks : [];
+      const documents = Array.isArray(body?.document_intake) ? body.document_intake : [];
+      const suppression = Array.isArray(body?.suppression_explanation) ? body.suppression_explanation : [];
+      const rows = [];
+      if (ledger?.decision_state) {
+        rows.push(['Decision state', String(ledger.decision_state).replaceAll('_', ' ')]);
+      }
+      questions.slice(0, 3).forEach((row) => rows.push(['Agent question', row?.question_text || row?.next_action || 'Question drafted.']));
+      documents.slice(0, 3).forEach((row) => rows.push(['Document request', `${String(row?.document_type || 'document').replaceAll('_', ' ')} · ${String(row?.verification_state || 'pending').replaceAll('_', ' ')}`]));
+      suppression.slice(0, 3).forEach((line) => rows.push(['Future search', line]));
+      feedbackConsequencesNode.innerHTML = `<div class="pqx-decision-consequence-grid">${
+        rows.map(([title, detail]) => `<div class="pqx-event-card"><strong>${escapeHtml(title)}</strong><span class="pqx-note">${escapeHtml(detail)}</span></div>`).join('')
+        || '<div class="pqx-note">Decision saved. No additional follow-up was generated.</div>'
+      }</div>`;
+    };
     const loadCandidateFeedbackSuggestions = async (candidate) => {
       if (!candidate || !feedbackReasonsNode) return;
       const ref = String(candidate.candidate_ref || '').trim();
@@ -3494,11 +3619,12 @@
       }
       feedbackStatusNode.textContent = 'Saving decision...';
       try {
-        const response = await fetch(propertyFeedbackSaveEndpoint(feedbackPersonId), {
+        const response = await fetch(propertyDecisionSaveEndpoint(), {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
+            person_id: feedbackPersonId,
             property_slug: String(candidate.candidate_ref || '').trim(),
             property_url: String(candidate.property_url || candidate.source_url || '').trim(),
             property_title: String(candidate.title || '').trim(),
@@ -3512,7 +3638,8 @@
         if (!response.ok) throw new Error(readableErrorDetail(body.detail || body.error || body, 'Could not save decision.'));
         const likes = Array.isArray(body.learning_summary?.likes) ? body.learning_summary.likes.length : 0;
         const dislikes = Array.isArray(body.learning_summary?.dislikes) ? body.learning_summary.dislikes.length : 0;
-        feedbackStatusNode.textContent = `Saved. Profile now has ${likes} positive signal(s) and ${dislikes} avoid signal(s).`;
+        renderSavedDecisionConsequences(body);
+        feedbackStatusNode.textContent = `Saved durably. Profile now has ${likes} positive signal(s) and ${dislikes} avoid signal(s).`;
       } catch (error) {
         feedbackStatusNode.textContent = error instanceof Error ? error.message : 'Could not save decision.';
       }

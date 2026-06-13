@@ -2964,7 +2964,7 @@ def app_shell(
     allowed.update(legacy_redirects)
     allowed.update({"today", "queue", "commitments", "people", "evidence", "activity", "channel-loop"})
     if property_brand:
-        allowed.update({"properties", "shortlist", "research", "profile", "alerts", "billing", "settings"})
+        allowed.update({"properties", "shortlist", "research", "profile", "alerts", "agents", "billing", "settings"})
     else:
         allowed.update(
             {
@@ -3049,7 +3049,7 @@ def app_shell(
                 stats=stats,
             ),
         )
-    property_sections = {"properties", "shortlist", "research", "profile", "alerts", "billing", "settings"} if property_brand else set()
+    property_sections = {"properties", "shortlist", "research", "profile", "alerts", "agents", "billing", "settings"} if property_brand else set()
     core_sections = {"today", "queue", "commitments", "people", "evidence", "activity"}
     if not property_brand:
         core_sections.add("settings")

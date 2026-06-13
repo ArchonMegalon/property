@@ -208,8 +208,18 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[d
             ),
         )
 
+    def _fake_persist_decision_loop(self, *, principal_id: str, person_id: str, snapshot: object) -> dict[str, object]:
+        assert principal_id == "pq-greenfield-browser"
+        return {
+            "persisted": True,
+            "decision_id": str(getattr(getattr(snapshot, "decision", None), "decision_id", "")),
+            "person_id": person_id,
+            "source": "browser_fixture",
+        }
+
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
     monkeypatch.setattr(ProductService, "list_handoffs", _fake_handoffs)
+    monkeypatch.setattr(ProductService, "_persist_property_decision_loop", _fake_persist_decision_loop)
 
     app = create_app()
     test_client = TestClient(app, base_url="https://propertyquarry.com")
@@ -513,12 +523,12 @@ def test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser(
 
         response = page.goto(f"{base_url}/app/properties?run_id=run-42&candidate={candidate_ref}", wait_until="networkidle")
         assert response is not None and response.ok
-        with page.expect_response("**/app/api/people/*/preference-profile/property-feedback") as save_response_info:
+        with page.expect_response("**/app/api/property/decisions") as save_response_info:
             page.get_by_role("button", name="No", exact=True).click()
             page.get_by_role("button", name="Save decision").click()
         save_response = save_response_info.value
         assert save_response.ok, save_response.text()
-        assert page.locator("[data-pw-feedback-status]", has_text="Saved.").is_visible()
+        assert page.locator("[data-pw-feedback-status]", has_text="Saved durably.").is_visible()
 
         page.get_by_role("button", name="Ask a question").click()
         page.get_by_role("button", name="Ask agent next").click()
@@ -783,9 +793,9 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
               const stage = document.querySelector('.pqx-setup');
               const intro = document.querySelector('.pqx-setup-intro');
               const command = document.querySelector('.pqx-command');
-              const facts = Array.from(document.querySelectorAll('.pqx-setup-intro .pqx-fact'));
-              const overflowFacts = facts.filter((node) => node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1);
-              const strongOverflow = facts
+              const rows = Array.from(document.querySelectorAll('.pqx-setup-intro .pqx-dashboard-row'));
+              const overflowRows = rows.filter((node) => node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1);
+              const strongOverflow = rows
                 .map((node) => node.querySelector('strong'))
                 .filter(Boolean)
                 .filter((node) => node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1);
@@ -796,10 +806,10 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
                 stageWidth: stageBox?.width || 0,
                 introWidth: introBox?.width || 0,
                 commandWidth: commandBox?.width || 0,
-                overflowFactCount: overflowFacts.length,
+                overflowRowCount: overflowRows.length,
                 strongOverflowCount: strongOverflow.length,
-                visibleFactLabels: facts.map((node) => (node.querySelector('span')?.textContent || '').trim()),
-                visibleFactValues: facts.map((node) => (node.querySelector('strong')?.textContent || '').trim()),
+                visibleRowLabels: rows.map((node) => (node.querySelector('span')?.textContent || '').trim()),
+                visibleRowValues: rows.map((node) => (node.querySelector('strong')?.textContent || '').trim()),
               };
             }
             """
@@ -808,10 +818,10 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
         assert layout["stageWidth"] > 0
         assert layout["introWidth"] / layout["stageWidth"] <= 0.36
         assert layout["commandWidth"] / layout["stageWidth"] >= 0.58
-        assert layout["overflowFactCount"] == 0
+        assert layout["overflowRowCount"] == 0
         assert layout["strongOverflowCount"] == 0
-        assert {"Country", "Mode", "Providers", "Research"}.issubset(set(layout["visibleFactLabels"]))
-        assert len([value for value in layout["visibleFactValues"] if value]) == 4
+        assert {"Saved searches", "Next action"}.issubset(set(layout["visibleRowLabels"]))
+        assert len([value for value in layout["visibleRowValues"] if value]) >= 2
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
     finally:
         context.close()
@@ -1204,7 +1214,7 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
         response = page.goto(f"{base_url}/app/properties?run_id=run-42&candidate={candidate_ref}", wait_until="networkidle")
         assert response is not None and response.ok
         assert page.locator("body", has_text="Official checks").is_visible()
-        with page.expect_response("**/app/api/people/*/preference-profile/property-feedback") as save_response_info:
+        with page.expect_response("**/app/api/property/decisions") as save_response_info:
             page.get_by_role("button", name="No", exact=True).click()
             page.get_by_role("button", name="Save decision").click()
         assert save_response_info.value.ok

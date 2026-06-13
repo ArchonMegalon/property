@@ -692,13 +692,16 @@ def test_generated_source_specs_expand_austria_cooperative_provider_group() -> N
         max_results=3,
     )
 
-    assert len(specs) == 6
+    assert len(specs) == 10
     assert all(row["platform"] == "genossenschaften_at" for row in specs)
     assert any("gesiba.at" in str(row["url"]).lower() for row in specs)
     assert any("siedlungsunion.at" in str(row["url"]).lower() for row in specs)
     assert any("angebote.sozialbau.at" in str(row["url"]).lower() for row in specs)
     assert any("wbv-gpa.at" in str(row["url"]).lower() for row in specs)
     assert any("frieden.at" in str(row["url"]).lower() for row in specs)
+    assert any("egw.at" in str(row["url"]).lower() for row in specs)
+    assert any("oesw.at" in str(row["url"]).lower() for row in specs)
+    assert any("familienwohnbau.at" in str(row["url"]).lower() for row in specs)
     assert all("Vienna" in str(row["label"]) for row in specs)
 
 

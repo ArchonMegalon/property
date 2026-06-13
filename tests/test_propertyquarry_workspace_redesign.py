@@ -811,6 +811,76 @@ def test_property_dashboard_renders_previous_searches_with_compact_finished_resu
     assert "Load filters" not in page.text
 
 
+def test_property_search_agents_have_dedicated_management_page() -> None:
+    principal_id = "pq-agent-management"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Search Agent Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "buy",
+            "property_type": "apartment",
+            "location_query": "1020 Vienna",
+            "active_search_agent_id": "agent-vienna",
+            "search_agents": [
+                {
+                    "agent_id": "agent-vienna",
+                    "name": "Vienna apartments",
+                    "enabled": True,
+                    "country_code": "AT",
+                    "region_code": "vienna",
+                    "location_query": "1020 Vienna",
+                    "listing_mode": "buy",
+                    "property_type": "apartment",
+                    "notification_limit": 3,
+                    "notification_period": "week",
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "location_query": "1020 Vienna",
+                        "listing_mode": "buy",
+                        "property_type": "apartment",
+                    },
+                },
+                {
+                    "agent_id": "agent-monteverde",
+                    "name": "Monteverde land",
+                    "enabled": True,
+                    "country_code": "CR",
+                    "region_code": "puntarenas",
+                    "location_query": "Monteverde",
+                    "listing_mode": "buy",
+                    "property_type": "land",
+                    "notification_limit": 5,
+                    "notification_period": "week",
+                    "preferences_json": {
+                        "country_code": "CR",
+                        "region_code": "puntarenas",
+                        "location_query": "Monteverde",
+                        "listing_mode": "buy",
+                        "property_type": "land",
+                    },
+                },
+            ],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    page = client.get("/app/agents", headers={"host": "propertyquarry.com"})
+    assert page.status_code == 200
+    assert "Search agents" in page.text
+    assert "Vienna apartments" in page.text
+    assert "Monteverde land" in page.text
+    assert "Strongest matches leave first" in page.text
+    assert "Free" in page.text
+    assert "Plus" in page.text
+    assert "Agent" in page.text
+    assert 'href="/app/agents"' in page.text
+    assert ">Edit</a>" in page.text
+
+
 def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
     body = template_path.read_text(encoding="utf-8")
@@ -823,8 +893,32 @@ def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     assert "Saved searches" in body
     assert "Next action" in body
     assert "Recent decisions and reviews" in body
-    assert "grid-template-columns: minmax(480px, 1fr) minmax(380px, 0.78fr);" in body
+    assert "grid-template-columns: minmax(220px, 320px) minmax(640px, 1fr);" in body
     assert "Tell us what to find." not in body
+
+
+def test_property_finished_search_results_start_with_compact_compare_strip() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    assert "data-pqx-finished-compare" in body
+    assert "Compare this search" in body
+    assert "pqx-compare-card" in body
+    assert "Ranked from best fit to weakest fit" in body
+    assert "Open the details only after the top options are clear." in body
+
+
+def test_property_decision_save_uses_canonical_endpoint_and_renders_consequences() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    assert "propertyDecisionSaveEndpoint = () => '/app/api/property/decisions'" in body
+    assert "renderSavedDecisionConsequences(body)" in body
+    assert "agent_question_tasks" in body
+    assert "document_intake" in body
+    assert "suppression_explanation" in body
+    assert "Saved durably" in body
+    assert "propertyFeedbackSaveEndpoint" not in body
 
 
 def test_property_workspace_running_state_explains_slow_provider_checks() -> None:
@@ -837,6 +931,10 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "area, price, size, and layout rules" in body
     assert "Waiting for the first source result" in body
     assert "The first real source result will replace this message automatically." in body
+    run_visible_branch = body.split("{% elif run_visible %}", 1)[1].split("{% elif run_terminal_no_results %}", 1)[0]
+    assert run_visible_branch.count("{{ progress_board(run, run_sources, research_task_counts) }}") == 1
+    assert 'data-pqx-running-details' in run_visible_branch
+    assert "Open for source events and decision checks." in run_visible_branch
     assert "Provider checks" not in body
     assert "0 lanes in progress" not in body
     assert "lanes in progress" not in body
@@ -989,9 +1087,9 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert 'data-pq-greenfield-shell' in live.text
     assert 'data-pqx-state="running"' in live.text
     assert "Search is running. Inputs are locked." in live.text
-    assert 'class="pqx-run-head"' in live.text
-    assert live.text.index("data-pqx-progress-ring") < live.text.index("Search is running. Inputs are locked.")
-    assert "Search progress" in live.text
+    assert 'class="pqx-run-head"' not in live.text
+    assert live.text.count('class="pqx-progress-board"') == 1
+    assert 'data-pqx-run-summary' in live.text
     assert "Concierge is assembling the evidence" in live.text
     assert 'data-pqx-progress-board' in live.text
     assert 'class="pqx-source-radar"' in live.text
@@ -1136,9 +1234,9 @@ def test_propertyquarry_workspace_setup_stays_user_facing() -> None:
     start_workspace(client, mode="personal", workspace_name="Property Office")
     response = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)
     assert response.status_code == 200
-    assert "Your property search desk." in response.text
+    assert "Previous searches." in response.text
     assert "Saved searches" in response.text
-    assert "Latest run" in response.text
+    assert "Search agents" in response.text
     assert "Build the brief. Then let the agents work." not in response.text
 
 
