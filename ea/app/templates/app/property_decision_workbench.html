@@ -17,6 +17,28 @@
 {% set show_form_controls = show_brief_form and setup_mode %}
 {% set research_tasks = workbench.get('research_tasks') or [] %}
 {% set research_task_counts = workbench.get('research_task_counts') or {} %}
+{% macro search_guard_panel(rows) -%}
+{% if rows %}
+<section class="pqx-card pqx-search-guard" data-pqx-search-guard>
+  <div class="pqx-section-head">
+    <div>
+      <h2>Search guard</h2>
+      <div class="pqx-note">What the search protected before ranking and messaging.</div>
+    </div>
+    <span class="pqx-pill good">Active</span>
+  </div>
+  <div class="pqx-guard-grid">
+    {% for row in rows %}
+    <article class="pqx-guard-item">
+      <span class="pqx-small">{{ row.get('tag') or 'Guard' }}</span>
+      <strong>{{ row.get('title') }}</strong>
+      <span class="pqx-note">{{ row.get('detail') }}</span>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{%- endmacro %}
 {% macro research_queue_panel(tasks, run_id, counts) -%}
 {% if tasks %}
 <section class="pqx-research-queue" data-pqx-research-queue data-run-id="{{ run_id }}">
@@ -232,6 +254,31 @@
       border-color: var(--pq-line);
       background: transparent;
       color: var(--pq-muted);
+    }
+    .pqx-recent-review {
+      width: 100%;
+      min-width: 0;
+      min-height: 0;
+      justify-content: flex-start;
+      padding: 9px 10px;
+      text-align: left;
+      line-height: 1.3;
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
+    .pqx-recent-review-static {
+      display: block;
+      width: 100%;
+      min-width: 0;
+      padding: 9px 10px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      color: var(--pq-muted);
+      font-size: 12px;
+      font-weight: 720;
+      line-height: 1.3;
+      overflow-wrap: anywhere;
+      white-space: normal;
     }
     .pqx-mode-button.active,
     .pqx-workflow-step.active {
@@ -971,6 +1018,28 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
     }
+    .pqx-search-guard {
+      margin-bottom: 14px;
+    }
+    .pqx-guard-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .pqx-guard-item {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: #fffefa;
+    }
+    .pqx-guard-item strong {
+      color: var(--pq-ink);
+      font-size: 13px;
+      line-height: 1.25;
+    }
     .pqx-table-wrap {
       width: 100%;
       overflow-x: auto;
@@ -1415,6 +1484,7 @@
       .pqx-check-grid,
       .pqx-fact-grid,
       .pqx-source-grid,
+      .pqx-guard-grid,
       .pqx-ooda-grid,
       .pqx-pref-form-grid,
       .pqx-research-task-form,
@@ -1553,9 +1623,9 @@
             <strong>Recent reviews</strong>
             {% for packet in recent_packets[:3] %}
             {% if packet.get('url') %}
-            <a class="pqx-link-button subtle" href="{{ packet.get('url') }}">{{ packet.get('title') }}</a>
+            <a class="pqx-link-button subtle pqx-recent-review" href="{{ packet.get('url') }}">{{ packet.get('title') }}</a>
             {% else %}
-            <span class="pqx-pill">{{ packet.get('title') }}</span>
+            <span class="pqx-recent-review-static">{{ packet.get('title') }}</span>
             {% endif %}
             {% endfor %}
           </div>
@@ -1946,6 +2016,7 @@
             </div>
             <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
           </div>
+          {{ search_guard_panel(workbench.get('search_guard_rows') or []) }}
           {% set ranked_candidates = run_summary.get('ranked_candidates') or [] %}
           {% if ranked_candidates %}
           <div class="pqx-table-wrap" data-pqx-ranked-candidates>
@@ -1963,7 +2034,14 @@
                 {% for candidate in ranked_candidates[:20] %}
                 <tr>
                   <td>{{ candidate.get('rank') or loop.index }}</td>
-                  <td>{{ candidate.get('title') or 'Property candidate' }}<br><span class="pqx-small">{{ candidate.get('source_label') or candidate.get('source_platform') or 'Source' }}</span></td>
+                  <td>
+                    {{ candidate.get('title') or 'Property candidate' }}<br>
+                    <span class="pqx-small">{{ candidate.get('source_label') or candidate.get('source_platform') or 'Source' }}</span>
+                    {% set provider_quality = candidate.get('provider_quality') or {} %}
+                    {% if provider_quality.get('floorplan_reliability') or provider_quality.get('filter_pushdown_strength') or provider_quality.get('last_verified') %}
+                    <br><span class="pqx-small">Floorplans {{ provider_quality.get('floorplan_reliability') or 'n/a' }} · Filters {{ provider_quality.get('filter_pushdown_strength') or 'n/a' }}{% if provider_quality.get('last_verified') %} · Verified {{ provider_quality.get('last_verified') }}{% endif %}</span>
+                    {% endif %}
+                  </td>
                   <td>{{ candidate.get('fit_score') or 0 }}</td>
                   <td>{{ candidate.get('compare_reason') or candidate.get('fit_summary') or (candidate.get('match_reasons') or ['Review details for more context'])[0] }}</td>
                   <td>
@@ -1989,7 +2067,7 @@
               <span>Remaining <b>{{ notification_budget.get('remaining_after_run') if notification_budget.get('remaining_after_run') is not none else notification_budget.get('remaining') or 0 }}</b></span>
               <span>Held back <b>{{ run_summary.get('notification_budget_suppressed_total') or 0 }}</b></span>
             </div>
-            <div class="pqx-note">When a search finds more homes than the alert budget allows, EA ranks the candidates and sends only the best fits. Lower-ranked candidates stay in the review table.</div>
+            <div class="pqx-note">When a search finds more homes than the alert budget allows, PropertyQuarry ranks the candidates and sends only the best fits. Lower-ranked candidates stay in the review table.</div>
             {% if run_sources %}
             <div class="pqx-source-grid">
               {% for source in run_sources %}
@@ -2018,9 +2096,13 @@
                 <span>Filtered <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
                 <span>No plan <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
               </div>
+              {% set source_quality = source.get('provider_quality') or {} %}
+              {% if source_quality.get('floorplan_reliability') or source_quality.get('filter_pushdown_strength') or source_quality.get('last_verified') %}
+              <span class="pqx-note">Source quality: Floorplans {{ source_quality.get('floorplan_reliability') or 'n/a' }} · Filters {{ source_quality.get('filter_pushdown_strength') or 'n/a' }}{% if source_quality.get('last_verified') %} · Verified {{ source_quality.get('last_verified') }}{% endif %}.</span>
+              {% endif %}
               {% set pushdown = source.get('provider_filter_pushdown') or {} %}
               {% if pushdown.get('filter_strength') == 'weak_search_then_post_filter' %}
-              <span class="pqx-note">Provider filter weak: EA post-filtered {{ (pushdown.get('post_filter_only') or [])|join(', ') }}.</span>
+              <span class="pqx-note">Provider filter weak: PropertyQuarry cleaned up {{ (pushdown.get('post_filter_only') or [])|join(', ') }} after the provider returned raw results.</span>
               {% endif %}
               {% if source.get('location_mismatch_reason') %}
               <span class="pqx-note">No selected-area matches: provider returned {{ source.get('location_mismatch_candidate_total') or 0 }} outside the chosen target area.</span>
@@ -2355,6 +2437,7 @@
             <span class="pqx-pill good">{{ run.get('status_label') or 'Completed' }}</span>
           </div>
           {{ research_queue_panel(research_tasks, run.get('run_id') or '', research_task_counts) }}
+          {{ search_guard_panel(workbench.get('search_guard_rows') or []) }}
           {% set notification_budget = run_summary.get('notification_budget') or {} %}
           <details class="pqx-card" data-pqx-notification-audit>
             <summary><strong>Alert delivery</strong><span class="pqx-note">Shows how ranking and message limits affected what was sent.</span></summary>
@@ -2365,7 +2448,7 @@
               <span>Remaining <b>{{ notification_budget.get('remaining_after_run') if notification_budget.get('remaining_after_run') is not none else notification_budget.get('remaining') or 0 }}</b></span>
               <span>Held back <b>{{ run_summary.get('notification_budget_suppressed_total') or 0 }}</b></span>
             </div>
-            <div class="pqx-note">When a search finds more homes than the alert budget allows, EA ranks the candidates and sends only the best fits. Lower-ranked candidates stay in the review table.</div>
+            <div class="pqx-note">When a search finds more homes than the alert budget allows, PropertyQuarry ranks the candidates and sends only the best fits. Lower-ranked candidates stay in the review table.</div>
             {% if run_sources %}
             <div class="pqx-source-grid">
               {% for source in run_sources %}
@@ -2388,6 +2471,7 @@
                 <span class="pqx-small">Match</span>
                 <span class="pqx-result-title">{{ candidate.get('title') }}</span>
                 <span class="pqx-meta">{{ candidate.get('source_label') }}{% if candidate.get('location_label') %} · {{ candidate.get('location_label') }}{% endif %}</span>
+                {% if candidate.get('provider_quality_line') %}<span class="pqx-small">{{ candidate.get('provider_quality_line') }}</span>{% endif %}
                 <span class="pqx-result-action">Review this home</span>
               </span>
               <span><span class="pqx-pill{% if candidate.get('tour', {}).get('status') == 'ready' %} good{% else %} warn{% endif %}">{{ candidate.get('tour', {}).get('label') }}</span><span class="pqx-small">{{ candidate.get('tour', {}).get('eta_label') }}</span></span>
@@ -3872,7 +3956,7 @@
         const label = source?.source_label || source?.platform || 'Provider';
         const pushdown = source?.provider_filter_pushdown && typeof source.provider_filter_pushdown === 'object' ? source.provider_filter_pushdown : {};
         const weakFilters = pushdown.filter_strength === 'weak_search_then_post_filter'
-          ? `<span class="pqx-note">Provider filter weak: EA post-filtered ${escapeHtml((Array.isArray(pushdown.post_filter_only) ? pushdown.post_filter_only : []).join(', ') || 'selected filters')}.</span>`
+          ? `<span class="pqx-note">Provider filter weak: PropertyQuarry cleaned up ${escapeHtml((Array.isArray(pushdown.post_filter_only) ? pushdown.post_filter_only : []).join(', ') || 'selected filters')} after the provider returned raw results.</span>`
           : '';
         const areaMiss = source?.location_mismatch_reason
           ? `<span class="pqx-note">No selected-area matches: provider returned ${escapeHtml(source?.location_mismatch_candidate_total || 0)} outside the chosen target area.</span>`

@@ -249,6 +249,84 @@ def _provider_quality_rows(
     return rows
 
 
+def _property_search_guard_rows(
+    *,
+    preferences: dict[str, object],
+    run_summary: dict[str, object],
+    source_rows: list[dict[str, object]],
+) -> list[dict[str, str]]:
+    target_parts = [
+        str(preferences.get("location_query") or "").strip(),
+        str(preferences.get("region_code") or "").strip().replace("_", " ").title(),
+        str(preferences.get("country_code") or "").strip().upper(),
+    ]
+    target_label = " · ".join(dict.fromkeys(part for part in target_parts if part))
+    rows: list[dict[str, str]] = [
+        {
+            "title": "Target area guard",
+            "detail": (
+                f"Target: {target_label}. Outside-area candidates are suppressed before any filter-relaxation prompt."
+                if target_label
+                else "No narrow target area is set. Country-wide or broad-region results may appear."
+            ),
+            "tag": "Location",
+        }
+    ]
+    outside_total = 0
+    weak_filter_sources: list[str] = []
+    no_plan_total = 0
+    for source in source_rows:
+        try:
+            outside_total += max(int(float(source.get("location_mismatch_candidate_total") or 0)), 0)
+        except Exception:
+            pass
+        try:
+            no_plan_total += max(int(float(source.get("filtered_floorplan_total") or 0)), 0)
+        except Exception:
+            pass
+        pushdown = dict(source.get("provider_filter_pushdown") or {}) if isinstance(source.get("provider_filter_pushdown"), dict) else {}
+        if str(pushdown.get("filter_strength") or "").strip() == "weak_search_then_post_filter":
+            weak_filter_sources.append(str(source.get("source_label") or source.get("platform") or "Provider").strip())
+    if outside_total:
+        rows.append(
+            {
+                "title": "Outside-area results suppressed",
+                "detail": f"{outside_total} candidate{' was' if outside_total == 1 else 's were'} rejected before ranking because the provider returned locations outside the selected area.",
+                "tag": "Suppressed",
+            }
+        )
+    held_back = 0
+    try:
+        held_back = max(int(float(run_summary.get("notification_budget_suppressed_total") or 0)), 0)
+    except Exception:
+        held_back = 0
+    if held_back:
+        rows.append(
+            {
+                "title": "Alert budget applied",
+                "detail": f"{held_back} lower-ranked candidate{' was' if held_back == 1 else 's were'} kept in the table instead of sent as messages.",
+                "tag": "Messages",
+            }
+        )
+    if weak_filter_sources:
+        rows.append(
+            {
+                "title": "Provider filters needed cleanup",
+                "detail": f"{', '.join(weak_filter_sources[:3])} could not push every filter upstream, so PropertyQuarry post-filtered the raw results.",
+                "tag": "Provider",
+            }
+        )
+    if no_plan_total:
+        rows.append(
+            {
+                "title": "Floorplan gate",
+                "detail": f"{no_plan_total} candidate{' is' if no_plan_total == 1 else 's are'} missing a verified floorplan or still need floorplan recovery.",
+                "tag": "Evidence",
+            }
+        )
+    return rows[:5]
+
+
 def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]:
     neuronwriter_statuses: list[str] = []
     for key in (
@@ -1192,6 +1270,17 @@ def app_section_payload(
                 continue
             candidate_row = dict(candidate)
             candidate_row.setdefault("source_label", source_label)
+            if isinstance(source_row.get("provider_quality"), dict):
+                candidate_row.setdefault("provider_quality", dict(source_row.get("provider_quality") or {}))
+            else:
+                candidate_row.setdefault(
+                    "provider_quality",
+                    {
+                        "floorplan_reliability": str(source_row.get("floorplan_reliability") or "").strip(),
+                        "filter_pushdown_strength": str(source_row.get("filter_pushdown_strength") or "").strip(),
+                        "last_verified": str(source_row.get("last_verified") or "").strip(),
+                    },
+                )
             if not str(candidate_row.get("packet_url") or "").strip():
                 candidate_row["packet_url"] = _packet_url_for_candidate(candidate_row, source_label=source_label)
             enriched_candidates.append(candidate_row)
@@ -1218,6 +1307,8 @@ def app_section_payload(
                     if candidate_key:
                         seen_candidates.add(candidate_key)
                     candidate_row.setdefault("source_label", source_label)
+                    if isinstance(source_row.get("provider_quality"), dict):
+                        candidate_row.setdefault("provider_quality", dict(source_row.get("provider_quality") or {}))
                     ranked_candidates.append(candidate_row)
         ranked_candidates.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
         for index, candidate_row in enumerate(ranked_candidates, start=1):
@@ -1338,6 +1429,7 @@ def app_section_payload(
                 "detail": " | ".join(part for part in detail_parts if part) or source_label,
                 "tag": str(candidate.get("recommendation") or "candidate").replace("_", " ").title(),
             }
+            provider_quality = dict(candidate.get("provider_quality") or {}) if isinstance(candidate.get("provider_quality"), dict) else {}
             review_url = str(candidate.get("review_url") or "").strip()
             tour_url = str(candidate.get("tour_url") or "").strip()
             property_url = str(candidate.get("property_url") or "").strip()
@@ -1414,6 +1506,7 @@ def app_section_payload(
                     "mismatch_reasons": mismatch_reasons,
                     "lifestyle_highlights": _candidate_lifestyle_highlights(candidate),
                     "research_highlights": _candidate_research_highlights(candidate),
+                    "provider_quality": provider_quality,
                     "property_facts": dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {},
                     "assessment": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
                     "feedback_summary": dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {},
@@ -3086,11 +3179,46 @@ def property_workspace_payload(
     run_events = list(run_payload.get("events") or [])
     run_summary = dict(run_payload.get("summary") or {})
     run_sources = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
+    provider_quality_by_key: dict[str, dict[str, object]] = {}
+    for candidate_row in list(run_summary.get("ranked_candidates") or []):
+        if not isinstance(candidate_row, dict):
+            continue
+        candidate_quality = candidate_row.get("provider_quality")
+        if not isinstance(candidate_quality, dict) or not candidate_quality:
+            continue
+        for key_value in (
+            candidate_row.get("source_ref"),
+            candidate_row.get("property_url"),
+            candidate_row.get("listing_id"),
+            candidate_row.get("title"),
+        ):
+            key = str(key_value or "").strip().lower()
+            if key:
+                provider_quality_by_key.setdefault(key, dict(candidate_quality))
+    if provider_quality_by_key:
+        for candidate_row in shortlist_candidates:
+            if not isinstance(candidate_row, dict) or isinstance(candidate_row.get("provider_quality"), dict):
+                continue
+            for key_value in (
+                candidate_row.get("source_ref"),
+                candidate_row.get("property_url"),
+                candidate_row.get("listing_id"),
+                candidate_row.get("title"),
+            ):
+                key = str(key_value or "").strip().lower()
+                if key and key in provider_quality_by_key:
+                    candidate_row["provider_quality"] = dict(provider_quality_by_key[key])
+                    break
     raw_research_tasks = list(run_payload.get("research_tasks") or run_summary.get("research_tasks") or [])
     selected_locations = _csv_values(property_preferences.get("location_query"))
     selected_keywords = _csv_values(property_preferences.get("keywords"))
     selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
     provider_quality_rows = _provider_quality_rows(run_sources, provider_options)
+    search_guard_rows = _property_search_guard_rows(
+        preferences=property_preferences,
+        run_summary=run_summary,
+        source_rows=run_sources,
+    )
     delivery_proof_rows = _delivery_proof_rows(run_summary)
     artifact_receipt_rows = _artifact_receipt_rows(run_summary)
     selected_candidate_ref = str(property_state.get("selected_candidate_ref") or "").strip()
@@ -3659,6 +3787,16 @@ def property_workspace_payload(
         risk_payload = _risk_summary(candidate, facts)
         match_reasons = [str(item).strip() for item in list(candidate.get("match_reasons") or []) if str(item).strip()]
         mismatch_reasons = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
+        provider_quality = dict(candidate.get("provider_quality") or {}) if isinstance(candidate.get("provider_quality"), dict) else {}
+        provider_quality_line = " · ".join(
+            part
+            for part in (
+                f"Floorplans {provider_quality.get('floorplan_reliability')}" if str(provider_quality.get("floorplan_reliability") or "").strip() else "",
+                f"Filters {provider_quality.get('filter_pushdown_strength')}" if str(provider_quality.get("filter_pushdown_strength") or "").strip() else "",
+                f"Verified {provider_quality.get('last_verified')}" if str(provider_quality.get("last_verified") or "").strip() else "",
+            )
+            if str(part or "").strip()
+        )
         investment_payload = {
             "enabled": str(property_preferences.get("listing_mode") or "").strip().lower() == "buy",
             "price_per_sqm": _money_per_sqm_line(facts),
@@ -3676,6 +3814,8 @@ def property_workspace_payload(
                 "layout_display": " | ".join(part for part in layout_parts if part) or "n/a",
                 "fit_label": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(),
                 "fit_summary": str(candidate.get("fit_summary") or "").strip(),
+                "provider_quality": provider_quality,
+                "provider_quality_line": provider_quality_line,
                 "tour": tour_payload,
                 "ooda": {
                     "summary": ooda_detail or (match_reasons[0] if match_reasons else "Open the packet to inspect the decision read."),
@@ -4382,6 +4522,7 @@ def property_workspace_payload(
             if isinstance(item, dict)
         ],
         "results": workbench_results,
+        "search_guard_rows": search_guard_rows,
         "provider_quality_rows": provider_quality_rows,
         "delivery_proof_rows": delivery_proof_rows,
         "artifact_receipt_rows": artifact_receipt_rows,

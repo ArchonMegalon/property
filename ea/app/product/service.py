@@ -472,6 +472,10 @@ def _property_search_platforms_with_family_toggles(
 ) -> tuple[str, ...]:
     normalized = list(_normalize_property_search_platform_inputs(selected_platforms))
     payload = dict(preferences or {})
+    country_code = normalize_country_code(resolve_country_code(payload.get("country_code")) or payload.get("country_code"))
+    legacy_austria_core = {"willhaben", "immmo", "immoscout_at", "remax_at", "kalandra"}
+    if country_code == "AT" and legacy_austria_core.issubset(set(normalized)) and "derstandard_at" not in normalized:
+        normalized.append("derstandard_at")
     toggle_platforms = (
         ("include_broker_direct_sources", "broker_direct_at"),
         ("include_community_signals", "community_signals_at"),
@@ -28604,6 +28608,11 @@ class ProductService:
                     "platform": str(source_spec.get("platform") or "").strip().lower(),
                     "provider_family": str(source_spec.get("provider_family") or "").strip().lower(),
                     "provider_trust_tier": str(source_spec.get("provider_trust_tier") or "").strip().lower(),
+                    "provider_quality": (
+                        dict(source_spec.get("provider_quality") or {})
+                        if isinstance(source_spec.get("provider_quality"), dict)
+                        else {}
+                    ),
                     "source_access_level": str(source_spec.get("source_access_level") or "").strip().lower() or property_provider_access_level(source_spec.get("platform")),
                     "verification_required": bool(source_spec.get("verification_required")),
                     "preference_person_id": source_preference_person_id,

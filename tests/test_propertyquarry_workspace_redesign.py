@@ -271,10 +271,21 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
                             "tour_created_total": 1,
                             "notified_total": 1,
                             "filtered_floorplan_total": 1,
+                            "location_mismatch_candidate_total": 2,
+                            "location_mismatch_reason": "provider_returned_candidates_outside_selected_location",
                             "review_created_total": 1,
                             "provider_repair_task_opened_total": 1,
                             "provider_repair_task_existing_total": 0,
                             "provider_repair_tasks": [{"repair_owner": "ea_one_manager"}],
+                            "provider_filter_pushdown": {
+                                "filter_strength": "weak_search_then_post_filter",
+                                "post_filter_only": ["min_area_m2"],
+                            },
+                            "provider_quality": {
+                                "floorplan_reliability": "medium",
+                                "filter_pushdown_strength": "partial",
+                                "last_verified": "2026-06-13",
+                            },
                             "dossier_writer_neuronwriter_status": "pending",
                             "notification_budget_suppressed_total": 2,
                             "top_candidates": [top_candidate, second_candidate, queued_candidate],
@@ -510,6 +521,14 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Alert delivery" in search.text
     assert "Held back" in search.text
     assert "2 candidates held back after ranking" in search.text
+    assert "Search guard" in search.text
+    assert "Target area guard" in search.text
+    assert "Outside-area results suppressed" in search.text
+    assert "Provider filters needed cleanup" in search.text
+    assert "Floorplan gate" in search.text
+    assert "Floorplans medium" in search.text
+    assert "Filters partial" in search.text
+    assert "Verified 2026-06-13" in search.text
     assert "Manage saved search" in search.text
     assert "Launch search" not in search.text
     assert "Morning Memo" not in search.text
@@ -677,7 +696,11 @@ def test_property_workbench_recent_reviews_do_not_render_fake_links() -> None:
 
     assert "href=\"{{ packet.get('url') or '#' }}\"" not in body
     assert "packet.get('url')" in body
-    assert "<span class=\"pqx-pill\">{{ packet.get('title') }}</span>" in body
+    assert "pqx-recent-review" in body
+    assert "pqx-recent-review-static" in body
+    assert "<span class=\"pqx-pill\">{{ packet.get('title') }}</span>" not in body
+    assert ".pqx-recent-review" in body
+    assert "overflow-wrap: anywhere;" in body
 
 
 def test_property_workbench_sparse_candidates_do_not_display_raw_urls() -> None:
