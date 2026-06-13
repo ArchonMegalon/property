@@ -425,7 +425,7 @@
     .pqx-setup {
       min-height: calc(100vh - 172px);
       display: grid;
-      grid-template-columns: minmax(240px, 0.48fr) minmax(640px, 1.52fr);
+      grid-template-columns: minmax(220px, 320px) minmax(640px, 1fr);
       gap: clamp(14px, 2vw, 26px);
       align-items: start;
     }
@@ -462,6 +462,38 @@
     .pqx-fact-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
+    }
+    .pqx-dashboard-stack {
+      display: grid;
+      gap: 10px;
+    }
+    .pqx-dashboard-row {
+      display: grid;
+      gap: 4px;
+      padding: 11px 12px;
+      border: 1px solid rgba(255, 249, 237, 0.16);
+      border-radius: 8px;
+      background: rgba(255, 249, 237, 0.06);
+      min-width: 0;
+    }
+    .pqx-dashboard-row strong,
+    .pqx-dashboard-row span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .pqx-loaded-agent {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid #d8c083;
+      border-radius: 8px;
+      background: #fff8df;
+      color: #463819;
+    }
+    .pqx-loaded-agent[data-visible="true"] {
+      display: flex;
     }
     .pqx-fact {
       display: grid;
@@ -1644,9 +1676,12 @@
       {% if setup_mode %}
       <section class="pqx-stage pqx-setup">
         <aside class="pqx-setup-intro active" data-pqx-mobile-panel="results">
+          {% set dashboard_agents = property_meta.get('search_agents') or [] %}
+          {% set active_dashboard_agents = dashboard_agents|selectattr('enabled')|list %}
+          {% set selected_dashboard_agent = property_meta.get('search_agent') or (dashboard_agents[0] if dashboard_agents else {}) %}
           <div class="pqx-title">
-            <span>New search</span>
-            <h1>Tell us what to find.</h1>
+            <span>Dashboard</span>
+            <h1>Your property search desk.</h1>
           </div>
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
@@ -1655,11 +1690,28 @@
               <div class="pqx-fact"><span>Providers</span><strong>{{ (brief.get('providers') or [])|length }}</strong></div>
               <div class="pqx-fact"><span>Research</span><strong>{{ brief.get('research_depth') or 'deep' }}</strong></div>
             </div>
-            <p class="pqx-note">Start with the essentials. Extra filters stay grouped so the search stays readable.</p>
+            <p class="pqx-note">Start from the current brief, active saved searches, and recent reviews. The filter form stays beside this dashboard so it can be adjusted without losing context.</p>
+          </div>
+          <div class="pqx-dashboard-stack" data-pqx-dashboard-summary>
+            <div class="pqx-dashboard-row">
+              <span class="pqx-small">Saved searches</span>
+              <strong>{{ active_dashboard_agents|length }} active · {{ dashboard_agents|length }} total</strong>
+              <span class="pqx-note">{% if selected_dashboard_agent %}Selected: {{ selected_dashboard_agent.get('name') or 'Saved search' }}{% else %}Create a saved search from the form when this brief should keep running.{% endif %}</span>
+            </div>
+            <div class="pqx-dashboard-row">
+              <span class="pqx-small">Latest run</span>
+              <strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong>
+              <span class="pqx-note">{{ run.get('message') or 'No active run. Launch the next sweep when the brief is ready.' }}</span>
+            </div>
+            <div class="pqx-dashboard-row">
+              <span class="pqx-small">Next action</span>
+              <strong>{% if dashboard_agents %}Load, tweak, or run a saved search{% else %}Launch the first search{% endif %}</strong>
+              <span class="pqx-note">Only the best-ranked matches should be messaged when the alert budget is limited.</span>
+            </div>
           </div>
           {% if recent_packets %}
           <div class="pqx-brief-stack">
-            <strong>Recent reviews</strong>
+            <strong>Recent decisions and reviews</strong>
             {% for packet in recent_packets[:3] %}
             {% if packet.get('url') %}
             <a class="pqx-link-button subtle pqx-recent-review" href="{{ packet.get('url') }}">{{ packet.get('title') }}</a>
@@ -1680,6 +1732,10 @@
             <span class="pqx-pill" data-property-step-progress>Step 1</span>
           </div>
           {% if console_form and show_form_controls %}
+          <div class="pqx-loaded-agent" data-search-agent-loaded-state>
+            <strong data-search-agent-loaded-label>Saved search loaded</strong>
+            <span class="pqx-note">Tweak filters, run now, or save changes.</span>
+          </div>
           <form class="pqx-form" data-console-form-variant="{{ console_form.get('variant') }}" data-console-form-meta='{{ property_meta|tojson|safe }}'>
             {% set wizard_steps = property_meta.get('wizard_steps') or [] %}
             {% if wizard_steps %}
@@ -2214,6 +2270,15 @@
           <div>
             <strong data-pqx-run-message>{{ run.get('message') or 'The search is queued.' }}</strong>
             <p class="pqx-note">{% if run_active %}When results are ready, this page will show the best homes first.{% elif run_status == 'failed' %}Start a new search after changing the settings or reducing strict requirements.{% else %}No ranked matches were produced for this search. Adjust sources or target areas and launch a new search when ready.{% endif %}</p>
+            {% if run_active %}
+            <div class="pqx-dashboard-stack" data-pqx-running-provider-state>
+              <div class="pqx-dashboard-row">
+                <span class="pqx-small">Provider checks</span>
+                <strong>{{ (run.get('summary') or {}).get('sources_total') or run_sources|length or 0 }} lanes in progress</strong>
+                <span class="pqx-note">If one provider is slow, the run keeps its latest progress visible and continues with the strongest available signals.</span>
+              </div>
+            </div>
+            {% endif %}
           </div>
         </aside>
         <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property">
@@ -2704,6 +2769,8 @@
     const feedbackReactionButtons = [...root.querySelectorAll('[data-pw-feedback-reaction]')];
     const feedbackSaveButton = root.querySelector('[data-pw-feedback-save]');
     const counterfactualStatusNode = root.querySelector('[data-pqx-counterfactual-status]');
+    const loadedAgentState = root.querySelector('[data-search-agent-loaded-state]');
+    const loadedAgentLabel = root.querySelector('[data-search-agent-loaded-label]');
     const feedbackSuggestionCache = new Map();
     let selectedFeedbackReaction = '';
     let selectedFeedbackCandidateRef = '';
@@ -4566,6 +4633,12 @@
       syncSchoolStageVariantVisibility(form);
       setMode('brief');
     };
+    const showLoadedSearchAgent = (row) => {
+      if (!loadedAgentState) return;
+      const label = row?.querySelector('strong')?.textContent?.replace('· selected', '').trim() || 'Saved search loaded';
+      if (loadedAgentLabel) loadedAgentLabel.textContent = `Loaded: ${label}`;
+      loadedAgentState.setAttribute('data-visible', 'true');
+    };
     root.querySelectorAll('[data-search-agent-action]').forEach((button) => {
       button.addEventListener('click', async () => {
         if (!form) return;
@@ -4587,6 +4660,7 @@
             let payload = {};
             try { payload = JSON.parse(String(row?.getAttribute('data-search-agent-payload') || '{}')); } catch (_) { payload = {}; }
             applySearchAgentPayloadToForm(payload);
+            showLoadedSearchAgent(row);
             await updateSearchAgent(agentId, 'load', {});
             if (status) status.textContent = 'Saved search loaded. Tweak the filters or run it again.';
             return;
@@ -4595,6 +4669,7 @@
             let payload = {};
             try { payload = JSON.parse(String(row?.getAttribute('data-search-agent-payload') || '{}')); } catch (_) { payload = {}; }
             applySearchAgentPayloadToForm(payload);
+            showLoadedSearchAgent(row);
             await updateSearchAgent(agentId, 'load', {});
             await updateSearchAgent(agentId, 'resume', currentSearchAgentPatch());
             await startSearch();

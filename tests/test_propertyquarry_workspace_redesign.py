@@ -737,6 +737,32 @@ def test_property_search_agents_can_load_saved_filters_into_form() -> None:
     assert "Load filters" in body
     assert "applySearchAgentPayloadToForm" in body
     assert "Saved search loaded. Tweak the filters or run it again." in body
+    assert "data-search-agent-loaded-state" in body
+    assert "Loaded: ${label}" in body
+
+
+def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    assert "Your property search desk." in body
+    assert "data-pqx-dashboard-summary" in body
+    assert "Saved searches" in body
+    assert "Latest run" in body
+    assert "Next action" in body
+    assert "Recent decisions and reviews" in body
+    assert "grid-template-columns: minmax(220px, 320px) minmax(640px, 1fr);" in body
+    assert "Tell us what to find." not in body
+
+
+def test_property_workspace_running_state_explains_slow_provider_checks() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    assert "data-pqx-running-provider-state" in body
+    assert "Provider checks" in body
+    assert "lanes in progress" in body
+    assert "continues with the strongest available signals" in body
 
 
 def test_propertyquarry_user_facing_copy_avoids_hosted_review_jargon() -> None:
@@ -919,7 +945,7 @@ def test_propertyquarry_setup_intro_is_compact_and_allows_fact_text_to_wrap() ->
     assert setup_intro is not None
     assert fact is not None
     assert fact_strong is not None
-    assert "grid-template-columns: minmax(240px, 0.48fr) minmax(640px, 1.52fr);" in setup.group("body")
+    assert "grid-template-columns: minmax(220px, 320px) minmax(640px, 1fr);" in setup.group("body")
     assert "align-items: start;" in setup.group("body")
     assert "align-content: start;" in setup_intro.group("body")
     assert "padding: clamp(16px, 2vw, 26px);" in setup_intro.group("body")
@@ -1024,7 +1050,9 @@ def test_propertyquarry_workspace_setup_stays_user_facing() -> None:
     start_workspace(client, mode="personal", workspace_name="Property Office")
     response = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)
     assert response.status_code == 200
-    assert "Tell us what to find." in response.text
+    assert "Your property search desk." in response.text
+    assert "Saved searches" in response.text
+    assert "Latest run" in response.text
     assert "Build the brief. Then let the agents work." not in response.text
 
 
