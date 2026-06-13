@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.services.onboarding import OnboardingService
 from tests.product_test_helpers import build_property_client, start_workspace
 
 
@@ -21,6 +22,11 @@ def test_property_search_agents_can_be_managed_independently() -> None:
             "search_agent_duration_days": 90,
             "search_agent_notification_limit": 3,
             "search_agent_notification_period": "day",
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
         },
     )
     assert created.status_code == 200, created.text
@@ -122,6 +128,11 @@ def test_property_search_agent_loads_saved_filters_into_current_preferences() ->
             "search_agent_duration_days": 90,
             "search_agent_notification_limit": 3,
             "search_agent_notification_period": "day",
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
         },
     )
     assert created.status_code == 200, created.text
@@ -196,3 +207,47 @@ def test_property_search_agent_update_rejects_unknown_agent() -> None:
     )
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "property_search_agent_not_found"
+
+
+def test_property_search_agent_plan_limits_are_enforced() -> None:
+    raw_agents = [
+        {"agent_id": f"agent-{index}", "name": f"Search {index}", "country_code": "AT", "location_query": "Wien"}
+        for index in range(30)
+    ]
+
+    free_agents = OnboardingService._normalize_property_search_agents(
+        {
+            "country_code": "AT",
+            "location_query": "Wien",
+            "search_agents": raw_agents,
+            "property_commercial": {"active_plan_key": "free"},
+        }
+    )
+    plus_agents = OnboardingService._normalize_property_search_agents(
+        {
+            "country_code": "AT",
+            "location_query": "Wien",
+            "search_agents": raw_agents,
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        }
+    )
+    agent_agents = OnboardingService._normalize_property_search_agents(
+        {
+            "country_code": "AT",
+            "location_query": "Wien",
+            "search_agents": raw_agents,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        }
+    )
+
+    assert len(free_agents) == 1
+    assert len(plus_agents) == 3
+    assert len(agent_agents) == 30

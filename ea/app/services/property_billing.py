@@ -42,6 +42,7 @@ class PropertyPlanSpec:
     pass_days: int
     max_platforms: int
     max_results_per_source: int
+    search_agent_limit: int
     max_match_score: int
     research_depth: str
     investment_research_level: str
@@ -61,6 +62,7 @@ _FREE_PLAN = PropertyPlanSpec(
     pass_days=0,
     max_platforms=3,
     max_results_per_source=2,
+    search_agent_limit=1,
     max_match_score=45,
     research_depth="standard",
     investment_research_level="none",
@@ -87,6 +89,7 @@ _PAID_PLANS = {
         pass_days=30,
         max_platforms=5,
         max_results_per_source=5,
+        search_agent_limit=3,
         max_match_score=65,
         research_depth="deep",
         investment_research_level="preview",
@@ -111,6 +114,7 @@ _PAID_PLANS = {
         pass_days=30,
         max_platforms=12,
         max_results_per_source=10,
+        search_agent_limit=0,
         max_match_score=80,
         research_depth="deep",
         investment_research_level="full",
@@ -189,6 +193,7 @@ def property_commercial_snapshot(property_preferences: dict[str, object] | None)
         "investment_research_level": current_plan.investment_research_level,
         "max_platforms": current_plan.max_platforms,
         "max_results_per_source": current_plan.max_results_per_source,
+        "search_agent_limit": current_plan.search_agent_limit,
         "max_match_score": current_plan.max_match_score,
         "magic_fit_scene_limit": current_plan.magic_fit_scene_limit,
         "magic_fit_video_limit": current_plan.magic_fit_video_limit,
@@ -207,6 +212,7 @@ def property_commercial_snapshot(property_preferences: dict[str, object] | None)
                 "pass_days": spec.pass_days,
                 "max_platforms": spec.max_platforms,
                 "max_results_per_source": spec.max_results_per_source,
+                "search_agent_limit": spec.search_agent_limit,
                 "max_match_score": spec.max_match_score,
                 "research_depth": spec.research_depth,
                 "investment_research_level": spec.investment_research_level,

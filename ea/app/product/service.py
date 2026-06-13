@@ -484,9 +484,150 @@ def _property_search_platforms_with_family_toggles(
         ("include_distressed_sale_signals", "distressed_sales_at"),
     )
     for flag_name, platform_key in toggle_platforms:
+        if country_code and country_code != "AT" and platform_key.endswith("_at"):
+            continue
         if bool(payload.get(flag_name)) and platform_key not in normalized:
             normalized.append(platform_key)
     return tuple(normalized)
+
+
+def _property_search_platforms_for_country(
+    selected_platforms: tuple[str, ...],
+    country_code: object,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    normalized_country = normalize_country_code(resolve_country_code(country_code) or country_code)
+    if not normalized_country:
+        return selected_platforms, ()
+    kept: list[str] = []
+    removed: list[str] = []
+    for platform in _normalize_property_search_platform_inputs(selected_platforms):
+        if platform == "all":
+            removed.append(platform)
+            continue
+        provider = property_provider_for_platform(platform)
+        provider_country = normalize_country_code(getattr(provider, "country_code", "") or "")
+        if provider_country and provider_country != normalized_country:
+            removed.append(platform)
+            continue
+        if platform not in kept:
+            kept.append(platform)
+    return tuple(kept), tuple(removed)
+
+
+def _property_search_broaden_suggestions(
+    *,
+    request_preferences: dict[str, object],
+    payload: dict[str, object],
+) -> list[dict[str, object]]:
+    suggestions: list[dict[str, object]] = []
+
+    def _positive_int(value: object, default: int = 0) -> int:
+        try:
+            return max(0, int(float(str(value or "").strip())))
+        except Exception:
+            return default
+
+    listing_total = _positive_int(payload.get("listing_total"), 0)
+    if listing_total > 0:
+        return []
+    sources = [dict(row) for row in list(payload.get("sources") or []) if isinstance(row, dict)]
+    outside_total = sum(_positive_int(row.get("location_mismatch_candidate_total"), 0) for row in sources)
+    area_total = _positive_int(payload.get("filtered_area_total"), 0)
+    floorplan_total = _positive_int(payload.get("filtered_floorplan_total"), 0)
+    raw_total = sum(_positive_int(row.get("raw_listing_total"), 0) for row in sources)
+    country_code = normalize_country_code(resolve_country_code(request_preferences.get("country_code")) or request_preferences.get("country_code"))
+    region_code = str(request_preferences.get("region_code") or "").strip().lower()
+    location_query = str(request_preferences.get("location_query") or "").strip()
+    keywords = str(request_preferences.get("keywords") or "").strip()
+
+    if outside_total > 0 and country_code == "CR" and location_query:
+        location_values = [value.strip() for value in location_query.split(",") if value.strip()]
+        if "monteverde" in location_query.lower() and not any(value.lower() == "santa elena" for value in location_values):
+            suggestions.append(
+                {
+                    "title": "Broaden Monteverde to Santa Elena",
+                    "detail": f"{outside_total} provider result(s) were outside the exact Monteverde match. Add Santa Elena for a controlled discovery pass before going country-wide.",
+                    "tag": "Area",
+                    "action_label": "Add Santa Elena",
+                    "adjustments": {"region_code": "puntarenas", "location_query": "Monteverde, Santa Elena"},
+                }
+            )
+        elif region_code not in {"puntarenas"}:
+            suggestions.append(
+                {
+                    "title": "Move the search into Puntarenas",
+                    "detail": f"{outside_total} provider result(s) were outside the current target. Puntarenas is the broader province for this Costa Rica search.",
+                    "tag": "Area",
+                    "action_label": "Use Puntarenas",
+                    "adjustments": {"region_code": "puntarenas"},
+                }
+            )
+        suggestions.append(
+            {
+                "title": "Run one Puntarenas discovery sweep",
+                "detail": "Keep Costa Rica selected, but use the broader Puntarenas province once to discover nearby towns the providers actually index.",
+                "tag": "Area",
+                "action_label": "Use Puntarenas discovery",
+                "adjustments": {"region_code": "puntarenas", "location_query": "Puntarenas"},
+            }
+        )
+
+    min_area = _positive_int(request_preferences.get("min_area_m2"), 0)
+    if area_total > 0 and min_area > 0:
+        relaxed_area = max(0, min(min_area - 10, int(round(min_area * 0.65))))
+        suggestions.append(
+            {
+                "title": f"Relax minimum area to {relaxed_area} m2",
+                "detail": f"{area_total} candidate(s) were held back by the area filter. Run this only as a discovery pass, then restore the stricter size rule.",
+                "tag": "Size",
+                "action_label": f"Use {relaxed_area} m2",
+                "adjustments": {"min_area_m2": relaxed_area},
+            }
+        )
+
+    if keywords and raw_total > 0:
+        suggestions.append(
+            {
+                "title": "Remove keyword post-filtering once",
+                "detail": "Providers had raw inventory, but keyword filtering can be brittle in Costa Rica listings. Clear keywords for one discovery run.",
+                "tag": "Keywords",
+                "action_label": "Clear keywords",
+                "adjustments": {"keywords": ""},
+            }
+        )
+
+    if bool(request_preferences.get("require_floorplan")) and floorplan_total > 0:
+        suggestions.append(
+            {
+                "title": "Allow listings while recovering floorplans",
+                "detail": "Treat floorplans as a follow-up task instead of a hard gate for the next sweep.",
+                "tag": "Evidence",
+                "action_label": "Allow missing floorplans",
+                "adjustments": {"require_floorplan": False},
+            }
+        )
+
+    failed_sources = [str(row.get("source_label") or row.get("platform") or "").strip() for row in sources if str(row.get("error") or "").strip()]
+    if failed_sources:
+        suggestions.append(
+            {
+                "title": "Repair blocked provider lanes",
+                "detail": f"{len(failed_sources)} provider lane(s) failed during this run. Keep the search, but schedule provider repair before judging the market as empty.",
+                "tag": "Providers",
+                "action_label": "Review providers",
+                "adjustments": {},
+            }
+        )
+
+    deduped: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for suggestion in suggestions:
+        title = str(suggestion.get("title") or "").strip().lower()
+        if not title or title in seen:
+            continue
+        seen.add(title)
+        deduped.append(suggestion)
+    return deduped[:5]
 
 
 def _property_search_pref_value_missing(value: object) -> bool:
@@ -26715,6 +26856,9 @@ class ProductService:
             property_preferences=property_preferences,
         )
         merged_preferences = normalize_property_search_preferences(merged_preferences)
+        merged_preferences["country_code"] = normalize_country_code(
+            resolve_country_code(merged_preferences.get("country_code")) or merged_preferences.get("country_code")
+        )
 
         explicit_platform_input = bool(selected_platforms)
         normalized_platforms = _normalize_property_search_platform_inputs(selected_platforms)
@@ -26735,10 +26879,24 @@ class ProductService:
             normalized_platforms,
             merged_preferences,
         )
-        merged_preferences["selected_platforms"] = list(normalized_platforms)
-        merged_preferences["country_code"] = normalize_country_code(
-            resolve_country_code(merged_preferences.get("country_code")) or merged_preferences.get("country_code")
+        normalized_platforms, removed_platforms = _property_search_platforms_for_country(
+            normalized_platforms,
+            merged_preferences.get("country_code"),
         )
+        if not normalized_platforms:
+            fallback_platforms = _property_search_platforms_with_family_toggles(
+                tuple(default_platforms_for_country(merged_preferences.get("country_code"))),
+                merged_preferences,
+            )
+            normalized_platforms, fallback_removed = _property_search_platforms_for_country(
+                fallback_platforms,
+                merged_preferences.get("country_code"),
+            )
+            removed_platforms = tuple(dict.fromkeys((*removed_platforms, *fallback_removed)))
+        if removed_platforms:
+            merged_preferences["provider_country_filter_applied"] = True
+            merged_preferences["provider_country_filter_removed"] = list(removed_platforms)
+        merged_preferences["selected_platforms"] = list(normalized_platforms)
         merged_preferences["listing_mode"] = normalize_listing_mode(merged_preferences.get("listing_mode"))
         merged_preferences["preference_person_id"] = str(
             merged_preferences.get("preference_person_id")
@@ -29000,6 +29158,10 @@ class ProductService:
             "failed_total": failed_total,
             "sources": source_summaries,
         }
+        payload["search_broaden_suggestions"] = _property_search_broaden_suggestions(
+            request_preferences=request_preferences,
+            payload=payload,
+        )
         payload["ranked_candidates"] = _property_search_ranked_candidates_from_sources(source_summaries)
         research_tasks = _property_research_tasks_from_result(payload)
         payload.update(_property_research_task_counts(research_tasks))

@@ -4944,6 +4944,65 @@ def test_property_search_platform_family_toggles_expand_selected_platforms() -> 
     assert "distressed_sales_at" in expanded
 
 
+def test_property_search_platform_family_toggles_do_not_leak_austria_into_costa_rica() -> None:
+    expanded = product_service._property_search_platforms_with_family_toggles(
+        ("re_cr_mls", "realtor_cr"),
+        {
+            "country_code": "CR",
+            "include_broker_direct_sources": True,
+            "include_community_signals": True,
+            "include_developer_project_signals": True,
+            "include_public_housing_signals": True,
+            "include_distressed_sale_signals": True,
+        },
+    )
+
+    assert "re_cr_mls" in expanded
+    assert "realtor_cr" in expanded
+    assert "broker_direct_at" not in expanded
+    assert "community_signals_at" not in expanded
+    assert "developer_projects_at" not in expanded
+    assert "public_housing_at" not in expanded
+    assert "distressed_sales_at" not in expanded
+
+
+def test_property_search_zero_result_monteverde_suggests_broadening() -> None:
+    suggestions = product_service._property_search_broaden_suggestions(
+        request_preferences={
+            "country_code": "CR",
+            "region_code": "costa_rica",
+            "location_query": "Monteverde",
+            "min_area_m2": 80,
+            "keywords": "no gas, quiet, bright",
+            "require_floorplan": False,
+        },
+        payload={
+            "listing_total": 0,
+            "filtered_area_total": 21,
+            "filtered_floorplan_total": 0,
+            "sources": [
+                {
+                    "source_label": "RE.cr Costa Rica MLS",
+                    "raw_listing_total": 11,
+                    "location_mismatch_candidate_total": 11,
+                    "location_mismatch_reason": "provider_returned_candidates_outside_selected_location",
+                },
+                {
+                    "source_label": "Encuentra24 Costa Rica",
+                    "error": "HTTP Error 403: Forbidden",
+                },
+            ],
+        },
+    )
+
+    titles = [str(row.get("title") or "") for row in suggestions]
+    assert "Broaden Monteverde to Santa Elena" in titles
+    assert "Relax minimum area to 52 m2" in titles
+    assert "Remove keyword post-filtering once" in titles
+    assert "Repair blocked provider lanes" in titles
+    assert suggestions[0]["adjustments"]["location_query"] == "Monteverde, Santa Elena"
+
+
 def test_property_result_carries_source_family_and_trust_metadata(monkeypatch) -> None:
     principal_id = "cf-email:provider-metadata@example.com"
     client = build_product_client(principal_id=principal_id)

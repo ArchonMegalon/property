@@ -30,7 +30,7 @@ except ImportError:
         }
         return any(scope in supported_signal_scopes for scope in effective_scopes)
 from app.services.memory_runtime import MemoryRuntimeService
-from app.services.property_billing import normalize_property_commercial
+from app.services.property_billing import normalize_property_commercial, property_commercial_snapshot
 from app.services.property_market_catalog import (
     normalize_country_code,
     normalize_language_code,
@@ -342,6 +342,9 @@ class OnboardingService(AssistantOnboardingService):
                 property_search_preferences_json=preferences,
             )
         elif normalized_action in {"duplicate", "copy"}:
+            agent_limit = self._property_search_agent_limit(preferences)
+            if agent_limit > 0 and len(agents) >= agent_limit:
+                raise ValueError(f"property_search_agent_limit_reached:{agent_limit}")
             duplicate = dict(agent)
             seed = f"{principal_id}|{agent.get('agent_id')}|{len(agents) + 1}"
             duplicate["agent_id"] = f"agent-{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:12]}"
@@ -1493,9 +1496,12 @@ class OnboardingService(AssistantOnboardingService):
                 agents.append(OnboardingService._normalize_property_search_agent(raw_agent, fallback=payload))
         if not agents:
             agents.append(OnboardingService._normalize_property_search_agent(payload, fallback=payload))
+        agent_limit = OnboardingService._property_search_agent_limit(payload)
         seen: set[str] = set()
         deduped: list[dict[str, object]] = []
-        for agent in agents[:25]:
+        for agent in agents:
+            if agent_limit > 0 and len(deduped) >= agent_limit:
+                break
             agent_id = str(agent.get("agent_id") or "").strip()
             if not agent_id or agent_id in seen:
                 seed = "|".join(
@@ -1510,6 +1516,14 @@ class OnboardingService(AssistantOnboardingService):
             agent["is_active"] = agent_id == active_agent_id or (not active_agent_id and not deduped)
             deduped.append(agent)
         return deduped
+
+    @staticmethod
+    def _property_search_agent_limit(preferences: dict[str, object] | None) -> int:
+        try:
+            snapshot = property_commercial_snapshot(dict(preferences or {}))
+            return max(0, int(snapshot.get("search_agent_limit") or 0))
+        except Exception:
+            return 1
 
     @staticmethod
     def _normalize_property_search_agent(

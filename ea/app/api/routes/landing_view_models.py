@@ -566,7 +566,11 @@ def _property_counterfactual_rows(
     provider_options: list[dict[str, object]],
     current_platform_cap: int,
 ) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
+    rows: list[dict[str, object]] = [
+        dict(row)
+        for row in list(run_summary.get("search_broaden_suggestions") or [])
+        if isinstance(row, dict) and str(row.get("title") or "").strip()
+    ]
 
     def _positive_int(value: object, default: int = 0) -> int:
         try:
