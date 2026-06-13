@@ -2271,11 +2271,12 @@
             <strong data-pqx-run-message>{{ run.get('message') or 'The search is queued.' }}</strong>
             <p class="pqx-note">{% if run_active %}When results are ready, this page will show the best homes first.{% elif run_status == 'failed' %}Start a new search after changing the settings or reducing strict requirements.{% else %}No ranked matches were produced for this search. Adjust sources or target areas and launch a new search when ready.{% endif %}</p>
             {% if run_active %}
+            {% set active_provider_lanes = (run.get('summary') or {}).get('sources_total') or run_sources|length or 0 %}
             <div class="pqx-dashboard-stack" data-pqx-running-provider-state>
               <div class="pqx-dashboard-row">
-                <span class="pqx-small">Provider checks</span>
-                <strong>{{ (run.get('summary') or {}).get('sources_total') or run_sources|length or 0 }} lanes in progress</strong>
-                <span class="pqx-note">If one provider is slow, the run keeps its latest progress visible and continues with the strongest available signals.</span>
+                <span class="pqx-small">{% if active_provider_lanes > 0 %}Provider checks{% else %}Preparing search{% endif %}</span>
+                <strong>{% if active_provider_lanes > 0 %}Checking {{ active_provider_lanes }} provider{{ '' if active_provider_lanes == 1 else 's' }}{% else %}Waiting for the first provider response{% endif %}</strong>
+                <span class="pqx-note">{% if active_provider_lanes > 0 %}You can leave this page open or refresh status; the best ranked homes will appear here when checks finish.{% else %}The run has started, but no provider has returned progress yet. Refresh in a moment if this does not update automatically.{% endif %}</span>
               </div>
             </div>
             {% endif %}

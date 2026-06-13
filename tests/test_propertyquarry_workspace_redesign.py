@@ -761,8 +761,11 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
 
     assert "data-pqx-running-provider-state" in body
     assert "Provider checks" in body
-    assert "lanes in progress" in body
-    assert "continues with the strongest available signals" in body
+    assert "Checking {{ active_provider_lanes }} provider" in body
+    assert "Waiting for the first provider response" in body
+    assert "Refresh in a moment" in body
+    assert "0 lanes in progress" not in body
+    assert "lanes in progress" not in body
 
 
 def test_propertyquarry_user_facing_copy_avoids_hosted_review_jargon() -> None:

@@ -8317,6 +8317,75 @@ def test_property_scout_page_preview_detects_unlabelled_gallery_floorplan_image(
     assert facts["gallery_floorplan_diagnostics"]["visual_check_total"] >= 1
 
 
+def test_property_scout_page_preview_scans_willhaben_gallery_when_packet_has_no_floorplan(monkeypatch) -> None:
+    if product_service.Image is None:
+        pytest.skip("Pillow unavailable")
+    from PIL import ImageDraw
+
+    listing_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/test-gallery-plan-1234567890/"
+    plan_url = "https://cache.willhaben.at/mmo/0/123/456/7890_grundriss-normal-photo.jpg"
+    image = product_service.Image.new("RGB", (900, 620), "white")
+    draw = ImageDraw.Draw(image)
+    for offset in (40, 120, 240, 360, 480, 610, 760):
+        draw.line((offset, 45, offset, 570), fill="black", width=7)
+    for offset in (45, 150, 280, 420, 570):
+        draw.line((40, offset, 840, offset), fill="black", width=7)
+    draw.rectangle((55, 60, 310, 205), outline="black", width=9)
+    draw.rectangle((315, 60, 560, 315), outline="black", width=9)
+    draw.rectangle((565, 60, 835, 315), outline="black", width=9)
+    draw.rectangle((55, 320, 430, 565), outline="black", width=9)
+    draw.text((90, 115), "Zimmer", fill="black")
+    draw.text((370, 170), "Kueche", fill="black")
+    draw.text((625, 170), "Bad/WC", fill="black")
+    plan_bytes = io.BytesIO()
+    image.save(plan_bytes, format="PNG")
+
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda *args, **kwargs: {
+            "listing_id": "1234567890",
+            "title": "Willhaben packet title",
+            "property_facts_json": {
+                "property_type": "apartment",
+                "has_floorplan": False,
+                "rooms": 2,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: f"""
+            <html>
+              <head>
+                <title>Willhaben Gallery Listing</title>
+                <meta property="og:title" content="Willhaben Gallery Listing">
+              </head>
+              <body>
+                <img alt="Foto 1" src="https://cache.willhaben.at/mmo/0/123/456/7890_photo.jpg">
+                <img alt="Foto 12" src="{plan_url}">
+              </body>
+            </html>
+        """,
+    )
+
+    def _download(url: str, *, timeout_seconds: float = 5.0, max_bytes: int = 0) -> tuple[bytes, str]:
+        if url == plan_url:
+            return plan_bytes.getvalue(), "image/png"
+        return b"not-an-image", "image/jpeg"
+
+    monkeypatch.setattr(product_service, "_property_scout_download_bytes", _download)
+
+    preview = product_service._property_scout_page_preview(listing_url)
+    facts = preview["property_facts_json"]
+
+    assert preview["floorplan_urls_json"] == (plan_url,)
+    assert facts["has_floorplan"] is True
+    assert facts["rooms"] == 2
+    assert facts["floorplan_detection_method"] == "gallery_marker_or_visual_classifier"
+
+
 def test_property_scout_page_preview_falls_back_to_fast_html_for_willhaben_when_packet_loader_times_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

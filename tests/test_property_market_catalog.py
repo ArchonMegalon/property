@@ -609,6 +609,7 @@ def test_generated_source_specs_pushes_coarse_filters_to_willhaben() -> None:
     assert pushdown["applied"]["max_price_eur"] == 2200
     assert pushdown["applied"]["min_rooms"] == 3
     assert "require_floorplan" in pushdown["post_filter_only"]
+    assert pushdown["post_filter_reasons"]["require_floorplan"] == "provider_has_no_reliable_dedicated_filter_or_parameter"
     assert str(pushdown["cache_key"]).startswith("willhaben:")
     assert specs[0]["provider_cache_key"] == pushdown["cache_key"]
 
@@ -640,6 +641,41 @@ def test_generated_source_specs_marks_weak_costa_rica_provider_filters_as_attemp
     assert "keywords" in pushdown["post_filter_only"]
     assert "min_area_m2" in pushdown["post_filter_only"]
     assert "require_floorplan" in pushdown["post_filter_only"]
+    assert pushdown["post_filter_reasons"]["location_query"] == "attempted_as_provider_search_query_then_verified_after_fetch"
+    assert pushdown["post_filter_reasons"]["require_floorplan"] == "provider_has_no_reliable_dedicated_filter_or_parameter"
+
+
+def test_generated_source_specs_every_requested_filter_has_pushdown_receipt() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "1020 Vienna",
+            "keywords": "lift family",
+            "min_area_m2": 70,
+            "min_rooms": 3,
+            "max_price_eur": 1800,
+            "require_floorplan": True,
+        },
+        selected_platforms=("willhaben", "immmo", "immoscout_at", "derstandard_at", "remax_at"),
+        principal_id="exec-property-filter-receipt",
+        default_person_id="self",
+        max_results=2,
+    )
+
+    assert specs
+    for spec in specs:
+        pushdown = dict(spec["provider_filter_pushdown"])
+        requested = set(dict(pushdown["requested"]).keys())
+        applied = set(dict(pushdown["applied"]).keys())
+        attempted = set(dict(pushdown["attempted"]).keys())
+        post_filter_only = set(pushdown["post_filter_only"])
+        reasons = dict(pushdown["post_filter_reasons"])
+        assert requested <= applied | attempted | post_filter_only
+        assert post_filter_only <= set(reasons)
+        assert all(str(reasons[key]).strip() for key in post_filter_only)
 
 
 def test_generated_source_specs_expand_austria_cooperative_provider_group() -> None:

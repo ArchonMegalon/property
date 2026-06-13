@@ -4560,6 +4560,7 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
         query = urllib.parse.parse_qs(parsed.query)
         if str((query.get("pq_listing") or [""])[0]).strip() == "1":
             return _property_sozialbau_preview_from_url(normalized)
+    willhaben_packet_preview: dict[str, object] = {}
     if _is_willhaben_property_url(normalized) and not prefer_fast:
         try:
             packet = _load_willhaben_property_packet_compat(normalized, timeout_seconds=4)
@@ -4569,12 +4570,20 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
                 fallback="",
                 limit=300,
             )
-            return {
+            willhaben_packet_preview = {
                 "listing_id": str(packet.get("listing_id") or "").strip(),
                 "title": compact_text(str(packet.get("title") or "").strip(), fallback=normalized, limit=160),
                 "summary": description,
                 "property_facts_json": property_facts,
             }
+            if _property_candidate_has_floorplan(
+                property_url=normalized,
+                title=str(willhaben_packet_preview.get("title") or ""),
+                summary=str(willhaben_packet_preview.get("summary") or ""),
+                property_facts=property_facts,
+                preview=willhaben_packet_preview,
+            ):
+                return willhaben_packet_preview
         except RuntimeError:
             pass
     if not prefer_fast and _property_scout_is_floorplan_archive_candidate_url(url=normalized, context=normalized):
@@ -4642,6 +4651,11 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
         floorplan_urls = tuple(dict.fromkeys([*floorplan_urls, *gallery_floorplan_urls]))
     source_virtual_tour_url = _property_scout_extract_source_virtual_tour_url(source_url=normalized, html=html)
     property_facts = _property_distressed_sale_preview_facts(normalized, html)
+    if willhaben_packet_preview:
+        packet_facts = dict(willhaben_packet_preview.get("property_facts_json") or {})
+        for key, value in packet_facts.items():
+            if value not in (None, "", (), []):
+                property_facts.setdefault(key, value)
     if not prefer_fast and str(property_facts.get("provider_channel") or "").strip() == "justiz_edikte_at":
         for detail_url in _property_scout_extract_context_links(
             source_url=normalized,
@@ -4703,8 +4717,8 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
     )
     return {
         "listing_id": normalized,
-        "title": og_title or title or normalized,
-        "summary": summary,
+        "title": og_title or title or str(willhaben_packet_preview.get("title") or "") or normalized,
+        "summary": summary or str(willhaben_packet_preview.get("summary") or ""),
         "property_facts_json": property_facts,
         "media_urls_json": media_urls[:12],
         "floorplan_urls_json": floorplan_urls[:6],

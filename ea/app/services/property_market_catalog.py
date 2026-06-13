@@ -2108,6 +2108,14 @@ def _provider_filter_pushdown_payload(
         attempted["min_area_m2"] = requested["min_area_m2"]
 
     post_filter_only = sorted(key for key in requested if key not in applied)
+    post_filter_reasons = {
+        key: (
+            "attempted_as_provider_search_query_then_verified_after_fetch"
+            if key in attempted
+            else "provider_has_no_reliable_dedicated_filter_or_parameter"
+        )
+        for key in post_filter_only
+    }
     cache_applied = {
         **applied,
         **{f"attempted_{key}": value for key, value in attempted.items()},
@@ -2126,6 +2134,7 @@ def _provider_filter_pushdown_payload(
         "attempted": attempted,
         "filter_strength": "weak_search_then_post_filter" if attempted else "provider_side",
         "post_filter_only": post_filter_only,
+        "post_filter_reasons": post_filter_reasons,
         "cache_key": cache_key,
     }
 
