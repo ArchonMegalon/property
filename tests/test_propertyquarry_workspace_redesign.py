@@ -502,9 +502,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "NeuronWriter editorial pass" not in search.text
     assert "Telegram links" not in search.text
     assert "Generated asset receipts" not in search.text
-    assert "repair check queued" in search.text
-    assert "floorplan miss reviewed" in search.text
-    assert "Repair: ea_one_manager" in search.text
+    assert "repair check queued" not in search.text
+    assert "Repair: ea_one_manager" not in search.text
+    assert "unverified floorplan" in search.text
+    assert "Repair provider extraction" not in search.text
     assert "Missing facts" in search.text
     assert "Facts still being completed from floorplans" in search.text
     assert "Rooms under review" in search.text

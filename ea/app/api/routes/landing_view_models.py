@@ -224,18 +224,13 @@ def _provider_quality_rows(
             f"{tour_success} tour readiness",
             f"best for {best_use_labels.get(family, family.replace('_', ' '))}",
         ]
-        if repair_task_total:
-            detail_parts.append(f"{repair_task_total} repair check{'s' if repair_task_total != 1 else ''} queued")
         if floorplan_filtered_total:
-            detail_parts.append(f"{floorplan_filtered_total} floorplan miss{'es' if floorplan_filtered_total != 1 else ''} reviewed")
-        repair_tasks = [dict(task) for task in list(raw.get("provider_repair_tasks") or []) if isinstance(task, dict)]
-        repair_owner = str((repair_tasks[0] if repair_tasks else {}).get("repair_owner") or "").strip()
-        repair_tag = f" · Repair: {repair_owner}" if repair_owner else ""
+            detail_parts.append(f"{floorplan_filtered_total} unverified floorplan{'s' if floorplan_filtered_total != 1 else ''}")
         rows.append(
             {
                 "title": label,
                 "detail": " | ".join(detail_parts),
-                "tag": f"{trust.title()} · {family.replace('_', ' ').title()}{repair_tag}",
+                "tag": f"{trust.title()} · {family.replace('_', ' ').title()}",
             }
         )
     if not rows:
