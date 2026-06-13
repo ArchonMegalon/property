@@ -53,6 +53,7 @@ from app.api.routes.product_api_contracts import (
     PreferenceNodeUpsertIn,
     PreferenceProfileBundleOut,
     PreferenceProfileSummaryOut,
+    PropertyDecisionRecordIn,
     PropertyFeedbackRecordIn,
     PropertyFeedbackRecordOut,
     PropertyDecisionCopilotIn,
@@ -117,6 +118,17 @@ from app.services.dossier_writer.neuronwriter_adapter import create_neuronwriter
 from app.services.registration_email import property_notification_preview
 
 router = APIRouter(prefix="/app/api", tags=["product"])
+
+_PROPERTY_DECISION_REASON_KEYS: frozenset[str] = frozenset(
+    {
+        "no_floorplan",
+        "floorplan_missing",
+        "operating_costs_missing",
+        "energy_certificate_missing",
+        "heating_unclear",
+        "noise_risk",
+    }
+)
 
 
 def _api_safe_token(value: object, fallback: str = "ref") -> str:
@@ -1101,7 +1113,7 @@ def record_property_feedback(
     service = build_product_service(container)
     packet_service = build_fliplink_packet_service(container)
     actor = str(body.actor or context.operator_id or context.access_email or context.principal_id or "browser").strip()
-    allowed_reason_keys = set(_property_feedback_reason_map().keys())
+    allowed_reason_keys = set(_property_feedback_reason_map().keys()) | set(_PROPERTY_DECISION_REASON_KEYS)
     normalized_reason_keys = [
         str(item or "").strip().lower()
         for item in list(body.reason_keys or [])
@@ -1199,6 +1211,55 @@ def record_property_feedback(
         else ("partial" if structured_feedback_errors else ("recorded" if structured_feedback_recorded else "not_attempted"))
     )
     result["structured_feedback_errors"] = structured_feedback_errors[:5]
+    return PropertyFeedbackRecordOut(**result)
+
+
+@router.post("/property/decisions", response_model=PropertyFeedbackRecordOut)
+def record_property_decision(
+    body: PropertyDecisionRecordIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyFeedbackRecordOut:
+    service = build_product_service(container)
+    actor = str(body.actor or context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    allowed_reason_keys = set(_property_feedback_reason_map().keys()) | set(_PROPERTY_DECISION_REASON_KEYS)
+    normalized_reason_keys = [
+        str(item or "").strip().lower()
+        for item in list(body.reason_keys or [])
+        if str(item or "").strip()
+    ]
+    invalid_reason_keys = [
+        key
+        for key in normalized_reason_keys
+        if len(key) > 80 or key not in allowed_reason_keys
+    ]
+    if invalid_reason_keys:
+        raise HTTPException(status_code=422, detail="invalid_property_feedback_reason_key")
+    person_id = str(body.person_id or "self").strip() or "self"
+    result = service.record_property_feedback(
+        principal_id=context.principal_id,
+        person_id=person_id,
+        property_slug=body.property_slug,
+        property_url=body.property_url,
+        property_title=body.property_title,
+        property_facts=dict(body.property_facts or {}),
+        reaction=body.reaction,
+        reason_keys=normalized_reason_keys,
+        note=body.note,
+        actor=actor,
+    )
+    persistence = dict(result.get("decision_persistence") or {})
+    if persistence.get("persisted") is not True:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "property_decision_ledger_write_failed",
+                "message": "The decision was not saved durably.",
+                "persistence": persistence,
+            },
+        )
+    result["structured_feedback_status"] = "not_attempted"
+    result["structured_feedback_errors"] = []
     return PropertyFeedbackRecordOut(**result)
 
 

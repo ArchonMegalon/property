@@ -9706,6 +9706,73 @@ def test_property_feedback_records_preference_learning_and_updates_assessment() 
     assert "Avoid heating: Gasheizung" in result["learning_summary"]["dislikes"]
 
 
+def test_property_decision_api_persists_decision_ledger(monkeypatch) -> None:
+    principal_id = "pref-property-decision-api"
+    client = build_product_client(principal_id=principal_id)
+
+    def _fake_persist_decision_loop(self, *, principal_id: str, person_id: str, snapshot: object) -> dict[str, object]:
+        return {
+            "persisted": True,
+            "decision_id": str(getattr(getattr(snapshot, "decision", None), "decision_id", "")),
+            "person_id": person_id,
+        }
+
+    monkeypatch.setattr(ProductService, "_persist_property_decision_loop", _fake_persist_decision_loop)
+
+    response = client.post(
+        "/app/api/property/decisions",
+        json={
+            "person_id": "tibor",
+            "property_slug": "decision-flat-1",
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/decision-flat-1",
+            "property_title": "Decision Flat 1",
+            "property_facts": {
+                "postal_name": "1020 Wien",
+                "area_sqm": 61.0,
+                "has_floorplan": False,
+            },
+            "reaction": "maybe",
+            "reason_keys": ["no_floorplan"],
+            "note": "Show the floor plan before deciding.",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "recorded"
+    assert body["decision_persistence"]["persisted"] is True
+    assert body["decision_persistence"]["person_id"] == "tibor"
+    assert body["decision_ledger"]["decision_state"] == "needs_documents"
+    assert any(item["document_type"] == "floorplan" for item in body["document_intake"])
+
+
+def test_property_decision_api_fails_closed_when_ledger_is_not_durable(monkeypatch) -> None:
+    principal_id = "pref-property-decision-api-fail"
+    client = build_product_client(principal_id=principal_id)
+
+    def _fake_persist_decision_loop(self, *, principal_id: str, person_id: str, snapshot: object) -> dict[str, object]:
+        return {"persisted": False, "reason": "database_url_missing"}
+
+    monkeypatch.setattr(ProductService, "_persist_property_decision_loop", _fake_persist_decision_loop)
+
+    response = client.post(
+        "/app/api/property/decisions",
+        json={
+            "property_slug": "decision-flat-2",
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/decision-flat-2",
+            "property_title": "Decision Flat 2",
+            "property_facts": {"postal_name": "1020 Wien"},
+            "reaction": "dislike",
+            "reason_keys": ["no_floorplan"],
+        },
+    )
+
+    assert response.status_code == 500
+    detail = response.json()["error"]["details"]
+    assert detail["code"] == "property_decision_ledger_write_failed"
+    assert detail["persistence"]["reason"] == "database_url_missing"
+
+
 def test_property_decision_copilot_returns_grounded_answer_and_actions() -> None:
     principal_id = "pref-property-clippy"
     client = build_product_client(principal_id=principal_id)
@@ -10866,16 +10933,14 @@ def test_willhaben_property_tour_block_followup_sends_telegram_scout_update(monk
     body = created.json()
     assert body["status"] == "blocked"
     assert body["blocked_reason"] == "browseract_connector_unconfigured"
-    assert sent
-    assert "Scout update." in str(sent[0]["kwargs"]["text"])
-    assert "Next: reconnect the tour worker and regenerate the tour." in str(sent[0]["kwargs"]["text"])
+    assert sent == []
 
     events = client.get(
         "/app/api/events",
-        params={"channel": "product", "event_type": "property_tour_followup_telegram_sent"},
+        params={"channel": "product", "event_type": "property_tour_followup_telegram_suppressed"},
     )
     assert events.status_code == 200
-    assert any(item["payload"]["telegram_chat_ref"] == "1354554303" for item in events.json()["items"])
+    assert any(item["payload"]["reason"] == "not_customer_actionable" for item in events.json()["items"])
 
 
 def test_willhaben_property_tour_without_browseract_binding_uses_hosted_floorplan_when_available(monkeypatch) -> None:

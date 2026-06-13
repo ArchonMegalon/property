@@ -172,12 +172,11 @@ def test_telegram_outbound_workflow_blocked_property_tour_sends_scout_update(mon
     body = created.json()
     assert body["status"] == "blocked"
     assert body["blocked_reason"] == "browseract_connector_unconfigured"
-    assert sent
-    assert "Scout update." in str(sent[0]["kwargs"]["text"])
+    assert sent == []
 
-    events = client.get("/app/api/events", params={"channel": "product", "event_type": "property_tour_followup_telegram_sent"})
+    events = client.get("/app/api/events", params={"channel": "product", "event_type": "property_tour_followup_telegram_suppressed"})
     assert events.status_code == 200
-    assert any(item["payload"]["telegram_chat_ref"] == "1354554303" for item in events.json()["items"])
+    assert any(item["payload"]["reason"] == "not_customer_actionable" for item in events.json()["items"])
 
 
 def test_telegram_outbound_workflow_suppresses_weak_property_digest(monkeypatch: pytest.MonkeyPatch) -> None:

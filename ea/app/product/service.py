@@ -9983,6 +9983,19 @@ def _property_tour_followup_telegram_text(
     )
 
 
+def _property_tour_followup_is_customer_actionable(blocked_reason: str) -> bool:
+    normalized = str(blocked_reason or "").strip().lower()
+    if not normalized:
+        return False
+    return normalized not in {
+        "browseract_connector_unconfigured",
+        "listing_360_media_missing",
+        "property_tour_execution_failed",
+        "property_tour_delivery_failed",
+        "property_tour_video_delivery_failed",
+    }
+
+
 def _google_send_error_detail(exc: Exception) -> str:
     detail = str(exc or "").strip()
     reader = getattr(exc, "read", None)
@@ -21871,10 +21884,39 @@ class ProductService:
         failed_filter_key: str,
         failed_filter_label: str,
         prefilter_score: float,
+        requested_location_hints: tuple[str, ...] = (),
+        requested_country_code: str = "",
+        requested_region_code: str = "",
     ) -> dict[str, object]:
         patch = _property_search_filter_disable_patch(failed_filter_key)
         if not patch:
             return {"status": "suppressed", "reason": "unsupported_filter_patch"}
+        location_hints = tuple(str(item or "").strip() for item in list(requested_location_hints or ()) if str(item or "").strip())
+        if location_hints and not _property_candidate_matches_requested_location(
+            location_hints=location_hints,
+            property_url=property_url,
+            title=title,
+            summary=summary,
+            property_facts={},
+            country_code=requested_country_code,
+            region_code=requested_region_code,
+        ):
+            payload = {
+                "status": "suppressed",
+                "reason": "property_location_conflicts_with_active_search",
+                "property_url": str(property_url or "").strip(),
+                "source_ref": str(source_ref or "").strip(),
+                "failed_filter_key": str(failed_filter_key or "").strip(),
+                "location_hints": list(location_hints),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_scout_filter_near_miss_telegram_suppressed",
+                payload={**payload, "title": str(title or "").strip(), "actor": str(actor or "").strip() or "property_scout"},
+                source_id=str(source_ref or property_url or "").strip(),
+                dedupe_key=f"{principal_id}|{source_ref or property_url}|{failed_filter_key}|property-filter-near-miss-location-mismatch",
+            )
+            return payload
         feedback_alias = _property_search_filter_feedback_alias(failed_filter_key)
         prompt = self._prepare_notification_feedback_prompt(
             principal_id=principal_id,
@@ -22684,6 +22726,15 @@ class ProductService:
             source_id=str(source_ref or property_url or task.human_task_id).strip(),
             dedupe_key=f"{principal_id}|{source_ref or property_url}|{variant_key}|property-tour-followup-created",
         )
+        if not _property_tour_followup_is_customer_actionable(blocked_reason):
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_tour_followup_telegram_suppressed",
+                payload={**payload, "reason": "not_customer_actionable"},
+                source_id=str(source_ref or property_url or task.human_task_id).strip(),
+                dedupe_key=f"{principal_id}|{source_ref or property_url}|{variant_key}|property-tour-followup-telegram-suppressed",
+            )
+            return task
         try:
             telegram_receipt = send_telegram_message_for_principal(
                 self._container.tool_runtime,
@@ -28624,6 +28675,9 @@ class ProductService:
                                 "failed_filter_key": str(near_miss.get("failed_filter_key") or "").strip(),
                                 "failed_filter_label": str(near_miss.get("failed_filter_label") or "").strip(),
                                 "prefilter_score": float(near_miss.get("prefilter_score") or 0.0),
+                                "requested_location_hints": tuple(location_hints),
+                                "requested_country_code": str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
+                                "requested_region_code": str(request_preferences.get("region_code") or "").strip(),
                             },
                         }
                     )

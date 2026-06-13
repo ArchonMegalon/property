@@ -528,6 +528,52 @@ def test_property_filter_near_miss_feedback_buttons_fit_telegram_callback_limit(
     assert any("|kf_super|" in value for value in callback_values)
 
 
+def test_property_filter_near_miss_sender_suppresses_location_conflicts(monkeypatch) -> None:
+    principal_id = "exec-property-filter-near-miss-location-sender"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Filter Location Gate Office")
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+    )
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    service = ProductService(client.app.state.container)
+    sent: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: sent.append(dict(kwargs)) or SimpleNamespace(chat_id="1354554303", message_ids=("7",)),
+    )
+
+    result = service._send_property_scout_filter_near_miss_telegram(
+        principal_id=principal_id,
+        actor="test",
+        title="Wohnung mieten in 4020 Linz | 48.38 m2 | 2 Zimmer",
+        summary="Outside Vienna.",
+        counterparty="DER STANDARD Immobilien | Austria | Buy | 1020 Vienna",
+        property_url="https://immobilien.derstandard.at/detail/wohnung-mieten-in-4020-linz",
+        source_ref="property-scout:linz-near-miss",
+        preference_person_id="self",
+        failed_filter_key="min_area_m2",
+        failed_filter_label="minimum area",
+        prefilter_score=86.0,
+        requested_location_hints=("1020 Vienna",),
+        requested_country_code="AT",
+        requested_region_code="vienna",
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+    assert sent == []
+
+
 def test_property_search_sparse_auction_floorplan_area_scores_above_review_threshold() -> None:
     preview = {
         "title": "BG Leopoldstadt, 082 25 E 89/25g",

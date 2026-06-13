@@ -1137,6 +1137,10 @@ class PropertyFeedbackRecordIn(BaseModel):
     actor: str = Field(default="", max_length=200)
 
 
+class PropertyDecisionRecordIn(PropertyFeedbackRecordIn):
+    person_id: str = Field(default="self", max_length=120)
+
+
 class PreferenceProfileSummaryOut(BaseModel):
     person_id: str
     principal_id: str
