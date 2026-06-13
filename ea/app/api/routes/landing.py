@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
@@ -683,9 +683,11 @@ def landing(
     request: Request,
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
-) -> HTMLResponse:
+) -> Response:
     principal_id, status = _load_status(container=container, access_identity=access_identity)
     brand = request_brand(request)
+    if access_identity is not None and brand["key"] == "propertyquarry":
+        return RedirectResponse(str(brand.get("app_home") or "/app/properties"), status_code=307)
     commercial = property_commercial_snapshot(None)
     return _render_public_template(
         request,

@@ -599,9 +599,10 @@
 </style>
 </head>
 <body>
+  {% set brand_home_href = (brand.app_home or '/app/properties') if access_identity else (brand.public_base_url or '/') %}
   <header class="topbar">
     <div class="wrap topbar-inner">
-      <a class="brand" href="/">
+      <a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} home">
         <span class="brand-mark">{{ brand.mark }}</span>
         <span>{{ brand.name }}</span>
       </a>

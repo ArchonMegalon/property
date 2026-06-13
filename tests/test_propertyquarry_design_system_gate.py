@@ -56,3 +56,15 @@ def test_propertyquarry_search_results_explain_suppression_and_provider_quality(
     assert "Floorplans {{ provider_quality.get('floorplan_reliability')" in body
     assert "PropertyQuarry ranks the candidates" in body
 
+
+def test_propertyquarry_brand_marks_route_to_public_or_dashboard_home() -> None:
+    public_shell = (ROOT / "ea/app/templates/base_public.html").read_text(encoding="utf-8")
+    console_shell = (ROOT / "ea/app/templates/base_console.html").read_text(encoding="utf-8")
+    workbench = (ROOT / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+
+    assert "{% set brand_home_href = (brand.app_home or '/app/properties') if access_identity else (brand.public_base_url or '/') %}" in public_shell
+    assert '<a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} home">' in public_shell
+    assert "{% set brand_home_href = brand.app_home or '/app/properties' %}" in console_shell
+    assert '<a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} dashboard">' in console_shell
+    assert "run.get('run_id')" not in workbench.split('<a class="pqx-brand"', 1)[1].split(">", 1)[0]
+    assert '<a class="pqx-brand" href="/app/properties" aria-label="PropertyQuarry dashboard">' in workbench

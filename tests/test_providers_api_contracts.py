@@ -4308,11 +4308,9 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
 
     owner = _client(principal_id="ignored-browser")
 
-    landing = owner.get("/")
-    assert landing.status_code == 200
-    assert "Open current session" in landing.text
-    assert "Search once. Rank hard. Research the shortlist." in landing.text
-    assert "browser@gmail.com" not in landing.text
+    landing = owner.get("/", follow_redirects=False)
+    assert landing.status_code == 307
+    assert landing.headers["location"] == "/app/properties"
 
     started = owner.post(
         "/google/connect",
