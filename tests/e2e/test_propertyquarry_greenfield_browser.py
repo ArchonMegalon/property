@@ -1701,8 +1701,8 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
             "tour_ready": ("Apartment tour ready: Family flat near Augarten", "No — tell us why"),
             "investment_research_ready": ("Investment research ready", "Pass — too risky"),
             "workspace_invitation": ("Mara invited you to PropertyQuarry", "Review workspace invite"),
-            "workspace_access": ("Your access link for PropertyQuarry Workspace", "Open access link"),
-            "google_connect": ("Connect Google to PropertyQuarry Workspace", "Connect Google"),
+            "workspace_access": ("Your access link for PropertyQuarry account", "Open access link"),
+            "google_connect": ("Connect Google to PropertyQuarry account", "Connect Google"),
             "market_ready": ("PropertyQuarry market ready: Vienna", "Open PropertyQuarry"),
         }
         for template_key, (subject_text, cta_text) in preview_expectations.items():

@@ -285,7 +285,7 @@ def settings_plan_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title="PropertyQuarry plan",
         current_nav="settings",
         console_title="Plan",
@@ -376,7 +376,7 @@ def settings_usage_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title="PropertyQuarry usage",
         current_nav="settings",
         console_title="Usage and activation",
@@ -504,7 +504,7 @@ def settings_support_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title="PropertyQuarry support",
         current_nav="settings",
         console_title="Support and recovery",
@@ -822,7 +822,7 @@ def settings_outcomes_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title="PropertyQuarry outcomes",
         current_nav="settings",
         console_title="Outcomes",
@@ -1142,7 +1142,7 @@ def settings_google_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title="PropertyQuarry Google connection",
         current_nav="settings",
         console_title="Google connection",
@@ -1296,7 +1296,7 @@ def settings_trust_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title="PropertyQuarry trust",
         current_nav="settings",
         console_title="Trust",
@@ -1435,7 +1435,7 @@ def settings_access_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title="PropertyQuarry access",
         current_nav="settings",
         console_title="Access",
@@ -1559,7 +1559,7 @@ def settings_invitations_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title="PropertyQuarry invitations",
         current_nav="settings",
         console_title="Invitations",
@@ -2182,7 +2182,7 @@ def app_search(
             console_title="Search",
             console_summary="Search is the fastest way to jump across the office object model and execute the next obvious action.",
             nav_groups=app_nav_groups_for_brand(request_brand(request)["key"]),
-            workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+            workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
             cards=cards,
             stats=stats,
             console_form={

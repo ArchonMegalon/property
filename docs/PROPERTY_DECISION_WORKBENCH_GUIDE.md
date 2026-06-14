@@ -272,7 +272,7 @@ Target shape:
   "brief": {
     "country_code": "AT",
     "region_code": "vienna",
-    "all_of_vienna": true,
+    "full_region_scope": true,
     "listing_mode": "buy",
     "selected_platforms": ["willhaben", "genossenschaften_at"],
     "priorities": ["lift", "family", "u-bahn"]

@@ -31,7 +31,7 @@ Examples:
 
 | Bad | Good |
 | --- | --- |
-| Candidate generated. | Review packet is ready. |
+| Candidate generated. | Property page is ready. |
 | premium_dossier_render_failed | The premium PDF did not pass quality checks. |
 | No result. | No listing met this brief. Try relaxing one constraint. |
 | Open: https://... | Open the titled review button. |
@@ -47,4 +47,3 @@ retry action
 fallback action
 receipt
 ```
-

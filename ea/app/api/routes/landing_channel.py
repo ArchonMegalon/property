@@ -434,7 +434,7 @@ def app_channel_digest(
                 if part
             ),
             nav_groups=APP_NAV_GROUPS,
-            workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+            workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
             cards=[
                 {
                     "eyebrow": "Channel digest",

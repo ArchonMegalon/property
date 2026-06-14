@@ -9703,7 +9703,7 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     assert workspace_preview.status_code == 200
     workspace_preview_body = workspace_preview.json()
     assert workspace_preview_body["template_key"] == "workspace_access"
-    assert "PropertyQuarry Workspace" in workspace_preview_body["text"]
+    assert "PropertyQuarry account" in workspace_preview_body["text"]
     assert "Open access link" in workspace_preview_body["html"]
 
     partial = client.post(

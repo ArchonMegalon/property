@@ -17,7 +17,8 @@
 {% set run_terminal_no_results = run.get('run_id') and run_status in terminal_states and not results %}
 {% set run_visible = run_active %}
 {% set has_results = results|length > 0 %}
-{% set setup_mode = not run_visible and not run_terminal_no_results and not has_results %}
+{% set static_surface = surface_mode in ['agents', 'account'] %}
+{% set setup_mode = static_surface or (not run_visible and not run_terminal_no_results and not has_results) %}
 {% set show_form_controls = show_brief_form and setup_mode %}
 {% set research_tasks = workbench.get('research_tasks') or [] %}
 {% set research_task_counts = workbench.get('research_task_counts') or {} %}
@@ -3488,14 +3489,42 @@
           {% set selected_dashboard_agent = property_meta.get('search_agent') or (dashboard_agents[0] if dashboard_agents else {}) %}
           {% set previous_limit = 4 if surface_mode == 'search' else 6 %}
           <div class="pqx-title">
-            <span>{% if surface_mode == 'search' %}Search{% else %}Previous searches{% endif %}</span>
-            <h1>{% if surface_mode == 'search' %}Edit the brief.{% else %}Continue where you left off.{% endif %}</h1>
+            <span>
+              {% if surface_mode == 'search' %}
+              Search
+              {% elif surface_mode in ['agents', 'account'] %}
+              {{ hero_kicker or title or surface_mode|replace('_', ' ')|title }}
+              {% else %}
+              Previous searches
+              {% endif %}
+            </span>
+            <h1>
+              {% if surface_mode == 'search' %}
+              Edit the brief.
+              {% elif surface_mode in ['agents', 'account'] %}
+              {{ hero_title or title or surface_mode|replace('_', ' ')|title }}
+              {% else %}
+              Continue where you left off.
+              {% endif %}
+            </h1>
           </div>
-          {% if surface_mode != 'search' %}
+          {% if surface_mode in ['agents', 'account'] %}
+          <div class="pqx-brief-stack">
+            <p class="pqx-note">{{ hero_summary or summary or '' }}</p>
+            {% if hero_actions %}
+            <div class="pqx-actions">
+              {% for action in hero_actions[:3] %}
+              <a class="pqx-link-button{% if action.get('tone') == 'primary' %} primary{% else %} subtle{% endif %}" href="{{ action.get('href') }}">{{ action.get('label') }}</a>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+          {% elif surface_mode != 'search' %}
           <div class="pqx-brief-stack">
             <p class="pqx-note">Open a recent run, load a saved search, or start a new brief.</p>
           </div>
           {% endif %}
+          {% if surface_mode not in ['agents', 'account'] %}
           <div class="pqx-dashboard-stack" data-pqx-dashboard-summary>
             <div class="pqx-dashboard-row">
               <span class="pqx-small">Saved searches</span>
@@ -3665,16 +3694,73 @@
             {% endfor %}
           </div>
           {% endif %}
+          {% endif %}
         </aside>
 
         <section class="pqx-command active" data-pqx-mobile-panel="brief" data-workbench-brief-drawer>
           <div class="pqx-section-head">
             <div>
-              <h2>Edit search</h2>
-              <div class="pqx-note" data-property-step-summary>Market, property, must-haves, research, then launch.</div>
+              <h2>
+                {% if surface_mode == 'agents' %}
+                Search agents
+                {% elif surface_mode == 'account' %}
+                Account
+                {% else %}
+                Edit search
+                {% endif %}
+              </h2>
+              <div class="pqx-note" data-property-step-summary>
+                {% if surface_mode == 'agents' %}
+                Manage recurring searches, limits, and the latest finished runs.
+                {% elif surface_mode == 'account' %}
+                Identity, plan, and saved defaults stay here instead of leaking office tooling.
+                {% else %}
+                Market, property, must-haves, research, then launch.
+                {% endif %}
+              </div>
             </div>
-            <span class="pqx-pill" data-property-step-progress>Brief</span>
+            <span class="pqx-pill" data-property-step-progress>
+              {% if surface_mode == 'agents' %}
+              Agents
+              {% elif surface_mode == 'account' %}
+              Account
+              {% else %}
+              Brief
+              {% endif %}
+            </span>
           </div>
+          {% if surface_mode in ['agents', 'account'] %}
+          {% for card in (primary_cards or []) + (secondary_cards or []) %}
+          {% if card and card.get('title') %}
+          <section class="pqx-card"{% if card.get('id') %} id="{{ card.get('id') }}"{% endif %}>
+            <div class="pqx-section-head">
+              <div>
+                {% if card.get('eyebrow') %}<div class="pqx-small">{{ card.get('eyebrow') }}</div>{% endif %}
+                <h2>{{ card.get('title') }}</h2>
+                {% if card.get('body') %}<div class="pqx-note">{{ card.get('body') }}</div>{% endif %}
+              </div>
+            </div>
+            {% if card.get('items') %}
+            <div class="pqx-pref-list">
+              {% for item in card.get('items') or [] %}
+              <div class="pqx-pref-row">
+                <div>
+                  <strong>{{ item.get('title') }}</strong>
+                  {% if item.get('detail') %}<small>{{ item.get('detail') }}</small>{% endif %}
+                </div>
+                <div class="pqx-actions">
+                  {% if item.get('tag') %}<span class="pqx-pill">{{ item.get('tag') }}</span>{% endif %}
+                  {% if item.get('action_href') and item.get('action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('action_href') }}">{{ item.get('action_label') }}</a>{% endif %}
+                  {% if item.get('secondary_action_href') and item.get('secondary_action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('secondary_action_href') }}">{{ item.get('secondary_action_label') }}</a>{% endif %}
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </section>
+          {% endif %}
+          {% endfor %}
+          {% endif %}
           {% if console_form and show_form_controls %}
           <div class="pqx-loaded-agent" data-search-agent-loaded-state>
             <strong data-search-agent-loaded-label>Saved search loaded</strong>

@@ -1301,7 +1301,7 @@ def test_property_search_agents_can_open_focused_cockpit_view(monkeypatch) -> No
     assert page.status_code == 200
     assert "Vienna rent watch" in page.text
     assert "Latest finished run" in page.text
-    assert "Ranked 1 | Sent 2 | Held back 8" in page.text
+    assert "Ranked 1 | Sent 2 | Filtered 8" in page.text
     assert "load_agent=agent-vienna" in page.text
 
 
@@ -1314,7 +1314,6 @@ def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     assert "data-pqx-previous-searches" in body
     assert ">Open</a>" in body
     assert 'data-pqx-delete-run="' in body
-    assert "top_candidates" in body
     assert "data-pqx-dashboard-summary" in body
     assert "Saved searches" in body
     assert "Start" in body
@@ -2069,7 +2068,6 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Identity and return access" in account.text
     assert "Current search brief state" in account.text
     assert "Operating posture" in account.text
-    assert "Profile defaults that shape the next run" in account.text
     assert 'id="settings"' in account.text
     assert 'id="plans"' in account.text
     assert 'id="profile"' in account.text

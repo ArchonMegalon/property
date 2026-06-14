@@ -119,7 +119,7 @@ def person_detail(
                 console_title=detail.profile.display_name,
                 console_summary="Relationship context, open loops, current drafts, and evidence tied to one person.",
                 nav_groups=app_nav_groups_for_brand(request_brand(request)["key"]),
-                workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+                workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
                 cards=[],
                 stats=[
                     {"label": "Open loops", "value": str(detail.profile.open_loops_count)},
@@ -157,7 +157,7 @@ def commitment_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title=f"PropertyQuarry {commitment.statement}",
         current_nav="queue",
         console_title=commitment.statement,
@@ -270,7 +270,7 @@ def decision_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title=f"PropertyQuarry {decision.title}",
         current_nav="queue",
         console_title=decision.title,
@@ -403,7 +403,7 @@ def deadline_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title=f"PropertyQuarry {deadline.title}",
         current_nav="queue",
         console_title=deadline.title,
@@ -686,7 +686,7 @@ def handoff_detail(
         return _render_console_object_detail(
             request=request,
             context=context,
-            workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+            workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
             page_title=f"PropertyQuarry {handoff.summary}",
             current_nav="research",
             console_title=input_json.get("title") or handoff.summary,
@@ -805,7 +805,7 @@ def handoff_detail(
         return _render_console_object_detail(
             request=request,
             context=context,
-            workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+            workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
             page_title=f"PropertyQuarry {handoff.summary}",
             current_nav="queue",
             console_title=handoff.summary,
@@ -903,7 +903,7 @@ def handoff_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title=f"PropertyQuarry {handoff.summary}",
         current_nav="settings",
         console_title=handoff.summary,
@@ -1096,7 +1096,7 @@ def thread_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title=f"PropertyQuarry {thread.title}",
         current_nav="queue",
         console_title=thread.title,
@@ -1258,7 +1258,7 @@ def evidence_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title=f"PropertyQuarry {evidence.label}",
         current_nav="people",
         console_title=evidence.label,
@@ -1321,7 +1321,7 @@ def rule_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title=f"PropertyQuarry {rule.label}",
         current_nav="settings",
         console_title=rule.label,

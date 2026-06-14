@@ -18,7 +18,7 @@ Generic stages own those decisions:
 8. Media and document recovery
 9. Floorplan/layout verification
 10. Ranking and notification budget
-11. Review packet, tour, fly-through, and Telegram delivery
+11. Property page, tour, fly-through, and Telegram delivery
 
 ## Provider Gimmick To Generic Stage
 
@@ -38,7 +38,7 @@ Generic stages own those decisions:
 ## Non-Negotiable Gates
 
 - A concrete address, postcode, city, district, title, or URL conflict must beat provider search scope.
-- Review packets, tours, fly-throughs, and notifications must only be created after the detailed concrete-location guard.
+- Property pages, tours, fly-throughs, and notifications must only be created after the detailed concrete-location guard.
 - Near-miss prompts must never be sent for outside-area listings.
 - Missing floorplans must record recoverable evidence and diagnostics, not customer-facing repair jargon.
 - Provider failures and repair tasks stay operator-only.
@@ -75,4 +75,3 @@ Every provider must be able to answer:
 - Did a concrete-location guard run after detailed preview?
 - Which floorplan recovery stages ran?
 - Were customer messages free of internal repair wording?
-

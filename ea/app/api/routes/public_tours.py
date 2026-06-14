@@ -2948,7 +2948,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                 f'<button class="reason-chip filter-chip{" active" if bool(spec.get("active")) else ""}" '
                 f'type="button" data-filter-key="{html.escape(str(spec.get("key") or ""))}" '
                 f'data-enabled="{html.escape("false" if bool(spec.get("active")) else "true")}" '
-                'disabled title="Open the authenticated PropertyQuarry workspace to change profile filters.">'
+                'disabled title="Open the authenticated PropertyQuarry account to change profile filters.">'
                 f'{html.escape(str(spec.get("label") or ""))}'
                 '</button>'
             )
@@ -2960,7 +2960,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                 f'<button class="reason-chip filter-chip{" active" if bool(spec.get("active")) else ""}" '
                 f'type="button" data-filter-key="{html.escape(str(spec.get("key") or ""))}" '
                 f'data-enabled="{html.escape("false" if bool(spec.get("active")) else "true")}" '
-                'disabled title="Open the authenticated PropertyQuarry workspace to change profile filters.">'
+                'disabled title="Open the authenticated PropertyQuarry account to change profile filters.">'
                 f'{html.escape(str(spec.get("label") or ""))}'
                 '</button>'
             )
@@ -3618,7 +3618,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         button.addEventListener("click", async () => {{
           const filterKey = String(button.dataset.filterKey || "");
           if (!filterKey || !filterStatus) return;
-          filterStatus.textContent = "Open the authenticated PropertyQuarry workspace to change profile filters.";
+          filterStatus.textContent = "Open the authenticated PropertyQuarry account to change profile filters.";
         }});
       }});
       if (requestButton && requestStatus) {{

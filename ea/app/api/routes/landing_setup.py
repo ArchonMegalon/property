@@ -160,7 +160,7 @@ async def setup_start(
     principal_id = _browser_form_context(form_data=form_data, container=container, access_identity=access_identity)
     container.onboarding.start_workspace(
         principal_id=principal_id,
-        workspace_name=_form_value(form_data, "workspace_name", "PropertyQuarry Workspace"),
+        workspace_name=_form_value(form_data, "workspace_name", "PropertyQuarry account"),
         workspace_mode=_form_value(form_data, "workspace_mode", "personal"),
         region=_form_value(form_data, "region", ""),
         language=_form_value(form_data, "language", ""),

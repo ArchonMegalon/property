@@ -303,7 +303,7 @@ class OnboardingPropertySearchAgentUpdateIn(BaseModel):
 
 class OnboardingFlagshipStartIn(BaseModel):
     principal_id: str | None = Field(default=None, min_length=1, max_length=200)
-    workspace_name: str = Field(default="PropertyQuarry Workspace", min_length=1, max_length=200)
+    workspace_name: str = Field(default="PropertyQuarry account", min_length=1, max_length=200)
     workspace_mode: str = Field(default="executive_ops", min_length=1, max_length=50)
     region: str = Field(default="AT", max_length=80)
     language: str = Field(default="en", max_length=80)

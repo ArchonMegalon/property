@@ -1226,7 +1226,7 @@ def workspace_section_payload(
                         "name": "workspace_name",
                         "type": "text",
                         "value": str(dict(diagnostics.get("workspace") or {}).get("name") or ""),
-                        "placeholder": "PropertyQuarry Workspace",
+                        "placeholder": "PropertyQuarry account",
                     },
                     {
                         "label": "Language",

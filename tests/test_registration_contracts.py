@@ -133,7 +133,7 @@ def test_sign_in_email_link_reissues_workspace_access_for_existing_email(
     followup = client.get(response.headers["location"])
     assert followup.status_code == 200
     assert "Check your inbox." in followup.text
-    assert "If founder@example.com already has workspace access" in followup.text
+    assert "If founder@example.com already has access" in followup.text
     assert "founder@example.com" in followup.text
     assert observed["recipient_email"] == "founder@example.com"
     assert observed["workspace_name"] == "Founder Office"
@@ -157,7 +157,7 @@ def test_sign_in_email_link_reports_missing_workspace_match(
     followup = client.get(response.headers["location"])
     assert followup.status_code == 200
     assert "Check your inbox." in followup.text
-    assert "If unknown@example.com already has workspace access" in followup.text
+    assert "If unknown@example.com already has access" in followup.text
 
 
 def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -460,7 +460,7 @@ def test_registration_email_payload_stays_english_and_uses_propertyquarry_sender
     payload = dict(captured["payload"])
     assert payload["from"] == "PropertyQuarry <property@propertyquarry.com>"
     assert payload["subject"] == "Verify your email for PropertyQuarry"
-    assert "Use this verification code to create your PropertyQuarry workspace" in payload["text"]
+    assert "Use this verification code to create your PropertyQuarry account" in payload["text"]
     assert "Google is connected after sign-up as an identity and optional workspace data source for PropertyQuarry." in payload["text"]
     assert "titled secure-access button" in payload["text"]
     assert "http://" not in payload["text"]
@@ -842,7 +842,7 @@ def test_google_connect_email_uses_workspace_delivery_sender(monkeypatch: pytest
 
     receipt = service.send_google_connect_email(
         recipient_email="tibor.girschele@gmail.com",
-        workspace_name="PropertyQuarry Workspace",
+        workspace_name="PropertyQuarry account",
         connect_url="https://propertyquarry.com/workspace-access/token?return_to=%2Fapp%2Factions%2Fgoogle%2Fconnect",
         scope_label="Google Full Workspace",
         scope_summary="Broader assistant context: inbox actions plus richer calendar and Drive index context.",
@@ -853,7 +853,7 @@ def test_google_connect_email_uses_workspace_delivery_sender(monkeypatch: pytest
 
     payload = dict(captured["payload"])
     assert payload["from"] == "Sprachenzentrum <sprachenzentrum@girschele.com>"
-    assert payload["subject"] == "Connect Google to PropertyQuarry Workspace"
+    assert payload["subject"] == "Connect Google to PropertyQuarry account"
     assert "No Google inbox is connected in this workspace yet" in payload["text"]
     assert "titled Google-connect button" in payload["text"]
     assert "http://" not in payload["text"]

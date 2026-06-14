@@ -121,7 +121,7 @@ def _registration_text(*, verification_code: str, magic_link_url: str, expires_a
     minutes = _minutes_until(expires_at=expires_at)
     return (
         "Hello,\n\n"
-        "Use this verification code to create your PropertyQuarry workspace:\n\n"
+        "Use this verification code to create your PropertyQuarry account:\n\n"
         f"{verification_code}\n\n"
         "Or use the titled secure-access button in this email.\n\n"
         f"This link and code expire in about {minutes} minutes.\n\n"
@@ -339,7 +339,7 @@ def _workspace_email_shell(
             )
             + (f'<div style="margin:0 0 14px;">{" &nbsp; ".join(actions)}</div>' if actions else "")
             + '<p style="margin:0;font-size:13px;line-height:1.6;color:#6c675f;">PropertyQuarry only uses this link to continue the exact workspace flow described above.</p>'
-            + _email_footer_html(reason="You are receiving this because a PropertyQuarry workspace flow needs your action or confirmation.")
+            + _email_footer_html(reason="You are receiving this because a PropertyQuarry account flow needs your action or confirmation.")
         ),
     )
 
@@ -415,9 +415,9 @@ def _property_search_results_ready_html(
             for label, value in _property_email_facts(row)
         ) or '<tr><td style="padding:4px 0;color:#6c675f;font-size:13px;" colspan="2">No structured facts captured.</td></tr>'
         action_links = [
-            _html_link(href=review_url, label="Review packet") if review_url else "",
+            _html_link(href=review_url, label="Open property page") if review_url else "",
             _html_link(href=tour_url, label="Open 360") if tour_url else "",
-            _html_link(href=property_url, label="Source") if property_url else "",
+            _html_link(href=property_url, label="Open listing") if property_url else "",
         ]
         action_html = " &nbsp; ".join(link for link in action_links if link) or _html_link(href=primary_url, label="Open")
         rows_html.append(
@@ -450,7 +450,7 @@ def _property_search_results_ready_html(
         body_html=(
             '<p style="margin:0 0 14px;color:#383633;">Your ranked shortlist is ready.</p>'
             f"{metric_table}{properties_table}{results_link}"
-            + _email_footer_html(reason="You are receiving this because PropertyQuarry finished a search run for your workspace.")
+            + _email_footer_html(reason="You are receiving this because PropertyQuarry finished a search run for your account.")
         ),
     )
 
@@ -483,9 +483,9 @@ def _property_match_html(
         if str(value or "").strip()
     )
     links = [
-        _html_link(href=review_url or primary_link, label="Review packet") if (review_url or primary_link) else "",
+        _html_link(href=review_url or primary_link, label="Open property page") if (review_url or primary_link) else "",
         _html_link(href=tour_url, label="Open 360") if tour_url else "",
-        _html_link(href=property_url, label="Source") if property_url else "",
+        _html_link(href=property_url, label="Open listing") if property_url else "",
     ]
     action_urls = _property_decision_action_urls(packet_url=review_url or primary_link, tour_url=tour_url, property_url=property_url)
     decision_buttons = _email_button_row(
@@ -497,7 +497,7 @@ def _property_match_html(
     )
     followup_buttons = _email_button_row(
         [
-            _email_button(href=review_url or primary_link, label="Open review packet"),
+            _email_button(href=review_url or primary_link, label="Open property page"),
             _email_button(href=tour_url, label="Open 360", kind="secondary"),
             _email_button(href=action_urls["ask_agent"], label="Ask agent", kind="secondary"),
         ]
@@ -676,7 +676,7 @@ def send_workspace_invitation_email(
     body = [
         "Hello,",
         "",
-        f"{inviter} invited you to join a PropertyQuarry workspace as {role_label}.",
+        f"{inviter} invited you to join a PropertyQuarry account as {role_label}.",
         "",
         "Open this secure link to accept the invite:",
         "",
@@ -689,7 +689,7 @@ def send_workspace_invitation_email(
     body.extend(
         [
             "",
-            "You will get workspace access after accepting the invite.",
+            "You will get account access after accepting the invite.",
             "Google is connected later as a workspace data source. It is not your app login.",
         ]
     )
@@ -727,7 +727,7 @@ def send_workspace_access_email(
 ) -> RegistrationEmailReceipt:
     minutes = _minutes_until(expires_at_iso=expires_at)
     role_label = str(role or "principal").strip().replace("_", " ").title() or "Principal"
-    workspace_label = str(workspace_name or "PropertyQuarry workspace").strip() or "PropertyQuarry workspace"
+    workspace_label = str(workspace_name or "PropertyQuarry account").strip() or "PropertyQuarry account"
     display = str(display_name or "").strip()
     body = [
         "Hello,",
@@ -785,7 +785,7 @@ def send_google_connect_email(
     expires_at: str = "",
 ) -> RegistrationEmailReceipt:
     minutes = _minutes_until(expires_at_iso=expires_at)
-    workspace_label = str(workspace_name or "PropertyQuarry workspace").strip() or "PropertyQuarry workspace"
+    workspace_label = str(workspace_name or "PropertyQuarry account").strip() or "PropertyQuarry account"
     label = str(scope_label or "Google Full Workspace").strip() or "Google Full Workspace"
     summary = str(scope_summary or "").strip()
     primary_email = str(primary_google_email or "").strip().lower()
@@ -1411,7 +1411,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
             "preheader": "Review the workspace invite and continue through a secure PropertyQuarry join link.",
             "text": (
                 "Hello,\n\n"
-                "Mara invited you to join a PropertyQuarry workspace as Advisor.\n\n"
+                "Mara invited you to join a PropertyQuarry account as Advisor.\n\n"
                 "Use the titled workspace-invite button in this email to accept the invite.\n\n"
                 "This link expires in about 60 minutes.\n"
             ),
@@ -1429,20 +1429,20 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
         access_url = "https://propertyquarry.com/workspace-access/token-demo"
         return {
             "template_key": normalized,
-            "subject": "Your access link for PropertyQuarry Workspace",
+            "subject": "Your access link for PropertyQuarry account",
             "preheader": "Open your secure PropertyQuarry access link before it expires.",
             "text": (
                 "Hello,\n\n"
-                "Use the titled access button in this email to return to PropertyQuarry Workspace.\n\n"
+                "Use the titled access button in this email to return to PropertyQuarry account.\n\n"
                 "This link expires in about 60 minutes.\n"
             ),
             "html": _workspace_email_shell(
                 eyebrow="Workspace access",
-                title="Your access link for PropertyQuarry Workspace",
+                title="Your access link for PropertyQuarry account",
                 summary="Open the secure link below to return directly into the workspace without restarting the whole sign-in flow.",
                 primary_label="Open access link",
                 primary_href=access_url,
-                detail_rows=[("Workspace", "PropertyQuarry Workspace"), ("Role", "Principal"), ("Expires in", "about 60 minutes")],
+                detail_rows=[("Workspace", "PropertyQuarry account"), ("Role", "Principal"), ("Expires in", "about 60 minutes")],
                 preheader="Open your secure PropertyQuarry access link before it expires.",
             ),
         }
@@ -1450,20 +1450,20 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
         connect_url = "https://propertyquarry.com/workspace-access/token-demo?return_to=%2Fapp%2Factions%2Fgoogle%2Fconnect"
         return {
             "template_key": normalized,
-            "subject": "Connect Google to PropertyQuarry Workspace",
+            "subject": "Connect Google to PropertyQuarry account",
             "preheader": "Return to PropertyQuarry and start the Google consent flow from a secure workspace link.",
             "text": (
                 "Hello,\n\n"
-                "Use the titled Google-connect button in this email to connect a Google inbox to PropertyQuarry Workspace.\n\n"
+                "Use the titled Google-connect button in this email to connect a Google inbox to PropertyQuarry account.\n\n"
                 "This link expires in about 60 minutes.\n"
             ),
             "html": _workspace_email_shell(
                 eyebrow="Google connection",
-                title="Connect Google to PropertyQuarry Workspace",
+                title="Connect Google to PropertyQuarry account",
                 summary="This secure link returns to the workspace first and then starts the Google consent flow for the requested bundle.",
                 primary_label="Connect Google",
                 primary_href=connect_url,
-                detail_rows=[("Workspace", "PropertyQuarry Workspace"), ("Bundle", "Google Full Workspace"), ("Connected inboxes", "0"), ("Expires in", "about 60 minutes")],
+                detail_rows=[("Workspace", "PropertyQuarry account"), ("Bundle", "Google Full Workspace"), ("Connected inboxes", "0"), ("Expires in", "about 60 minutes")],
                 preheader="Return to PropertyQuarry and start the Google consent flow from a secure workspace link.",
             ),
         }

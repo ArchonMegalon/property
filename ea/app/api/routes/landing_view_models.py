@@ -6276,12 +6276,14 @@ def property_workspace_payload(
             ],
             "primary_cards": [
                 {
+                    "id": "settings",
                     "eyebrow": "Connections",
                     "title": "Identity and return access",
                     "body": "Google is optional identity and easier return access. It is not an office sync contract here.",
                     "items": preference_rows + settings_connection_rows,
                 },
                 {
+                    "id": "profile",
                     "eyebrow": "Saved defaults",
                     "title": "Current search brief state",
                     "body": "The saved brief stays visible so you can change the product posture before the next run.",
@@ -6299,6 +6301,7 @@ def property_workspace_payload(
                 },
             ],
             "secondary_cards": [billing_rows and {
+                "id": "plans",
                 "eyebrow": "Plan",
                 "title": "Commercial posture",
                 "body": "Plan limits and research depth stay visible here too.",
@@ -6349,12 +6352,14 @@ def property_workspace_payload(
             ],
             "primary_cards": [
                 {
+                    "id": "settings",
                     "eyebrow": "Connections",
                     "title": "Identity and return access",
                     "body": "Google is optional identity and easier return access. It is not an office sync contract here.",
                     "items": preference_rows + settings_connection_rows,
                 },
                 {
+                    "id": "profile",
                     "eyebrow": "Saved defaults",
                     "title": "Current search brief state",
                     "body": "The saved brief stays visible so you can change the product posture before the next run.",
@@ -6372,6 +6377,7 @@ def property_workspace_payload(
                 },
             ],
             "secondary_cards": [billing_rows and {
+                "id": "plans",
                 "eyebrow": "Plan",
                 "title": "Commercial posture",
                 "body": "Plan limits and research depth stay visible here too.",

@@ -50,7 +50,7 @@ Log out
 Contextual links:
 
 ```text
-Review packet
+Open property page
 Documents
 Map
 Listing
@@ -213,11 +213,26 @@ No negative letter spacing. Letter spacing defaults to `0`.
 
 ### 3.3 Text Behavior
 
-Every dynamic text container must protect against overflow.
+Every dynamic text container must protect against overflow, but human-facing text must not break mid-word.
+
+Human text:
 
 ```css
 min-width: 0;
-overflow-wrap: anywhere;
+overflow-wrap: normal;
+word-break: normal;
+hyphens: auto;
+```
+
+Machine text only:
+
+```css
+.pq-machine-token,
+.pq-url,
+.pq-id {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 ```
 
 One-line truncation:

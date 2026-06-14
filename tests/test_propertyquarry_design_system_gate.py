@@ -6,7 +6,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CUSTOMER_TEMPLATES = (
     ROOT / "ea/app/templates/app/property_decision_workbench.html",
-    ROOT / "ea/app/templates/app/property_workspace.html",
     ROOT / "ea/app/templates/app/property_packets.html",
     ROOT / "ea/app/templates/propertyquarry_home.html",
 )

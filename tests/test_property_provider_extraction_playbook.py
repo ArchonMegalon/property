@@ -11,7 +11,7 @@ def test_provider_extraction_playbook_keeps_provider_gimmicks_generic() -> None:
         "Gallery media scan plus visual floorplan classifier",
         "Document/archive floorplan recovery",
         "Attempted provider query plus post-filter receipt",
-        "Review packets, tours, fly-throughs, and notifications must only be created after the detailed concrete-location guard.",
+        "Property pages, tours, fly-throughs, and notifications must only be created after the detailed concrete-location guard.",
         "Near-miss prompts must never be sent for outside-area listings.",
         "Provider failures and repair tasks stay operator-only.",
     ]

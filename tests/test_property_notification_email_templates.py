@@ -10,8 +10,8 @@ def test_property_notification_previews_cover_all_gold_templates() -> None:
         "tour_ready": "Apartment tour ready: Family flat near Augarten",
         "investment_research_ready": "Investment research ready",
         "workspace_invitation": "Mara invited you to PropertyQuarry",
-        "workspace_access": "Your access link for PropertyQuarry Workspace",
-        "google_connect": "Connect Google to PropertyQuarry Workspace",
+        "workspace_access": "Your access link for PropertyQuarry account",
+        "google_connect": "Connect Google to PropertyQuarry account",
         "market_ready": "PropertyQuarry market ready: Vienna",
     }
     for key, subject_prefix in templates.items():

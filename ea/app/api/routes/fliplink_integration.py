@@ -546,7 +546,7 @@ def property_packets_dashboard(
         "app/property_packets.html",
         {
             "brand": request_brand(request),
-            "workspace_label": "PropertyQuarry Workspace",
+            "workspace_label": "PropertyQuarry account",
             "current_nav": "packets",
             "publications": rows,
             "fliplink_capacity": capacity,

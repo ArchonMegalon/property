@@ -1203,7 +1203,7 @@ def workspace_access_session(
             link_status_label="Link expired",
             link_rows=[
                 {"label": "Link state", "value": "Expired or revoked", "detail": "Secure workspace links rotate and eventually expire."},
-                {"label": "Recovery", "value": "Request a new link", "detail": "Use the same inbox that already has workspace access."},
+                {"label": "Recovery", "value": "Request a new link", "detail": "Use the same inbox that already has account access."},
             ],
             primary_action_href="/sign-in",
             primary_action_label="Request new sign-in link",
@@ -3216,7 +3216,7 @@ def app_shell(
                 console_title=str(pack.get("headline") or "Inline loop"),
                 console_summary=str(pack.get("summary") or "Clear the compact office loop."),
                 nav_groups=nav_groups,
-                workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+                workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
                 cards=[
                     {
                         "eyebrow": "Inline loop",
@@ -3324,7 +3324,7 @@ def app_shell(
             )
     workspace = dict(status.get("workspace") or {})
     if property_brand and resolved_section in property_sections:
-        property_template = "app/property_decision_workbench.html" if property_surface_aliases.get(resolved_section, resolved_section) == "properties" else "app/property_workspace.html"
+        property_template = "app/property_decision_workbench.html"
         return _render_public_template(
             request,
             property_template,
@@ -3356,7 +3356,7 @@ def app_shell(
             console_title=str(payload["title"]),
             console_summary=str(payload["summary"]),
             nav_groups=nav_groups,
-            workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+            workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
             cards=list(payload["cards"]),
             stats=list(payload["stats"]),
             console_form=dict(payload.get("console_form") or {}),
