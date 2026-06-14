@@ -4,6 +4,7 @@ import json
 import os
 import re
 import base64
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
@@ -117,6 +118,7 @@ from app.services import poppy_ai as poppy_ai_service
 from app.services.dadan_feedback import dadan_feedback_signals
 from app.services.dadan import DadanVideoRequestService
 from app.services.heyy_whatsapp_service import HeyyWhatsAppBridgeService
+from app.services.heyy_whatsapp_service import heyy_daily_template_budget, redact_phone_number, require_heyy_enabled
 from app.services.dossier_writer import write_verified_dossier_from_research
 from app.services.dossier_writer.neuronwriter_adapter import create_neuronwriter_query
 from app.services.registration_email import property_notification_preview
@@ -263,6 +265,49 @@ def _require_operator_for_workspace_role(*, role: str, operator_id: str = "", co
     normalized_role = str(role or "principal").strip().lower() or "principal"
     if normalized_role == "operator" or str(operator_id or "").strip():
         require_operator_context(context)
+
+
+def _heyy_selected_for_principal(*, container: AppContainer, principal_id: str) -> bool:
+    try:
+        status = container.onboarding.status(principal_id=principal_id)
+    except Exception:
+        return False
+    selected = {
+        str(item or "").strip().lower()
+        for item in list(status.get("selected_channels") or [])
+        if str(item or "").strip()
+    }
+    return "whatsapp" in selected
+
+
+def _heyy_template_budget_ok(*, container: AppContainer, principal_id: str) -> bool:
+    limit = heyy_daily_template_budget()
+    if limit <= 0:
+        return False
+    packet_service = build_fliplink_packet_service(container)
+    rows = packet_service.list_events(principal_id=principal_id, event_type="heyy_whatsapp_template_sent", limit=500)
+    now = datetime.now(timezone.utc)
+    sent_today = 0
+    for row in rows:
+        created_at = str(row.get("created_at") or row.get("recorded_at") or "").strip()
+        if not created_at:
+            continue
+        try:
+            parsed = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        except Exception:
+            continue
+        if parsed.astimezone(timezone.utc).date() == now.date():
+            sent_today += 1
+        if sent_today >= limit:
+            return False
+    return True
+
+
+def _require_heyy_send_allowed(*, container: AppContainer, principal_id: str) -> None:
+    if not _heyy_selected_for_principal(container=container, principal_id=principal_id):
+        raise HTTPException(status_code=409, detail="heyy_whatsapp_not_opted_in")
+    if not _heyy_template_budget_ok(container=container, principal_id=principal_id):
+        raise HTTPException(status_code=429, detail="heyy_daily_template_budget_exhausted")
 
 
 @router.post("/property/content-intelligence/briefs/{brief_id}/neuronwriter-query")
@@ -1726,6 +1771,11 @@ def send_heyy_whatsapp_template(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
+    try:
+        require_heyy_enabled()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _require_heyy_send_allowed(container=container, principal_id=context.principal_id)
     service = HeyyWhatsAppBridgeService(tool_runtime=container.tool_runtime)
     try:
         result = service.send_template(
@@ -1750,6 +1800,11 @@ def send_heyy_property_match_notification(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
+    try:
+        require_heyy_enabled()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _require_heyy_send_allowed(container=container, principal_id=context.principal_id)
     service = HeyyWhatsAppBridgeService(tool_runtime=container.tool_runtime)
     variables = [
         {"name": "property_title", "value": body.property_title},
@@ -1780,7 +1835,7 @@ def send_heyy_property_match_notification(
                 "property_ref": body.property_ref,
                 "template_id": body.template_id,
                 "channel_id": body.channel_id,
-                "phone_number": body.phone_number,
+                **redact_phone_number(body.phone_number),
                 "message_id": str(result.get("message_id") or "").strip(),
                 "delivery_status": str(result.get("delivery_status") or "").strip(),
             },
@@ -1795,6 +1850,11 @@ def send_heyy_search_agent_digest_notification(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
+    try:
+        require_heyy_enabled()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _require_heyy_send_allowed(container=container, principal_id=context.principal_id)
     service = HeyyWhatsAppBridgeService(tool_runtime=container.tool_runtime)
     variables = [
         {"name": "agent_name", "value": body.agent_name},
@@ -1826,7 +1886,7 @@ def send_heyy_search_agent_digest_notification(
                 "search_agent_id": body.search_agent_id,
                 "template_id": body.template_id,
                 "channel_id": body.channel_id,
-                "phone_number": body.phone_number,
+                **redact_phone_number(body.phone_number),
                 "message_id": str(result.get("message_id") or "").strip(),
                 "delivery_status": str(result.get("delivery_status") or "").strip(),
             },

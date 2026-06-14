@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+
 from app.services.fliplink.service import build_fliplink_packet_service
-from tests.product_test_helpers import build_product_client
+from tests.product_test_helpers import build_product_client, start_workspace
 
 
 def test_heyy_whatsapp_channel_endpoint_returns_verified_channel(monkeypatch) -> None:
@@ -47,6 +49,8 @@ def test_heyy_whatsapp_templates_endpoint_returns_templates(monkeypatch) -> None
 
 def test_heyy_whatsapp_send_template_endpoint_returns_send_receipt(monkeypatch) -> None:
     client = build_product_client(principal_id="heyy-api-owner")
+    start_workspace(client, mode="personal", workspace_name="Heyy API Office", selected_channels=["whatsapp"])
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
 
     monkeypatch.setattr(
         "app.api.routes.product_api.HeyyWhatsAppBridgeService.send_template",
@@ -101,10 +105,52 @@ def test_heyy_whatsapp_webhook_requires_secret_and_records_receipt(monkeypatch) 
     payload = dict(events[0].get("payload_json") or {})
     assert payload["message_id"] == "msg-1"
     assert payload["property_ref"] == "property-scout:123"
+    assert payload["opt_command"] == "STOP"
+    assert payload["text_present"] is True
+    assert payload["text_char_count"] == 4
+    assert "text" not in payload
+    assert "phone_number" not in payload
+
+
+def test_heyy_whatsapp_send_template_endpoint_requires_opt_in(monkeypatch) -> None:
+    client = build_product_client(principal_id="heyy-api-owner")
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
+
+    response = client.post(
+        "/app/api/integrations/heyy/whatsapp/send-template",
+        json={
+            "phone_number": "+436647916419",
+            "template_id": "tmpl-1",
+            "channel_id": "channel-1",
+            "variables": [{"name": "property_title", "value": "Altbau near U6"}],
+        },
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["details"] == "heyy_whatsapp_not_opted_in"
+
+
+def test_heyy_whatsapp_send_template_endpoint_requires_enabled_flag(monkeypatch) -> None:
+    client = build_product_client(principal_id="heyy-api-owner")
+    start_workspace(client, mode="personal", workspace_name="Heyy API Office", selected_channels=["whatsapp"])
+    monkeypatch.delenv("PROPERTYQUARRY_HEYY_ENABLED", raising=False)
+
+    response = client.post(
+        "/app/api/integrations/heyy/whatsapp/send-template",
+        json={
+            "phone_number": "+436647916419",
+            "template_id": "tmpl-1",
+            "channel_id": "channel-1",
+            "variables": [{"name": "property_title", "value": "Altbau near U6"}],
+        },
+    )
+    assert response.status_code == 400, response.text
+    assert response.json()["error"]["details"] == "heyy_disabled"
 
 
 def test_heyy_property_match_notification_endpoint_records_event(monkeypatch) -> None:
     client = build_product_client(principal_id="heyy-api-owner")
+    start_workspace(client, mode="personal", workspace_name="Heyy Property Match Office", selected_channels=["whatsapp"])
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
 
     monkeypatch.setattr(
         "app.api.routes.product_api.HeyyWhatsAppBridgeService.send_template",
@@ -114,6 +160,8 @@ def test_heyy_property_match_notification_endpoint_records_event(monkeypatch) ->
             "channel_id": kwargs.get("channel_id") or "channel-1",
             "message_id": "msg-property-1",
             "delivery_status": "queued",
+            "phone_e164_hash": hashlib.sha256("+436647916419".encode("utf-8")).hexdigest(),
+            "phone_last4": "6419",
         },
     )
 
@@ -133,11 +181,18 @@ def test_heyy_property_match_notification_endpoint_records_event(monkeypatch) ->
     assert response.status_code == 200, response.text
     packet_service = build_fliplink_packet_service(client.app.state.container)
     events = packet_service.list_events(principal_id="heyy-api-owner", event_type="heyy_whatsapp_template_sent", limit=20)
-    assert any(dict(row.get("payload_json") or {}).get("template_kind") == "property_match" for row in events)
+    payloads = [dict(row.get("payload_json") or {}) for row in events]
+    assert any(payload.get("template_kind") == "property_match" for payload in payloads)
+    property_payload = next(payload for payload in payloads if payload.get("template_kind") == "property_match")
+    assert property_payload["phone_last4"] == "6419"
+    assert property_payload["phone_e164_hash"] == hashlib.sha256("+436647916419".encode("utf-8")).hexdigest()
+    assert "phone_number" not in property_payload
 
 
 def test_heyy_search_agent_digest_notification_endpoint_records_event(monkeypatch) -> None:
     client = build_product_client(principal_id="heyy-api-owner")
+    start_workspace(client, mode="personal", workspace_name="Heyy Search Digest Office", selected_channels=["whatsapp"])
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
 
     monkeypatch.setattr(
         "app.api.routes.product_api.HeyyWhatsAppBridgeService.send_template",
@@ -147,6 +202,8 @@ def test_heyy_search_agent_digest_notification_endpoint_records_event(monkeypatc
             "channel_id": kwargs.get("channel_id") or "channel-1",
             "message_id": "msg-digest-1",
             "delivery_status": "queued",
+            "phone_e164_hash": hashlib.sha256("+436647916419".encode("utf-8")).hexdigest(),
+            "phone_last4": "6419",
         },
     )
 
@@ -167,4 +224,9 @@ def test_heyy_search_agent_digest_notification_endpoint_records_event(monkeypatc
     assert response.status_code == 200, response.text
     packet_service = build_fliplink_packet_service(client.app.state.container)
     events = packet_service.list_events(principal_id="heyy-api-owner", event_type="heyy_whatsapp_template_sent", limit=20)
-    assert any(dict(row.get("payload_json") or {}).get("template_kind") == "search_agent_digest" for row in events)
+    payloads = [dict(row.get("payload_json") or {}) for row in events]
+    assert any(payload.get("template_kind") == "search_agent_digest" for payload in payloads)
+    digest_payload = next(payload for payload in payloads if payload.get("template_kind") == "search_agent_digest")
+    assert digest_payload["phone_last4"] == "6419"
+    assert digest_payload["phone_e164_hash"] == hashlib.sha256("+436647916419".encode("utf-8")).hexdigest()
+    assert "phone_number" not in digest_payload

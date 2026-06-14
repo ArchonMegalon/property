@@ -73,6 +73,7 @@ def test_heyy_verify_channel_uses_bearer_auth(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_heyy_send_template_posts_whatsapp_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
     monkeypatch.setenv("PROPERTYQUARRY_HEYY_API_KEY", "secret-token")
     monkeypatch.setenv("PROPERTYQUARRY_HEYY_BASE_URL", "https://api.heyy.test/api/v2.0")
     observed: dict[str, object] = {}
@@ -98,3 +99,5 @@ def test_heyy_send_template_posts_whatsapp_message(monkeypatch: pytest.MonkeyPat
     assert observed["payload"]["messageTemplateId"] == "tmpl-1"
     assert result["message_id"] == "msg-1"
     assert result["delivery_status"] == "queued"
+    assert result["phone_last4"] == "6419"
+    assert "phone_e164_hash" in result

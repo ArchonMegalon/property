@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 import urllib.error
@@ -12,6 +14,11 @@ HEYY_WHATSAPP_CONNECTOR = "whatsapp_heyy"
 
 def heyy_enabled() -> bool:
     return str(os.getenv("PROPERTYQUARRY_HEYY_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def require_heyy_enabled() -> None:
+    if not heyy_enabled():
+        raise RuntimeError("heyy_disabled")
 
 
 def heyy_base_url() -> str:
@@ -28,6 +35,13 @@ def heyy_channel_id() -> str:
 
 def heyy_webhook_secret() -> str:
     return str(os.getenv("PROPERTYQUARRY_HEYY_WEBHOOK_SECRET") or "").strip()
+
+
+def heyy_daily_template_budget() -> int:
+    try:
+        return max(0, int(str(os.getenv("PROPERTYQUARRY_HEYY_MAX_TEMPLATE_MESSAGES_PER_DAY") or "5").strip()))
+    except Exception:
+        return 5
 
 
 def heyy_property_match_template_id() -> str:
@@ -48,7 +62,7 @@ def verify_heyy_webhook_secret(*, headers: dict[str, str], query_secret: str = "
         raise PermissionError("heyy_webhook_secret_not_configured")
     header = str(headers.get("x-propertyquarry-heyy-secret") or headers.get("x-heyy-webhook-secret") or "").strip()
     if header:
-        if header != expected:
+        if not hmac.compare_digest(header, expected):
             raise PermissionError("heyy_webhook_secret_invalid")
         return "header"
     if str(query_secret or "").strip():
@@ -56,19 +70,41 @@ def verify_heyy_webhook_secret(*, headers: dict[str, str], query_secret: str = "
     raise PermissionError("heyy_webhook_secret_invalid")
 
 
+def _phone_e164_hash(phone_number: object) -> str:
+    normalized = str(phone_number or "").strip()
+    if not normalized:
+        return ""
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def redact_phone_number(phone_number: object) -> dict[str, str]:
+    normalized = str(phone_number or "").strip()
+    digits = "".join(ch for ch in normalized if ch.isdigit())
+    return {
+        "phone_e164_hash": _phone_e164_hash(normalized),
+        "phone_last4": digits[-4:] if len(digits) >= 4 else digits,
+    }
+
+
 def _safe_heyy_payload(payload: dict[str, object]) -> dict[str, object]:
     message = dict(payload.get("message") or {}) if isinstance(payload.get("message"), dict) else {}
     contact = dict(payload.get("contact") or {}) if isinstance(payload.get("contact"), dict) else {}
     metadata = dict(payload.get("metadata") or {}) if isinstance(payload.get("metadata"), dict) else {}
+    raw_text = str(message.get("text") or payload.get("text") or "").strip()
+    normalized_upper = raw_text.upper()
+    opt_command = normalized_upper if normalized_upper in {"STOP", "START", "HELP", "PAUSE"} else ""
+    phone_meta = redact_phone_number(contact.get("phoneNumber") or payload.get("phoneNumber"))
     return {
         "event_type": str(payload.get("type") or payload.get("eventType") or payload.get("event_type") or "").strip(),
         "message_id": str(message.get("id") or payload.get("messageId") or payload.get("message_id") or "").strip(),
         "status": str(message.get("status") or payload.get("status") or "").strip(),
         "direction": str(message.get("direction") or payload.get("direction") or "").strip(),
-        "phone_number": str(contact.get("phoneNumber") or payload.get("phoneNumber") or "").strip(),
+        **phone_meta,
         "contact_id": str(contact.get("id") or payload.get("contactId") or "").strip(),
         "channel_id": str(payload.get("channelId") or payload.get("channel_id") or "").strip(),
-        "text": str(message.get("text") or payload.get("text") or "").strip()[:500],
+        "text_present": bool(raw_text),
+        "text_char_count": len(raw_text),
+        "opt_command": opt_command,
         "principal_id": str(payload.get("principal_id") or metadata.get("principal_id") or "").strip(),
         "property_ref": str(payload.get("property_ref") or metadata.get("property_ref") or "").strip(),
         "search_agent_id": str(payload.get("search_agent_id") or metadata.get("search_agent_id") or "").strip(),
@@ -187,6 +223,7 @@ class HeyyWhatsAppBridgeService:
         variables: list[dict[str, object]] | None = None,
         channel_id: str = "",
     ) -> dict[str, object]:
+        require_heyy_enabled()
         normalized_channel_id = str(channel_id or "").strip() or heyy_channel_id()
         if not normalized_channel_id:
             raise ValueError("heyy_channel_id_required")
@@ -212,5 +249,6 @@ class HeyyWhatsAppBridgeService:
             "channel_id": normalized_channel_id,
             "message_id": str(payload.get("id") or payload.get("messageId") or "").strip(),
             "delivery_status": str(payload.get("status") or "").strip(),
+            **redact_phone_number(normalized_phone),
             "raw": payload,
         }
