@@ -4966,7 +4966,7 @@ def property_workspace_payload(
     for candidate in shortlist_candidates[:3]:
         fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "").strip()
         fact_line = _candidate_fact_line(candidate)
-        detail = " | ".join(part for part in (fit_summary, fact_line) if part) or "Open the packet to inspect the ranking and the evidence."
+        detail = " | ".join(part for part in (fit_summary, fact_line) if part) or "Open the property page to inspect the ranking and evidence."
         compare_rows.append(
             {
                 "title": str(candidate.get("title") or "Shortlist candidate").strip() or "Shortlist candidate",
@@ -4974,7 +4974,7 @@ def property_workspace_payload(
                 "tag": str(candidate.get("tag") or candidate.get("recommendation") or "Candidate").strip() or "Candidate",
                 "action_href": str(candidate.get("packet_url") or candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
                 "action_method": "get",
-                "action_label": "Open packet",
+                "action_label": "Open property page",
                 "secondary_action_href": str(candidate.get("tour_url") or candidate.get("review_url") or "").strip(),
                 "secondary_action_method": "get" if (candidate.get("tour_url") or candidate.get("review_url")) else "",
                 "secondary_action_label": "Open 360" if candidate.get("tour_url") else ("Review details" if candidate.get("review_url") else ""),
@@ -5152,7 +5152,7 @@ def property_workspace_payload(
             {
                 "label": "Decide",
                 "value": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(),
-                "detail": match_reasons[0] if match_reasons else (mismatch_reasons[0] if mismatch_reasons else "Open the packet for the full decision read."),
+                "detail": match_reasons[0] if match_reasons else (mismatch_reasons[0] if mismatch_reasons else "Open the property page for the full decision read."),
             },
         )
         for item in _missing_fact_items(facts):
@@ -5431,11 +5431,11 @@ def property_workspace_payload(
                 return f"Warm rent {warm_rent}"
             if cold_rent and cold_rent != price_line:
                 return f"Cold rent {cold_rent}"
-            return "Costs open"
+            return "Additional costs not listed"
         price_per_sqm = _money_per_sqm_line(facts)
         if price_per_sqm:
             return price_per_sqm
-        return "Costs open"
+        return "Additional costs not listed"
 
     def _title_price_fallback(title: object) -> str:
         text = " ".join(str(title or "").split()).strip()
@@ -5500,7 +5500,7 @@ def property_workspace_payload(
         investment_payload = {
             "enabled": str(property_preferences.get("listing_mode") or "").strip().lower() == "buy",
             "price_per_sqm": _money_per_sqm_line(facts),
-            "headline": "Open packet for full underwriting" if str(property_preferences.get("listing_mode") or "").strip().lower() == "buy" else "",
+            "headline": "Open the property page for full underwriting" if str(property_preferences.get("listing_mode") or "").strip().lower() == "buy" else "",
         }
         orientation_preview = _property_candidate_orientation_preview(candidate)
         workbench_results.append(
@@ -5528,7 +5528,7 @@ def property_workspace_payload(
                 "tour": tour_payload,
                 "orientation_preview": orientation_preview,
                 "ooda": {
-                    "summary": ooda_detail or (match_reasons[0] if match_reasons else "Open the packet to inspect the decision read."),
+                    "summary": ooda_detail or (match_reasons[0] if match_reasons else "Open the property page to inspect the decision read."),
                     "rows": ooda_rows,
                 },
                 "risk": risk_payload,
@@ -5882,11 +5882,11 @@ def property_workspace_payload(
         research_rows.append(
             {
                 "title": title,
-                "detail": " | ".join(part for part in detail_parts if part) or "Open the packet to inspect the fit and missing evidence.",
+                "detail": " | ".join(part for part in detail_parts if part) or "Open the property page to inspect the fit and missing evidence.",
                 "tag": str(candidate.get("tag") or candidate.get("recommendation") or "Packet").strip() or "Packet",
                 "action_href": str(candidate.get("packet_url") or candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
                 "action_method": "get",
-                "action_label": "Open packet",
+                "action_label": "Open property page",
                 "secondary_action_href": str(candidate.get("review_url") or candidate.get("tour_url") or "").strip(),
                 "secondary_action_method": "get" if (candidate.get("review_url") or candidate.get("tour_url")) else "",
                 "secondary_action_label": "Review details" if candidate.get("review_url") else ("Open 360" if candidate.get("tour_url") else ""),

@@ -2227,11 +2227,11 @@ def _property_packet_compare_rows(
                         str(candidate.get("fit_summary") or candidate.get("detail") or "").strip(),
                         fact_line,
                     ) if part
-                ) or "Open the packet to compare this candidate.",
+                ) or "Open the property page to compare this home.",
                 str(candidate.get("tag") or candidate.get("recommendation") or "Compare").strip() or "Compare",
                 href=str(candidate.get("packet_url") or "").strip(),
                 secondary_action_href=str(candidate.get("packet_url") or "").strip(),
-                secondary_action_label="Open packet" if str(candidate.get("packet_url") or "").strip() else "",
+                secondary_action_label="Open property page" if str(candidate.get("packet_url") or "").strip() else "",
                 secondary_action_method="get" if str(candidate.get("packet_url") or "").strip() else "",
             )
         )
@@ -2461,8 +2461,8 @@ def _property_packet_compare_table(
             layout_value,
             tour_state,
             {
-                "title": "Open packet",
-                "detail": "Inspect this dossier",
+                "title": "Open property page",
+                "detail": "Inspect this home in detail",
                 "href": str(candidate.get("packet_url") or "").strip(),
             },
         ]
@@ -3248,7 +3248,7 @@ def app_shell(
                     console_title=str(payload["title"]),
                     console_summary=str(payload["summary"]),
                     nav_groups=nav_groups,
-                    workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+                    workspace_label=str(request_brand(request)["name"] or "PropertyQuarry"),
                     cards=list(payload.get("cards") or []),
                     stats=list(payload["stats"]),
                     console_form=dict(payload.get("console_form") or {}),
