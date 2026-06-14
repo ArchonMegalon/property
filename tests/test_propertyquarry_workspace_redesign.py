@@ -758,7 +758,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     workspace_preview = client.get("/app/properties/notifications/preview", params={"template": "workspace_invitation"}, headers=headers)
     assert workspace_preview.status_code == 200
     assert "Mara invited you to PropertyQuarry" in workspace_preview.text
-    assert "Review workspace invite" in workspace_preview.text
+    assert "Open invite" in workspace_preview.text
 
     billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=headers)
     assert billing.status_code == 200
@@ -819,15 +819,7 @@ def test_property_workbench_previous_search_cards_have_explicit_overflow_gate() 
 
 def test_property_workspace_search_agents_have_explicit_overflow_gate() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_workspace.html"
-    body = template_path.read_text(encoding="utf-8")
-
-    assert 'class="pq-results-table pq-agent-table"' in body
-    assert 'class="pq-agent-table-primary"' in body
-    assert 'class="pq-agent-table-secondary"' in body
-    assert ".pq-agent-table-primary" in body
-    assert ".pq-agent-table-secondary" in body
-    assert "-webkit-line-clamp: 2;" in body
-    assert "-webkit-line-clamp: 3;" in body
+    assert not template_path.exists()
 
 
 def test_propertyquarry_pixefy_visual_watch_audits_periodic_screenshots() -> None:
@@ -857,16 +849,12 @@ def test_property_workbench_sparse_candidates_do_not_display_raw_urls() -> None:
 
 def test_property_workspace_source_cards_do_not_display_raw_source_urls() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_workspace.html"
-    body = template_path.read_text(encoding="utf-8")
-
-    assert "source.source_label || source.source_url" not in body
-    assert "source.source_label || source.platform || 'Provider'" in body
+    assert not template_path.exists()
 
 
 def test_property_search_property_type_uses_checkbox_multi_select() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     templates = [
-        repo_root / "ea/app/templates/app/property_workspace.html",
         repo_root / "ea/app/templates/app/property_decision_workbench.html",
         repo_root / "ea/app/templates/console_shell.html",
     ]
@@ -914,9 +902,6 @@ def test_property_workspace_search_form_exposes_austria_evidence_and_eligibility
     template_body = (
         Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
     ).read_text(encoding="utf-8")
-    workspace_template_body = (
-        Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_workspace.html"
-    ).read_text(encoding="utf-8")
     view_model_body = (
         Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_view_models.py"
     ).read_text(encoding="utf-8")
@@ -945,17 +930,6 @@ def test_property_workspace_search_form_exposes_austria_evidence_and_eligibility
     assert "defaultPlatformsForCountryMode" in template_body
     assert "Official checks" in template_body
     assert "evidence_source_catalog_by_country" in template_body
-    assert "ganztag_required" in workspace_template_body
-    assert "require_school_evidence" in workspace_template_body
-    assert "wiener_wohnticket_available" in workspace_template_body
-    assert "subsidized_required" in workspace_template_body
-    assert "miete_mit_kaufoption" in workspace_template_body
-    assert "eigenmittel_max_eur" in workspace_template_body
-    assert "application_window_days" in workspace_template_body
-    assert "require_energy_certificate" in workspace_template_body
-    assert "require_operating_cost_statement" in workspace_template_body
-    assert "enable_auction_legal_review" in workspace_template_body
-    assert "defaultPlatformsForCountryMode" in workspace_template_body
 
 
 def test_property_workspace_templates_expose_account_navigation() -> None:
@@ -1398,7 +1372,6 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
 def test_propertyquarry_user_facing_copy_avoids_hosted_review_jargon() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     checked_paths = [
-        repo_root / "ea/app/templates/app/property_workspace.html",
         repo_root / "ea/app/templates/app/property_decision_workbench.html",
         repo_root / "ea/app/templates/propertyquarry_home.html",
         repo_root / "ea/app/templates/pricing_page.html",

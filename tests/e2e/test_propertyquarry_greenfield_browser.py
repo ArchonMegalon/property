@@ -1700,7 +1700,7 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
             "property_match": ("Property match: Altbau near U6", "No — tell us why"),
             "tour_ready": ("Apartment tour ready: Family flat near Augarten", "No — tell us why"),
             "investment_research_ready": ("Investment research ready", "Pass — too risky"),
-            "workspace_invitation": ("Mara invited you to PropertyQuarry", "Review workspace invite"),
+            "workspace_invitation": ("Mara invited you to PropertyQuarry", "Open invite"),
             "workspace_access": ("Your access link for PropertyQuarry account", "Open access link"),
             "google_connect": ("Connect Google to PropertyQuarry account", "Connect Google"),
             "market_ready": ("PropertyQuarry market ready: Vienna", "Open PropertyQuarry"),

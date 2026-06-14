@@ -32,7 +32,7 @@ Indicative price: 79 to 149 EUR per month
 - deep research on shortlisted listings
 - agent-triggered follow-up investigation
 - better enrichment of missing listing facts
-- premium review packets
+- premium property pages
 - priority search and refresh
 
 ## Paywall logic

@@ -791,7 +791,7 @@
       <div class="console-metric">
         <span class="label">{{ stat.label }}</span>
         <strong>{{ stat.value }}</strong>
-        <span>Visible in the current workspace view.</span>
+        <span>Visible in the current account view.</span>
       </div>
       {% endfor %}
     </div>
@@ -992,7 +992,7 @@
     <h2>{{ c0.title if c0 else console_title }}</h2>
     <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
     {% if c0 and c0['items'] %}
-      {{ rows(c0['items'], 'Evidence', 'These are the refs and signals currently shaping the workspace view.') }}
+      {{ rows(c0['items'], 'Evidence', 'These are the refs and signals currently shaping the current account view.') }}
     {% endif %}
   </section>
   <section class="console-panel">
@@ -1251,7 +1251,7 @@
           {% if request.query_params.get('billing') == 'success' %}
           Payment captured. The {{ request.query_params.get('plan') or 'paid' }} plan is now active.
           {% elif request.query_params.get('billing') == 'cancelled' %}
-          Payment was cancelled. The property workspace stays on the current plan.
+          Payment was cancelled. The property account stays on the current plan.
           {% endif %}
         </div>
         {% endif %}
@@ -1578,7 +1578,7 @@
     if (rows.length) return rows;
     return [{
       title: 'No learned preferences yet',
-      detail: 'Use the review packets to record feedback. The learned likes, dislikes, and hard rules will surface here.',
+      detail: 'Use property pages to record feedback. The learned likes, dislikes, and hard rules will surface here.',
       tag: 'Waiting',
     }];
   };

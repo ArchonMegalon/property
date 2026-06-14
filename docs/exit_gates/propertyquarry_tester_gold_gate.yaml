@@ -25,7 +25,7 @@ fail_closed_conditions:
   - any packet or dossier lane regresses to a thin fact export
   - hosted tour or flythrough breaks while packet and research still appear healthy
   - sharing, feedback, or timeline state is not persisted across reload
-  - notification lane exists but does not point back into a real review surface
+  - notification lane exists but does not point back into a real property surface
 exit_criteria:
   - all phase gates pass
   - master regression gate passes

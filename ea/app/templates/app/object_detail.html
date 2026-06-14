@@ -476,8 +476,8 @@
         <div class="object-media-status">{{ object_media.get('status_label') or '360 ready' }}</div>
         <div class="object-actions">
           {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open 360' }}</a>{% endif %}
-          {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open review page' }}</a>{% endif %}
-          {% if object_media.get('tertiary_href') %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ object_media.get('tertiary_label') or 'Open source' }}</a>{% endif %}
+          {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open property page' }}</a>{% endif %}
+          {% if object_media.get('tertiary_href') %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ object_media.get('tertiary_label') or 'Open listing' }}</a>{% endif %}
         </div>
       </div>
       {% else %}
@@ -488,9 +488,9 @@
           <p class="object-copy">{{ object_media.get('status_detail') or 'The tour lane is still catching up.' }}</p>
         </div>
         <div class="object-actions">
-          {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open packet' }}</a>{% endif %}
-          {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open review page' }}</a>{% endif %}
-          {% if object_media.get('tertiary_href') %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ object_media.get('tertiary_label') or 'Open source' }}</a>{% endif %}
+          {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open property page' }}</a>{% endif %}
+          {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open property page' }}</a>{% endif %}
+          {% if object_media.get('tertiary_href') %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ object_media.get('tertiary_label') or 'Open listing' }}</a>{% endif %}
         </div>
       </div>
       {% endif %}
@@ -851,7 +851,7 @@
       <div class="object-row"><div><strong>Brief set</strong><small>The search brief and personal rules are already loaded for this packet.</small></div><div class="object-tag">Completed</div></div>
       <div class="object-row"><div><strong>Providers scanned</strong><small>The provider sweep already produced this candidate and the supporting evidence.</small></div><div class="object-tag">Completed</div></div>
       <div class="object-row"><div><strong>Ranked shortlist</strong><small>This property survived the shortlist and moved into the deeper review lane.</small></div><div class="object-tag">Completed</div></div>
-      <div class="object-row"><div><strong>Property page</strong><small>You are here: details, timeline, household review, and next questions stay visible in one review surface.</small></div><div class="object-tag">Active</div></div>
+      <div class="object-row"><div><strong>Property page</strong><small>You are here: details, timeline, household review, and next questions stay visible in one decision desk.</small></div><div class="object-tag">Active</div></div>
       <div class="object-row"><div><strong>360 and research</strong><small>Use the hosted 360 and underwriting sections before making a final call.</small></div><div class="object-tag">Active</div></div>
       <div class="object-row"><div><strong>Decide</strong><small>Record Yes, Maybe, No, or Hide so the next shortlist learns from the outcome.</small></div><div class="object-tag">Next</div></div>
     </div>

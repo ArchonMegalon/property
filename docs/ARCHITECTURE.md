@@ -6,10 +6,10 @@ PropertyQuarry is now housed in its own repository and runnable runtime.
 
 This repo contains:
 
-- branded public landing, onboarding, sign-in, and property workspace
+- branded public landing, onboarding, sign-in, and property decision desk
 - property search run orchestration
 - country/provider/language market catalog
-- shortlist ranking and review packet links
+- shortlist ranking and property-page links
 - feedback learning loop
 - PayPal property plan upgrades
 - Emailit-backed notification delivery
@@ -49,7 +49,7 @@ The default deploy path is property-only. Inherited public surfaces, assistant s
 - country-aware provider selection
 - language-aware search posture
 - ranking against profile preferences
-- hosted property review pages
+- hosted property pages
 - research request escalation
 - 360/tour handling when available
 - free/paid commercial gating

@@ -6,7 +6,7 @@ PropertyQuarry notifications are decision surfaces, not generic status mail.
 
 Each property-facing template must help the user do one of these next actions:
 
-- open review packet
+- open property page
 - open hosted 360
 - ask the agent for missing facts
 - record `yes`, `maybe`, or `no`
@@ -61,7 +61,7 @@ Every customer-facing template must provide:
 
 High-value property notifications should support:
 
-- `Open review packet`
+- `Open property page`
 - `Open 360`
 - `Yes, shortlist`
 - `Maybe, keep watching`

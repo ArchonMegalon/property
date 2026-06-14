@@ -8,7 +8,7 @@ Core loop:
 
 ## Goals
 
-- make the user decision explicit on every serious review surface
+- make the user decision explicit on every serious property surface
 - convert rejection and hesitation reasons into personal ranking rules
 - keep missing-fact follow-up tied to the decision that caused it
 - allow future anonymized market risk signals without leaking raw personal notes
@@ -33,7 +33,7 @@ Short-term implementation note:
 
 ## Primary question
 
-On shortlist cards, the workbench dossier, research packets, email actions, and public review surfaces where appropriate:
+On shortlist cards, the workbench dossier, property pages, email actions, and public property surfaces where appropriate:
 
 `Would you pursue this property?`
 

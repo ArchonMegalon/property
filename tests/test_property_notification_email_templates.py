@@ -38,7 +38,7 @@ def test_property_notification_preview_html_contains_action_surface_links() -> N
         "property_match": ("Yes, shortlist", "No — tell us why", "Ask agent"),
         "tour_ready": ("Open 360 review", "No — tell us why", "Ask agent about blockers or missing facts"),
         "investment_research_ready": ("Open investment packet", "Ask for documents", "Pass — too risky"),
-        "workspace_invitation": ("Review workspace invite",),
+        "workspace_invitation": ("Open invite",),
         "workspace_access": ("Open access link",),
         "google_connect": ("Connect Google",),
         "market_ready": ("Open PropertyQuarry",),

@@ -21,7 +21,7 @@ Users still do manual work to answer questions like:
 
 ## Core value
 
-PropertyQuarry aggregates listings, ranks them against personal preferences, and produces research-backed review packets that help a user decide where to spend attention.
+PropertyQuarry aggregates listings, ranks them against personal preferences, and produces research-backed property pages that help a user decide where to spend attention.
 
 ## Initial audience
 
@@ -76,6 +76,6 @@ Freemium entry with paid research depth.
 ## Current flagship scope
 
 - Austria, Germany, Switzerland, United Kingdom, Spain, Italy, France, Netherlands, and United States market selection
-- per-country provider catalog in the workspace
+- per-country provider catalog in the account
 - language-aware property brief defaults
 - provider-specific source generation as the crawl entry layer

@@ -854,7 +854,7 @@ def test_google_connect_email_uses_workspace_delivery_sender(monkeypatch: pytest
     payload = dict(captured["payload"])
     assert payload["from"] == "Sprachenzentrum <sprachenzentrum@girschele.com>"
     assert payload["subject"] == "Connect Google to PropertyQuarry account"
-    assert "No Google inbox is connected in this workspace yet" in payload["text"]
+    assert "No Google inbox is connected to this account yet" in payload["text"]
     assert "titled Google-connect button" in payload["text"]
     assert "http://" not in payload["text"]
     assert "https://" not in payload["text"]
