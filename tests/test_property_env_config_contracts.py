@@ -42,3 +42,11 @@ def test_env_example_lists_flagship_property_provider_switches() -> None:
         "PROPERTYQUARRY_FASTESTVPN_AUTO_STOP_AFTER_REFRESH=1",
     ):
         assert required in env
+
+
+def test_prod_compose_keeps_fastestvpn_repo_local_and_default_off() -> None:
+    compose = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
+
+    assert "/docker/property" in compose
+    assert "EA_FASTESTVPN_ON_DEMAND_ENABLED: ${PROPERTYQUARRY_FASTESTVPN_ON_DEMAND_ENABLED:-0}" in compose
+    assert "${EA_FASTESTVPN_ON_DEMAND_ENABLED" not in compose
