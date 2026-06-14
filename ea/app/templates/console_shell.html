@@ -1151,8 +1151,8 @@
                 <div class="console-note">{{ group.get('detail') }}</div>
               </summary>
               <div class="console-choice-tools" style="margin:8px 0 10px;">
-                <button class="console-choice-action" type="button" data-checkbox-group-select-scope="group">Select group</button>
-                <button class="console-choice-action" type="button" data-checkbox-group-clear-scope="group">Clear group</button>
+                <button class="console-choice-action" type="button" data-checkbox-group-select-scope="group">Use this family</button>
+                <button class="console-choice-action" type="button" data-checkbox-group-clear-scope="group">Clear this family</button>
               </div>
               <div class="console-choice-grid">
                 {% for option in group.get('options') or [] %}
@@ -1450,7 +1450,7 @@
         .sort((a, b) => familyOrder.indexOf(a[0]) - familyOrder.indexOf(b[0]))
         .map(([family, items]) => {
           const [title, detail] = familyHeadings[family] || [String(family).replaceAll('_', ' '), 'Grouped source set.'];
-          return `<details class="console-advanced-panel" data-provider-group-panel style="margin-top:12px;"><summary><strong>${title}</strong><div class="console-note">${detail}</div></summary><div class="console-choice-tools" style="margin:8px 0 10px;"><button class="console-choice-action" type="button" data-checkbox-group-select-scope="group">Select group</button><button class="console-choice-action" type="button" data-checkbox-group-clear-scope="group">Clear group</button></div><div class="console-choice-grid">${items.map(renderOption).join('')}</div></details>`;
+          return `<details class="console-advanced-panel" data-provider-group-panel style="margin-top:12px;"><summary><strong>${title}</strong><div class="console-note">${detail}</div></summary><div class="console-choice-tools" style="margin:8px 0 10px;"><button class="console-choice-action" type="button" data-checkbox-group-select-scope="group">Use this family</button><button class="console-choice-action" type="button" data-checkbox-group-clear-scope="group">Clear this family</button></div><div class="console-choice-grid">${items.map(renderOption).join('')}</div></details>`;
         })
         .join('');
       return;
@@ -1615,6 +1615,7 @@
         language_code: fieldValue(form, 'language_code') || 'en',
         listing_mode: fieldValue(form, 'listing_mode') || 'rent',
         property_type: fieldValue(form, 'property_type') || 'any',
+        search_mode: fieldValue(form, 'search_mode') || 'strict',
         location_query: selectedLocations.join(', '),
         keywords: selectedKeywords.join(', '),
         preference_person_id: fieldValue(form, 'preference_person_id') || 'self',

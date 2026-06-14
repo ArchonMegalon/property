@@ -46,6 +46,35 @@ def _property_fit_label(assessment: dict[str, object]) -> str:
     return score_text
 
 
+def _handoff_customer_status(
+    *,
+    handoff,
+    delivery_followup_open: bool,
+    property_tour_followup_open: bool,
+    retry_detail: str,
+) -> tuple[str, str]:
+    resolution = str(handoff.resolution or "").strip().lower()
+    delivery_reason = str(handoff.delivery_reason or "").strip().lower()
+    task_type = str(handoff.task_type or "").strip().lower()
+    if task_type == "delivery_followup":
+        if resolution == "sent":
+            return "Sent", "Delivery was recorded as sent."
+        if resolution == "waiting_on_principal":
+            return "Waiting on you", "Delivery is paused until you choose the next step."
+        if resolution == "reauth_needed" or delivery_reason.startswith("google_"):
+            return "Reconnect Google", "Google access needs attention before delivery can continue."
+        if resolution == "failed":
+            return "Still blocked", "Delivery is still blocked and needs another path."
+        if delivery_followup_open:
+            return "Needs another try", retry_detail or "The prepared send needs another attempt."
+    if task_type == "property_tour_followup":
+        if str(handoff.tour_url or "").strip():
+            return "3D tour ready", "The hosted 3D tour is ready to review."
+        if property_tour_followup_open:
+            return "3D tour in progress", "The hosted 3D tour is still being prepared."
+    return "Open follow-up", "This page keeps only the next useful action and the supporting links."
+
+
 @router.get("/app/people", response_class=HTMLResponse)
 def people_root(
     request: Request,
@@ -630,7 +659,7 @@ def handoff_detail(
             if part
         ) or "Public-safe editorial intelligence pass is recorded for this review page."
         candidate_rows = []
-        for item in candidate_properties[:8]:
+        for item in candidate_properties[:4]:
             candidate_url = str(item.get("property_url") or "").strip()
             candidate_title = (
                 str(item.get("listing_title") or "").strip()
@@ -661,7 +690,7 @@ def handoff_detail(
             page_title=f"PropertyQuarry {handoff.summary}",
             current_nav="research",
             console_title=input_json.get("title") or handoff.summary,
-            console_summary="Property review packet with 360-first inspection, fit evidence, and next actions.",
+            console_summary="Property review packet with a 360-first read, the strongest fit evidence, and the next useful action.",
             object_kind="Property review",
             object_title=str(input_json.get("title") or handoff.summary or "Property review"),
             object_summary=f"{_property_fit_label(assessment)} · {str(input_json.get('counterparty') or handoff.owner or 'Property scout').strip()}",
@@ -669,15 +698,13 @@ def handoff_detail(
             object_meta=[
                 {"label": "Fit", "value": _property_fit_label(assessment)},
                 {"label": "Source", "value": str(input_json.get('counterparty') or "Property scout").strip() or "Property scout"},
-                {"label": "Preference profile", "value": str(input_json.get('preference_person_id') or "self").strip() or "self"},
                 {"label": "Candidates", "value": str(len(candidate_properties))},
-                {"label": "Status", "value": str(handoff.status or "pending").replace("_", " ").title()},
             ],
             object_ooda_title="Decision summary",
             object_ooda_copy="Start with the tour, then use the quick-read rows to decide whether this property deserves deeper action.",
             object_ooda_rows=ooda_rows,
             object_sidebar_title="Review actions",
-            object_sidebar_copy="This page is the primary property review packet. Raw portals and external tours stay secondary to the decision view.",
+            object_sidebar_copy="Use this page to inspect the strongest evidence first. Raw portals and source viewers stay secondary.",
             object_sidebar_rows=[
                 _object_detail_row("Research summary", str(input_json.get("summary") or handoff.summary or "No research summary was captured.").strip(), "Summary"),
                 _object_detail_row(
@@ -700,8 +727,6 @@ def handoff_detail(
                 ),
                 _object_detail_row("Recommendation", str(assessment.get("recommendation") or "No recommendation projected.").replace("_", " "), "Decision"),
                 _object_detail_row("NeuronWriter", neuronwriter_detail, neuronwriter_status),
-                _object_detail_row("Account", str(input_json.get("account_email") or "No account email stored.").strip(), "Inbox"),
-                _object_detail_row("Source ref", handoff.source_ref or str(input_json.get("source_ref") or "").strip() or "No source ref stored.", "Ref"),
             ],
             object_sections=[
                 {
@@ -709,15 +734,169 @@ def handoff_detail(
                     "title": "Why this property matched",
                     "items": fit_details,
                 },
+                *(
+                    [
+                        {
+                            "eyebrow": "Candidates",
+                            "title": "Nearby options from this alert",
+                            "items": candidate_rows,
+                        }
+                    ]
+                    if candidate_rows
+                    else []
+                ),
+                *(
+                    [
+                        {
+                            "eyebrow": "Evidence",
+                            "title": "Supporting evidence",
+                            "items": _evidence_detail_rows(handoff.evidence_refs),
+                        }
+                    ]
+                    if handoff.evidence_refs
+                    else []
+                ),
+            ],
+        )
+    if not str(context.operator_id or "").strip():
+        input_json = dict(getattr(task, "input_json", {}) or {}) if task is not None else {}
+        customer_status_label, customer_status_detail = _handoff_customer_status(
+            handoff=handoff,
+            delivery_followup_open=delivery_followup_open,
+            property_tour_followup_open=property_tour_followup_open,
+            retry_detail=retry_detail,
+        )
+        tour_url = str(handoff.tour_url or input_json.get("tour_url") or "").strip()
+        vendor_tour_url = str(input_json.get("vendor_tour_url") or "").strip()
+        property_url = str(handoff.property_url or input_json.get("property_url") or "").strip()
+        media_candidate = {
+            "title": handoff.summary,
+            "tour_url": tour_url,
+            "vendor_tour_url": vendor_tour_url,
+            "property_url": property_url,
+            "review_url": f"/app/handoffs/{handoff_ref}",
+            "tour_status": "ready" if tour_url else ("blocked" if property_tour_followup_open else ""),
+            "blocked_reason": str(input_json.get("blocked_reason") or handoff.delivery_reason or "").strip(),
+        }
+        next_step_detail = customer_status_detail
+        next_step_label = "What to do next"
+        primary_action_href = ""
+        primary_action_label = ""
+        secondary_action_href = ""
+        secondary_action_label = ""
+        tertiary_action_href = ""
+        tertiary_action_label = ""
+        if delivery_followup_open:
+            primary_action_href = f"/app/actions/handoffs/{handoff_ref}/retry-send"
+            primary_action_label = "Try again"
+            secondary_action_href = str(google_delivery_action.get("href") or "")
+            secondary_action_label = str(google_delivery_action.get("label") or "")
+            tertiary_action_href = f"/app/actions/handoffs/{handoff_ref}/complete"
+            tertiary_action_label = "Mark sent"
+        elif property_tour_followup_open:
+            primary_action_href = f"/app/actions/handoffs/{handoff_ref}/recreate"
+            primary_action_label = "Rebuild 3D tour"
+        elif tour_url:
+            primary_action_href = tour_url
+            primary_action_label = "Open 3D tour"
+        elif property_url:
+            primary_action_href = property_url
+            primary_action_label = "Open listing"
+        return _render_console_object_detail(
+            request=request,
+            context=context,
+            workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+            page_title=f"PropertyQuarry {handoff.summary}",
+            current_nav="queue",
+            console_title=handoff.summary,
+            console_summary="Follow-up status, the next useful action, and the property links that still matter.",
+            object_kind="Follow-up",
+            object_title=handoff.summary,
+            object_summary=customer_status_label,
+            object_media=_property_tour_media_payload(media_candidate) if (tour_url or vendor_tour_url) else {},
+            object_meta=[
+                {"label": "Status", "value": customer_status_label},
+                {"label": "Task", "value": str(handoff.task_type or "follow_up").replace("_", " ").title()},
+                {"label": "Due", "value": str(handoff.due_time or "")[:10] or "No due date"},
+            ],
+            object_sidebar_title="What to do next",
+            object_sidebar_copy="This page keeps the next action and the useful property links in one place.",
+            object_sidebar_rows=[
+                _object_detail_row("Current status", customer_status_detail, "Status"),
+                _object_detail_row(
+                    next_step_label,
+                    next_step_detail,
+                    "Action",
+                    href=primary_action_href,
+                    action_href=primary_action_href if primary_action_href.startswith("/app/actions/") else "",
+                    action_label=primary_action_label if primary_action_href.startswith("/app/actions/") else "",
+                    action_method="post" if primary_action_href.startswith("/app/actions/") else "",
+                    return_to=f"/app/handoffs/{handoff_ref}" if primary_action_href.startswith("/app/actions/") else "",
+                    secondary_action_href=secondary_action_href,
+                    secondary_action_label=secondary_action_label,
+                    secondary_action_method="get" if secondary_action_href else "",
+                    secondary_return_to=f"/app/handoffs/{handoff_ref}" if secondary_action_href else "",
+                    tertiary_action_href=tertiary_action_href,
+                    tertiary_action_label=tertiary_action_label,
+                    tertiary_action_value="sent" if tertiary_action_href else "",
+                    tertiary_action_method="post" if tertiary_action_href else "",
+                    tertiary_return_to=f"/app/handoffs/{handoff_ref}" if tertiary_action_href else "",
+                ),
+                *(
+                    [
+                        _object_detail_row(
+                            "Property tour",
+                            tour_url or "The hosted 3D tour is not ready yet.",
+                            "Tour",
+                            href=tour_url or vendor_tour_url,
+                            secondary_action_href=vendor_tour_url if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
+                            secondary_action_label="Open source 360" if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
+                            secondary_action_method="get" if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
+                        )
+                    ]
+                    if (tour_url or vendor_tour_url or property_tour_followup_open)
+                    else []
+                ),
+                *(
+                    [
+                        _object_detail_row(
+                            "Listing",
+                            property_url,
+                            "Listing",
+                            href=property_url,
+                            secondary_action_href=property_url,
+                            secondary_action_label="Open listing",
+                            secondary_action_method="get",
+                        )
+                    ]
+                    if property_url
+                    else []
+                ),
+            ],
+            object_sections=[
+                *(
+                    [
+                        {
+                            "eyebrow": "Supporting context",
+                            "title": "Attached evidence",
+                            "items": _evidence_detail_rows(handoff.evidence_refs),
+                        }
+                    ]
+                    if handoff.evidence_refs
+                    else []
+                ),
                 {
-                    "eyebrow": "Candidates",
-                    "title": "Properties projected from this alert",
-                    "items": candidate_rows or [_object_detail_row("No candidate properties", "This alert did not capture structured candidate rows.", "Candidates")],
-                },
-                {
-                    "eyebrow": "Evidence",
-                    "title": "Supporting evidence",
-                    "items": _evidence_detail_rows(handoff.evidence_refs),
+                    "eyebrow": "Recent updates",
+                    "title": "What changed",
+                    "items": [
+                        _object_detail_row(
+                            str(getattr(item, "event_name", "") or "update").replace("_", " ").title(),
+                            " · ".join(part for part in (str(item.detail or "").strip(), str(item.created_at or "")[:10]) if part)
+                            or "Update recorded.",
+                            "Update",
+                        )
+                        for item in history_rows[:5]
+                    ] or [_object_detail_row("No updates yet", "This follow-up has no recorded updates yet.", "Update")],
                 },
             ],
         )

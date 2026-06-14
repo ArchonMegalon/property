@@ -6,9 +6,10 @@ import io
 import json
 import re
 import urllib.parse
-import urllib.request
 from pathlib import Path
 from textwrap import wrap
+
+import requests
 
 try:
     from PIL import Image
@@ -566,14 +567,14 @@ def _load_pdf_image_resource(url: str) -> dict[str, object] | None:
     if url.startswith("data:image/"):
         raw_bytes = _data_url_bytes(url)
     else:
-        request = urllib.request.Request(
-            str(url),
-            headers={"User-Agent": "PropertyQuarry-PDF-Renderer/1.0"},
-            method="GET",
-        )
         try:
-            with urllib.request.urlopen(request, timeout=20) as response:
-                raw_bytes = bytes(response.read() or b"")
+            response = requests.get(
+                str(url),
+                headers={"User-Agent": "PropertyQuarry-PDF-Renderer/1.0"},
+                timeout=20,
+            )
+            response.raise_for_status()
+            raw_bytes = bytes(response.content or b"")
         except Exception:
             return None
     if not raw_bytes:

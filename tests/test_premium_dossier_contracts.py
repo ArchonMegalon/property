@@ -42,6 +42,49 @@ def _sample_source() -> dict[str, object]:
         "source_virtual_tour_url": "https://propertyquarry.com/tours/test-tour",
         "flythrough_url": "https://propertyquarry.com/tours/test-tour?pane=flythrough-pane&autoplay=1",
         "review_url": "https://propertyquarry.com/app/research/test",
+        "dossier_writer": {
+            "status": "verified",
+            "neuronwriter": {
+                "status": "ready",
+                "share_url": "https://app.neuronwriter.com/share/query-1",
+                "questions": ["Which unresolved cost line still needs proof?"],
+            },
+            "sections": [
+                {
+                    "section_key": "evidence_summary",
+                    "title": "Evidence Summary",
+                    "body_markdown": "The current packet is strongest on layout and transit fit.",
+                    "bullets": ["Lift and layout fit are already visible.", "Transit access is already plausible."],
+                    "cta": "Keep the next owner action focused on costs and proof.",
+                },
+                {
+                    "section_key": "risk_register",
+                    "title": "Risk Register",
+                    "body_markdown": "Operating costs still need owner-reviewed proof.",
+                    "bullets": ["Operating-cost history is still missing."],
+                    "cta": "Ask for the last 24 months of statements.",
+                },
+            ],
+        },
+        "route_context": {
+            "provider": "AvoMap",
+            "rows": [
+                {
+                    "label": "Your route",
+                    "href": "https://maps.example.test/route/home",
+                    "detail": "School route prepared from the property.",
+                }
+            ],
+        },
+        "dadan_context": {
+            "enabled": True,
+            "mode": "manual",
+            "request_status": "created",
+            "request_url": "https://app.dadan.io/request/demo",
+            "request_kind": "agent_missing_fact",
+            "response_status": "pending_owner_review",
+            "recording_url": "https://app.dadan.io/recording/demo",
+        },
     }
 
 
@@ -76,9 +119,59 @@ def test_premium_dossier_html_contains_core_sections() -> None:
     assert "Hosted 360 and media" in html
     assert "Risk register and next proof" in html
     assert "Property portrait" in html
+    assert "Route context" in html
+    assert "Video feedback follow-up" in html
     assert "PropertyQuarry" in html
     assert "Open Google Maps" in html
     assert "https://www.google.com/maps/search/?api=1" in html
+
+
+def test_premium_dossier_prefers_scene_render_as_hero_over_stock_gallery_order() -> None:
+    source = _sample_source()
+    source["magic_fit_scene"] = {
+        "scene_id": "magicfit-hero-1",
+        "scene_type": "family_evening",
+        "summary": "Believable family evening render inside the property.",
+        "image_url": "https://propertyquarry.com/static/magicfit-scene.jpg",
+        "share_with_packet_pdf": True,
+        "visual_simulation": True,
+    }
+    source["photo_refs"] = [
+        "https://propertyquarry.com/static/test-cover.jpg",
+        "https://propertyquarry.com/static/test-detail.jpg",
+    ]
+    compiled = compile_premium_dossier(
+        source=source,
+        redacted_payload=source,
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        renderer_version="v1_premium_markupgo_dossier",
+    )
+    assert compiled.hero_image_url == "https://propertyquarry.com/static/magicfit-scene.jpg"
+    assert compiled.portrait_image_url == "https://propertyquarry.com/static/magicfit-scene.jpg"
+    assert compiled.property_image_url == "https://propertyquarry.com/static/test-cover.jpg"
+    html = render_premium_dossier_html(compiled)
+    assert "Property-fitting visual simulation" in html
+    assert "https://propertyquarry.com/static/magicfit-scene.jpg" in html
+
+
+def test_premium_dossier_html_surfaces_avomap_dadan_and_neuronwriter_context() -> None:
+    compiled = compile_premium_dossier(
+        source=_sample_source(),
+        redacted_payload=_sample_source(),
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        renderer_version="v1_premium_markupgo_dossier",
+    )
+    html = render_premium_dossier_html(compiled)
+    assert "AvoMap route read" in html
+    assert "Open routes" in html
+    assert "Dadan follow-up state" in html
+    assert "Open Dadan request" in html
+    assert "NeuronWriter guidance: ready" in html
+    assert "Which unresolved cost line still needs proof?" in html
 
 
 def test_markupgo_adapter_requires_api_key(monkeypatch) -> None:
@@ -191,7 +284,8 @@ def test_premium_dossier_html_can_embed_personal_magicfit_scene() -> None:
         renderer_version="v1_premium_markupgo_dossier",
     )
     html = render_premium_dossier_html(compiled)
-    assert "Personal lifestyle scene" in html
+    assert "Scene render" in html
+    assert "Property-fitting visual simulation" in html
     assert "https://propertyquarry.com/static/magicfit-scene.jpg" in html
     assert "/app/api/property/magic-fit-reference-files/magicfitref_test" in html
 
@@ -298,6 +392,77 @@ def test_premium_dossier_quality_gate_rejects_structural_binary_pdf_without_extr
     assert report.ok is False
 
 
+def test_premium_dossier_quality_gate_records_visual_preview_metadata(monkeypatch, tmp_path: Path) -> None:
+    preview_path = tmp_path / "page-1.png"
+
+    monkeypatch.setattr(
+        "app.services.premium_dossier.qa._render_pdf_first_page_png",
+        lambda artifact_bytes, output_path=None: (b"fake-png", 1200, 1800),
+    )
+    monkeypatch.setattr(
+        "app.services.premium_dossier.qa._png_visual_metrics",
+        lambda png_bytes: (0.41, 0.27, 0.03),
+    )
+
+    report = inspect_rendered_artifact(
+        artifact_bytes=b"%PDF-1.4 PropertyQuarry Premium Test Wohnung",
+        expected_text=["PropertyQuarry", "Premium Test Wohnung"],
+        forbidden_text=["token", "session"],
+        preview_output_path=preview_path,
+        require_cover_visual_dominance=True,
+        require_footer_band=True,
+        forbid_raw_url_text=True,
+    )
+
+    assert report.visual_preview_check == "passed"
+    assert report.cover_dominance_check == "passed"
+    assert report.footer_band_check == "passed"
+    assert report.raw_url_text_check == "passed"
+    assert report.visual_preview_artifact_ref == str(preview_path)
+    assert report.first_page_width_px == 1200
+    assert report.first_page_height_px == 1800
+    assert report.first_page_nonwhite_ratio == 0.41
+    assert report.first_page_top_band_nonwhite_ratio == 0.27
+    assert report.first_page_footer_band_nonwhite_ratio == 0.03
+
+
+def test_premium_dossier_quality_gate_rejects_visible_raw_urls() -> None:
+    report = inspect_rendered_artifact(
+        artifact_bytes=b"%PDF-1.4 PropertyQuarry https://example.com/raw-url",
+        expected_text=["PropertyQuarry"],
+        forbidden_text=["token", "session"],
+        forbid_raw_url_text=True,
+    )
+
+    assert report.raw_url_text_check == "failed"
+    assert report.raw_url_text_hits == ["https://example.com/raw-url"]
+    assert report.ok is False
+
+
+def test_premium_dossier_quality_gate_rejects_missing_cover_or_footer_when_required(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.premium_dossier.qa._render_pdf_first_page_png",
+        lambda artifact_bytes, output_path=None: (b"fake-png", 1200, 1800),
+    )
+    monkeypatch.setattr(
+        "app.services.premium_dossier.qa._png_visual_metrics",
+        lambda png_bytes: (0.41, 0.03, 0.004),
+    )
+
+    report = inspect_rendered_artifact(
+        artifact_bytes=b"%PDF-1.4 PropertyQuarry Premium Test Wohnung",
+        expected_text=["PropertyQuarry", "Premium Test Wohnung"],
+        forbidden_text=["token", "session"],
+        require_cover_visual_dominance=True,
+        require_footer_band=True,
+    )
+
+    assert report.visual_preview_check == "passed"
+    assert report.cover_dominance_check == "failed"
+    assert report.footer_band_check == "failed"
+    assert report.ok is False
+
+
 def test_premium_pipeline_fails_closed_when_rendered_pdf_fails_quality_gate(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
@@ -331,6 +496,79 @@ def test_premium_pipeline_fails_closed_when_rendered_pdf_fails_quality_gate(monk
             include_photos=True,
             legacy_renderer=_legacy_renderer,
         )
+
+
+def test_premium_pipeline_writes_visual_preview_receipt_fields(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
+
+    def _fake_playwright(_request):
+        pdf_text = "%PDF-1.4 " + " ".join(_request.expected_text)
+        return PremiumDossierRenderResult(
+            status="rendered",
+            renderer="playwright",
+            pdf_bytes=pdf_text.encode("utf-8"),
+            pdf_sha256="preview123",
+            render_seconds=0.2,
+        )
+
+    def _fake_inspect(
+        *,
+        artifact_bytes,
+        expected_text,
+        forbidden_text,
+        preview_output_path=None,
+        require_cover_visual_dominance=False,
+        require_footer_band=False,
+        forbid_raw_url_text=False,
+    ):
+        if preview_output_path:
+            Path(preview_output_path).write_bytes(b"png")
+        return type("Report", (), {
+            "ok": True,
+            "required_text_check": "passed",
+            "forbidden_text_check": "passed",
+            "page_count": 3,
+            "visual_preview_check": "passed",
+            "cover_dominance_check": "passed",
+            "footer_band_check": "passed",
+            "raw_url_text_check": "passed",
+            "visual_preview_artifact_ref": str(preview_output_path or ""),
+            "first_page_width_px": 1200,
+            "first_page_height_px": 1800,
+            "first_page_nonwhite_ratio": 0.42,
+            "first_page_top_band_nonwhite_ratio": 0.31,
+            "first_page_footer_band_nonwhite_ratio": 0.03,
+            "required_text_hits": list(expected_text),
+            "forbidden_text_hits": [],
+            "raw_url_text_hits": [],
+        })()
+
+    monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_playwright", _fake_playwright)
+    monkeypatch.setattr("app.services.premium_dossier.inspect_rendered_artifact", _fake_inspect)
+
+    rendered = render_property_packet_pdf_via_premium_pipeline(
+        artifact_root=tmp_path,
+        publication_id="pub_visual_receipt",
+        principal_id="cf-email:tibor@example.com",
+        source=_sample_source(),
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        include_exact_address=False,
+        include_floorplan=True,
+        include_photos=True,
+        legacy_renderer=lambda **kwargs: {"status": "legacy_should_not_run"},
+    )
+
+    assert rendered["preview_path"].endswith(".page-1.png")
+    assert Path(str(rendered["preview_path"])).is_file()
+    assert rendered["receipt"]["visual_preview_check"] == "passed"
+    assert rendered["receipt"]["cover_dominance_check"] == "passed"
+    assert rendered["receipt"]["footer_band_check"] == "passed"
+    assert rendered["receipt"]["raw_url_text_check"] == "passed"
+    assert rendered["receipt"]["visual_preview_artifact_ref"].endswith(".page-1.png")
+    assert rendered["receipt"]["page_count"] == 3
 
 
 def test_premium_pipeline_legacy_fallback_requires_emergency_flag(monkeypatch, tmp_path: Path) -> None:

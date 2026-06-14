@@ -5,6 +5,8 @@ import urllib.parse
 from app.services.property_market_catalog import (
     default_language_for_country,
     default_platforms_for_country,
+    default_platforms_for_country_listing_mode,
+    evidence_source_options,
     generated_source_specs,
     is_supported_country_code,
     language_label,
@@ -27,13 +29,39 @@ def test_provider_options_are_filtered_by_country() -> None:
     costa_rica = provider_options(country_code="CR")
 
     assert any(row["value"] == "immoscout_de" for row in germany)
+    assert any(row["value"] == "core_portals_de" and row["family"] == "core_portal" for row in germany)
+    assert any(row["value"] == "shared_housing_de" and row["family"] == "shared_housing" for row in germany)
+    assert any(row["value"] == "corporate_landlords_de" and row["family"] == "corporate_landlord" for row in germany)
+    assert any(row["value"] == "municipal_housing_de" and row["family"] == "municipal_housing" for row in germany)
+    assert any(row["value"] == "cooperatives_de" and row["family"] == "cooperative" for row in germany)
+    assert any(row["value"] == "new_build_de" and row["family"] == "developer_projects" for row in germany)
+    assert any(row["value"] == "auctions_de" and row["family"] == "distressed_sales" for row in germany)
+    assert any(row["value"] == "broker_direct_de" and row["family"] == "broker_direct" for row in germany)
+    assert any(row["value"] == "furnished_relocation_de" and row["family"] == "furnished_relocation" for row in germany)
     assert any(row["value"] == "immowelt" for row in germany)
     assert any(row["value"] == "zvg_de" for row in germany)
+    assert any(row["value"] == "wg_gesucht_de" and row["family"] == "shared_housing" for row in germany)
+    assert any(row["value"] == "vonovia_de" and row["family"] == "corporate_landlord" for row in germany)
+    assert any(row["value"] == "leg_wohnen_de" and row["family"] == "corporate_landlord" for row in germany)
+    assert any(row["value"] == "degewo_berlin" and row["family"] == "municipal_housing" for row in germany)
+    assert any(row["value"] == "portal_zvg_de" and row["family"] == "distressed_sales" for row in germany)
+    assert any(row["value"] == "neubaukompass_de" and row["family"] == "developer_projects" for row in germany)
+    assert any(row["value"] == "ohne_makler_de" and row["family"] == "broker_direct" for row in germany)
+    assert any(row["value"] == "von_poll_de" and row["family"] == "broker_direct" for row in germany)
     assert any(row["value"] == "genossenschaften_at" for row in austria)
+    assert any(row["value"] == "wag_at" and row["family"] == "cooperative" for row in austria)
+    assert any(row["value"] == "heimat_oesterreich_at" and row["family"] == "cooperative" for row in austria)
+    assert any(row["value"] == "bwsg_at" and row["family"] == "cooperative" for row in austria)
+    assert any(row["value"] == "arwag_at" and row["family"] == "developer_projects" for row in austria)
+    assert any(row["value"] == "raiffeisen_wohnbau_at" and row["family"] == "developer_projects" for row in austria)
     assert any(row["value"] == "justiz_edikte_at" for row in austria)
     assert any(row["value"] == "kronofogden_auktionstorget_se" for row in sweden)
     assert any(row["value"] == "encuentra24_cr" for row in costa_rica)
     assert any(row["value"] == "re_cr_mls" and "MLS" in row["label"] for row in costa_rica)
+    assert any(row["value"] == "desarrollos_cr" and row["family"] == "developer_projects" for row in costa_rica)
+    assert any(row["value"] == "tierraverde_cr" and row["family"] == "developer_projects" for row in costa_rica)
+    assert any(row["value"] == "theagency_cr" and row["family"] == "broker_direct" for row in costa_rica)
+    assert any(row["value"] == "krain_cr" and row["family"] == "broker_direct" for row in costa_rica)
     assert all("Germany" in str(row.get("description") or "") for row in germany)
     assert all(str(row.get("floorplan_reliability") or "") for row in austria)
     assert all(str(row.get("filter_pushdown_strength") or "") for row in costa_rica)
@@ -100,6 +128,20 @@ def test_normalize_property_search_preferences_drops_stale_austrian_postal_codes
     assert payload["custom_location_query"] == ""
 
 
+def test_normalize_property_search_preferences_drops_invalid_vienna_postal_stub() -> None:
+    payload = normalize_property_search_preferences(
+        {
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1020 Vienna, 1116, 1180 Vienna",
+            "custom_location_query": "1116",
+        }
+    )
+
+    assert payload["location_query"] == "1020 Vienna, 1180 Vienna"
+    assert payload["custom_location_query"] == ""
+
+
 def test_normalize_listing_mode_accepts_sale_aliases() -> None:
     assert normalize_listing_mode("sale") == "buy"
     assert normalize_listing_mode("for-sale") == "buy"
@@ -143,7 +185,6 @@ def test_generated_source_specs_use_country_platform_defaults() -> None:
     assert specs[0]["country_code"] == "DE"
     assert specs[0]["listing_mode"] == "buy"
     assert "Berlin" in str(specs[0]["label"])
-    assert "berlin" in str(specs[0]["url"]).lower()
     assert specs[0]["provider_quality"]["floorplan_reliability"]
     assert specs[0]["provider_quality"]["filter_pushdown_strength"]
 
@@ -159,6 +200,115 @@ def test_provider_quality_labels_are_available_for_ui_and_ranking() -> None:
     assert quality["filter_pushdown_strength"]
     assert quality["official_source_quality"]
     assert quality["last_verified"]
+
+
+def test_new_german_provider_quality_labels_are_specific_enough_for_ranking() -> None:
+    developer = provider_quality_labels("neubaukompass_de")
+    private_direct = provider_quality_labels("ohne_makler_de")
+    broker = provider_quality_labels("von_poll_de")
+    landlord = provider_quality_labels("vonovia_de")
+    municipal = provider_quality_labels("degewo_berlin")
+
+    assert developer["coverage"] == "national"
+    assert developer["official_source_quality"] == "developer_primary"
+    assert private_direct["coverage"] == "national"
+    assert private_direct["official_source_quality"] == "owner_direct"
+    assert broker["coverage"] == "multi_region"
+    assert broker["official_source_quality"] == "broker_primary"
+    assert landlord["official_source_quality"] == "landlord_primary"
+    assert municipal["official_source_quality"] == "municipal_primary"
+
+
+def test_germany_provider_catalog_groups_by_family() -> None:
+    germany = provider_options(country_code="DE")
+    families = {(row["value"], row["family"]) for row in germany}
+
+    assert ("core_portals_de", "core_portal") in families
+    assert ("shared_housing_de", "shared_housing") in families
+    assert ("corporate_landlords_de", "corporate_landlord") in families
+    assert ("municipal_housing_de", "municipal_housing") in families
+    assert ("cooperatives_de", "cooperative") in families
+    assert ("new_build_de", "developer_projects") in families
+    assert ("auctions_de", "distressed_sales") in families
+    assert ("broker_direct_de", "broker_direct") in families
+    assert ("furnished_relocation_de", "furnished_relocation") in families
+
+
+def test_germany_official_sources_are_evidence_not_listing_providers() -> None:
+    sources = evidence_source_options(country_code="DE")
+
+    assert any(row["value"] == "uba_noise_de" and row["evidence_family"] == "noise" for row in sources)
+    assert any(row["value"] == "uba_air_de" and row["evidence_family"] == "air_quality" for row in sources)
+    assert any(row["value"] == "school_directories_de" and row["evidence_family"] == "school_evidence" for row in sources)
+    assert all("Germany" in str(row.get("description") or "") for row in sources)
+    assert all("official_public_data" != row["evidence_family"] for row in sources)
+
+
+def test_school_quality_is_called_school_evidence_not_quality_score() -> None:
+    sources = evidence_source_options(country_code="DE")
+    school = next(row for row in sources if row["value"] == "school_directories_de")
+
+    assert "school evidence" in str(school["description"]).lower()
+    assert "quality score" not in str(school["description"]).lower()
+
+
+def test_new_austrian_provider_quality_labels_are_specific_enough_for_ranking() -> None:
+    coop = provider_quality_labels("wag_at")
+    developer = provider_quality_labels("arwag_at")
+
+    assert coop["coverage"] in {"regional", "multi_region", "national"}
+    assert coop["floorplan_reliability"] == "medium"
+    assert coop["official_source_quality"] == "cooperative_primary"
+    assert developer["coverage"] in {"regional", "multi_region", "national"}
+    assert developer["floorplan_reliability"] == "medium"
+    assert developer["official_source_quality"] == "developer_primary"
+
+
+def test_austria_provider_catalog_groups_by_family() -> None:
+    austria = provider_options(country_code="AT")
+    families = {(row["value"], row["family"]) for row in austria}
+
+    assert ("public_housing_at", "public_housing") in families
+    assert ("genossenschaften_at", "cooperative") in families
+    assert ("developer_projects_at", "developer_projects") in families
+    assert ("distressed_sales_at", "distressed_sales") in families
+    assert ("wohnberatung_wien", "public_housing") in families
+    assert ("wiener_wohnen", "public_housing") in families
+    assert ("gesiba_at", "cooperative") in families
+    assert ("oesw_at", "cooperative") in families
+    assert ("egw_at", "cooperative") in families
+    assert ("zvginfo_at", "distressed_sales") in families
+
+
+def test_austria_official_sources_are_evidence_not_listing_providers() -> None:
+    sources = evidence_source_options(country_code="AT")
+
+    assert any(row["value"] == "hora_at" and row["evidence_family"] == "natural_hazards" for row in sources)
+    assert any(row["value"] == "laerminfo_at" and row["evidence_family"] == "noise" for row in sources)
+    assert any(row["value"] == "uba_luft_at" and row["evidence_family"] == "air_quality" for row in sources)
+    assert any(row["value"] == "statatlas_schulen_at" and row["evidence_family"] == "school_evidence" for row in sources)
+    assert any(row["value"] == "breitbandatlas_at" and row["evidence_family"] == "broadband" for row in sources)
+    assert all("Austria" in str(row.get("description") or "") for row in sources)
+
+
+def test_austria_school_filters_use_school_evidence_not_quality_score() -> None:
+    sources = evidence_source_options(country_code="AT")
+    school = next(row for row in sources if row["value"] == "statatlas_schulen_at")
+
+    assert "school evidence" in str(school["description"]).lower()
+    assert "quality score" not in str(school["description"]).lower()
+
+
+def test_austria_default_platforms_follow_listing_mode() -> None:
+    rent_defaults = default_platforms_for_country_listing_mode("AT", "rent")
+    buy_defaults = default_platforms_for_country_listing_mode("AT", "buy")
+    land_defaults = default_platforms_for_country_listing_mode("AT", "buy", property_type="land")
+
+    assert "public_housing_at" in rent_defaults
+    assert "genossenschaften_at" in rent_defaults
+    assert "developer_projects_at" in buy_defaults
+    assert "broker_direct_at" in buy_defaults
+    assert "broker_direct_at" in land_defaults
 
 
 def test_generated_source_specs_support_distressed_sale_platforms() -> None:
@@ -246,6 +396,56 @@ def test_generated_source_specs_support_austrian_office_searches() -> None:
     decoded_url = urllib.parse.unquote(str(specs[0]["url"])).lower()
     assert "gewerbeimmobilien" in decoded_url
     assert "büro" in decoded_url
+
+
+def test_generated_source_specs_include_new_austrian_cooperative_providers() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "keywords": "gefördert",
+        },
+        selected_platforms=("wag_at", "heimat_oesterreich_at", "bwsg_at", "wiensued_at"),
+        principal_id="exec-property-at-coops",
+        default_person_id="self",
+        max_results=4,
+    )
+
+    by_platform = {row["platform"]: row for row in specs}
+    assert set(by_platform) == {"wag_at", "heimat_oesterreich_at", "bwsg_at", "wiensued_at"}
+    assert "wag.at" in by_platform["wag_at"]["url"]
+    assert "heimat-oesterreich.at" in by_platform["heimat_oesterreich_at"]["url"]
+    assert "bwsg.at" in by_platform["bwsg_at"]["url"]
+    assert "wiensued.at" in by_platform["wiensued_at"]["url"]
+    assert all(row["provider_family"] == "cooperative" for row in by_platform.values())
+    assert all("q=Wien+gef" in str(row["url"]) for row in by_platform.values())
+
+
+def test_generated_source_specs_include_new_austrian_developer_providers() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "location_query": "Wien",
+            "keywords": "neubau projekt",
+        },
+        selected_platforms=("arwag_at", "raiffeisen_wohnbau_at", "leitgoeb_wohnbau_at", "viktoria_wohnbau_at"),
+        principal_id="exec-property-at-developers",
+        default_person_id="self",
+        max_results=4,
+    )
+
+    by_platform = {row["platform"]: row for row in specs}
+    assert set(by_platform) == {"arwag_at", "raiffeisen_wohnbau_at", "leitgoeb_wohnbau_at", "viktoria_wohnbau_at"}
+    assert "arwag.at" in by_platform["arwag_at"]["url"]
+    assert "raiffeisen-wohnbau.at" in by_platform["raiffeisen_wohnbau_at"]["url"]
+    assert "leitgoeb-wohnbau.at" in by_platform["leitgoeb_wohnbau_at"]["url"]
+    assert "viktoria-wohnbau.at" in by_platform["viktoria_wohnbau_at"]["url"]
+    assert all(row["provider_family"] == "developer_projects" for row in by_platform.values())
+    assert all("q=Wien+neubau+projekt" in str(row["url"]) for row in by_platform.values())
 
 
 def test_generated_source_specs_skip_buy_only_sources_for_rent_without_distress_signal() -> None:
@@ -339,19 +539,26 @@ def test_default_platforms_for_country_are_stable() -> None:
         "re_cr_mls",
         "realtor_cr",
         "coldwellbanker_cr",
+        "theagency_cr",
+        "krain_cr",
+        "desarrollos_cr",
         "propertiesincostarica_cr",
         "twocostaricarealestate_cr",
+        "tierraverde_cr",
     )
     assert default_platforms_for_country("AT") == (
         "willhaben",
         "immmo",
         "immoscout_at",
         "derstandard_at",
-        "remax_at",
-        "kalandra",
-        "broker_direct_at",
-        "community_signals_at",
+        "public_housing_at",
         "genossenschaften_at",
+    )
+    assert default_platforms_for_country("DE") == (
+        "core_portals_de",
+        "corporate_landlords_de",
+        "municipal_housing_de",
+        "broker_direct_de",
     )
     assert default_language_for_country("SE") == "sv"
     assert default_language_for_country("CR") == "es"
@@ -499,8 +706,12 @@ def test_generated_source_specs_allow_countrywide_costa_rica_without_target_area
         "re_cr_mls",
         "realtor_cr",
         "coldwellbanker_cr",
+        "theagency_cr",
+        "krain_cr",
+        "desarrollos_cr",
         "propertiesincostarica_cr",
         "twocostaricarealestate_cr",
+        "tierraverde_cr",
     }
     assert all(row["location_query"] == "" for row in specs)
     assert all(row["country_code"] == "CR" for row in specs)
@@ -539,20 +750,46 @@ def test_generated_source_specs_include_new_costa_rica_broker_direct_providers()
             "location_query": "Monteverde",
             "keywords": "cloud forest",
         },
-        selected_platforms=("propertiesincostarica_cr", "costaricarealestateservice_cr", "twocostaricarealestate_cr"),
+        selected_platforms=("propertiesincostarica_cr", "costaricarealestateservice_cr", "twocostaricarealestate_cr", "theagency_cr", "krain_cr"),
         principal_id="exec-property-cr-broker-direct",
         default_person_id="self",
         max_results=3,
     )
 
     by_platform = {row["platform"]: row for row in specs}
-    assert set(by_platform) == {"propertiesincostarica_cr", "costaricarealestateservice_cr", "twocostaricarealestate_cr"}
+    assert set(by_platform) == {"propertiesincostarica_cr", "costaricarealestateservice_cr", "twocostaricarealestate_cr", "theagency_cr", "krain_cr"}
     assert "propertiesincostarica.com" in by_platform["propertiesincostarica_cr"]["url"]
     assert "costaricarealestateservice.com" in by_platform["costaricarealestateservice_cr"]["url"]
     assert "2costaricarealestate.com" in by_platform["twocostaricarealestate_cr"]["url"]
+    assert "ta.cr" in by_platform["theagency_cr"]["url"]
+    assert "kraincostarica.com" in by_platform["krain_cr"]["url"]
     assert by_platform["twocostaricarealestate_cr"]["url"].startswith("https://www.2costaricarealestate.com/?")
     assert all(row["provider_family"] == "broker_direct" for row in by_platform.values())
     assert all("q=Monteverde+cloud+forest" in str(row["url"]) for row in by_platform.values())
+
+
+def test_generated_source_specs_include_new_costa_rica_developer_providers() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "CR",
+            "region_code": "puntarenas",
+            "language_code": "es",
+            "listing_mode": "buy",
+            "location_query": "Santa Teresa",
+            "keywords": "project condo",
+        },
+        selected_platforms=("desarrollos_cr", "tierraverde_cr"),
+        principal_id="exec-property-cr-developers",
+        default_person_id="self",
+        max_results=3,
+    )
+
+    by_platform = {row["platform"]: row for row in specs}
+    assert set(by_platform) == {"desarrollos_cr", "tierraverde_cr"}
+    assert "desarrollos.cr" in by_platform["desarrollos_cr"]["url"]
+    assert "tierraverde.cr" in by_platform["tierraverde_cr"]["url"]
+    assert all(row["provider_family"] == "developer_projects" for row in by_platform.values())
+    assert all("q=Santa+Teresa+project+condo" in str(row["url"]) for row in by_platform.values())
 
 
 def test_generated_source_specs_split_multi_area_queries_into_dedicated_sources() -> None:
@@ -692,7 +929,7 @@ def test_generated_source_specs_expand_austria_cooperative_provider_group() -> N
         max_results=3,
     )
 
-    assert len(specs) == 10
+    assert len(specs) == 18
     assert all(row["platform"] == "genossenschaften_at" for row in specs)
     assert any("gesiba.at" in str(row["url"]).lower() for row in specs)
     assert any("siedlungsunion.at" in str(row["url"]).lower() for row in specs)
@@ -702,6 +939,14 @@ def test_generated_source_specs_expand_austria_cooperative_provider_group() -> N
     assert any("egw.at" in str(row["url"]).lower() for row in specs)
     assert any("oesw.at" in str(row["url"]).lower() for row in specs)
     assert any("familienwohnbau.at" in str(row["url"]).lower() for row in specs)
+    assert any("wag.at" in str(row["url"]).lower() for row in specs)
+    assert any("heimat-oesterreich.at" in str(row["url"]).lower() for row in specs)
+    assert any("bwsg.at" in str(row["url"]).lower() for row in specs)
+    assert any("wiensued.at" in str(row["url"]).lower() for row in specs)
+    assert any("ebg-wohnen.at" in str(row["url"]).lower() for row in specs)
+    assert any("ooewohnbau.at" in str(row["url"]).lower() for row in specs)
+    assert any("salzburg-wohnbau.at" in str(row["url"]).lower() for row in specs)
+    assert any("oevw.at" in str(row["url"]).lower() for row in specs)
     assert all("Vienna" in str(row["label"]) for row in specs)
 
 

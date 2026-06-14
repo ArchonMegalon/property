@@ -118,6 +118,30 @@
     .btn:hover { border-color: var(--accent); }
     .btn.primary:hover { filter: brightness(1.03); }
     .btn.ghost:hover { color: var(--text); }
+    .info-tip {
+      width: 18px;
+      height: 18px;
+      display: inline-grid;
+      place-items: center;
+      margin-left: 6px;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--text-dim);
+      font: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      cursor: help;
+      vertical-align: middle;
+      padding: 0;
+    }
+    .info-tip:hover,
+    .info-tip:focus-visible {
+      color: var(--text);
+      border-color: var(--accent);
+      outline: none;
+    }
     main { padding: 32px 0 64px; }
     .hero {
       display: grid;

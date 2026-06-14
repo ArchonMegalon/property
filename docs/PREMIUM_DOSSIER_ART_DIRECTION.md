@@ -36,8 +36,9 @@ first-page screenshot exists
 cover media occupies the dominant first-page visual area when media exists
 no text overlaps media zones
 footer visible and aligned
+raw URLs do not appear as visible text on the rendered page
+cover/footer checks fail closed in the premium dossier quality receipt
 page count and text extraction pass
 forbidden text absent
 required sections present
 ```
-

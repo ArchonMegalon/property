@@ -6,6 +6,14 @@ The design gate protects the customer-facing product loop:
 Brief -> Search -> Compare -> Dossier -> Tour -> Decide -> Explain why -> Learn
 ```
 
+The detailed pixel/layout contract lives in:
+
+```text
+docs/PROPERTYQUARRY_APP_LAYOUT_GUIDE.md
+```
+
+When a UI change conflicts with a local template habit, the app layout guide wins unless the product owner explicitly approves a new pattern.
+
 ## Customer Surface Rules
 
 ```text
@@ -40,4 +48,3 @@ show sent vs suppressed results
 show why a property was hidden
 allow pause, resume, edit, duplicate, delete
 ```
-

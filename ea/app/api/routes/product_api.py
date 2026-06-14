@@ -59,6 +59,8 @@ from app.api.routes.product_api_contracts import (
     PropertyDecisionCopilotIn,
     PropertyDecisionCopilotOut,
     PropertyDecisionStateOut,
+    PropertyAgentQuestionTaskUpdateIn,
+    PropertyDocumentRecordUpdateIn,
     PropertyMagicFitSceneCreateIn,
     PropertyMagicFitReferenceAssetOut,
     PropertyMagicFitReferenceUploadIn,
@@ -114,6 +116,7 @@ from app.services.fliplink import build_fliplink_packet_service
 from app.services import poppy_ai as poppy_ai_service
 from app.services.dadan_feedback import dadan_feedback_signals
 from app.services.dadan import DadanVideoRequestService
+from app.services.heyy_whatsapp_service import HeyyWhatsAppBridgeService
 from app.services.dossier_writer import write_verified_dossier_from_research
 from app.services.dossier_writer.neuronwriter_adapter import create_neuronwriter_query
 from app.services.registration_email import property_notification_preview
@@ -224,6 +227,36 @@ class PropertyDossierWriteIn(BaseModel):
     writer_mode: str = Field(default="claim_bound", max_length=80)
     neuronwriter_query_id: str = Field(default="", max_length=240)
     research: dict[str, object] = Field(default_factory=dict)
+
+
+class HeyyWhatsAppTemplateSendIn(BaseModel):
+    phone_number: str = Field(min_length=1, max_length=80)
+    template_id: str = Field(min_length=1, max_length=160)
+    channel_id: str = Field(default="", max_length=160)
+    variables: list[dict[str, object]] = Field(default_factory=list)
+
+
+class HeyyPropertyMatchNotificationIn(BaseModel):
+    phone_number: str = Field(min_length=1, max_length=80)
+    template_id: str = Field(min_length=1, max_length=160)
+    channel_id: str = Field(default="", max_length=160)
+    property_ref: str = Field(min_length=1, max_length=500)
+    property_title: str = Field(min_length=1, max_length=240)
+    fit_score: str = Field(default="", max_length=80)
+    reason: str = Field(default="", max_length=240)
+    missing_fact: str = Field(default="", max_length=240)
+
+
+class HeyySearchDigestNotificationIn(BaseModel):
+    phone_number: str = Field(min_length=1, max_length=80)
+    template_id: str = Field(min_length=1, max_length=160)
+    channel_id: str = Field(default="", max_length=160)
+    search_agent_id: str = Field(min_length=1, max_length=160)
+    agent_name: str = Field(min_length=1, max_length=160)
+    homes_checked: str = Field(default="", max_length=80)
+    ranked_count: str = Field(default="", max_length=80)
+    top_fit_score: str = Field(default="", max_length=80)
+    held_back_count: str = Field(default="", max_length=80)
 
 
 def _require_operator_for_workspace_role(*, role: str, operator_id: str = "", context: RequestContext) -> None:
@@ -1280,6 +1313,45 @@ def property_decision_state(
     return PropertyDecisionStateOut(**result)
 
 
+@router.patch("/property/agent-questions/{task_id}", response_model=PropertyDecisionStateOut)
+def update_property_agent_question_task(
+    task_id: str,
+    body: PropertyAgentQuestionTaskUpdateIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyDecisionStateOut:
+    service = build_product_service(container)
+    try:
+        result = service.update_property_agent_question_task(
+            principal_id=context.principal_id,
+            task_id=task_id,
+            status=str(body.status or "").strip().lower(),
+            answer_source=str(body.answer_source or "").strip().lower(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return PropertyDecisionStateOut(**result)
+
+
+@router.patch("/property/documents/{document_id}", response_model=PropertyDecisionStateOut)
+def update_property_document_record(
+    document_id: str,
+    body: PropertyDocumentRecordUpdateIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyDecisionStateOut:
+    service = build_product_service(container)
+    try:
+        result = service.update_property_document_record(
+            principal_id=context.principal_id,
+            document_id=document_id,
+            verification_state=str(body.verification_state or "").strip().lower(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return PropertyDecisionStateOut(**result)
+
+
 @router.post("/property/decision-copilot", response_model=PropertyDecisionCopilotOut)
 def property_decision_copilot(
     body: PropertyDecisionCopilotIn,
@@ -1611,6 +1683,156 @@ def create_dadan_property_video_request(
         raise HTTPException(status_code=status_code, detail=detail) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/integrations/heyy/whatsapp/channel")
+def verify_heyy_whatsapp_channel(
+    channel_id: str = "",
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = HeyyWhatsAppBridgeService(tool_runtime=container.tool_runtime)
+    try:
+        result = service.verify_channel(channel_id=channel_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        **result,
+        "principal_id": context.principal_id,
+    }
+
+
+@router.get("/integrations/heyy/whatsapp/templates")
+def list_heyy_whatsapp_templates(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = HeyyWhatsAppBridgeService(tool_runtime=container.tool_runtime)
+    try:
+        result = service.list_templates()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        **result,
+        "principal_id": context.principal_id,
+    }
+
+
+@router.post("/integrations/heyy/whatsapp/send-template")
+def send_heyy_whatsapp_template(
+    body: HeyyWhatsAppTemplateSendIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = HeyyWhatsAppBridgeService(tool_runtime=container.tool_runtime)
+    try:
+        result = service.send_template(
+            phone_number=body.phone_number,
+            template_id=body.template_id,
+            channel_id=body.channel_id,
+            variables=body.variables,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        **result,
+        "principal_id": context.principal_id,
+    }
+
+
+@router.post("/integrations/heyy/notifications/property-match")
+def send_heyy_property_match_notification(
+    body: HeyyPropertyMatchNotificationIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = HeyyWhatsAppBridgeService(tool_runtime=container.tool_runtime)
+    variables = [
+        {"name": "property_title", "value": body.property_title},
+        {"name": "fit_score", "value": body.fit_score},
+        {"name": "reason", "value": body.reason},
+        {"name": "missing_fact", "value": body.missing_fact},
+    ]
+    try:
+        result = service.send_template(
+            phone_number=body.phone_number,
+            template_id=body.template_id,
+            channel_id=body.channel_id,
+            variables=variables,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    packet_service = build_fliplink_packet_service(container)
+    event = packet_service._repo.record_event(  # noqa: SLF001
+        {
+            "publication_id": "",
+            "principal_id": context.principal_id,
+            "event_type": "heyy_whatsapp_template_sent",
+            "actor": str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+            "payload_json": {
+                "template_kind": "property_match",
+                "property_ref": body.property_ref,
+                "template_id": body.template_id,
+                "channel_id": body.channel_id,
+                "phone_number": body.phone_number,
+                "message_id": str(result.get("message_id") or "").strip(),
+                "delivery_status": str(result.get("delivery_status") or "").strip(),
+            },
+        }
+    )
+    return {**result, "principal_id": context.principal_id, "event_id": str(event.get("event_id") or "")}
+
+
+@router.post("/integrations/heyy/notifications/search-agent-digest")
+def send_heyy_search_agent_digest_notification(
+    body: HeyySearchDigestNotificationIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = HeyyWhatsAppBridgeService(tool_runtime=container.tool_runtime)
+    variables = [
+        {"name": "agent_name", "value": body.agent_name},
+        {"name": "homes_checked", "value": body.homes_checked},
+        {"name": "ranked_count", "value": body.ranked_count},
+        {"name": "top_fit_score", "value": body.top_fit_score},
+        {"name": "held_back_count", "value": body.held_back_count},
+    ]
+    try:
+        result = service.send_template(
+            phone_number=body.phone_number,
+            template_id=body.template_id,
+            channel_id=body.channel_id,
+            variables=variables,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    packet_service = build_fliplink_packet_service(container)
+    event = packet_service._repo.record_event(  # noqa: SLF001
+        {
+            "publication_id": "",
+            "principal_id": context.principal_id,
+            "event_type": "heyy_whatsapp_template_sent",
+            "actor": str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+            "payload_json": {
+                "template_kind": "search_agent_digest",
+                "search_agent_id": body.search_agent_id,
+                "template_id": body.template_id,
+                "channel_id": body.channel_id,
+                "phone_number": body.phone_number,
+                "message_id": str(result.get("message_id") or "").strip(),
+                "delivery_status": str(result.get("delivery_status") or "").strip(),
+            },
+        }
+    )
+    return {**result, "principal_id": context.principal_id, "event_id": str(event.get("event_id") or "")}
 
 
 @router.post("/property-feedback/{feedback_id}/followup-status")

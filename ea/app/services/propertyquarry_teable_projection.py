@@ -469,6 +469,24 @@ def _stable_ref(value: object, *, prefix: str) -> str:
     return f"{prefix}:{digest}"
 
 
+def _projection_alias(value: object, *, prefix: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        raw = f"{prefix}:unknown"
+    return _stable_ref(raw, prefix=prefix)
+
+
+def _safe_decision_claim_text(row: dict[str, Any] | None) -> str:
+    payload = dict(row or {})
+    claim_type = _text(payload.get("claim_type"), limit=80).lower()
+    privacy_class = _text(payload.get("privacy_class"), limit=80).lower()
+    if claim_type in {"human_feedback", "household_feedback"}:
+        return ""
+    if privacy_class in {"owner_private", "private"} and claim_type in {"preference", "note"}:
+        return ""
+    return _text(payload.get("text") or payload.get("claim_text"), limit=1200)
+
+
 def _property_commercial_snapshot(preferences: dict[str, object]) -> dict[str, object]:
     try:
         from app.services.property_billing import property_commercial_snapshot
@@ -644,7 +662,7 @@ def build_propertyquarry_teable_projection_records(
             search_agent_rows[projection_id] = {
                 "projection_id": projection_id,
                 "tenant_key": normalized_tenant,
-                "principal_id": normalized_principal,
+                "principal_id": _projection_alias(normalized_principal, prefix="principal"),
                 "agent_id": agent_id,
                 "name": _text(agent.get("name") or agent_preferences.get("name") or "Saved search", limit=200),
                 "enabled": bool(agent.get("enabled", True)),
@@ -892,10 +910,10 @@ def build_propertyquarry_teable_projection_records(
         decision_rows[projection_id] = {
             "projection_id": projection_id,
             "tenant_key": normalized_tenant,
-            "principal_id": row_principal,
-            "person_id": _text(row.get("person_id") or "self", limit=120),
+            "principal_id": _projection_alias(row_principal, prefix="principal"),
+            "person_id": _projection_alias(row.get("person_id") or "self", prefix="person"),
             "decision_id": decision_id,
-            "property_ref": _text(row.get("property_ref"), limit=500),
+            "property_ref": _stable_ref(row.get("property_ref") or decision_id, prefix="property"),
             "decision_state": _text(row.get("decision_state"), limit=80),
             "reason_keys_json": list(row.get("reason_keys_json") or row.get("reason_keys") or []),
             "source": _text(row.get("source"), limit=80),
@@ -921,15 +939,15 @@ def build_propertyquarry_teable_projection_records(
         evidence_rows[projection_id] = {
             "projection_id": projection_id,
             "tenant_key": normalized_tenant,
-            "principal_id": row_principal,
-            "person_id": _text(row.get("person_id") or "self", limit=120),
+            "principal_id": _projection_alias(row_principal, prefix="principal"),
+            "person_id": _projection_alias(row.get("person_id") or "self", prefix="person"),
             "claim_id": claim_id,
-            "property_ref": _text(row.get("property_ref"), limit=500),
+            "property_ref": _stable_ref(row.get("property_ref") or claim_id, prefix="property"),
             "decision_id": _text(row.get("decision_id"), limit=240),
             "claim_type": _text(row.get("claim_type"), limit=80),
-            "claim_text": _text(row.get("text") or row.get("claim_text"), limit=1200),
+            "claim_text": _safe_decision_claim_text(row),
             "source_type": _text(row.get("source_type"), limit=120),
-            "source_ref": _text(row.get("source_ref"), limit=240),
+            "source_ref": _stable_ref(row.get("source_ref") or claim_id, prefix="source"),
             "confidence": _text(row.get("confidence"), limit=40),
             "verification_state": _text(row.get("verification_state"), limit=80),
             "privacy_class": _text(row.get("privacy_class"), limit=80),
@@ -952,10 +970,10 @@ def build_propertyquarry_teable_projection_records(
         agent_question_rows[projection_id] = {
             "projection_id": projection_id,
             "tenant_key": normalized_tenant,
-            "principal_id": row_principal,
-            "person_id": _text(row.get("person_id") or "self", limit=120),
+            "principal_id": _projection_alias(row_principal, prefix="principal"),
+            "person_id": _projection_alias(row.get("person_id") or "self", prefix="person"),
             "task_id": task_id,
-            "property_ref": _text(row.get("property_ref"), limit=500),
+            "property_ref": _stable_ref(row.get("property_ref") or task_id, prefix="property"),
             "decision_id": _text(row.get("decision_id"), limit=240),
             "question_text": _text(row.get("question_text"), limit=1200),
             "reason_key": _text(row.get("reason_key"), limit=120),
@@ -980,10 +998,10 @@ def build_propertyquarry_teable_projection_records(
         document_rows[projection_id] = {
             "projection_id": projection_id,
             "tenant_key": normalized_tenant,
-            "principal_id": row_principal,
-            "person_id": _text(row.get("person_id") or "self", limit=120),
+            "principal_id": _projection_alias(row_principal, prefix="principal"),
+            "person_id": _projection_alias(row.get("person_id") or "self", prefix="person"),
             "document_id": document_id,
-            "property_ref": _text(row.get("property_ref"), limit=500),
+            "property_ref": _stable_ref(row.get("property_ref") or document_id, prefix="property"),
             "decision_id": _text(row.get("decision_id"), limit=240),
             "document_type": _text(row.get("document_type"), limit=120),
             "source": _text(row.get("source"), limit=120),

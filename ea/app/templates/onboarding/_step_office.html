@@ -2,21 +2,21 @@
   <div class="wizard-panel-header">
     <div>
       <div class="eyebrow">Step 1</div>
-      <h2>Choose the property workflow this workspace should support.</h2>
+      <h2>Choose how you want to search.</h2>
     </div>
-    <p class="step-context">Pick the option that matches the real search rhythm. The right choice is about who reviews properties, who receives alerts, and how much research depth the workspace should assume.</p>
+    <p class="step-context">You can change this later.</p>
   </div>
 
   <div class="mode-grid">
     <div class="mode-card">
       <strong>Personal</strong>
       <p class="copy">Best when one person is driving the search and wants one profile, one shortlist, and one feedback loop.</p>
-      <button class="btn ghost" type="button" data-set-mode="personal">Use solo workspace</button>
+      <button class="btn ghost" type="button" data-set-mode="personal">Use personal</button>
     </div>
     <div class="mode-card">
-      <strong>Shared workspace</strong>
+      <strong>Shared</strong>
       <p class="copy">Best when a couple, family, or small team needs the same shortlist, shared comments, and coordinated review decisions.</p>
-      <button class="btn ghost" type="button" data-set-mode="team">Use shared workspace</button>
+      <button class="btn ghost" type="button" data-set-mode="team">Use shared</button>
     </div>
     <div class="mode-card">
       <strong>Concierge search</strong>
@@ -29,14 +29,14 @@
     {{ shared_browser_fields|safe }}
     <div class="field-grid two">
       <div>
-        <label for="workspace_name">Workspace name</label>
-        <input id="workspace_name" name="workspace_name" value="{{ workspace.name or 'PropertyQuarry Workspace' }}" required>
+        <label for="workspace_name">Account name</label>
+        <input id="workspace_name" name="workspace_name" value="{{ workspace.name or 'PropertyQuarry' }}" required>
       </div>
       <div>
-      <label for="workspace_mode">Workspace type</label>
+      <label for="workspace_mode">Search type</label>
       <select id="workspace_mode" name="workspace_mode">
           <option value="personal" {% if workspace.mode == 'personal' %}selected{% endif %}>Personal</option>
-          <option value="team" {% if workspace.mode == 'team' %}selected{% endif %}>Shared workspace</option>
+          <option value="team" {% if workspace.mode == 'team' %}selected{% endif %}>Shared</option>
           <option value="executive_ops" {% if workspace.mode == 'executive_ops' %}selected{% endif %}>Concierge search</option>
       </select>
         <div class="field-help">You can change this later. It helps the product start with the right review depth and collaboration posture.</div>
@@ -59,7 +59,7 @@
       </div>
       <div>
         <label>Activation path</label>
-        <div class="field-help">Keep the first loop narrow: workspace, optional Google identity, first shortlist, first review. Broader delivery lanes can wait until value is obvious.</div>
+        <div class="field-help">Start simple.</div>
       </div>
     </div>
     <input type="hidden" name="selected_channels" value="google">
@@ -76,7 +76,7 @@
     <div class="wizard-actions">
       <div class="callout">If you are unsure, choose personal and move on. The first useful shortlist matters more than perfect setup.</div>
       <div class="right">
-        <button class="btn primary" type="submit">Save workspace and continue</button>
+        <button class="btn primary" type="submit">Save and continue</button>
       </div>
     </div>
   </form>

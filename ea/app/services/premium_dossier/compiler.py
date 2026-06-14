@@ -43,6 +43,92 @@ def _fact_cards(payload: dict[str, object]) -> list[PremiumFactCard]:
     return [row for row in rows if row.value]
 
 
+def _dedupe_urls(*collections: object) -> list[str]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for collection in collections:
+        for item in list(collection or []):
+            url = str(item or "").strip()
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            rows.append(url)
+    return rows
+
+
+def _writer_payload(payload: dict[str, object]) -> dict[str, object]:
+    return dict(payload.get("dossier_writer") or {}) if isinstance(payload.get("dossier_writer"), dict) else {}
+
+
+def _editorial_sections(payload: dict[str, object]) -> list[dict[str, object]]:
+    writer = _writer_payload(payload)
+    rows = list(writer.get("sections") or []) if isinstance(writer.get("sections"), list) else []
+    sections: list[dict[str, object]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        title = str(row.get("title") or row.get("section_key") or "").strip()
+        body = str(row.get("body_markdown") or "").strip()
+        bullets = _safe_lines(row.get("bullets"), limit=5)
+        cta = str(row.get("cta") or "").strip()
+        if not title or not (body or bullets or cta):
+            continue
+        sections.append(
+            {
+                "title": title,
+                "body": body,
+                "bullets": bullets,
+                "cta": cta,
+                "section_key": str(row.get("section_key") or "").strip(),
+            }
+        )
+    return sections
+
+
+def _writer_neuronwriter(payload: dict[str, object]) -> dict[str, object]:
+    writer = _writer_payload(payload)
+    return dict(writer.get("neuronwriter") or {}) if isinstance(writer.get("neuronwriter"), dict) else {}
+
+
+def _visual_story(payload: dict[str, object], *, photo_refs: list[str], floorplan_refs: list[str]) -> dict[str, object]:
+    magic_fit_scene = dict(payload.get("magic_fit_scene") or {}) if isinstance(payload.get("magic_fit_scene"), dict) else {}
+    diorama_scene = dict(payload.get("diorama_scene") or {}) if isinstance(payload.get("diorama_scene"), dict) else {}
+    scene_image_url = str(magic_fit_scene.get("image_url") or "").strip()
+    diorama_image_url = str(diorama_scene.get("image_url") or "").strip()
+    scene_summary = str(magic_fit_scene.get("summary") or diorama_scene.get("summary") or "").strip()
+    visual_story_urls = _dedupe_urls(
+        [scene_image_url],
+        [diorama_image_url],
+        photo_refs,
+        floorplan_refs,
+    )
+    hero_image_url = next(iter(visual_story_urls), "")
+    portrait_image_url = next(iter(visual_story_urls), "")
+    property_image_url = next(
+        (
+            url
+            for url in [*photo_refs, *floorplan_refs]
+            if url and url != portrait_image_url
+        ),
+        "",
+    )
+    detail_gallery_urls = [
+        url
+        for url in visual_story_urls
+        if url and url not in {portrait_image_url, property_image_url}
+    ]
+    return {
+        "scene_image_url": scene_image_url,
+        "diorama_image_url": diorama_image_url,
+        "scene_summary": scene_summary,
+        "visual_story_urls": visual_story_urls,
+        "hero_image_url": hero_image_url,
+        "portrait_image_url": portrait_image_url,
+        "property_image_url": property_image_url or portrait_image_url,
+        "detail_gallery_urls": detail_gallery_urls,
+    }
+
+
 def _google_maps_url(payload: dict[str, object]) -> str:
     facts = dict(payload.get("facts") or {}) if isinstance(payload.get("facts"), dict) else {}
     if isinstance(payload.get("property_facts"), dict):
@@ -93,15 +179,30 @@ def compile_premium_dossier(
     provenance_lines = _safe_lines(redacted_payload.get("provenance_lines"), limit=10)
     photo_refs = _text_items(redacted_payload.get("photo_refs"), limit=12)
     floorplan_refs = _text_items(redacted_payload.get("floorplan_refs"), limit=4)
-    magic_fit_scene = dict(redacted_payload.get("magic_fit_scene") or {}) if isinstance(redacted_payload.get("magic_fit_scene"), dict) else {}
-    diorama_scene = dict(redacted_payload.get("diorama_scene") or {}) if isinstance(redacted_payload.get("diorama_scene"), dict) else {}
-    magic_fit_image_url = str(magic_fit_scene.get("image_url") or "").strip()
-    diorama_image_url = str(diorama_scene.get("image_url") or "").strip()
-    hero_image_url = magic_fit_image_url or (photo_refs[0] if photo_refs else (diorama_image_url or (floorplan_refs[0] if floorplan_refs else "")))
+    editorial_sections = _editorial_sections(redacted_payload)
+    neuronwriter = _writer_neuronwriter(redacted_payload)
+    visual_story = _visual_story(redacted_payload, photo_refs=photo_refs, floorplan_refs=floorplan_refs)
+    if editorial_sections:
+        editorial_match = next((row for row in editorial_sections if str(row.get("section_key") or "").strip() == "evidence_summary"), None)
+        editorial_risk = next((row for row in editorial_sections if str(row.get("section_key") or "").strip() == "risk_register"), None)
+        editorial_daily_life = next((row for row in editorial_sections if str(row.get("section_key") or "").strip() == "daily_life_radius"), None)
+        editorial_questions = next((row for row in editorial_sections if str(row.get("section_key") or "").strip() == "agent_questions"), None)
+        why_match = _safe_lines((editorial_match or {}).get("bullets"), limit=6) or why_match
+        risk_register = _safe_lines((editorial_risk or {}).get("bullets"), limit=8) or risk_register
+        daily_life = _safe_lines((editorial_daily_life or {}).get("bullets"), limit=8) or daily_life
+        agent_questions = _safe_lines((editorial_questions or {}).get("bullets"), limit=8) or agent_questions
     recommendation = _recommendation_label(redacted_payload.get("recommendation"))
     compare_rows = _comparison_rows(redacted_payload.get("comparison_rows"))
     compare_reason = str(redacted_payload.get("compare_reason") or (compare_rows[0].get("compare_reason") if compare_rows else "") or "").strip()
-    property_narrative = _property_narrative(redacted_payload)
+    property_narrative = [
+        *[
+            str(row.get("body") or "").strip()
+            for row in editorial_sections[:3]
+            if str(row.get("body") or "").strip()
+        ],
+        *_property_narrative(redacted_payload),
+    ]
+    property_narrative = list(dict.fromkeys([line for line in property_narrative if line]))[:5]
     return PremiumDossierCompileResult(
         title=title,
         recommended_title=recommended_title,
@@ -122,7 +223,14 @@ def compile_premium_dossier(
         comparison_rows=compare_rows,
         gallery_urls=photo_refs,
         floorplan_urls=floorplan_refs,
-        hero_image_url=hero_image_url,
+        visual_story_urls=list(visual_story["visual_story_urls"]),
+        detail_gallery_urls=list(visual_story["detail_gallery_urls"]),
+        hero_image_url=str(visual_story["hero_image_url"]),
+        portrait_image_url=str(visual_story["portrait_image_url"]),
+        property_image_url=str(visual_story["property_image_url"]),
+        scene_image_url=str(visual_story["scene_image_url"]),
+        diorama_image_url=str(visual_story["diorama_image_url"]),
+        scene_summary=str(visual_story["scene_summary"]),
         tour_url=_resolve_pdf_primary_tour_url(source=source, payload=redacted_payload),
         flythrough_url=_resolve_pdf_flythrough_url(source=source, payload=redacted_payload),
         review_url=_resolve_pdf_review_url(source=source, payload=redacted_payload),
@@ -132,5 +240,10 @@ def compile_premium_dossier(
         confidence_label=_confidence_label(risk_lines=risk_register, match_reasons=why_match, mismatch_reasons=why_fail),
         next_action=str(redacted_payload.get("next_action") or "").strip(),
         compare_reason=compare_reason,
+        editorial_sections=editorial_sections,
+        neuronwriter_status=str(neuronwriter.get("status") or "").strip(),
+        neuronwriter_reason=str(neuronwriter.get("reason") or "").strip(),
+        neuronwriter_share_url=str(neuronwriter.get("share_url") or neuronwriter.get("readonly_url") or "").strip(),
+        neuronwriter_questions=_safe_lines(neuronwriter.get("questions"), limit=5),
         renderer_version=renderer_version,
     )

@@ -38,7 +38,14 @@ class PremiumDossierCompileResult:
     comparison_rows: list[dict[str, str]] = field(default_factory=list)
     gallery_urls: list[str] = field(default_factory=list)
     floorplan_urls: list[str] = field(default_factory=list)
+    visual_story_urls: list[str] = field(default_factory=list)
+    detail_gallery_urls: list[str] = field(default_factory=list)
     hero_image_url: str = ""
+    portrait_image_url: str = ""
+    property_image_url: str = ""
+    scene_image_url: str = ""
+    diorama_image_url: str = ""
+    scene_summary: str = ""
     tour_url: str = ""
     flythrough_url: str = ""
     review_url: str = ""
@@ -48,6 +55,11 @@ class PremiumDossierCompileResult:
     confidence_label: str = ""
     next_action: str = ""
     compare_reason: str = ""
+    editorial_sections: list[dict[str, object]] = field(default_factory=list)
+    neuronwriter_status: str = ""
+    neuronwriter_reason: str = ""
+    neuronwriter_share_url: str = ""
+    neuronwriter_questions: list[str] = field(default_factory=list)
     renderer_version: str = ""
 
 
@@ -82,5 +94,17 @@ class PremiumDossierQualityReport:
     ok: bool
     required_text_check: str
     forbidden_text_check: str
+    page_count: int = 0
+    visual_preview_check: str = "not_run"
+    cover_dominance_check: str = "not_run"
+    footer_band_check: str = "not_run"
+    raw_url_text_check: str = "not_run"
+    visual_preview_artifact_ref: str = ""
+    first_page_width_px: int = 0
+    first_page_height_px: int = 0
+    first_page_nonwhite_ratio: float = 0.0
+    first_page_top_band_nonwhite_ratio: float = 0.0
+    first_page_footer_band_nonwhite_ratio: float = 0.0
     required_text_hits: list[str] = field(default_factory=list)
     forbidden_text_hits: list[str] = field(default_factory=list)
+    raw_url_text_hits: list[str] = field(default_factory=list)

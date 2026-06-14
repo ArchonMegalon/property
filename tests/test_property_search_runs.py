@@ -15,7 +15,7 @@ from app.product.service import ProductService
 from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_matches_requested_location, _property_search_location_hints
 from app.services.property_billing import property_commercial_snapshot
 from app.services import property_market_catalog
-from tests.product_test_helpers import build_property_client, seed_product_state, start_workspace
+from tests.product_test_helpers import build_product_client, build_property_client, seed_product_state, start_workspace
 
 
 def _poll_property_search_run_status(client, run_id: str) -> dict[str, object]:
@@ -214,6 +214,150 @@ def test_property_search_location_matching_accepts_source_scope_location() -> No
         summary="Sparse judicial auction detail page.",
         property_facts=facts,
     ) is True
+
+
+def test_property_provider_greenfield_api_returns_country_scoped_catalog_with_austria_and_cr_regression_coverage() -> None:
+    client = build_property_client(principal_id="exec-provider-catalog-germany")
+    de_body = client.get("/app/api/property/providers?country=DE").json()
+
+    assert any(row["value"] == "core_portals_de" and row["family"] == "core_portal" for row in de_body["providers"])
+    assert any(row["value"] == "shared_housing_de" and row["family"] == "shared_housing" for row in de_body["providers"])
+    assert any(row["value"] == "corporate_landlords_de" and row["family"] == "corporate_landlord" for row in de_body["providers"])
+    assert any(row["value"] == "municipal_housing_de" and row["family"] == "municipal_housing" for row in de_body["providers"])
+    assert any(row["value"] == "immoscout_de" for row in de_body["providers"])
+    assert any(row["value"] == "wg_gesucht_de" and row["family"] == "shared_housing" for row in de_body["providers"])
+    assert any(row["value"] == "vonovia_de" and row["family"] == "corporate_landlord" for row in de_body["providers"])
+    assert any(row["value"] == "neubaukompass_de" and row["family"] == "developer_projects" for row in de_body["providers"])
+    assert any(row["value"] == "auctions_de" and row["family"] == "distressed_sales" for row in de_body["providers"])
+    assert any(row["value"] == "broker_direct_de" and row["family"] == "broker_direct" for row in de_body["providers"])
+    assert any(row["value"] == "furnished_relocation_de" and row["family"] == "furnished_relocation" for row in de_body["providers"])
+    assert any(row["value"] == "ohne_makler_de" and row["family"] == "broker_direct" for row in de_body["providers"])
+    assert any(row["value"] == "von_poll_de" and row["family"] == "broker_direct" for row in de_body["providers"])
+
+    at_body = client.get("/app/api/property/providers?country=AT").json()
+
+    assert any(row["value"] == "public_housing_at" and row["family"] == "public_housing" for row in at_body["providers"])
+    assert any(row["value"] == "genossenschaften_at" and row["family"] == "cooperative" for row in at_body["providers"])
+    assert any(row["value"] == "wohnberatung_wien" and row["family"] == "public_housing" for row in at_body["providers"])
+    assert any(row["value"] == "wiener_wohnen" and row["family"] == "public_housing" for row in at_body["providers"])
+    assert any(row["value"] == "gesiba_at" and row["family"] == "cooperative" for row in at_body["providers"])
+    assert any(row["value"] == "oesw_at" and row["family"] == "cooperative" for row in at_body["providers"])
+    assert any(row["value"] == "egw_at" and row["family"] == "cooperative" for row in at_body["providers"])
+    assert any(row["value"] == "zvginfo_at" and row["family"] == "distressed_sales" for row in at_body["providers"])
+    assert any(row["value"] == "school_directories_de" for row in de_body["evidence_sources"])
+    assert any(row["value"] == "statatlas_schulen_at" for row in at_body["evidence_sources"])
+
+
+def test_property_provider_greenfield_api_returns_mode_aware_default_platforms() -> None:
+    client = build_property_client(principal_id="exec-provider-catalog-mode-aware")
+
+    at_buy_body = client.get(
+        "/app/api/property/providers",
+        params={"country": "AT", "listing_mode": "buy", "property_type": "apartment"},
+    ).json()
+    at_land_body = client.get(
+        "/app/api/property/providers",
+        params={"country": "AT", "listing_mode": "buy", "property_type": "land"},
+    ).json()
+    de_buy_body = client.get(
+        "/app/api/property/providers",
+        params={"country": "DE", "listing_mode": "buy", "property_type": "apartment"},
+    ).json()
+
+    assert at_buy_body["listing_mode"] == "buy"
+    assert at_buy_body["property_type"] == "apartment"
+    assert at_buy_body["default_platforms"] == [
+        "willhaben",
+        "immmo",
+        "immoscout_at",
+        "derstandard_at",
+        "broker_direct_at",
+        "developer_projects_at",
+    ]
+    assert at_land_body["default_platforms"] == [
+        "willhaben",
+        "immmo",
+        "immoscout_at",
+        "broker_direct_at",
+    ]
+    assert de_buy_body["default_platforms"] == [
+        "core_portals_de",
+        "new_build_de",
+        "broker_direct_de",
+        "corporate_landlords_de",
+    ]
+
+
+def test_austria_generated_source_defaults_use_public_and_cooperative_lanes_for_rent() -> None:
+    specs = property_market_catalog.generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Vienna",
+        },
+        selected_platforms=(),
+        principal_id="exec-property-at-rent-defaults",
+        default_person_id="self",
+        max_results=4,
+    )
+
+    platforms = {str(row["platform"]) for row in specs}
+
+    assert "public_housing_at" in platforms
+    assert "genossenschaften_at" in platforms
+
+
+def test_austria_generated_source_defaults_use_broker_and_project_lanes_for_buy() -> None:
+    specs = property_market_catalog.generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "location_query": "Vienna",
+        },
+        selected_platforms=(),
+        principal_id="exec-property-at-buy-defaults",
+        default_person_id="self",
+        max_results=4,
+    )
+
+    platforms = {str(row["platform"]) for row in specs}
+
+    assert "broker_direct_at" in platforms
+    assert "developer_projects_at" in platforms
+
+
+def test_germany_auction_sources_require_buy_or_explicit_distressed_signal_mode() -> None:
+    rent_specs = property_market_catalog.generated_source_specs(
+        preferences={
+            "country_code": "DE",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Berlin",
+        },
+        selected_platforms=("auctions_de", "zvg_de"),
+        principal_id="exec-property-de-auctions-rent",
+        default_person_id="self",
+        max_results=3,
+    )
+    distressed_specs = property_market_catalog.generated_source_specs(
+        preferences={
+            "country_code": "DE",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Berlin",
+            "include_distressed_sale_signals": True,
+        },
+        selected_platforms=("auctions_de",),
+        principal_id="exec-property-de-auctions-distressed",
+        default_person_id="self",
+        max_results=3,
+    )
+
+    assert rent_specs == ()
+    assert distressed_specs
+    assert all(str(row["listing_mode"]) == "buy" for row in distressed_specs)
 
 
 def test_property_search_location_matching_accepts_generic_provider_scope_location() -> None:
@@ -1535,13 +1679,59 @@ def test_property_provider_greenfield_api_returns_country_scoped_catalog() -> No
     assert any(row["value"] == "findmyhome_at" and "FindMyHome" in row["label"] for row in at_body["providers"])
     assert any(row["value"] == "derstandard_at" and "STANDARD" in row["label"] for row in at_body["providers"])
     assert any(row["value"] == "remax_at" and "RE/MAX Austria" in row["label"] for row in at_body["providers"])
+    assert any(row["value"] == "wag_at" and row["family"] == "cooperative" for row in at_body["providers"])
+    assert any(row["value"] == "heimat_oesterreich_at" and row["family"] == "cooperative" for row in at_body["providers"])
+    assert any(row["value"] == "bwsg_at" and row["family"] == "cooperative" for row in at_body["providers"])
+    assert any(row["value"] == "arwag_at" and row["family"] == "developer_projects" for row in at_body["providers"])
+    assert any(row["value"] == "raiffeisen_wohnbau_at" and row["family"] == "developer_projects" for row in at_body["providers"])
     assert all("Willhaben" not in row["label"] for row in uk_body["providers"])
     assert any(row["value"] == "rightmove" for row in uk_body["providers"])
     assert any(row["value"] == "encuentra24_cr" for row in cr_body["providers"])
     assert any(row["value"] == "re_cr_mls" for row in cr_body["providers"])
+    assert any(row["value"] == "theagency_cr" and row["family"] == "broker_direct" for row in cr_body["providers"])
+    assert any(row["value"] == "krain_cr" and row["family"] == "broker_direct" for row in cr_body["providers"])
+    assert any(row["value"] == "desarrollos_cr" and row["family"] == "developer_projects" for row in cr_body["providers"])
+    assert any(row["value"] == "tierraverde_cr" and row["family"] == "developer_projects" for row in cr_body["providers"])
     assert any(row["value"] == "propertiesincostarica_cr" and row["family"] == "broker_direct" for row in cr_body["providers"])
     assert any(row["value"] == "costaricarealestateservice_cr" and row["family"] == "broker_direct" for row in cr_body["providers"])
     assert any(row["value"] == "twocostaricarealestate_cr" and row["family"] == "broker_direct" for row in cr_body["providers"])
+
+
+def test_property_search_run_can_be_deleted_from_api(monkeypatch) -> None:
+    principal_id = "exec-property-search-run-delete"
+    client = build_property_client(principal_id=principal_id)
+
+    def _fake_sync_direct_property_scout(self, *, principal_id: str, selected_platforms, property_search_preferences, force_refresh: bool = False):
+        return {
+            "summary": {
+                "ranked_candidates": [],
+                "sources": [],
+                "sources_total": 0,
+                "listing_total": 0,
+            }
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    started = client.post(
+        "/app/api/property/search-runs",
+        json={
+            "selected_platforms": ["willhaben"],
+            "property_preferences": {"country_code": "AT"},
+            "max_results_per_source": 1,
+        },
+    )
+    assert started.status_code == 200, started.text
+    run_id = started.json()["run_id"]
+
+    deleted = client.delete(f"/app/api/property/search-runs/{run_id}")
+    assert deleted.status_code == 200, deleted.text
+    body = deleted.json()
+    assert body["run_id"] == run_id
+    assert body["deleted"] is True
+
+    missing = client.get(f"/app/api/property/search-runs/{run_id}")
+    assert missing.status_code == 404, missing.text
 
 
 def test_property_provider_catalog_generates_remax_austria_sources() -> None:
@@ -2395,6 +2585,133 @@ def test_property_search_preferences_update_preserves_existing_commercial_state(
     assert observed.get("max_results_per_source") is None
 
 
+def test_property_search_run_does_not_reapply_stale_saved_agent_area_filter(monkeypatch) -> None:
+    principal_id = "exec-property-search-stale-agent-merge"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Stale Agent Merge")
+    seed_product_state(client, principal_id=principal_id)
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "CR",
+            "listing_mode": "buy",
+            "property_type": "house",
+            "location_query": "Monteverde",
+            "min_area_m2": 80,
+            "require_floorplan": True,
+            "min_match_score": 40,
+            "selected_platforms": ["re_cr_mls", "realtor_com_cr"],
+            "search_agents": [
+                {
+                    "agent_id": "agent-monteverde-buy",
+                    "name": "Monteverde buy",
+                    "country_code": "CR",
+                    "listing_mode": "buy",
+                    "property_type": "house",
+                    "location_query": "Monteverde",
+                    "min_area_m2": 80,
+                    "require_floorplan": True,
+                    "min_match_score": 40,
+                    "selected_platforms": ["re_cr_mls", "realtor_com_cr"],
+                }
+            ],
+            "active_search_agent_id": "agent-monteverde-buy",
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    observed: dict[str, object] = {}
+
+    def _fake_sync_direct_property_scout(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...] = (),
+        property_search_preferences: dict[str, object] | None = None,
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+        progress_callback: callable | None = None,
+    ) -> dict[str, object]:
+        observed["selected_platforms"] = tuple(selected_platforms)
+        observed["property_search_preferences"] = dict(property_search_preferences or {})
+        return {
+            "generated_at": product_service._now_iso(),
+            "status": "processed",
+            "sources_total": 1,
+            "listing_total": 0,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [],
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    started = client.post(
+        "/app/api/signals/property/search/run",
+        json={
+            "selected_platforms": ["re_cr_mls", "realtor_com_cr"],
+            "property_preferences": {
+                "country_code": "CR",
+                "listing_mode": "buy",
+                "property_type": "house",
+                "location_query": "Monteverde",
+                "min_area_m2": 0,
+                "require_floorplan": False,
+                "min_match_score": 25,
+                "search_agents": stored.json()["property_search_preferences"]["search_agents"],
+                "active_search_agent_id": "agent-monteverde-buy",
+                "raw_preferences": {"min_area_m2": 80},
+            },
+        },
+    )
+    assert started.status_code == 200, started.text
+    _poll_property_search_run_status(client, started.json()["run_id"])
+
+    preferences = dict(observed["property_search_preferences"])
+    assert "re_cr_mls" in tuple(observed["selected_platforms"] or ())
+    assert preferences.get("min_area_m2") not in {80, "80"}
+    assert preferences["require_floorplan"] is False
+    assert preferences["min_match_score"] == 25
+
+
+def test_property_search_execution_preferences_relax_only_floorplan_for_discovery_mode() -> None:
+    request_preferences, execution_policy = product_service._property_search_execution_preferences(
+        {
+            "search_mode": "discovery",
+            "max_price_eur": 500000,
+            "min_area_m2": 80,
+            "require_floorplan": True,
+            "floorplan_requirement_mode": "hard",
+        }
+    )
+
+    assert request_preferences["search_mode"] == "discovery"
+    assert request_preferences["require_floorplan"] is True
+    assert request_preferences["floorplan_requirement_mode"] == "soft"
+    assert request_preferences["max_price_eur"] == 500000
+    assert request_preferences["min_area_m2"] == 80
+    assert execution_policy["search_mode"] == "discovery"
+    assert execution_policy["require_floorplan"] is True
+    assert execution_policy["enforce_floorplan_filter"] is False
+    assert execution_policy["discovery_relaxed_filters"] == ["require_floorplan"]
+
+
+def test_property_search_effective_min_match_score_uses_discovery_floor() -> None:
+    assert product_service._property_search_effective_min_match_score({"search_mode": "discovery", "min_match_score": 60}) == 1.0
+
+
 def test_property_search_run_defaults_platforms_from_country_preferences(monkeypatch) -> None:
     principal_id = "exec-property-search-country-defaults"
     client = build_property_client(principal_id=principal_id)
@@ -2571,6 +2888,51 @@ def test_reconcile_property_search_results_delivery_completes_unsent_ready_run(m
     assert summary["emailed"] >= 1
     assert observed["principal_id"] == "exec-property-search-reconcile"
     assert observed["run_id"] == run_id
+
+
+def test_property_search_results_ready_can_send_heyy_digest(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-property-search-heyy"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Heyy Office", selected_channels=["whatsapp"])
+    onboarding = client.app.state.container.onboarding
+    state = onboarding._ensure_state(principal_id)  # noqa: SLF001
+    onboarding._replace_channel_pref(  # noqa: SLF001
+        state,
+        "whatsapp",
+        {"mode": "business", "phone_number": "+436647916419"},
+        status="in_progress",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_TEMPLATE_SEARCH_AGENT_DIGEST", "tmpl-search-digest")
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(
+        "app.product.service.HeyyWhatsAppBridgeService.send_template",
+        lambda self, **kwargs: observed.update(kwargs) or {
+            "status": "sent",
+            "provider": "heyy",
+            "channel_id": kwargs.get("channel_id") or "",
+            "message_id": "msg-search-digest-1",
+            "delivery_status": "queued",
+        },
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service._notify_property_search_results_ready_heyy(
+        principal_id=principal_id,
+        run_id="run-heyy-1",
+        result={
+            "listing_total": 12,
+            "high_fit_total": 4,
+            "notification_budget_suppressed_total": 8,
+            "ranked_candidates": [{"fit_score": 91.0}],
+            "search_agent_lifecycle": {"agent_name": "Vienna rent watch"},
+        },
+    )
+    assert result["status"] == "sent"
+    assert observed["phone_number"] == "+436647916419"
+    assert observed["template_id"] == "tmpl-search-digest"
+    assert any(item.get("name") == "agent_name" and item.get("value") == "Vienna rent watch" for item in list(observed.get("variables") or []))
+    assert any(item.get("name") == "top_fit_score" and item.get("value") == "91" for item in list(observed.get("variables") or []))
 
 
 def test_property_search_run_postgres_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:

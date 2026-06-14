@@ -35,6 +35,17 @@ def test_propertyquarry_customer_templates_avoid_internal_operator_language() ->
         assert marker not in body
 
 
+def test_propertyquarry_layout_guide_is_the_design_contract() -> None:
+    gate = (ROOT / "docs/PROPERTYQUARRY_DESIGN_SYSTEM_GATE.md").read_text(encoding="utf-8")
+    guide = (ROOT / "docs/PROPERTYQUARRY_APP_LAYOUT_GUIDE.md").read_text(encoding="utf-8")
+
+    assert "docs/PROPERTYQUARRY_APP_LAYOUT_GUIDE.md" in gate
+    assert "No decision wizard inside result cards." in guide
+    assert "Progress card dimensions" in guide
+    assert "panel width desktop: 360-420px" in guide
+    assert "Table columns" in guide
+
+
 def test_propertyquarry_clickable_looking_recent_reviews_are_real_links_or_plain_rows() -> None:
     body = (ROOT / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
 
@@ -68,3 +79,23 @@ def test_propertyquarry_brand_marks_route_to_public_or_dashboard_home() -> None:
     assert '<a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} dashboard">' in console_shell
     assert "run.get('run_id')" not in workbench.split('<a class="pqx-brand"', 1)[1].split(">", 1)[0]
     assert '<a class="pqx-brand" href="/app/properties" aria-label="PropertyQuarry dashboard">' in workbench
+
+
+def test_propertyquarry_app_surfaces_expose_account_navigation() -> None:
+    console_shell = (ROOT / "ea/app/templates/base_console.html").read_text(encoding="utf-8")
+    workbench = (ROOT / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+
+    for body in (console_shell, workbench):
+        assert "Account navigation" in body
+        assert ">Upgrade<" in body
+        assert ">Log out<" in body
+
+
+def test_propertyquarry_console_shell_uses_new_property_surface_links() -> None:
+    body = (ROOT / "ea/app/templates/base_console.html").read_text(encoding="utf-8")
+
+    assert 'href="/app/account{{ query_suffix }}"' in body
+    assert 'href="/app/agents{{ query_suffix }}"' in body
+    assert "Search, market watch, decision packets, and review in one persistent shell." in body
+    assert 'href="/app/settings{{ query_suffix }}"' not in body
+    assert 'href="/app/research{{ query_suffix }}"' not in body

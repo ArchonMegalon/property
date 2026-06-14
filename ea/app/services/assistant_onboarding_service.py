@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.repositories.onboarding_state import OnboardingStateRepository
 from app.services.google_oauth_service import GoogleOAuthService
+from app.services.heyy_whatsapp_service import HeyyWhatsAppBridgeService
 from app.services.provider_registry import ProviderRegistryService
 from app.services.telegram_onboarding_service import TelegramBotOnboardingService, TelegramIdentityService
 from app.services.tool_runtime import ToolRuntimeService
@@ -31,4 +32,5 @@ class AssistantOnboardingService:
         self._telegram_bot = TelegramBotOnboardingService(tool_runtime=tool_runtime)
         self._whatsapp_business = WhatsAppEmbeddedSignupService(tool_runtime=tool_runtime)
         self._whatsapp_import = WhatsAppHistoryImportService(tool_runtime=tool_runtime)
+        self._whatsapp_heyy = HeyyWhatsAppBridgeService(tool_runtime=tool_runtime)
         self._chat_export_ingest = ChatExportIngestionService(tool_runtime=tool_runtime)

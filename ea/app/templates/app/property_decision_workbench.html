@@ -1,5 +1,6 @@
 {% set property_meta = console_form.get('meta') or {} %}
 {% set workbench = decision_workbench or {} %}
+{% set surface_mode = workbench.get('surface_mode') or current_nav or 'properties' %}
 {% set results = workbench.get('results') or [] %}
 {% set selected = workbench.get('selected') or (results[0] if results else {}) %}
 {% set run = workbench.get('run') or {} %}
@@ -121,58 +122,61 @@
 {% set summary = run.get('summary') or {} %}
 {% set status = run.get('status') or summary.get('status') or 'queued' %}
 {% set source_total = (summary.get('sources_total') or run_sources|length or 0)|int %}
+{% set source_completed = run_sources|length %}
 {% set listing_total = (summary.get('listing_total') or summary.get('raw_listing_total') or 0)|int %}
-{% set high_fit_total = (summary.get('high_fit_total') or 0)|int %}
-{% set notified_total = (summary.get('notified_total') or summary.get('watch_notified_total') or 0)|int %}
-{% set tour_total = ((summary.get('tour_created_total') or 0)|int) + ((summary.get('tour_existing_total') or 0)|int) %}
 {% set layout_unverified = (summary.get('filtered_floorplan_total') or 0)|int %}
+{% set run_progress = (run.get('progress') or summary.get('progress') or 0)|int %}
 {% set layout_eta_minutes = ([layout_unverified * 2, 2]|max) if layout_unverified else 0 %}
-{% set open_checks = (research_task_counts.get('open') or summary.get('open_research_task_total') or 0)|int %}
+{% set source_eta_minutes = ([((source_total * 3 + 1) // 2), 3]|max) if source_total else 0 %}
+{% set route_previews = run.get('route_previews') or [] %}
 <div class="pqx-progress-board" data-pqx-progress-board data-progress-state="{{ status }}">
   <div class="pqx-concierge-pulse">
-    <strong data-pqx-progress-board-title>{% if status in ['processed', 'completed'] %}Evidence assembled{% elif status == 'failed' %}Search stopped{% else %}Concierge is assembling the evidence{% endif %}</strong>
+    <div class="pqx-progress-headline">
+      <strong data-pqx-progress-board-title>{% if status in ['processed', 'completed'] %}Evidence assembled{% elif status == 'failed' %}Search stopped{% else %}Concierge is assembling the evidence{% endif %}</strong>
+      <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>{% if status in ['processed', 'completed'] %}100% · complete{% elif status == 'failed' %}stopped{% elif run_progress > 0 and layout_unverified %}{{ run_progress }}% · about {{ layout_eta_minutes }} min{% elif run_progress > 0 and source_eta_minutes %}{{ run_progress }}% · about {{ source_eta_minutes }} min{% elif run_progress > 0 %}{{ run_progress }}% · estimating{% elif layout_unverified %}estimating · about {{ layout_eta_minutes }} min{% elif source_eta_minutes %}starting · about {{ source_eta_minutes }} min{% else %}estimating{% endif %}</span>
+    </div>
     <div class="pqx-pulse-line" aria-hidden="true"></div>
-    <div class="pqx-progress-labels">
-      <span>Searching</span><span>Ranking</span><span>Verifying</span><span>Preparing review</span>
+    <div class="pqx-progress-meter" aria-hidden="true">
+      <i class="pqx-progress-meter-fill" style="--progress: {{ run_progress if run_progress > 0 else (100 if status in ['processed', 'completed'] else 4) }}"></i>
     </div>
   </div>
-  <div class="pqx-source-radar">
-    <strong data-pqx-radar-count>{{ source_total }} source{{ '' if source_total == 1 else 's' }}</strong>
-    <div class="pqx-radar-dots" aria-hidden="true">
-      {% for index in range(8) %}
-      <span class="{{ 'is-active' if index < [source_total, 8]|min else '' }}"></span>
-      {% endfor %}
+  <div class="pqx-source-progress" data-pqx-source-progress>
+    <div class="pqx-source-progress-head">
+      <strong data-pqx-radar-count>{{ source_completed }}/{{ source_total }} sources checked</strong>
+      <span class="pqx-small">{{ listing_total }} listings seen{% if layout_unverified %} · {{ layout_unverified }} layout checks pending{% endif %}</span>
     </div>
+    <span class="pqx-note">{{ run.get('message') or 'Waiting for the first source update.' }}</span>
   </div>
-  <div class="pqx-funnel" data-pqx-shortlist-funnel>
-    <div class="pqx-funnel-row"><span>Sources</span><span class="pqx-funnel-track"><i class="pqx-funnel-fill" style="--fill: 100;"></i></span><b>{{ source_total }}</b></div>
-    <div class="pqx-funnel-row"><span>Homes</span><span class="pqx-funnel-track"><i class="pqx-funnel-fill" style="--fill: {{ [listing_total, 100]|min }};"></i></span><b>{{ listing_total }}</b></div>
-    <div class="pqx-funnel-row"><span>Strong fit</span><span class="pqx-funnel-track"><i class="pqx-funnel-fill" style="--fill: {{ [high_fit_total * 14, 100]|min }};"></i></span><b>{{ high_fit_total }}</b></div>
-    <div class="pqx-funnel-row"><span>Sent</span><span class="pqx-funnel-track"><i class="pqx-funnel-fill" style="--fill: {{ [notified_total * 20, 100]|min }};"></i></span><b>{{ notified_total }}</b></div>
+  <div class="pqx-source-list" data-pqx-source-list>
+    {% for source in run_sources[:8] %}
+    <span class="pqx-source-chip {{ 'warn' if source.get('error') else 'good' }}">
+      {{ source.get('source_label') or source.get('label') or 'Source' }}
+    </span>
+    {% endfor %}
   </div>
-  <div class="pqx-evidence-stack" data-pqx-evidence-stack>
-    <span class="pqx-evidence-chip {{ 'is-ready' if listing_total else 'is-active' }}">Facts</span>
-    <span class="pqx-evidence-chip {{ 'is-ready' if high_fit_total else ('is-active' if listing_total else '') }}">Ranking</span>
-    <span class="pqx-evidence-chip {{ 'is-ready' if layout_unverified == 0 and listing_total else ('is-active' if layout_unverified else '') }}">Layout</span>
-    <span class="pqx-evidence-chip {{ 'is-ready' if tour_total else ('is-active' if high_fit_total else '') }}">Tour</span>
-    <span class="pqx-evidence-chip {{ 'is-ready' if open_checks == 0 and listing_total else ('is-active' if open_checks else '') }}">Decision checks</span>
+  {% if route_previews %}
+  <div class="pqx-route-preview-strip" data-pqx-route-preview-strip>
+    {% for route in route_previews[:3] %}
+    <article class="pqx-route-preview-card">
+      {% if route.get('map_url') %}<a class="pqx-route-preview-link" href="{{ route.get('map_url') }}" target="_blank" rel="noreferrer">{% endif %}
+        <div class="pqx-route-preview-head">
+          <span class="pqx-small">{{ route.get('label') or 'Route' }}</span>
+          <strong>{{ route.get('title') or 'Route preview' }}</strong>
+        </div>
+        <svg class="pqx-route-preview-svg" viewBox="0 0 144 68" aria-hidden="true">
+          <circle cx="12" cy="56" r="5"></circle>
+          <path d="{{ route.get('preview_path') or 'M 12 56 C 42 48, 96 24, 132 18' }}"></path>
+          <circle cx="132" cy="18" r="5"></circle>
+        </svg>
+        <div class="pqx-route-preview-meta">
+          <span>{{ route.get('detail') }}</span>
+          <b>{{ route.get('mode_label') or 'Route' }}</b>
+        </div>
+      {% if route.get('map_url') %}</a>{% endif %}
+    </article>
+    {% endfor %}
   </div>
-  <div class="pqx-route-trace" data-pqx-route-trace>
-    <span class="pqx-route-chip">Home to school</span>
-    <span class="pqx-route-chip">Home to supermarket</span>
-    <span class="pqx-route-chip">Home to commute</span>
-  </div>
-  <div class="pqx-floorplan-scan" data-pqx-floorplan-scan>
-    <strong>Pending layout proof</strong>
-    <span class="pqx-note">{{ layout_unverified }} candidate{{ '' if layout_unverified == 1 else 's' }} pending. They are not invalid; layout proof is still being recovered from photos, PDFs, 360 media, or downloads.</span>
-    <span class="pqx-small" data-pqx-layout-eta>ETA {{ 'about ' ~ layout_eta_minutes ~ ' min' if layout_unverified else 'complete' }}</span>
-  </div>
-  <div class="pqx-dossier-rail" data-pqx-dossier-rail>
-    <span class="pqx-dossier-step {{ 'is-ready' if listing_total else 'is-active' }}">Facts</span>
-    <span class="pqx-dossier-step {{ 'is-ready' if high_fit_total else '' }}">Evidence</span>
-    <span class="pqx-dossier-step {{ 'is-ready' if tour_total else '' }}">Tour links</span>
-    <span class="pqx-dossier-step {{ 'is-ready' if open_checks == 0 and listing_total else 'is-active' }}">Review</span>
-  </div>
+  {% endif %}
 </div>
 {%- endmacro %}
 <!doctype html>
@@ -225,15 +229,50 @@
       top: 0;
       z-index: 30;
       display: grid;
-      grid-template-columns: minmax(220px, auto) 1fr auto;
-      gap: 18px;
+      grid-template-columns: minmax(220px, auto) minmax(0, 1fr) auto;
+      grid-template-areas:
+        "brand nav account"
+        "state state actions";
+      gap: 14px 18px;
       align-items: center;
       padding: 14px clamp(16px, 3vw, 34px);
       border-bottom: 1px solid var(--pq-line);
       background: rgba(246, 243, 238, 0.92);
       backdrop-filter: blur(14px);
     }
+    .pqx-primary-nav {
+      grid-area: nav;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .pqx-primary-nav a {
+      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 12px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      color: var(--pq-muted);
+      font-size: 13px;
+      font-weight: 650;
+      text-decoration: none;
+    }
+    .pqx-primary-nav a:hover,
+    .pqx-primary-nav a:focus-visible {
+      color: var(--pq-ink);
+      border-color: var(--pq-line);
+      outline: none;
+    }
+    .pqx-primary-nav a.is-active {
+      color: var(--pq-ink);
+      border-color: rgba(189, 139, 47, 0.28);
+      background: rgba(189, 139, 47, 0.12);
+    }
     .pqx-brand {
+      grid-area: brand;
       display: inline-flex;
       align-items: center;
       gap: 11px;
@@ -268,9 +307,12 @@
       font-size: 12px;
     }
     .pqx-state-strip {
+      grid-area: state;
       display: flex;
       gap: 8px;
-      justify-content: center;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      align-items: stretch;
       min-width: 0;
     }
     .pqx-state-pill {
@@ -302,6 +344,11 @@
       gap: 8px;
       flex-wrap: wrap;
     }
+    .pqx-top-actions {
+      grid-area: actions;
+      justify-content: flex-end;
+      min-width: 0;
+    }
     .pqx-button,
     .pqx-link-button,
     .pqx-mode-button {
@@ -330,6 +377,71 @@
       border-color: var(--pq-line);
       background: transparent;
       color: var(--pq-muted);
+    }
+    .pqx-account-menu {
+      grid-area: account;
+      position: relative;
+      justify-self: end;
+    }
+    .pqx-account-menu summary {
+      list-style: none;
+      min-height: 38px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 13px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, 0.84);
+      color: var(--pq-muted);
+      font-weight: 720;
+      cursor: pointer;
+    }
+    .pqx-account-menu summary::-webkit-details-marker { display: none; }
+    .pqx-account-menu[open] summary {
+      border-color: var(--pq-gold);
+      color: var(--pq-ink);
+    }
+    .pqx-account-menu-panel {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 8px);
+      min-width: 220px;
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid var(--pq-line);
+      border-radius: 10px;
+      background: var(--pq-paper);
+      box-shadow: var(--pq-shadow);
+      z-index: 20;
+    }
+    .pqx-account-menu-label {
+      display: grid;
+      gap: 2px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--pq-line);
+    }
+    .pqx-account-menu-label span {
+      color: var(--pq-faint);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .pqx-account-menu-label strong {
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .pqx-account-menu-links {
+      display: grid;
+      gap: 6px;
+    }
+    .pqx-account-menu-links .pqx-link-button,
+    .pqx-account-menu-links .pqx-button {
+      width: 100%;
+      justify-content: flex-start;
+    }
+    .pqx-account-menu-form {
+      margin: 0;
     }
     .pqx-recent-review {
       width: 100%;
@@ -384,6 +496,49 @@
       color: var(--pq-muted);
       font-size: 13px;
       line-height: 1.6;
+    }
+    .pqx-decision-wizard {
+      display: grid;
+      gap: 12px;
+    }
+    .pqx-decision-stepper {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .pqx-decision-stepper span {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 5px 9px;
+      border: 1px solid var(--pq-line);
+      border-radius: 999px;
+      background: rgba(255, 253, 248, 0.72);
+      color: var(--pq-muted);
+      font-size: 11px;
+      font-weight: 720;
+    }
+    .pqx-decision-stepper span.is-active {
+      border-color: var(--pq-charcoal);
+      background: var(--pq-charcoal);
+      color: #fff9ed;
+    }
+    .pqx-decision-detail {
+      display: grid;
+      gap: 12px;
+      padding-top: 4px;
+      border-top: 1px solid var(--pq-line);
+    }
+    .pqx-decision-advanced {
+      border-top: 1px solid var(--pq-line);
+      padding-top: 10px;
+    }
+    .pqx-decision-advanced summary {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      cursor: pointer;
     }
     .pqx-decision-row,
     .pqx-decision-reasons {
@@ -488,6 +643,15 @@
       grid-template-columns: minmax(220px, 320px) minmax(640px, 1fr);
       gap: clamp(14px, 2vw, 26px);
       align-items: start;
+    }
+    .pqx-setup.pqx-surface-search {
+      grid-template-columns: minmax(640px, 1fr) minmax(240px, 320px);
+    }
+    .pqx-setup.pqx-surface-search .pqx-command {
+      order: 1;
+    }
+    .pqx-surface-search [data-pqx-mobile-panel="results"] {
+      order: 2;
     }
     .pqx-setup-intro {
       display: grid;
@@ -733,6 +897,21 @@
       display: grid;
       gap: clamp(18px, 2.2vw, 28px);
       padding: clamp(22px, 3vw, 40px);
+    }
+    .pqx-running .pqx-command {
+      gap: 12px;
+      padding: clamp(14px, 1.8vw, 20px);
+    }
+    .pqx-running .pqx-section-head {
+      margin-bottom: 6px;
+      align-items: center;
+    }
+    .pqx-running .pqx-section-head h2 {
+      font-size: 1rem;
+    }
+    .pqx-running .pqx-note[data-pqx-run-message] {
+      font-size: 12px;
+      line-height: 1.35;
     }
     .pqx-workflow {
       display: grid;
@@ -1070,11 +1249,11 @@
       padding: 0 10px;
     }
     .pqx-running {
-      min-height: calc(100vh - 172px);
+      min-height: calc(100vh - 132px);
       display: grid;
       grid-template-columns: minmax(0, 1fr);
-      gap: 16px;
-      align-items: stretch;
+      gap: 12px;
+      align-items: start;
     }
     .pqx-empty-results {
       min-height: calc(100vh - 172px);
@@ -1160,7 +1339,12 @@
     .pqx-progress-ring span { color: #d7cdbb; font-size: 10px; }
     .pqx-progress-board {
       display: grid;
-      gap: 12px;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "pulse"
+        "sources"
+        "source-list";
+      gap: 10px;
       min-width: 0;
       max-width: 100%;
       overflow: hidden;
@@ -1178,6 +1362,14 @@
     .pqx-concierge-pulse {
       display: grid;
       gap: 8px;
+      grid-area: pulse;
+    }
+    .pqx-progress-headline {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
     }
     .pqx-pulse-line {
       position: relative;
@@ -1202,146 +1394,133 @@
       width: 100%;
       background: var(--pq-green);
     }
-    .pqx-progress-labels {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-    }
-    .pqx-progress-labels span,
-    .pqx-evidence-chip,
-    .pqx-route-chip,
-    .pqx-dossier-step {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      min-height: 28px;
-      padding: 5px 8px;
-      border-radius: 999px;
-      background: rgba(255, 249, 237, 0.11);
-      color: #eadfcc;
-      font-size: 11px;
-      font-weight: 720;
-    }
-    .pqx-source-radar {
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr);
-      gap: 10px;
-      align-items: center;
-      min-width: 0;
-      overflow: hidden;
-    }
-    .pqx-radar-dots {
-      display: grid;
-      grid-template-columns: repeat(8, minmax(0, 1fr));
-      gap: 6px;
-      min-width: 0;
-    }
-    .pqx-radar-dots span {
-      height: 7px;
-      border-radius: 999px;
-      background: rgba(255, 249, 237, 0.16);
-    }
-    .pqx-radar-dots span.is-active {
-      background: var(--pq-gold);
-      box-shadow: 0 0 16px rgba(189, 139, 47, 0.55);
-      animation: pqxDotBreathe 1.6s ease-in-out infinite;
-    }
-    .pqx-funnel {
-      display: grid;
-      gap: 7px;
-    }
-    .pqx-funnel-row {
-      display: grid;
-      grid-template-columns: 82px minmax(0, 1fr) 42px;
-      gap: 8px;
-      align-items: center;
-      color: #eadfcc;
-      font-size: 11px;
-    }
-    .pqx-funnel-track {
+    .pqx-progress-meter {
+      position: relative;
       height: 8px;
-      overflow: hidden;
       border-radius: 999px;
       background: rgba(255, 249, 237, 0.14);
+      overflow: hidden;
     }
-    .pqx-funnel-fill {
+    .pqx-progress-meter-fill {
       display: block;
+      width: calc(var(--progress, 0) * 1%);
+      min-width: 18px;
       height: 100%;
-      width: calc(max(4, min(100, var(--fill, 0))) * 1%);
       border-radius: inherit;
       background: linear-gradient(90deg, var(--pq-gold), #f4d188);
-      transition: width 0.5s ease;
+      transition: width .4s ease;
     }
-    .pqx-evidence-stack,
-    .pqx-route-trace,
-    .pqx-dossier-rail {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 7px;
-      min-width: 0;
-      max-width: 100%;
-      overflow: hidden;
-    }
-    .pqx-evidence-chip::before,
-    .pqx-dossier-step::before {
-      content: "";
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: rgba(255, 249, 237, 0.32);
-    }
-    .pqx-evidence-chip.is-ready::before,
-    .pqx-dossier-step.is-ready::before {
-      background: var(--pq-green);
-    }
-    .pqx-evidence-chip.is-active::before,
-    .pqx-dossier-step.is-active::before {
-      background: var(--pq-gold);
-      animation: pqxDotBreathe 1.4s ease-in-out infinite;
-    }
-    .pqx-route-chip {
-      position: relative;
-      overflow: hidden;
-      max-width: 100%;
-    }
-    .pqx-route-chip::after {
-      content: "";
-      width: 22px;
-      height: 2px;
-      border-radius: 999px;
-      background: currentColor;
-      opacity: 0.55;
-      transform-origin: left center;
-      animation: pqxRouteTrace 2.4s ease-in-out infinite;
-    }
-    .pqx-floorplan-scan {
-      position: relative;
+    .pqx-source-progress {
+      grid-area: sources;
       display: grid;
       gap: 6px;
-      min-height: 58px;
-      max-height: 96px;
-      overflow: hidden;
       padding: 10px;
       border: 1px solid rgba(255, 249, 237, 0.16);
       border-radius: 8px;
-      background:
-        linear-gradient(90deg, rgba(255, 249, 237, 0.08) 1px, transparent 1px),
-        linear-gradient(rgba(255, 249, 237, 0.08) 1px, transparent 1px);
-      background-size: 18px 18px;
+      background: rgba(255, 249, 237, 0.08);
     }
-    .pqx-floorplan-scan::after {
-      content: "";
-      position: absolute;
-      inset: 0 auto 0 -20%;
-      width: 18%;
-      max-width: 90px;
-      background: linear-gradient(90deg, transparent, rgba(244, 209, 136, 0.35), transparent);
-      animation: pqxScanSweep 2.2s ease-in-out infinite;
-      pointer-events: none;
+    .pqx-source-progress-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
     }
-    .pqx-progress-board[data-progress-state="processed"] .pqx-floorplan-scan::after,
-    .pqx-progress-board[data-progress-state="completed"] .pqx-floorplan-scan::after {
-      display: none;
+    .pqx-source-progress .pqx-small {
+      color: #d7cdbb;
+      font-size: 11px;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+    }
+    .pqx-source-list {
+      grid-area: source-list;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+    }
+    .pqx-source-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 9px;
+      border: 1px solid rgba(255, 249, 237, 0.16);
+      border-radius: 999px;
+      color: #eadfcc;
+      font-size: 11px;
+      font-weight: 720;
+      white-space: nowrap;
+    }
+    .pqx-source-chip.good {
+      border-color: rgba(39, 107, 83, 0.3);
+      background: rgba(39, 107, 83, 0.12);
+    }
+    .pqx-source-chip.warn {
+      border-color: rgba(166, 83, 71, 0.3);
+      background: rgba(166, 83, 71, 0.12);
+    }
+    .pqx-route-preview-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      grid-column: 1 / -1;
+      min-width: 0;
+    }
+    .pqx-route-preview-card {
+      min-width: 0;
+      border: 1px solid rgba(255, 249, 237, 0.16);
+      border-radius: 8px;
+      background: rgba(255, 249, 237, 0.08);
+      overflow: hidden;
+    }
+    .pqx-route-preview-link {
+      display: grid;
+      gap: 6px;
+      padding: 8px;
+      min-width: 0;
+    }
+    .pqx-route-preview-head {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+    .pqx-route-preview-head strong,
+    .pqx-route-preview-meta span,
+    .pqx-route-preview-meta b {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .pqx-route-preview-svg {
+      width: 100%;
+      height: 64px;
+      border-radius: 6px;
+      background: linear-gradient(180deg, rgba(255, 249, 237, 0.08), rgba(255, 249, 237, 0.14));
+    }
+    .pqx-route-preview-svg path {
+      fill: none;
+      stroke: var(--pq-gold);
+      stroke-width: 3.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .pqx-route-preview-svg circle:first-of-type {
+      fill: #fff9ed;
+      stroke: rgba(255, 249, 237, 0.3);
+      stroke-width: 2;
+    }
+    .pqx-route-preview-svg circle:last-of-type {
+      fill: var(--pq-green);
+      stroke: rgba(255, 249, 237, 0.3);
+      stroke-width: 2;
+    }
+    .pqx-route-preview-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: baseline;
+      color: #eadfcc;
+      font-size: 11px;
     }
     .pqx-result-media {
       display: grid;
@@ -2036,6 +2215,14 @@
         gap: 14px;
         padding: 14px;
       }
+      .pqx-running {
+        min-height: 0;
+        gap: 10px;
+      }
+      .pqx-running .pqx-command {
+        gap: 10px;
+        padding: 12px;
+      }
       .pqx-run-head {
         gap: 10px;
       }
@@ -2043,15 +2230,18 @@
         width: 78px;
       }
       .pqx-progress-board {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas:
+          "pulse"
+          "sources"
+          "source-list";
         gap: 10px;
         padding: 10px;
       }
-      .pqx-source-radar {
+      .pqx-route-preview-strip {
         grid-template-columns: minmax(0, 1fr);
       }
-      .pqx-funnel-row {
-        grid-template-columns: 68px minmax(0, 1fr) 34px;
-      }
+      .pqx-source-progress-head { align-items: flex-start; }
       .pqx-progress-labels span,
       .pqx-evidence-chip,
       .pqx-route-chip,
@@ -2128,7 +2318,7 @@
   </style>
 </head>
 <body>
-  <div class="pqx-shell" data-pq-greenfield-shell data-property-app-shell data-property-spa-shell data-property-decision-workbench data-pqx-state="{{ 'results' if has_results else ('running' if run_active else ('empty_results' if run_terminal_no_results else 'setup')) }}">
+  <div class="pqx-shell" data-pq-greenfield-shell data-property-app-shell data-property-spa-shell data-property-decision-workbench data-pqx-surface="{{ surface_mode }}" data-pqx-state="{{ 'results' if has_results else ('running' if run_active else ('empty_results' if run_terminal_no_results else 'setup')) }}">
     <script type="application/json" data-property-workbench-json>{{ workbench|tojson|safe }}</script>
     <div hidden data-property-workspace-meta='{{ property_meta|tojson|safe }}'></div>
 
@@ -2137,9 +2327,15 @@
         <span class="pqx-mark">PQ</span>
         <span>
           <strong>PropertyQuarry</strong>
-          <span>{{ workspace_label or 'Decision workspace' }}</span>
+          <span>{{ workspace_label or 'Decision desk' }}</span>
         </span>
       </a>
+      <nav class="pqx-primary-nav" aria-label="PropertyQuarry sections">
+        <a href="/app/properties"{% if surface_mode == 'properties' %} class="is-active"{% endif %}>Home</a>
+        <a href="/app/search"{% if surface_mode == 'search' %} class="is-active"{% endif %}>Search</a>
+        <a href="/app/agents"{% if surface_mode == 'agents' %} class="is-active"{% endif %}>Search agents</a>
+        <a href="/app/account"{% if surface_mode == 'account' %} class="is-active"{% endif %}>Account</a>
+      </nav>
       <div class="pqx-state-strip" data-property-pulse-strip aria-label="Current search context">
         <div class="pqx-state-pill">
           <span>Status</span>
@@ -2161,44 +2357,66 @@
       <div class="pqx-top-actions" data-pq-context-actions>
         <a class="pqx-link-button subtle" href="/app/properties/packets">Reviews</a>
         {% if has_results %}
-        <a class="pqx-link-button subtle" href="/app/properties">Manage saved search</a>
+        <a class="pqx-link-button subtle" href="/app/search">Edit search</a>
         {% endif %}
         <button class="pqx-button subtle" type="button" data-pqx-browser-alerts hidden>Browser alerts</button>
-        {% if has_results and selected.get('tour', {}).get('url') %}
-        <a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}" data-pqx-top-tour>Open 360</a>
-        {% endif %}
-        {% if has_results and selected.get('packet_url') %}
-        <a class="pqx-link-button" href="{{ selected.get('packet_url') }}" data-pqx-top-packet>Review details</a>
-        {% endif %}
+        <span class="pqx-context-actions" data-pw-top-actions>
+          {% if has_results and selected.get('tour', {}).get('url') %}
+          <a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}">Open 360</a>
+          {% endif %}
+          {% if has_results and selected.get('packet_url') %}
+          <a class="pqx-link-button" href="{{ selected.get('packet_url') }}">Review details</a>
+          {% endif %}
+        </span>
         {% if run_active %}
         <button class="pqx-button primary" type="button" data-pqx-refresh-status>Refresh status</button>
         {% elif run_terminal_no_results %}
-        <a class="pqx-link-button primary" href="/app/properties">New search</a>
+        <a class="pqx-link-button primary" href="/app/search">New search</a>
         {% elif setup_mode %}
         <button class="pqx-button primary" type="button" data-pqx-launch-top>Launch search</button>
+        {% endif %}
+        {% if account_nav %}
+        <details class="pqx-account-menu">
+          <summary aria-label="Account navigation">Account</summary>
+          <div class="pqx-account-menu-panel">
+            <div class="pqx-account-menu-label">
+              <span>Signed in</span>
+              <strong>{{ account_nav.label }}</strong>
+            </div>
+            <div class="pqx-account-menu-links">
+              <a class="pqx-link-button" href="{{ account_nav.billing_href }}">Upgrade</a>
+              <a class="pqx-link-button" href="{{ account_nav.profile_href }}">Profile</a>
+              <a class="pqx-link-button subtle" href="{{ account_nav.settings_href }}">Settings</a>
+              <form class="pqx-account-menu-form" method="post" action="{{ account_nav.sign_out_action }}">
+                <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
+                <button class="pqx-button subtle" type="submit">Log out</button>
+              </form>
+            </div>
+          </div>
+        </details>
         {% endif %}
       </div>
     </header>
 
     <main class="pqx-main">
-      <div class="pqx-mobile-switch" aria-label="PropertyQuarry workspace mode" data-property-mobile-dock>
+      <div class="pqx-mobile-switch" aria-label="PropertyQuarry view mode" data-property-mobile-dock>
         <button class="pqx-mode-button active" type="button" data-pw-mode="results" data-workbench-mobile-mode="results">Results</button>
         <button class="pqx-mode-button" type="button" data-pw-mode="property" data-workbench-mobile-mode="property">Property</button>
-        {% if setup_mode %}<button class="pqx-mode-button" type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">Edit</button>{% endif %}
+        {% if setup_mode %}<button class="pqx-mode-button" type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">Search</button>{% endif %}
       </div>
 
       {% if setup_mode %}
-      <section class="pqx-stage pqx-setup">
+      <section class="pqx-stage pqx-setup{% if surface_mode == 'search' %} pqx-surface-search{% else %} pqx-surface-home{% endif %}">
         <aside class="pqx-setup-intro active" data-pqx-mobile-panel="results">
           {% set dashboard_agents = property_meta.get('search_agents') or [] %}
           {% set active_dashboard_agents = dashboard_agents|selectattr('enabled')|list %}
           {% set selected_dashboard_agent = property_meta.get('search_agent') or (dashboard_agents[0] if dashboard_agents else {}) %}
           <div class="pqx-title">
-            <span>Dashboard</span>
-            <h1>Previous searches.</h1>
+            <span>{% if surface_mode == 'search' %}Search desk{% else %}Dashboard{% endif %}</span>
+            <h1>{% if surface_mode == 'search' %}Build the next search.{% else %}Previous searches.{% endif %}</h1>
           </div>
           <div class="pqx-brief-stack">
-            <p class="pqx-note">Start from searches you already ran. Open a finished search for its compact ranked results, or edit a saved search beside this dashboard.</p>
+            <p class="pqx-note">{% if surface_mode == 'search' %}Keep the brief on the left and use this rail only for watch context: saved searches, recent runs, and the last things worth reopening.{% else %}Start from searches you already ran. Open a finished search for its compact ranked results, or edit a saved search beside this dashboard.{% endif %}</p>
           </div>
           <div class="pqx-dashboard-stack" data-pqx-dashboard-summary>
             <div class="pqx-dashboard-row">
@@ -2208,7 +2426,7 @@
             </div>
             <div class="pqx-dashboard-row">
               <span class="pqx-small">Next action</span>
-              <strong>{% if dashboard_agents %}Edit or run a saved search{% else %}Create your first saved search{% endif %}</strong>
+              <strong>{% if dashboard_agents %}{% if surface_mode == 'search' %}Reuse a saved search or refine this brief{% else %}Edit or run a saved search{% endif %}{% else %}Create your first saved search{% endif %}</strong>
               <span class="pqx-note">Message limits are handled by ranking first and sending only the strongest homes.</span>
             </div>
           </div>
@@ -2222,6 +2440,7 @@
                 </div>
                 <span class="pqx-pill{% if previous.get('is_finished') %} good{% else %} warn{% endif %}">{{ previous.get('status_label') }}</span>
               </div>
+              {% if previous.get('status_note') %}<div class="pqx-note">{{ previous.get('status_note') }}</div>{% endif %}
               <div class="pqx-previous-metrics">
                 <span>Homes <b>{{ previous.get('listing_total') }}</b></span>
                 <span>Ranked <b>{{ previous.get('ranked_total') }}</b></span>
@@ -2238,7 +2457,7 @@
                   </div>
                   <div class="pqx-actions">
                     {% if candidate.get('review_url') %}<a class="pqx-link-button subtle" href="{{ candidate.get('review_url') }}">Review</a>{% endif %}
-                    {% if candidate.get('map_url') %}<a class="pqx-link-button subtle" href="{{ candidate.get('map_url') }}">Map</a>{% endif %}
+                    {% if candidate.get('map_url') %}<a class="pqx-link-button subtle" href="{{ candidate.get('map_url') }}" target="_blank" rel="noreferrer">Map</a>{% endif %}
                   </div>
                 </div>
                 {% endfor %}
@@ -2246,6 +2465,7 @@
               {% endif %}
               <div class="pqx-actions">
                 <a class="pqx-link-button primary" href="{{ previous.get('href') }}">Open results</a>
+                <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ previous.get('run_id') }}">Delete</button>
                 {% if previous.get('held_back_total') %}<span class="pqx-note">{{ previous.get('held_back_total') }} held back by rules</span>{% endif %}
               </div>
             </article>
@@ -2286,6 +2506,7 @@
             <div class="pqx-actions">
               <button class="pqx-button" type="button" data-search-agent-save-current>Save changes</button>
               <button class="pqx-button subtle" type="button" data-search-agent-save-new>Save as new</button>
+              <button class="pqx-button subtle" type="button" data-search-agent-reset>Reset</button>
             </div>
           </div>
           <form class="pqx-form" data-console-form-variant="{{ console_form.get('variant') }}" data-console-form-meta='{{ property_meta|tojson|safe }}'>
@@ -2347,8 +2568,8 @@
                     <div class="pqx-note">{{ group.get('detail') }}</div>
                   </summary>
                   <div class="pqx-field-tools" style="margin:8px 0 10px;">
-                    <button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Select group</button>
-                    <button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear group</button>
+                    <button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Use this family</button>
+                    <button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear this family</button>
                   </div>
                   <div class="pqx-check-grid" data-pqx-check-grid="{{ field.name }}">
                     {% for option in group.get('options') or [] %}
@@ -2439,6 +2660,15 @@
               </details>
               {% endif %}
             </div>
+            <section class="pqx-card pqx-evidence-catalog" data-pqx-evidence-catalog hidden>
+              <div class="pqx-section-head">
+                <div>
+                  <h2>Official evidence layers</h2>
+                  <div class="pqx-note">Public datasets used for school, transport, flood, air, noise, and broadband checks in this market.</div>
+                </div>
+              </div>
+              <div class="pqx-source-grid" data-pqx-evidence-source-list></div>
+            </section>
             <div class="pqx-form-footer">
               <div class="pqx-actions">
                 <button class="pqx-button subtle" type="button" data-property-step-back hidden>Back</button>
@@ -2656,7 +2886,7 @@
             {% endif %}
           </div>
         </aside>
-        <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property">
+        <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property" data-pqx-screenfit-target="run-progress">
           <div class="pqx-section-head">
             <div>
               <h2>Best matches</h2>
@@ -2716,7 +2946,7 @@
                     <div class="pqx-route-evidence">
                       {% for route in route_evidence[:4] %}
                       {% if route.get('map_url') %}
-                      <a href="{{ route.get('map_url') }}"><i>{{ route.get('icon') }}</i>{{ route.get('label') }} · {{ route.get('distance') }}</a>
+                      <a href="{{ route.get('map_url') }}" target="_blank" rel="noreferrer"><i>{{ route.get('icon') }}</i>{{ route.get('label') }} · {{ route.get('distance') }}</a>
                       {% else %}
                       <span><i>{{ route.get('icon') }}</i>{{ route.get('label') }} · {{ route.get('distance') }}</span>
                       {% endif %}
@@ -2730,7 +2960,7 @@
                   <td>{{ candidate.get('compare_reason') or candidate.get('fit_summary') or (candidate.get('match_reasons') or ['Review details for more context'])[0] }}</td>
                   <td>
                     {% if candidate.get('packet_url') %}<a href="{{ candidate.get('packet_url') }}">Review</a>{% endif %}
-                    {% if candidate.get('map_url') %}<a href="{{ candidate.get('map_url') }}">Map</a>{% endif %}
+                    {% if candidate.get('map_url') %}<a href="{{ candidate.get('map_url') }}" target="_blank" rel="noreferrer">Map</a>{% endif %}
                     {% if candidate.get('property_url') %}<a href="{{ candidate.get('property_url') }}">Listing</a>{% endif %}
                   </td>
                 </tr>
@@ -2840,7 +3070,7 @@
       </section>
       {% elif run_visible %}
       <section class="pqx-stage pqx-running">
-        <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property">
+        <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property" data-pqx-screenfit-target="run-progress">
           <div class="pqx-section-head">
             <div>
               <h2>{% if run_active %}Search is running. Inputs are locked.{% else %}Search progress{% endif %}</h2>
@@ -2850,16 +3080,6 @@
           </div>
           <div class="pqx-note" data-pqx-run-message>{{ run.get('message') or 'The search is queued.' }}</div>
           {{ progress_board(run, run_sources, research_task_counts) }}
-          {% if run_active %}
-          {% set active_provider_lanes = (run.get('summary') or {}).get('sources_total') or run_sources|length or 0 %}
-          <div class="pqx-dashboard-stack" data-pqx-running-provider-state>
-            <div class="pqx-dashboard-row">
-              <span class="pqx-small">{% if active_provider_lanes > 0 %}Sources checking{% else %}Search starting{% endif %}</span>
-              <strong>{% if active_provider_lanes > 0 %}Checking {{ active_provider_lanes }} source{{ '' if active_provider_lanes == 1 else 's' }}{% else %}Waiting for the first source result{% endif %}</strong>
-              <span class="pqx-note">{% if active_provider_lanes > 0 %}The search is applying your area, price, size, and layout rules. Ranked homes will appear here as soon as the source checks finish.{% else %}The run has started and is preparing the selected sources. The first real source result will replace this message automatically.{% endif %}</span>
-            </div>
-          </div>
-          {% endif %}
           <details class="pqx-card" data-pqx-running-details>
             <summary><strong>Search details</strong><span class="pqx-note">Open for source events and decision checks.</span></summary>
             {{ research_queue_panel(research_tasks, run.get('run_id') or '', research_task_counts) }}
@@ -2902,7 +3122,7 @@
               <div class="pqx-actions">
                 {% if candidate.get('packet_url') %}<a class="pqx-link-button primary" href="{{ candidate.get('packet_url') }}">Review</a>{% endif %}
                 {% if candidate.get('tour', {}).get('url') %}<a class="pqx-link-button" href="{{ candidate.get('tour', {}).get('url') }}">360</a>{% endif %}
-                {% if candidate.get('map_url') %}<a class="pqx-link-button" href="{{ candidate.get('map_url') }}">Map</a>{% endif %}
+                {% if candidate.get('map_url') %}<a class="pqx-link-button" href="{{ candidate.get('map_url') }}" target="_blank" rel="noreferrer">Map</a>{% endif %}
               </div>
             </article>
             {% endfor %}
@@ -2998,39 +3218,49 @@
                 {% endfor %}
               </div>
             </details>
-            <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Your decision</h2><span class="pqx-pill">Saved to preferences</span></div>
-              <div class="pqx-decision-copy">Would you pursue this property? The answer updates future ranking, keeps missing-fact follow-up visible, and only later contributes to anonymized market risk signals.</div>
+            <section class="pqx-card pqx-decision-wizard">
+              <div class="pqx-section-head"><h2>Would you pursue this property?</h2><span class="pqx-pill">Decision wizard</span></div>
+              <div class="pqx-decision-copy">Start with the simple answer. Then add only the reasons that matter and save the next step.</div>
+              <div class="pqx-decision-stepper" aria-label="Decision steps">
+                <span class="is-active">1 Answer</span>
+                <span data-pw-decision-step-label>2 Explain</span>
+                <span>3 Save</span>
+              </div>
               <div class="pqx-decision-row" aria-label="Property decision reaction">
                 <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="like">Yes</button>
                 <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="maybe">Maybe</button>
                 <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="dislike">No</button>
                 <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="hide">Hide</button>
               </div>
-              <div class="pqx-decision-copy"><strong>Decision state</strong> Move the property forward when the next real-world action is clearer than another like/dislike vote.</div>
-              <div class="pqx-actions">
-                <button class="pqx-button" type="button" data-pw-decision-state="viewing_requested">Viewing requested</button>
-                <button class="pqx-button" type="button" data-pw-decision-state="documents_requested">Documents requested</button>
-                <button class="pqx-button" type="button" data-pw-decision-state="offer_candidate">Offer candidate</button>
-                <button class="pqx-button" type="button" data-pw-decision-state="archived">Archived</button>
+              <div class="pqx-decision-status" data-pw-feedback-status>Pick Yes, Maybe, No, or Hide to continue.</div>
+              <div class="pqx-decision-detail" data-pw-decision-detail hidden>
+                <div class="pqx-decision-copy"><strong>What drove that?</strong> Pick the strongest reasons first. If the answer is No, these reduce similar matches next time.</div>
+                <div class="pqx-decision-reasons" data-pw-feedback-reasons></div>
+                <div class="pqx-decision-copy"><strong>Ask agent next</strong></div>
+                <div class="pqx-event-list" data-pw-feedback-questions>
+                  <div class="pqx-note">Loading the next suggested questions.</div>
+                </div>
+                <div class="pqx-decision-copy"><strong>This will</strong></div>
+                <div class="pqx-event-list" data-pw-feedback-consequences>
+                  <div class="pqx-note">Update your future ranking and keep the next action visible.</div>
+                </div>
+                <textarea class="pqx-decision-note" rows="3" placeholder="What exactly worked, failed, or still needs proof?" data-pw-feedback-note></textarea>
+                <div class="pqx-actions">
+                  <button class="pqx-button primary" type="button" data-pw-feedback-save>Save decision</button>
+                  <a class="pqx-link-button subtle" href="/app/profile">Manage preferences</a>
+                </div>
               </div>
-              <div class="pqx-decision-status" data-pw-decision-state-status></div>
-              <div class="pqx-decision-copy"><strong>What drove that?</strong> Pick the strongest reasons first. If the answer is No, these reduce similar matches next time.</div>
-              <div class="pqx-decision-reasons" data-pw-feedback-reasons></div>
-              <div class="pqx-decision-copy"><strong>Ask agent next</strong></div>
-              <div class="pqx-event-list" data-pw-feedback-questions>
-                <div class="pqx-note">Loading the next suggested questions.</div>
-              </div>
-              <div class="pqx-decision-copy"><strong>This will</strong></div>
-              <div class="pqx-event-list" data-pw-feedback-consequences>
-                <div class="pqx-note">Update your future ranking and keep the next action visible.</div>
-              </div>
-              <textarea class="pqx-decision-note" rows="3" placeholder="What exactly worked, failed, or still needs proof?" data-pw-feedback-note></textarea>
-              <div class="pqx-actions">
-                <button class="pqx-button primary" type="button" data-pw-feedback-save>Save decision</button>
-                <a class="pqx-link-button subtle" href="/app/profile">Manage preferences</a>
-              </div>
-              <div class="pqx-decision-status" data-pw-feedback-status></div>
+              <details class="pqx-decision-advanced">
+                <summary><strong>More actions</strong><span class="pqx-note">Use this once the next real-world step is clear.</span></summary>
+                <div class="pqx-decision-copy"><strong>Decision state</strong> Move the property forward when the next real-world action is clearer than another like/dislike vote.</div>
+                <div class="pqx-actions">
+                  <button class="pqx-button" type="button" data-pw-decision-state="viewing_requested">Viewing requested</button>
+                  <button class="pqx-button" type="button" data-pw-decision-state="documents_requested">Documents requested</button>
+                  <button class="pqx-button" type="button" data-pw-decision-state="offer_candidate">Offer candidate</button>
+                  <button class="pqx-button" type="button" data-pw-decision-state="archived">Archived</button>
+                </div>
+                <div class="pqx-decision-status" data-pw-decision-state-status></div>
+              </details>
             </section>
             <section class="pqx-card">
               <div class="pqx-section-head"><h2>Ask about this home</h2><span class="pqx-pill">Optional</span></div>
@@ -3303,8 +3533,10 @@
     });
 
     const candidateByRef = new Map(candidates.map((candidate) => [String(candidate.candidate_ref || ''), candidate]));
+    const briefPreferences = (data.brief_preferences && typeof data.brief_preferences === 'object') ? { ...data.brief_preferences } : {};
     const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
     const propertyDecisionSaveEndpoint = () => '/app/api/property/decisions';
+    const propertyDecisionStateEndpoint = (propertyRef) => `/app/api/property/decisions?property_ref=${encodeURIComponent(String(propertyRef || '').trim())}`;
     const renderOoda = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
       <div class="pqx-ooda-item"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value)}</strong><small>${escapeHtml(row.detail)}</small></div>
     `).join('') || '<div class="pqx-note">No quick-read detail captured yet.</div>';
@@ -3357,6 +3589,8 @@
     };
     const feedbackPersonId = String(meta.feedback_person_id || 'self').trim() || 'self';
     const feedbackStatusNode = root.querySelector('[data-pw-feedback-status]');
+    const decisionDetailNode = root.querySelector('[data-pw-decision-detail]');
+    const decisionStepLabelNode = root.querySelector('[data-pw-decision-step-label]');
     const decisionStateStatusNode = root.querySelector('[data-pw-decision-state-status]');
     const feedbackReasonsNode = root.querySelector('[data-pw-feedback-reasons]');
     const feedbackQuestionsNode = root.querySelector('[data-pw-feedback-questions]');
@@ -3378,12 +3612,16 @@
     const clippyAnswerNode = root.querySelector('[data-pw-clippy-answer]');
     const feedbackReactionButtons = [...root.querySelectorAll('[data-pw-feedback-reaction]')];
     const feedbackSaveButton = root.querySelector('[data-pw-feedback-save]');
+    const topPropertyActionsNode = root.querySelector('[data-pw-top-actions]');
     const counterfactualStatusNode = root.querySelector('[data-pqx-counterfactual-status]');
     const loadedAgentState = root.querySelector('[data-search-agent-loaded-state]');
     const loadedAgentLabel = root.querySelector('[data-search-agent-loaded-label]');
     const loadedAgentDirtyLabel = root.querySelector('[data-search-agent-dirty-label]');
+    const loadedAgentResetButton = root.querySelector('[data-search-agent-reset]');
     let loadedSearchAgentId = '';
     let loadedSearchAgentSnapshot = '';
+    let loadedSearchAgentPayload = {};
+    let latestDecisionStateRequestKey = '';
     const feedbackSuggestionCache = new Map();
     let selectedFeedbackReaction = '';
     let selectedFeedbackCandidateRef = '';
@@ -3632,6 +3870,118 @@
         || '<div class="pqx-note">Decision saved. No additional follow-up was generated.</div>'
       }</div>`;
     };
+    const renderPersistedDecisionState = (body) => {
+      if (!feedbackConsequencesNode) return;
+      const latestDecision = body?.latest_decision && typeof body.latest_decision === 'object' ? body.latest_decision : {};
+      const questions = Array.isArray(body?.agent_question_tasks) ? body.agent_question_tasks : [];
+      const documents = Array.isArray(body?.document_intake) ? body.document_intake : [];
+      const nextActions = Array.isArray(body?.next_actions) ? body.next_actions : [];
+      const rows = [];
+      if (latestDecision?.decision_state) {
+        rows.push(['Current state', String(latestDecision.decision_state).replaceAll('_', ' ')]);
+      }
+      questions.slice(0, 2).forEach((row) => rows.push([
+        `Agent question${row?.status ? ` · ${String(row.status).replaceAll('_', ' ')}` : ''}`,
+        row?.question_text || 'Question drafted.',
+      ]));
+      documents.slice(0, 2).forEach((row) => rows.push([
+        `Document${row?.verification_state ? ` · ${String(row.verification_state).replaceAll('_', ' ')}` : ''}`,
+        String(row?.document_type || 'document').replaceAll('_', ' '),
+      ]));
+      nextActions.slice(0, 3).forEach((line) => rows.push(['Next action', line]));
+      feedbackConsequencesNode.innerHTML = `<div class="pqx-decision-consequence-grid">${
+        rows.map(([title, detail]) => `<div class="pqx-event-card"><strong>${escapeHtml(title)}</strong><span class="pqx-note">${escapeHtml(detail)}</span></div>`).join('')
+        || '<div class="pqx-note">No saved decision yet. Choose Yes, Maybe, No, or Hide to start the decision trail.</div>'
+      }</div>`;
+      if (followupsNode) {
+        const persistedFollowups = [
+          ...questions.slice(0, 3).map((row) => ({
+            title: 'Agent question',
+            detail: row?.question_text || 'Question drafted.',
+            tag: String(row?.status || 'drafted').replaceAll('_', ' '),
+            task_id: String(row?.task_id || ''),
+            kind: 'agent_question',
+          })),
+          ...documents.slice(0, 3).map((row) => ({
+            title: 'Document request',
+            detail: String(row?.document_type || 'document').replaceAll('_', ' '),
+            tag: String(row?.verification_state || 'pending').replaceAll('_', ' '),
+            document_id: String(row?.document_id || ''),
+            kind: 'document',
+          })),
+        ];
+        followupsNode.innerHTML = persistedFollowups.length
+          ? persistedFollowups.map((row) => {
+              const agentActions = row.kind === 'agent_question' && row.task_id ? `
+                <div class="pqx-actions">
+                  <button class="pqx-button" type="button" data-pw-agent-question-status="sent" data-pw-agent-question-id="${escapeHtml(row.task_id)}">Mark sent</button>
+                  <button class="pqx-button" type="button" data-pw-agent-question-status="answered" data-pw-agent-question-id="${escapeHtml(row.task_id)}">Mark answered</button>
+                </div>
+              ` : '';
+              const documentActions = row.kind === 'document' && row.document_id ? `
+                <div class="pqx-actions">
+                  <button class="pqx-button" type="button" data-pw-document-state="uploaded" data-pw-document-id="${escapeHtml(row.document_id)}">Uploaded</button>
+                  <button class="pqx-button" type="button" data-pw-document-state="verified" data-pw-document-id="${escapeHtml(row.document_id)}">Verified</button>
+                </div>
+              ` : '';
+              return `
+                <div class="pqx-event-card">
+                  <strong>${escapeHtml(row.title || 'Follow-up')}</strong>
+                  <span class="pqx-note">${escapeHtml(row.detail || '')}</span>
+                  <span class="pqx-small">${escapeHtml(row.tag || '')}</span>
+                  ${agentActions}
+                  ${documentActions}
+                </div>
+              `;
+            }).join('')
+          : '<div class="pqx-note">No saved follow-up yet for this property.</div>';
+      }
+    };
+    const updateDecisionFollowupState = async (candidate, kind, id, nextValue) => {
+      if (!candidate || !id || !nextValue) return;
+      if (followupStatusNode) followupStatusNode.textContent = 'Updating follow-up...';
+      try {
+        const endpoint = kind === 'agent_question'
+          ? `/app/api/property/agent-questions/${encodeURIComponent(id)}`
+          : `/app/api/property/documents/${encodeURIComponent(id)}`;
+        const payload = kind === 'agent_question'
+          ? { status: nextValue }
+          : { verification_state: nextValue };
+        const response = await fetch(endpoint, {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(body.detail || body.error || body, 'Could not update the follow-up.'));
+        renderPersistedDecisionState(body);
+        if (followupStatusNode) followupStatusNode.textContent = kind === 'agent_question'
+          ? `Agent question marked ${String(nextValue).replaceAll('_', ' ')}.`
+          : `Document marked ${String(nextValue).replaceAll('_', ' ')}.`;
+      } catch (error) {
+        if (followupStatusNode) followupStatusNode.textContent = error instanceof Error ? error.message : 'Could not update the follow-up.';
+      }
+    };
+    const loadPersistedDecisionState = async (candidate) => {
+      if (!candidate) return;
+      const propertyRef = candidatePropertyRef(candidate);
+      if (!propertyRef) return;
+      latestDecisionStateRequestKey = propertyRef;
+      try {
+        const response = await fetch(propertyDecisionStateEndpoint(propertyRef), {
+          method: 'GET',
+          credentials: 'same-origin',
+          headers: { accept: 'application/json' },
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) return;
+        if (latestDecisionStateRequestKey !== propertyRef) return;
+        renderPersistedDecisionState(body);
+      } catch (_error) {
+        // Keep suggestion/default copy if persisted state cannot be loaded.
+      }
+    };
     const loadCandidateFeedbackSuggestions = async (candidate) => {
       if (!candidate || !feedbackReasonsNode) return;
       const ref = String(candidate.candidate_ref || '').trim();
@@ -3670,6 +4020,18 @@
         feedbackReactionButtons.forEach((candidateButton) => {
           candidateButton.classList.toggle('active', candidateButton === button);
         });
+        if (decisionDetailNode) decisionDetailNode.hidden = false;
+        if (decisionStepLabelNode) decisionStepLabelNode.textContent = selectedFeedbackReaction === 'hide' ? '2 Confirm' : '2 Explain';
+        if (feedbackStatusNode) {
+          const reactionLabel = selectedFeedbackReaction === 'like'
+            ? 'Yes'
+            : selectedFeedbackReaction === 'maybe'
+              ? 'Maybe'
+              : selectedFeedbackReaction === 'dislike'
+                ? 'No'
+                : 'Hide';
+          feedbackStatusNode.textContent = `${reactionLabel} selected. Add the strongest reasons, then save the decision.`;
+        }
       });
     });
     feedbackSaveButton?.addEventListener('click', async () => {
@@ -3785,7 +4147,9 @@
       selectedFeedbackCandidateRef = String(candidate.candidate_ref || '').trim();
       selectedFeedbackReaction = '';
       selectedFeedbackReasonKeys = new Set();
-      if (feedbackStatusNode) feedbackStatusNode.textContent = '';
+      if (feedbackStatusNode) feedbackStatusNode.textContent = 'Pick Yes, Maybe, No, or Hide to continue.';
+      if (decisionDetailNode) decisionDetailNode.hidden = true;
+      if (decisionStepLabelNode) decisionStepLabelNode.textContent = '2 Explain';
       if (feedbackNoteNode) feedbackNoteNode.value = '';
       feedbackReactionButtons.forEach((button) => button.classList.remove('active'));
       root.querySelectorAll('[data-workbench-row]').forEach((row) => {
@@ -3876,14 +4240,14 @@
       if (riskLevel) riskLevel.textContent = candidate.risk?.level || 'unknown';
       const investment = root.querySelector('[data-pw-investment]');
       if (investment) investment.textContent = candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the review details for cost checks when buy mode is active.';
-      root.querySelectorAll('[data-pw-actions], [data-pqx-top-packet], [data-pqx-top-tour]').forEach((node) => {
+      root.querySelectorAll('[data-pw-actions]').forEach((node) => {
         if (node.matches('[data-pw-actions]')) node.innerHTML = actionMarkup(candidate);
       });
-      const topActions = root.querySelector('.pqx-top-actions');
-      if (topActions && candidates.length) {
-        topActions.innerHTML = actionMarkup(candidate);
+      if (topPropertyActionsNode && candidates.length) {
+        topPropertyActionsNode.innerHTML = actionMarkup(candidate);
       }
       loadCandidateFeedbackSuggestions(candidate);
+      loadPersistedDecisionState(candidate);
       if (updateUrl) {
         const url = new URL(window.location.href);
         url.searchParams.set('candidate', candidate.candidate_ref || '');
@@ -3903,6 +4267,31 @@
       event.stopPropagation();
       const ref = button.getAttribute('data-candidate-ref') || root.querySelector('[aria-selected="true"][data-candidate-ref]')?.getAttribute('data-candidate-ref') || '';
       createFlipLinkPacket(candidateByRef.get(ref) || candidates[0], button);
+    });
+    root.addEventListener('click', (event) => {
+      const agentButton = event.target?.closest?.('[data-pw-agent-question-id]');
+      if (agentButton) {
+        event.preventDefault();
+        const candidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+        updateDecisionFollowupState(
+          candidate,
+          'agent_question',
+          String(agentButton.getAttribute('data-pw-agent-question-id') || '').trim(),
+          String(agentButton.getAttribute('data-pw-agent-question-status') || '').trim(),
+        );
+        return;
+      }
+      const documentButton = event.target?.closest?.('[data-pw-document-id]');
+      if (documentButton) {
+        event.preventDefault();
+        const candidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+        updateDecisionFollowupState(
+          candidate,
+          'document',
+          String(documentButton.getAttribute('data-pw-document-id') || '').trim(),
+          String(documentButton.getAttribute('data-pw-document-state') || '').trim(),
+        );
+      }
     });
     const urlCandidate = new URL(window.location.href).searchParams.get('candidate');
     if (urlCandidate) selectCandidate(urlCandidate, { updateUrl: false });
@@ -4116,7 +4505,12 @@
       if (!grid) return;
       const selected = new Set(selectedValues.map((item) => String(item || '').trim()).filter(Boolean));
       const familyHeadings = {
-        marketplace: ['Core marketplaces', 'Primary broad-market search sources for this country.'],
+        marketplace: ['Marketplaces', 'Primary broad-market search sources for this country.'],
+        core_portal: ['Core portals', 'National or national-scale search portals for this country.'],
+        classified: ['Classifieds', 'Private-owner and classifieds-heavy sources with broader noise and duplicate risk.'],
+        shared_housing: ['Shared housing', 'Rooms, WGs, student, and short-term living sources.'],
+        corporate_landlord: ['Direct landlords', 'Corporate or institutional landlords publishing inventory directly.'],
+        municipal_housing: ['Municipal housing', 'City-owned, public, or municipally-backed housing providers.'],
         broker_direct: ['Broker direct', 'Broker-owned inventory and direct sources.'],
         cooperative: ['Cooperatives', 'Genossenschaften and cooperative housing sources.'],
         public_housing: ['Public housing', 'Municipal and public-housing-adjacent sources.'],
@@ -4139,12 +4533,12 @@
           if (!grouped.has(family)) grouped.set(family, []);
           grouped.get(family).push(option);
         });
-        const familyOrder = ['marketplace', 'broker_direct', 'cooperative', 'public_housing', 'developer_projects', 'distressed_sales', 'community_signals', 'community_meta'];
+        const familyOrder = ['marketplace', 'core_portal', 'classified', 'shared_housing', 'corporate_landlord', 'municipal_housing', 'broker_direct', 'cooperative', 'public_housing', 'developer_projects', 'distressed_sales', 'community_signals', 'community_meta'];
         grid.innerHTML = [...grouped.entries()]
           .sort((a, b) => familyOrder.indexOf(a[0]) - familyOrder.indexOf(b[0]))
           .map(([family, items]) => {
             const [title, detail] = familyHeadings[family] || [String(family).replaceAll('_', ' '), 'Grouped source.'];
-            return `<details class="pqx-advanced-panel" data-provider-group-panel style="margin-top:12px;"><summary><strong>${escapeHtml(title)}</strong><div class="pqx-note">${escapeHtml(detail)}</div></summary><div class="pqx-field-tools" style="margin:8px 0 10px;"><button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Select group</button><button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear group</button></div><div class="pqx-check-grid" data-pqx-check-grid="${escapeHtml(name)}-group">${items.map(renderOption).join('')}</div></details>`;
+            return `<details class="pqx-advanced-panel" data-provider-group-panel style="margin-top:12px;"><summary><strong>${escapeHtml(title)}</strong><div class="pqx-note">${escapeHtml(detail)}</div></summary><div class="pqx-field-tools" style="margin:8px 0 10px;"><button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Use this family</button><button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear this family</button></div><div class="pqx-check-grid" data-pqx-check-grid="${escapeHtml(name)}-group">${items.map(renderOption).join('')}</div></details>`;
           })
           .join('');
         return;
@@ -4157,22 +4551,26 @@
       if (status) status.textContent = String(message || '').trim();
       if (error && message) error.textContent = '';
     };
+    const applyCheckboxSelection = (inputs, selectedInputs) => {
+      const selectedSet = new Set(selectedInputs);
+      inputs.forEach((node) => {
+        const nextChecked = selectedSet.has(node);
+        if (node.checked === nextChecked) return;
+        node.checked = nextChecked;
+        node.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    };
     const selectAllCheckboxValues = (form, name, maxCount) => {
       const inputs = [...(form?.querySelectorAll(`input[name="${name}"]`) || [])];
       if (!inputs.length) return;
       const normalizedMax = Number.isFinite(Number(maxCount)) ? Math.max(1, Number(maxCount)) : inputs.length;
-      let selectedCount = inputs.filter((node) => node.checked).length;
-      inputs.forEach((node) => {
-        if (node.checked || selectedCount >= normalizedMax) return;
-        node.checked = true;
-        selectedCount += 1;
-        node.dispatchEvent(new Event('change', { bubbles: true }));
-      });
-      if (selectedCount < inputs.length) {
-        setCheckboxGroupStatus(`Selected ${selectedCount} providers. Your current plan allows up to ${normalizedMax} at once.`);
+      const selectedInputs = inputs.slice(0, normalizedMax);
+      applyCheckboxSelection(inputs, selectedInputs);
+      if (selectedInputs.length < inputs.length) {
+        setCheckboxGroupStatus(`Selected ${selectedInputs.length} providers. Your current plan allows up to ${normalizedMax} at once.`);
         return;
       }
-      setCheckboxGroupStatus(`Selected all ${selectedCount} providers.`);
+      setCheckboxGroupStatus(`Selected all ${selectedInputs.length} providers.`);
     };
     const readableErrorDetail = (detail, fallback) => {
       if (Array.isArray(detail)) {
@@ -4426,6 +4824,7 @@
           language_code: browserLanguageCode(),
           listing_mode: listingMode,
           property_type: fieldValue(form, 'property_type') || 'any',
+          search_mode: fieldValue(form, 'search_mode') || 'strict',
           investment_research_mode: listingMode === 'buy' ? (fieldValue(form, 'investment_research_mode') || 'off') : 'off',
           all_of_vienna: allOfVienna,
           location_query: countryCode === 'AT' && regionCode === 'vienna' && allOfVienna ? 'Vienna' : uniqueValues(selectedLocations, csvValues(customLocationQuery)).join(', '),
@@ -4445,12 +4844,14 @@
           enable_location_risk_research: Boolean(form.querySelector('input[name="enable_location_risk_research"]')?.checked),
           enable_trust_risk_scoring: Boolean(form.querySelector('input[name="enable_trust_risk_scoring"]')?.checked),
           enable_family_mode: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked),
+          ganztag_required: Boolean(form.querySelector('input[name="ganztag_required"]')?.checked),
           enable_commute_research: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked),
           commute_destination: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? (fieldValue(form, 'commute_destination') || '') : '',
           additional_reachability_targets: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? (fieldValue(form, 'additional_reachability_targets') || '') : '',
           preferred_reachability_modes: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? checkedValues(form, 'preferred_reachability_modes') : [],
           school_stage_preferences: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? checkedValues(form, 'school_stage_preferences') : [],
           school_quality_priority: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) && checkedValues(form, 'school_stage_preferences').length > 0 ? (fieldValue(form, 'school_quality_priority') || 'any') : 'any',
+          require_school_evidence: Boolean(form.querySelector('input[name="require_school_evidence"]')?.checked),
           university_name: fieldValue(form, 'university_name') || '',
           desired_project_stages: checkedValues(form, 'desired_project_stages'),
           apply_unknowns_penalty: Boolean(form.querySelector('input[name="apply_unknowns_penalty"]')?.checked),
@@ -4486,12 +4887,19 @@
           max_distance_to_public_pool_m: integerValue(form, 'max_distance_to_public_pool_m'),
           max_distance_to_medical_care_m: integerValue(form, 'max_distance_to_medical_care_m'),
           prefer_good_air_quality: Boolean(form.querySelector('input[name="prefer_good_air_quality"]')?.checked),
+          avoid_noise_risk_area: Boolean(form.querySelector('input[name="avoid_noise_risk_area"]')?.checked),
+          require_high_speed_internet: Boolean(form.querySelector('input[name="require_high_speed_internet"]')?.checked),
           prefer_low_crime_area: Boolean(form.querySelector('input[name="prefer_low_crime_area"]')?.checked),
           require_drinking_water_quality_research: Boolean(form.querySelector('input[name="require_drinking_water_quality_research"]')?.checked),
           require_parking_pressure_check: Boolean(form.querySelector('input[name="require_parking_pressure_check"]')?.checked),
           avoid_cesspit_or_septic_risk: Boolean(form.querySelector('input[name="avoid_cesspit_or_septic_risk"]')?.checked),
           require_winter_access_research: Boolean(form.querySelector('input[name="require_winter_access_research"]')?.checked),
           avoid_flood_risk_area: Boolean(form.querySelector('input[name="avoid_flood_risk_area"]')?.checked),
+          wiener_wohnticket_available: Boolean(form.querySelector('input[name="wiener_wohnticket_available"]')?.checked),
+          subsidized_required: Boolean(form.querySelector('input[name="subsidized_required"]')?.checked),
+          miete_mit_kaufoption: Boolean(form.querySelector('input[name="miete_mit_kaufoption"]')?.checked),
+          eigenmittel_max_eur: integerValue(form, 'eigenmittel_max_eur'),
+          application_window_days: integerValue(form, 'application_window_days'),
           max_results_per_source: integerValue(form, 'max_results_per_source'),
           min_match_score: integerValue(form, 'min_match_score'),
           search_agent_enabled: Boolean(form.querySelector('input[name="search_agent_enabled"]')?.checked),
@@ -4499,6 +4907,9 @@
           search_agent_notification_limit: integerValue(form, 'search_agent_notification_limit'),
           search_agent_notification_period: fieldValue(form, 'search_agent_notification_period') || 'day',
           require_floorplan: Boolean(form.querySelector('input[name="require_floorplan"]')?.checked),
+          require_energy_certificate: Boolean(form.querySelector('input[name="require_energy_certificate"]')?.checked),
+          require_operating_cost_statement: Boolean(form.querySelector('input[name="require_operating_cost_statement"]')?.checked),
+          enable_auction_legal_review: Boolean(form.querySelector('input[name="enable_auction_legal_review"]')?.checked),
           use_flatbee_reputation_penalty: Boolean(form.querySelector('input[name="use_flatbee_reputation_penalty"]')?.checked),
         },
         force_refresh: Boolean(form.querySelector('input[name="force_refresh"]')?.checked),
@@ -4517,6 +4928,7 @@
         if (format === 'area_m2') return `${numberFormatter.format(Math.round(value))} m2+`;
         if (format === 'rooms') return value === 1 ? '1+ room' : `${numberFormatter.format(Math.round(value))}+ rooms`;
         if (format === 'count') return value === 1 ? '1 result' : `${numberFormatter.format(Math.round(value))} results`;
+        if (format === 'days') return value === 1 ? 'Within 1 day' : `Within ${numberFormatter.format(Math.round(value))} days`;
         if (format === 'agent_duration_days') {
           if (value <= 7) return '1 week';
           if (value >= 365) return '1 year';
@@ -4642,6 +5054,7 @@
       const countryCode = form?.querySelector('select[name="country_code"]')?.value || 'AT';
       const regionCode = form?.querySelector('select[name="region_code"]')?.value || '';
       const capabilities = currentMarketFilterCapabilities(meta || {}, countryCode, regionCode);
+      renderEvidenceSourceCatalog(form, meta);
       form?.querySelectorAll('details[data-property-advanced-panel]').forEach((panel) => {
         const unavailableFields = [...panel.querySelectorAll('[data-property-availability-key]')].filter((wrap) => {
           const key = String(wrap.getAttribute('data-property-availability-key') || '').trim();
@@ -4713,54 +5126,217 @@
       return `<div class="pqx-route-evidence">${rows.map((route) => {
         const label = `${route?.label || 'Route'} · ${route?.distance || 'checking'}`;
         const inner = `<i>${escapeHtml(route?.icon || 'MAP')}</i>${escapeHtml(label)}`;
-        return route?.map_url ? `<a href="${escapeHtml(route.map_url)}">${inner}</a>` : `<span>${inner}</span>`;
+        return route?.map_url ? `<a href="${escapeHtml(route.map_url)}" target="_blank" rel="noreferrer">${inner}</a>` : `<span>${inner}</span>`;
       }).join('')}</div>`;
+    };
+    const renderEvidenceSourceCatalog = (form, meta) => {
+      const countryCode = String(form?.querySelector('select[name="country_code"]')?.value || 'AT').trim();
+      const wrap = root.querySelector('[data-pqx-evidence-catalog]');
+      const list = root.querySelector('[data-pqx-evidence-source-list]');
+      if (!wrap || !list) return;
+      const rows = Array.isArray(meta?.evidence_source_catalog_by_country?.[countryCode])
+        ? meta.evidence_source_catalog_by_country[countryCode]
+        : [];
+      if (!rows.length) {
+        wrap.hidden = true;
+        list.innerHTML = '';
+        return;
+      }
+      wrap.hidden = false;
+      list.innerHTML = rows.slice(0, 8).map((row) => `
+        <article class="pqx-source-card">
+          <strong>${escapeHtml(row?.label || 'Official evidence')}</strong>
+          <span class="pqx-note">${escapeHtml(row?.description || 'Public evidence layer')}</span>
+          <div class="pqx-source-metrics">
+            <span>Lane <b>${escapeHtml(String(row?.evidence_family || '').replaceAll('_', ' ') || 'evidence')}</b></span>
+            <span>Confidence <b>${escapeHtml(String(row?.confidence || 'medium').replaceAll('_', ' '))}</b></span>
+          </div>
+        </article>
+      `).join('');
+    };
+    const parseUtcish = (value) => {
+      const raw = String(value || '').trim();
+      if (!raw) return null;
+      const parsed = Date.parse(raw);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    const formatEta = (minutes) => {
+      const rounded = Math.max(1, Math.round(Number(minutes) || 0));
+      if (rounded >= 60) {
+        const hours = Math.floor(rounded / 60);
+        const rest = rounded % 60;
+        return rest ? `about ${hours}h ${rest}m` : `about ${hours}h`;
+      }
+      return `about ${rounded} min`;
+    };
+    const routePreviewPath = (originLat, originLng, targetLat, targetLng) => {
+      const parse = (value) => {
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+      };
+      const oLat = parse(originLat);
+      const oLng = parse(originLng);
+      const tLat = parse(targetLat);
+      const tLng = parse(targetLng);
+      let endY = 18;
+      let control1X = 42;
+      let control1Y = 48;
+      let control2X = 96;
+      let control2Y = 24;
+      if (oLat !== null && oLng !== null && tLat !== null && tLng !== null) {
+        const latDelta = Math.max(-1, Math.min(1, tLat - oLat));
+        const lngDelta = Math.max(-1, Math.min(1, tLng - oLng));
+        endY = Math.max(12, Math.min(60, 38 - latDelta * 18));
+        control1X = Math.max(30, Math.min(58, 42 + lngDelta * 12));
+        control1Y = Math.max(10, Math.min(60, 52 - latDelta * 10));
+        control2X = Math.max(82, Math.min(110, 96 + lngDelta * 12));
+        control2Y = Math.max(10, Math.min(60, 24 - latDelta * 8));
+      }
+      return `M 12 56 C ${control1X.toFixed(1)} ${control1Y.toFixed(1)}, ${control2X.toFixed(1)} ${control2Y.toFixed(1)}, 132 ${endY.toFixed(1)}`;
+    };
+    const propertyRoutePreviews = (runPayload) => {
+      const direct = Array.isArray(runPayload?.route_previews)
+        ? runPayload.route_previews
+        : (Array.isArray(runPayload?.summary?.route_previews) ? runPayload.summary.route_previews : []);
+      if (direct.length) return direct;
+      const ranked = Array.isArray(runPayload?.summary?.ranked_candidates) ? runPayload.summary.ranked_candidates : [];
+      const candidate = ranked[0];
+      if (!candidate || typeof candidate !== 'object') return [];
+      const facts = {
+        ...(candidate.property_facts && typeof candidate.property_facts === 'object' ? candidate.property_facts : {}),
+        ...(candidate.property_facts_json && typeof candidate.property_facts_json === 'object' ? candidate.property_facts_json : {}),
+      };
+      if (facts.listing_research_snapshot && typeof facts.listing_research_snapshot === 'object') {
+        Object.assign(facts, facts.listing_research_snapshot);
+      }
+      const originLat = facts.map_lat ?? facts.lat ?? facts.latitude;
+      const originLng = facts.map_lng ?? facts.lng ?? facts.lon ?? facts.longitude;
+      const originQuery = [facts.exact_address, facts.street_address || facts.address, facts.postal_name].filter(Boolean).join(', ');
+      const previews = [];
+      if (briefPreferences.enable_commute_research && String(briefPreferences.commute_destination || '').trim()) {
+        const commuteDestination = String(briefPreferences.commute_destination || '').trim();
+        const commuteModes = [
+          ['transit', 'Transit', Number(briefPreferences.max_commute_minutes_transit || 0)],
+          ['driving', 'Car', Number(briefPreferences.max_commute_minutes_drive || 0)],
+          ['bicycling', 'Bike', Number(briefPreferences.max_commute_minutes_bike || 0)],
+          ['walking', 'Foot', Number(briefPreferences.max_commute_minutes_walk || 0)],
+        ];
+        const selectedMode = commuteModes.find((entry) => entry[2] > 0) || commuteModes[0];
+        const [modeKey, modeLabel, minutes] = selectedMode;
+        const origin = (originLat !== undefined && originLng !== undefined && originLat !== null && originLng !== null)
+          ? `${originLat},${originLng}`
+          : originQuery;
+        previews.push({
+          label: 'Your route',
+          title: commuteDestination,
+          detail: minutes > 0 ? `${modeLabel} <= ${minutes} min` : `${modeLabel} route from the property`,
+          mode_label: modeLabel,
+          map_url: origin
+            ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(commuteDestination)}&travelmode=${encodeURIComponent(modeKey)}`
+            : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(commuteDestination)}&travelmode=${encodeURIComponent(modeKey)}`,
+          preview_path: routePreviewPath(originLat, originLng),
+        });
+      }
+      const specs = [
+        ['School', 'nearest_school_m', 'nearest_school_name', 'nearest_school_lat', 'nearest_school_lng', 'Transit'],
+        ['Supermarket', 'nearest_supermarket_m', 'nearest_supermarket_name', 'nearest_supermarket_lat', 'nearest_supermarket_lng', 'Walk'],
+        ['Playground', 'nearest_playground_m', 'nearest_playground_name', 'nearest_playground_lat', 'nearest_playground_lng', 'Walk'],
+        ['Pharmacy', 'nearest_pharmacy_m', 'nearest_pharmacy_name', 'nearest_pharmacy_lat', 'nearest_pharmacy_lng', 'Walk'],
+        ['Underground', 'nearest_subway_m', 'nearest_subway_name', 'nearest_subway_lat', 'nearest_subway_lng', 'Transit'],
+      ];
+      specs.forEach(([label, distanceKey, nameKey, latKey, lngKey, modeLabel]) => {
+        if (previews.length >= 3) return;
+        const distance = Number(facts[distanceKey] || 0);
+        if (!Number.isFinite(distance) || distance <= 0) return;
+        previews.push({
+          label,
+          title: String(facts[nameKey] || label),
+          detail: `${Math.round(distance)} m from the property`,
+          mode_label: modeLabel,
+          map_url: String(((Array.isArray(candidate.route_evidence) ? candidate.route_evidence : []).find((row) => String(row?.label || '') === label)?.map_url) || candidate.map_url || '').trim(),
+          preview_path: routePreviewPath(originLat, originLng, facts[latKey], facts[lngKey]),
+        });
+      });
+      return previews.slice(0, 3);
+    };
+    const renderRoutePreviewStrip = (runPayload) => {
+      const previews = propertyRoutePreviews(runPayload);
+      if (!Array.isArray(previews) || !previews.length) return '';
+      const cards = previews.slice(0, 3).map((route) => {
+        const inner = `
+          <div class="pqx-route-preview-head">
+            <span class="pqx-small">${escapeHtml(route?.label || 'Route')}</span>
+            <strong>${escapeHtml(route?.title || 'Route preview')}</strong>
+          </div>
+          <svg class="pqx-route-preview-svg" viewBox="0 0 144 68" aria-hidden="true">
+            <circle cx="12" cy="56" r="5"></circle>
+            <path d="${escapeHtml(route?.preview_path || 'M 12 56 C 42 48, 96 24, 132 18')}"></path>
+            <circle cx="132" cy="18" r="5"></circle>
+          </svg>
+          <div class="pqx-route-preview-meta">
+            <span>${escapeHtml(route?.detail || '')}</span>
+            <b>${escapeHtml(route?.mode_label || 'Route')}</b>
+          </div>
+        `;
+        return `<article class="pqx-route-preview-card">${route?.map_url ? `<a class="pqx-route-preview-link" href="${escapeHtml(route.map_url)}" target="_blank" rel="noreferrer">${inner}</a>` : `<div class="pqx-route-preview-link">${inner}</div>`}</article>`;
+      }).join('');
+      return `<div class="pqx-route-preview-strip" data-pqx-route-preview-strip>${cards}</div>`;
+    };
+    const estimateRunEtaLabel = (runPayload, summary, layout) => {
+      const status = String(runPayload?.status || summary?.status || 'queued');
+      if (status === 'processed' || status === 'completed') return '100% · complete';
+      if (status === 'failed' || status === 'cancelled') return 'stopped';
+      const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
+      const startedAt = parseUtcish(runPayload?.started_at || runPayload?.created_at);
+      const updatedAt = parseUtcish(runPayload?.updated_at || runPayload?.generated_at) || Date.now();
+      const sources = Math.max(0, Number(summary?.sources_total || 0));
+      if (progress >= 100) return '100% · complete';
+      if (progress >= 5 && startedAt && updatedAt > startedAt) {
+        const elapsedMinutes = (updatedAt - startedAt) / 60000;
+        const remainingMinutes = elapsedMinutes * ((100 - progress) / Math.max(progress, 1));
+        return `${Math.round(progress)}% · ${formatEta(Math.min(Math.max(remainingMinutes, 1), 180))}`;
+      }
+      if (progress > 0 && layout > 0) return `${Math.round(progress)}% · ${formatEta(Math.max(2, layout * 2))}`;
+      if (progress > 0 && sources > 0) return `${Math.round(progress)}% · ${formatEta(Math.max(3, Math.ceil(sources * 1.5)))}`;
+      if (layout > 0) return `estimating · ${formatEta(Math.max(2, layout * 2))}`;
+      if (sources > 0) return `starting · ${formatEta(Math.max(3, Math.ceil(sources * 1.5)))}`;
+      return progress > 0 ? `${Math.round(progress)}% · estimating` : 'estimating';
     };
     const progressBoardHtml = (runPayload) => {
       const summary = runPayload?.summary || {};
       const status = String(runPayload?.status || summary.status || 'queued');
       const sources = Number(summary.sources_total || 0);
+      const completedSources = Array.isArray(summary.sources) ? summary.sources.length : 0;
       const listings = Number(summary.listing_total || summary.raw_listing_total || 0);
-      const highFit = Number(summary.high_fit_total || 0);
-      const sent = Number(summary.notified_total || summary.watch_notified_total || 0);
-      const tours = Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0);
       const layout = Number(summary.filtered_floorplan_total || 0);
-      const layoutEta = layout ? `about ${Math.max(2, layout * 2)} min` : 'complete';
-      const checks = Number(runPayload?.open_research_task_total || summary.open_research_task_total || 0);
-      const dotCount = Math.max(0, Math.min(8, sources));
       const title = status === 'processed' || status === 'completed' ? 'Evidence assembled' : (status === 'failed' ? 'Search stopped' : 'Concierge is assembling the evidence');
-      const dots = Array.from({ length: 8 }, (_, index) => `<span class="${index < dotCount ? 'is-active' : ''}"></span>`).join('');
-      const funnel = [
-        ['Sources', sources, 100],
-        ['Homes', listings, Math.min(listings, 100)],
-        ['Strong fit', highFit, Math.min(highFit * 14, 100)],
-        ['Sent', sent, Math.min(sent * 20, 100)],
-      ].map(([label, value, fill]) => `<div class="pqx-funnel-row"><span>${escapeHtml(label)}</span><span class="pqx-funnel-track"><i class="pqx-funnel-fill" style="--fill: ${escapeHtml(fill)};"></i></span><b>${escapeHtml(value)}</b></div>`).join('');
-      const chip = (label, cls) => `<span class="pqx-evidence-chip ${cls}">${escapeHtml(label)}</span>`;
-      const step = (label, cls) => `<span class="pqx-dossier-step ${cls}">${escapeHtml(label)}</span>`;
+      const etaLabel = estimateRunEtaLabel(runPayload, summary, layout);
+      const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
+      const progressFill = status === 'processed' || status === 'completed' ? 100 : (progress > 0 ? progress : 4);
+      const sourceChips = (Array.isArray(summary.sources) ? summary.sources.slice(0, 8) : []).map((source) => {
+        const label = source?.source_label || source?.label || 'Source';
+        const state = source?.error ? 'warn' : 'good';
+        return `<span class="pqx-source-chip ${state}">${escapeHtml(label)}</span>`;
+      }).join('');
+      const sourceMeta = `${listings} listings seen${layout > 0 ? ` · ${layout} layout checks pending` : ''}`;
       return `
         <div class="pqx-concierge-pulse">
-          <strong data-pqx-progress-board-title>${escapeHtml(title)}</strong>
+          <div class="pqx-progress-headline">
+            <strong data-pqx-progress-board-title>${escapeHtml(title)}</strong>
+            <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>${escapeHtml(etaLabel)}</span>
+          </div>
           <div class="pqx-pulse-line" aria-hidden="true"></div>
-          <div class="pqx-progress-labels"><span>Searching</span><span>Ranking</span><span>Verifying</span><span>Preparing review</span></div>
+          <div class="pqx-progress-meter" aria-hidden="true"><i class="pqx-progress-meter-fill" style="--progress: ${escapeHtml(progressFill)}"></i></div>
         </div>
-        <div class="pqx-source-radar"><strong data-pqx-radar-count>${escapeHtml(sources)} source${sources === 1 ? '' : 's'}</strong><div class="pqx-radar-dots" aria-hidden="true">${dots}</div></div>
-        <div class="pqx-funnel" data-pqx-shortlist-funnel>${funnel}</div>
-        <div class="pqx-evidence-stack" data-pqx-evidence-stack>
-          ${chip('Facts', listings ? 'is-ready' : 'is-active')}
-          ${chip('Ranking', highFit ? 'is-ready' : (listings ? 'is-active' : ''))}
-          ${chip('Layout', layout === 0 && listings ? 'is-ready' : (layout ? 'is-active' : ''))}
-          ${chip('Tour', tours ? 'is-ready' : (highFit ? 'is-active' : ''))}
-          ${chip('Decision checks', checks === 0 && listings ? 'is-ready' : (checks ? 'is-active' : ''))}
+        <div class="pqx-source-progress" data-pqx-source-progress>
+          <div class="pqx-source-progress-head">
+            <strong data-pqx-radar-count>${escapeHtml(completedSources)}/${escapeHtml(sources)} sources checked</strong>
+            <span class="pqx-small">${escapeHtml(sourceMeta)}</span>
+          </div>
+          <span class="pqx-note">${escapeHtml(String(runPayload?.message || 'Waiting for the first source update.'))}</span>
         </div>
-        <div class="pqx-route-trace" data-pqx-route-trace><span class="pqx-route-chip">Home to school</span><span class="pqx-route-chip">Home to supermarket</span><span class="pqx-route-chip">Home to commute</span></div>
-        <div class="pqx-floorplan-scan" data-pqx-floorplan-scan><strong>Pending layout proof</strong><span class="pqx-note">${escapeHtml(layout)} candidate${layout === 1 ? '' : 's'} pending. They are not invalid; layout proof is still being recovered from photos, PDFs, 360 media, or downloads.</span><span class="pqx-small" data-pqx-layout-eta>ETA ${escapeHtml(layoutEta)}</span></div>
-        <div class="pqx-dossier-rail" data-pqx-dossier-rail>
-          ${step('Facts', listings ? 'is-ready' : 'is-active')}
-          ${step('Evidence', highFit ? 'is-ready' : '')}
-          ${step('Tour links', tours ? 'is-ready' : '')}
-          ${step('Review', checks === 0 && listings ? 'is-ready' : 'is-active')}
-        </div>
+        <div class="pqx-source-list" data-pqx-source-list>${sourceChips}</div>
+        ${renderRoutePreviewStrip(runPayload)}
       `;
     };
     const updateProgressBoards = (runPayload) => {
@@ -4782,7 +5358,7 @@
         const media = `<div class="pqx-result-media"><span class="pqx-thumb">${image}</span><span>${escapeHtml(title)}<br><span class="pqx-small">${escapeHtml(source)}</span></span></div>`;
         const links = [
           candidate?.packet_url ? `<a href="${escapeHtml(candidate.packet_url)}">Review</a>` : '',
-          candidate?.map_url ? `<a href="${escapeHtml(candidate.map_url)}">Map</a>` : '',
+          candidate?.map_url ? `<a href="${escapeHtml(candidate.map_url)}" target="_blank" rel="noreferrer">Map</a>` : '',
           candidate?.property_url ? `<a href="${escapeHtml(candidate.property_url)}">Listing</a>` : '',
         ].filter(Boolean).join('');
         return `<tr><td>${escapeHtml(candidate?.rank || index + 1)}</td><td>${media}</td><td>${renderRouteEvidence(candidate?.route_evidence)}</td><td>${escapeHtml(candidate?.fit_score || 0)}</td><td>${escapeHtml(reason)}</td><td>${links}</td></tr>`;
@@ -4814,6 +5390,18 @@
       updateProgressBoards(runPayload);
       applyResearchTaskSnapshot(runPayload);
       notifyRunComplete(runPayload);
+    };
+    const defaultPlatformsForCountryMode = (meta, countryCode, listingMode, fallbackOptions = []) => {
+      const platformCap = Math.max(1, Number(meta?.commercial?.max_platforms || 3));
+      const normalizedCountry = String(countryCode || 'AT').trim();
+      const normalizedMode = String(listingMode || 'rent').trim().toLowerCase() === 'buy' ? 'buy' : 'rent';
+      const countryDefaults = meta?.platform_defaults_by_country_mode?.[normalizedCountry];
+      const defaults = Array.isArray(countryDefaults?.[normalizedMode]) ? countryDefaults[normalizedMode] : [];
+      if (defaults.length) return defaults.slice(0, platformCap);
+      return (Array.isArray(fallbackOptions) ? fallbackOptions : [])
+        .map((option) => String(option?.value || '').trim())
+        .filter(Boolean)
+        .slice(0, platformCap);
     };
     let runPollActive = false;
     const pollRun = async (statusUrl) => {
@@ -5034,7 +5622,7 @@
           countryField.value = nextCountry;
           const catalog = meta.platform_catalog_by_country || {};
           const options = Array.isArray(catalog[nextCountry]) ? catalog[nextCountry] : [];
-          const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, planPlatformCap);
+          const defaultSelection = defaultPlatformsForCountryMode(meta, nextCountry, listingModeField?.value || 'rent', options);
           renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
           refreshRegionAndLocationChoices();
           syncMarketAwareFields(form, meta);
@@ -5049,7 +5637,7 @@
             countryField.value = normalizedIpCountry;
             const catalog = meta.platform_catalog_by_country || {};
             const options = Array.isArray(catalog[normalizedIpCountry]) ? catalog[normalizedIpCountry] : [];
-            const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, planPlatformCap);
+            const defaultSelection = defaultPlatformsForCountryMode(meta, normalizedIpCountry, listingModeField?.value || 'rent', options);
             renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
             refreshRegionAndLocationChoices();
             syncMarketAwareFields(form, meta);
@@ -5073,7 +5661,7 @@
         const selectedCountry = String(countryField.value || '').trim();
         const catalog = meta.platform_catalog_by_country || {};
         const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
-        const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, planPlatformCap);
+        const defaultSelection = defaultPlatformsForCountryMode(meta, selectedCountry, listingModeField?.value || 'rent', options);
         renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
         const customLocationField = form.querySelector('[name="custom_location_query"]');
         if (customLocationField) customLocationField.value = '';
@@ -5089,7 +5677,14 @@
         syncMarketAwareFields(form, meta);
       });
       allViennaField?.addEventListener('change', syncViennaScopeControls);
-      listingModeField?.addEventListener('change', syncListingModeControls);
+      listingModeField?.addEventListener('change', () => {
+        const selectedCountry = String(countryField?.value || 'AT').trim();
+        const catalog = meta.platform_catalog_by_country || {};
+        const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
+        const defaultSelection = defaultPlatformsForCountryMode(meta, selectedCountry, listingModeField?.value || 'rent', options);
+        renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
+        syncListingModeControls();
+      });
       commuteResearchField?.addEventListener('change', syncCommuteControls);
       familyModeField?.addEventListener('change', syncFamilyModeControls);
       form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));
@@ -5100,11 +5695,21 @@
         if (groupSelect || groupClear) {
           event.preventDefault();
           const section = (groupSelect || groupClear).closest('[data-provider-group-panel]') || form;
-          section.querySelectorAll('input[type="checkbox"][name="selected_platforms"]').forEach((node) => {
-            node.checked = Boolean(groupSelect);
-            node.dispatchEvent(new Event('change', { bubbles: true }));
-          });
-          setCheckboxGroupStatus(groupSelect ? 'Selected provider group.' : 'Cleared provider group.');
+          const allInputs = [...form.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')];
+          const sectionInputs = [...section.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')];
+          const normalizedMax = Number.isFinite(Number(planPlatformCap)) ? Math.max(1, Number(planPlatformCap)) : allInputs.length;
+          if (groupSelect) {
+            const selectedInputs = sectionInputs.slice(0, normalizedMax);
+            applyCheckboxSelection(allInputs, selectedInputs);
+            if (selectedInputs.length < sectionInputs.length) {
+              setCheckboxGroupStatus(`Selected ${selectedInputs.length} providers from this family. Your current plan allows up to ${normalizedMax} at once.`);
+            } else {
+              setCheckboxGroupStatus('Selected provider group.');
+            }
+          } else {
+            applyCheckboxSelection(allInputs, allInputs.filter((node) => !sectionInputs.includes(node) && node.checked));
+            setCheckboxGroupStatus('Cleared provider group.');
+          }
           return;
         }
         const button = event.target?.closest?.('[data-checkbox-group-select-all]');
@@ -5187,7 +5792,8 @@
         : `${template.replace(/\/$/, '')}/${resolvedAgentId}`;
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, patch }),
       });
       const body = await response.json().catch(() => ({}));
@@ -5216,6 +5822,16 @@
         notification_limit: payload.search_agent_notification_limit || 5,
         notification_period: payload.search_agent_notification_period || 'day',
       };
+    };
+    const countDirtyFields = (snapshot, current) => {
+      const left = snapshot && typeof snapshot === 'object' ? snapshot : {};
+      const right = current && typeof current === 'object' ? current : {};
+      const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+      let dirtyFields = 0;
+      keys.forEach((key) => {
+        if (JSON.stringify(left[key] ?? null) !== JSON.stringify(right[key] ?? null)) dirtyFields += 1;
+      });
+      return dirtyFields;
     };
     const setFieldValue = (fieldName, value) => {
       if (!form || !fieldName) return;
@@ -5246,6 +5862,7 @@
         'region_code',
         'listing_mode',
         'property_type',
+        'search_mode',
         'custom_location_query',
         'custom_keywords',
         'preference_person_id',
@@ -5262,6 +5879,8 @@
         'commute_destination',
         'additional_reachability_targets',
         'university_name',
+        'eigenmittel_max_eur',
+        'application_window_days',
         'max_commute_minutes_transit',
         'max_commute_minutes_drive',
         'max_commute_minutes_bike',
@@ -5308,25 +5927,34 @@
         'enable_location_risk_research',
         'enable_trust_risk_scoring',
         'enable_family_mode',
+        'ganztag_required',
         'enable_commute_research',
         'apply_unknowns_penalty',
         'enable_action_readiness_research',
         'enable_lifestyle_research',
+        'require_school_evidence',
         'prefer_good_air_quality',
+        'avoid_noise_risk_area',
+        'require_high_speed_internet',
         'prefer_low_crime_area',
         'require_drinking_water_quality_research',
         'require_parking_pressure_check',
         'avoid_cesspit_or_septic_risk',
         'require_winter_access_research',
         'avoid_flood_risk_area',
+        'wiener_wohnticket_available',
+        'subsidized_required',
+        'miete_mit_kaufoption',
         'search_agent_enabled',
         'require_floorplan',
+        'require_energy_certificate',
+        'require_operating_cost_statement',
+        'enable_auction_legal_review',
         'use_flatbee_reputation_penalty',
       ];
       boolKeys.forEach((key) => {
         if (Object.prototype.hasOwnProperty.call(payload, key)) setFieldValue(key, payload[key]);
       });
-      if (payload.location_query && !payload.custom_location_query) setFieldValue('custom_location_query', payload.location_query);
       if (payload.keywords && !payload.custom_keywords) setFieldValue('custom_keywords', payload.keywords);
       bindRangeOutputs(form);
       syncMarketAwareFields(form, meta);
@@ -5337,6 +5965,7 @@
       if (!loadedAgentState) return;
       const label = row?.querySelector('strong')?.textContent?.replace('· selected', '').trim() || 'Saved search loaded';
       loadedSearchAgentId = row?.getAttribute('data-search-agent-id') || 'current';
+      try { loadedSearchAgentPayload = JSON.parse(String(row?.getAttribute('data-search-agent-payload') || '{}')); } catch (_) { loadedSearchAgentPayload = {}; }
       loadedSearchAgentSnapshot = JSON.stringify(currentSearchAgentPatch());
       if (loadedAgentLabel) loadedAgentLabel.textContent = `Loaded: ${label}`;
       if (loadedAgentDirtyLabel) loadedAgentDirtyLabel.textContent = 'No unsaved changes yet. Tweak filters, run now, save changes, or save as a new search.';
@@ -5344,11 +5973,15 @@
     };
     const updateLoadedSearchAgentDirtyState = () => {
       if (!loadedAgentState || !loadedAgentState.getAttribute('data-visible') || !loadedAgentDirtyLabel) return;
-      const currentSnapshot = JSON.stringify(currentSearchAgentPatch());
-      const dirty = Boolean(loadedSearchAgentSnapshot && currentSnapshot !== loadedSearchAgentSnapshot);
+      const currentPatch = currentSearchAgentPatch();
+      const currentSnapshot = JSON.stringify(currentPatch);
+      const originalPatch = loadedSearchAgentSnapshot ? JSON.parse(loadedSearchAgentSnapshot) : {};
+      const dirtyFields = countDirtyFields(originalPatch, currentPatch);
+      const dirty = Boolean(dirtyFields);
       loadedAgentState.setAttribute('data-dirty', dirty ? 'true' : 'false');
+      loadedAgentState.setAttribute('data-dirty-fields', String(dirtyFields));
       loadedAgentDirtyLabel.textContent = dirty
-        ? 'Unsaved changes. Run now, save changes, or save as a new search.'
+        ? `Unsaved changes in ${dirtyFields} field${dirtyFields === 1 ? '' : 's'}. Run now, save changes, save as a new search, or reset.`
         : 'No unsaved changes yet. Tweak filters, run now, save changes, or save as a new search.';
     };
     form?.addEventListener('input', updateLoadedSearchAgentDirtyState);
@@ -5374,6 +6007,30 @@
         if (status) status.textContent = err instanceof Error ? err.message : 'Could not save as a new search.';
       }
     });
+    loadedAgentResetButton?.addEventListener('click', () => {
+      const status = root.querySelector('[data-search-agent-status]');
+      if (!form || !loadedSearchAgentPayload || typeof loadedSearchAgentPayload !== 'object') return;
+      applySearchAgentPayloadToForm(loadedSearchAgentPayload);
+      loadedSearchAgentSnapshot = JSON.stringify(currentSearchAgentPatch());
+      updateLoadedSearchAgentDirtyState();
+      if (status) status.textContent = 'Saved search reset to the last loaded filters.';
+    });
+    const loadSearchAgentRow = async (row, *, startAfterLoad = false) => {
+      const status = root.querySelector('[data-search-agent-status]');
+      const agentId = row?.getAttribute('data-search-agent-id') || 'current';
+      let payload = {};
+      try { payload = JSON.parse(String(row?.getAttribute('data-search-agent-payload') || '{}')); } catch (_) { payload = {}; }
+      applySearchAgentPayloadToForm(payload);
+      showLoadedSearchAgent(row);
+      await updateSearchAgent(agentId, 'load', {});
+      updateLoadedSearchAgentDirtyState();
+      if (startAfterLoad) {
+        await updateSearchAgent(agentId, 'resume', currentSearchAgentPatch());
+        await startSearch();
+        return;
+      }
+      if (status) status.textContent = 'Saved search ready to edit. Tweak the filters or run it again.';
+    };
     root.querySelectorAll('[data-search-agent-action]').forEach((button) => {
       button.addEventListener('click', async () => {
         if (!form) return;
@@ -5392,24 +6049,11 @@
                 : 'Updating saved search...';
           }
           if (action === 'load') {
-            let payload = {};
-            try { payload = JSON.parse(String(row?.getAttribute('data-search-agent-payload') || '{}')); } catch (_) { payload = {}; }
-            applySearchAgentPayloadToForm(payload);
-            showLoadedSearchAgent(row);
-            await updateSearchAgent(agentId, 'load', {});
-            updateLoadedSearchAgentDirtyState();
-            if (status) status.textContent = 'Saved search ready to edit. Tweak the filters or run it again.';
+            await loadSearchAgentRow(row, { startAfterLoad: false });
             return;
           }
           if (action === 'run') {
-            let payload = {};
-            try { payload = JSON.parse(String(row?.getAttribute('data-search-agent-payload') || '{}')); } catch (_) { payload = {}; }
-            applySearchAgentPayloadToForm(payload);
-            showLoadedSearchAgent(row);
-            await updateSearchAgent(agentId, 'load', {});
-            updateLoadedSearchAgentDirtyState();
-            await updateSearchAgent(agentId, 'resume', currentSearchAgentPatch());
-            await startSearch();
+            await loadSearchAgentRow(row, { startAfterLoad: true });
             return;
           }
           await updateSearchAgent(agentId, action, action === 'save' ? currentSearchAgentPatch() : {});
@@ -5432,10 +6076,47 @@
         }
       });
     });
+    const requestedAgentId = String(new URL(window.location.href).searchParams.get('load_agent') || '').trim();
+    if (requestedAgentId) {
+      const requestedRow = root.querySelector(`[data-property-search-agent-row][data-search-agent-id="${CSS.escape(requestedAgentId)}"]`);
+      if (requestedRow) {
+        loadSearchAgentRow(requestedRow, { startAfterLoad: false }).catch((error) => {
+          const status = root.querySelector('[data-search-agent-status]');
+          if (status) status.textContent = error instanceof Error ? error.message : 'Could not load the saved search.';
+        });
+      }
+    }
     root.querySelector('[data-pqx-launch-top]')?.addEventListener('click', () => {
       const lastStep = [...root.querySelectorAll('[data-property-step-trigger]')].at(-1);
       lastStep?.click();
       setMode('brief');
+    });
+    root.querySelectorAll('[data-pqx-delete-run]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const runId = String(button.getAttribute('data-pqx-delete-run') || '').trim();
+        if (!runId) return;
+        const status = root.querySelector('[data-search-agent-status]');
+        const endpointTemplate = String(data?.endpoints?.delete_run_template || '').trim();
+        const endpoint = endpointTemplate ? endpointTemplate.replace('__RUN_ID__', encodeURIComponent(runId)) : '';
+        if (!endpoint) return;
+        if (!window.confirm('Delete this previous search from the dashboard?')) return;
+        try {
+          if (status) status.textContent = 'Deleting previous search...';
+          button.disabled = true;
+          const response = await fetch(endpoint, {
+            method: 'DELETE',
+            credentials: 'same-origin',
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not delete the previous search.'));
+          const card = button.closest('[data-pqx-previous-search-card]');
+          card?.remove();
+          if (status) status.textContent = 'Previous search deleted.';
+        } catch (err) {
+          button.disabled = false;
+          if (status) status.textContent = err instanceof Error ? err.message : 'Could not delete the previous search.';
+        }
+      });
     });
     root.querySelectorAll('[data-pqx-counterfactual]').forEach((button) => {
       button.addEventListener('click', async () => {
@@ -5487,6 +6168,8 @@
       feedbackReactionButtons.forEach((button) => {
         button.classList.toggle('active', button.getAttribute('data-pw-feedback-reaction') === selectedFeedbackReaction);
       });
+      if (decisionDetailNode) decisionDetailNode.hidden = false;
+      if (decisionStepLabelNode) decisionStepLabelNode.textContent = selectedFeedbackReaction === 'hide' ? '2 Confirm' : '2 Explain';
       if (feedbackStatusNode) feedbackStatusNode.textContent = 'Decision shortcut loaded from the email or shared link. Save when ready.';
     }
     if (shouldOpenClippy) {

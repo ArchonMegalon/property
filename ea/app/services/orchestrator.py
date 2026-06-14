@@ -665,8 +665,21 @@ class RewriteOrchestrator:
         step_id: str | None = None,
         resume_session_on_return: bool = False,
     ) -> HumanTask:
+        resolved_session_id = str(session_id or "").strip()
+        if resolved_session_id and self.fetch_session(resolved_session_id) is None:
+            fallback_goal = str(brief or why_human or task_type or "Human task").strip() or "Human task"
+            fallback_intent = IntentSpecV3(
+                principal_id=principal_id,
+                goal=fallback_goal,
+                task_type="handoff",
+                deliverable_type="human_task",
+                risk_class="medium",
+                approval_class="draft",
+                budget_class="standard",
+            )
+            resolved_session_id = self._ledger.start_session(fallback_intent).session_id
         return self._operator_routing_service.create_human_task(
-            session_id=session_id,
+            session_id=resolved_session_id,
             principal_id=principal_id,
             task_type=task_type,
             role_required=role_required,

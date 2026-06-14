@@ -4,7 +4,7 @@
       <div class="eyebrow">Step 2</div>
       <h2>Link Google if you want easier return access.</h2>
     </div>
-    <p class="step-context">PropertyQuarry does not need broad Google workspace scopes by default. Use Google only as a narrow identity and return-access path unless a deeper workflow genuinely requires more.</p>
+    <p class="step-context">Optional. Identity only by default.</p>
   </div>
 
   <div class="status-grid">
@@ -16,12 +16,12 @@
       <div class="status-card">
       <div class="kicker">Recommended choice</div>
         <strong>Google sign-in</strong>
-      <p class="copy">Enough to link the same Google account to the workspace without pulling mailbox, calendar, or contacts data into day one.</p>
+      <p class="copy">No mailbox or calendar access.</p>
     </div>
     <div class="status-card">
       <div class="kicker">Identity boundary</div>
       <strong>Keep Google narrow.</strong>
-      <p class="copy">Authenticate to the workspace first through your deployment access path. Then link Google only if you want account continuity from that same identity.</p>
+      <p class="copy">Use the same Google account when you return.</p>
     </div>
   </div>
 
@@ -40,13 +40,13 @@
         <select id="scope_bundle" name="scope_bundle">
         <option value="identity">Google sign-in (recommended)</option>
       </select>
-      <div class="field-help">Google will only ask for identity scopes in this flow. Broader workspace scopes stay outside the default PropertyQuarry onboarding path.</div>
+      <div class="field-help">Identity only.</div>
     </div>
     <div class="status-grid">
       <div class="status-card">
         <div class="kicker">What Google is for</div>
         <strong>Verified account return</strong>
-        <p class="copy">The linked Google account can act as a clean identity anchor for returning to the same workspace.</p>
+        <p class="copy">Used for sign-in only.</p>
       </div>
       <div class="status-card">
         <div class="kicker">What stays out</div>

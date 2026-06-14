@@ -58,14 +58,17 @@
         <div class="section-kicker">Property portrait</div>
         <div class="image-layout">
           <div class="image-main">
-            {% if dossier.gallery_urls %}
-            <img class="gallery-hero" src="{{ dossier.gallery_urls[0] }}" alt="Property image">
+            {% if dossier.portrait_image_url %}
+            <img class="gallery-hero" src="{{ dossier.portrait_image_url }}" alt="Property portrait">
             {% elif dossier.hero_image_url %}
             <img class="gallery-hero" src="{{ dossier.hero_image_url }}" alt="Property image">
             {% endif %}
           </div>
           <div class="image-stack">
-            {% for image_url in dossier.gallery_urls[1:4] %}
+            {% if dossier.property_image_url and dossier.property_image_url != dossier.portrait_image_url %}
+            <img class="stack-image" src="{{ dossier.property_image_url }}" alt="Property still">
+            {% endif %}
+            {% for image_url in dossier.detail_gallery_urls[:3] %}
             <img class="stack-image" src="{{ image_url }}" alt="Property detail {{ loop.index }}">
             {% endfor %}
           </div>
@@ -88,21 +91,21 @@
       </div>
     </section>
 
-    {% if payload.magic_fit_scene and payload.magic_fit_scene.image_url %}
+    {% if dossier.scene_image_url %}
     <section class="page image-spread">
       <div class="page-inner">
-        <div class="section-kicker">Personal lifestyle scene</div>
+        <div class="section-kicker">Scene render</div>
         <div class="image-layout single-visual-layout">
           <div class="image-main">
-            <img class="gallery-hero" src="{{ payload.magic_fit_scene.image_url }}" alt="Personal lifestyle scene">
+            <img class="gallery-hero" src="{{ dossier.scene_image_url }}" alt="Scene render">
           </div>
           <div class="panel">
-            <h3>Personal visual simulation</h3>
-            <p>{{ payload.magic_fit_scene.summary or "Personal visual simulation for the packet." }}</p>
+            <h3>Property-fitting visual simulation</h3>
+            <p>{{ dossier.scene_summary or payload.magic_fit_scene.summary or "This render is generated to depict a believable scene inside the property, not a generic stock mood image." }}</p>
             <ul>
               <li>Scene type: {{ (payload.magic_fit_scene.scene_type or 'scene')|replace('_', ' ') }}</li>
-              <li>Visual simulation: yes</li>
-              <li>Shared into packet with consent</li>
+              <li>Provider-guided property scene, not source evidence</li>
+              <li>Used to orient the decision before the full media review</li>
             </ul>
             {% if payload.magic_fit_scene.reference_urls %}
             <div class="reference-strip">
@@ -110,7 +113,7 @@
               <img class="reference-thumb" src="{{ image_url }}" alt="Personal reference {{ loop.index }}">
               {% endfor %}
             </div>
-            <p class="reference-note">Personal reference photos included for this private packet.</p>
+            <p class="reference-note">Private references stay in the protected packet path and only guide this scene softly.</p>
             {% endif %}
           </div>
         </div>
@@ -157,6 +160,54 @@
     </section>
     {% endif %}
 
+    {% if dossier.editorial_sections %}
+    <section class="page">
+      <div class="page-inner">
+        <div class="section-kicker">Editorial narrative</div>
+        <div class="two-col">
+          {% for section in dossier.editorial_sections[:4] %}
+          <div class="panel">
+            <h3>{{ section.title }}</h3>
+            {% if section.body %}<p>{{ section.body }}</p>{% endif %}
+            {% if section.bullets %}
+            <ul>{% for line in section.bullets[:5] %}<li>{{ line }}</li>{% endfor %}</ul>
+            {% endif %}
+            {% if section.cta %}<p class="decision-next"><strong>Next action:</strong> {{ section.cta }}</p>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if payload.route_context and payload.route_context.rows %}
+    <section class="page">
+      <div class="page-inner">
+        <div class="section-kicker">Route context</div>
+        <div class="two-col">
+          <div class="panel">
+            <h3>{{ payload.route_context.provider or "AvoMap" }} route read</h3>
+            <p>These routes are prepared from the property origin so the packet shows how the place behaves in everyday movement, not just on a district map.</p>
+            <ul>
+              {% for row in payload.route_context.rows %}
+              <li><strong>{{ row.label }}</strong>{% if row.detail %} · {{ row.detail }}{% endif %}</li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div class="action-rail">
+            <div class="action-copy">
+              <h3>Open routes</h3>
+              <p>Each link opens the route directly from the property to the selected destination or daily-life target.</p>
+            </div>
+            {% for row in payload.route_context.rows %}
+            <a class="cta{% if not loop.first %} cta-secondary{% endif %}" href="{{ row.href }}">{{ row.label }}</a>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
     <section class="page">
       <div class="page-inner">
         <div class="section-kicker">Location and daily-life radius</div>
@@ -172,6 +223,41 @@
         </div>
       </div>
     </section>
+
+    {% if payload.dadan_context %}
+    <section class="page">
+      <div class="page-inner">
+        <div class="section-kicker">Video feedback follow-up</div>
+        <div class="two-col">
+          <div class="panel">
+            <h3>Dadan follow-up state</h3>
+            <ul>
+              <li>Mode: {{ payload.dadan_context.mode or "manual" }}</li>
+              <li>Request status: {{ payload.dadan_context.request_status or (payload.dadan_context.enabled and "available" or "not configured") }}</li>
+              {% if payload.dadan_context.request_kind %}<li>Request kind: {{ payload.dadan_context.request_kind|replace('_', ' ') }}</li>{% endif %}
+              {% if payload.dadan_context.response_status %}<li>Latest response: {{ payload.dadan_context.response_status|replace('_', ' ') }}</li>{% endif %}
+              {% if payload.dadan_context.submitted_at %}<li>Submitted: {{ payload.dadan_context.submitted_at }}</li>{% endif %}
+            </ul>
+          </div>
+          <div class="action-rail">
+            <div class="action-copy">
+              <h3>Collect video proof</h3>
+              <p>Use this lane for agent walk-through answers or owner-reviewed follow-up when documents or claims are still unresolved.</p>
+            </div>
+            {% if payload.dadan_context.request_url %}
+            <a class="cta" href="{{ payload.dadan_context.request_url }}">Open Dadan request</a>
+            {% endif %}
+            {% if payload.dadan_context.recording_url %}
+            <a class="cta cta-secondary" href="{{ payload.dadan_context.recording_url }}">Open latest response</a>
+            {% endif %}
+            {% if dossier.review_url %}
+            <a class="cta cta-secondary" href="{{ dossier.review_url }}">Open review surface</a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </section>
+    {% endif %}
 
     <section class="page">
       <div class="page-inner">
@@ -260,6 +346,12 @@
         <div class="section-kicker">Provenance, privacy, and legal notice</div>
         <div class="panel">
           <ul>{% for line in dossier.provenance_lines %}<li>{{ line }}</li>{% endfor %}</ul>
+          {% if dossier.neuronwriter_status %}
+          <ul>
+            <li>NeuronWriter guidance: {{ dossier.neuronwriter_status }}{% if dossier.neuronwriter_reason %} · {{ dossier.neuronwriter_reason }}{% endif %}</li>
+            {% for line in dossier.neuronwriter_questions[:3] %}<li>Question cue: {{ line }}</li>{% endfor %}
+          </ul>
+          {% endif %}
         </div>
         <p class="legal">This packet supports decision-making and does not replace legal, technical, surveying, tax, or investment advice.</p>
       </div>

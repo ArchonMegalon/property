@@ -167,26 +167,9 @@
 <section class="register-stage" data-register-app>
   <div class="register-shell">
     <section class="register-hero">
-      <div class="kicker">{% if brand.key == 'propertyquarry' %}Property onboarding{% else %}Personal workspace{% endif %}</div>
-      <h1>{% if brand.key == 'propertyquarry' %}Start a workspace that finds and ranks the right properties.{% else %}Start a workspace that shows the first useful loop.{% endif %}</h1>
-      <p class="lead">{% if brand.key == 'propertyquarry' %}Start a workspace that shows the first useful loop. Create the account, link Google only if you want easier return access, then move straight into the property brief and first crawl.{% else %}Create the account, define the property brief, and keep the first week narrow until the shortlist is already useful.{% endif %}</p>
-      <div class="register-note">
-        {% if brand.key == 'propertyquarry' %}We’ll use your email to create the account and reopen your saved search posture later. Google is optional account context, not the sign-in method.{% else %}We’ll use your email to create the workspace and let you come back. Google is a workspace data source, not the app login method.{% endif %}
-      </div>
-      <div class="summary-strip">
-        <div class="summary">
-          <div class="label">First goal</div>
-          <strong>{% if brand.key == 'propertyquarry' %}One useful ranked shortlist{% else %}One useful property workspace{% endif %}</strong>
-        </div>
-        <div class="summary">
-          <div class="label">{% if brand.key == 'propertyquarry' %}Research lane{% else %}Recommended connection{% endif %}</div>
-          <strong>{% if brand.key == 'propertyquarry' %}Property search and review{% else %}Google sign-in{% endif %}</strong>
-        </div>
-        <div class="summary">
-          <div class="label">Expand later</div>
-          <strong>{% if brand.key == 'propertyquarry' %}Unlock deeper research and more portals after the free shortlist proves useful.{% else %}Add shared review when the loop earns it.{% endif %}</strong>
-        </div>
-      </div>
+      <div class="kicker">{% if brand.key == 'propertyquarry' %}Property onboarding{% else %}Personal account{% endif %}</div>
+      <h1>{% if brand.key == 'propertyquarry' %}Start an account that finds and ranks the right properties.{% else %}Start an account that shows the first useful loop.{% endif %}</h1>
+      <p class="lead">{% if brand.key == 'propertyquarry' %}Create the account and start the first search.{% else %}Create the account and start the first search.{% endif %}</p>
     </section>
 
     <section class="register-wizard">
@@ -202,7 +185,7 @@
         <div>
           <div class="kicker">Step 1</div>
           <h2>Email</h2>
-          <p class="copy">We’ll use this to create your workspace and let you come back.</p>
+          <p class="copy">Create your account.</p>
         </div>
         <form class="register-form" data-form="start">
           <label class="register-field">
@@ -220,8 +203,8 @@
       <section class="register-step" data-step="2">
         <div>
           <div class="kicker">Step 2</div>
-          <h2>Workspace shape</h2>
-          <p class="copy">Keep the first workspace personal until the loop proves it is useful. No plan or team decisions yet.</p>
+          <h2>Account shape</h2>
+          <p class="copy">Keep it simple.</p>
         </div>
         <div class="register-verify-note" data-verify-note></div>
         <form class="register-form" data-form="verify">
@@ -231,7 +214,7 @@
               <input type="text" name="verification_code" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code">
             </label>
             <label class="register-field">
-              <span>Workspace name</span>
+              <span>Account name<button class="info-tip" type="button" title="Shown in your account and shared links." aria-label="Shown in your account and shared links.">?</button></span>
               <input type="text" name="workspace_name" required>
             </label>
             <label class="register-field">
@@ -246,7 +229,7 @@
           <div class="register-inline" data-verify-inline></div>
           <div class="register-error" data-verify-error></div>
           <div class="cta-row">
-            <button class="btn primary" type="submit">Create workspace</button>
+            <button class="btn primary" type="submit">Create account</button>
           </div>
         </form>
       </section>
@@ -255,29 +238,28 @@
         <div>
           <div class="kicker">Step 3</div>
           <h2>{% if brand.key == 'propertyquarry' %}Link Google{% else %}Connect Google{% endif %}</h2>
-          <p class="copy">{% if brand.key == 'propertyquarry' %}Keep Google narrow. PropertyQuarry only needs identity and return access in the default path.{% else %}Start with Google Core so the first connected channel is useful before you broaden the workspace.{% endif %}</p>
+          <p class="copy">Optional. Identity only.</p>
         </div>
         <div class="register-choice">
-          <strong>{% if brand.key == 'propertyquarry' %}Google sign-in{% else %}Google Core{% endif %}</strong>
-          <p class="copy">{% if brand.key == 'propertyquarry' %}Recommended only as an identity anchor so the same Google account can return to the workspace later.{% else %}Recommended as the first connection so the workspace can build the first useful morning memo and queue from a real signal source.{% endif %}</p>
+          <strong>{% if brand.key == 'propertyquarry' %}Google sign-in{% else %}Google sign-in{% endif %}<button class="info-tip" type="button" title="Optional. Identity only by default." aria-label="Optional. Identity only by default.">?</button></strong>
         </div>
         <div class="register-inline" data-google-inline></div>
         <div class="register-error" data-google-error></div>
         <div class="cta-row">
           <button class="btn primary" type="button" data-action="google-consent">{% if brand.key == 'propertyquarry' %}Link Google account{% else %}Connect Google Core{% endif %}</button>
-          <button class="btn" type="button" data-action="build-brief">{% if brand.key == 'propertyquarry' %}Open property workspace{% else %}Build first morning memo{% endif %}</button>
+          <button class="btn" type="button" data-action="build-brief">{% if brand.key == 'propertyquarry' %}Open PropertyQuarry{% else %}Build first morning memo{% endif %}</button>
         </div>
       </section>
 
       <section class="register-step" data-step="4">
         <div>
           <div class="kicker">Step 4</div>
-          <h2>Prepare your workspace</h2>
-          <p class="copy">{% if brand.key == 'propertyquarry' %}Show progress clearly, keep the first useful shortlist visible, and make the Digest cadence explicit instead of burying it in setup blur.{% else %}Show progress clearly, keep the first useful loop visible, and build the first morning memo before asking for more setup work.{% endif %}</p>
+          <h2>Prepare your account</h2>
+          <p class="copy">Setting things up.</p>
         </div>
         <div class="register-milestones">
           <div class="register-milestone" data-milestone="calendar"><span>Saving your profile</span><strong>Pending</strong></div>
-          <div class="register-milestone" data-milestone="email"><span>{% if brand.key == 'propertyquarry' %}Opening the property workspace{% else %}Finishing Google Core connect{% endif %}</span><strong>Pending</strong></div>
+          <div class="register-milestone" data-milestone="email"><span>{% if brand.key == 'propertyquarry' %}Opening PropertyQuarry{% else %}Finishing Google connect{% endif %}</span><strong>Pending</strong></div>
           <div class="register-milestone" data-milestone="queue"><span>{% if brand.key == 'propertyquarry' %}Preparing saved defaults{% else %}Build first morning memo{% endif %}</span><strong>Pending</strong></div>
           <div class="register-milestone" data-milestone="commitments"><span>{% if brand.key == 'propertyquarry' %}Getting the first shortlist ready{% else %}Preparing the follow-up queue{% endif %}</span><strong>Pending</strong></div>
         </div>
@@ -287,12 +269,12 @@
       <section class="register-step" data-step="5">
         <div>
           <div class="kicker">Step 5</div>
-          <h2>{% if brand.key == 'propertyquarry' %}Your PropertyQuarry workspace is ready.{% else %}Your workspace is ready.{% endif %}</h2>
+          <h2>{% if brand.key == 'propertyquarry' %}Your PropertyQuarry account is ready.{% else %}Your account is ready.{% endif %}</h2>
           <p class="copy">{% if brand.key == 'propertyquarry' %}Start with your first shortlist, your first research packet, and the first visible feedback loop. Shared review can come later.{% else %}Start with the first morning memo, the first queue, and the first visible office loop. Shared review can come later.{% endif %}</p>
         </div>
         <div class="register-preview-grid">
           <section class="register-preview">
-            <strong>{% if brand.key == 'propertyquarry' %}First shortlist signals{% else %}First workspace signals{% endif %}</strong>
+            <strong>{% if brand.key == 'propertyquarry' %}First shortlist{% else %}First results{% endif %}</strong>
             <ul data-preview-brief></ul>
           </section>
           <section class="register-preview">
@@ -300,10 +282,9 @@
             <ul data-preview-queue></ul>
           </section>
         </div>
-        <div class="register-note">{% if brand.key == 'propertyquarry' %}Add an operator later from Settings if you need shared review.{% else %}Add operators later from Settings if you need shared review.{% endif %}</div>
         <div class="cta-row">
-          <a class="btn primary" href="{% if brand.key == 'propertyquarry' %}/app/properties{% else %}/app/today{% endif %}">{% if brand.key == 'propertyquarry' %}Open property workspace{% else %}Open workspace{% endif %}</a>
-          <a class="btn" href="/app/settings">Workspace settings</a>
+          <a class="btn primary" href="{% if brand.key == 'propertyquarry' %}/app/properties{% else %}/app/today{% endif %}">{% if brand.key == 'propertyquarry' %}Open PropertyQuarry{% else %}Open account{% endif %}</a>
+          <a class="btn" href="/app/settings">Account settings</a>
         </div>
       </section>
     </section>
@@ -491,7 +472,7 @@
   verifyForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     verifyError.textContent = '';
-    verifyInline.textContent = 'Creating your workspace…';
+    verifyInline.textContent = 'Creating your account…';
     try {
       const payload = {
         verification_token: state.start?.verification_token || '',
@@ -510,7 +491,7 @@
       if (!response.ok) throw new Error((body.detail || 'Could not verify registration').toString());
       state.verified = body;
       setState();
-      verifyInline.textContent = 'Workspace created. Establishing workspace access…';
+      verifyInline.textContent = 'Account created. Signing you in…';
       const returnTo = encodeURIComponent('/register?ready=1');
       window.location.assign(`${body.access_url}?return_to=${returnTo}`);
     } catch (error) {
@@ -528,11 +509,11 @@
       googleError.textContent = errorMessage;
       return;
     }
-    googleInline.textContent = 'Google account link opened in a new tab. Return here when you are ready to open the property workspace.';
+    googleInline.textContent = 'Google opened in a new tab. Return here when you are ready.';
     window.open(startUrl, '_blank', 'noopener');
   });
 
-  const buildPropertyWorkspace = async (intro = 'Preparing your property workspace…') => {
+  const buildPropertyWorkspace = async (intro = 'Preparing PropertyQuarry…') => {
     if (buildInFlight) return;
     buildInFlight = true;
     buildInline.textContent = intro;
@@ -542,7 +523,7 @@
       state.preview = {
         brief: [
           'Save your first country, budget, and property type preferences.',
-          'Run the first portal sweep from the Properties workspace.',
+          'Run the first search from Properties.',
           'Review the top candidates with visible fit reasons and research gaps.',
         ],
         queue: [
@@ -600,7 +581,7 @@
     googleError.textContent = '';
     googleInline.textContent = googleSyncSummary(payload);
     if (!state.preview.brief.length && !state.preview.queue.length) {
-      await buildPropertyWorkspace('Google linked. Preparing your property workspace…');
+      await buildPropertyWorkspace('Google linked. Preparing PropertyQuarry…');
     }
   };
 
@@ -624,7 +605,7 @@
   };
 
   document.querySelector('[data-action="build-brief"]')?.addEventListener('click', async () => {
-    await buildPropertyWorkspace('Preparing your property workspace…');
+    await buildPropertyWorkspace('Preparing PropertyQuarry…');
   });
 
   window.addEventListener('storage', (event) => {

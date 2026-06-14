@@ -93,6 +93,71 @@
     }
     .nav a:hover { color: var(--text); }
     .actions { display: flex; gap: 10px; align-items: center; }
+    .account-menu {
+      position: relative;
+    }
+    .account-menu[open] summary {
+      border-color: var(--accent);
+      background: var(--panel);
+      color: var(--text);
+    }
+    .account-menu summary {
+      list-style: none;
+      min-height: 40px;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line-strong);
+      background: rgba(255, 253, 248, 0.82);
+      color: var(--text-soft);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .account-menu summary::-webkit-details-marker { display: none; }
+    .account-menu-panel {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 8px);
+      min-width: 230px;
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+    .account-menu-label {
+      display: grid;
+      gap: 2px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--line);
+    }
+    .account-menu-label strong {
+      font-size: 14px;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .account-menu-label span {
+      color: var(--text-dim);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+    .account-menu-links {
+      display: grid;
+      gap: 6px;
+    }
+    .account-menu-links a,
+    .account-menu-links button {
+      width: 100%;
+      justify-content: flex-start;
+    }
+    .account-menu-form {
+      margin: 0;
+    }
     .btn {
       min-height: 40px;
       display: inline-flex;
@@ -1048,7 +1113,7 @@
 </head>
 <body>
   {% set brand_home_href = brand.app_home or '/app/properties' %}
-  {% set property_app_nav = brand.key == 'propertyquarry' and current_nav in ['properties', 'shortlist', 'research', 'packets', 'profile', 'alerts', 'agents', 'billing', 'settings'] %}
+  {% set property_app_nav = brand.key == 'propertyquarry' and current_nav in ['properties', 'search', 'agents', 'account'] %}
   {% if property_app_nav %}
   {% set mobile_nav = namespace(items=[]) %}
   {% set run_query = request.url.query %}
@@ -1067,10 +1132,10 @@
           <span class="brand-mark">{{ brand.mark }}</span>
           <span>{{ brand.name }}</span>
         </a>
-        <div class="pq-rail-brand-copy">Property decision desk. Search, shortlist, research packet, and 360 review in one persistent shell.</div>
+        <div class="pq-rail-brand-copy">Property decision desk. Search, market watch, decision packets, and review in one persistent shell.</div>
       </div>
-      <a class="pq-rail-workspace" href="/app/settings{{ query_suffix }}">
-        <div class="pq-rail-label">Workspace</div>
+      <a class="pq-rail-workspace" href="/app/account{{ query_suffix }}">
+        <div class="pq-rail-label">Account</div>
         <strong>{{ workspace_label }}</strong>
         <div>{{ access_email or brand.workspace_label }}</div>
       </a>
@@ -1079,9 +1144,9 @@
           <span>Mode</span>
           <strong>{{ current_nav|replace('_', ' ')|title }}</strong>
         </a>
-        <a class="pq-rail-pulse-card" href="/app/research{{ query_suffix }}">
+        <a class="pq-rail-pulse-card" href="/app/agents{{ query_suffix }}">
           <span>Surface</span>
-          <strong>360 First</strong>
+          <strong>Market watch</strong>
         </a>
       </div>
       <div class="pq-rail-section">
@@ -1098,8 +1163,8 @@
         </nav>
       </div>
       <div class="pq-rail-foot">
-        <a class="pq-rail-foot-card" href="/app/research{{ query_suffix }}">360 comes first. Dossier second. Raw portals last.</a>
-        <a class="pq-rail-foot-card" href="/app/properties{{ query_suffix }}">Keep runs visible while active. Replace the brief with the result table once the run is finished.</a>
+        <a class="pq-rail-foot-card" href="/app/properties{{ query_suffix }}">Keep runs visible while active. Replace the brief with results once the search is finished.</a>
+        <a class="pq-rail-foot-card" href="/app/account{{ query_suffix }}">Keep plan, saved defaults, and sign-out in one account lane.</a>
       </div>
     </aside>
     <main class="pq-stage" data-property-spa-shell>
@@ -1111,7 +1176,7 @@
         </div>
         <div class="pq-appbar-row">
           <div class="pq-topbar-copy">
-            <div class="context">{% if access_email %}{{ access_email }}{% elif operator_id %}Operator access{% else %}Property workspace{% endif %}</div>
+            <div class="context">{% if access_email %}{{ access_email }}{% elif operator_id %}Operator access{% else %}PropertyQuarry account{% endif %}</div>
             <h1>{{ page_heading or console_title or page_title }}</h1>
             {% if page_summary or console_summary %}<p>{{ page_summary or console_summary }}</p>{% endif %}
           </div>
@@ -1119,11 +1184,33 @@
             {% if primary_action_href and primary_action_label %}
             <a class="btn primary" href="{{ primary_action_href }}">{{ primary_action_label }}</a>
             {% endif %}
+            {% if account_nav %}
+            <details class="account-menu">
+              <summary aria-label="Account navigation">
+                <span>Account</span>
+              </summary>
+              <div class="account-menu-panel">
+                <div class="account-menu-label">
+                  <span>Signed in</span>
+                  <strong>{{ account_nav.label }}</strong>
+                </div>
+                <div class="account-menu-links">
+                  <a class="btn" href="{{ account_nav.billing_href }}">Upgrade</a>
+                  <a class="btn" href="{{ account_nav.profile_href }}">Profile</a>
+                  <a class="btn ghost" href="{{ account_nav.settings_href }}">Settings</a>
+                  <form class="account-menu-form" method="post" action="{{ account_nav.sign_out_action }}">
+                    <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
+                    <button class="btn ghost" type="submit">Log out</button>
+                  </form>
+                </div>
+              </div>
+            </details>
+            {% endif %}
           </div>
         </div>
         <div class="pq-appbar-row pq-appbar-overview-row">
           <div class="pq-appbar-meta">
-            <span class="pq-meta-pill">Single workspace app</span>
+            <span class="pq-meta-pill">Single account app</span>
             <span class="pq-meta-pill">Run-first results</span>
             <span class="pq-meta-pill">Packet + 360 review</span>
           </div>
@@ -1140,7 +1227,7 @@
         <div class="pq-stage-window-bar">
           <div class="pq-stage-window-title">
             <strong>{{ current_nav|replace('_', ' ')|title }}</strong>
-            <span>Persistent PropertyQuarry workspace surface</span>
+            <span>Persistent PropertyQuarry app surface</span>
           </div>
           <div class="pq-appbar-meta">
             <span class="pq-meta-pill">{{ workspace_label }}</span>
@@ -1156,7 +1243,7 @@
         <span>{{ brand.name }}</span>
       </a>
       <div class="workspace-card">
-        <div class="label">Workspace</div>
+        <div class="label">Account</div>
         <strong>{{ workspace_label }}</strong>
         <div>{{ brand.workspace_label }}</div>
       </div>
@@ -1176,14 +1263,38 @@
       <div class="console-topbar">
         <div class="console-title">
           <div class="context">
-            {% if access_email %}{{ access_email }}{% elif operator_id %}Operator access{% else %}Workspace overview{% endif %}
+            {% if access_email %}{{ access_email }}{% elif operator_id %}Operator access{% else %}Account overview{% endif %}
           </div>
           <h1>{{ page_heading or console_title or page_title }}</h1>
           {% if page_summary or console_summary %}<p>{{ page_summary or console_summary }}</p>{% endif %}
         </div>
-        {% if primary_action_href and primary_action_label %}
-        <div class="actions"><a class="btn primary" href="{{ primary_action_href }}">{{ primary_action_label }}</a></div>
-        {% endif %}
+        <div class="actions">
+          {% if primary_action_href and primary_action_label %}
+          <a class="btn primary" href="{{ primary_action_href }}">{{ primary_action_label }}</a>
+          {% endif %}
+          {% if account_nav %}
+          <details class="account-menu">
+            <summary aria-label="Account navigation">
+              <span>Account</span>
+            </summary>
+            <div class="account-menu-panel">
+              <div class="account-menu-label">
+                <span>Signed in</span>
+                <strong>{{ account_nav.label }}</strong>
+              </div>
+              <div class="account-menu-links">
+                <a class="btn" href="{{ account_nav.billing_href }}">Upgrade</a>
+                <a class="btn" href="{{ account_nav.profile_href }}">Profile</a>
+                <a class="btn ghost" href="{{ account_nav.settings_href }}">Settings</a>
+                <form class="account-menu-form" method="post" action="{{ account_nav.sign_out_action }}">
+                  <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
+                  <button class="btn ghost" type="submit">Log out</button>
+                </form>
+              </div>
+            </div>
+          </details>
+          {% endif %}
+        </div>
       </div>
   {% endif %}
 

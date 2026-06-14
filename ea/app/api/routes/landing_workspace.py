@@ -288,7 +288,7 @@ def settings_plan_detail(
         workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
         page_title="PropertyQuarry plan",
         current_nav="settings",
-        console_title="Workspace plan",
+        console_title="Plan",
         console_summary="Plan unit, billing posture, messaging scope, and seat boundaries for this office.",
         object_kind="Commercial boundary",
         object_title=str(plan.get("display_name") or "Pilot"),
@@ -314,7 +314,7 @@ def settings_plan_detail(
                 "eyebrow": "Plan",
                 "title": "Plan and billing posture",
                 "items": [
-                    _object_detail_row("Workspace plan", str(plan.get("display_name") or "Pilot"), "Plan"),
+                    _object_detail_row("Plan", str(plan.get("display_name") or "Pilot"), "Plan"),
                     _object_detail_row("Plan unit", str(plan.get("unit_of_sale") or "workspace"), "Plan"),
                     _object_detail_row("Price label", str(billing.get("price_label") or "Custom"), "Billing"),
                     _object_detail_row("Billing state", str(billing.get("billing_state") or "unknown"), "Billing"),
@@ -325,7 +325,7 @@ def settings_plan_detail(
             },
             {
                 "eyebrow": "Entitlements",
-                "title": "What this workspace includes",
+                "title": "What is included",
                 "items": [
                     _object_detail_row("Principal seats", str(entitlements.get("principal_seats") or 0), "Seats"),
                     _object_detail_row("Operator seats", str(entitlements.get("operator_seats") or 0), "Seats"),
@@ -397,7 +397,7 @@ def settings_usage_detail(
             _object_detail_row("Time to first value", str(analytics.get("time_to_first_value_seconds") or "pending"), "Analytics"),
             _object_detail_row("Churn risk", str(analytics.get("churn_risk") or "unknown").replace("_", " "), "Analytics"),
             _object_detail_row("Readiness", str(readiness.get("detail") or "Runtime posture not recorded."), "Runtime"),
-            _object_detail_row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime"),
+            _object_detail_row("Health score", str(readiness.get("health_score") or 0), "Runtime"),
             _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Support"),
         ],
         object_sections=[
@@ -526,7 +526,7 @@ def settings_support_detail(
             _object_detail_row("Invoice status", str(billing.get("invoice_status") or "unknown"), "Billing"),
             _object_detail_row("Churn risk", str(bundle.get("analytics", {}).get("churn_risk") or "unknown").replace("_", " "), "Analytics"),
             _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Provider"),
-            _object_detail_row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime"),
+            _object_detail_row("Health score", str(readiness.get("health_score") or 0), "Runtime"),
             _object_detail_row("Last memo issue", str(memo_loop.get("last_issue_reason") or "No current memo blocker"), "Memo"),
             _object_detail_row("Journey gate", str(journey_gate.get("state") or "missing").replace("_", " "), "Product"),
             _object_detail_row("Support fallout", str(support_fallout.get("detail") or "No support fallout is mirrored."), "Support"),
@@ -549,7 +549,7 @@ def settings_support_detail(
             ),
             _object_detail_row(
                 "Export bundle",
-                "Open the support-ready workspace bundle in the browser or download the JSON artifact directly.",
+                "Open the support bundle in the browser or download the JSON artifact directly.",
                 "Bundle",
                 action_href="/app/api/diagnostics/export",
                 action_label="Open bundle",
@@ -562,7 +562,7 @@ def settings_support_detail(
         object_sections=[
             {
                 "eyebrow": "Fix verification",
-                "title": "Did the fix reach the channel and workspace link",
+                "title": "Did the fix reach the channel and access link",
                 "items": [
                     _object_detail_row(
                         "Verification summary",
@@ -571,7 +571,7 @@ def settings_support_detail(
                     ),
                     _object_detail_row("Recipient", str(support_verification.get("recipient_email") or "Recipient missing"), "Recipient"),
                     _object_detail_row("Channel receipt", str(support_verification.get("channel_receipt_detail") or "No channel receipt recorded yet."), "Channel"),
-                    _object_detail_row("Install receipt", str(support_verification.get("install_receipt_detail") or "No workspace receipt recorded yet."), "Install"),
+                    _object_detail_row("Install receipt", str(support_verification.get("install_receipt_detail") or "No install receipt recorded yet."), "Install"),
                     _object_detail_row("Confirmation", str(support_verification.get("confirmation_detail") or "No explicit confirmation recorded yet."), "Confirmation"),
                     _object_detail_row(
                         "Next action",
@@ -722,7 +722,7 @@ def settings_support_detail(
             },
             {
                 "eyebrow": "Commercial escalation",
-                "title": "Billing path, upgrade path, and workspace blockers",
+                "title": "Billing path, upgrade path, and blockers",
                 "items": [
                     _object_detail_row("Billing portal", str(billing.get("billing_portal_state") or "guided").replace("_", " "), "Billing"),
                     _object_detail_row("Invoice window", str(billing.get("invoice_window_label") or "Not recorded"), "Billing"),
@@ -754,7 +754,7 @@ def settings_support_detail(
                 ],
             },
             {
-                "eyebrow": "Workspace health",
+                "eyebrow": "Health",
                 "title": "Success metrics and churn risk",
                 "items": [
                     _object_detail_row("Memo open rate", str(analytics.get("memo_open_rate") or 0), "Analytics"),
@@ -825,10 +825,10 @@ def settings_outcomes_detail(
         workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
         page_title="PropertyQuarry outcomes",
         current_nav="settings",
-        console_title="Workspace outcomes",
+        console_title="Outcomes",
         console_summary="First value, review activity, commitment closure, and correction signals explain whether this office is actually getting value.",
         object_kind="Outcome posture",
-        object_title=str(outcomes.get("success_summary") or "Workspace outcomes"),
+        object_title=str(outcomes.get("success_summary") or "Outcomes"),
         object_summary=(
             f"Memo open rate {outcomes.get('memo_open_rate') or 0} · "
             f"Commitment close rate {outcomes.get('commitment_close_rate') or 0} · "
@@ -875,7 +875,7 @@ def settings_outcomes_detail(
         object_sections=[
             {
                 "eyebrow": "Activation",
-                "title": "How quickly the workspace reached first value",
+                "title": "Time to first value",
                 "items": [
                     _object_detail_row("First value event", str(outcomes.get("first_value_event") or "pending").replace("_", " "), "Activation"),
                     _object_detail_row("Time to first value", str(outcomes.get("time_to_first_value_seconds") or "pending"), "Activation"),
@@ -1299,10 +1299,10 @@ def settings_trust_detail(
         workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
         page_title="PropertyQuarry trust",
         current_nav="settings",
-        console_title="Workspace trust",
+        console_title="Trust",
         console_summary="Evidence, rules, readiness, provider posture, and recent product events make the assistant legible when the office asks why something happened.",
         object_kind="Trust posture",
-        object_title=str(trust.get("workspace_summary") or "Workspace trust posture"),
+        object_title=str(trust.get("workspace_summary") or "Trust"),
         object_summary=f"Health score {trust.get('health_score') or 0} · {trust.get('evidence_count') or 0} evidence items · {trust.get('rule_count') or 0} rules",
         object_meta=[
             {"label": "Health score", "value": str(trust.get("health_score") or 0)},
@@ -1313,7 +1313,7 @@ def settings_trust_detail(
         object_sidebar_title="What makes this trustworthy",
         object_sidebar_copy="Trust is the product of clear readiness, understandable provider posture, reliable delivery, visible rules, and recent evidence of what the system actually did.",
         object_sidebar_rows=[
-            _object_detail_row("Workspace summary", str(trust.get("workspace_summary") or "No trust summary yet."), "Summary"),
+            _object_detail_row("Summary", str(trust.get("workspace_summary") or "No trust summary yet."), "Summary"),
             _object_detail_row("Readiness", str(readiness.get("detail") or "No readiness detail recorded."), "Runtime"),
             _object_detail_row("Provider risk", str(provider_posture.get("risk_state") or "unknown"), "Provider"),
             _object_detail_row("Delivery reliability", str(reliability.get("delivery") or "watch"), "Runtime"),
@@ -1325,7 +1325,7 @@ def settings_trust_detail(
                 "eyebrow": "Readiness",
                 "title": "Runtime and provider posture",
                 "items": [
-                    _object_detail_row("Workspace status", str(readiness.get("status") or "unknown").replace("_", " "), "Runtime"),
+                    _object_detail_row("Status", str(readiness.get("status") or "unknown").replace("_", " "), "Runtime"),
                     _object_detail_row("Readiness detail", str(readiness.get("detail") or "No readiness detail recorded."), "Runtime"),
                     _object_detail_row("Provider risk", str(provider_posture.get("risk_state") or "unknown"), "Provider"),
                     _object_detail_row("Risk detail", str(provider_posture.get("risk_detail") or "No provider risk detail recorded."), "Provider"),
@@ -1438,7 +1438,7 @@ def settings_access_detail(
         workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
         page_title="PropertyQuarry access",
         current_nav="settings",
-        console_title="Workspace access",
+        console_title="Access",
         console_summary="Active access sessions are visible and revocable from the browser, not buried in API payloads or support tooling.",
         object_kind="Access posture",
         object_title=f"{len(active_sessions)} active sessions",
@@ -1467,7 +1467,7 @@ def settings_access_detail(
         object_sections=[
             {
                 "eyebrow": "Active sessions",
-                "title": "Live workspace access links",
+                "title": "Live access links",
                 "items": [
                     _object_detail_row(
                         str(item.get("email") or "unknown"),
@@ -1501,7 +1501,7 @@ def settings_access_detail(
             "action": "/app/actions/access-sessions/issue",
             "method": "post",
             "eyebrow": "Issue access",
-            "title": "Create a workspace access link",
+            "title": "Create an access link",
             "copy": "Issue a direct principal or operator access link without dropping into the API.",
             "submit_label": "Issue access link",
             "fields": [
@@ -1562,7 +1562,7 @@ def settings_invitations_detail(
         workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
         page_title="PropertyQuarry invitations",
         current_nav="settings",
-        console_title="Workspace invitations",
+        console_title="Invitations",
         console_summary="Pending invites, accepted roles, and revoked access stay visible where the workspace decides who joins the office loop.",
         object_kind="Invitation posture",
         object_title=f"{len(pending)} pending invitations",
@@ -1662,7 +1662,7 @@ def settings_invitations_detail(
             "action": "/app/actions/invitations/create",
             "method": "post",
             "eyebrow": "Create invite",
-            "title": "Invite another person into the workspace",
+            "title": "Invite another person",
             "copy": "Create a principal or operator invitation without leaving the product surface.",
             "submit_label": "Create invitation",
             "fields": [
@@ -2117,7 +2117,7 @@ def app_search(
     cards = [
         {
             "eyebrow": "Workspace search",
-            "title": f"Results for “{normalized_query}”" if normalized_query else "Search the workspace",
+            "title": f"Results for “{normalized_query}”" if normalized_query else "Search the account",
             "body": (
                 f"{len(items)} results across people, threads, commitments, decisions, deadlines, evidence, and rules."
                 if normalized_query
@@ -2179,7 +2179,7 @@ def app_search(
             page_title="PropertyQuarry property search",
             current_nav="settings",
             context=context,
-            console_title="Workspace search",
+            console_title="Search",
             console_summary="Search is the fastest way to jump across the office object model and execute the next obvious action.",
             nav_groups=app_nav_groups_for_brand(request_brand(request)["key"]),
             workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
@@ -2193,7 +2193,7 @@ def app_search(
                     {
                         "type": "text",
                         "name": "query",
-                        "label": "Search the workspace",
+                        "label": "Search the account",
                         "value": normalized_query,
                         "placeholder": "Sofia, board, investor, renewal",
                     },

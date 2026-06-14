@@ -62,15 +62,15 @@
 
 <section class="access-grid">
   <section class="access-panel">
-    <div class="kicker">Existing workspace</div>
-    <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have workspace access.{% endif %}</h1>
-    <p class="lead">{% if brand.key == 'propertyquarry' %}Return through a current session, a secure email link, a workspace invite, or SSO. New customers start by creating a property research account first.{% else %}Return through a current session, a secure email link, a workspace invite, or SSO. New customers start with a personal workspace first.{% endif %}</p>
+    <div class="kicker">Sign in</div>
+    <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have account access.{% endif %}</h1>
+    <p class="lead">Use your session, email link, invite, or Google.</p>
     <div class="cta-row">
       <a class="btn primary" href="{% if brand.key == 'propertyquarry' %}/app/properties{% else %}/app/today{% endif %}">Open current session</a>
       <a class="btn" href="/register">{{ brand.create_label }}</a>
     </div>
     <form class="access-form" method="post" action="/sign-in/google">
-      <label>Continue with Google</label>
+      <label>Google<button class="info-tip" type="button" title="Google is optional and uses identity-only access by default." aria-label="Google is optional and uses identity-only access by default.">?</button></label>
       <div class="cta-row">
         <button class="btn primary" type="submit">Continue with Google</button>
       </div>
@@ -84,7 +84,7 @@
     {% if sign_in_link_enabled %}
     <form class="access-form" method="post" action="/sign-in/email-link">
       <div>
-        <label for="sign_in_email">Email me a fresh access link</label>
+        <label for="sign_in_email">Email link<button class="info-tip" type="button" title="Send a new secure sign-in link to this inbox." aria-label="Send a new secure sign-in link to this inbox.">?</button></label>
         <input id="sign_in_email" name="email" type="email" value="{{ sign_in_link_email or '' }}" placeholder="you@company.com" required>
       </div>
       <div class="cta-row">
@@ -101,58 +101,39 @@
     <div class="access-feedback">
       {% if sign_in_link_status == 'submitted' %}
       <strong>Check your inbox.</strong>
-      <p class="copy">If {{ sign_in_link_email or 'that email address' }} already has workspace access, we will send a fresh secure sign-in link.</p>
+      <p class="copy">If {{ sign_in_link_email or 'that email address' }} already has access, we will send a fresh secure sign-in link.</p>
       {% elif sign_in_link_status == 'invalid' %}
       <strong>Enter a valid email address.</strong>
-      <p class="copy">Use the inbox that already has workspace access or an invite.</p>
+      <p class="copy">Use the inbox that already has access or an invite.</p>
       {% else %}
       <strong>We could not send a sign-in link.</strong>
-      <p class="copy">{{ sign_in_link_error or 'Use your current session, an existing invite, or ask the workspace owner to issue a new link.' }}</p>
+      <p class="copy">{{ sign_in_link_error or 'Use your current session, an existing invite, or ask the account owner to issue a new link.' }}</p>
       {% endif %}
     </div>
     {% endif %}
-    <div class="summary-strip">
-      <div class="summary">
-        <div class="label">Returning users</div>
-        <strong>Use the same secure path you used before: session, email link, invite, or SSO.</strong>
-      </div>
-      <div class="summary">
-        <div class="label">New users</div>
-        <strong>{% if brand.key == 'propertyquarry' %}Start at /register and set up the first search profile before running crawls.{% else %}Start at /register and prove value with a personal workspace first.{% endif %}</strong>
-      </div>
-      <div class="summary">
-      <div class="label">Google</div>
-        <strong>Google can reopen an existing workspace with identity-only scope.</strong>
-      </div>
-    </div>
   </section>
 
   <section class="access-panel">
-    <div class="kicker">What this page is for</div>
-    <h2>{% if brand.key == 'propertyquarry' %}Return to an existing property workspace.{% else %}Return to an existing workspace.{% endif %}</h2>
+    <div class="kicker">Access</div>
+    <h2>Choose a sign-in path.</h2>
     <div class="access-card-grid">
       <section class="access-card">
-        <strong>Managed access</strong>
-        <p class="copy">If your deployment uses SSO or an access gateway, continue through that identity layer and reopen the workspace from there.</p>
+        <strong>SSO</strong>
+        <p class="copy">Use your company sign-in if available.</p>
       </section>
       <section class="access-card">
-        <strong>Email links</strong>
-        <p class="copy">Workspace invitations, sign-in links, approval links, and delivered actions can all reopen the right workspace directly from email.</p>
+        <strong>Email link</strong>
+        <p class="copy">Open the latest secure link.</p>
       </section>
       <section class="access-card">
-        <strong>First visit</strong>
-        <p class="copy">If you do not already have access, the right next step is /register, not a support ticket or a deeper settings page.</p>
+        <strong>New account</strong>
+        <p class="copy">Use /register.</p>
       </section>
       <section class="access-card">
-        <strong>Shared review when needed</strong>
-        <p class="copy">Add collaborators, invites, and broader review only after the shortlist and research packet are already proving value.</p>
+        <strong>Google</strong>
+        <p class="copy">Optional.</p>
       </section>
     </div>
-    <ul class="muted-list">
-      {% for note in sign_in_notes %}
-      <li>{{ note }}</li>
-      {% endfor %}
-    </ul>
   </section>
 </section>
 {% endblock %}

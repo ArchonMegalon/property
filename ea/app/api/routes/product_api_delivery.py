@@ -79,6 +79,10 @@ from app.services.property_billing import (
 from app.services.property_market_catalog import (
     country_label as property_country_label,
     default_platforms_for_country as property_default_platforms_for_country,
+    default_platforms_for_country_listing_mode as property_default_platforms_for_country_listing_mode,
+    evidence_source_options as property_evidence_source_options,
+    normalize_listing_mode as property_normalize_listing_mode,
+    normalize_property_type as property_normalize_property_type,
     normalize_country_code as property_normalize_country_code,
     provider_options as property_provider_options,
 )
@@ -828,14 +832,29 @@ def start_property_search_run_v2(
 @router.get("/property/providers", response_model=dict[str, object])
 def get_property_providers(
     country: str = Query(default="AT", min_length=1, max_length=12),
+    listing_mode: str = Query(default="rent", min_length=1, max_length=24),
+    property_type: str = Query(default="any", min_length=1, max_length=24),
 ) -> dict[str, object]:
     country_code = property_normalize_country_code(country)
+    normalized_listing_mode = property_normalize_listing_mode(listing_mode)
+    normalized_property_type = property_normalize_property_type(property_type)
     return {
         "generated_at": now_iso(),
         "country_code": country_code,
         "country_label": property_country_label(country_code),
-        "default_platforms": list(property_default_platforms_for_country(country_code)),
+        "listing_mode": normalized_listing_mode,
+        "property_type": normalized_property_type,
+        "default_platforms": list(
+            property_default_platforms_for_country_listing_mode(
+                country_code,
+                normalized_listing_mode,
+                property_type=normalized_property_type,
+            )
+            if country_code in {"AT", "DE"}
+            else property_default_platforms_for_country(country_code)
+        ),
         "providers": [dict(row) for row in property_provider_options(country_code=country_code)],
+        "evidence_sources": [dict(row) for row in property_evidence_source_options(country_code=country_code)],
     }
 
 
@@ -1192,6 +1211,26 @@ def property_search_run_events_v2(
         "status": str(payload.get("status") or "").strip(),
         "status_url": _property_search_status_url(payload.get("run_id") or run_id, canonical=True),
         "events": [dict(item) for item in list(payload.get("events") or []) if isinstance(item, dict)],
+    }
+
+
+@router.delete("/property/search-runs/{run_id}", response_model=dict[str, object])
+def delete_property_search_run_v2(
+    run_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_product_service(container)
+    deleted = service.delete_property_search_run(
+        principal_id=context.principal_id,
+        run_id=run_id,
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="property_search_run_not_found")
+    return {
+        "generated_at": now_iso(),
+        "run_id": str(run_id or "").strip(),
+        "deleted": True,
     }
 
 

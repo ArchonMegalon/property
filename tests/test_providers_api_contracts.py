@@ -4186,7 +4186,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     landing = owner.get("/")
     assert landing.status_code == 200
     _assert_no_product_drift(landing.text)
-    assert "Search once. Rank hard. Research the shortlist." in landing.text
+    assert "Find the right properties. Compare them clearly. Decide with evidence." in landing.text
     assert "Create account" in landing.text
     assert "PropertyQuarry" in landing.text
     for href in _internal_links(landing.text):
@@ -4196,16 +4196,17 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     setup = owner.get("/register")
     assert setup.status_code == 200
     _assert_no_product_drift(setup.text)
-    assert "Start a workspace that finds and ranks the right properties." in setup.text
-    assert "Workspace shape" in setup.text
+    assert "Start an account that finds and ranks the right properties." in setup.text
+    assert "Account shape" in setup.text
     assert "Google sign-in" in setup.text
 
     sign_in = owner.get("/sign-in")
     assert sign_in.status_code == 200
     _assert_no_product_drift(sign_in.text)
-    assert "Return to an existing property workspace." in sign_in.text
+    assert "Choose a sign-in path." in sign_in.text
     assert "Create account" in sign_in.text
-    assert "Email me a sign-in link" in sign_in.text
+    assert "Email me a fresh access link" not in sign_in.text
+    assert "Email link" in sign_in.text
 
     legacy_setup = owner.get("/setup", follow_redirects=False)
     assert legacy_setup.status_code == 307
@@ -4276,7 +4277,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     assert "browser@gmail.example" in callback.text
     assert "openid" in callback.text
     assert 'href="/get-started"' in callback.text
-    assert "No Gmail or Calendar sync was requested for this workspace." in callback.text
+    assert "No Gmail or Calendar sync was requested." in callback.text
 
 
 def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4361,7 +4362,7 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     assert "browser@gmail.com" in callback.text
     assert "cf-email:browser@gmail.com" not in callback.text
     assert 'href="/get-started"' in callback.text
-    assert "No Gmail or Calendar sync was requested for this workspace." in callback.text
+    assert "No Gmail or Calendar sync was requested." in callback.text
 
 
 def test_browser_google_callback_redirects_back_to_setup_when_state_expired(monkeypatch: pytest.MonkeyPatch) -> None:

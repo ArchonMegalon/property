@@ -25,15 +25,10 @@ PROPERTY_APP_NAV_GROUPS = (
     {
         "label": "PropertyQuarry",
         "items": (
-            {"href": "/app/properties", "label": "Search", "key": "properties"},
-            {"href": "/app/shortlist", "label": "Shortlist", "key": "shortlist"},
-            {"href": "/app/research", "label": "Research", "key": "research"},
-            {"href": "/app/properties/packets", "label": "Packets", "key": "packets"},
-            {"href": "/app/profile", "label": "Profile", "key": "profile"},
-            {"href": "/app/alerts", "label": "Alerts", "key": "alerts"},
+            {"href": "/app/properties", "label": "Home", "key": "properties"},
+            {"href": "/app/search", "label": "Search", "key": "search"},
             {"href": "/app/agents", "label": "Search agents", "key": "agents"},
-            {"href": "/app/billing", "label": "Billing", "key": "billing"},
-            {"href": "/app/settings", "label": "Settings", "key": "settings"},
+            {"href": "/app/account", "label": "Account", "key": "account"},
         ),
     },
 )

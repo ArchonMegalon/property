@@ -479,3 +479,92 @@ class PostgresPropertyDecisionLoopRepository:
             "propertyquarry_agent_questions": agent_question_rows,
             "propertyquarry_documents": document_rows,
         }
+
+    def update_agent_question_task(
+        self,
+        *,
+        principal_id: str,
+        task_id: str,
+        status: str,
+        answer_source: str = "",
+    ) -> dict[str, object]:
+        principal = str(principal_id or "").strip()
+        normalized_task_id = str(task_id or "").strip()
+        normalized_status = str(status or "").strip()
+        if not principal or not normalized_task_id or not normalized_status:
+            raise ValueError("principal_id, task_id, and status are required")
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE property_agent_question_tasks
+                    SET status = %s,
+                        answer_source = CASE WHEN %s <> '' THEN %s ELSE answer_source END
+                    WHERE principal_id = %s AND task_id = %s
+                    RETURNING task_id, principal_id, person_id, property_ref, decision_id, question_text,
+                              reason_key, source_claim_id, status, answer_source, updated_claim_id, created_at
+                    """,
+                    (normalized_status, str(answer_source or "").strip(), str(answer_source or "").strip(), principal, normalized_task_id),
+                )
+                row = cur.fetchone()
+        if not row:
+            raise ValueError("property_agent_question_task_not_found")
+        return {
+            "task_id": str(row[0] or ""),
+            "principal_id": str(row[1] or ""),
+            "person_id": str(row[2] or ""),
+            "property_ref": str(row[3] or ""),
+            "decision_id": str(row[4] or ""),
+            "question_text": str(row[5] or ""),
+            "reason_key": str(row[6] or ""),
+            "source_claim_id": str(row[7] or ""),
+            "status": str(row[8] or ""),
+            "answer_source": str(row[9] or ""),
+            "updated_claim_id": str(row[10] or ""),
+            "created_at": _to_iso(row[11]),
+        }
+
+    def update_document_record(
+        self,
+        *,
+        principal_id: str,
+        document_id: str,
+        verification_state: str,
+    ) -> dict[str, object]:
+        principal = str(principal_id or "").strip()
+        normalized_document_id = str(document_id or "").strip()
+        normalized_state = str(verification_state or "").strip()
+        if not principal or not normalized_document_id or not normalized_state:
+            raise ValueError("principal_id, document_id, and verification_state are required")
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE property_documents
+                    SET verification_state = %s
+                    WHERE principal_id = %s AND document_id = %s
+                    RETURNING document_id, principal_id, person_id, property_ref, decision_id, document_type,
+                              source, privacy_class, verification_state, extracted_claims_json,
+                              missing_pages_json, redaction_state, linked_risks_json, created_at
+                    """,
+                    (normalized_state, principal, normalized_document_id),
+                )
+                row = cur.fetchone()
+        if not row:
+            raise ValueError("property_document_not_found")
+        return {
+            "document_id": str(row[0] or ""),
+            "principal_id": str(row[1] or ""),
+            "person_id": str(row[2] or ""),
+            "property_ref": str(row[3] or ""),
+            "decision_id": str(row[4] or ""),
+            "document_type": str(row[5] or ""),
+            "source": str(row[6] or ""),
+            "privacy_class": str(row[7] or ""),
+            "verification_state": str(row[8] or ""),
+            "extracted_claims_json": list(row[9] or []),
+            "missing_pages_json": list(row[10] or []),
+            "redaction_state": str(row[11] or ""),
+            "linked_risks_json": list(row[12] or []),
+            "created_at": _to_iso(row[13]),
+        }

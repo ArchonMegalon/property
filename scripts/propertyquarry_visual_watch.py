@@ -80,6 +80,16 @@ def _analysis_script() -> str:
         })
         .slice(0, 20)
         .map((node) => ({ label: labelFor(node), rect: rectOf(node), src: String(node.currentSrc || node.src || '').slice(0, 180) }));
+      const screenFitTargets = Array.from(document.querySelectorAll('[data-pqx-screenfit-target]'))
+        .filter(visible)
+        .map((node) => {
+          const rect = rectOf(node);
+          return {
+            label: String(node.getAttribute('data-pqx-screenfit-target') || labelFor(node)).slice(0, 120),
+            rect,
+            fitsViewport: rect.top >= -2 && rect.left >= -2 && rect.right <= viewport.width + 2 && rect.bottom <= viewport.height + 2,
+          };
+        });
       const media = Array.from(document.querySelectorAll('img, svg, canvas, video')).filter(visible);
       const duplicateGraphics = [];
       for (let i = 0; i < media.length; i += 1) {
@@ -107,6 +117,7 @@ def _analysis_script() -> str:
         horizontalPageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
         escaped,
         offscreenMedia,
+        screenFitTargets,
         duplicateGraphics,
       };
     }
@@ -146,6 +157,7 @@ def _run_watch(url: str, *, output_dir: Path, interval_seconds: float, samples: 
         int(bool(frame["analysis"].get("horizontalPageOverflow")))
         + len(frame["analysis"].get("escaped") or [])
         + len(frame["analysis"].get("offscreenMedia") or [])
+        + sum(0 if bool(target.get("fitsViewport")) else 1 for target in (frame["analysis"].get("screenFitTargets") or []))
         + len(frame["analysis"].get("duplicateGraphics") or [])
         for frame in frames
     )

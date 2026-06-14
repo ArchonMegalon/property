@@ -58,7 +58,7 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
 
     invitations = client.get("/app/settings/invitations")
     assert invitations.status_code == 200
-    assert "Workspace invitations" in invitations.text
+    assert "Invitations" in invitations.text
     assert "Invite email failures" in invitations.text
 
     search_page = client.get("/app/search", params={"query": "Sofia"})
@@ -435,8 +435,8 @@ def test_propertyquarry_host_renders_branded_public_surfaces() -> None:
 
     register = client.get("/register", headers={"host": "propertyquarry.com"})
     assert register.status_code == 200
-    assert "Create your property workspace" in register.text
-    assert "ranked shortlist" in register.text.lower()
+    assert "Start an account that finds and ranks the right properties." in register.text
+    assert "Create the account and start the first search." in register.text
 
 
 def test_propertyquarry_repo_defaults_to_property_brand_without_host_header() -> None:
@@ -445,12 +445,12 @@ def test_propertyquarry_repo_defaults_to_property_brand_without_host_header() ->
     landing = client.get("/")
     assert landing.status_code == 200
     assert "PropertyQuarry" in landing.text
-    assert "Search once. Rank hard. Research the shortlist." in landing.text
+    assert "Find the right properties. Compare them clearly. Decide with evidence." in landing.text
     assert "Executive Assistant" not in landing.text
 
     register = client.get("/register")
     assert register.status_code == 200
-    assert "Create your property workspace" in register.text
+    assert "Start an account that finds and ranks the right properties." in register.text
 
 
 def test_browser_journey_updates_after_approval_and_commitment_closure() -> None:
@@ -1089,7 +1089,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
 
     plan_page = client.get("/app/settings/plan")
     assert plan_page.status_code == 200
-    assert "Workspace plan" in plan_page.text
+    assert "Plan" in plan_page.text
 
     usage_page = client.get("/app/settings/usage")
     assert usage_page.status_code == 200
@@ -1112,8 +1112,8 @@ def test_object_detail_routes_render_core_product_objects() -> None:
 
     outcomes_page = client.get("/app/settings/outcomes")
     assert outcomes_page.status_code == 200
-    assert "Workspace outcomes" in outcomes_page.text
-    assert "How quickly the workspace reached first value" in outcomes_page.text
+    assert "Outcomes" in outcomes_page.text
+    assert "Time to first value" in outcomes_page.text
     assert "How the daily loop is performing" in outcomes_page.text
     assert "How the recurring memo loop is proving itself" in outcomes_page.text
     assert "What the office-loop release gate would say right now" in outcomes_page.text
@@ -1124,13 +1124,13 @@ def test_object_detail_routes_render_core_product_objects() -> None:
 
     trust_page = client.get("/app/settings/trust")
     assert trust_page.status_code == 200
-    assert "Workspace trust" in trust_page.text
+    assert "Trust" in trust_page.text
     assert "Get help without guessing" in trust_page.text
     assert "What the assistant recently did" in trust_page.text
     assert "Evidence, rules, and retention" in trust_page.text
     assert plan_page.status_code == 200
     assert "Commercial boundary" in plan_page.text
-    assert "What this workspace includes" in plan_page.text
+    assert "What is included" in plan_page.text
     assert "Billing and renewal controls" in plan_page.text
     assert "Upgrade path" in plan_page.text
 
@@ -1749,14 +1749,14 @@ def test_browser_settings_access_and_invitation_pages_render_live_workspace_stat
 
     invitations_page = client.get("/app/settings/invitations")
     assert invitations_page.status_code == 200
-    assert "Workspace invitations" in invitations_page.text
+    assert "Invitations" in invitations_page.text
     assert "Invites waiting for acceptance" in invitations_page.text
     assert "operator@example.com" in invitations_page.text
 
     access_page = client.get("/app/settings/access")
     assert access_page.status_code == 200
-    assert "Workspace access" in access_page.text
-    assert "Live workspace access links" in access_page.text
+    assert "Access" in access_page.text
+    assert "Live access links" in access_page.text
     assert "principal@example.com" in access_page.text
 
     invitation_rows = client.get("/app/api/invitations")

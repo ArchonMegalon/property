@@ -255,6 +255,8 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert projected_preferences["search_agents"][0]["preferences_json"]["property_type"] == "land"
     assert records["propertyquarry_search_agents"][0]["agent_id"] == "agent-cr"
     assert records["propertyquarry_search_agents"][0]["name"] == "Monteverde land search"
+    assert records["propertyquarry_search_agents"][0]["principal_id"].startswith("principal:")
+    assert records["propertyquarry_search_agents"][0]["principal_id"] != "pq-user-1"
     assert records["propertyquarry_search_agents"][0]["is_active"] is True
     assert records["propertyquarry_search_agents"][0]["country_code"] == "CR"
     assert records["propertyquarry_search_agents"][0]["region_code"] == "puntarenas"
@@ -297,13 +299,50 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert "oauth_token" not in artifact_dump
     assert records["propertyquarry_research_tasks"][0]["field_key"] == "rooms"
     assert records["propertyquarry_decision_ledger"][0]["decision_state"] == "needs_documents"
+    assert records["propertyquarry_decision_ledger"][0]["principal_id"].startswith("principal:")
+    assert records["propertyquarry_decision_ledger"][0]["person_id"].startswith("person:")
+    assert records["propertyquarry_decision_ledger"][0]["property_ref"].startswith("property:")
+    assert records["propertyquarry_decision_ledger"][0]["property_ref"] != "property:abc"
     assert records["propertyquarry_decision_ledger"][0]["reason_keys_json"] == ["no_floorplan"]
     assert records["propertyquarry_evidence_claims"][0]["claim_text"] == "Missing or unclear: no floorplan."
+    assert records["propertyquarry_evidence_claims"][0]["source_ref"].startswith("source:")
     assert records["propertyquarry_evidence_claims"][0]["privacy_class"] == "owner_private"
     assert records["propertyquarry_agent_questions"][0]["reason_key"] == "no_floorplan"
+    assert records["propertyquarry_agent_questions"][0]["property_ref"].startswith("property:")
     assert records["propertyquarry_agent_questions"][0]["question_text"].startswith("Please send the floorplan")
     assert records["propertyquarry_documents"][0]["document_type"] == "floorplan"
+    assert records["propertyquarry_documents"][0]["property_ref"].startswith("property:")
     assert records["propertyquarry_documents"][0]["linked_risks_json"] == ["no_floorplan"]
+
+
+def test_propertyquarry_teable_sync_redacts_raw_human_feedback_claim_text() -> None:
+    records = build_propertyquarry_teable_projection_records(
+        principal_id="pq-user-1",
+        onboarding_status={},
+        decision_loop_rows={
+            "propertyquarry_evidence_claims": [
+                {
+                    "claim_id": "claim-human-1",
+                    "principal_id": "pq-user-1",
+                    "person_id": "self",
+                    "property_ref": "property:abc",
+                    "decision_id": "decision-1",
+                    "claim_type": "human_feedback",
+                    "text": "The owner said the bedroom feels unsafe and too noisy.",
+                    "source_type": "workbench",
+                    "source_ref": "decision-1",
+                    "confidence": "medium",
+                    "verification_state": "pending",
+                    "privacy_class": "owner_private",
+                    "allowed_outputs_json": ["owner_private"],
+                    "created_at": "2026-06-13T08:00:01+00:00",
+                }
+            ]
+        },
+    )
+
+    assert records["propertyquarry_evidence_claims"][0]["claim_text"] == ""
+    assert records["propertyquarry_evidence_claims"][0]["principal_id"].startswith("principal:")
 
 
 def test_propertyquarry_teable_sync_preview_fails_closed_without_property_table_mapping(monkeypatch) -> None:

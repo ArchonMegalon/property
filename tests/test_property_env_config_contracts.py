@@ -37,5 +37,8 @@ def test_env_example_lists_flagship_property_provider_switches() -> None:
         "PROPERTYQUARRY_PIXEFY_LIVE_SMOKE=0",
         "RAFTER_API_KEY=",
         "PROPERTYQUARRY_RAFTER_LIVE_SMOKE=0",
+        "PROPERTYQUARRY_3DVISTA_EXPORT_ROOT=/docker/property/state/public_property_tours/3dvista",
+        "PROPERTYQUARRY_FASTESTVPN_ON_DEMAND_ENABLED=0",
+        "PROPERTYQUARRY_FASTESTVPN_AUTO_STOP_AFTER_REFRESH=1",
     ):
         assert required in env

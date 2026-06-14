@@ -61,31 +61,31 @@
 <section class="section panel google-hero">
   <div class="kicker">Google connected</div>
   <h1>Google account linked.</h1>
-  <p class="lead">PropertyQuarry keeps this connection narrow by default. Google can now act as a verified account-return path without pulling extra workspace data.</p>
+  <p class="lead">PropertyQuarry keeps this connection narrow by default. Google can now act as a verified sign-in path without pulling extra account data.</p>
 </section>
 
 <section class="section google-step-grid">
   <section class="google-step">
     <strong>What just happened</strong>
-    You approved Google access for this workspace. PropertyQuarry can now use exactly the granted capabilities below and nothing broader.
+    You approved Google access for this account. PropertyQuarry can now use exactly the granted capabilities below and nothing broader.
   </section>
   <section class="google-step">
-    <strong>What the workspace checked next</strong>
+    <strong>What happens next</strong>
     {{ sync_detail or 'Open Properties first. That is usually the fastest way to confirm the connection is already helping the active search.' }}
   </section>
 </section>
 
 <section class="section google-capability-grid">
   <section class="google-capability">
-    <h2>What the workspace can do now</h2>
+    <h2>What PropertyQuarry can do now</h2>
     <ul class="muted-list">
-      <li>Recognize the same Google account when this workspace asks you to return through Google again.</li>
+      <li>Recognize the same Google account when you return through Google again.</li>
       {% if granted.send %}<li>Prepare and send reviewed replies from the connected Gmail account.</li>{% endif %}
       {% if granted.verify %}<li>Use Gmail metadata to help verify drafts and delivery state.</li>{% endif %}
-      {% if granted.calendar %}<li>Use calendar context where the workspace explicitly asks for it.</li>{% endif %}
+      {% if granted.calendar %}<li>Use calendar context where you explicitly ask for it.</li>{% endif %}
       {% if granted.contacts %}<li>Use contacts to attach people context and reduce repeated lookups.</li>{% endif %}
-      {% if granted.mailbox %}<li>Use deeper mailbox context where the workspace explicitly needs it.</li>{% endif %}
-      {% if granted.drive %}<li>Use Drive metadata when broader workspace context is enabled.</li>{% endif %}
+      {% if granted.mailbox %}<li>Use deeper mailbox context where the app explicitly needs it.</li>{% endif %}
+      {% if granted.drive %}<li>Use Drive metadata when broader account context is enabled.</li>{% endif %}
       {% if granted.settings %}<li>Google also granted mail settings scopes tied to delivery setup and transport behavior.</li>{% endif %}
     </ul>
   </section>
@@ -95,7 +95,7 @@
       <li>Email: {{ account.google_email }}</li>
       <li>Consent stage: {{ account.consent_stage }}</li>
       <li>Token status: {{ account.token_status }}</li>
-      <li>Workspace mode: {{ account.workspace_mode|replace('_', ' ')|title }}</li>
+      <li>Account type: {{ account.workspace_mode|replace('_', ' ')|title }}</li>
       <li>Connector binding: {{ account.connector_binding.binding_id if account.connector_binding else '' }}</li>
     </ul>
   </section>

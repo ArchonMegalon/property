@@ -3,14 +3,17 @@ from __future__ import annotations
 import json
 import re
 import socket
+import subprocess
 import threading
 import time
 import urllib.parse
 import urllib.request
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image, ImageDraw
 
 uvicorn = pytest.importorskip("uvicorn")
 pytest.importorskip("playwright.sync_api")
@@ -44,14 +47,145 @@ def _wait_for_http(base_url: str, *, timeout_seconds: float = 15.0) -> None:
     raise AssertionError(f"server at {base_url} did not become ready in time")
 
 
+def _write_floorplan_png(path: Path) -> None:
+    image = Image.new("RGB", (1280, 900), (248, 246, 242))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((80, 80, 1200, 820), outline=(42, 42, 42), width=8)
+    draw.line((420, 80, 420, 820), fill=(58, 58, 58), width=6)
+    draw.line((80, 410, 1200, 410), fill=(58, 58, 58), width=6)
+    draw.rectangle((450, 120, 1110, 360), outline=(148, 68, 48), width=6)
+    draw.rectangle((110, 120, 380, 360), outline=(73, 108, 170), width=6)
+    draw.rectangle((110, 450, 380, 770), outline=(73, 108, 170), width=6)
+    draw.rectangle((450, 450, 1110, 770), outline=(148, 68, 48), width=6)
+    draw.text((150, 210), "Entry", fill=(30, 30, 30))
+    draw.text((690, 220), "Living", fill=(30, 30, 30))
+    draw.text((160, 600), "Bath", fill=(30, 30, 30))
+    draw.text((720, 600), "Bedroom", fill=(30, 30, 30))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(path)
+
+
+def _write_cube_face_png(path: Path, *, label: str, fill: tuple[int, int, int]) -> None:
+    image = Image.new("RGB", (1024, 1024), fill)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((36, 36, 988, 988), outline=(248, 245, 240), width=14)
+    draw.text((84, 104), "PropertyQuarry", fill=(255, 255, 255))
+    draw.text((84, 180), label, fill=(250, 247, 242))
+    draw.rectangle((120, 280, 904, 760), outline=(255, 255, 255), width=10)
+    draw.rectangle((180, 340, 500, 720), fill=(235, 231, 224))
+    draw.rectangle((548, 340, 840, 720), fill=(198, 166, 122))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(path)
+
+
+def _write_h264_flythrough(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        "ffmpeg",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=#d8d0c4:s=1280x720:d=3",
+        "-vf",
+        (
+            "drawbox=x=0:y=0:w=iw:h=110:color=#181a1dcc:t=fill,"
+            "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+            "text='PropertyQuarry Flythrough':fontcolor=white:fontsize=34:x=48:y=40,"
+            "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:"
+            "text='Best-match route':fontcolor=#ece6df:fontsize=20:x=52:y=82,"
+            "drawbox=x='120+220*t':y='250+30*sin(t*2)':w=820:h=210:color=#a46842:t=6,"
+            "drawbox=x='170+220*t':y='300+28*sin(t*2)':w=330:h=110:color=#5a7bb2:t=fill,"
+            "drawbox=x='560+220*t':y='300+20*sin(t*2)':w=250:h=110:color=#e7e3dc:t=fill,"
+            "drawbox=x='845+220*t':y='300+14*sin(t*2)':w=90:h=110:color=#88a36f:t=fill"
+        ),
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        str(path),
+    ]
+    subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _video_frame_brightness(page: Page) -> float:
+    return float(
+        page.evaluate(
+            """() => {
+                const video = document.getElementById('flythrough-video') || document.getElementById('tour-video');
+                if (!video || !video.videoWidth || !video.videoHeight) return 0;
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.min(video.videoWidth, 160);
+                canvas.height = Math.min(video.videoHeight, 90);
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return 0;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                let total = 0;
+                for (let index = 0; index < data.length; index += 4) {
+                    total += (data[index] + data[index + 1] + data[index + 2]) / 3;
+                }
+                return total / (data.length / 4);
+            }"""
+        )
+    )
+
+
 @pytest.fixture()
-def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, object]]:
+def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[dict[str, object]]:
     from tests.product_test_helpers import build_product_client, start_workspace
 
     monkeypatch.setenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", "1")
     monkeypatch.setenv("PAYPAL_CLIENT_ID", "paypal-client")
     monkeypatch.setenv("PAYPAL_SECRET", "paypal-secret")
     monkeypatch.setenv("FLIPLINK_WEBHOOK_SECRET", "webhook-secret")
+    bundle_root = tmp_path / "public_tours"
+    slug = "altbau-u6"
+    bundle_dir = bundle_root / slug
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    _write_floorplan_png(bundle_dir / "floorplan-01.png")
+    _write_h264_flythrough(bundle_dir / "tour.mp4")
+    _write_cube_face_png(bundle_dir / "scene-01.png", label="Living room", fill=(108, 82, 59))
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Altbau near U6",
+                "display_title": "Altbau near U6",
+                "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+                "public_url": f"https://propertyquarry.com/tours/{slug}",
+                "brand_name": "PropertyQuarry",
+                "scene_strategy": "layout_first",
+                "creation_mode": "hosted_floorplan_tour",
+                "video_relpath": "tour.mp4",
+                "scenes": [
+                    {
+                        "scene_id": "panorama-1",
+                        "name": "Living room anchor",
+                        "role": "photo",
+                        "asset_relpath": "scene-01.png",
+                        "image_url": "scene-01.png",
+                        "mime_type": "image/png",
+                    },
+                    {
+                        "scene_id": "floorplan-1",
+                        "name": "Main floorplan",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan-01.png",
+                        "mime_type": "image/png",
+                    },
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(bundle_root))
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
     client = build_product_client(principal_id="pq-greenfield-browser")
     start_workspace(client, mode="personal", workspace_name="Property Office")
     stored = client.post(
@@ -254,6 +388,7 @@ def browser() -> Iterator[Browser]:
                 "--disable-software-rasterizer",
                 "--host-resolver-rules=MAP propertyquarry.com 127.0.0.1",
                 "--no-proxy-server",
+                "--autoplay-policy=no-user-gesture-required",
             ],
         )
         try:
@@ -607,6 +742,94 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
         assert page.evaluate("window.localStorage.getItem('pq-test-notification-title')") == "PropertyQuarry results are ready"
         assert "0 high-fit matches" in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
+    finally:
+        context.close()
+
+
+def test_propertyquarry_running_progress_panel_fits_the_first_viewport(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties?run_id=run-active-empty", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.wait_for_selector('[data-pqx-screenfit-target="run-progress"]', timeout=5000)
+        assert page.locator("body", has_text="Search is running. Inputs are locked.").is_visible()
+        assert page.locator('[data-pqx-progress-eta]').is_visible()
+        layout = page.evaluate(
+            """
+            () => {
+              const target = document.querySelector('[data-pqx-screenfit-target="run-progress"]');
+              const board = document.querySelector('[data-pqx-progress-board]');
+              if (!target || !board) return null;
+              const targetBox = target.getBoundingClientRect();
+              const boardBox = board.getBoundingClientRect();
+              return {
+                viewportHeight: window.innerHeight,
+                viewportWidth: window.innerWidth,
+                targetBottom: Math.round(targetBox.bottom),
+                targetRight: Math.round(targetBox.right),
+                boardBottom: Math.round(boardBox.bottom),
+                boardRight: Math.round(boardBox.right),
+                targetFitsViewport: targetBox.bottom <= window.innerHeight + 2 && targetBox.right <= window.innerWidth + 2,
+                boardFitsViewport: boardBox.bottom <= window.innerHeight + 2 && boardBox.right <= window.innerWidth + 2,
+                etaLabel: (document.querySelector('[data-pqx-progress-eta]')?.textContent || '').trim(),
+              };
+            }
+            """
+        )
+        assert layout is not None
+        assert layout["targetFitsViewport"] is True
+        assert layout["boardFitsViewport"] is True
+        assert "about" in str(layout["etaLabel"]) or "estimating" in str(layout["etaLabel"])
+        _assert_property_shell_visual_gates(page, max_appbar_height=92)
+    finally:
+        context.close()
+
+
+def test_propertyquarry_running_progress_panel_fits_the_first_mobile_viewport(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties?run_id=run-active-empty", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.wait_for_selector('[data-pqx-screenfit-target="run-progress"]', timeout=5000)
+        assert page.locator("body", has_text="Search is running. Inputs are locked.").is_visible()
+        assert page.locator('[data-pqx-progress-eta]').is_visible()
+        layout = page.evaluate(
+            """
+            () => {
+              const target = document.querySelector('[data-pqx-screenfit-target="run-progress"]');
+              const board = document.querySelector('[data-pqx-progress-board]');
+              if (!target || !board) return null;
+              const targetBox = target.getBoundingClientRect();
+              const boardBox = board.getBoundingClientRect();
+              return {
+                viewportHeight: window.innerHeight,
+                viewportWidth: window.innerWidth,
+                targetBottom: Math.round(targetBox.bottom),
+                targetRight: Math.round(targetBox.right),
+                boardBottom: Math.round(boardBox.bottom),
+                boardRight: Math.round(boardBox.right),
+                targetFitsViewport: targetBox.bottom <= window.innerHeight + 2 && targetBox.right <= window.innerWidth + 2,
+                boardFitsViewport: boardBox.bottom <= window.innerHeight + 2 && boardBox.right <= window.innerWidth + 2,
+                etaLabel: (document.querySelector('[data-pqx-progress-eta]')?.textContent || '').trim(),
+              };
+            }
+            """
+        )
+        assert layout is not None
+        assert layout["targetFitsViewport"] is True
+        assert layout["boardFitsViewport"] is True
+        assert "about" in str(layout["etaLabel"]) or "estimating" in str(layout["etaLabel"])
+        _assert_property_shell_visual_gates(page, max_appbar_height=130)
     finally:
         context.close()
 
@@ -1045,6 +1268,17 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         )
         assert isinstance(expectedProviderCap, int)
         assert expectedProviderCap > 0
+        firstProviderFamily = page.locator('[data-provider-group-panel]').first
+        firstProviderFamily.locator("summary").click()
+        assert firstProviderFamily.get_by_role("button", name="Use this family").is_visible()
+        assert firstProviderFamily.get_by_role("button", name="Clear this family").is_visible()
+        familyProviderCount = firstProviderFamily.locator('input[name="selected_platforms"]').count()
+        assert familyProviderCount > 0
+        firstProviderFamily.get_by_role("button", name="Use this family").click()
+        checkedFamilyProviderCount = firstProviderFamily.locator('input[name="selected_platforms"]:checked').count()
+        checkedTotalAfterFamily = page.locator('input[name="selected_platforms"]:checked').count()
+        assert checkedFamilyProviderCount == min(familyProviderCount, expectedProviderCap)
+        assert checkedTotalAfterFamily == checkedFamilyProviderCount
         page.locator('[data-checkbox-group-select-all="selected_platforms"]').click()
         checkedProviderCount = page.locator('input[name="selected_platforms"]:checked').count()
         assert providerCount > checkedProviderCount
@@ -1097,6 +1331,73 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()
         assert page.locator("body", has_text="Quick read").is_visible()
         assert page.locator("body", has_text="Your decision").is_visible()
+    finally:
+        context.close()
+
+
+def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    console_errors: list[str] = []
+    page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+    try:
+        response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
+        assert response is not None and response.ok
+        best_match = page.locator("[data-workbench-row]", has_text="Altbau near U6").first
+        best_match.wait_for()
+        best_match.click()
+        open_360 = page.get_by_role("link", name="Open 360").first
+        tour_url = str(open_360.get_attribute("href") or "").strip()
+        assert tour_url.endswith("/tours/altbau-u6")
+
+        response = page.goto(f"{tour_url}?pane=floorplan-pane", wait_until="networkidle")
+        assert response is not None and response.ok
+        page.locator("h1").wait_for()
+        assert page.locator("body", has_text="PROPERTY TOUR").is_visible()
+        assert page.locator("body", has_text="Altbau near U6").is_visible()
+        page.locator('#role-filter button[data-role="floorplan"]').click()
+        assert page.locator("#stage-role").inner_text().lower() == "floorplan"
+        assert page.locator("#stage-image").is_visible()
+        natural_width = page.evaluate("() => document.getElementById('stage-image')?.naturalWidth || 0")
+        assert natural_width >= 1000
+
+        response = page.goto(f"{tour_url}?pane=flythrough-pane&autoplay=1", wait_until="networkidle")
+        assert response is not None and response.ok
+        video = page.locator("#tour-video")
+        video.wait_for()
+        assert video.is_visible()
+        page.evaluate("() => document.getElementById('tour-video')?.play()?.catch(() => null)")
+        page.wait_for_timeout(1800)
+        state = page.evaluate(
+            """() => {
+                const video = document.getElementById('flythrough-video') || document.getElementById('tour-video');
+                return video ? {
+                    currentTime: video.currentTime,
+                    duration: video.duration,
+                    readyState: video.readyState,
+                    videoWidth: video.videoWidth,
+                } : null;
+            }"""
+        )
+        assert state is not None
+        assert state["readyState"] >= 2
+        assert state["videoWidth"] >= 640
+        assert state["currentTime"] > 0.2
+        assert state["duration"] >= 2.5
+        assert _video_frame_brightness(page) > 10.0
+        assert page.locator("#tour-video source").get_attribute("type") == "video/mp4"
+        assert not [
+            message
+            for message in console_errors
+            if "decode" in message.lower()
+            or "media" in message.lower()
+            or "refused" in message.lower()
+            or "failed to load resource" in message.lower()
+        ]
     finally:
         context.close()
 

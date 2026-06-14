@@ -79,5 +79,8 @@ def test_property_release_workflow_runs_the_gold_gate_bundle() -> None:
         "tests/test_public_rybbit.py",
         "tests/test_telegram_delivery_service.py",
         "tests/test_property_live_provider_smoke.py",
+        "PROPERTYQUARRY_VISUAL_WATCH_URL",
+        "scripts/propertyquarry_visual_watch.py",
+        "PROPERTYQUARRY_VISUAL_WATCH_MOBILE_VIEWPORT",
     ):
         assert required in release_gate

@@ -101,7 +101,12 @@ def render_property_packet_pdf_via_premium_pipeline(
         title=compiled.title,
         privacy_mode=privacy_mode.value,
         packet_kind=packet_kind.value,
-        metadata={"publication_id": publication_id},
+        metadata={
+            "publication_id": publication_id,
+            "has_cover_media": bool(compiled.hero_image_url or compiled.gallery_urls or compiled.floorplan_urls),
+            "require_footer_band": True,
+            "forbid_raw_url_text": True,
+        },
         expected_text=["PropertyQuarry", compiled.title, compiled.recommendation or "Vertieft prüfen"],
         forbidden_text=["principal_id", "token", "session", "cookie"],
     )
@@ -129,6 +134,9 @@ def render_property_packet_pdf_via_premium_pipeline(
                 artifact_bytes=result.pdf_bytes,
                 expected_text=request.expected_text,
                 forbidden_text=request.forbidden_text,
+                require_cover_visual_dominance=bool(request.metadata.get("has_cover_media")),
+                require_footer_band=bool(request.metadata.get("require_footer_band")),
+                forbid_raw_url_text=bool(request.metadata.get("forbid_raw_url_text")),
             )
             if candidate_quality.ok:
                 render_result = result
@@ -174,12 +182,31 @@ def render_property_packet_pdf_via_premium_pipeline(
     target_dir.mkdir(parents=True, exist_ok=True)
     pdf_path = target_dir / f"{publication_token}.pdf"
     receipt_path = target_dir / f"{publication_token}.receipt.json"
+    preview_path = target_dir / f"{publication_token}.page-1.png"
     pdf_path.write_bytes(render_result.pdf_bytes)
     if quality_report is None:
         quality_report = inspect_rendered_artifact(
             artifact_bytes=render_result.pdf_bytes,
             expected_text=request.expected_text,
             forbidden_text=request.forbidden_text,
+            preview_output_path=preview_path,
+            require_cover_visual_dominance=bool(request.metadata.get("has_cover_media")),
+            require_footer_band=bool(request.metadata.get("require_footer_band")),
+            forbid_raw_url_text=bool(request.metadata.get("forbid_raw_url_text")),
+        )
+    elif (
+        str(quality_report.visual_preview_check or "").strip() == "not_run"
+        or not str(quality_report.visual_preview_artifact_ref or "").strip()
+        or not preview_path.exists()
+    ):
+        quality_report = inspect_rendered_artifact(
+            artifact_bytes=render_result.pdf_bytes,
+            expected_text=request.expected_text,
+            forbidden_text=request.forbidden_text,
+            preview_output_path=preview_path,
+            require_cover_visual_dominance=bool(request.metadata.get("has_cover_media")),
+            require_footer_band=bool(request.metadata.get("require_footer_band")),
+            forbid_raw_url_text=bool(request.metadata.get("forbid_raw_url_text")),
         )
     base_receipt = {
         **dict(redaction.receipt or {}),
@@ -213,6 +240,7 @@ def render_property_packet_pdf_via_premium_pipeline(
         "receipt_path": str(receipt_path),
         "pdf_sha256": render_result.pdf_sha256 or hashlib.sha256(render_result.pdf_bytes).hexdigest(),
         "pdf_size_bytes": len(render_result.pdf_bytes),
+        "preview_path": str(preview_path) if preview_path.exists() else "",
         "receipt": receipt,
         "redacted_payload": redaction.payload,
         "recommended_title": compiled.recommended_title,

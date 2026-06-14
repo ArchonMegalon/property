@@ -1441,6 +1441,15 @@ class PropertyDecisionStateOut(BaseModel):
     persistence: dict[str, object] = Field(default_factory=dict)
 
 
+class PropertyAgentQuestionTaskUpdateIn(BaseModel):
+    status: str = Field(min_length=1, max_length=80)
+    answer_source: str = Field(default="", max_length=120)
+
+
+class PropertyDocumentRecordUpdateIn(BaseModel):
+    verification_state: str = Field(min_length=1, max_length=80)
+
+
 class RuleSimulateIn(BaseModel):
     proposed_value: str = Field(min_length=1)
 

@@ -98,7 +98,7 @@ def _google_post_connect_sync(
 def _google_sync_detail(sync_result: dict[str, object]) -> str:
     status = str(sync_result.get("status") or "").strip().lower()
     if status == "identity_only":
-        return "Google account linking is complete. No Gmail or Calendar sync was requested for this workspace."
+        return "Google account linking is complete. No Gmail or Calendar sync was requested."
     if status != "completed":
         error = str(sync_result.get("error") or "").strip()
         return f"Google is connected, but the first signal sync needs attention: {error or 'google_sync_failed'}."
@@ -486,7 +486,7 @@ def google_oauth_browser_callback(
     elif return_to.startswith("/get-started"):
         return_label = "Back to setup"
     elif return_to.startswith("/app/"):
-        return_label = "Return to workspace"
+        return_label = "Return to account"
     return _render_public_template(
         request,
         "google_connected.html",

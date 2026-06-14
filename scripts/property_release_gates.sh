@@ -32,7 +32,8 @@ Runs the focused PropertyQuarry release bundle:
   - privacy-safe Rybbit analytics snippet contracts
   - Telegram titled-link delivery contracts
   - property browser journey contracts
-  - dossier writer, Dadan video request, media factory, and premium dossier contracts
+  - dossier writer, Dadan video request, media factory, and premium dossier screenshot/quality contracts
+  - optional local visual-watch screenshot gate when PROPERTYQUARRY_VISUAL_WATCH_URL is set
 EOF
   exit 0
 fi
@@ -100,3 +101,19 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_market_catalog.py \
   tests/test_property_live_provider_smoke.py \
   tests/test_product_browser_journeys.py -k 'properties_workspace_surface or propertyquarry_settings_hide_generic_google_sync_metrics'
+if [[ -n "${PROPERTYQUARRY_VISUAL_WATCH_URL:-}" ]]; then
+  visual_watch_base="${PROPERTYQUARRY_VISUAL_WATCH_URL}"
+  visual_watch_out="${PROPERTYQUARRY_VISUAL_WATCH_OUTPUT_DIR:-${EA_ROOT}/_completion/pixefy/property_release_gate}"
+  PROPERTYQUARRY_ROOT="${EA_ROOT}" PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_visual_watch.py \
+    "${visual_watch_base}" \
+    --samples "${PROPERTYQUARRY_VISUAL_WATCH_SAMPLES:-2}" \
+    --interval-seconds "${PROPERTYQUARRY_VISUAL_WATCH_INTERVAL_SECONDS:-2}" \
+    --viewport "${PROPERTYQUARRY_VISUAL_WATCH_VIEWPORT:-1440x1000}" \
+    --output-dir "${visual_watch_out}/desktop"
+  PROPERTYQUARRY_ROOT="${EA_ROOT}" PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_visual_watch.py \
+    "${visual_watch_base}" \
+    --samples "${PROPERTYQUARRY_VISUAL_WATCH_SAMPLES:-2}" \
+    --interval-seconds "${PROPERTYQUARRY_VISUAL_WATCH_INTERVAL_SECONDS:-2}" \
+    --viewport "${PROPERTYQUARRY_VISUAL_WATCH_MOBILE_VIEWPORT:-390x844}" \
+    --output-dir "${visual_watch_out}/mobile"
+fi

@@ -4,7 +4,7 @@
       <div class="eyebrow">Step 3</div>
       <h2>Refine the shortlist after first value, and add integrations later.</h2>
     </div>
-    <p class="step-context">Use this final step to confirm the first property loop: shortlist, next actions, research posture, and review controls. Keep integrations narrow until the property workspace is already useful.</p>
+    <p class="step-context">Finish setup.</p>
   </div>
 
   <div class="finish-grid">
@@ -63,13 +63,13 @@
       <p class="copy">If the first shortlist does not feel useful, inspect missing facts and weak-fit reasons before adding more portals.</p>
       <div class="wizard-actions">
         <div class="right">
-          <a class="btn" href="/app/properties">Open property workspace</a>
+          <a class="btn" href="/app/properties">Open PropertyQuarry</a>
         </div>
       </div>
     </section>
     <section class="path-card">
       <strong>Recommended starting point</strong>
-      <p class="copy">Allow recommendations, keep notifications reviewable, and avoid over-configuring the workspace before the first shortlist is visible.</p>
+      <p class="copy">Keep alerts simple at first.</p>
     </section>
 
     <section class="path-card">
@@ -84,7 +84,7 @@
     <div class="check-grid">
       <label class="check-item"><input type="checkbox" name="allow_drafts" value="true" {% if privacy.allow_drafts %}checked{% endif %}><span><strong>Allow draft outreach</strong>Prepare listing questions or follow-up messages for review before anything is sent.</span></label>
       <label class="check-item"><input type="checkbox" name="allow_action_suggestions" value="true" {% if privacy.allow_action_suggestions %}checked{% endif %}><span><strong>Allow recommendation hints</strong>Let the product surface next steps, ranking explanations, and shortlist actions.</span></label>
-      <label class="check-item"><input type="checkbox" name="allow_auto_briefs" value="true" {% if privacy.allow_auto_briefs %}checked{% endif %}><span><strong>Allow shortlist digests</strong>Generate a scheduled summary once the workspace is stable enough to produce useful matches.</span></label>
+      <label class="check-item"><input type="checkbox" name="allow_auto_briefs" value="true" {% if privacy.allow_auto_briefs %}checked{% endif %}><span><strong>Allow shortlist emails</strong>Send a scheduled summary.</span></label>
     </div>
     <input type="hidden" name="auto_brief_delivery_channel" value="{{ morning_memo.get('delivery_channel', 'email') }}">
 
@@ -139,7 +139,7 @@
     <div class="wizard-actions">
       <button class="btn ghost" type="button" data-step-back="2">Back</button>
       <div class="right">
-        <button class="btn primary" type="submit">Finish setup and open the property workspace</button>
+        <button class="btn primary" type="submit">Finish setup</button>
       </div>
     </div>
   </form>

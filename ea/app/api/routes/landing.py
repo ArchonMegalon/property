@@ -66,7 +66,9 @@ from app.services.property_market_catalog import (
     country_label as property_country_label,
     country_options as property_country_options,
     default_language_for_country,
+    default_platforms_for_country_listing_mode,
     default_platforms_for_country,
+    evidence_source_options as property_evidence_source_options,
     language_label as property_language_label,
     language_options as property_language_options,
     listing_mode_label as property_listing_mode_label,
@@ -374,6 +376,21 @@ def _workspace_plan(container: AppContainer, *, principal_id: str):
     return workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
 
 
+def _account_nav_context(*, request: Request, context: RequestContext) -> dict[str, object]:
+    brand = request_brand(request)
+    account_label = str(context.access_email or "").strip().lower()
+    if not account_label:
+        account_label = str(context.operator_id or "").strip() or "Account"
+    return {
+        "label": account_label,
+        "profile_href": "/app/account#profile",
+        "billing_href": "/app/account#plans",
+        "settings_href": "/app/account#settings",
+        "sign_out_action": "/app/actions/sign-out",
+        "sign_out_return_to": str(brand.get("public_base_url") or "/").strip() or "/",
+    }
+
+
 
 def _console_shell_context(
     *,
@@ -404,6 +421,7 @@ def _console_shell_context(
         "principal_id": context.principal_id,
         "access_email": context.access_email,
         "operator_id": context.operator_id,
+        "account_nav": _account_nav_context(request=request, context=context),
     }
 
 
@@ -503,6 +521,7 @@ def _property_console_context(
     principal_id: str,
     status: dict[str, object],
     run_id: str = "",
+    selected_agent_id: str = "",
 ) -> dict[str, object]:
     product = build_product_service(container)
     raw_property_preferences = dict(status.get("property_search_preferences") or {})
@@ -517,7 +536,13 @@ def _property_console_context(
         if str(value or "").strip()
     }
     if not selected_platforms:
-        selected_platforms = set(default_platforms_for_country(selected_country))
+        selected_platforms = set(
+            default_platforms_for_country_listing_mode(
+                selected_country,
+                preferences.get("listing_mode"),
+                property_type=preferences.get("property_type"),
+            )
+        )
     country_provider_options = [dict(option) for option in property_provider_options(country_code=selected_country)]
     run_payload: dict[str, object] = {}
     normalized_run_id = str(run_id or "").strip()
@@ -644,6 +669,22 @@ def _property_console_context(
             str(option.get("value") or "").strip(): property_provider_options(country_code=str(option.get("value") or "").strip())
             for option in property_country_options()
         },
+        "platform_defaults_by_country_mode": {
+            str(option.get("value") or "").strip(): {
+                mode: list(
+                    default_platforms_for_country_listing_mode(
+                        str(option.get("value") or "").strip(),
+                        mode,
+                    )
+                )
+                for mode in ("rent", "buy")
+            }
+            for option in property_country_options()
+        },
+        "evidence_source_catalog_by_country": {
+            str(option.get("value") or "").strip(): property_evidence_source_options(country_code=str(option.get("value") or "").strip())
+            for option in property_country_options()
+        },
         "default_language_by_country": {
             str(option.get("value") or "").strip(): default_language_for_country(str(option.get("value") or "").strip())
             for option in property_country_options()
@@ -660,9 +701,11 @@ def _property_console_context(
         "property_type_label": property_type_label_for_value(preferences.get("property_type")),
         "provider_total_for_country": len(country_provider_options),
         "preferences": preferences,
+        "raw_preferences": raw_property_preferences,
         "selected_platforms": list(selected_platforms),
         "run": run_payload,
         "recent_search_runs": recent_search_runs,
+        "selected_agent_id": str(selected_agent_id or "").strip(),
         "recent_matches": recent_matches,
         "learning_summary": learning_summary,
         "preference_bundle": preference_bundle,
@@ -1127,6 +1170,36 @@ def workspace_access_session(
         str(session.get("access_token") or "").strip(),
         **_workspace_session_cookie_kwargs(request, expires_at=str(session.get("expires_at") or "").strip()),
     )
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
+
+
+@router.post("/app/actions/sign-out", response_model=None, include_in_schema=False)
+async def app_sign_out(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    public_base = str(request_brand(request).get("public_base_url") or "/").strip() or "/"
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", public_base), default=public_base)
+    workspace_session = _workspace_session_payload(request, container)
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    if isinstance(workspace_session, dict):
+        session_id = str(workspace_session.get("session_id") or "").strip()
+        principal_id = str(workspace_session.get("principal_id") or context.principal_id or "").strip()
+        if session_id and principal_id:
+            try:
+                product.revoke_workspace_access_session(
+                    principal_id=principal_id,
+                    session_id=session_id,
+                    actor=actor,
+                )
+            except Exception:
+                pass
+    response = RedirectResponse(return_to, status_code=303)
+    response.delete_cookie("ea_workspace_session", path="/")
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
     return response
 
@@ -1657,10 +1730,13 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
             eta_minutes = int(float(eta_raw))
         except Exception:
             eta_minutes = 0
-    embed_href = tour_url or vendor_tour_url
+    embed_href = tour_url
     if tour_url:
         status_label = "Live 360 ready"
         status_detail = "Hosted 360 is ready on PropertyQuarry and should be reviewed before the raw listing."
+    elif vendor_tour_url:
+        status_label = "Source 360 available"
+        status_detail = "The source 360 is available, but this page keeps it as an external action instead of embedding a brittle vendor viewer."
     elif status in {"queued", "pending"}:
         status_label = "360 queued"
         status_detail = f"Tour generation is queued. ETA about {eta_minutes or 10} min."
@@ -1670,9 +1746,6 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     elif status in {"blocked", "failed", "skipped", "not_applicable"}:
         status_label = "360 unavailable"
         status_detail = _property_tour_source_gap_detail(candidate)
-    elif vendor_tour_url:
-        status_label = "External 360 available"
-        status_detail = "A vendor-hosted 360 exists even if the internal hosted page is not ready yet."
     else:
         status_label = "360 unavailable"
         status_detail = _property_tour_source_gap_detail(candidate)
@@ -2946,6 +3019,7 @@ def app_shell(
     context: RequestContext = Depends(get_request_context),
     run_id: str = Query(default=""),
     candidate: str = Query(default=""),
+    agent_id: str = Query(default=""),
 ) -> HTMLResponse:
     brand = request_brand(request)
     property_brand = brand["key"] == "propertyquarry"
@@ -2961,10 +3035,20 @@ def app_shell(
         "channels": "/app/settings",
         "automations": "/app/settings",
     }
+    property_legacy_redirects = {
+        "shortlist": "/app/properties",
+        "research": "/app/properties",
+        "profile": "/app/account",
+        "alerts": "/app/account",
+        "billing": "/app/account",
+        "settings": "/app/account",
+    }
     allowed.update(legacy_redirects)
     allowed.update({"today", "queue", "commitments", "people", "evidence", "activity", "channel-loop"})
     if property_brand:
-        allowed.update({"properties", "shortlist", "research", "profile", "alerts", "agents", "billing", "settings"})
+        allowed.update({"properties", "search", "agents", "account"})
+        legacy_redirects.update(property_legacy_redirects)
+        allowed.update(property_legacy_redirects)
     else:
         allowed.update(
             {
@@ -2989,6 +3073,12 @@ def app_shell(
         return RedirectResponse(target, status_code=307)
     resolved_section = section
     current_nav = section
+    property_surface_aliases = {
+        "properties": "properties",
+        "search": "properties",
+        "agents": "agents",
+        "account": "account",
+    }
     status = container.onboarding.status(principal_id=context.principal_id)
     if resolved_section == "channel-loop":
         workspace = dict(status.get("workspace") or {})
@@ -3049,7 +3139,7 @@ def app_shell(
                 stats=stats,
             ),
         )
-    property_sections = {"properties", "shortlist", "research", "profile", "alerts", "agents", "billing", "settings"} if property_brand else set()
+    property_sections = {"properties", "search", "agents", "account"} if property_brand else set()
     core_sections = {"today", "queue", "commitments", "people", "evidence", "activity"}
     if not property_brand:
         core_sections.add("settings")
@@ -3085,31 +3175,41 @@ def app_shell(
             brand_key=request_brand(request)["key"],
         )
     else:
+        property_payload_section = property_surface_aliases.get(resolved_section, resolved_section) if property_brand else resolved_section
         property_context = (
             _property_console_context(
                 container=container,
                 principal_id=context.principal_id,
                 status=status,
                 run_id=run_id,
+                selected_agent_id=agent_id,
             )
             if resolved_section in property_sections or resolved_section == "properties"
             else None
         )
+        if property_context is not None and property_brand:
+            property_context["surface_mode"] = current_nav
         if resolved_section in property_sections or resolved_section == "properties":
             build_product_service(container).record_surface_event(
                 principal_id=context.principal_id,
-                event_type=f"{resolved_section}_opened",
-                surface=resolved_section,
+                event_type=f"{current_nav}_opened",
+                surface=current_nav,
                 actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
             )
         if property_brand and resolved_section in property_sections:
-            if property_context is not None and resolved_section == "properties":
+            if property_context is not None and property_payload_section == "properties":
                 property_context["selected_candidate_ref"] = str(candidate or "").strip()
             payload = _property_workspace_payload(
-                resolved_section,
+                property_payload_section,
                 status=status,
                 property_state=property_context or {},
             )
+            if current_nav == "search":
+                payload["title"] = "Search"
+                payload["summary"] = "Build the brief, run the sweep, compare the results, and open the property that deserves a decision."
+            elif current_nav == "account":
+                payload["title"] = "Account"
+                payload["summary"] = "Keep plan, profile, settings, and sign-out narrow and product-specific."
         else:
             payload = _app_section_payload(
                 resolved_section,
@@ -3119,7 +3219,7 @@ def app_shell(
             )
     workspace = dict(status.get("workspace") or {})
     if property_brand and resolved_section in property_sections:
-        property_template = "app/property_decision_workbench.html" if resolved_section == "properties" else "app/property_workspace.html"
+        property_template = "app/property_decision_workbench.html" if property_surface_aliases.get(resolved_section, resolved_section) == "properties" else "app/property_workspace.html"
         return _render_public_template(
             request,
             property_template,

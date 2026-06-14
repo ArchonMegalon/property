@@ -756,6 +756,88 @@ def test_signal_ingest_property_alert_sends_telegram_dossier_document(monkeypatc
     notification_neuronwriter = dict(result.get("notification_neuronwriter") or {})
     assert notification_neuronwriter["status"] == "blocked"
     assert notification_neuronwriter["mode"] == "private_packet_guard"
+    assert result["heyy_delivery_status"] in {"suppressed", "failed", "sent"}
+
+
+def test_property_scout_hit_notification_also_uses_heyy_when_business_whatsapp_is_staged(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:heyy-scout-hit@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Heyy Scout Hit Office", selected_channels=["whatsapp"])
+    onboarding = client.app.state.container.onboarding
+    state = onboarding._ensure_state(principal_id)  # noqa: SLF001
+    onboarding._replace_channel_pref(  # noqa: SLF001
+        state,
+        "whatsapp",
+        {"mode": "business", "phone_number": "+436647916419"},
+        status="in_progress",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_TEMPLATE_PROPERTY_MATCH", "tmpl-property-match")
+
+    dossier_path = tmp_path / "heyy-scout-hit.pdf"
+    dossier_path.write_bytes(b"%PDF-1.4\n% heyy scout dossier\n")
+    observed: dict[str, object] = {}
+
+    class _TelegramReceipt:
+        chat_id = "1354554303"
+        message_ids = ("778",)
+
+    class _DocumentReceipt:
+        chat_id = "1354554303"
+        message_ids = ("779",)
+
+    monkeypatch.setattr(
+        ProductService,
+        "_render_property_scout_dossier",
+        lambda self, **kwargs: {
+            "status": "rendered",
+            "publication_id": "pub_heyy_scout_test",
+            "pdf_path": str(dossier_path),
+            "caption": "PropertyQuarry dossier · Heyy scout alert",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None: _TelegramReceipt(),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_document_for_principal",
+        lambda tool_runtime, *, principal_id, document_ref, caption="": _DocumentReceipt(),
+    )
+    monkeypatch.setattr(
+        "app.product.service.HeyyWhatsAppBridgeService.send_template",
+        lambda self, **kwargs: observed.update(kwargs) or {
+            "status": "sent",
+            "provider": "heyy",
+            "channel_id": kwargs.get("channel_id") or "",
+            "message_id": "msg-heyy-1",
+            "delivery_status": "queued",
+            "phone_number": kwargs.get("phone_number") or "",
+        },
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service._send_property_scout_hit_telegram(
+        principal_id=principal_id,
+        actor="test",
+        title="Scout alert for 1050 Vienna",
+        summary="New Neubau listing with lift and storage room.",
+        counterparty="IMMMO",
+        account_email="elisabeth.girschele@gmail.com",
+        property_url="https://www.immobilienscout24.at/expose/heyy-telegram-test-property-dossier",
+        source_ref="property-scout:heyy-hit-1",
+        assessment={"fit_score": 64.0, "recommendation": "ask_for_clarification"},
+        fit_score=64.0,
+        preference_person_id="self",
+    )
+    assert result["status"] == "sent"
+    assert result["heyy_delivery_status"] == "sent"
+    assert result["heyy_message_id"] == "msg-heyy-1"
+    assert observed["phone_number"] == "+436647916419"
+    assert observed["template_id"] == "tmpl-property-match"
+    assert any(item.get("name") == "property_title" for item in list(observed.get("variables") or []))
 
 
 def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(monkeypatch, tmp_path: Path) -> None:
@@ -6301,6 +6383,105 @@ def test_property_alert_review_handoff_page_renders_research_packet() -> None:
     assert "public_safe" not in page.text
 
 
+def test_property_alert_review_uses_heyy_when_business_whatsapp_is_staged(monkeypatch) -> None:
+    principal_id = "cf-email:heyy-property-review@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Heyy Property Review Office", selected_channels=["whatsapp"])
+    onboarding = client.app.state.container.onboarding
+    state = onboarding._ensure_state(principal_id)  # noqa: SLF001
+    onboarding._replace_channel_pref(  # noqa: SLF001
+        state,
+        "whatsapp",
+        {"mode": "business", "phone_number": "+436647916419"},
+        status="in_progress",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_TEMPLATE_PROPERTY_ALERT_REVIEW", "tmpl-property-alert-review")
+
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(
+        "app.product.service.HeyyWhatsAppBridgeService.send_template",
+        lambda self, **kwargs: observed.update(kwargs) or {
+            "status": "sent",
+            "provider": "heyy",
+            "channel_id": kwargs.get("channel_id") or "",
+            "message_id": "msg-alert-review-1",
+            "delivery_status": "queued",
+            "phone_number": kwargs.get("phone_number") or "",
+        },
+    )
+
+    product = ProductService(client.app.state.container)
+    result = product._open_property_alert_review(
+        principal_id=principal_id,
+        title="Watch fit apartment",
+        summary="Lift unclear, but floor plan and good transit look promising.",
+        source_ref="property-scout:watch-fit-heyy",
+        external_id="https://www.immobilienscout24.at/expose/watch-fit-heyy",
+        counterparty="IMMMO Wien rentals",
+        account_email="elisabeth.girschele@gmail.com",
+        property_url="https://www.immobilienscout24.at/expose/watch-fit-heyy",
+        actor="test",
+        notify_telegram=False,
+        candidate_properties=(),
+        personal_fit_assessment={
+            "fit_score": 91.0,
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Good U-Bahn access.", "Floor plan is available."],
+            "mismatch_reasons_json": ["Lift not confirmed."],
+            "unknowns_json": ["Heating type needs research."],
+            "blocking_constraints_json": [],
+        },
+        preference_person_id="elisabeth",
+        tour_url="https://myexternalbrain.com/tours/watch-fit-heyy",
+    )
+    assert result["status"] == "opened"
+    assert result["heyy_delivery_status"] == "sent"
+    assert result["heyy_message_id"] == "msg-alert-review-1"
+    assert observed["phone_number"] == "+436647916419"
+    assert observed["template_id"] == "tmpl-property-alert-review"
+    assert any(item.get("name") == "fit_score" and item.get("value") == "91/100" for item in list(observed.get("variables") or []))
+
+
+def test_property_alert_review_handoff_keeps_vendor_360_as_external_action() -> None:
+    principal_id = "exec-product-handoff-vendor-360"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Vendor 360 Office")
+
+    task = client.app.state.container.orchestrator.create_human_task(
+        session_id="property-vendor-360-session",
+        principal_id=principal_id,
+        task_type="property_alert_review",
+        role_required="operator",
+        brief="Review vendor 360 fallback",
+        why_human="Verify that vendor 360 stays actionable without a broken embedded iframe.",
+        input_json={
+            "title": "Vendor 360 fallback",
+            "summary": "Hosted tour is not ready yet, but a source 360 exists.",
+            "counterparty": "Property scout",
+            "property_url": "https://www.immobilienscout24.at/expose/vendor-360-fallback",
+            "vendor_tour_url": "https://my.matterport.com/show/?m=BmVWxvZQZLq",
+            "personal_fit_assessment": {
+                "fit_score": 74,
+                "recommendation": "review",
+                "match_reasons_json": ["Source 360 exists."],
+                "mismatch_reasons_json": ["Hosted tour is still missing."],
+                "unknowns_json": [],
+                "blocking_constraints_json": [],
+            },
+            "property_facts_json": {"has_360": True},
+        },
+        priority="normal",
+    )
+
+    page = client.get(f"/app/handoffs/human_task:{task.human_task_id}")
+    assert page.status_code == 200
+    assert 'class="object-media-grid is-compact"' in page.text
+    assert 'title="Property 360 review"' not in page.text
+    assert "Source 360 available" in page.text
+    assert "Open source 360" in page.text
+
+
 def test_property_scout_feedback_buttons_include_reason_suggestions(monkeypatch) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
@@ -9115,6 +9296,116 @@ def test_property_source_research_snapshot_uses_image_ocr_when_listing_has_no_ma
     assert findings["nearest_pharmacy_m"] == 190
 
 
+def test_property_source_research_snapshot_extracts_austria_document_and_eligibility_signals(monkeypatch) -> None:
+    listing_url = "https://www.gesiba.at/immobilien/wohnungen/beispiel"
+    product_service._property_source_research_snapshot.cache_clear()
+    html = """
+    <html><body>
+      Finanzierungsbeitrag EUR 24.500
+      Miete mit Kaufoption
+      Energieausweis vorhanden
+      Betriebskosten monatlich ausgewiesen
+      Ganztagsvolksschule in der Naehe
+      Fernwaerme
+      Anmeldung bis 31.12.2099
+    </body></html>
+    """
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda url: html)
+
+    findings = product_service._property_source_research_snapshot(listing_url)
+
+    assert findings["provider_group"] == "genossenschaften_at"
+    assert findings["energy_certificate_present"] is True
+    assert findings["operating_costs_present"] is True
+    assert findings["miete_mit_kaufoption_available"] is True
+    assert findings["ganztag_signal"] is True
+    assert findings["heating_type"] == "District heating"
+    assert findings["finanzierungsbeitrag_eur"] == 24500
+    assert findings["application_deadline"] == "2099-12-31"
+    assert int(findings["application_window_days"]) >= 1
+
+
+def test_property_official_risk_evidence_for_austria_includes_school_noise_and_broadband() -> None:
+    payload = product_service._property_official_risk_evidence(lat=48.2082, lon=16.3738, facts={})
+
+    risk_keys = {
+        str(row.get("risk_key") or "").strip()
+        for row in list(payload.get("sources") or [])
+        if isinstance(row, dict)
+    }
+
+    assert "school_evidence" in risk_keys
+    assert "noise_risk" in risk_keys
+    assert "broadband_availability" in risk_keys
+
+
+def test_property_austria_preference_adjustment_penalizes_missing_docs_and_wrong_supply() -> None:
+    adjustment, notes = product_service._property_austria_preference_score_adjustment(
+        preferences={
+            "country_code": "AT",
+            "subsidized_required": True,
+            "require_energy_certificate": True,
+            "require_operating_cost_statement": True,
+            "require_high_speed_internet": True,
+            "avoid_noise_risk_area": True,
+        },
+        property_facts={
+            "provider_group": "broker_direct_at",
+            "official_risk_evidence": {"sources": []},
+        },
+        title="Freifinanzierte Wohnung",
+        summary="Keine Dokumente sichtbar.",
+    )
+
+    assert adjustment < 0
+    assert "not subsidized or cooperative" in notes
+    assert "energy certificate missing" in notes
+    assert "operating costs missing" in notes
+    assert "broadband evidence missing" in notes
+    assert "noise evidence missing" in notes
+
+
+def test_property_austria_preference_adjustment_rewards_matching_cooperative_evidence() -> None:
+    adjustment, notes = product_service._property_austria_preference_score_adjustment(
+        preferences={
+            "country_code": "AT",
+            "subsidized_required": True,
+            "wiener_wohnticket_available": True,
+            "miete_mit_kaufoption": True,
+            "eigenmittel_max_eur": 30000,
+            "require_school_evidence": True,
+            "ganztag_required": True,
+            "require_energy_certificate": True,
+            "require_operating_cost_statement": True,
+            "require_high_speed_internet": True,
+        },
+        property_facts={
+            "provider_group": "genossenschaften_at",
+            "provider_channel": "wiener_wohnen",
+            "finanzierungsbeitrag_eur": 24500,
+            "energy_certificate_present": True,
+            "operating_costs_present": True,
+            "school_atlas_quality_summary": "Volksschule 420 m",
+            "official_risk_evidence": {
+                "sources": [
+                    {"risk_key": "school_evidence"},
+                    {"risk_key": "broadband_availability"},
+                ]
+            },
+        },
+        title="Wohnung mit Kaufoption",
+        summary="Ganztagsvolksschule in der Naehe.",
+    )
+
+    assert adjustment > 0
+    assert "subsidized supply matched" in notes
+    assert "Wohn-Ticket-ready lane" in notes
+    assert "kaufoption signal present" in notes
+    assert "Eigenmittel within cap" in notes
+    assert "school evidence attached" in notes
+    assert "ganztag signal present" in notes
+
+
 def test_property_image_ocr_address_hint_rejects_geocode_when_postcode_conflicts(monkeypatch) -> None:
     class _FakeResponse:
         def __init__(self) -> None:
@@ -10028,6 +10319,89 @@ def test_property_decision_state_api_returns_visible_consequences(monkeypatch) -
     assert body["agent_question_tasks"][0]["status"] == "drafted"
     assert body["document_intake"][0]["document_type"] == "operating_cost_statement"
     assert "Send the drafted agent question." in body["next_actions"]
+
+
+def test_property_agent_question_update_api_returns_refreshed_decision_state(monkeypatch) -> None:
+    principal_id = "pref-property-agent-question-update"
+    client = build_product_client(principal_id=principal_id)
+
+    def _fake_update(self, *, principal_id: str, task_id: str, status: str, answer_source: str = "", limit: int = 50) -> dict[str, object]:
+        assert principal_id == "pref-property-agent-question-update"
+        assert task_id == "question-state-1"
+        assert status == "sent"
+        return {
+            "status": "ready",
+            "property_ref": "listing-state-1",
+            "decisions": [],
+            "evidence_claims": [],
+            "agent_question_tasks": [
+                {
+                    "task_id": "question-state-1",
+                    "property_ref": "listing-state-1",
+                    "decision_id": "decision-state-1",
+                    "question_text": "Please send the latest operating-cost statement.",
+                    "reason_key": "operating_costs_missing",
+                    "status": "sent",
+                }
+            ],
+            "document_intake": [],
+            "latest_decision": {"decision_id": "decision-state-1", "decision_state": "needs_documents"},
+            "next_actions": ["Wait for the agent answer."],
+            "persistence": {"available": True, "source": "postgres"},
+        }
+
+    monkeypatch.setattr(ProductService, "update_property_agent_question_task", _fake_update)
+
+    response = client.patch(
+        "/app/api/property/agent-questions/question-state-1",
+        json={"status": "sent"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["agent_question_tasks"][0]["status"] == "sent"
+    assert body["next_actions"] == ["Wait for the agent answer."]
+
+
+def test_property_document_update_api_returns_refreshed_decision_state(monkeypatch) -> None:
+    principal_id = "pref-property-document-update"
+    client = build_product_client(principal_id=principal_id)
+
+    def _fake_update(self, *, principal_id: str, document_id: str, verification_state: str, limit: int = 50) -> dict[str, object]:
+        assert principal_id == "pref-property-document-update"
+        assert document_id == "document-state-1"
+        assert verification_state == "verified"
+        return {
+            "status": "ready",
+            "property_ref": "listing-state-1",
+            "decisions": [],
+            "evidence_claims": [],
+            "agent_question_tasks": [],
+            "document_intake": [
+                {
+                    "document_id": "document-state-1",
+                    "property_ref": "listing-state-1",
+                    "decision_id": "decision-state-1",
+                    "document_type": "operating_cost_statement",
+                    "verification_state": "verified",
+                }
+            ],
+            "latest_decision": {"decision_id": "decision-state-1", "decision_state": "needs_documents"},
+            "next_actions": ["Refresh the dossier with the verified document."],
+            "persistence": {"available": True, "source": "postgres"},
+        }
+
+    monkeypatch.setattr(ProductService, "update_property_document_record", _fake_update)
+
+    response = client.patch(
+        "/app/api/property/documents/document-state-1",
+        json={"verification_state": "verified"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["document_intake"][0]["verification_state"] == "verified"
+    assert body["next_actions"] == ["Refresh the dossier with the verified document."]
 
 
 def test_property_decision_api_fails_closed_when_ledger_is_not_durable(monkeypatch) -> None:
@@ -19076,6 +19450,31 @@ def test_property_investment_comp_samples_filter_to_matching_location(monkeypatc
 
     assert len(samples) == 1
     assert samples[0]["property_url"] == "https://example.test/rent-vienna-1"
+
+
+def test_property_investment_research_snapshot_uses_mode_aware_default_platform_blend(monkeypatch: pytest.MonkeyPatch) -> None:
+    observed: list[tuple[str, ...]] = []
+
+    def _fake_comp_samples(*, selected_platforms, **kwargs):
+        observed.append(tuple(selected_platforms))
+        return []
+
+    monkeypatch.setattr(product_service, "_property_investment_comp_samples", _fake_comp_samples)
+    product_service._property_investment_research_snapshot.cache_clear()
+
+    product_service._property_investment_research_snapshot(
+        property_url="https://example.test/current-buy",
+        country_code="AT",
+        location_query="Vienna",
+        selected_platforms_csv="",
+        current_price_eur=500000.0,
+        current_area_sqm=80.0,
+        research_level="preview",
+    )
+
+    assert observed
+    assert observed[0] == ("willhaben", "immmo", "immoscout_at", "derstandard_at")
+    assert observed[1] == ("willhaben", "immmo", "immoscout_at", "derstandard_at")
 
 
 def test_property_investment_text_enrichment_prefers_larger_area_when_title_mentions_terrace() -> None:
