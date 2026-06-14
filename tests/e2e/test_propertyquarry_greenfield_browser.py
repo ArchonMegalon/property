@@ -920,11 +920,11 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('[data-property-field-name="region_code"]').is_hidden()
         assert page.locator('[data-property-field-name="location_query"]').is_visible()
 
-        page.locator('input[name="all_of_vienna"]').check()
+        page.locator('input[name="full_region_scope"]').check()
         assert page.locator('[data-property-field-name="location_query"]').is_hidden()
-        assert page.locator('[data-property-field-name="location_query"]').get_attribute("data-property-collapsed-by") == "all_of_vienna"
+        assert page.locator('[data-property-field-name="location_query"]').get_attribute("data-property-collapsed-by") == "full_region_scope"
 
-        page.locator('input[name="all_of_vienna"]').uncheck()
+        page.locator('input[name="full_region_scope"]').uncheck()
         assert page.locator('[data-property-field-name="location_query"]').is_visible()
 
         page.locator('[data-property-step-trigger="children"]').click()
@@ -1418,7 +1418,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.select_option('select[name="country_code"]', "AT")
         page.locator('[data-property-step-trigger="areas"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'areas'")
-        page.locator('input[name="all_of_vienna"]').check()
+        page.locator('input[name="full_region_scope"]').check()
         page.locator('details[data-property-advanced-panel="location_research"] summary').click()
         page.locator('input[name="prefer_good_air_quality"]').check()
         page.locator('input[name="prefer_low_crime_area"]').check()
@@ -1497,6 +1497,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         preferences = dict(observed["property_search_preferences"])
         assert preferences["country_code"] == "AT"
         assert preferences["region_code"] == "vienna"
+        assert preferences["full_region_scope"] is True
         assert preferences["all_of_vienna"] is True
         assert preferences["location_query"] == "Vienna"
         assert preferences["prefer_good_air_quality"] is True

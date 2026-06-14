@@ -3238,6 +3238,14 @@ def location_options_for_country_region(country_code: object, region_code: objec
     return _generic_country_location_options(normalized)
 
 
+def region_label_for_country_region(country_code: object, region_code: object = "") -> str:
+    requested_region = str(region_code or "").strip().lower()
+    for option in region_options_for_country(country_code):
+        if str(option.get("value") or "").strip().lower() == requested_region:
+            return str(option.get("label") or option.get("value") or requested_region).strip()
+    return requested_region.replace("_", " ").title()
+
+
 def language_label(language_code: object, *, country_code: object = "AT") -> str:
     normalized = normalize_language_code(language_code, country_code=normalize_country_code(country_code))
     return _LANGUAGE_INDEX.get(normalized, _LANGUAGE_INDEX["en"])
@@ -3295,11 +3303,15 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     if investment_mode not in INVESTMENT_RESEARCH_MODE_LABELS:
         investment_mode = "off"
     payload["investment_research_mode"] = investment_mode
+    raw_full_region_scope = payload.get("full_region_scope")
     raw_all_of_vienna = payload.get("all_of_vienna")
-    payload["all_of_vienna"] = (
-        raw_all_of_vienna is True
+    payload["full_region_scope"] = (
+        raw_full_region_scope is True
+        or str(raw_full_region_scope or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
+        or raw_all_of_vienna is True
         or str(raw_all_of_vienna or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
     )
+    payload["all_of_vienna"] = payload["full_region_scope"] and payload["country_code"] == "AT" and payload["region_code"] in {"vienna", "wien"}
     raw_location_query = str(payload.get("location_query") or "").strip()
     raw_custom_location_query = str(payload.get("custom_location_query") or "").strip()
     if country_code != "AT":
@@ -3332,13 +3344,8 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         raw_custom_location_query = ", ".join(dict.fromkeys(custom_location_values))
     payload["location_query"] = raw_location_query
     payload["custom_location_query"] = raw_custom_location_query
-    if (
-        payload["country_code"] == "AT"
-        and payload["region_code"] in {"vienna", "wien"}
-        and payload["all_of_vienna"]
-        and not payload["location_query"]
-    ):
-        payload["location_query"] = "Vienna"
+    if payload["full_region_scope"] and not payload["location_query"] and payload["region_code"]:
+        payload["location_query"] = region_label_for_country_region(payload["country_code"], payload["region_code"])
     payload["keywords"] = str(payload.get("keywords") or "").strip()
     raw_require_floorplan = payload.get("require_floorplan")
     payload["require_floorplan"] = (

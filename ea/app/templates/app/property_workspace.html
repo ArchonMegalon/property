@@ -1680,7 +1680,7 @@
     }
     return 'AT';
   };
-  const hasConfiguredLocations = (form) => selectedValuesForForm(form, 'location_query').length > 0 || checkedValue(form, 'all_of_vienna');
+  const hasConfiguredLocations = (form) => selectedValuesForForm(form, 'location_query').length > 0 || checkedValue(form, 'full_region_scope');
   const shouldApplyBrowserDefaults = (form) => {
     const url = new URL(window.location.href);
     return String(url.searchParams.get('autolocate') || '').trim() === '1'
@@ -1718,48 +1718,74 @@
     });
   };
   const preferenceProfileEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile`;
-  const normalizeDistrictValue = (value) => {
+  const normalizeLocationText = (value) => String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[()]/g, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const locationOptionRows = (form) => [...(form?.querySelectorAll('input[name="location_query"]') || [])].map((node) => {
+    const labelNode = node.closest('label');
+    const title = String(labelNode?.querySelector('.pq-check-label')?.textContent || node.value || '').trim();
+    const detail = String(labelNode?.querySelector('small')?.textContent || '').trim();
+    return {
+      value: String(node.value || '').trim(),
+      normalizedValue: normalizeLocationText(node.value),
+      normalizedTitle: normalizeLocationText(title),
+      normalizedDetail: normalizeLocationText(detail),
+    };
+  });
+  const matchLocationValue = (form, value) => {
     const raw = String(value || '').trim();
     if (!raw) return '';
-    const normalized = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').replace(/[()]/g, '').trim();
-    const districtMap = {
-      'innere stadt': '1010 Vienna',
-      'leopoldstadt': '1020 Vienna',
-      'landstrasse': '1030 Vienna',
-      'landstraße': '1030 Vienna',
-      'wieden': '1040 Vienna',
-      'margareten': '1050 Vienna',
-      'mariahilf': '1060 Vienna',
-      'neubau': '1070 Vienna',
-      'josefstadt': '1080 Vienna',
-      'alsergrund': '1090 Vienna',
-      'favoriten': '1100 Vienna',
-      'simmering': '1110 Vienna',
-      'meidling': '1120 Vienna',
-      'hietzing': '1130 Vienna',
-      'penzing': '1140 Vienna',
-      'rudolfsheim funfhaus': '1150 Vienna',
-      'rudolfsheim-funfhaus': '1150 Vienna',
-      'rudolfsheim fünfhaus': '1150 Vienna',
-      'ottakring': '1160 Vienna',
-      'hernals': '1170 Vienna',
-      'waehring': '1180 Vienna',
-      'wahring': '1180 Vienna',
-      'währing': '1180 Vienna',
-      'doebling': '1190 Vienna',
-      'dobling': '1190 Vienna',
-      'döbling': '1190 Vienna',
-      'brigittenau': '1200 Vienna',
-      'floridsdorf': '1210 Vienna',
-      'donaustadt': '1220 Vienna',
-      'liesing': '1230 Vienna',
-    };
-    if (districtMap[normalized]) return districtMap[normalized];
-    const digits = normalized.match(/\b(10[1-9]0|11[0-9]0|1200|1210|1220|1230)\b/);
-    if (digits) return `${digits[1]} Vienna`;
-    return raw;
+    const normalized = normalizeLocationText(raw);
+    const postalDigits = normalized.match(/\b\d{4,5}\b/);
+    const rows = locationOptionRows(form);
+    const exact = rows.find((row) => row.normalizedValue === normalized || row.normalizedTitle === normalized);
+    if (exact) return exact.value;
+    if (postalDigits) {
+      const byPostal = rows.find((row) => row.normalizedValue.includes(postalDigits[0]) || row.normalizedTitle.includes(postalDigits[0]));
+      if (byPostal) return byPostal.value;
+    }
+    const byDetail = rows.find((row) => row.normalizedDetail && (row.normalizedDetail === normalized || normalized.includes(row.normalizedDetail) || row.normalizedDetail.includes(normalized)));
+    if (byDetail) return byDetail.value;
+    const fuzzy = rows.find((row) => normalized && (row.normalizedTitle.includes(normalized) || normalized.includes(row.normalizedTitle)));
+    return fuzzy?.value || raw;
   };
-  const applyPreferenceProfileToForm = async (form, refreshRegionAndLocationChoices, syncViennaScopeControls) => {
+  const inferCountryRegionForLocations = (meta, values) => {
+    const normalizedValues = (values || []).map((value) => normalizeLocationText(value)).filter(Boolean);
+    if (!normalizedValues.length) return null;
+    const catalog = meta?.location_catalog_by_country_region || {};
+    let best = null;
+    Object.entries(catalog).forEach(([countryCode, regions]) => {
+      Object.entries(regions || {}).forEach(([regionCode, options]) => {
+        const optionRows = (Array.isArray(options) ? options : []).map((option) => ({
+          normalizedValue: normalizeLocationText(option?.value),
+          normalizedLabel: normalizeLocationText(option?.label || option?.value),
+          normalizedDetail: normalizeLocationText(option?.detail),
+        }));
+        let score = 0;
+        normalizedValues.forEach((needle) => {
+          const matched = optionRows.some((row) => (
+            row.normalizedValue === needle
+            || row.normalizedLabel === needle
+            || (row.normalizedDetail && row.normalizedDetail === needle)
+            || row.normalizedValue.includes(needle)
+            || row.normalizedLabel.includes(needle)
+            || (row.normalizedDetail && row.normalizedDetail.includes(needle))
+            || needle.includes(row.normalizedValue)
+            || needle.includes(row.normalizedLabel)
+          ));
+          if (matched) score += 1;
+        });
+        if (!best || score > best.score) best = { countryCode, regionCode, score };
+      });
+    });
+    return best && best.score > 0 ? best : null;
+  };
+  const applyPreferenceProfileToForm = async (form, refreshRegionAndLocationChoices, syncAreaScopeControls) => {
     const personId = fieldValue(form, 'preference_person_id') || 'self';
     if (!personId) return;
     let bundle = {};
@@ -1779,21 +1805,25 @@
     });
     const countryField = form.querySelector('select[name="country_code"]');
     const regionField = form.querySelector('select[name="region_code"]');
-    const allViennaField = form.querySelector('input[name="all_of_vienna"]');
+    const fullRegionScopeField = form.querySelector('input[name="full_region_scope"]');
     const districtValues = Array.isArray(nodeValues.get('preferred_districts')) ? nodeValues.get('preferred_districts') : [];
     if (districtValues.length) {
-      if (countryField) countryField.value = 'AT';
-      if (regionField) regionField.value = 'vienna';
+      const inferredScope = inferCountryRegionForLocations(meta, districtValues);
+      if (countryField && inferredScope?.countryCode) countryField.value = inferredScope.countryCode;
       refreshRegionAndLocationChoices();
-      const mappedDistricts = uniqueValues(districtValues.map((value) => normalizeDistrictValue(value)));
+      if (regionField && inferredScope?.regionCode) {
+        regionField.value = inferredScope.regionCode;
+        refreshRegionAndLocationChoices();
+      }
+      const mappedDistricts = uniqueValues(districtValues.map((value) => matchLocationValue(form, value)));
       const availableDistricts = new Set([...(form.querySelectorAll('input[name="location_query"]') || [])].map((node) => String(node.value || '').trim().toLowerCase()));
       const visibleDistricts = mappedDistricts.filter((value) => availableDistricts.has(String(value || '').trim().toLowerCase()));
       const customDistricts = mappedDistricts.filter((value) => !availableDistricts.has(String(value || '').trim().toLowerCase()));
-      if (allViennaField) allViennaField.checked = false;
+      if (fullRegionScopeField) fullRegionScopeField.checked = false;
       setCheckboxValues(form, 'location_query', visibleDistricts);
       const customLocationField = form.querySelector('[name="custom_location_query"]');
       if (customLocationField) customLocationField.value = customDistricts.join(', ');
-      syncViennaScopeControls();
+      syncAreaScopeControls();
     }
     const maxRent = Number(nodeValues.get('max_total_rent_eur') || nodeValues.get('prefer_lower_total_rent_eur') || 0);
     const minRooms = Number(nodeValues.get('min_rooms') || 0);
@@ -2191,10 +2221,11 @@
     const parsedMaxResults = integerValue(form, 'max_results_per_source');
     const countryCode = fieldValue(form, 'country_code') || 'AT';
     const regionCode = fieldValue(form, 'region_code') || '';
-    const allOfVienna = checkedValue(form, 'all_of_vienna');
+    const fullRegionScope = checkedValue(form, 'full_region_scope');
     const listingMode = fieldValue(form, 'listing_mode') || 'rent';
-    const resolvedLocationQuery = countryCode === 'AT' && regionCode === 'vienna' && allOfVienna
-      ? 'Vienna'
+    const regionLabel = String(form.querySelector('select[name="region_code"] option:checked')?.textContent || regionCode || '').trim();
+    const resolvedLocationQuery = fullRegionScope && regionLabel
+      ? regionLabel
       : uniqueValues(selectedLocations, csvValues(customLocationQuery)).join(', ');
     const resolvedKeywords = uniqueValues(selectedKeywords, csvValues(customKeywords)).join(', ');
     return {
@@ -2208,7 +2239,8 @@
         property_type: selectedValuesForForm(form, 'property_type').length ? selectedValuesForForm(form, 'property_type') : ['any'],
         search_mode: fieldValue(form, 'search_mode') || 'strict',
         investment_research_mode: listingMode === 'buy' ? (fieldValue(form, 'investment_research_mode') || 'off') : 'off',
-        all_of_vienna: allOfVienna,
+        full_region_scope: fullRegionScope,
+        all_of_vienna: countryCode === 'AT' && regionCode === 'vienna' && fullRegionScope,
         location_query: resolvedLocationQuery,
         custom_location_query: customLocationQuery,
         keywords: resolvedKeywords,
@@ -2897,9 +2929,9 @@
         form.querySelector('[data-property-field-name="max_commute_minutes_bike"]'),
         form.querySelector('[data-property-field-name="max_commute_minutes_walk"]'),
       ].filter(Boolean);
-      const allViennaField = form.querySelector('input[name="all_of_vienna"]');
+      const fullRegionScopeField = form.querySelector('input[name="full_region_scope"]');
       const preferencePersonField = form.querySelector('[name="preference_person_id"]');
-      const allViennaFieldWrap = allViennaField?.closest('[data-property-field-step]');
+      const fullRegionScopeFieldWrap = fullRegionScopeField?.closest('[data-property-field-step]');
       const locationFieldWrap = form.querySelector('input[name="location_query"]')?.closest('[data-property-field-step]');
       const rawPlanPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
       const planPlatformCap = Number.isFinite(rawPlanPlatformCap) && rawPlanPlatformCap > 0 ? rawPlanPlatformCap : Infinity;
@@ -2923,11 +2955,11 @@
         if (!isBuy && investmentField) investmentField.value = 'off';
         syncAdvancedPanels();
       };
-      const syncViennaScopeControls = () => {
-        const isViennaScope = String(countryField?.value || '').trim() === 'AT' && String(regionField?.value || '').trim() === 'vienna';
-        if (allViennaFieldWrap) allViennaFieldWrap.hidden = !isViennaScope;
-        if (!isViennaScope && allViennaField) allViennaField.checked = false;
-        if (locationFieldWrap) locationFieldWrap.hidden = isViennaScope && Boolean(allViennaField?.checked);
+      const syncAreaScopeControls = () => {
+        const hasAreaOptions = form.querySelectorAll('input[name="location_query"]').length > 0;
+        if (fullRegionScopeFieldWrap) fullRegionScopeFieldWrap.hidden = !hasAreaOptions;
+        if (!hasAreaOptions && fullRegionScopeField) fullRegionScopeField.checked = false;
+        if (locationFieldWrap) locationFieldWrap.hidden = hasAreaOptions && Boolean(fullRegionScopeField?.checked);
         syncAdvancedPanels();
       };
       const syncCommuteControls = () => {
@@ -2984,7 +3016,7 @@
         syncAdvancedPanels();
         syncMarketAwareFields(form, meta);
       };
-      const applyPreferenceProfile = () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncViennaScopeControls).finally(syncFamilyModeControls);
+      const applyPreferenceProfile = () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncAreaScopeControls).finally(syncFamilyModeControls);
       const refreshRegionAndLocationChoices = () => {
         const regionCatalog = meta.region_catalog_by_country || {};
         const locationCatalog = meta.location_catalog_by_country_region || {};
@@ -3003,7 +3035,7 @@
         const effectiveRegion = String(regionField?.value || regionOptions[0]?.value || '').trim();
         const locationOptions = locationCatalog[selectedCountry]?.[effectiveRegion] || [];
         renderCheckboxOptions(form, 'location_query', locationOptions, []);
-        syncViennaScopeControls();
+        syncAreaScopeControls();
       };
       const applyBrowserAndIpDefaults = async () => {
         if (!shouldApplyBrowserDefaults(form)) return;
@@ -3031,16 +3063,17 @@
             refreshRegionAndLocationChoices();
           }
         }
-        if (String(countryField?.value || '').trim() === 'AT' && ipCity.includes('wien') && regionField) {
-          regionField.value = 'vienna';
+        const inferredScope = inferCountryRegionForLocations(meta, [ipCity]);
+        if (inferredScope?.regionCode && regionField) {
+          regionField.value = inferredScope.regionCode;
           refreshRegionAndLocationChoices();
           if (ipPostal) {
-            const districtValue = `${ipPostal} Vienna`;
+            const districtValue = matchLocationValue(form, ipPostal);
             const locationInput = form.querySelector(`input[name="location_query"][value="${districtValue}"]`);
             if (locationInput) {
-              if (allViennaField) allViennaField.checked = false;
+              if (fullRegionScopeField) fullRegionScopeField.checked = false;
               locationInput.checked = true;
-              syncViennaScopeControls();
+              syncAreaScopeControls();
             }
           }
         }
@@ -3064,7 +3097,7 @@
         refreshRegionAndLocationChoices();
         syncMarketAwareFields(form, meta);
       });
-      if (allViennaField) allViennaField.addEventListener('change', syncViennaScopeControls);
+      if (fullRegionScopeField) fullRegionScopeField.addEventListener('change', syncAreaScopeControls);
       if (listingModeField) listingModeField.addEventListener('change', () => {
         const catalog = meta.platform_catalog_by_country || {};
         const selectedCountry = String(countryField?.value || 'AT').trim();
@@ -3119,7 +3152,7 @@
         preferencePersonField.addEventListener('change', applyPreferenceProfile);
         preferencePersonField.addEventListener('blur', applyPreferenceProfile);
       }
-      syncViennaScopeControls();
+      syncAreaScopeControls();
       syncListingModeControls();
       syncCommuteControls();
       syncFamilyModeControls();

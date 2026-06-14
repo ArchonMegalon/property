@@ -2559,7 +2559,7 @@ def test_property_search_preferences_persist_and_merge_into_run(monkeypatch) -> 
     assert set(status_snapshot.json()["property_search_preferences"]["selected_platforms"]) == {"willhaben", "kalandra"}
 
 
-def test_property_search_preferences_persist_all_of_vienna_as_hard_location_scope() -> None:
+def test_property_search_preferences_persist_full_region_scope_as_hard_location_scope() -> None:
     principal_id = "exec-property-search-all-vienna-scope"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Search Vienna Scope")
@@ -2569,7 +2569,7 @@ def test_property_search_preferences_persist_all_of_vienna_as_hard_location_scop
         json={
             "country_code": "AT",
             "region_code": "vienna",
-            "all_of_vienna": True,
+            "full_region_scope": True,
             "location_query": "",
             "selected_platforms": ["willhaben"],
             "property_commercial": {"active_plan_key": "agent", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"},
@@ -2580,6 +2580,7 @@ def test_property_search_preferences_persist_all_of_vienna_as_hard_location_scop
     preferences = stored.json()["property_search_preferences"]
     assert preferences["country_code"] == "AT"
     assert preferences["region_code"] == "vienna"
+    assert preferences["full_region_scope"] is True
     assert preferences["all_of_vienna"] is True
     assert preferences["location_query"] == "Vienna"
 

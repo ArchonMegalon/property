@@ -1707,14 +1707,20 @@ def _property_counterfactual_rows(
 
     country_code = str(preferences.get("country_code") or "").strip().upper()
     region_code = str(preferences.get("region_code") or "").strip().lower()
-    if country_code == "AT" and region_code == "vienna" and not bool(preferences.get("all_of_vienna")):
+    full_region_scope = bool(preferences.get("full_region_scope") or preferences.get("all_of_vienna"))
+    if country_code and region_code and not full_region_scope:
+        try:
+            from app.services.property_market_catalog import region_label_for_country_region
+            region_label = region_label_for_country_region(country_code, region_code)
+        except Exception:
+            region_label = region_code.replace("_", " ").title()
         rows.append(
             {
-                "title": "Expand from district picks to all Vienna",
-                "detail": "Keep Vienna selected but stop suppressing the rest of the city in the next pass.",
+                "title": f"Expand from selected areas to all {region_label}",
+                "detail": f"Keep {region_label} selected but stop suppressing the rest of the area in the next pass.",
                 "tag": "Area",
-                "action_label": "Use all Vienna",
-                "adjustments": {"all_of_vienna": True, "location_query": "Vienna", "custom_location_query": ""},
+                "action_label": f"Use all {region_label}",
+                "adjustments": {"full_region_scope": True, "location_query": region_label, "custom_location_query": ""},
                 "affected_total": outside_selected_area_total,
             }
         )
@@ -2273,7 +2279,7 @@ def app_section_payload(
     except Exception:
         property_available_within_years_value = 0
     selected_region_code = str(property_preferences.get("region_code") or "").strip().lower()
-    selected_all_of_vienna = bool(property_preferences.get("all_of_vienna"))
+    selected_full_region_scope = bool(property_preferences.get("full_region_scope") or property_preferences.get("all_of_vienna"))
     country_options = [dict(option) for option in list(property_state.get("country_options") or []) if isinstance(option, dict)]
     language_options = [dict(option) for option in list(property_state.get("language_options") or []) if isinstance(option, dict)]
     listing_mode_options = [dict(option) for option in list(property_state.get("listing_mode_options") or []) if isinstance(option, dict)]
@@ -2327,13 +2333,18 @@ def app_section_payload(
     region_options = _property_region_options(str(property_preferences.get("country_code") or "AT"))
     if not selected_region_code and region_options:
         selected_region_code = str(region_options[0].get("value") or "").strip().lower()
-    if (
-        str(property_preferences.get("country_code") or "AT").strip().upper() == "AT"
-        and selected_region_code == "vienna"
-        and not selected_location_values
-        and str(property_preferences.get("location_query") or "").strip().lower() in {"vienna", "wien"}
-    ):
-        selected_all_of_vienna = True
+    selected_region_label = selected_region_code.replace("_", " ").title() if selected_region_code else "area"
+    if selected_region_code and not selected_location_values:
+        try:
+            from app.services.property_market_catalog import region_label_for_country_region
+            selected_region_label = region_label_for_country_region(
+                str(property_preferences.get("country_code") or "AT"),
+                selected_region_code,
+            )
+        except Exception:
+            selected_region_label = selected_region_code.replace("_", " ").title()
+        if str(property_preferences.get("location_query") or "").strip().lower() == selected_region_label.strip().lower():
+            selected_full_region_scope = True
     location_options = _property_location_options(
         str(property_preferences.get("country_code") or "AT"),
         selected_region_code,
@@ -3073,10 +3084,10 @@ def app_section_payload(
             },
             {
                 "type": "checkbox",
-                "name": "all_of_vienna",
-                "label": "All of Vienna",
+                "name": "full_region_scope",
+                "label": f"Use all {selected_region_label}" if selected_region_label else "Use full area",
                 "value": "true",
-                "checked": selected_all_of_vienna,
+                "checked": selected_full_region_scope,
                 "step": "areas",
             },
             {
@@ -3085,9 +3096,7 @@ def app_section_payload(
                 "label": "Target areas",
                 "options": location_options,
                 "values": selected_location_values,
-                "hidden": selected_all_of_vienna
-                and str(property_preferences.get("country_code") or "AT").strip().upper() == "AT"
-                and selected_region_code == "vienna",
+                "hidden": selected_full_region_scope,
                 "step": "areas",
             },
             {
@@ -4218,7 +4227,7 @@ def app_section_payload(
                 for option in country_options
                 if str(option.get("value") or "").strip()
             },
-            "supports_all_of_vienna": True,
+            "supports_full_region_scope": True,
             "commercial": dict(property_state.get("commercial") or {}),
             "billing_checkout_enabled": bool(property_state.get("billing_checkout_enabled")),
             "billing_checkout_enabled_plans": list(property_state.get("billing_checkout_enabled_plans") or []),

@@ -99,16 +99,17 @@ def test_normalize_property_search_preferences_clamps_search_agent_controls() ->
     assert payload["search_agent_notification_period"] == "week"
 
 
-def test_normalize_property_search_preferences_scopes_all_of_vienna_backend_runs() -> None:
+def test_normalize_property_search_preferences_scopes_full_region_backend_runs() -> None:
     payload = normalize_property_search_preferences(
         {
             "country_code": "AT",
             "region_code": "vienna",
-            "all_of_vienna": "true",
+            "full_region_scope": "true",
             "location_query": "",
         }
     )
 
+    assert payload["full_region_scope"] is True
     assert payload["all_of_vienna"] is True
     assert payload["location_query"] == "Vienna"
 

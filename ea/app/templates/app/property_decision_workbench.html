@@ -5796,7 +5796,7 @@
       }
       return 'AT';
     };
-    const hasConfiguredLocations = (form) => checkedValues(form, 'location_query').length > 0 || Boolean(form.querySelector('input[name="all_of_vienna"]')?.checked);
+    const hasConfiguredLocations = (form) => checkedValues(form, 'location_query').length > 0 || Boolean(form.querySelector('input[name="full_region_scope"]')?.checked);
     const shouldApplyBrowserDefaults = (form) => {
       const url = new URL(window.location.href);
       return String(url.searchParams.get('autolocate') || '').trim() === '1'
@@ -5937,7 +5937,7 @@
       });
       const countryField = form.querySelector('select[name="country_code"]');
       const regionField = form.querySelector('select[name="region_code"]');
-      const allViennaField = form.querySelector('input[name="all_of_vienna"]');
+      const fullRegionScopeField = form.querySelector('input[name="full_region_scope"]');
       const districtValues = Array.isArray(nodeValues.get('preferred_districts')) ? nodeValues.get('preferred_districts') : [];
       if (districtValues.length) {
         const inferredScope = inferCountryRegionForLocations(meta, districtValues);
@@ -5951,7 +5951,7 @@
         const availableDistricts = new Set([...(form.querySelectorAll('input[name="location_query"]') || [])].map((node) => String(node.value || '').trim().toLowerCase()));
         const visibleDistricts = mappedDistricts.filter((value) => availableDistricts.has(String(value || '').trim().toLowerCase()));
         const customDistricts = mappedDistricts.filter((value) => !availableDistricts.has(String(value || '').trim().toLowerCase()));
-        if (allViennaField) allViennaField.checked = false;
+        if (fullRegionScopeField) fullRegionScopeField.checked = false;
         setCheckboxValues(form, 'location_query', visibleDistricts);
         const customLocationField = form.querySelector('[name="custom_location_query"]');
         if (customLocationField) customLocationField.value = customDistricts.join(', ');
@@ -6365,10 +6365,11 @@
       const countryCode = fieldValue(form, 'country_code') || 'AT';
       const regionCode = fieldValue(form, 'region_code') || '';
       const listingMode = fieldValue(form, 'listing_mode') || 'rent';
-      const allOfVienna = Boolean(form.querySelector('input[name="all_of_vienna"]')?.checked);
+      const fullRegionScope = Boolean(form.querySelector('input[name="full_region_scope"]')?.checked);
       const selectedLocations = checkedValues(form, 'location_query');
       const customLocationQuery = fieldValue(form, 'custom_location_query');
       const customKeywords = fieldValue(form, 'custom_keywords');
+      const regionLabel = String(form.querySelector('select[name="region_code"] option:checked')?.textContent || regionCode || '').trim();
       return {
         selected_platforms: selectedPlatforms,
         property_preferences: {
@@ -6380,8 +6381,9 @@
           property_type: checkedValues(form, 'property_type').length ? checkedValues(form, 'property_type') : ['any'],
           search_mode: fieldValue(form, 'search_mode') || 'strict',
           investment_research_mode: listingMode === 'buy' ? (fieldValue(form, 'investment_research_mode') || 'off') : 'off',
-          all_of_vienna: allOfVienna,
-          location_query: countryCode === 'AT' && regionCode === 'vienna' && allOfVienna ? 'Vienna' : uniqueValues(selectedLocations, csvValues(customLocationQuery)).join(', '),
+          full_region_scope: fullRegionScope,
+          all_of_vienna: countryCode === 'AT' && regionCode === 'vienna' && fullRegionScope,
+          location_query: fullRegionScope && regionLabel ? regionLabel : uniqueValues(selectedLocations, csvValues(customLocationQuery)).join(', '),
           custom_location_query: customLocationQuery,
           keywords: uniqueValues(checkedValues(form, 'keywords'), csvValues(customKeywords)).join(', '),
           custom_keywords: customKeywords,
@@ -7116,9 +7118,9 @@
         form.querySelector('[data-property-field-name="max_commute_minutes_bike"]'),
         form.querySelector('[data-property-field-name="max_commute_minutes_walk"]'),
       ].filter(Boolean);
-      const allViennaField = form.querySelector('input[name="all_of_vienna"]');
+      const fullRegionScopeField = form.querySelector('input[name="full_region_scope"]');
       const preferencePersonField = form.querySelector('[name="preference_person_id"]');
-      const allViennaFieldWrap = form.querySelector('[data-property-field-name="all_of_vienna"]');
+      const fullRegionScopeFieldWrap = form.querySelector('[data-property-field-name="full_region_scope"]');
       const locationFieldWrap = form.querySelector('[data-property-field-name="location_query"]');
       const rawPlanPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
       const planPlatformCap = Number.isFinite(rawPlanPlatformCap) && rawPlanPlatformCap > 0 ? rawPlanPlatformCap : 0;
@@ -7149,18 +7151,18 @@
       const syncAreaScopeControls = () => {
         const activeStep = String(form.dataset.propertyActiveStep || '').trim();
         const isAreasStep = !activeStep || activeStep === 'areas';
-        const isViennaScope = String(countryField?.value || '').trim() === 'AT' && String(regionField?.value || '').trim() === 'vienna';
-        const allViennaChecked = Boolean(allViennaField?.checked);
-        if (allViennaFieldWrap) {
-          allViennaFieldWrap.hidden = !isAreasStep || !isViennaScope;
-          allViennaFieldWrap.toggleAttribute('aria-hidden', allViennaFieldWrap.hidden);
+        const hasAreaOptions = form.querySelectorAll('input[name="location_query"]').length > 0;
+        const fullRegionScopeChecked = Boolean(fullRegionScopeField?.checked);
+        if (fullRegionScopeFieldWrap) {
+          fullRegionScopeFieldWrap.hidden = !isAreasStep || !hasAreaOptions;
+          fullRegionScopeFieldWrap.toggleAttribute('aria-hidden', fullRegionScopeFieldWrap.hidden);
         }
-        if (!isViennaScope && allViennaField) allViennaField.checked = false;
+        if (!hasAreaOptions && fullRegionScopeField) fullRegionScopeField.checked = false;
         if (locationFieldWrap) {
-          const shouldCollapseTargetAreas = isAreasStep && isViennaScope && allViennaChecked;
+          const shouldCollapseTargetAreas = isAreasStep && hasAreaOptions && fullRegionScopeChecked;
           locationFieldWrap.hidden = !isAreasStep || shouldCollapseTargetAreas;
           locationFieldWrap.toggleAttribute('aria-hidden', locationFieldWrap.hidden);
-          locationFieldWrap.dataset.propertyCollapsedBy = shouldCollapseTargetAreas ? 'all_of_vienna' : '';
+          locationFieldWrap.dataset.propertyCollapsedBy = shouldCollapseTargetAreas ? 'full_region_scope' : '';
         }
         syncAdvancedPanels();
         syncMarketAwareFields(form, meta);
@@ -7281,7 +7283,7 @@
             const districtValue = matchLocationValue(form, ipPostal);
             const locationInput = form.querySelector(`input[name="location_query"][value="${districtValue}"]`);
             if (locationInput) {
-              if (allViennaField) allViennaField.checked = false;
+              if (fullRegionScopeField) fullRegionScopeField.checked = false;
               locationInput.checked = true;
               syncAreaScopeControls();
             }
@@ -7308,7 +7310,7 @@
         refreshRegionAndLocationChoices();
         syncMarketAwareFields(form, meta);
       });
-      allViennaField?.addEventListener('change', syncAreaScopeControls);
+      fullRegionScopeField?.addEventListener('change', syncAreaScopeControls);
       listingModeField?.addEventListener('change', () => {
         const selectedCountry = String(countryField?.value || 'AT').trim();
         const catalog = meta.platform_catalog_by_country || {};

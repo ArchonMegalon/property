@@ -1393,14 +1393,21 @@ class OnboardingService(AssistantOnboardingService):
 
         country_code = normalize_country_code(raw.get("country_code"))
         region_code = str(raw.get("region_code") or "").strip().lower()
+        raw_full_region_scope = raw.get("full_region_scope")
         raw_all_of_vienna = raw.get("all_of_vienna")
-        all_of_vienna = (
-            raw_all_of_vienna is True
+        full_region_scope = (
+            raw_full_region_scope is True
+            or str(raw_full_region_scope or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
+            or raw_all_of_vienna is True
             or str(raw_all_of_vienna or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
         )
         location_query = str(raw.get("location_query") or "").strip()
-        if country_code == "AT" and region_code in {"vienna", "wien"} and all_of_vienna and not location_query:
-            location_query = "Vienna"
+        if full_region_scope and not location_query and region_code:
+            try:
+                from app.services.property_market_catalog import region_label_for_country_region
+                location_query = region_label_for_country_region(country_code, region_code)
+            except Exception:
+                location_query = region_code.replace("_", " ").title()
         language_code = normalize_language_code(raw.get("language_code"), country_code=country_code)
         listing_mode = normalize_listing_mode(raw.get("listing_mode"))
         property_type = normalize_property_type_values(raw.get("property_type"))
@@ -1539,7 +1546,8 @@ class OnboardingService(AssistantOnboardingService):
             "listing_mode": listing_mode,
             "property_type": property_type,
             "location_query": location_query,
-            "all_of_vienna": all_of_vienna,
+            "all_of_vienna": full_region_scope and country_code == "AT" and region_code in {"vienna", "wien"},
+            "full_region_scope": full_region_scope,
             "search_mode": search_mode,
             "selected_platforms": selected_platforms,
             "max_results_per_source": normalized_max,
