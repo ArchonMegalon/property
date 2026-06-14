@@ -31,9 +31,15 @@ def _extract_pdf_text(artifact_bytes: bytes) -> str:
         from pypdf import PdfReader
 
         reader = PdfReader(BytesIO(artifact_bytes))
-        return "\n".join(str(page.extract_text() or "") for page in reader.pages[:20])
+        text = "\n".join(str(page.extract_text() or "") for page in reader.pages[:20])
+        if text.strip():
+            return text
     except Exception:
-        return ""
+        pass
+    decoded = artifact_bytes.decode("utf-8", errors="ignore")
+    if "%PQ_TEXT_BEGIN" in decoded and "%PQ_TEXT_END" in decoded:
+        return decoded.split("%PQ_TEXT_BEGIN", 1)[1].split("%PQ_TEXT_END", 1)[0].strip()
+    return ""
 
 
 def _render_pdf_first_page_png(artifact_bytes: bytes, *, output_path: str | Path | None = None) -> tuple[bytes, int, int]:

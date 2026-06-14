@@ -252,7 +252,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Match" in response.text
     assert "Price" in response.text
     assert "Layout" in response.text
-    assert "Quick read" in response.text
+    assert "At a glance" in response.text
     assert "Risk and investment" in response.text
     assert "360 ready" in response.text
     assert "Berlin" in response.text
@@ -287,7 +287,8 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert 'data-object-media-stage' in packet.text
     assert 'title="Property 360 review"' in packet.text
     assert packet.text.index("data-object-media-stage") < packet.text.index("Investment research")
-    assert "Review page" in packet.text
+    assert "Review page" not in packet.text
+    assert "Open listing" in packet.text
     assert "Original listing" in packet.text
     assert "Investment research" in packet.text
     assert "Gross yield" in packet.text

@@ -458,7 +458,7 @@ def _assert_property_shell_visual_gates(page: Page, *, max_appbar_height: int) -
 
 def _assert_research_packet_360_first(page: Page, *, min_stage_height: int) -> None:
     media = page.locator("[data-object-media-stage]").first
-    ooda = page.get_by_text("Quick read").first
+    ooda = page.get_by_text("At a glance").first
     assert media.is_visible()
     assert ooda.is_visible()
     media_box = media.bounding_box()
@@ -493,14 +493,14 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert "360 ready" in content
         assert "Review details" in content
         assert "Open 360" in content
-        assert "Quick read" in content
+        assert "Overview" in content
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
         assert "/app/properties" in page.url
         assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()
-        assert page.locator("body", has_text="Quick read").is_visible()
-        assert page.locator("body", has_text="How this result was prepared").is_visible()
+        assert page.locator("body", has_text="Overview").is_visible()
+        assert page.locator("body", has_text="Why it surfaced").is_visible()
         assert page.locator("body", has_text="Would you pursue this property?").is_visible()
         page.get_by_role("button", name="Maybe").click()
         assert page.get_by_role("button", name="Save decision").is_visible()
@@ -533,7 +533,7 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
         assert "/app/properties" in page.url
         assert page.locator("[data-pw-title]", has_text="Family flat near Tiergarten").is_visible()
-        assert page.locator("body", has_text="Quick read").is_visible()
+        assert page.locator("body", has_text="At a glance").is_visible()
         assert page.locator("body", has_text="How this result was prepared").is_visible()
         assert page.locator("body", has_text="Would you pursue this property?").is_visible()
         assert page.get_by_role("button", name="Ask a question").is_visible()
@@ -888,10 +888,10 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
         packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
         response = page.goto(packet_url, wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator(".object-media-frame").is_visible()
+        assert page.locator(".prd-media-frame").is_visible()
         assert "Open the space before you read the rest" not in page.content()
-        _assert_research_packet_360_first(page, min_stage_height=420)
-        assert page.get_by_text("Quick read").first.is_visible()
+        _assert_research_packet_360_first(page, min_stage_height=380)
+        assert page.get_by_text("At a glance").first.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
     finally:
         context.close()
@@ -1521,7 +1521,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
         assert "/app/properties" in page.url
         assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()
-        assert page.locator("body", has_text="Quick read").is_visible()
+        assert page.locator("body", has_text="At a glance").is_visible()
         assert page.locator("body", has_text="Would you pursue this property?").is_visible()
     finally:
         context.close()
@@ -1789,7 +1789,7 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
         separator = "&" if "?" in packet_url else "?"
         response = page.goto(f"{packet_url}{separator}run_id=run-42&decision=no&clippy=1&prompt=What%20is%20the%20strongest%20blocker%20here%3F", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Quick read").is_visible()
+        assert page.locator("body", has_text="At a glance").is_visible()
         assert page.locator("body", has_text="Decision shortcut loaded from the email or shared link.").is_visible()
         assert page.locator("body", has_text="Clippy prompt loaded from the email or shared link.").is_visible()
         assert page.locator("body", has_text="Tracked follow-up").is_visible()

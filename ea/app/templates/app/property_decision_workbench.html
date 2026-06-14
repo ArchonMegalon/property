@@ -844,7 +844,7 @@
     .pqx-previous-scope-image {
       display: block;
       width: 100%;
-      aspect-ratio: 16 / 8;
+      aspect-ratio: 640 / 368;
       object-fit: cover;
       border-radius: 8px;
       border: 1px solid var(--pq-line);
@@ -962,6 +962,7 @@
       border-radius: 16px;
       background: var(--pq-paper);
       box-shadow: 0 24px 56px rgba(16, 24, 38, 0.28);
+      max-height: min(calc(100vh - 32px), 920px);
     }
     .pqx-scope-lightbox-head {
       display: flex;
@@ -987,14 +988,44 @@
       font-size: 18px;
       cursor: pointer;
     }
-    .pqx-scope-lightbox-image {
-      width: 100%;
-      display: block;
-      aspect-ratio: 16 / 10;
-      object-fit: cover;
+    .pqx-scope-lightbox-stage {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
       border-radius: 12px;
       border: 1px solid var(--pq-line);
       background: var(--pq-panel);
+    }
+    .pqx-scope-lightbox-zoomable {
+      position: relative;
+      transform-origin: center center;
+      transition: transform 140ms ease;
+      will-change: transform;
+    }
+    .pqx-scope-lightbox-image {
+      width: 100%;
+      display: block;
+      max-height: min(calc(100vh - 180px), 74vh);
+      aspect-ratio: 640 / 368;
+      object-fit: contain;
+      background: var(--pq-panel);
+    }
+    .pqx-scope-lightbox-overlay {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .pqx-scope-lightbox-overlay path {
+      fill: rgba(177, 28, 28, 0.22);
+      stroke: rgba(123, 15, 15, 0.92);
+      stroke-width: 1.7;
+      vector-effect: non-scaling-stroke;
+    }
+    .pqx-scope-lightbox-overlay path.is-selected {
+      fill: rgba(177, 28, 28, 0.34);
     }
     .pqx-filtered-link {
       display: inline-flex;
@@ -3398,6 +3429,7 @@
                   data-pqx-scope-alt="{{ scope_preview.get('alt') or 'Search area preview' }}"
                   data-pqx-scope-title="{{ previous.get('title') or 'Search' }}"
                   data-pqx-scope-caption="{{ previous.get('scope_summary') or previous.get('scope_label') }}"
+                  data-pqx-scope-overlay='{{ (scope_preview.get("district_rows") or [])|tojson }}'
                 >
                   <img
                     class="pqx-previous-scope-image"
@@ -3408,7 +3440,7 @@
                   >
                   {% if scope_preview.get('district_rows') %}
                   {% if (scope_preview.get('district_rows') or [{}])[0].get('path') %}
-                  <svg class="pqx-previous-district-hotspots" viewBox="0 0 296 160" preserveAspectRatio="none" aria-hidden="true">
+                  <svg class="pqx-previous-district-hotspots" viewBox="0 0 640 368" preserveAspectRatio="none" aria-hidden="true">
                     {% for district in scope_preview.get('district_rows') or [] %}
                     <path
                       class="pqx-previous-district-hotspot{% if district.get('selected') %} is-selected{% endif %}"
@@ -3419,6 +3451,7 @@
                       data-pqx-scope-alt="{{ scope_preview.get('alt') or 'Search area preview' }}"
                       data-pqx-scope-title="{{ district.get('label') }}"
                       data-pqx-scope-caption="{{ previous.get('scope_summary') or previous.get('scope_label') }}"
+                      data-pqx-scope-overlay='{{ (scope_preview.get("district_rows") or [])|tojson }}'
                     ><title>{{ district.get('label') }}</title></path>
                     {% endfor %}
                   </svg>
@@ -3496,7 +3529,12 @@
                 </div>
                 <button class="pqx-scope-lightbox-close" type="button" data-pqx-scope-lightbox-close aria-label="Close preview">×</button>
               </div>
-              <img class="pqx-scope-lightbox-image" data-pqx-scope-lightbox-image src="" alt="">
+              <div class="pqx-scope-lightbox-stage" data-pqx-scope-lightbox-stage>
+                <div class="pqx-scope-lightbox-zoomable" data-pqx-scope-lightbox-zoomable>
+                  <img class="pqx-scope-lightbox-image" data-pqx-scope-lightbox-image src="" alt="">
+                  <svg class="pqx-scope-lightbox-overlay" data-pqx-scope-lightbox-overlay viewBox="0 0 640 368" preserveAspectRatio="none" aria-hidden="true"></svg>
+                </div>
+              </div>
             </div>
           </dialog>
           <dialog class="pqx-filtered-dialog" data-pqx-filtered-dialog>
@@ -4111,35 +4149,6 @@
           {% else %}
           <div class="pqx-empty" data-pqx-ranked-candidates>No matches are ready yet.</div>
           {% endif %}
-          {% set notification_budget = run_summary.get('notification_budget') or {} %}
-          <details class="pqx-card" data-pqx-notification-audit>
-            <summary><strong>Alert delivery</strong><span class="pqx-note">Shows how ranking and message limits affected what was sent.</span></summary>
-            <div class="pqx-source-metrics">
-              <span>Budget <b>{{ notification_budget.get('limit') or property_meta.get('search_agent', {}).get('notification_limit') or 0 }}</b></span>
-              <span>Period <b>{{ notification_budget.get('period') or property_meta.get('search_agent', {}).get('notification_period_label') or 'day' }}</b></span>
-              <span>Already sent <b>{{ notification_budget.get('sent_in_window') or 0 }}</b></span>
-              <span>Remaining <b>{{ notification_budget.get('remaining_after_run') if notification_budget.get('remaining_after_run') is not none else notification_budget.get('remaining') or 0 }}</b></span>
-              <span>
-                <button class="pqx-filtered-link" type="button" data-pqx-filtered-open>
-                  Filtered <b>{{ run_summary.get('notification_budget_suppressed_total') or 0 }}</b>
-                </button>
-              </span>
-            </div>
-            <div class="pqx-note">When a search finds more homes than the alert budget allows, PropertyQuarry ranks the candidates and sends only the best fits. Lower-ranked candidates stay in the review table.</div>
-            {% if run_sources %}
-            <div class="pqx-source-grid">
-              {% for source in run_sources %}
-              {% set suppressed = source.get('notification_budget_suppressed_total') or 0 %}
-              {% if suppressed %}
-              <article class="pqx-source-card">
-                <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
-                <span class="pqx-note">{{ suppressed }} candidate{{ '' if suppressed == 1 else 's' }} filtered out after ranking because the alert budget was full.</span>
-              </article>
-              {% endif %}
-              {% endfor %}
-            </div>
-            {% endif %}
-          </details>
           {% if run_sources %}
           <details class="pqx-card">
             <summary><strong>How this search was filtered</strong><span class="pqx-note">Open only when results look wrong or too narrow.</span></summary>
@@ -4280,6 +4289,7 @@
                     data-pqx-scope-alt="{{ candidate.get('orientation_preview', {}).get('alt') }}"
                     data-pqx-scope-title="{{ candidate.get('orientation_preview', {}).get('title') }}"
                     data-pqx-scope-caption="{{ candidate.get('orientation_preview', {}).get('caption') }}"
+                    data-pqx-scope-overlay='{{ (candidate.get("orientation_preview", {}).get("district_rows") or [])|tojson }}'
                   >
                     <img class="pqx-previous-scope-image" src="{{ candidate.get('orientation_preview', {}).get('image_url') }}" alt="{{ candidate.get('orientation_preview', {}).get('alt') or '' }}">
                   </button>
@@ -4602,35 +4612,6 @@
             <span class="pqx-pill good">{{ run.get('status_label') or 'Completed' }}</span>
           </div>
           {{ suppression_panel(workbench.get('suppression_rows') or []) }}
-          {% set notification_budget = run_summary.get('notification_budget') or {} %}
-          <details class="pqx-card" data-pqx-notification-audit>
-            <summary><strong>Alert delivery</strong><span class="pqx-note">Shows how ranking and message limits affected what was sent.</span></summary>
-            <div class="pqx-source-metrics">
-              <span>Budget <b>{{ notification_budget.get('limit') or property_meta.get('search_agent', {}).get('notification_limit') or 0 }}</b></span>
-              <span>Period <b>{{ notification_budget.get('period') or property_meta.get('search_agent', {}).get('notification_period_label') or 'day' }}</b></span>
-              <span>Already sent <b>{{ notification_budget.get('sent_in_window') or 0 }}</b></span>
-              <span>Remaining <b>{{ notification_budget.get('remaining_after_run') if notification_budget.get('remaining_after_run') is not none else notification_budget.get('remaining') or 0 }}</b></span>
-              <span>
-                <button class="pqx-filtered-link" type="button" data-pqx-filtered-open>
-                  Filtered <b>{{ run_summary.get('notification_budget_suppressed_total') or 0 }}</b>
-                </button>
-              </span>
-            </div>
-            <div class="pqx-note">When a search finds more homes than the alert budget allows, PropertyQuarry ranks the candidates and sends only the best fits. Lower-ranked candidates stay in the review table.</div>
-            {% if run_sources %}
-            <div class="pqx-source-grid">
-              {% for source in run_sources %}
-              {% set suppressed = source.get('notification_budget_suppressed_total') or 0 %}
-              {% if suppressed %}
-              <article class="pqx-source-card">
-                <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
-                <span class="pqx-note">{{ suppressed }} candidate{{ '' if suppressed == 1 else 's' }} filtered out after ranking because the alert budget was full.</span>
-              </article>
-              {% endif %}
-              {% endfor %}
-            </div>
-            {% endif %}
-          </details>
           <div class="pqx-results-list" data-workbench-results-table>
             {% for candidate in results %}
             <article class="pqx-result pqx-card" role="button" tabindex="0" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
@@ -4662,6 +4643,7 @@
                       data-pqx-scope-alt="{{ candidate.get('orientation_preview', {}).get('alt') }}"
                       data-pqx-scope-title="{{ candidate.get('orientation_preview', {}).get('title') }}"
                       data-pqx-scope-caption="{{ candidate.get('orientation_preview', {}).get('caption') }}"
+                      data-pqx-scope-overlay='{{ (candidate.get("orientation_preview", {}).get("district_rows") or [])|tojson }}'
                     >
                       <img class="pqx-previous-scope-image" src="{{ candidate.get('orientation_preview', {}).get('image_url') }}" alt="{{ candidate.get('orientation_preview', {}).get('alt') or '' }}">
                     </button>
@@ -7769,10 +7751,19 @@
     });
     const scopeLightbox = root.querySelector('[data-pqx-scope-lightbox]');
     const scopeLightboxImage = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-image]');
+    const scopeLightboxStage = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-stage]');
+    const scopeLightboxZoomable = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-zoomable]');
+    const scopeLightboxOverlay = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-overlay]');
     const scopeLightboxTitle = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-title]');
     const scopeLightboxCaption = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-caption]');
     const filteredDialog = root.querySelector('[data-pqx-filtered-dialog]');
+    const resetScopeLightboxZoom = () => {
+      if (!scopeLightboxZoomable) return;
+      scopeLightboxZoomable.dataset.scale = '1';
+      scopeLightboxZoomable.style.transform = 'translate3d(0px, 0px, 0) scale(1)';
+    };
     const closeScopeLightbox = () => {
+      resetScopeLightboxZoom();
       if (scopeLightbox && typeof scopeLightbox.close === 'function' && scopeLightbox.open) scopeLightbox.close();
     };
     const closeFilteredDialog = () => {
@@ -7786,6 +7777,15 @@
     filteredDialog?.addEventListener('click', (event) => {
       if (event.target === filteredDialog) closeFilteredDialog();
     });
+    scopeLightboxStage?.addEventListener('wheel', (event) => {
+      if (!scopeLightboxZoomable || !scopeLightbox?.open) return;
+      event.preventDefault();
+      const currentScale = Number(scopeLightboxZoomable.dataset.scale || '1') || 1;
+      const delta = event.deltaY < 0 ? 0.14 : -0.14;
+      const nextScale = Math.max(1, Math.min(4, currentScale + delta));
+      scopeLightboxZoomable.dataset.scale = String(nextScale);
+      scopeLightboxZoomable.style.transform = `translate3d(0px, 0px, 0) scale(${nextScale})`;
+    }, { passive: false });
     root.addEventListener('click', (event) => {
       const button = event.target?.closest?.('[data-pqx-scope-open]');
       if (!button) return;
@@ -7796,10 +7796,25 @@
       const alt = String(button.getAttribute('data-pqx-scope-alt') || 'Search area preview').trim() || 'Search area preview';
       const title = String(button.getAttribute('data-pqx-scope-title') || 'Search area preview').trim() || 'Search area preview';
       const caption = String(button.getAttribute('data-pqx-scope-caption') || '').trim();
+      let overlayRows = [];
+      try {
+        overlayRows = JSON.parse(String(button.getAttribute('data-pqx-scope-overlay') || '[]'));
+      } catch (_error) {
+        overlayRows = [];
+      }
       scopeLightboxImage.setAttribute('src', imageUrl);
       scopeLightboxImage.setAttribute('alt', alt);
       if (scopeLightboxTitle) scopeLightboxTitle.textContent = title;
       if (scopeLightboxCaption) scopeLightboxCaption.textContent = caption;
+      if (scopeLightboxOverlay) {
+        scopeLightboxOverlay.innerHTML = Array.isArray(overlayRows)
+          ? overlayRows
+              .filter((row) => row && typeof row === 'object' && String(row.path || '').trim())
+              .map((row) => `<path class="${row.selected ? 'is-selected' : ''}" d="${escapeHtml(String(row.path || ''))}"><title>${escapeHtml(String(row.label || 'Area'))}</title></path>`)
+              .join('')
+          : '';
+      }
+      resetScopeLightboxZoom();
       if (typeof scopeLightbox.showModal === 'function') scopeLightbox.showModal();
     });
     root.querySelectorAll('[data-pqx-filtered-open]').forEach((button) => {

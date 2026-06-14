@@ -414,7 +414,7 @@ def _project_lonlat_to_preview_path(
 def _expand_geo_bounds(
     bounds: tuple[float, float, float, float],
     *,
-    padding_ratio: float = 0.12,
+    padding_ratio: float = 0.2,
 ) -> tuple[float, float, float, float]:
     west, south, east, north = bounds
     lon_pad = max((east - west) * padding_ratio, 0.01)
@@ -480,49 +480,45 @@ def _build_scope_boundary_preview(
     if not rows:
         return {}
 
+    context_record = _nominatim_boundary_record(_context_preview_query(country_code, region_code, normalized_query, selected_labels))
+    boundary_paths: list[str] = []
+    context_bounds = context_record.get("bounds") if isinstance(context_record.get("bounds"), tuple) else None
     union_bounds = _union_geo_bounds(bounds_rows)
     if not union_bounds:
         return {}
-    padded_bounds = _expand_geo_bounds(union_bounds)
+    render_bounds = _expand_geo_bounds(context_bounds or union_bounds)
+
     district_rows: list[dict[str, object]] = []
     overlay_rows: list[dict[str, object]] = []
     for index, row in enumerate(rows):
         rings = row.get("rings") if isinstance(row.get("rings"), list) else []
         if rings:
-            path, centroid = _project_lonlat_to_preview_path(rings[0], padded_bounds)
+            path, _ = _project_lonlat_to_preview_path(rings[0], render_bounds, width=640.0, height=368.0)
         else:
             bounds = row.get("bounds") if isinstance(row.get("bounds"), tuple) else None
             if not bounds:
                 continue
             west, south, east, north = bounds
             rect_points = [(west, south), (east, south), (east, north), (west, north)]
-            path, centroid = _project_lonlat_to_preview_path(rect_points, padded_bounds)
+            path, _ = _project_lonlat_to_preview_path(rect_points, render_bounds, width=640.0, height=368.0)
         if not path:
             continue
-        overlay_row = {
-            "label": str(row.get("label") or f"Area {index + 1}").strip(),
-            "selected": True,
-            "path": path,
-        }
+        overlay_row = {"label": str(row.get("label") or f"Area {index + 1}").strip(), "selected": True, "path": path}
         district_rows.append(overlay_row)
         overlay_rows.append(overlay_row)
 
     if not district_rows:
         return {}
 
-    context_record = _nominatim_boundary_record(_context_preview_query(country_code, region_code, normalized_query, selected_labels))
-    boundary_paths: list[str] = []
-    context_bounds = context_record.get("bounds") if isinstance(context_record.get("bounds"), tuple) else None
     if context_bounds:
-        padded_bounds = _expand_geo_bounds(context_bounds)
         for ring in _geojson_outer_rings(dict(context_record.get("geojson") or {}))[:1]:
-            boundary_path, _ = _project_lonlat_to_preview_path(ring, padded_bounds)
+            boundary_path, _ = _project_lonlat_to_preview_path(ring, render_bounds, width=640.0, height=368.0)
             if boundary_path:
                 boundary_paths.append(boundary_path)
 
-    center_lon = (padded_bounds[0] + padded_bounds[2]) / 2.0
-    center_lat = (padded_bounds[1] + padded_bounds[3]) / 2.0
-    zoom = _preview_zoom_for_bounds(padded_bounds)
+    center_lon = (render_bounds[0] + render_bounds[2]) / 2.0
+    center_lat = (render_bounds[1] + render_bounds[3]) / 2.0
+    zoom = _preview_zoom_for_bounds(render_bounds)
     image_url = _cached_preview_data_url(
         cache_key={
             "kind": "scope",
@@ -554,6 +550,7 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
     normalized_region = str(region_code or "").strip().lower()
     normalized_query = str(location_query or "").strip()
     option_rows = _property_location_options(normalized_country, normalized_region)
+    layout_rows = _scope_preview_layout(normalized_country, normalized_region, option_rows)
     option_lookup = {
         str(option.get("value") or "").strip().lower(): str(option.get("label") or option.get("value") or "").strip()
         for option in option_rows
@@ -595,7 +592,6 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
     if preview:
         return preview
 
-    layout_rows = _scope_preview_layout(normalized_country, normalized_region, option_rows)
     district_rows: list[dict[str, object]] = []
     for row in layout_rows:
         value = str(row.get("value") or "").strip().lower()

@@ -1,0 +1,518 @@
+<script>
+(() => {
+  const root = document.querySelector('[data-object-feedback]');
+  if (!root) return;
+  let payload = {};
+  try {
+    payload = JSON.parse(root.getAttribute('data-object-feedback-payload') || '{}');
+  } catch (_error) {
+    payload = {};
+  }
+  const selectedReasons = new Set();
+  let reaction = '';
+  const status = root.querySelector('[data-object-feedback-status]');
+  const decisionStateStatus = root.querySelector('[data-object-decision-state-status]');
+  const clippyToggle = root.querySelector('[data-object-clippy-toggle]');
+  const clippyPanel = root.querySelector('[data-object-clippy-panel]');
+  const clippyQuestion = root.querySelector('[data-object-clippy-question]');
+  const clippyStatus = root.querySelector('[data-object-clippy-status]');
+  const clippyAnswer = root.querySelector('[data-object-clippy-answer]');
+  const magicFitToggle = root.querySelector('[data-object-magicfit-toggle]');
+  const magicFitPanel = root.querySelector('[data-object-magicfit-panel]');
+  const magicFitPreview = root.querySelector('[data-object-magicfit-preview]');
+  const magicFitStatus = root.querySelector('[data-object-magicfit-status]');
+  const magicFitGoogleStatus = root.querySelector('[data-object-magicfit-google-status]');
+  const followupsNode = root.querySelector('[data-object-followups]');
+  const followupStatus = root.querySelector('[data-object-followup-status]');
+  const structuredFeedbackEndpoint = String(payload.structured_feedback_endpoint || '/app/api/property-feedback');
+  const followupStatusEndpointTemplate = String(payload.followup_status_endpoint_template || '/app/api/property-feedback/__FEEDBACK_ID__/followup-status');
+  const magicFitCreateEndpoint = String(payload.magic_fit_create_endpoint || '/app/api/property/magic-fit-scenes');
+  const magicFitUploadEndpoint = String(payload.magic_fit_upload_endpoint || '/app/api/property/magic-fit-reference-files');
+  const googlePhotosSessionEndpoint = String(payload.google_photos_session_endpoint || '/app/api/signals/google/photos/session');
+  const googlePhotosSessionStatusTemplate = String(payload.google_photos_session_status_endpoint_template || '/app/api/signals/google/photos/session/__SESSION_ID__');
+  const magicFitUploadStatus = root.querySelector('[data-object-magicfit-upload-status]');
+  const magicFitReferenceList = root.querySelector('[data-object-magicfit-reference-list]');
+  const magicFitUploadInput = root.querySelector('[data-object-magicfit-upload-input]');
+  let magicFitUploadedReferenceUrls = [];
+  let magicFitSessionId = '';
+  let magicFitPollingTimer = null;
+  const renderMagicFitPreview = (scene) => {
+    if (!magicFitPreview) return;
+    const imageUrl = String(scene?.image_url || '').trim();
+    const summary = String(scene?.summary || '').trim();
+    const sceneType = String(scene?.scene_type || 'visual simulation').replaceAll('_', ' ');
+    if (!imageUrl) {
+      magicFitPreview.innerHTML = '';
+      return;
+    }
+    magicFitPreview.innerHTML = `
+      <div class="object-row">
+        <div>
+          <strong>${sceneType}</strong>
+          <small>${summary || 'Visual simulation ready for the dossier PDF.'}</small>
+        </div>
+        <div class="object-tag">Ready</div>
+      </div>
+      <img src="${imageUrl.replaceAll('&', '&amp;')}" alt="Magic Fit visual simulation" loading="lazy">
+      <div class="object-copy">Visual simulation only. This is generated guidance for the decision dossier, not listing photography.</div>
+    `;
+  };
+  const renderMagicFitReferenceList = () => {
+    if (!magicFitReferenceList) return;
+    const manualUrls = String(root.querySelector('[data-object-magicfit-reference-urls]')?.value || '')
+      .split('\n')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const rows = [
+      ...magicFitUploadedReferenceUrls.map((url, index) => ({ title: `Uploaded reference ${index + 1}`, detail: url, tag: 'Upload' })),
+      ...manualUrls.map((url, index) => ({ title: `Manual reference ${index + 1}`, detail: url, tag: 'URL' })),
+      ...(magicFitSessionId ? [{ title: 'Google Photos session', detail: magicFitSessionId, tag: 'Picker' }] : []),
+    ];
+    magicFitReferenceList.innerHTML = rows.map((row) => `
+      <div class="object-row">
+        <div>
+          <strong>${String(row.title || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</strong>
+          <small>${String(row.detail || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</small>
+        </div>
+        <div class="object-tag">${String(row.tag || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</div>
+      </div>
+    `).join('') || '<div class="object-row"><div><strong>No references selected yet</strong><small>Upload 1 to 3 portraits, start Google Photos Picker, or paste image URLs.</small></div><div class="object-tag">Waiting</div></div>';
+  };
+  renderMagicFitPreview(payload.magic_fit_scene || {});
+  renderMagicFitReferenceList();
+  const renderFollowups = (rows) => {
+    if (!followupsNode) return;
+    const safeRows = Array.isArray(rows) ? rows : [];
+    const escapeHtml = (value) => String(value || '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+    followupsNode.innerHTML = safeRows.map((row) => {
+      const feedbackId = String(row?.feedback_id || '').trim();
+      const actions = feedbackId ? `
+        <div class="object-actions">
+          <button class="console-action" type="button" data-object-followup-action="answered" data-object-feedback-id="${escapeHtml(feedbackId)}">Answered</button>
+          <button class="console-action" type="button" data-object-followup-action="needs_follow_up" data-object-feedback-id="${escapeHtml(feedbackId)}">Needs follow-up</button>
+          <button class="console-action" type="button" data-object-followup-action="confirmed" data-object-feedback-id="${escapeHtml(feedbackId)}">Confirmed</button>
+          <button class="console-action" type="button" data-object-followup-action="contradicted" data-object-feedback-id="${escapeHtml(feedbackId)}">Contradicted</button>
+          <button class="console-action" type="button" data-object-followup-action="resolved" data-object-feedback-id="${escapeHtml(feedbackId)}">Resolved</button>
+        </div>
+      ` : '';
+      return `
+        <div class="object-row">
+          <div>
+            <strong>${escapeHtml(row?.title || 'Follow-up')}</strong>
+            <small>${escapeHtml(row?.detail || '')}</small>
+            ${actions}
+          </div>
+          <div class="object-tag">${escapeHtml(row?.tag || '')}</div>
+        </div>
+      `;
+    }).join('') || '<div class="object-row"><div><strong>No tracked question yet</strong><small>Use Clippy or Ask agent next to start a tracked follow-up.</small></div><div class="object-tag">Waiting</div></div>';
+    followupsNode.querySelectorAll('[data-object-followup-action]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const feedbackId = String(button.getAttribute('data-object-feedback-id') || '').trim();
+        const nextStatus = String(button.getAttribute('data-object-followup-action') || '').trim();
+        if (!feedbackId || !nextStatus) return;
+        if (followupStatus) followupStatus.textContent = 'Updating follow-up state...';
+        try {
+          const endpoint = followupStatusEndpointTemplate.replace('__FEEDBACK_ID__', encodeURIComponent(feedbackId));
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ followup_status: nextStatus }),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(String(body.detail || 'Could not update the follow-up state.'));
+          const target = safeRows.find((row) => String(row?.feedback_id || '') === feedbackId);
+          if (target) target.tag = nextStatus.replaceAll('_', ' ').replace(/\b\w/g, (match) => match.toUpperCase());
+          renderFollowups(safeRows);
+          if (followupStatus) followupStatus.textContent = `Follow-up marked ${nextStatus.replaceAll('_', ' ')}.`;
+        } catch (error) {
+          if (followupStatus) followupStatus.textContent = error instanceof Error ? error.message : 'Could not update the follow-up state.';
+        }
+      });
+    });
+  };
+  renderFollowups(payload.followup_rows || []);
+  const recordDecisionState = async (decisionState) => {
+    if (!decisionState) return;
+    if (decisionStateStatus) decisionStateStatus.textContent = 'Recording decision state...';
+    try {
+      const response = await fetch(structuredFeedbackEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          stakeholder_id: `profile:${String(payload.person_id || 'self')}`,
+          stakeholder_label: String(payload.person_id || 'self'),
+          property_ref: String(payload.property_slug || payload.property_url || payload.property_title || 'property'),
+          category: 'priority',
+          sentiment: 'neutral',
+          importance: 4,
+          text: `Decision state moved to ${String(decisionState || '').replaceAll('_', ' ')}.`,
+          source: 'decision_lifecycle',
+          decision_state: String(decisionState || ''),
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not record the decision state.'));
+      if (decisionStateStatus) decisionStateStatus.textContent = `Decision state saved as ${String(decisionState || '').replaceAll('_', ' ')}.`;
+    } catch (error) {
+      if (decisionStateStatus) decisionStateStatus.textContent = error instanceof Error ? error.message : 'Could not record the decision state.';
+    }
+  };
+  root.querySelectorAll('[data-object-decision-state]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      await recordDecisionState(String(button.getAttribute('data-object-decision-state') || '').trim());
+    });
+  });
+  const renderClippy = (body) => {
+    if (!clippyAnswer) return;
+    const evidence = Array.isArray(body?.evidence) ? body.evidence : [];
+    const actions = Array.isArray(body?.actions) ? body.actions : [];
+    const escapeHtml = (value) => String(value || '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+    clippyAnswer.innerHTML = `
+      <div class="object-row">
+        <div>
+          <strong>${escapeHtml(body?.name || 'Clippy')}</strong>
+          <small>${escapeHtml(body?.answer || 'No answer returned.')}</small>
+        </div>
+        <div class="object-tag">Grounded</div>
+      </div>
+      ${evidence.map((row) => `
+        <div class="object-row">
+          <div>
+            <strong>${escapeHtml(row.title || 'Evidence')}</strong>
+            <small>${escapeHtml(row.detail || '')}</small>
+          </div>
+          <div class="object-tag">${escapeHtml(row.confidence || row.source || '')}</div>
+        </div>
+      `).join('')}
+      ${actions.length ? `<div class="object-actions">${actions.map((row, index) => `<button class="console-action" type="button" data-object-clippy-action="${escapeHtml(row.action || '')}" data-object-clippy-index="${index}">${escapeHtml(row.label || 'Action')}</button>`).join('')}</div>` : ''}
+    `;
+    clippyAnswer.querySelectorAll('[data-object-clippy-action]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const row = actions[Number.parseInt(String(button.getAttribute('data-object-clippy-index') || '-1'), 10)];
+        if (!row) return;
+        const action = String(row.action || '').trim();
+        if (action === 'open_packet' && row.href) {
+          window.location.href = String(row.href);
+          return;
+        }
+        if (action === 'mark_blocker' && row.reason_key) {
+          reaction = String(row.reaction || 'dislike').trim() || 'dislike';
+          root.querySelectorAll('[data-object-feedback-reaction]').forEach((candidate) => {
+            candidate.classList.toggle('active', candidate.getAttribute('data-object-feedback-reaction') === reaction);
+          });
+          const reasonButton = root.querySelector(`[data-object-feedback-reason="${CSS.escape(String(row.reason_key || ''))}"]`);
+          if (reasonButton) {
+            selectedReasons.add(String(row.reason_key || ''));
+            reasonButton.classList.add('active');
+          }
+          if (status) status.textContent = `Clippy marked ${String(row.detail || 'a blocker').trim()} as the current blocker. Save decision when ready.`;
+          return;
+        }
+        if (action === 'ask_agent' && row.question) {
+          if (clippyStatus) clippyStatus.textContent = 'Writing agent follow-up into the timeline...';
+          try {
+            const response = await fetch(structuredFeedbackEndpoint, {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                stakeholder_id: `profile:${String(payload.person_id || 'self')}`,
+                stakeholder_label: String(payload.person_id || 'self'),
+                property_ref: String(payload.property_slug || payload.property_url || payload.property_title || 'property'),
+                category: 'question',
+                sentiment: 'neutral',
+                importance: 4,
+                text: String(row.question || ''),
+                source: 'clippy_agent_brief',
+                followup_status: 'asked',
+              }),
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(String(body.detail || 'Could not record the agent question.'));
+            if (clippyStatus) clippyStatus.textContent = 'Agent follow-up recorded in the decision timeline.';
+          } catch (error) {
+            if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'Could not record the agent question.';
+          }
+        }
+      });
+    });
+  };
+  clippyToggle?.addEventListener('click', () => {
+    const open = Boolean(clippyPanel?.hidden);
+    if (clippyPanel) clippyPanel.hidden = !open;
+    clippyToggle.textContent = open ? 'Hide Clippy' : 'Open Clippy';
+  });
+  magicFitToggle?.addEventListener('click', () => {
+    const open = Boolean(magicFitPanel?.hidden);
+    if (magicFitPanel) magicFitPanel.hidden = !open;
+    magicFitToggle.textContent = open ? 'Hide Magic Fit' : 'Open Magic Fit';
+  });
+  root.querySelectorAll('[data-object-magicfit-scene]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const field = root.querySelector('[data-object-magicfit-scene-type]');
+      if (field) field.value = String(button.getAttribute('data-object-magicfit-scene') || '').trim();
+    });
+  });
+  const pollMagicFitGoogleSelection = async () => {
+    if (!magicFitSessionId) {
+      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Start a Google Photos Picker session first.';
+      return false;
+    }
+    try {
+      const response = await fetch(googlePhotosSessionStatusTemplate.replace('__SESSION_ID__', encodeURIComponent(magicFitSessionId)), {
+        credentials: 'same-origin',
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not check the Google selection.'));
+      if (body.media_items_set) {
+        if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Google photo selection is ready. You can generate the still now.';
+        return true;
+      }
+      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Waiting for Google photo selection...';
+      return false;
+    } catch (error) {
+      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = error instanceof Error ? error.message : 'Could not check the Google selection.';
+      return false;
+    }
+  };
+  root.querySelector('[data-object-magicfit-google-start]')?.addEventListener('click', async () => {
+    if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Opening Google Photos Picker...';
+    try {
+      const response = await fetch(googlePhotosSessionEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ max_item_count: 3 }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not start the Google Photos Picker.'));
+      magicFitSessionId = String(body.session_id || '').trim();
+      const pickerUri = String(body.picker_uri || '').trim();
+      if (pickerUri) window.open(pickerUri, '_blank', 'noopener');
+      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Google Photos Picker opened. Select up to 3 reference photos, then return here.';
+      renderMagicFitReferenceList();
+      if (magicFitPollingTimer) window.clearInterval(magicFitPollingTimer);
+      magicFitPollingTimer = window.setInterval(async () => {
+        const ready = await pollMagicFitGoogleSelection();
+        if (ready && magicFitPollingTimer) {
+          window.clearInterval(magicFitPollingTimer);
+          magicFitPollingTimer = null;
+        }
+      }, 5000);
+    } catch (error) {
+      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = error instanceof Error ? error.message : 'Could not start the Google Photos Picker.';
+    }
+  });
+  root.querySelector('[data-object-magicfit-google-check]')?.addEventListener('click', async () => {
+    await pollMagicFitGoogleSelection();
+    renderMagicFitReferenceList();
+  });
+  root.querySelector('[data-object-magicfit-upload-start]')?.addEventListener('click', () => {
+    magicFitUploadInput?.click();
+  });
+  root.querySelector('[data-object-magicfit-reference-urls]')?.addEventListener('input', () => {
+    renderMagicFitReferenceList();
+  });
+  magicFitUploadInput?.addEventListener('change', async () => {
+    const selected = [...(magicFitUploadInput.files || [])].slice(0, 3);
+    if (!selected.length) return;
+    if (magicFitUploadStatus) magicFitUploadStatus.textContent = 'Uploading reference photos...';
+    try {
+      const items = await Promise.all(selected.map((file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({
+          file_name: file.name,
+          mime_type: file.type || 'image/jpeg',
+          data_url: String(reader.result || ''),
+        });
+        reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+        reader.readAsDataURL(file);
+      })));
+      const response = await fetch(magicFitUploadEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ items }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not upload the reference photos.'));
+      magicFitUploadedReferenceUrls = Array.isArray(body.items)
+        ? body.items.map((row) => String(row.reference_url || '').trim()).filter(Boolean).slice(0, 3)
+        : [];
+      renderMagicFitReferenceList();
+      if (magicFitUploadStatus) magicFitUploadStatus.textContent = `${magicFitUploadedReferenceUrls.length} reference photo${magicFitUploadedReferenceUrls.length === 1 ? '' : 's'} uploaded.`;
+    } catch (error) {
+      if (magicFitUploadStatus) magicFitUploadStatus.textContent = error instanceof Error ? error.message : 'Could not upload the reference photos.';
+    } finally {
+      if (magicFitUploadInput) magicFitUploadInput.value = '';
+    }
+  });
+  root.querySelector('[data-object-magicfit-generate]')?.addEventListener('click', async () => {
+    const sceneType = String(root.querySelector('[data-object-magicfit-scene-type]')?.value || '').trim() || 'breakfast';
+    const roomHint = String(root.querySelector('[data-object-magicfit-room-hint]')?.value || '').trim();
+    const stylingHint = String(root.querySelector('[data-object-magicfit-styling-hint]')?.value || '').trim();
+    const householdRoles = String(root.querySelector('[data-object-magicfit-household-roles]')?.value || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const manualReferenceUrls = String(root.querySelector('[data-object-magicfit-reference-urls]')?.value || '')
+      .split('\n')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const referenceUrls = [...magicFitUploadedReferenceUrls, ...manualReferenceUrls].slice(0, 6);
+    const consent = Boolean(root.querySelector('[data-object-magicfit-consent]')?.checked);
+    const includeChild = Boolean(root.querySelector('[data-object-magicfit-include-child]')?.checked);
+    const childConsent = Boolean(root.querySelector('[data-object-magicfit-child-consent]')?.checked);
+    const shareWithPacket = Boolean(root.querySelector('[data-object-magicfit-share]')?.checked);
+    if (magicFitStatus) magicFitStatus.textContent = 'Generating visual simulation...';
+    try {
+      const response = await fetch(magicFitCreateEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          property_ref: String(payload.property_slug || payload.property_url || payload.property_title || 'property'),
+          property_title: String(payload.property_title || ''),
+          property_url: String(payload.property_url || ''),
+          scene_type: sceneType,
+          room_hint: roomHint,
+          styling_hint: stylingHint,
+          property_facts: payload.property_facts || {},
+          reference_urls: referenceUrls,
+          google_photos_session_id: magicFitSessionId,
+          household_roles: householdRoles,
+          include_child_reference: includeChild,
+          consent_personal_photos: consent,
+          guardian_confirmed_for_children: childConsent,
+          share_with_packet_pdf: shareWithPacket,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not generate the visual simulation.'));
+      payload.magic_fit_scene = body;
+      renderMagicFitPreview(body);
+      renderMagicFitReferenceList();
+      if (magicFitStatus) magicFitStatus.textContent = 'Visual simulation ready. The next dossier PDF render can include this still.';
+    } catch (error) {
+      if (magicFitStatus) magicFitStatus.textContent = error instanceof Error ? error.message : 'Could not generate the visual simulation.';
+    }
+  });
+  root.querySelectorAll('[data-object-clippy-prompt]').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (clippyQuestion) clippyQuestion.value = String(button.getAttribute('data-object-clippy-prompt') || '').trim();
+    });
+  });
+  root.querySelector('[data-object-clippy-ask]')?.addEventListener('click', async () => {
+    const question = String(clippyQuestion?.value || '').trim();
+    if (!question) {
+      if (clippyStatus) clippyStatus.textContent = 'Ask Clippy a specific property question first.';
+      return;
+    }
+    if (clippyStatus) clippyStatus.textContent = 'Clippy is reviewing the packet context...';
+    try {
+      const response = await fetch(String(payload.clippy_endpoint || '/app/api/property/decision-copilot'), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          property_ref: String(payload.property_slug || payload.property_url || payload.property_title || 'property'),
+          property_title: String(payload.property_title || ''),
+          property_url: String(payload.packet_href || payload.property_url || ''),
+          question,
+          property_facts: payload.property_facts || {},
+          assessment: payload.assessment || {},
+          investment_context: payload.investment_context || [],
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.detail || 'Clippy could not answer right now.'));
+      renderClippy(body);
+      if (clippyStatus) clippyStatus.textContent = 'Clippy answered from the current property context.';
+    } catch (error) {
+      if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'Clippy could not answer right now.';
+    }
+  });
+  root.querySelectorAll('[data-object-feedback-reaction]').forEach((button) => {
+    button.addEventListener('click', () => {
+      reaction = String(button.getAttribute('data-object-feedback-reaction') || '').trim();
+      root.querySelectorAll('[data-object-feedback-reaction]').forEach((candidate) => {
+        candidate.classList.toggle('active', candidate === button);
+      });
+    });
+  });
+  root.querySelectorAll('[data-object-feedback-reason]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const key = String(button.getAttribute('data-object-feedback-reason') || '').trim();
+      if (!key) return;
+      if (selectedReasons.has(key)) {
+        selectedReasons.delete(key);
+        button.classList.remove('active');
+      } else {
+        selectedReasons.add(key);
+        button.classList.add('active');
+      }
+    });
+  });
+  root.querySelector('[data-object-feedback-save]')?.addEventListener('click', async () => {
+    if (!reaction) {
+      if (status) status.textContent = 'Choose Yes, Maybe, No, or Hide first.';
+      return;
+    }
+    if (status) status.textContent = 'Saving decision...';
+    try {
+      const response = await fetch(String(payload.save_endpoint || ''), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          property_slug: String(payload.property_slug || ''),
+          property_url: String(payload.property_url || ''),
+          property_title: String(payload.property_title || ''),
+          property_facts: payload.property_facts || {},
+          reaction,
+          reason_keys: [...selectedReasons],
+          note: String(root.querySelector('[data-object-feedback-note]')?.value || ''),
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not save feedback.'));
+      const likes = Array.isArray(body.learning_summary?.likes) ? body.learning_summary.likes.length : 0;
+      const dislikes = Array.isArray(body.learning_summary?.dislikes) ? body.learning_summary.dislikes.length : 0;
+      if (status) status.textContent = `Saved. Profile now has ${likes} positive signal(s) and ${dislikes} avoid signal(s).`;
+    } catch (error) {
+      if (status) status.textContent = error instanceof Error ? error.message : 'Could not save feedback.';
+    }
+  });
+  const urlParams = new URL(window.location.href).searchParams;
+  const presetDecision = String(urlParams.get('decision') || '').trim().toLowerCase();
+  const presetPrompt = String(urlParams.get('prompt') || '').trim();
+  const shouldOpenClippy = String(urlParams.get('clippy') || '').trim() === '1' || Boolean(presetPrompt);
+  const decisionMap = { yes: 'like', maybe: 'maybe', no: 'dislike', hide: 'hide' };
+  if (decisionMap[presetDecision]) {
+    reaction = decisionMap[presetDecision];
+    root.querySelectorAll('[data-object-feedback-reaction]').forEach((candidate) => {
+      candidate.classList.toggle('active', candidate.getAttribute('data-object-feedback-reaction') === reaction);
+    });
+    if (status) status.textContent = 'Decision shortcut loaded from the email or shared link. Save when ready.';
+  }
+  if (shouldOpenClippy) {
+    if (clippyPanel) clippyPanel.hidden = false;
+    if (clippyToggle) clippyToggle.textContent = 'Hide Clippy';
+    if (clippyQuestion && presetPrompt) clippyQuestion.value = presetPrompt;
+    if (clippyStatus && presetPrompt) clippyStatus.textContent = 'Clippy prompt loaded from the email or shared link.';
+  }
+})();
+</script>

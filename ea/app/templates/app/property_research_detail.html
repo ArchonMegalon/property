@@ -1,0 +1,814 @@
+{% extends "base_console.html" %}
+{% block content %}
+<style>
+  .prd-shell,
+  .prd-hero,
+  .prd-summary,
+  .prd-meta,
+  .prd-sections,
+  .prd-feedback-grid,
+  .prd-map-card,
+  .prd-media-frame {
+    display: grid;
+    gap: 18px;
+  }
+  .prd-shell {
+    gap: 24px;
+  }
+  .prd-hero {
+    grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+    align-items: start;
+  }
+  .prd-panel,
+  .prd-section,
+  .prd-map-card,
+  .prd-meta-card,
+  .prd-lightbox-card {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--panel);
+    box-shadow: var(--shadow);
+    padding: 18px;
+    box-sizing: border-box;
+    min-width: 0;
+  }
+  .prd-panel h1,
+  .prd-panel h2,
+  .prd-panel h3,
+  .prd-section h2,
+  .prd-copy,
+  .prd-row strong,
+  .prd-row small {
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
+  }
+  .prd-kicker {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .prd-copy {
+    color: var(--text-soft);
+    margin: 0;
+  }
+  .prd-price {
+    font-size: clamp(2rem, 4.8vw, 3.2rem);
+    line-height: 1;
+    margin: 0;
+  }
+  .prd-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .prd-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    color: var(--text);
+    font-size: 13px;
+  }
+  .prd-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .prd-actions .console-action,
+  .prd-actions .pqx-button {
+    min-height: 40px;
+  }
+  .prd-media-frame {
+    position: relative;
+    overflow: hidden;
+    aspect-ratio: 16 / 10;
+    padding: 0;
+    background: var(--panel-2);
+  }
+  .prd-media-frame iframe,
+  .prd-media-frame img {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+    object-fit: cover;
+    background: var(--panel);
+  }
+  .prd-media-empty {
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    color: var(--text-soft);
+  }
+  .prd-media-badge {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: rgba(255, 253, 248, 0.92);
+    border: 1px solid rgba(222, 214, 200, 0.9);
+    color: var(--text);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .prd-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .prd-meta-card span {
+    display: block;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+  .prd-meta-card strong {
+    display: block;
+    color: var(--text);
+    font-size: 1rem;
+  }
+  .prd-map-card {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+    align-items: center;
+  }
+  .prd-map-thumb {
+    display: block;
+    width: 100%;
+    aspect-ratio: 640 / 368;
+    border-radius: 14px;
+    overflow: hidden;
+    padding: 0;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    cursor: zoom-in;
+  }
+  .prd-map-thumb img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+  .prd-sections {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+  .prd-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .prd-row:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+  .prd-row > :first-child {
+    min-width: 0;
+  }
+  .prd-row strong {
+    display: block;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .prd-row small {
+    display: block;
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .prd-tag {
+    height: fit-content;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    color: var(--text-soft);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .prd-table-wrap {
+    overflow-x: auto;
+  }
+  .prd-table {
+    width: 100%;
+    min-width: 640px;
+    border-collapse: collapse;
+  }
+  .prd-table th,
+  .prd-table td {
+    text-align: left;
+    vertical-align: top;
+    padding: 11px 8px;
+    border-bottom: 1px solid var(--line);
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .prd-table th {
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 12px;
+  }
+  .prd-table td strong {
+    display: block;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .prd-lightbox {
+    width: min(1100px, calc(100vw - 24px));
+    max-width: min(1100px, calc(100vw - 24px));
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .prd-lightbox::backdrop {
+    background: rgba(12, 10, 7, 0.7);
+  }
+  .prd-lightbox-card {
+    max-height: min(calc(100vh - 24px), 920px);
+    display: grid;
+    gap: 14px;
+    background: #fffdf8;
+  }
+  .prd-lightbox-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+  .prd-lightbox-stage {
+    overflow: hidden;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    max-height: min(calc(100vh - 170px), 78vh);
+    cursor: zoom-in;
+  }
+  .prd-lightbox-zoomable {
+    transform-origin: center center;
+  }
+  .prd-lightbox-stage img {
+    width: 100%;
+    max-height: min(calc(100vh - 170px), 78vh);
+    object-fit: contain;
+    display: block;
+    background: var(--panel);
+  }
+  .object-feedback {
+    margin-top: 0;
+    border-top: 0;
+    padding-top: 0;
+  }
+  .object-feedback-row,
+  .object-feedback-reasons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .object-feedback-button,
+  .object-feedback-chip {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--text);
+    padding: 8px 11px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+  }
+  .object-feedback-button.active,
+  .object-feedback-chip.active {
+    border-color: rgba(189, 139, 47, 0.72);
+    background: var(--accent-soft);
+  }
+  .object-feedback textarea,
+  .object-field input,
+  .object-field textarea {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+    color: var(--text);
+    padding: 10px 12px;
+    font: inherit;
+  }
+  .object-field {
+    display: grid;
+    gap: 6px;
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .object-field span {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .object-list,
+  .object-magicfit-grid,
+  .object-magicfit-preview {
+    display: grid;
+    gap: 12px;
+  }
+  .object-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .object-row:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+  .object-row strong,
+  .object-row small,
+  .object-copy {
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
+  }
+  .object-row strong {
+    display: block;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .object-row small,
+  .object-copy {
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .object-tag {
+    height: fit-content;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    color: var(--text-soft);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .object-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .object-magicfit-panel {
+    display: grid;
+    gap: 12px;
+    margin-top: 14px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel-2);
+  }
+  .object-magicfit-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .object-magicfit-preview img {
+    width: 100%;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    display: block;
+    object-fit: cover;
+    background: var(--panel);
+  }
+  .object-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .object-check input {
+    margin-top: 3px;
+  }
+  @media (max-width: 1080px) {
+    .prd-hero,
+    .prd-sections,
+    .prd-map-card,
+    .prd-feedback-grid,
+    .object-magicfit-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 760px) {
+    .prd-meta {
+      grid-template-columns: 1fr 1fr;
+    }
+    .prd-row,
+    .object-row {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .prd-actions,
+    .object-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+    .prd-lightbox {
+      width: calc(100vw - 16px);
+      max-width: calc(100vw - 16px);
+    }
+  }
+  @media (max-width: 520px) {
+    .prd-meta {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="prd-shell" data-property-research-detail>
+  <section class="prd-hero">
+    <section class="prd-panel">
+      <div class="prd-kicker">{{ research_source_label }}</div>
+      <div class="prd-media-frame" data-object-media-stage>
+        <div class="prd-media-badge">{{ research_media.get('status_label') or 'Media' }}</div>
+        {% if research_media.get('embed_href') %}
+        <iframe src="{{ research_media.get('embed_href') }}" title="Property 360 review" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+        {% elif research_preview_image %}
+        <img src="{{ research_preview_image }}" alt="{{ research_title }}" loading="lazy">
+        {% elif research_location_preview.get('image_url') %}
+        <img src="{{ research_location_preview.get('image_url') }}" alt="{{ research_location_preview.get('alt') or research_title }}" loading="lazy">
+        {% else %}
+        <div class="prd-media-empty">{{ research_media.get('status_detail') or 'No media attached yet.' }}</div>
+        {% endif %}
+      </div>
+    </section>
+
+    <aside class="prd-summary">
+      <section class="prd-panel">
+        <div class="prd-kicker">Property</div>
+        <h1>{{ research_title }}</h1>
+        <h2 class="prd-price">{{ research_price }}</h2>
+        <div class="prd-facts">
+          {% if research_area %}<span class="prd-chip">{{ research_area }}</span>{% endif %}
+          {% if research_rooms %}<span class="prd-chip">{{ research_rooms }}</span>{% endif %}
+          {% if research_location %}<span class="prd-chip">{{ research_location }}</span>{% endif %}
+        </div>
+        <p class="prd-copy" style="margin-top:10px;">{{ research_summary }}</p>
+        <div class="prd-actions" style="margin-top:14px;">
+          {% for action in research_actions %}
+            {% if action.get('href') and action.get('copy') %}
+            <button class="console-action" type="button" data-prd-copy-link="{{ action.get('href') }}">Copy page link</button>
+            {% elif action.get('href') %}
+            <a class="console-action" href="{{ action.get('href') }}"{% if action.get('external') %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ action.get('label') }}</a>
+            {% elif action.get('kind') %}
+            <button class="console-action" type="button" data-pw-visual-request="{{ action.get('kind') }}" data-property-url="{{ action.get('property_url') }}">{{ action.get('label') }}</button>
+            {% endif %}
+          {% endfor %}
+        </div>
+        <p class="prd-copy" data-prd-visual-status style="margin-top:10px;">{{ research_media.get('status_detail') or '' }}</p>
+      </section>
+
+      <section class="prd-panel">
+        <div class="prd-kicker">At a glance</div>
+        <div class="prd-meta">
+          {% for row in research_overview_rows %}
+          <div class="prd-meta-card">
+            <span>{{ row.label }}</span>
+            <strong>{{ row.value }}</strong>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+    </aside>
+  </section>
+
+  {% if research_location_preview.get('image_url') %}
+  <section class="prd-map-card">
+    <div>
+      <div class="prd-kicker">Wider area</div>
+      <h2>{{ research_location_preview.get('title') }}</h2>
+      <p class="prd-copy">Open the area map for a closer orientation view.</p>
+      {% if research_location_preview.get('map_url') %}
+      <div class="prd-actions"><a class="console-action" href="{{ research_location_preview.get('map_url') }}" target="_blank" rel="noopener noreferrer">Open map</a></div>
+      {% endif %}
+    </div>
+    <button class="prd-map-thumb" type="button" data-prd-map-open data-prd-map-src="{{ research_location_preview.get('image_url') }}" data-prd-map-title="{{ research_location_preview.get('title') }}">
+      <img src="{{ research_location_preview.get('image_url') }}" alt="{{ research_location_preview.get('alt') }}">
+    </button>
+  </section>
+  {% endif %}
+
+  <section class="prd-sections">
+    {% for section in research_sections %}
+    <section class="prd-section">
+      <div class="prd-kicker">{{ section.get('eyebrow') }}</div>
+      <h2>{{ section.get('title') }}</h2>
+      {% if section.get('copy') %}<p class="prd-copy">{{ section.get('copy') }}</p>{% endif %}
+      {% if section.get('table_headers') and section.get('table_rows') %}
+      <div class="prd-table-wrap">
+        <table class="prd-table">
+          <thead>
+            <tr>{% for header in section.get('table_headers') or [] %}<th>{{ header }}</th>{% endfor %}</tr>
+          </thead>
+          <tbody>
+            {% for row in section.get('table_rows') or [] %}
+            <tr>
+              {% for cell in row %}
+              <td>
+                {% if cell is mapping %}
+                  {% if cell.get('href') %}<strong><a href="{{ cell.get('href') }}">{{ cell.get('title') }}</a></strong>{% else %}<strong>{{ cell.get('title') }}</strong>{% endif %}
+                  {% if cell.get('detail') %}<small>{{ cell.get('detail') }}</small>{% endif %}
+                {% else %}
+                  {{ cell }}
+                {% endif %}
+              </td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+      {% if section.get('items') %}
+      <div class="object-list">
+        {% for item in section.get('items') or [] %}
+        <div class="prd-row">
+          <div>
+            <strong>{% if item.get('href') %}<a href="{{ item.get('href') }}">{{ item.get('title') }}</a>{% else %}{{ item.get('title') }}{% endif %}</strong>
+            <small>{{ item.get('detail') }}</small>
+          </div>
+          <span class="prd-tag">{{ item.get('tag') }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </section>
+    {% endfor %}
+  </section>
+
+  <section class="prd-feedback-grid">
+    <section class="prd-panel">
+      <div class="prd-kicker">Household view</div>
+      <h2>What others flagged</h2>
+      <div class="object-list">
+        {% for item in research_objection_rows %}
+        <div class="prd-row">
+          <div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div>
+          <span class="prd-tag">{{ item.get('tag') }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="prd-kicker" style="margin-top:18px;">Household alignment</div>
+      <div class="object-list">
+        {% for item in research_household_rows %}
+        <div class="prd-row">
+          <div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div>
+          <span class="prd-tag">{{ item.get('tag') }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="prd-kicker" style="margin-top:18px;">Risk signals</div>
+      <div class="object-list">
+        {% for item in research_risk_signal_rows %}
+        <div class="prd-row">
+          <div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div>
+          <span class="prd-tag">{{ item.get('tag') }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="prd-panel object-feedback" data-object-feedback data-object-feedback-payload='{{ research_feedback|tojson|safe }}'>
+      <div class="prd-kicker">Decision</div>
+      <h2>Would you pursue this home?</h2>
+      <p class="object-copy">Record the outcome here so the next shortlist learns from it and the follow-up stays explicit.</p>
+      <div class="object-feedback-row" aria-label="Property feedback reaction">
+        <button class="object-feedback-button" type="button" data-object-feedback-reaction="like">Yes</button>
+        <button class="object-feedback-button" type="button" data-object-feedback-reaction="maybe">Maybe</button>
+        <button class="object-feedback-button" type="button" data-object-feedback-reaction="dislike">No</button>
+        <button class="object-feedback-button" type="button" data-object-feedback-reaction="hide">Hide</button>
+      </div>
+      <p class="object-copy"><strong>Decision state</strong> Move the property forward when the next action matters more than another shortlist vote.</p>
+      <div class="object-actions">
+        <button class="console-action" type="button" data-object-decision-state="viewing_requested">Viewing requested</button>
+        <button class="console-action" type="button" data-object-decision-state="documents_requested">Documents requested</button>
+        <button class="console-action" type="button" data-object-decision-state="offer_candidate">Offer candidate</button>
+        <button class="console-action" type="button" data-object-decision-state="archived">Archived</button>
+      </div>
+      <p class="object-copy" data-object-decision-state-status></p>
+      <p class="object-copy"><strong>What drove that?</strong> Select the clearest reasons first.</p>
+      <div class="object-feedback-reasons" data-object-feedback-reasons>
+        {% for row in (research_feedback.get('suggestions') or {}).get('negative') or [] %}
+        <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}">{{ row.get('label') }}</button>
+        {% endfor %}
+        {% for row in (research_feedback.get('suggestions') or {}).get('positive') or [] %}
+        <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}">{{ row.get('label') }}</button>
+        {% endfor %}
+      </div>
+      <div class="object-copy"><strong>Ask agent next</strong></div>
+      <div class="object-list">
+        {% for row in (research_feedback.get('suggestions') or {}).get('agent_questions') or [] %}
+        <div class="object-row">
+          <div><strong>Question {{ loop.index }}</strong><small>{{ row.get('question') }}</small></div>
+          <div class="object-tag">{{ row.get('status') or 'suggested' }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="object-copy"><strong>Tracked follow-up</strong></div>
+      <div class="object-list" data-object-followups>
+        {% for row in research_feedback.get('followup_rows') or [] %}
+        <div class="object-row">
+          <div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div>
+          <div class="object-tag">{{ row.get('tag') }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      <p class="object-copy" data-object-followup-status></p>
+      <textarea data-object-feedback-note placeholder="What exactly worked, failed, or still needs proof?"></textarea>
+      <div class="object-actions">
+        <button class="console-action" type="button" data-object-feedback-save>Save decision</button>
+        <a class="console-action" href="{{ research_feedback.get('profile_href') or '/app/profile' }}">Manage preferences</a>
+      </div>
+      <p class="object-copy" data-object-feedback-status></p>
+      <div class="object-actions" style="margin-top: 12px;">
+        <button class="console-action" type="button" data-object-clippy-toggle>Open Clippy</button>
+        <button class="console-action" type="button" data-object-magicfit-toggle>Open Magic Fit</button>
+      </div>
+      <div class="object-list" data-object-clippy-panel hidden>
+        <div class="object-row">
+          <div><strong>Clippy</strong><small>Ask one grounded question about this home. Clippy only answers from what is already on this page.</small></div>
+          <div class="object-tag">Opt-in</div>
+        </div>
+        <div class="object-actions">
+          <button class="console-action" type="button" data-object-clippy-prompt="Why is this only Maybe?">Why is this only Maybe?</button>
+          <button class="console-action" type="button" data-object-clippy-prompt="What should I ask the agent next?">Ask agent next</button>
+          <button class="console-action" type="button" data-object-clippy-prompt="What changed since last time?">What changed?</button>
+          <button class="console-action" type="button" data-object-clippy-prompt="What is the biggest investment risk here?">Investment risk</button>
+        </div>
+        <textarea data-object-clippy-question rows="3" placeholder="Ask Clippy about blockers, disagreements, or the next agent follow-up."></textarea>
+        <div class="object-actions"><button class="console-action" type="button" data-object-clippy-ask>Ask Clippy</button></div>
+        <div class="object-copy" data-object-clippy-status></div>
+        <div class="object-list" data-object-clippy-answer></div>
+      </div>
+      <div class="object-magicfit-panel" data-object-magicfit-panel hidden>
+        <div class="object-row">
+          <div><strong>Magic Fit lifestyle still</strong><small>Opt in to create a clearly marked visual simulation for the dossier.</small></div>
+          <div class="object-tag">Opt-in</div>
+        </div>
+        <div class="object-actions">
+          <button class="console-action" type="button" data-object-magicfit-scene="breakfast">Breakfast</button>
+          <button class="console-action" type="button" data-object-magicfit-scene="kids_play">Kids play</button>
+          <button class="console-action" type="button" data-object-magicfit-scene="balcony_evening">Balcony evening</button>
+          <button class="console-action" type="button" data-object-magicfit-scene="homeoffice">Homeoffice</button>
+        </div>
+        <div class="object-magicfit-grid">
+          <label class="object-field"><span>Scene type</span><input type="text" data-object-magicfit-scene-type value="breakfast"></label>
+          <label class="object-field"><span>Room hint</span><input type="text" data-object-magicfit-room-hint value="living and dining area"></label>
+          <label class="object-field"><span>Styling hint</span><input type="text" data-object-magicfit-styling-hint value="warm, realistic, tasteful family-home staging"></label>
+          <label class="object-field"><span>Household roles</span><input type="text" data-object-magicfit-household-roles placeholder="e.g. mother, father, child"></label>
+        </div>
+        <div class="object-actions">
+          <button class="console-action" type="button" data-object-magicfit-upload-start>Upload reference photos</button>
+          <button class="console-action" type="button" data-object-magicfit-google-start>Use Google Photos Picker</button>
+          <button class="console-action" type="button" data-object-magicfit-google-check>Check Google selection</button>
+        </div>
+        <input type="file" accept="image/*" multiple hidden data-object-magicfit-upload-input>
+        <div class="object-copy" data-object-magicfit-upload-status></div>
+        <div class="object-list" data-object-magicfit-reference-list></div>
+        <label class="object-field"><span>Manual reference image URLs</span><textarea data-object-magicfit-reference-urls placeholder="Optional fallback: paste 1 to 3 reference image URLs, one per line."></textarea></label>
+        <div class="object-copy" data-object-magicfit-google-status></div>
+        <label class="object-check"><input type="checkbox" data-object-magicfit-consent><span>I confirm these personal photos were explicitly selected for this visual simulation.</span></label>
+        <label class="object-check"><input type="checkbox" data-object-magicfit-include-child><span>Include a child reference in the family scene.</span></label>
+        <label class="object-check"><input type="checkbox" data-object-magicfit-child-consent><span>I confirm guardian approval exists for any child likeness used here.</span></label>
+        <label class="object-check"><input type="checkbox" data-object-magicfit-share checked><span>Attach the generated still to the dossier PDF.</span></label>
+        <div class="object-actions"><button class="console-action" type="button" data-object-magicfit-generate>Generate still</button></div>
+        <div class="object-copy" data-object-magicfit-status></div>
+        <div class="object-magicfit-preview" data-object-magicfit-preview></div>
+      </div>
+    </section>
+  </section>
+</section>
+
+<dialog class="prd-lightbox" data-prd-map-lightbox>
+  <div class="prd-lightbox-card">
+    <div class="prd-lightbox-header">
+      <div>
+        <div class="prd-kicker">Area map</div>
+        <h2 data-prd-map-lightbox-title>{{ research_location_preview.get('title') }}</h2>
+      </div>
+      <button class="console-action" type="button" data-prd-map-close>Close</button>
+    </div>
+    <div class="prd-lightbox-stage" data-prd-map-stage>
+      <div class="prd-lightbox-zoomable" data-prd-map-zoomable>
+        <img src="{{ research_location_preview.get('image_url') or '' }}" alt="{{ research_location_preview.get('alt') or research_title }}" data-prd-map-lightbox-image>
+      </div>
+    </div>
+  </div>
+</dialog>
+
+<script>
+(() => {
+  const visualRequestStatusNode = document.querySelector('[data-prd-visual-status]');
+  document.querySelectorAll('[data-pw-visual-request]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const propertyUrl = String(button.getAttribute('data-property-url') || '').trim();
+      const requestKind = String(button.getAttribute('data-pw-visual-request') || 'tour').trim().toLowerCase();
+      if (!propertyUrl) {
+        if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'No listing URL is available for this home.';
+        return;
+      }
+      const original = button.textContent || (requestKind === 'flythrough' ? 'Request flythrough' : 'Request 3D tour');
+      button.disabled = true;
+      button.textContent = requestKind === 'flythrough' ? 'Requesting flythrough...' : 'Requesting 3D tour...';
+      if (visualRequestStatusNode) {
+        visualRequestStatusNode.textContent = requestKind === 'flythrough'
+          ? 'Requesting a flythrough from the available source material...'
+          : 'Requesting a 3D tour from the available source material...';
+      }
+      try {
+        const response = await fetch('/app/api/signals/willhaben/property-tour', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            property_url: propertyUrl,
+            variant_key: 'layout_first',
+            auto_deliver: false,
+            allow_floorplan_only: true,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(String(payload.detail || payload.error || 'Could not request the visual.'));
+        const status = String(payload.status || '').trim().toLowerCase();
+        if (status === 'created' && payload.tour_url) {
+          if (visualRequestStatusNode) visualRequestStatusNode.textContent = requestKind === 'flythrough' ? 'Flythrough is ready. Open 3D tour to inspect it.' : '3D tour is ready. Open 3D tour to inspect it.';
+        } else if (status === 'blocked') {
+          if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'Request recorded. More source material is still needed before the visual can be built.';
+        } else {
+          if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'Visual request recorded.';
+        }
+      } catch (error) {
+        if (visualRequestStatusNode) visualRequestStatusNode.textContent = error instanceof Error ? error.message : 'Could not request the visual.';
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-prd-copy-link]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const value = String(button.getAttribute('data-prd-copy-link') || '').trim();
+      if (!value) return;
+      try {
+        await navigator.clipboard.writeText(new URL(value, window.location.origin).toString());
+        button.textContent = 'Link copied';
+        window.setTimeout(() => { button.textContent = 'Copy page link'; }, 2200);
+      } catch (_error) {
+        button.textContent = 'Copy failed';
+        window.setTimeout(() => { button.textContent = 'Copy page link'; }, 2200);
+      }
+    });
+  });
+
+  const lightbox = document.querySelector('[data-prd-map-lightbox]');
+  const lightboxTitle = document.querySelector('[data-prd-map-lightbox-title]');
+  const lightboxImage = document.querySelector('[data-prd-map-lightbox-image]');
+  const lightboxStage = document.querySelector('[data-prd-map-stage]');
+  const lightboxZoomable = document.querySelector('[data-prd-map-zoomable]');
+  let scale = 1;
+  const resetZoom = () => {
+    scale = 1;
+    if (lightboxZoomable) lightboxZoomable.style.transform = 'scale(1)';
+  };
+  document.querySelectorAll('[data-prd-map-open]').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (!lightbox || !(lightbox instanceof HTMLDialogElement)) return;
+      if (lightboxTitle) lightboxTitle.textContent = String(button.getAttribute('data-prd-map-title') || 'Area map');
+      if (lightboxImage) lightboxImage.setAttribute('src', String(button.getAttribute('data-prd-map-src') || ''));
+      resetZoom();
+      lightbox.showModal();
+    });
+  });
+  document.querySelector('[data-prd-map-close]')?.addEventListener('click', () => {
+    if (lightbox instanceof HTMLDialogElement) lightbox.close();
+    resetZoom();
+  });
+  lightbox?.addEventListener('click', (event) => {
+    if (event.target === lightbox && lightbox instanceof HTMLDialogElement) {
+      lightbox.close();
+      resetZoom();
+    }
+  });
+  lightboxStage?.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    scale = Math.max(1, Math.min(4, scale + (event.deltaY < 0 ? 0.18 : -0.18)));
+    if (lightboxZoomable) lightboxZoomable.style.transform = `scale(${scale})`;
+  }, { passive: false });
+})();
+</script>
+{% include "app/object_detail_feedback_script.html" ignore missing %}
+{% endblock %}

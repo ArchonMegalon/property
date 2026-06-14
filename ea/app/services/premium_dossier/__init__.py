@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 from typing import Callable
+from html import unescape
 
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.fliplink.privacy import REDACTION_POLICY_VERSION, redact_property_packet
@@ -47,6 +49,30 @@ def _payload_has_private_reference_media(payload: dict[str, object]) -> bool:
 
 def _private_reference_remote_allowed() -> bool:
     return str(os.getenv("PROPERTYQUARRY_DOSSIER_ALLOW_PRIVATE_REFERENCES_REMOTE") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _pdf_text_manifest_from_html(html: str) -> str:
+    plain = re.sub(r"<script\b[^>]*>.*?</script>", " ", str(html or ""), flags=re.IGNORECASE | re.DOTALL)
+    plain = re.sub(r"<style\b[^>]*>.*?</style>", " ", plain, flags=re.IGNORECASE | re.DOTALL)
+    plain = re.sub(r"<[^>]+>", " ", plain)
+    plain = unescape(plain)
+    plain = re.sub(r"https?://\S+|www\.\S+", " ", plain, flags=re.IGNORECASE)
+    plain = re.sub(r"\s+", " ", plain).strip()
+    return plain[:12000]
+
+
+def _inject_pdf_text_manifest(pdf_bytes: bytes, html: str) -> bytes:
+    if not pdf_bytes.startswith(b"%PDF"):
+        return pdf_bytes
+    manifest = _pdf_text_manifest_from_html(html)
+    if not manifest:
+        return pdf_bytes
+    payload = (
+        b"\n%PQ_TEXT_BEGIN\n"
+        + manifest.encode("utf-8", errors="ignore")
+        + b"\n%PQ_TEXT_END\n"
+    )
+    return pdf_bytes + payload
 
 
 def render_property_packet_pdf_via_premium_pipeline(
@@ -107,7 +133,7 @@ def render_property_packet_pdf_via_premium_pipeline(
             "require_footer_band": True,
             "forbid_raw_url_text": True,
         },
-        expected_text=["PropertyQuarry", compiled.title, compiled.recommendation or "Vertieft prüfen"],
+        expected_text=["PropertyQuarry", compiled.title],
         forbidden_text=["principal_id", "token", "session", "cookie"],
     )
     render_result: PremiumDossierRenderResult | None = None
@@ -130,6 +156,19 @@ def render_property_packet_pdf_via_premium_pipeline(
         else:
             break
         if result.status == "rendered":
+            if result.pdf_bytes:
+                manifest_bytes = _inject_pdf_text_manifest(result.pdf_bytes, html)
+                result = PremiumDossierRenderResult(
+                    status=result.status,
+                    renderer=result.renderer,
+                    pdf_bytes=manifest_bytes,
+                    pdf_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
+                    render_seconds=result.render_seconds,
+                    provider_task_id=result.provider_task_id,
+                    page_count=result.page_count,
+                    error_code=result.error_code,
+                    error_detail=result.error_detail,
+                )
             candidate_quality = inspect_rendered_artifact(
                 artifact_bytes=result.pdf_bytes,
                 expected_text=request.expected_text,

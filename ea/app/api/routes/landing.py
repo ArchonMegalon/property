@@ -45,6 +45,9 @@ from app.api.routes.landing_view_models import (
     humanize as _humanize,
     list_rows as _list_rows,
     _official_risk_posture_rows,
+    _candidate_detail_sections,
+    _property_candidate_orientation_preview,
+    _property_candidate_preview_image,
     property_workspace_payload as _property_workspace_payload,
 )
 from app.api.routes.admin_view_models import build_admin_section_payload as _build_admin_section_payload
@@ -101,6 +104,20 @@ def _clean_property_candidate_copy(value: object) -> str:
         "Provider-ranked fallback candidate kept because strict personal-fit scoring produced no shortlist.",
         "Fallback candidate because no stronger fit cleared the shortlist.",
     ).strip()
+
+
+def _property_title_price_fallback(title: object) -> str:
+    text = " ".join(str(title or "").split()).strip()
+    if not text:
+        return ""
+    for pattern in (
+        r"(€\s?[0-9][0-9\.\s]*(?:,[0-9]{1,2})?\s*,-?)",
+        r"((?:EUR|USD|CHF)\s?[0-9][0-9\.,\s]*)",
+    ):
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return " ".join(str(match.group(1) or "").split()).strip(" ,")
+    return ""
 
 templates.env.globals["clickrank_head_snippet"] = lambda request=None: Markup(_clickrank_head_snippet(_request_hostname(request)))
 templates.env.globals["rybbit_head_snippet"] = lambda request=None: Markup(_rybbit_head_snippet(request))
@@ -2732,6 +2749,7 @@ def property_research_packet(
                 "tag": "Waiting",
             }
         ]
+    detail_sections = _candidate_detail_sections(facts)
     price_summary = str(
         facts.get("price_display")
         or facts.get("rent_display")
@@ -2739,6 +2757,8 @@ def property_research_packet(
         or facts.get("price_eur")
         or ""
     ).strip()
+    if not price_summary or price_summary.lower() == "n/a":
+        price_summary = _property_title_price_fallback(title)
     area_summary = str(facts.get("area_m2") or facts.get("living_area_m2") or "").strip()
     rooms_summary = str(facts.get("rooms_label") or facts.get("rooms") or facts.get("room_count") or "").strip()
     location_summary = str(
@@ -2752,249 +2772,175 @@ def property_research_packet(
     headline_summary_parts = [
         part
         for part in (
-            f"{area_summary} m²" if area_summary else "",
             price_summary,
+            f"{area_summary} m²" if area_summary else "",
             rooms_summary,
             location_summary,
         )
         if str(part or "").strip()
     ]
     object_summary = " · ".join(headline_summary_parts) or source_label
-    object_meta = [
-        {"label": "Price", "value": price_summary or "n/a"},
-        {"label": "Area", "value": f"{area_summary} m²" if area_summary else "n/a"},
-        {"label": "Rooms", "value": rooms_summary or "n/a"},
+    if price_summary and not any(str(row.get("label") or "").strip().lower() == "rent / price" for row in list(detail_sections.get("cost_rows") or [])):
+        detail_sections["cost_rows"] = [{"label": "Rent / price", "value": price_summary}] + list(detail_sections.get("cost_rows") or [])
+    research_media = _property_tour_media_payload(candidate)
+    orientation_preview = _property_candidate_orientation_preview(candidate)
+    preview_image = _property_candidate_preview_image(candidate)
+    location_preview = {
+        "image_url": str(orientation_preview.get("image_url") or "").strip(),
+        "map_url": str(orientation_preview.get("map_url") or "").strip(),
+        "title": str(orientation_preview.get("title") or location_summary or "Wider area").strip(),
+        "alt": str(orientation_preview.get("alt") or f"Map around {location_summary or source_label}").strip(),
+    }
+    hero_actions: list[dict[str, object]] = []
+    if property_url:
+        hero_actions.append({"href": property_url, "label": "Open listing", "external": True})
+    if tour_url:
+        hero_actions.append({"href": tour_url, "label": "Open 3D tour", "external": False})
+    elif property_url:
+        hero_actions.append({"kind": "tour", "label": "Request 3D tour", "property_url": property_url})
+        hero_actions.append({"kind": "flythrough", "label": "Request flythrough", "property_url": property_url})
+    if str(candidate.get("packet_url") or review_url or "").strip():
+        hero_actions.append({"href": str(candidate.get("packet_url") or review_url or "").strip(), "label": "Copy page link", "copy": True})
+    overview_rows = [
+        {"label": "Price", "value": price_summary or "Price on request"},
+        {"label": "Area", "value": f"{area_summary} m²" if area_summary else "Not listed"},
+        {"label": "Rooms", "value": rooms_summary or "Not listed"},
         {"label": "Location", "value": location_summary or source_label},
     ]
-    return _render_console_object_detail(
-        request=request,
-        context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
-        page_title=f"PropertyQuarry {title}",
-        current_nav="research",
-        console_title="Review",
-        console_summary="",
-        object_kind="Property details",
-        object_title=title,
-        object_summary=object_summary,
-        object_media=_property_tour_media_payload(candidate),
-        object_meta=object_meta,
-        object_ooda_title="Quick read",
-        object_ooda_copy="What stands out, what still needs proof, and what to check next.",
-        object_ooda_rows=ooda_summary_rows,
-        object_sidebar_kicker="Open next",
-        object_sidebar_title="Useful links",
-        object_sidebar_copy="Open the review, tour, or original listing only when you need more detail.",
-        object_sidebar_rows=[
-            _object_detail_row(
-                "Review page",
-                _property_review_detail_line(candidate),
-                "Review",
-                href=review_url,
-                secondary_action_href=review_url,
-                secondary_action_label="Open review page" if review_url else "",
-                secondary_action_method="get" if review_url else "",
+    if detail_sections.get("feature_values"):
+        overview_rows.append({"label": "Highlights", "value": ", ".join(list(detail_sections.get("feature_values") or [])[:4])})
+    research_sections: list[dict[str, object]] = [
+        {
+            "eyebrow": "At a glance",
+            "title": "Why this home stayed on the list",
+            "items": ooda_summary_rows[:6],
+        },
+        {
+            "eyebrow": "Property details",
+            "title": "What the listing says",
+            "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("object_rows") or [])],
+        },
+        {
+            "eyebrow": "Costs",
+            "title": "Price, running costs, and fees",
+            "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("cost_rows") or [])],
+        },
+        {
+            "eyebrow": "Description",
+            "title": "How the home is described",
+            "copy": str(detail_sections.get("description_text") or "").strip(),
+            "items": [],
+        },
+        {
+            "eyebrow": "Location & area",
+            "title": "How the wider area reads today",
+            "copy": str(detail_sections.get("location_text") or "").strip(),
+            "items": everyday_fit_rows[:6],
+        },
+        {
+            "eyebrow": "Energy & heating",
+            "title": "Energy posture and heating",
+            "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("energy_rows") or [])],
+        },
+        {
+            "eyebrow": "Still unclear",
+            "title": "What still needs proof",
+            "items": (missing_rows + investment_risk_rows)[:10] or [_object_detail_row("No blocker recorded", "The current file does not show a blocking gap beyond normal due diligence.", "Clear")],
+        },
+        {
+            "eyebrow": "Decision call",
+            "title": "Current recommendation",
+            "items": decision_rows,
+        },
+        {
+            "eyebrow": "Evidence added",
+            "title": "What PropertyQuarry researched beyond the listing",
+            "items": (official_evidence_rows[:4] + official_posture_rows[:3] + future_research_rows[:3] + provenance_rows[:3])
+            or [_object_detail_row("No external evidence attached yet", "Broader research has not attached external datasets to this property yet.", "Pending")],
+        },
+        {
+            "eyebrow": "Ask next",
+            "title": "Questions worth sending now",
+            "items": agent_question_rows + ([_object_detail_row("Next household question", next_best_question, "Next")] if next_best_question else []),
+        },
+        {
+            "eyebrow": "What changed",
+            "title": "Timeline and follow-up",
+            "items": timeline_rows,
+        },
+        {
+            "eyebrow": "Compare next",
+            "title": "The next-best homes from this run",
+            "table_headers": ["Candidate", "Fit", "Price", "Layout", "360", "Open"],
+            "table_rows": compare_table_rows,
+            "items": compare_rows or [_object_detail_row("No compare lane yet", "This run has no second-best candidate attached for side-by-side comparison yet.", "Waiting")],
+        },
+    ]
+    if str(preferences.get("listing_mode") or "").strip().lower() == "buy":
+        research_sections.insert(
+            7,
+            {
+                "eyebrow": "Investment",
+                "title": "Buy-side underwriting view",
+                "items": investment_rows
+                or [_object_detail_row("Investment research is off", "Run the buy-side research pass if you need yield, reserve, and document-risk context.", "Optional")],
+            },
+        )
+    feedback_payload = {
+        "person_id": preference_person_id,
+        "profile_href": f"/app/profile" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else ""),
+        "suggestions": feedback_suggestions,
+        "property_url": property_url,
+        "packet_href": f"/app/research/{urllib.parse.quote(candidate_ref, safe='')}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else ""),
+        "property_title": title,
+        "property_facts": facts,
+        "assessment": assessment or candidate,
+        "investment_context": investment_rows + investment_risk_rows,
+        "followup_rows": followup_rows,
+        "magic_fit_scene": latest_magic_fit_scene,
+        "property_slug": str(candidate_ref or "").strip(),
+        "save_endpoint": f"/app/api/people/{urllib.parse.quote(preference_person_id, safe='')}/preference-profile/property-feedback",
+        "clippy_endpoint": "/app/api/property/decision-copilot",
+        "magic_fit_create_endpoint": "/app/api/property/magic-fit-scenes",
+        "magic_fit_upload_endpoint": "/app/api/property/magic-fit-reference-files",
+        "google_photos_session_endpoint": "/app/api/signals/google/photos/session",
+        "google_photos_session_status_endpoint_template": "/app/api/signals/google/photos/session/__SESSION_ID__",
+        "structured_feedback_endpoint": "/app/api/property-feedback",
+        "followup_status_endpoint_template": "/app/api/property-feedback/__FEEDBACK_ID__/followup-status",
+    }
+    return _render_public_template(
+        request,
+        "app/property_research_detail.html",
+        **{
+            **_console_shell_context(
+                request=request,
+                page_title=f"PropertyQuarry {title}",
+                current_nav="research",
+                context=context,
+                console_title="Property",
+                console_summary="",
+                nav_groups=app_nav_groups_for_brand(request_brand(request)["key"]),
+                workspace_label=str(workspace.get("name") or "PropertyQuarry"),
+                cards=[],
+                stats=[{"label": row["label"], "value": row["value"]} for row in overview_rows[:4]],
             ),
-            _object_detail_row(
-                "Hosted 360",
-                _property_tour_detail_line(candidate),
-                "Tour",
-                href=tour_url,
-                secondary_action_href=tour_url,
-                secondary_action_label="Open 3D reconstruction floor plan" if tour_url else "",
-                secondary_action_method="get" if tour_url else "",
-            ),
-            _object_detail_row(
-                "Original listing",
-                property_url or "No raw listing URL was captured.",
-                "Listing",
-                href=property_url,
-                secondary_action_href=property_url,
-                secondary_action_label="Open source" if property_url else "",
-                secondary_action_method="get" if property_url else "",
-            ),
-            *(
-                [
-                    _object_detail_row(
-                        "Investment research",
-                        (
-                            "Agent can run the full buy-side investment pass."
-                            if str(commercial.get("investment_research_level") or "") == "full"
-                            else (
-                                "Plus can run a shortened benchmark view."
-                                if str(commercial.get("investment_research_level") or "") == "preview"
-                                else "Upgrade to a paid investment tier to run buy-side underwriting research."
-                            )
-                        ),
-                        "Research",
-                        href=investment_run_target,
-                        secondary_action_href=investment_run_target,
-                        secondary_action_label="Run investment research",
-                        secondary_action_method="get",
-                    )
-                ]
-                if str(preferences.get("listing_mode") or "").strip().lower() == "buy"
-                else []
-            ),
-        ],
-        object_sections=[
-            {
-                "eyebrow": "Decision call",
-                "title": "The current recommendation in plain terms",
-                "items": decision_rows,
-            },
-            {
-                "eyebrow": "Decision scorecard",
-                "title": "The first reasons to keep or reject this property",
-                "items": packet_score_rows
-                or [_object_detail_row("No scorecard yet", "The packet still needs enough facts to summarize the decision cleanly.", "Pending")],
-            },
-            {
-                "eyebrow": "Fit reasoning",
-                "title": "Why this candidate matched",
-                "items": (
-                    [_object_detail_row(item, "Positive signal used in ranking.", "Match") for item in match_reasons]
-                    + [_object_detail_row(item, "Risk, mismatch, or still-open weakness.", "Risk") for item in mismatch_reasons]
-                ) or [_object_detail_row("No explicit reasoning captured", "The packet has not yet received structured fit reasoning.", "Waiting")],
-            },
-            {
-                "eyebrow": "Property facts",
-                "title": "What the product currently knows",
-                "items": _property_fact_rows(facts) or [_object_detail_row("No structured facts yet", "Run deeper enrichment or inspect the raw listing.", "Pending")],
-            },
-            {
-                "eyebrow": "Alltagsfit",
-                "title": "The strongest everyday convenience and family-life signals",
-                "items": everyday_fit_rows
-                or [_object_detail_row("No Alltagssignale yet", "The packet does not yet have enough structured neighborhood convenience data.", "Pending")],
-            },
-            {
-                "eyebrow": "Risikofit",
-                "title": "The strongest location and operations risks that still need proof",
-                "items": risk_fit_rows
-                or [_object_detail_row("No explicit risk-fit row yet", "No explicit location-risk burden is currently flagged beyond the normal packet questions.", "Clear")],
-            },
-            {
-                "eyebrow": "Evidence and provenance",
-                "title": "Which facts came from the listing and which were researched",
-                "items": provenance_rows
-                or [_object_detail_row("No provenance rows yet", "Deeper enrichment will surface which facts were researched versus copied from the listing.", "Pending")],
-            },
-            {
-                "eyebrow": "Authority posture",
-                "title": "What is already authority-backed and what still blocks clearance",
-                "items": official_posture_rows
-                or [_object_detail_row("No official-source posture yet", "This packet has not yet attached enough authority metadata to say which risk lanes are truly covered.", "Pending")],
-            },
-            {
-                "eyebrow": "Official risk evidence",
-                "title": "Primary-source datasets used for the risk read",
-                "items": official_evidence_rows
-                or [_object_detail_row("No official dataset linked yet", "This packet has not yet attached an official-source risk dataset for the active market.", "Pending")],
-            },
-            {
-                "eyebrow": "Future-change research",
-                "title": "School quality, planning evidence, and long-term micro-location posture",
-                "items": future_research_rows
-                or [_object_detail_row("No future-change evidence yet", "Deeper planning, school, and neighbourhood research has not been attached to this packet yet.", "Pending")],
-            },
-            *(
-                [
-                    {
-                        "eyebrow": "Investment research",
-                        "title": "Buy-side benchmark, rent thesis, and underwriting posture",
-                        "items": investment_rows
-                        or [_object_detail_row("Investment research is off", "Enable investment research in the search brief or request it explicitly from this packet on buy listings.", "Idle")],
-                    }
-                ]
-                if str(preferences.get("listing_mode") or "").strip().lower() == "buy"
-                else []
-            ),
-            {
-                "eyebrow": "Open questions",
-                "title": "What still needs verification before this is trustworthy",
-                "items": missing_rows + investment_risk_rows + [
-                    _object_detail_row(
-                        "Review the shared surfaces",
-                        "Use the review and 360 pages only after the internal packet already looks compelling.",
-                        "Review",
-                    ),
-                    _object_detail_row(
-                        "Record preference feedback",
-                        "Like, dislike, or hide the candidate from the shortlist lane so the next run learns.",
-                        "Learning",
-                    ),
-                ],
-            },
-            {
-                "eyebrow": "Ask agent next",
-                "title": "The next concrete questions PropertyQuarry would send now",
-                "items": agent_question_rows
-                + (
-                    [_object_detail_row("Household follow-up", next_best_question, "Next")]
-                    if next_best_question
-                    else []
-                ),
-            },
-            {
-                "eyebrow": "Household review",
-                "title": f"Alignment score {int(feedback_summary.get('household_alignment_score') or 0)}/100 · {str(feedback_summary.get('family_alignment') or 'waiting').replace('_', ' ').title()}",
-                "items": household_rows,
-            },
-            {
-                "eyebrow": "What changed",
-                "title": "The fastest read on what is different since the last look",
-                "items": changed_rows,
-            },
-            {
-                "eyebrow": "Decision timeline",
-                "title": "What changed, who reacted, and what follow-up exists now",
-                "items": timeline_rows,
-            },
-            {
-                "eyebrow": "Magic Fit",
-                "title": "Lifestyle still for the dossier",
-                "items": magic_fit_rows,
-            },
-            {
-                "eyebrow": "Top objections",
-                "title": "The strongest blockers or disagreements visible so far",
-                "items": objection_clusters,
-            },
-            {
-                "eyebrow": "Risk signals",
-                "title": "Anonymized market-risk candidates stay suppressed until privacy thresholds are met",
-                "items": risk_signal_rows,
-            },
-            {
-                "eyebrow": "Compare next",
-                "title": "Keep the next-best shortlist candidates visible",
-                "table_headers": ["Candidate", "Fit", "Price", "Layout", "360", "Packet"],
-                "table_rows": compare_table_rows,
-                "items": compare_rows
-                or [_object_detail_row("No compare candidates yet", "Finish or widen the shortlist run to compare alternatives here.", "Waiting")],
-            },
-        ],
-        object_feedback={
-            "person_id": preference_person_id,
-            "profile_href": f"/app/profile" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else ""),
-            "suggestions": feedback_suggestions,
-            "property_url": property_url,
-            "packet_href": f"/app/research/{urllib.parse.quote(candidate_ref, safe='')}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else ""),
-            "property_title": title,
-            "property_facts": facts,
-            "assessment": assessment or candidate,
-            "investment_context": investment_rows + investment_risk_rows,
-            "followup_rows": followup_rows,
-            "magic_fit_scene": latest_magic_fit_scene,
-            "property_slug": str(candidate_ref or "").strip(),
-            "save_endpoint": f"/app/api/people/{urllib.parse.quote(preference_person_id, safe='')}/preference-profile/property-feedback",
-            "clippy_endpoint": "/app/api/property/decision-copilot",
-            "magic_fit_create_endpoint": "/app/api/property/magic-fit-scenes",
-            "google_photos_session_endpoint": "/app/api/signals/google/photos/session",
-            "google_photos_session_status_endpoint_template": "/app/api/signals/google/photos/session/__SESSION_ID__",
-            "structured_feedback_endpoint": "/app/api/property-feedback",
-            "followup_status_endpoint_template": "/app/api/property-feedback/__FEEDBACK_ID__/followup-status",
+            "research_title": title,
+            "research_summary": object_summary,
+            "research_source_label": source_label,
+            "research_price": price_summary or "Price on request",
+            "research_area": f"{area_summary} m²" if area_summary else "",
+            "research_rooms": rooms_summary,
+            "research_location": location_summary or source_label,
+            "research_media": research_media,
+            "research_preview_image": preview_image,
+            "research_location_preview": location_preview,
+            "research_actions": hero_actions,
+            "research_overview_rows": overview_rows,
+            "research_sections": research_sections,
+            "research_feedback": feedback_payload,
+            "research_objection_rows": objection_clusters,
+            "research_household_rows": household_rows,
+            "research_risk_signal_rows": risk_signal_rows,
         },
     )
 

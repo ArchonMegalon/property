@@ -636,10 +636,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Preferred because: Includes a live 360 source" not in search.text
     assert "Review details" in search.text
     assert 'data-candidate-packet-url="/app/research/' in search.text
-    assert 'data-pqx-notification-audit' in search.text
-    assert "Alert delivery" in search.text
+    assert 'data-pqx-notification-audit' not in search.text
+    assert "Alert delivery" not in search.text
     assert "Filtered" in search.text
-    assert "2 candidates filtered out after ranking" in search.text
     assert "Search guard" not in search.text
     assert "Target area guard" not in search.text
     assert "Outside-area results suppressed" not in search.text
@@ -701,58 +700,48 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "360 review first" not in packet.text
     assert 'data-object-media-stage' in packet.text
     assert 'title="Property 360 review"' in packet.text
-    assert packet.text.index("data-object-media-stage") < packet.text.index("Quick read")
+    assert packet.text.index("data-object-media-stage") < packet.text.index("At a glance")
     assert "Live 360 ready" in packet.text
-    assert "The current recommendation in plain terms" in packet.text
+    assert 'data-property-research-detail' in packet.text
+    assert "At a glance" in packet.text
+    assert "Current recommendation" in packet.text
     assert "Why this was selected" in packet.text
-    assert "Nearest supermarket" in packet.text
+    assert "Supermarket" in packet.text
     assert "https://www.google.com/maps/dir/" not in packet.text
     assert "Open navigation" not in packet.text
     assert "Library" in packet.text
-    assert "Nearest run or green space" in packet.text
-    assert "Straßenbahn / Bus" in packet.text
     assert "Underground" in packet.text
-    assert "Nearest underground" in packet.text
     assert "Decision call" in packet.text
-    assert "Why now" in packet.text
-    assert "Missing-data severity" in packet.text
-    assert "Decision scorecard" in packet.text
-    assert "Evidence and provenance" in packet.text
-    assert "Authority posture" in packet.text
+    assert "Still unclear" in packet.text
+    assert "Evidence added" in packet.text
     assert "Manual clearance required" in packet.text
-    assert "Official risk evidence" in packet.text
     assert "Luftmessnetz: aktuelle Messdaten Wien" in packet.text
-    assert "Alltagsfit" in packet.text
-    assert "Risikofit" in packet.text
-    assert "Future-change research" in packet.text
+    assert "How the wider area reads today" in packet.text
+    assert "Energy posture and heating" in packet.text
     assert "SchoolAtlas quality" in packet.text
     assert "Gymnasium progression" in packet.text
-    assert "Investment research" in packet.text
+    assert "Buy-side underwriting view" in packet.text
     assert "Gross yield" in packet.text
     assert "Expected monthly rent" in packet.text
-    assert "Open questions" in packet.text
     assert "Compare next" in packet.text
     assert "Candidate" in packet.text
     assert "Layout" in packet.text
     assert "Family flat near Tiergarten" in packet.text
-    assert "Researched" in packet.text
-    assert "Review page" in packet.text
-    assert "Original listing" in packet.text
-    assert "Decision feedback" in packet.text
-    assert "Decision pipeline" in packet.text
-    assert "Official risk evidence" in packet.text
-    assert "Would you pursue this property?" in packet.text
+    assert "Listing" in packet.text
+    assert "Review page" not in packet.text
+    assert "Useful links" not in packet.text
+    assert "Open listing" in packet.text
+    assert "Would you pursue this home?" in packet.text
     assert "Viewing requested" in packet.text
     assert "Documents requested" in packet.text
     assert "Offer candidate" in packet.text
     assert "Open Clippy" in packet.text
     assert "Ask agent next" in packet.text
     assert "Tracked follow-up" in packet.text
-    assert "Decision timeline" in packet.text
-    assert "Top objections" in packet.text
-    assert "Household review" in packet.text
-    assert "Risk signals" in packet.text
     assert "What changed" in packet.text
+    assert "What others flagged" in packet.text
+    assert "Household alignment" in packet.text
+    assert "Risk signals" in packet.text
     assert "Contradicted" in packet.text
     assert "Resolved" in packet.text
     assert 'data-object-feedback-reaction="like"' in packet.text
