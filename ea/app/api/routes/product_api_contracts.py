@@ -1492,6 +1492,7 @@ class WillhabenPropertyTourIn(BaseModel):
     source_ref: str = ""
     external_id: str = ""
     auto_deliver: bool = True
+    allow_floorplan_only: bool = False
 
 
 class WillhabenPropertyTourOut(BaseModel):

@@ -1756,10 +1756,10 @@ def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
         return False
 
     if _false_flag(facts.get("has_floorplan")) or _zero_count("floorplan_count", "floorplans_count"):
-        return "Floorplan missing: this listing exposes no floorplan or source 360 media, so PropertyQuarry cannot generate a hosted tour yet."
+        return "No hosted 3D tour yet. This listing still needs a floorplan or usable source 360 media before a hosted tour can be built."
     if _false_flag(facts.get("has_360")) or _zero_count("media_count", "image_count"):
-        return "Tour source media missing: the source did not expose a 360, floorplan, or usable room media."
-    return "Floorplan or source 360 media missing, so PropertyQuarry cannot generate a hosted tour yet."
+        return "No hosted 3D tour yet. The source did not expose enough room media, a floorplan, or a usable 360."
+    return "No hosted 3D tour yet. More source media is needed before PropertyQuarry can build it."
 
 
 def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, object]:
@@ -1801,10 +1801,10 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "primary_label": (
             "Open 3D reconstruction floor plan"
             if tour_url
-            else ("Open source 360" if vendor_tour_url else ("Open packet" if review_url else ""))
+            else ("Open source 360" if vendor_tour_url else ("Open property page" if review_url else ""))
         ),
         "secondary_href": review_url,
-        "secondary_label": "Open review page" if review_url else "",
+        "secondary_label": "Open property page" if review_url else "",
         "tertiary_href": vendor_tour_url if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
         "tertiary_label": "Vendor 360" if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
     }

@@ -1149,14 +1149,6 @@
       aspect-ratio: 16 / 10;
       border-radius: 7px;
     }
-    .pqx-inline-map-preview .pqx-previous-scope-hover {
-      transform-origin: top left;
-    }
-    .pqx-inline-map-preview .pqx-previous-scope-trigger:hover + .pqx-previous-scope-hover,
-    .pqx-inline-map-preview .pqx-previous-scope-trigger:focus-visible + .pqx-previous-scope-hover,
-    .pqx-inline-map-preview .pqx-previous-scope-hover:hover {
-      transform: scale(1.56);
-    }
     .pqx-inline-map-preview .pqx-previous-scope-caption {
       justify-content: flex-start;
     }
@@ -3099,9 +3091,6 @@
       }
     }
     @media (max-width: 760px) {
-      .pqx-previous-scope-hover {
-        display: none;
-      }
       .pqx-source-metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
@@ -4294,9 +4283,6 @@
                   >
                     <img class="pqx-previous-scope-image" src="{{ candidate.get('orientation_preview', {}).get('image_url') }}" alt="{{ candidate.get('orientation_preview', {}).get('alt') or '' }}">
                   </button>
-                  <div class="pqx-previous-scope-hover" aria-hidden="true">
-                    <img src="{{ candidate.get('orientation_preview', {}).get('image_url') }}" alt="">
-                  </div>
                 </div>
                 {% endif %}
                 <div class="pqx-compare-facts">
@@ -4312,7 +4298,7 @@
                   <span>{{ secondary_price }}</span>
                 </div>
                 <div class="pqx-actions">
-                  {% if candidate.get('packet_url') %}<a class="pqx-link-button primary" href="{{ candidate.get('packet_url') }}">Review</a>{% endif %}
+                  {% if candidate.get('packet_url') %}<a class="pqx-link-button primary" href="{{ candidate.get('packet_url') }}">Open property</a>{% endif %}
                   {% if candidate.get('tour', {}).get('url') %}<a class="pqx-link-button" href="{{ candidate.get('tour', {}).get('url') }}">360</a>{% endif %}
                   {% if candidate.get('map_url') %}<a class="pqx-link-button" href="{{ candidate.get('map_url') }}" target="_blank" rel="noreferrer">Map</a>{% endif %}
                 </div>
@@ -4351,7 +4337,12 @@
                 <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}">Share this home</button>
                 <button class="pqx-button" type="button" data-fliplink-shortlist-share>Share results</button>
                 {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}" target="_blank" rel="noreferrer">Open listing</a>{% endif %}
+                {% if not selected.get('tour', {}).get('url') and selected.get('property_url') %}
+                <button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="{{ selected.get('property_url') }}">Request 3D tour</button>
+                <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="{{ selected.get('property_url') }}">Request flythrough</button>
+                {% endif %}
               </div>
+              <div class="pqx-decision-status" data-pw-visual-request-status>{% if not selected.get('tour', {}).get('url') %}Request a visual from the available source material when this home matters enough to inspect further.{% endif %}</div>
             </div>
           </div>
           <div class="pqx-evidence">
@@ -4674,9 +4665,6 @@
                     >
                       <img class="pqx-previous-scope-image" src="{{ candidate.get('orientation_preview', {}).get('image_url') }}" alt="{{ candidate.get('orientation_preview', {}).get('alt') or '' }}">
                     </button>
-                    <div class="pqx-previous-scope-hover" aria-hidden="true">
-                      <img src="{{ candidate.get('orientation_preview', {}).get('image_url') }}" alt="">
-                    </div>
                   </span>
                   {% endif %}
                   {% if candidate.get('packet_url') %}
@@ -4867,6 +4855,8 @@
         `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${escapeHtml(candidate.candidate_ref || '')}">Share this home</button>`,
         `<button class="pqx-button" type="button" data-fliplink-shortlist-share>Share results</button>`,
         candidate.source_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.source_url)}" target="_blank" rel="noreferrer">Open listing</a>` : '',
+        !tour.url && candidate.property_url ? `<button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(candidate.property_url)}">Request 3D tour</button>` : '',
+        !tour.url && candidate.property_url ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(candidate.property_url)}">Request flythrough</button>` : '',
       ].filter(Boolean).join('');
     };
     const feedbackPersonId = String(meta.feedback_person_id || 'self').trim() || 'self';
@@ -4880,6 +4870,7 @@
     const feedbackNoteNode = root.querySelector('[data-pw-feedback-note]');
     const followupsNode = root.querySelector('[data-pw-followups]');
     const followupStatusNode = root.querySelector('[data-pw-followup-status]');
+    const visualRequestStatusNode = root.querySelector('[data-pw-visual-request-status]');
     const householdNode = root.querySelector('[data-pw-household]');
     const householdScoreNode = root.querySelector('[data-pw-household-score]');
     const householdLabelNode = root.querySelector('[data-pw-household-label]');
@@ -5092,6 +5083,57 @@
           button.disabled = false;
           button.textContent = String(error?.message || original);
           window.setTimeout(() => { button.textContent = original; }, 4200);
+        }
+      }
+    };
+    const requestVisualAsset = async (candidate, kind, button) => {
+      if (!candidate) return;
+      const propertyUrl = String(candidate.property_url || candidate.source_url || '').trim();
+      if (!propertyUrl) {
+        if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'No listing URL is available for this home.';
+        return;
+      }
+      const requestKind = String(kind || 'tour').trim().toLowerCase();
+      const original = button?.textContent || (requestKind === 'flythrough' ? 'Request flythrough' : 'Request 3D tour');
+      if (button) {
+        button.disabled = true;
+        button.textContent = requestKind === 'flythrough' ? 'Requesting flythrough...' : 'Requesting 3D tour...';
+      }
+      if (visualRequestStatusNode) {
+        visualRequestStatusNode.textContent = requestKind === 'flythrough'
+          ? 'Requesting a flythrough from the available source material...'
+          : 'Requesting a 3D tour from the available source material...';
+      }
+      try {
+        const response = await fetch('/app/api/signals/willhaben/property-tour', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            property_url: propertyUrl,
+            variant_key: 'layout_first',
+            auto_deliver: false,
+            allow_floorplan_only: true,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not request the visual.'));
+        const status = String(payload.status || '').trim().toLowerCase();
+        if (status === 'created' && payload.tour_url) {
+          if (visualRequestStatusNode) visualRequestStatusNode.textContent = requestKind === 'flythrough'
+            ? 'Visual package is ready. Open 360 to inspect it.'
+            : '3D tour is ready. Open 360 to inspect it.';
+        } else if (status === 'blocked') {
+          if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'Request recorded. More source material is still needed before the visual can be built.';
+        } else {
+          if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'Visual request recorded.';
+        }
+      } catch (error) {
+        if (visualRequestStatusNode) visualRequestStatusNode.textContent = error instanceof Error ? error.message : 'Could not request the visual.';
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.textContent = original;
         }
       }
     };
@@ -5640,6 +5682,11 @@
       root.querySelectorAll('[data-pw-actions]').forEach((node) => {
         if (node.matches('[data-pw-actions]')) node.innerHTML = actionMarkup(candidate);
       });
+      if (visualRequestStatusNode) {
+        visualRequestStatusNode.textContent = candidate?.tour?.url
+          ? ''
+          : 'Request a visual from the available source material when this home matters enough to inspect further.';
+      }
       if (topPropertyActionsNode && candidates.length) {
         topPropertyActionsNode.innerHTML = actionMarkup(candidate);
       }
@@ -5681,6 +5728,18 @@
       event.preventDefault();
       event.stopPropagation();
       createShortlistSharePacket(button);
+    });
+    root.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('[data-pw-visual-request]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const kind = String(button.getAttribute('data-pw-visual-request') || 'tour').trim().toLowerCase();
+      const propertyUrl = String(button.getAttribute('data-property-url') || '').trim();
+      const candidate = candidates.find((row) => String(row.property_url || row.source_url || '').trim() === propertyUrl)
+        || candidateByRef.get(selectedFeedbackCandidateRef)
+        || candidates[0];
+      requestVisualAsset(candidate, kind, button);
     });
     root.addEventListener('click', (event) => {
       const agentButton = event.target?.closest?.('[data-pw-agent-question-id]');

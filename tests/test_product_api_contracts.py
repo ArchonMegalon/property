@@ -10140,6 +10140,61 @@ def test_willhaben_property_tour_records_video_followup_when_telegram_video_deli
     assert any(item["payload"]["telegram_video_followup_ref"] == body["telegram_video_followup_ref"] for item in events.json()["items"])
 
 
+def test_willhaben_property_tour_route_accepts_floorplan_only_requests(monkeypatch) -> None:
+    principal_id = "tour-floorplan-only-route"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    observed: dict[str, object] = {}
+
+    def _fake_create_willhaben_property_tour(_self: object, **kwargs: object) -> dict[str, object]:
+        observed.update(kwargs)
+        return {
+            "generated_at": "2026-06-14T12:00:00+00:00",
+            "status": "blocked",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Demo property",
+            "listing_id": "demo-listing",
+            "variant_key": str(kwargs.get("variant_key") or "layout_first"),
+            "artifact_id": "",
+            "execution_session_id": "",
+            "connector_binding_id": "",
+            "tour_url": "",
+            "vendor_tour_url": "",
+            "source_virtual_tour_url": "",
+            "editor_url": "",
+            "delivery_email": "",
+            "delivery_status": "blocked",
+            "telegram_delivery_status": "",
+            "telegram_delivery_error": "",
+            "telegram_message_ids": [],
+            "telegram_chat_ref": "",
+            "telegram_video_delivery_status": "",
+            "telegram_video_delivery_error": "",
+            "telegram_video_message_ids": [],
+            "telegram_video_followup_ref": "",
+            "blocked_reason": "listing_360_media_missing",
+            "human_task_id": "human_task:tour-1",
+            "source_ref": "",
+            "external_id": "",
+            "tour_media_mode": "flat_images",
+            "personal_fit_assessment": {},
+        }
+
+    monkeypatch.setattr(ProductService, "create_willhaben_property_tour", _fake_create_willhaben_property_tour)
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": "https://www.findmyhome.at/en/prop/demo-property-1",
+            "allow_floorplan_only": True,
+            "auto_deliver": False,
+        },
+    )
+    assert created.status_code == 200, created.text
+    assert observed["allow_floorplan_only"] is True
+    assert observed["auto_deliver"] is False
+
+
 def test_preference_profile_teable_projection_endpoints_return_live_rows() -> None:
     principal_id = "pref-teable-api"
     client = build_product_client(principal_id=principal_id)

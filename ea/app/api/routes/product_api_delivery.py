@@ -322,6 +322,7 @@ def create_willhaben_property_tour(
             source_ref=body.source_ref,
             external_id=body.external_id,
             auto_deliver=body.auto_deliver,
+            allow_floorplan_only=body.allow_floorplan_only,
             actor=actor,
         )
     except ValueError as exc:
