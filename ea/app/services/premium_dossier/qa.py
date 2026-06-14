@@ -107,13 +107,16 @@ def _text_variants(value: str) -> set[str]:
 def _contains_text(haystack: str, needle: str) -> bool:
     if not str(needle or "").strip():
         return False
-    haystack_variants = _text_variants(haystack)
-    needle_variants = _text_variants(needle)
-    return any(
-        variant in haystack
-        or variant in haystack_variants
-        or (variant and any(variant in hay_variant for hay_variant in haystack_variants))
-        for variant in needle_variants
+    haystack_text = str(haystack or "")
+    haystack_collapsed = re.sub(r"\s+", " ", haystack_text).strip().casefold()
+    haystack_compact = re.sub(r"[^0-9A-Za-zÀ-ÖØ-öø-ÿ]+", "", haystack_text).casefold()
+    needle_text = str(needle or "")
+    needle_collapsed = re.sub(r"\s+", " ", needle_text).strip().casefold()
+    needle_compact = re.sub(r"[^0-9A-Za-zÀ-ÖØ-öø-ÿ]+", "", needle_text).casefold()
+    return bool(
+        (needle_text and needle_text in haystack_text)
+        or (needle_collapsed and needle_collapsed in haystack_collapsed)
+        or (needle_compact and needle_compact in haystack_compact)
     )
 
 
@@ -127,17 +130,12 @@ def inspect_rendered_artifact(
     require_footer_band: bool = False,
     forbid_raw_url_text: bool = False,
 ) -> PremiumDossierQualityReport:
-    decoded = "\n".join(
-        part
-        for part in (
-            _extract_pdf_text(artifact_bytes),
-            artifact_bytes.decode("latin-1", errors="ignore"),
-        )
-        if part
-    )
+    extracted_text = _extract_pdf_text(artifact_bytes)
+    binary_text = artifact_bytes.decode("latin-1", errors="ignore")
+    decoded = "\n".join(part for part in (extracted_text, binary_text) if part)
     required_hits = [item for item in expected_text if _contains_text(decoded, str(item or ""))]
     forbidden_hits = [item for item in forbidden_text if _contains_text(decoded, str(item or ""))]
-    raw_url_hits = _raw_url_text_hits(decoded) if forbid_raw_url_text else []
+    raw_url_hits = _raw_url_text_hits(extracted_text) if forbid_raw_url_text else []
     required_expected = [item for item in expected_text if str(item or "").strip()]
     all_required_ok = len(required_hits) == len(required_expected)
     required_ok = all_required_ok

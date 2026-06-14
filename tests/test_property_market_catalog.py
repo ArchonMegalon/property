@@ -74,7 +74,7 @@ def test_normalize_property_search_preferences_defaults_country_and_language() -
     assert payload["region_code"] == ""
     assert payload["language_code"] == "de"
     assert payload["listing_mode"] == "rent"
-    assert payload["property_type"] == "any"
+    assert payload["property_type"] == ["any"]
     assert payload["alert_frequency"] == "daily"
     assert payload["alert_channels"] == ["telegram"]
     assert payload["search_agent_enabled"] is False

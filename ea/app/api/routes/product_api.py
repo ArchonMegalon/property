@@ -294,7 +294,7 @@ def _heyy_template_budget_ok(*, container: AppContainer, principal_id: str) -> b
             continue
         try:
             parsed = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-        except Exception:
+        except (TypeError, ValueError):
             continue
         if parsed.astimezone(timezone.utc).date() == now.date():
             sent_today += 1

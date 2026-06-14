@@ -499,7 +499,8 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()
         assert page.locator("body", has_text="Quick read").is_visible()
         assert page.locator("body", has_text="How this result was prepared").is_visible()
-        assert page.locator("body", has_text="Your decision").is_visible()
+        assert page.locator("body", has_text="Would you pursue this property?").is_visible()
+        page.get_by_role("button", name="Maybe").click()
         assert page.get_by_role("button", name="Save decision").is_visible()
         assert page.get_by_role("button", name="Ask a question").is_visible()
     finally:
@@ -532,8 +533,9 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         assert page.locator("[data-pw-title]", has_text="Family flat near Tiergarten").is_visible()
         assert page.locator("body", has_text="Quick read").is_visible()
         assert page.locator("body", has_text="How this result was prepared").is_visible()
-        assert page.locator("body", has_text="Your decision").is_visible()
+        assert page.locator("body", has_text="Would you pursue this property?").is_visible()
         assert page.get_by_role("button", name="Ask a question").is_visible()
+        page.get_by_role("button", name="Maybe").click()
         review_action = page.get_by_role("button", name="Save decision").bounding_box()
         assert review_action is not None and review_action["width"] <= 430
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
@@ -1435,7 +1437,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert "/app/properties" in page.url
         assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()
         assert page.locator("body", has_text="Quick read").is_visible()
-        assert page.locator("body", has_text="Your decision").is_visible()
+        assert page.locator("body", has_text="Would you pursue this property?").is_visible()
     finally:
         context.close()
 

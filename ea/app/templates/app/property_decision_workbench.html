@@ -2560,6 +2560,9 @@
         gap: 8px;
         padding: 10px;
       }
+      .pqx-primary-nav {
+        display: none;
+      }
       .pqx-brand {
         gap: 8px;
       }
@@ -2571,15 +2574,25 @@
         display: none;
       }
       .pqx-top-actions {
-        justify-content: stretch;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+      .pqx-top-actions > .pqx-link-button,
+      .pqx-top-actions > .pqx-context-actions,
+      .pqx-top-actions > [data-pqx-browser-alerts] {
+        display: none;
       }
       .pqx-run-summary {
         display: none;
       }
-      .pqx-top-actions .pqx-link-button,
+      .pqx-top-actions .pqx-account-menu summary,
+      .pqx-top-actions .pqx-account-menu-panel .pqx-link-button,
       .pqx-top-actions .pqx-button {
         flex: 1 1 0;
         min-height: 34px;
+      }
+      .pqx-account-menu {
+        margin-left: auto;
       }
       .pqx-main {
         width: min(100vw - 20px, 760px);
