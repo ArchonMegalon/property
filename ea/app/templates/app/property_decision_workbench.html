@@ -3057,7 +3057,7 @@
                 <div class="pqx-field-title">{{ field.label }}</div>
                 {% if field.name == 'selected_platforms' %}
                 <div class="pqx-field-tools">
-                  <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}">All sources</button>
+                  <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select sources</button>
                 </div>
                 {% endif %}
                 {% if field.name == 'selected_platforms' and field.get('option_groups') %}
@@ -5126,15 +5126,42 @@
     const selectAllCheckboxValues = (form, name, maxCount) => {
       const inputs = [...(form?.querySelectorAll(`input[name="${name}"]`) || [])];
       if (!inputs.length) return;
-      const normalizedMax = Number.isFinite(Number(maxCount)) ? Math.max(1, Number(maxCount)) : inputs.length;
-      const selectedInputs = inputs.slice(0, normalizedMax);
+      const rawMax = Number(maxCount);
+      const normalizedMax = Number.isFinite(rawMax) && rawMax > 0 ? rawMax : inputs.length;
+        const selectedInputs = inputs.slice(0, normalizedMax);
       applyCheckboxSelection(inputs, selectedInputs);
       revealSelectedProviderGroups(form, selectedInputs);
       if (selectedInputs.length < inputs.length) {
-        setCheckboxGroupStatus(`Selected ${selectedInputs.length} providers. Your current plan allows up to ${normalizedMax} at once.`);
+        setCheckboxGroupStatus(`Selected ${selectedInputs.length} of ${inputs.length} sources. Your current plan allows up to ${normalizedMax} at once.`);
         return;
       }
-      setCheckboxGroupStatus(`Selected all ${selectedInputs.length} providers.`);
+      setCheckboxGroupStatus(`Selected all ${selectedInputs.length} sources.`);
+    };
+    const syncSelectAllButtons = (form, maxCount) => {
+      const rawMax = Number(maxCount);
+      const normalizedMax = Number.isFinite(rawMax) && rawMax > 0 ? rawMax : 0;
+        form.querySelectorAll('[data-checkbox-group-select-all]').forEach((button) => {
+        const name = String(button.getAttribute('data-checkbox-group-select-all') || '').trim();
+        if (!name) return;
+        const total = form.querySelectorAll(`input[name="${name}"]`).length;
+        if (!total) {
+          button.textContent = 'Select sources';
+          button.removeAttribute('title');
+          button.removeAttribute('aria-label');
+          return;
+        }
+        if (!normalizedMax || total <= normalizedMax) {
+          button.textContent = 'All sources';
+          const title = `Select all ${total} available sources.`;
+          button.setAttribute('title', title);
+          button.setAttribute('aria-label', title);
+          return;
+        }
+        button.textContent = `Select ${normalizedMax} of ${total}`;
+        const title = `Your current plan allows up to ${normalizedMax} of ${total} available sources at once.`;
+        button.setAttribute('title', title);
+        button.setAttribute('aria-label', title);
+      });
     };
     const readableErrorDetail = (detail, fallback) => {
       if (Array.isArray(detail)) {
@@ -5955,18 +5982,19 @@
       applyResearchTaskSnapshot(runPayload);
       notifyRunComplete(runPayload);
     };
-    const defaultPlatformsForCountryMode = (meta, countryCode, listingMode, fallbackOptions = []) => {
-      const platformCap = Math.max(1, Number(meta?.commercial?.max_platforms || 3));
-      const normalizedCountry = String(countryCode || 'AT').trim();
-      const normalizedMode = String(listingMode || 'rent').trim().toLowerCase() === 'buy' ? 'buy' : 'rent';
-      const countryDefaults = meta?.platform_defaults_by_country_mode?.[normalizedCountry];
-      const defaults = Array.isArray(countryDefaults?.[normalizedMode]) ? countryDefaults[normalizedMode] : [];
-      if (defaults.length) return defaults.slice(0, platformCap);
-      return (Array.isArray(fallbackOptions) ? fallbackOptions : [])
-        .map((option) => String(option?.value || '').trim())
-        .filter(Boolean)
-        .slice(0, platformCap);
-    };
+  const defaultPlatformsForCountryMode = (meta, countryCode, listingMode, fallbackOptions = []) => {
+    const rawPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
+    const platformCap = Number.isFinite(rawPlatformCap) && rawPlatformCap > 0 ? rawPlatformCap : Infinity;
+    const normalizedCountry = String(countryCode || 'AT').trim();
+    const normalizedMode = String(listingMode || 'rent').trim().toLowerCase() === 'buy' ? 'buy' : 'rent';
+    const countryDefaults = meta?.platform_defaults_by_country_mode?.[normalizedCountry];
+    const defaults = Array.isArray(countryDefaults?.[normalizedMode]) ? countryDefaults[normalizedMode] : [];
+    if (defaults.length) return Number.isFinite(platformCap) ? defaults.slice(0, platformCap) : defaults.slice();
+    return (Array.isArray(fallbackOptions) ? fallbackOptions : [])
+      .map((option) => String(option?.value || '').trim())
+      .filter(Boolean)
+      .slice(0, Number.isFinite(platformCap) ? platformCap : undefined);
+  };
     let runPollActive = false;
     const pollRun = async (statusUrl) => {
       if (!statusUrl || runPollActive) return;
@@ -6067,7 +6095,8 @@
       const preferencePersonField = form.querySelector('[name="preference_person_id"]');
       const allViennaFieldWrap = form.querySelector('[data-property-field-name="all_of_vienna"]');
       const locationFieldWrap = form.querySelector('[data-property-field-name="location_query"]');
-      const planPlatformCap = Math.max(1, Number(meta?.commercial?.max_platforms || 3));
+      const rawPlanPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
+      const planPlatformCap = Number.isFinite(rawPlanPlatformCap) && rawPlanPlatformCap > 0 ? rawPlanPlatformCap : 0;
       const syncAdvancedPanels = () => {
         form.querySelectorAll('details[data-property-advanced-panel]').forEach((panel) => {
           const panelKey = String(panel.getAttribute('data-property-advanced-panel') || '').trim();
@@ -6188,6 +6217,7 @@
           const options = Array.isArray(catalog[nextCountry]) ? catalog[nextCountry] : [];
           const defaultSelection = defaultPlatformsForCountryMode(meta, nextCountry, listingModeField?.value || 'rent', options);
           renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
+          syncSelectAllButtons(form, planPlatformCap);
           refreshRegionAndLocationChoices();
           syncMarketAwareFields(form, meta);
         }
@@ -6203,6 +6233,7 @@
             const options = Array.isArray(catalog[normalizedIpCountry]) ? catalog[normalizedIpCountry] : [];
             const defaultSelection = defaultPlatformsForCountryMode(meta, normalizedIpCountry, listingModeField?.value || 'rent', options);
             renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
+            syncSelectAllButtons(form, planPlatformCap);
             refreshRegionAndLocationChoices();
             syncMarketAwareFields(form, meta);
           }
@@ -6227,6 +6258,7 @@
         const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
         const defaultSelection = defaultPlatformsForCountryMode(meta, selectedCountry, listingModeField?.value || 'rent', options);
         renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
+        syncSelectAllButtons(form, planPlatformCap);
         const customLocationField = form.querySelector('[name="custom_location_query"]');
         if (customLocationField) customLocationField.value = '';
         refreshRegionAndLocationChoices();
@@ -6247,6 +6279,7 @@
         const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
         const defaultSelection = defaultPlatformsForCountryMode(meta, selectedCountry, listingModeField?.value || 'rent', options);
         renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
+        syncSelectAllButtons(form, planPlatformCap);
         syncListingModeControls();
       });
       commuteResearchField?.addEventListener('change', syncCommuteControls);
@@ -6257,6 +6290,7 @@
         button.addEventListener('click', (event) => {
           event.preventDefault();
           selectAllCheckboxValues(form, String(button.getAttribute('data-checkbox-group-select-all') || '').trim(), planPlatformCap);
+          syncSelectAllButtons(form, planPlatformCap);
         });
       });
       form.addEventListener('click', (event) => {
@@ -6268,21 +6302,22 @@
           const section = (groupSelect || groupClear).closest('[data-provider-group-panel]') || form;
           const allInputs = [...form.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')];
           const sectionInputs = [...section.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')];
-          const normalizedMax = Number.isFinite(Number(planPlatformCap)) ? Math.max(1, Number(planPlatformCap)) : allInputs.length;
+          const rawPlanPlatformCap = Number(planPlatformCap);
+          const normalizedMax = Number.isFinite(rawPlanPlatformCap) && rawPlanPlatformCap > 0 ? rawPlanPlatformCap : allInputs.length;
           if (groupSelect) {
             const selectedInputs = sectionInputs.slice(0, normalizedMax);
             applyCheckboxSelection(allInputs, selectedInputs);
             revealSelectedProviderGroups(form, selectedInputs);
             if (selectedInputs.length < sectionInputs.length) {
-              setCheckboxGroupStatus(`Selected ${selectedInputs.length} providers from this family. Your current plan allows up to ${normalizedMax} at once.`);
+              setCheckboxGroupStatus(`Selected ${selectedInputs.length} of ${sectionInputs.length} sources from this family. Your current plan allows up to ${normalizedMax} at once.`);
             } else {
-              setCheckboxGroupStatus('Selected provider group.');
+              setCheckboxGroupStatus(`Selected all ${selectedInputs.length} sources from this family.`);
             }
           } else {
             const selectedInputs = allInputs.filter((node) => !sectionInputs.includes(node) && node.checked);
             applyCheckboxSelection(allInputs, selectedInputs);
             revealSelectedProviderGroups(form, selectedInputs);
-            setCheckboxGroupStatus('Cleared provider group.');
+            setCheckboxGroupStatus('Cleared this source family.');
           }
           return;
         }
@@ -6290,6 +6325,7 @@
         if (!button) return;
         event.preventDefault();
         selectAllCheckboxValues(form, String(button.getAttribute('data-checkbox-group-select-all') || '').trim(), planPlatformCap);
+        syncSelectAllButtons(form, planPlatformCap);
       });
       form.addEventListener('propertyquarry:stepchange', () => {
         syncViennaScopeControls();
@@ -6302,6 +6338,7 @@
       syncCommuteControls();
       syncFamilyModeControls();
       syncMarketAwareFields(form, meta);
+      syncSelectAllButtons(form, planPlatformCap);
       applyBrowserAndIpDefaults().finally(applyPreferenceProfile);
     }
     const savePreferences = async () => {

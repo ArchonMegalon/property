@@ -51,13 +51,13 @@ def test_property_plan_investment_research_levels_follow_tier() -> None:
 
     assert plus["investment_research_level"] == "preview"
     assert plus["research_depth"] == "deep"
-    assert plus["max_platforms"] == 5
+    assert plus["max_platforms"] == 8
     assert plus["max_match_score"] == 65
     assert plus["magic_fit_scene_period"] == "day"
     assert plus["magic_fit_video_period"] == "day"
     assert agent["investment_research_level"] == "full"
     assert agent["research_depth"] == "deep"
-    assert agent["max_platforms"] == 12
+    assert agent["max_platforms"] == 0
     assert agent["max_match_score"] == 80
     assert agent["magic_fit_scene_period"] == "none"
     assert agent["magic_fit_video_period"] == "none"

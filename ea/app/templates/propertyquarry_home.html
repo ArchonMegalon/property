@@ -285,7 +285,7 @@
         {% for plan in plan_catalog[:3] %}
         <div class="pq-plan">
           <strong>{{ plan.display_name }}</strong>
-          <span>{{ plan.max_platforms }} providers · {{ plan.research_depth }} research</span>
+          <span>{% if plan.max_platforms > 0 %}{{ plan.max_platforms }} providers{% else %}All sources{% endif %} · {{ plan.research_depth }} research</span>
         </div>
         {% endfor %}
       </div>

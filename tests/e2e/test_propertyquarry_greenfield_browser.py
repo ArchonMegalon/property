@@ -1373,6 +1373,9 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         )
         assert isinstance(expectedProviderCap, int)
         assert expectedProviderCap > 0
+        allSourcesButton = page.locator('[data-checkbox-group-select-all="selected_platforms"]')
+        assert allSourcesButton.is_visible()
+        assert f"Select {expectedProviderCap} of {providerCount}" in allSourcesButton.inner_text()
         firstProviderFamily = page.locator('[data-provider-group-panel]').first
         firstProviderFamily.locator("summary").click()
         assert firstProviderFamily.get_by_role("button", name="Add family").is_visible()
@@ -1384,12 +1387,12 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         checkedTotalAfterFamily = page.locator('input[name="selected_platforms"]:checked').count()
         assert checkedFamilyProviderCount == min(familyProviderCount, expectedProviderCap)
         assert checkedTotalAfterFamily == checkedFamilyProviderCount
-        page.locator('[data-checkbox-group-select-all="selected_platforms"]').click()
+        allSourcesButton.click()
         checkedProviderCount = page.locator('input[name="selected_platforms"]:checked').count()
         assert providerCount > checkedProviderCount
         assert checkedProviderCount == expectedProviderCap
         assert page.locator('[data-provider-group-panel][open]').count() >= 1
-        assert page.locator('[data-property-inline-status]', has_text="allows up to 3 at once").is_visible()
+        assert page.locator('[data-property-inline-status]', has_text=f"Selected {expectedProviderCap} of {providerCount} sources").is_visible()
         page.locator('input[name="min_match_score"]').evaluate(
             "(node) => { node.value = '45'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
         )

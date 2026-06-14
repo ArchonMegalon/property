@@ -87,7 +87,7 @@ _PAID_PLANS = {
         checkout_label="EUR 3 / 30 days",
         amount_eur="3.00",
         pass_days=30,
-        max_platforms=5,
+        max_platforms=8,
         max_results_per_source=5,
         search_agent_limit=3,
         max_match_score=65,
@@ -99,7 +99,7 @@ _PAID_PLANS = {
         magic_fit_video_period="day",
         auto_tour_policy="shortlist_opt_in",
         features=(
-            "up to 5 platforms per run",
+            "up to 8 platforms per run",
             "up to 5 results per source",
             "match threshold up to 65/100",
             "deep research with preview investment signals",
@@ -112,7 +112,7 @@ _PAID_PLANS = {
         checkout_label="EUR 99 / 30 days",
         amount_eur="99.00",
         pass_days=30,
-        max_platforms=12,
+        max_platforms=0,
         max_results_per_source=10,
         search_agent_limit=0,
         max_match_score=80,
@@ -251,7 +251,7 @@ def enforce_property_plan_limits(
     snapshot = property_commercial_snapshot(property_preferences)
     current_plan = property_plan_spec(str(snapshot.get("current_plan_key") or "free"))
     platform_count = len([value for value in selected_platforms if str(value or "").strip()])
-    if platform_count > current_plan.max_platforms:
+    if int(current_plan.max_platforms) > 0 and platform_count > current_plan.max_platforms:
         target = "plus" if current_plan.plan_key == "free" else "agent"
         raise RuntimeError(f"property_plan_upgrade_required:{target}")
     if max_results_per_source is not None and int(max_results_per_source) > int(current_plan.max_results_per_source):

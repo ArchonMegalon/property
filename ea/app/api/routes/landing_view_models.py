@@ -1120,13 +1120,15 @@ def _property_counterfactual_rows(
         for value in list(preferences.get("selected_platforms") or [])
         if str(value).strip()
     ]
-    cap = max(1, int(current_platform_cap or 1))
+    cap = max(0, int(current_platform_cap or 0))
     available_platforms = [
         str(option.get("value") or "").strip()
         for option in provider_options
         if str(option.get("value") or "").strip()
     ]
-    widened_platforms = list(dict.fromkeys([*selected_platforms, *available_platforms]))[:cap]
+    widened_platforms = list(dict.fromkeys([*selected_platforms, *available_platforms]))
+    if cap > 0:
+        widened_platforms = widened_platforms[:cap]
     if len(widened_platforms) > len(selected_platforms):
         rows.append(
             {
@@ -3985,7 +3987,7 @@ def property_workspace_payload(
     google = dict(channels.get("google") or {})
     current_plan_label = str(commercial.get("current_plan_label") or "Free").strip() or "Free"
     try:
-        current_platform_cap = max(1, int(commercial.get("max_platforms") or 3))
+        current_platform_cap = int(commercial.get("max_platforms") if commercial.get("max_platforms") is not None else 3)
     except Exception:
         current_platform_cap = 3
     search_posture_card = cards_by_eyebrow.get("search posture", {})

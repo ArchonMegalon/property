@@ -1968,7 +1968,8 @@
       form.querySelector('[name="max_commute_minutes_bike"]')?.closest('.console-field'),
       form.querySelector('[name="max_commute_minutes_walk"]')?.closest('.console-field'),
     ].filter(Boolean);
-    const planPlatformCap = Math.max(1, Number(meta?.commercial?.max_platforms || 3));
+    const rawPlanPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
+    const planPlatformCap = Number.isFinite(rawPlanPlatformCap) && rawPlanPlatformCap > 0 ? rawPlanPlatformCap : Infinity;
     const syncAdvancedPanels = () => {
       form.querySelectorAll('details[data-property-advanced-panel]').forEach((panel) => {
         const panelKey = String(panel.getAttribute('data-property-advanced-panel') || '').trim();

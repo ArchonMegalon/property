@@ -115,7 +115,7 @@
         Use Agent when the search becomes an ongoing property desk: full platform coverage, fuller shortlists, deeper follow-up readiness, and heavier research value.
         {% endif %}
       </p>
-      <div class="tier-meta">{{ plan.max_platforms }} platforms · {{ plan.max_results_per_source }} results per source · {{ plan.max_match_score }}/100 match ceiling · {{ plan.research_depth }} research</div>
+      <div class="tier-meta">{% if plan.max_platforms > 0 %}{{ plan.max_platforms }} platforms{% else %}All sources{% endif %} · {{ plan.max_results_per_source }} results per source · {{ plan.max_match_score }}/100 match ceiling · {{ plan.research_depth }} research</div>
       <ul class="muted-list">
         {% for feature in plan.features %}
         <li>{{ feature }}</li>

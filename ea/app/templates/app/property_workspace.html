@@ -2573,7 +2573,8 @@
   };
 
   const defaultPlatformsForCountryMode = (meta, countryCode, listingMode, fallbackOptions = []) => {
-    const platformCap = Math.max(1, Number(meta?.commercial?.max_platforms || 3));
+    const rawPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
+    const platformCap = Number.isFinite(rawPlatformCap) && rawPlatformCap > 0 ? rawPlatformCap : Infinity;
     const normalizedCountry = String(countryCode || 'AT').trim();
     const normalizedMode = String(listingMode || 'rent').trim().toLowerCase() === 'buy' ? 'buy' : 'rent';
     const countryDefaults = meta?.platform_defaults_by_country_mode?.[normalizedCountry];
@@ -2898,7 +2899,8 @@
       const preferencePersonField = form.querySelector('[name="preference_person_id"]');
       const allViennaFieldWrap = allViennaField?.closest('[data-property-field-step]');
       const locationFieldWrap = form.querySelector('input[name="location_query"]')?.closest('[data-property-field-step]');
-      const planPlatformCap = Math.max(1, Number(meta?.commercial?.max_platforms || 3));
+      const rawPlanPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
+      const planPlatformCap = Number.isFinite(rawPlanPlatformCap) && rawPlanPlatformCap > 0 ? rawPlanPlatformCap : Infinity;
       const syncAdvancedPanels = () => {
         form.querySelectorAll('details[data-property-advanced-panel]').forEach((panel) => {
           const panelKey = String(panel.getAttribute('data-property-advanced-panel') || '').trim();

@@ -371,7 +371,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-checkbox-group-select-all="selected_platforms"' in setup.text
     assert "Add family" in setup.text
     assert "Clear family" in setup.text
-    assert "All sources" in setup.text
+    assert "Select sources" in setup.text
     assert "Notverkauf und Justiz" in setup.text
     assert "Justiz Edikte" in setup.text
     assert 'data-property-advanced-panel="children"' in setup.text
