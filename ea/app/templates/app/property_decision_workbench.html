@@ -5630,8 +5630,8 @@
           max_distance_to_shopping_center_m: integerValue(form, 'max_distance_to_shopping_center_m'),
           max_distance_to_shopping_street_m: integerValue(form, 'max_distance_to_shopping_street_m'),
           max_distance_to_theatre_m: integerValue(form, 'max_distance_to_theatre_m'),
-          max_distance_to_public_pool_m: integerValue(form, 'max_distance_to_public_pool_m'),
-          max_distance_to_medical_care_m: integerValue(form, 'max_distance_to_medical_care_m'),
+          max_distance_to_public_pool_m: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? integerValue(form, 'max_distance_to_public_pool_m') : null,
+          max_distance_to_medical_care_m: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? integerValue(form, 'max_distance_to_medical_care_m') : null,
           prefer_good_air_quality: Boolean(form.querySelector('input[name="prefer_good_air_quality"]')?.checked),
           avoid_noise_risk_area: Boolean(form.querySelector('input[name="avoid_noise_risk_area"]')?.checked),
           require_high_speed_internet: Boolean(form.querySelector('input[name="require_high_speed_internet"]')?.checked),
@@ -5984,14 +5984,15 @@
         });
       }
       const specs = [
-        ['School', 'nearest_school_m', 'nearest_school_name', 'nearest_school_lat', 'nearest_school_lng', 'Transit'],
-        ['Supermarket', 'nearest_supermarket_m', 'nearest_supermarket_name', 'nearest_supermarket_lat', 'nearest_supermarket_lng', 'Walk'],
-        ['Playground', 'nearest_playground_m', 'nearest_playground_name', 'nearest_playground_lat', 'nearest_playground_lng', 'Walk'],
-        ['Pharmacy', 'nearest_pharmacy_m', 'nearest_pharmacy_name', 'nearest_pharmacy_lat', 'nearest_pharmacy_lng', 'Walk'],
-        ['Underground', 'nearest_subway_m', 'nearest_subway_name', 'nearest_subway_lat', 'nearest_subway_lng', 'Transit'],
+        ['School', 'nearest_school_m', 'nearest_school_name', 'nearest_school_lat', 'nearest_school_lng', 'Transit', Boolean(briefPreferences.enable_family_mode)],
+        ['Supermarket', 'nearest_supermarket_m', 'nearest_supermarket_name', 'nearest_supermarket_lat', 'nearest_supermarket_lng', 'Walk', true],
+        ['Playground', 'nearest_playground_m', 'nearest_playground_name', 'nearest_playground_lat', 'nearest_playground_lng', 'Walk', Boolean(briefPreferences.enable_family_mode)],
+        ['Pharmacy', 'nearest_pharmacy_m', 'nearest_pharmacy_name', 'nearest_pharmacy_lat', 'nearest_pharmacy_lng', 'Walk', true],
+        ['Underground', 'nearest_subway_m', 'nearest_subway_name', 'nearest_subway_lat', 'nearest_subway_lng', 'Transit', true],
       ];
-      specs.forEach(([label, distanceKey, nameKey, latKey, lngKey, modeLabel]) => {
+      specs.forEach(([label, distanceKey, nameKey, latKey, lngKey, modeLabel, enabled]) => {
         if (previews.length >= 3) return;
+        if (!enabled) return;
         const distance = Number(facts[distanceKey] || 0);
         if (!Number.isFinite(distance) || distance <= 0) return;
         previews.push({
@@ -6237,6 +6238,8 @@
       const playgroundDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_playground_m"]');
       const libraryDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_library_m"]');
       const zooDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_zoo_m"]');
+      const publicPoolDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_public_pool_m"]');
+      const medicalCareDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_medical_care_m"]');
       const commuteDetailWraps = [
         form.querySelector('[data-property-field-name="commute_destination"]'),
         form.querySelector('[data-property-field-name="additional_reachability_targets"]'),
@@ -6334,6 +6337,16 @@
           zooDistanceWrap.hidden = !showSchoolDetails;
           zooDistanceWrap.toggleAttribute('aria-hidden', zooDistanceWrap.hidden);
           zooDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+        }
+        if (publicPoolDistanceWrap) {
+          publicPoolDistanceWrap.hidden = !showSchoolDetails;
+          publicPoolDistanceWrap.toggleAttribute('aria-hidden', publicPoolDistanceWrap.hidden);
+          publicPoolDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+        }
+        if (medicalCareDistanceWrap) {
+          medicalCareDistanceWrap.hidden = !showSchoolDetails;
+          medicalCareDistanceWrap.toggleAttribute('aria-hidden', medicalCareDistanceWrap.hidden);
+          medicalCareDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
         }
         if (schoolQualityWrap) {
           schoolQualityWrap.hidden = !showSchoolPriority;

@@ -1655,26 +1655,56 @@ def _property_bike_minutes_label(meters: int) -> str:
     return f"about {minutes} min by bike"
 
 
+def _property_family_context_active(preferences: dict[str, object]) -> bool:
+    if bool(preferences.get("enable_family_mode")):
+        return True
+    school_stage_preferences = preferences.get("school_stage_preferences")
+    if isinstance(school_stage_preferences, (list, tuple, set)) and any(str(item).strip() for item in school_stage_preferences):
+        return True
+    keywords = {
+        str(value).strip().lower()
+        for value in str(preferences.get("keywords") or "").split(",")
+        if str(value).strip()
+    }
+    return bool(
+        {"family", "playground nearby", "library nearby", "public pool nearby", "medical care nearby"} & keywords
+    )
+
+
 def _property_distance_ooda_rows(facts: dict[str, object]) -> list[dict[str, str]]:
+    return _property_distance_ooda_rows_for_preferences(facts, {})
+
+
+def _property_distance_ooda_rows_for_preferences(
+    facts: dict[str, object],
+    preferences: dict[str, object],
+) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
+    family_context = _property_family_context_active(preferences)
     distance_specs = (
-        ("Playground", ("distance_playground_m", "nearest_playground_m"), "Neighbourhood", "walking"),
-        ("Library", ("nearest_library_m",), "Family", "walking"),
-        ("Zoo", ("nearest_zoo_m",), "Family", "bicycling"),
+        ("Playground", ("distance_playground_m", "nearest_playground_m"), "Family", "walking", True),
+        ("Library", ("nearest_library_m",), "Family", "walking", True),
+        ("Zoo", ("nearest_zoo_m",), "Family", "bicycling", True),
         ("Pharmacy", ("distance_pharmacy_m", "nearest_pharmacy_m"), "Errands", "walking"),
-        ("Medical care", ("nearest_medical_care_m",), "Care", "walking"),
+        ("Medical care", ("nearest_medical_care_m",), "Family", "walking", True),
         ("Market", ("nearest_market_m",), "District life", "walking"),
         ("Baumarkt", ("nearest_hardware_store_m",), "Practical", "bicycling"),
         ("Shopping center", ("nearest_shopping_center_m",), "Errands", "bicycling"),
         ("Flaniermeile", ("nearest_shopping_street_m",), "City life", "walking"),
         ("Theatre", ("nearest_theatre_m",), "Culture", "walking"),
-        ("Public pool", ("nearest_public_pool_m",), "Family", "bicycling"),
+        ("Public pool", ("nearest_public_pool_m",), "Family", "bicycling", True),
         ("Run or green space", ("nearest_running_m",), "Daily life", "walking"),
         ("Supermarket", ("distance_supermarket_m", "nearest_supermarket_m"), "Errands", "walking"),
         ("Straßenbahn / Bus", ("nearest_tram_bus_m", "nearest_transit_m"), "Transit", "walking"),
         ("Underground", ("distance_underground_m", "nearest_subway_m"), "Transit", "walking"),
     )
-    for label, keys, tag, travelmode in distance_specs:
+    normalized_distance_specs: tuple[tuple[str, tuple[str, ...], str, str, bool], ...] = tuple(
+        item if len(item) == 5 else (item[0], item[1], item[2], item[3], False)
+        for item in distance_specs
+    )
+    for label, keys, tag, travelmode, family_only in normalized_distance_specs:
+        if family_only and not family_context:
+            continue
         meters = _property_distance_metric(facts, *keys)
         if meters is None:
             continue
@@ -2029,20 +2059,23 @@ def _property_packet_everyday_fit_rows(
     preferences: dict[str, object],
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    for key, title, tag in (
-        ("nearest_supermarket_m", "Supermarket", "Errands"),
-        ("nearest_playground_m", "Playground", "Family"),
-        ("nearest_library_m", "Library", "Family"),
-        ("nearest_zoo_m", "Zoo", "Family"),
-        ("nearest_medical_care_m", "Medical care", "Care"),
-        ("nearest_market_m", "Market", "District life"),
-        ("nearest_hardware_store_m", "Baumarkt", "Practical"),
-        ("nearest_shopping_center_m", "Shopping center", "Errands"),
-        ("nearest_shopping_street_m", "Flaniermeile", "City life"),
-        ("nearest_theatre_m", "Theatre", "Culture"),
-        ("nearest_public_pool_m", "Public pool", "Family"),
-        ("nearest_subway_m", "Underground", "Transit"),
+    family_context = _property_family_context_active(preferences)
+    for key, title, tag, family_only in (
+        ("nearest_supermarket_m", "Supermarket", "Errands", False),
+        ("nearest_playground_m", "Playground", "Family", True),
+        ("nearest_library_m", "Library", "Family", True),
+        ("nearest_zoo_m", "Zoo", "Family", True),
+        ("nearest_medical_care_m", "Medical care", "Family", True),
+        ("nearest_market_m", "Market", "District life", False),
+        ("nearest_hardware_store_m", "Baumarkt", "Practical", False),
+        ("nearest_shopping_center_m", "Shopping center", "Errands", False),
+        ("nearest_shopping_street_m", "Flaniermeile", "City life", False),
+        ("nearest_theatre_m", "Theatre", "Culture", False),
+        ("nearest_public_pool_m", "Public pool", "Family", True),
+        ("nearest_subway_m", "Underground", "Transit", False),
     ):
+        if family_only and not family_context:
+            continue
         raw_value = facts.get(key)
         if raw_value in (None, "", []):
             continue
@@ -2524,7 +2557,7 @@ def property_research_packet(
                 "Research",
             )
         )
-    ooda_summary_rows.extend(_property_distance_ooda_rows(facts))
+    ooda_summary_rows.extend(_property_distance_ooda_rows_for_preferences(facts, preferences))
     investment_run_target = run_target + ("&investment=1" if "?" in run_target else "?investment=1")
     try:
         feedback_suggestions = dict(product.property_feedback_suggestions(property_facts=facts, assessment=assessment or candidate))

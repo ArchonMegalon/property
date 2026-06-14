@@ -1362,15 +1362,16 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.locator('input[name="max_distance_to_hardware_store_m"]').evaluate(
             "(node) => { node.value = '1800'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
         )
-        page.locator('input[name="max_distance_to_medical_care_m"]').evaluate(
-            "(node) => { node.value = '1200'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
-        )
         page.locator('[data-property-step-trigger="children"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'")
         page.locator('input[name="enable_family_mode"]').check()
         page.locator('details[data-property-advanced-panel="children"] summary').click()
+        page.locator('details[data-property-advanced-panel="children_distances"] summary').click()
         page.locator('input[name="max_distance_to_library_m"]').evaluate(
             "(node) => { node.value = '700'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
+        )
+        page.locator('input[name="max_distance_to_medical_care_m"]').evaluate(
+            "(node) => { node.value = '1200'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
         )
         page.locator('[data-property-step-trigger="providers"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")

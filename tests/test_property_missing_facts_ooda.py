@@ -1,4 +1,9 @@
-from app.api.routes.landing import _property_packet_missing_rows, _property_rooms_display
+from app.api.routes.landing import (
+    _property_distance_ooda_rows_for_preferences,
+    _property_packet_everyday_fit_rows,
+    _property_packet_missing_rows,
+    _property_rooms_display,
+)
 from app.product.service import _property_enrich_missing_fact_research, _property_justiz_edikte_facts
 
 
@@ -59,3 +64,49 @@ def test_packet_missing_rows_surface_missing_fact_ooda() -> None:
     rows = _property_packet_missing_rows(facts=facts, preferences={})
 
     assert any(row["title"] == "Rooms" and row["tag"] == "Research" for row in rows)
+
+
+def test_family_only_distance_rows_stay_hidden_without_family_context() -> None:
+    facts = {
+        "nearest_playground_m": 250,
+        "nearest_library_m": 500,
+        "nearest_medical_care_m": 800,
+        "nearest_supermarket_m": 300,
+    }
+
+    ooda_rows = _property_distance_ooda_rows_for_preferences(facts, {})
+    titles = {row["title"] for row in ooda_rows}
+
+    assert "Nearest playground" not in titles
+    assert "Nearest library" not in titles
+    assert "Nearest medical care" not in titles
+    assert "Nearest supermarket" in titles
+
+    everyday_rows = _property_packet_everyday_fit_rows(facts=facts, preferences={})
+    everyday_titles = {row["title"] for row in everyday_rows}
+
+    assert "Playground" not in everyday_titles
+    assert "Library" not in everyday_titles
+    assert "Medical care" not in everyday_titles
+    assert "Supermarket" in everyday_titles
+
+
+def test_family_only_distance_rows_return_with_family_mode() -> None:
+    facts = {
+        "nearest_playground_m": 250,
+        "nearest_library_m": 500,
+        "nearest_medical_care_m": 800,
+    }
+    preferences = {"enable_family_mode": True}
+
+    ooda_rows = _property_distance_ooda_rows_for_preferences(facts, preferences)
+    titles = {row["title"] for row in ooda_rows}
+    assert "Nearest playground" in titles
+    assert "Nearest library" in titles
+    assert "Nearest medical care" in titles
+
+    everyday_rows = _property_packet_everyday_fit_rows(facts=facts, preferences=preferences)
+    everyday_titles = {row["title"] for row in everyday_rows}
+    assert "Playground" in everyday_titles
+    assert "Library" in everyday_titles
+    assert "Medical care" in everyday_titles

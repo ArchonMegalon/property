@@ -342,22 +342,44 @@ def _property_candidate_directions_url(
     )
 
 
-def _property_candidate_route_evidence(candidate: dict[str, object]) -> list[dict[str, str]]:
+def _property_family_filters_active(preferences: dict[str, object]) -> bool:
+    if bool(preferences.get("enable_family_mode")):
+        return True
+    school_stage_preferences = preferences.get("school_stage_preferences")
+    if isinstance(school_stage_preferences, (list, tuple, set)) and any(str(item).strip() for item in school_stage_preferences):
+        return True
+    keywords = {
+        str(value).strip().lower()
+        for value in str(preferences.get("keywords") or "").split(",")
+        if str(value).strip()
+    }
+    return bool(
+        {"family", "playground nearby", "library nearby", "public pool nearby", "medical care nearby"} & keywords
+    )
+
+
+def _property_candidate_route_evidence(
+    candidate: dict[str, object],
+    property_preferences: dict[str, object] | None = None,
+) -> list[dict[str, str]]:
     facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
     if isinstance(candidate.get("property_facts_json"), dict):
         facts = {**facts, **dict(candidate.get("property_facts_json") or {})}
     if isinstance(facts.get("listing_research_snapshot"), dict):
         facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
 
+    family_filters_active = _property_family_filters_active(property_preferences or {})
     specs = (
-        ("BOOK", "School", "nearest_school_m", "nearest_school_name", "nearest_school_lat", "nearest_school_lng", "transit"),
-        ("CART", "Supermarket", "nearest_supermarket_m", "nearest_supermarket_name", "nearest_supermarket_lat", "nearest_supermarket_lng", "walking"),
-        ("PLAY", "Playground", "nearest_playground_m", "nearest_playground_name", "nearest_playground_lat", "nearest_playground_lng", "walking"),
-        ("RX", "Pharmacy", "nearest_pharmacy_m", "nearest_pharmacy_name", "nearest_pharmacy_lat", "nearest_pharmacy_lng", "walking"),
-        ("U", "Transit", "nearest_subway_m", "nearest_subway_name", "nearest_subway_lat", "nearest_subway_lng", "transit"),
+        ("BOOK", "School", "nearest_school_m", "nearest_school_name", "nearest_school_lat", "nearest_school_lng", "transit", True),
+        ("CART", "Supermarket", "nearest_supermarket_m", "nearest_supermarket_name", "nearest_supermarket_lat", "nearest_supermarket_lng", "walking", False),
+        ("PLAY", "Playground", "nearest_playground_m", "nearest_playground_name", "nearest_playground_lat", "nearest_playground_lng", "walking", True),
+        ("RX", "Pharmacy", "nearest_pharmacy_m", "nearest_pharmacy_name", "nearest_pharmacy_lat", "nearest_pharmacy_lng", "walking", False),
+        ("U", "Transit", "nearest_subway_m", "nearest_subway_name", "nearest_subway_lat", "nearest_subway_lng", "transit", False),
     )
     rows: list[dict[str, str]] = []
-    for icon, label, distance_key, name_key, lat_key, lng_key, mode in specs:
+    for icon, label, distance_key, name_key, lat_key, lng_key, mode, family_only in specs:
+        if family_only and not family_filters_active:
+            continue
         raw_distance = facts.get(distance_key)
         if raw_distance in (None, "", []):
             continue
@@ -446,6 +468,7 @@ def _property_progress_route_preview_rows(
     origin_lat = facts.get("map_lat") or facts.get("lat") or facts.get("latitude")
     origin_lng = facts.get("map_lng") or facts.get("lng") or facts.get("lon") or facts.get("longitude")
     rows: list[dict[str, str]] = []
+    family_filters_active = _property_family_filters_active(property_preferences)
 
     commute_destination = str(property_preferences.get("commute_destination") or "").strip()
     if bool(property_preferences.get("enable_commute_research")) and commute_destination:
@@ -483,13 +506,15 @@ def _property_progress_route_preview_rows(
         )
 
     route_specs = (
-        ("School", "nearest_school_m", "nearest_school_name", "nearest_school_lat", "nearest_school_lng", "transit"),
-        ("Supermarket", "nearest_supermarket_m", "nearest_supermarket_name", "nearest_supermarket_lat", "nearest_supermarket_lng", "walking"),
-        ("Playground", "nearest_playground_m", "nearest_playground_name", "nearest_playground_lat", "nearest_playground_lng", "walking"),
-        ("Pharmacy", "nearest_pharmacy_m", "nearest_pharmacy_name", "nearest_pharmacy_lat", "nearest_pharmacy_lng", "walking"),
-        ("Underground", "nearest_subway_m", "nearest_subway_name", "nearest_subway_lat", "nearest_subway_lng", "transit"),
+        ("School", "nearest_school_m", "nearest_school_name", "nearest_school_lat", "nearest_school_lng", "transit", True),
+        ("Supermarket", "nearest_supermarket_m", "nearest_supermarket_name", "nearest_supermarket_lat", "nearest_supermarket_lng", "walking", False),
+        ("Playground", "nearest_playground_m", "nearest_playground_name", "nearest_playground_lat", "nearest_playground_lng", "walking", True),
+        ("Pharmacy", "nearest_pharmacy_m", "nearest_pharmacy_name", "nearest_pharmacy_lat", "nearest_pharmacy_lng", "walking", False),
+        ("Underground", "nearest_subway_m", "nearest_subway_name", "nearest_subway_lat", "nearest_subway_lng", "transit", False),
     )
-    for label, distance_key, name_key, lat_key, lng_key, mode in route_specs:
+    for label, distance_key, name_key, lat_key, lng_key, mode, family_only in route_specs:
+        if family_only and not family_filters_active:
+            continue
         raw_distance = facts.get(distance_key)
         if raw_distance in (None, "", []):
             continue
@@ -1938,7 +1963,7 @@ def app_section_payload(
             candidate_row["rank"] = index
             candidate_row.setdefault("map_url", _property_candidate_maps_url(candidate_row))
             candidate_row.setdefault("preview_image_url", _property_candidate_preview_image(candidate_row))
-            candidate_row.setdefault("route_evidence", _property_candidate_route_evidence(candidate_row))
+            candidate_row.setdefault("route_evidence", _property_candidate_route_evidence(candidate_row, property_preferences))
             if not str(candidate_row.get("packet_url") or "").strip():
                 candidate_row["packet_url"] = _packet_url_for_candidate(
                     candidate_row,
@@ -3289,8 +3314,8 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "7 km",
                 "tooltip": "Useful for family leisure and everyday sport access. Tracks public swimming pools.",
-                "step": "areas",
-                "advanced_panel": "lifestyle_distances",
+                "step": "children",
+                "advanced_panel": "children_distances",
             },
             {
                 "type": "range",
@@ -3306,8 +3331,8 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "7 km",
                 "tooltip": "Tracks proximity to doctors, health centers, clinics, and hospitals. Stronger signal when children or elder-care logistics matter.",
-                "step": "areas",
-                "advanced_panel": "location_research",
+                "step": "children",
+                "advanced_panel": "children_distances",
             },
             {
                 "type": "checkbox",
@@ -4393,23 +4418,26 @@ def property_workspace_payload(
 
     def _distance_line(candidate: dict[str, object]) -> str:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        family_filters_active = _property_family_filters_active(property_preferences)
         specs = (
-            ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m")),
-            ("Library", facts.get("nearest_library_m")),
-            ("Zoo", facts.get("nearest_zoo_m")),
-            ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m")),
-            ("Medical", facts.get("nearest_medical_care_m")),
-            ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m")),
-            ("Market", facts.get("nearest_market_m")),
-            ("Baumarkt", facts.get("nearest_hardware_store_m")),
-            ("Starbucks", facts.get("nearest_starbucks_m")),
-            ("Fitness", facts.get("nearest_fitness_center_m")),
-            ("Run", facts.get("nearest_running_m")),
-            ("Straßenbahn / Bus", facts.get("nearest_tram_bus_m") or facts.get("nearest_transit_m")),
-            ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m")),
+            ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m"), True),
+            ("Library", facts.get("nearest_library_m"), True),
+            ("Zoo", facts.get("nearest_zoo_m"), True),
+            ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m"), False),
+            ("Medical", facts.get("nearest_medical_care_m"), True),
+            ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m"), False),
+            ("Market", facts.get("nearest_market_m"), False),
+            ("Baumarkt", facts.get("nearest_hardware_store_m"), False),
+            ("Starbucks", facts.get("nearest_starbucks_m"), False),
+            ("Fitness", facts.get("nearest_fitness_center_m"), False),
+            ("Run", facts.get("nearest_running_m"), False),
+            ("Straßenbahn / Bus", facts.get("nearest_tram_bus_m") or facts.get("nearest_transit_m"), False),
+            ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m"), False),
         )
         parts: list[str] = []
-        for label, raw_value in specs:
+        for label, raw_value, family_only in specs:
+            if family_only and not family_filters_active:
+                continue
             if raw_value in (None, "", []):
                 continue
             try:
@@ -4503,21 +4531,24 @@ def property_workspace_payload(
 
     def _candidate_ooda_rows(candidate: dict[str, object], facts: dict[str, object]) -> list[dict[str, str]]:
         rows: list[dict[str, str]] = []
-        for label, raw_value in (
-            ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m")),
-            ("Library", facts.get("nearest_library_m")),
-            ("Zoo", facts.get("nearest_zoo_m")),
-            ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m")),
-            ("Medical care", facts.get("nearest_medical_care_m")),
-            ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m")),
-            ("Market", facts.get("nearest_market_m")),
-            ("Baumarkt", facts.get("nearest_hardware_store_m")),
-            ("Starbucks", facts.get("nearest_starbucks_m")),
-            ("Fitness", facts.get("nearest_fitness_center_m")),
-            ("Run or green space", facts.get("nearest_running_m")),
-            ("Straßenbahn / Bus", facts.get("nearest_tram_bus_m") or facts.get("nearest_transit_m")),
-            ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m")),
+        family_filters_active = _property_family_filters_active(property_preferences)
+        for label, raw_value, family_only in (
+            ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m"), True),
+            ("Library", facts.get("nearest_library_m"), True),
+            ("Zoo", facts.get("nearest_zoo_m"), True),
+            ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m"), False),
+            ("Medical care", facts.get("nearest_medical_care_m"), True),
+            ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m"), False),
+            ("Market", facts.get("nearest_market_m"), False),
+            ("Baumarkt", facts.get("nearest_hardware_store_m"), False),
+            ("Starbucks", facts.get("nearest_starbucks_m"), False),
+            ("Fitness", facts.get("nearest_fitness_center_m"), False),
+            ("Run or green space", facts.get("nearest_running_m"), False),
+            ("Straßenbahn / Bus", facts.get("nearest_tram_bus_m") or facts.get("nearest_transit_m"), False),
+            ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m"), False),
         ):
+            if family_only and not family_filters_active:
+                continue
             if raw_value in (None, "", []):
                 continue
             try:
