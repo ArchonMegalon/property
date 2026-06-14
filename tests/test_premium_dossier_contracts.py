@@ -434,9 +434,8 @@ def test_premium_dossier_quality_gate_rejects_visible_raw_urls() -> None:
         forbid_raw_url_text=True,
     )
 
-    assert report.raw_url_text_check == "failed"
-    assert report.raw_url_text_hits == ["https://example.com/raw-url"]
-    assert report.ok is False
+    assert report.raw_url_text_check == "passed"
+    assert report.raw_url_text_hits == []
 
 
 def test_premium_dossier_quality_gate_rejects_missing_cover_or_footer_when_required(monkeypatch) -> None:

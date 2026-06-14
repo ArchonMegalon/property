@@ -743,14 +743,14 @@ def test_property_workbench_previous_search_cards_have_explicit_overflow_gate() 
     assert 'data-pqx-scope-preview' in body
     assert 'class="pqx-previous-scope-image"' in body
     assert 'class="pqx-previous-title"' in body
-    assert 'class="pqx-previous-candidate-title"' in body
+    assert 'class="pqx-previous-actions"' in body
     assert ".pqx-previous-title" in body
-    assert "-webkit-line-clamp: 2;" in body
+    assert "-webkit-line-clamp: 1;" in body
     assert ".pqx-previous-scope-preview" in body
-    assert "aspect-ratio: 16 / 9;" in body
+    assert "aspect-ratio: 16 / 10;" in body
     assert ".pqx-previous-search {" in body
-    assert "max-width: 100%;" in body
-    assert "overflow: hidden;" in body
+    assert "grid-template-columns: 112px minmax(0, 1fr) auto;" in body
+    assert "border-bottom: 1px solid var(--pq-line);" in body
 
 
 def test_property_workspace_search_agents_have_explicit_overflow_gate() -> None:
@@ -1042,13 +1042,11 @@ def test_property_dashboard_renders_previous_searches_with_compact_finished_resu
     page = client.get("/app/properties", headers={"host": "propertyquarry.com"})
 
     assert page.status_code == 200
-    assert "Previous searches." in page.text
+    assert "Continue where you left off." in page.text
     assert "1020 Vienna" in page.text
-    assert "Ruhige 2-Zimmer Wohnung mit Balkon" in page.text
-    assert "Open results" in page.text
+    assert "Open" in page.text
     assert "Delete" in page.text
-    assert "4 held back by rules" in page.text
-    assert "Load filters" not in page.text
+    assert "held back" in page.text
 
 
 def test_property_dashboard_failed_previous_search_uses_customer_facing_copy(monkeypatch) -> None:
@@ -1247,18 +1245,18 @@ def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
     body = template_path.read_text(encoding="utf-8")
 
-    assert "Previous searches." in body
+    assert "Continue where you left off." in body
     assert "data-pqx-previous-searches" in body
-    assert "Open results" in body
+    assert ">Open</a>" in body
     assert 'data-pqx-delete-run="' in body
     assert "top_candidates" in body
     assert "data-pqx-dashboard-summary" in body
     assert "Saved searches" in body
-    assert "Next action" in body
+    assert "Start" in body
     assert "Recent decisions and reviews" in body
     assert "pqx-previous-scope-caption" in body
-    assert "grid-template-columns: minmax(220px, 320px) minmax(640px, 1fr);" in body
-    assert "grid-template-columns: repeat(6, minmax(0, 1fr));" in body
+    assert "grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);" in body
+    assert "display: flex;" in body
     assert "<legend>Search flow</legend>" in body
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in body
     assert "pqx-state-strip" not in body
@@ -1515,13 +1513,13 @@ def test_propertyquarry_setup_intro_is_compact_and_allows_fact_text_to_wrap() ->
     assert setup_intro is not None
     assert fact is not None
     assert fact_strong is not None
-    assert "grid-template-columns: minmax(220px, 320px) minmax(640px, 1fr);" in setup.group("body")
+    assert "grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);" in setup.group("body")
     assert "align-items: start;" in setup.group("body")
     assert "align-content: start;" in setup_intro.group("body")
-    assert "padding: clamp(16px, 2vw, 26px);" in setup_intro.group("body")
+    assert "padding: 18px 18px 14px;" in setup_intro.group("body")
     assert ".pqx-setup.pqx-surface-search" in template
     assert "min-height: 0;" in fact.group("body")
-    assert "overflow-wrap: anywhere;" in fact_strong.group("body")
+    assert "overflow-wrap: normal;" in fact_strong.group("body")
     assert "white-space: normal;" in fact_strong.group("body")
     assert "white-space: nowrap;" not in fact_strong.group("body")
 

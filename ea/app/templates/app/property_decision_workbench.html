@@ -229,11 +229,12 @@
       top: 0;
       z-index: 30;
       display: grid;
-      grid-template-columns: minmax(220px, auto) minmax(0, 1fr) auto auto;
-      grid-template-areas: "brand nav actions account";
-      gap: 14px 18px;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-areas: "brand nav account";
+      gap: 14px 20px;
       align-items: center;
-      padding: 14px clamp(16px, 3vw, 34px);
+      min-height: 64px;
+      padding: 10px 24px;
       border-bottom: 1px solid var(--pq-line);
       background: rgba(246, 243, 238, 0.92);
       backdrop-filter: blur(14px);
@@ -242,32 +243,34 @@
       grid-area: nav;
       display: flex;
       align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: nowrap;
       min-width: 0;
+      overflow: hidden;
     }
     .pqx-primary-nav a {
-      min-height: 34px;
+      min-height: 32px;
       display: inline-flex;
       align-items: center;
-      padding: 0 12px;
-      border: 1px solid transparent;
-      border-radius: 999px;
+      padding: 0 4px;
+      border: 0;
+      border-bottom: 2px solid transparent;
       color: var(--pq-muted);
       font-size: 13px;
       font-weight: 650;
       text-decoration: none;
+      white-space: nowrap;
     }
     .pqx-primary-nav a:hover,
     .pqx-primary-nav a:focus-visible {
       color: var(--pq-ink);
-      border-color: var(--pq-line);
       outline: none;
     }
     .pqx-primary-nav a.is-active {
       color: var(--pq-ink);
-      border-color: rgba(189, 139, 47, 0.28);
-      background: rgba(189, 139, 47, 0.12);
+      border-bottom-color: var(--pq-gold);
+      background: transparent;
     }
     .pqx-brand {
       grid-area: brand;
@@ -307,14 +310,7 @@
     .pqx-brand-copy {
       display: none;
     }
-    .pqx-run-summary {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      align-items: center;
-      min-width: 0;
-      margin-right: 4px;
-    }
+    .pqx-run-summary { display: none; }
     .pqx-run-chip {
       min-height: 30px;
       display: inline-flex;
@@ -360,9 +356,7 @@
       flex-wrap: wrap;
     }
     .pqx-top-actions {
-      grid-area: actions;
-      justify-content: flex-end;
-      min-width: 0;
+      display: none;
     }
     .pqx-button,
     .pqx-link-button,
@@ -445,7 +439,9 @@
     }
     .pqx-account-menu-label strong {
       line-height: 1.25;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-account-menu-links {
       display: grid;
@@ -467,7 +463,9 @@
       padding: 9px 10px;
       text-align: left;
       line-height: 1.3;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
       white-space: normal;
     }
     .pqx-recent-review-static {
@@ -481,7 +479,9 @@
       font-size: 12px;
       font-weight: 720;
       line-height: 1.3;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
       white-space: normal;
     }
     .pqx-mode-button.active,
@@ -598,9 +598,9 @@
       font-size: 12px;
     }
     .pqx-main {
-      width: min(1840px, calc(100vw - 40px));
+      width: min(1280px, calc(100vw - 32px));
       margin: 0 auto;
-      padding: clamp(8px, 1.2vw, 14px) 0 48px;
+      padding: 16px 0 28px;
     }
     .pqx-mobile-switch {
       display: none;
@@ -654,19 +654,19 @@
     .pqx-section-head h2 { font-size: 1.05rem; }
     .pqx-section-head h3 { font-size: 0.95rem; }
     .pqx-setup {
-      min-height: calc(100vh - 172px);
+      min-height: calc(100vh - 124px);
       display: grid;
-      grid-template-columns: minmax(220px, 320px) minmax(640px, 1fr);
-      gap: clamp(10px, 1.4vw, 18px);
+      grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+      gap: 20px;
       align-items: start;
     }
     .pqx-setup.pqx-surface-search {
-      grid-template-columns: minmax(640px, 1fr) minmax(240px, 320px);
+      grid-template-columns: minmax(0, 1fr) minmax(250px, 300px);
     }
     .pqx-setup.pqx-surface-search .pqx-command {
       order: 1;
       gap: 10px;
-      padding: 10px 12px;
+      padding: 14px 16px;
     }
     .pqx-setup.pqx-surface-search > [data-pqx-mobile-panel="results"] {
       max-height: calc(100vh - 172px);
@@ -680,42 +680,26 @@
       gap: 10px;
       padding: 12px 14px;
     }
-    .pqx-surface-search .pqx-dashboard-row {
-      padding: 8px 10px;
-      gap: 3px;
-    }
-    .pqx-surface-search .pqx-previous-search-list {
-      gap: 8px;
-    }
-    .pqx-surface-search .pqx-previous-search {
-      gap: 8px;
-      padding: 9px;
-    }
-    .pqx-surface-search .pqx-previous-scope-preview {
-      gap: 6px;
-    }
-    .pqx-surface-search .pqx-previous-scope-caption .pqx-note {
-      font-size: 11px;
-    }
     .pqx-setup-intro {
       display: grid;
       align-content: start;
-      gap: 16px;
+      gap: 14px;
       align-self: start;
-      padding: clamp(16px, 2vw, 26px);
+      padding: 18px 18px 14px;
+      border: 1px solid var(--pq-line);
       border-radius: 10px;
-      background: var(--pq-charcoal);
-      color: #fff9ed;
-      box-shadow: var(--pq-shadow);
+      background: var(--pq-paper);
+      color: var(--pq-ink);
+      box-shadow: none;
     }
     .pqx-setup-intro .pqx-title h1,
     .pqx-setup-intro .pqx-title strong {
-      color: #fff9ed;
+      color: var(--pq-ink);
     }
     .pqx-setup-intro .pqx-title span,
     .pqx-setup-intro .pqx-note,
     .pqx-setup-intro .pqx-small {
-      color: #d7cdbb;
+      color: var(--pq-muted);
     }
     .pqx-brief-stack,
     .pqx-fact-grid,
@@ -737,46 +721,50 @@
     }
     .pqx-dashboard-row {
       display: grid;
-      gap: 4px;
-      padding: 11px 12px;
-      border: 1px solid rgba(255, 249, 237, 0.16);
-      border-radius: 8px;
-      background: rgba(255, 249, 237, 0.06);
+      gap: 2px;
+      padding: 10px 0;
+      border: 0;
+      border-bottom: 1px solid var(--pq-line);
+      border-radius: 0;
+      background: transparent;
       min-width: 0;
     }
     .pqx-dashboard-row strong,
     .pqx-dashboard-row span {
       min-width: 0;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-previous-search-list {
       display: grid;
-      gap: 10px;
+      gap: 0;
     }
     .pqx-previous-search {
       display: grid;
-      gap: 10px;
-      padding: 10px;
-      border: 1px solid rgba(255, 249, 237, 0.16);
-      border-radius: 8px;
-      background: rgba(255, 249, 237, 0.07);
+      grid-template-columns: 112px minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 0;
+      border: 0;
+      border-bottom: 1px solid var(--pq-line);
+      border-radius: 0;
+      background: transparent;
       min-width: 0;
-      max-width: 100%;
-      overflow: hidden;
     }
     .pqx-previous-scope-preview {
       position: relative;
       display: grid;
-      gap: 8px;
+      gap: 4px;
     }
     .pqx-previous-scope-image {
       display: block;
       width: 100%;
-      aspect-ratio: 16 / 9;
+      aspect-ratio: 16 / 10;
       object-fit: cover;
-      border-radius: 9px;
-      border: 1px solid rgba(255, 249, 237, 0.14);
-      background: rgba(255, 249, 237, 0.08);
+      border-radius: 8px;
+      border: 1px solid var(--pq-line);
+      background: var(--pq-panel);
     }
     .pqx-previous-scope-caption {
       display: flex;
@@ -798,87 +786,68 @@
       min-height: 24px;
       padding: 0 8px;
       border-radius: 999px;
-      border: 1px solid rgba(255, 249, 237, 0.18);
-      background: rgba(0, 0, 0, 0.12);
-      color: #fff9ed;
+      border: 1px solid var(--pq-line);
+      background: transparent;
+      color: var(--pq-muted);
       font-size: 11px;
       font-weight: 760;
       white-space: nowrap;
     }
     .pqx-previous-search-head {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 8px;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 3px;
       align-items: center;
       min-width: 0;
-      max-width: 100%;
     }
     .pqx-previous-search-head > div,
     .pqx-previous-search-head strong,
     .pqx-previous-search-head span {
       min-width: 0;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-previous-title {
       display: -webkit-box;
-      max-width: 100%;
       overflow: hidden;
-      -webkit-line-clamp: 2;
+      -webkit-line-clamp: 1;
       -webkit-box-orient: vertical;
-      line-height: 1.18;
+      line-height: 1.24;
     }
     .pqx-previous-metrics {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 5px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
     }
     .pqx-previous-metrics span {
-      display: grid;
-      gap: 1px;
-      padding: 6px 7px;
-      border: 1px solid rgba(255, 249, 237, 0.14);
-      border-radius: 7px;
-      background: rgba(255, 249, 237, 0.05);
-      color: #d7cdbb;
-      font-size: 10px;
-      text-transform: uppercase;
-      line-height: 1.12;
+      display: inline-flex;
+      align-items: baseline;
+      gap: 4px;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: var(--pq-muted);
+      font-size: 12px;
+      text-transform: none;
+      line-height: 1.25;
     }
     .pqx-previous-metrics b {
-      color: #fff9ed;
-      font-size: 14px;
-      text-transform: none;
+      color: var(--pq-ink);
+      font-size: 12px;
     }
-    .pqx-previous-candidates {
+    .pqx-previous-body {
       display: grid;
       gap: 6px;
+      min-width: 0;
     }
-    .pqx-previous-candidate {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 8px;
+    .pqx-previous-actions {
+      display: flex;
       align-items: center;
-      padding: 7px 8px;
-      border-radius: 7px;
-      background: rgba(0, 0, 0, 0.12);
-      min-width: 0;
-      max-width: 100%;
-      overflow: hidden;
-    }
-    .pqx-previous-candidate > div {
-      min-width: 0;
-    }
-    .pqx-previous-candidate strong,
-    .pqx-previous-candidate small {
-      display: block;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .pqx-previous-candidate small {
-      color: #d7cdbb;
-      font-size: 11px;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
     }
     .pqx-finished-compare {
       display: grid;
@@ -911,7 +880,9 @@
       margin: 0;
       font-size: 0.98rem;
       line-height: 1.18;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-compare-meta {
       display: grid;
@@ -976,7 +947,9 @@
       color: #fff9ed;
       font-size: clamp(0.95rem, 1.25vw, 1.08rem);
       line-height: 1.15;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
       white-space: normal;
     }
     .pqx-command {
@@ -1003,35 +976,34 @@
       line-height: 1.35;
     }
     .pqx-workflow {
-      display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+      display: flex;
+      flex-wrap: nowrap;
       gap: 6px;
-      padding: 6px;
+      padding: 0 0 8px;
       margin: 0;
-      border: 1px solid var(--pq-line);
-      border-radius: 10px;
-      background: rgba(255, 253, 248, 0.78);
+      border: 0;
+      border-bottom: 1px solid var(--pq-line);
+      border-radius: 0;
+      background: transparent;
       min-width: 0;
+      overflow-x: auto;
     }
     .pqx-surface-search .pqx-workflow {
       gap: 4px;
       padding: 4px;
     }
-    .pqx-workflow legend {
-      padding: 0 6px;
-      color: var(--pq-muted);
-      font-size: 11px;
-      font-weight: 760;
-      text-transform: uppercase;
-    }
+    .pqx-workflow legend { display: none; }
     .pqx-workflow-step {
-      display: grid;
-      place-items: center;
-      min-height: 0;
-      padding: 6px 7px;
-      border: 1px solid var(--pq-line);
-      border-radius: 8px;
-      background: var(--pq-panel);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      min-height: 36px;
+      padding: 0 10px;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
+      background: transparent;
       color: var(--pq-ink);
       text-align: center;
       cursor: pointer;
@@ -1044,8 +1016,6 @@
       display: block;
       width: 100%;
       font-size: 12px;
-      overflow: hidden;
-      text-overflow: ellipsis;
       white-space: nowrap;
     }
     .pqx-surface-search .pqx-workflow-step strong {
@@ -1054,19 +1024,20 @@
     .pqx-form-body {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 6px 8px;
+      gap: 8px 10px;
       align-items: start;
     }
     .pqx-surface-search .pqx-form-body {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 5px 7px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 10px;
     }
     .pqx-advanced-panel {
       grid-column: 1 / -1;
-      border: 1px dashed var(--pq-line-strong);
-      border-radius: 12px;
-      background: linear-gradient(180deg, rgba(247, 241, 229, 0.72), rgba(255, 253, 248, 0.9));
-      padding: 8px 10px 10px;
+      border: 0;
+      border-top: 1px solid var(--pq-line);
+      border-radius: 0;
+      background: transparent;
+      padding: 10px 0 0;
     }
     .pqx-surface-search .pqx-advanced-panel {
       padding: 6px 8px 8px;
@@ -1149,7 +1120,9 @@
     }
     .pqx-range-head > span:first-child {
       min-width: 0;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-check-note {
       margin-top: 8px;
@@ -1282,7 +1255,9 @@
     }
     .pqx-range-scale span {
       min-width: 0;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-range-scale [data-current-plan-cap] {
       color: var(--pq-gold-strong);
@@ -1297,25 +1272,25 @@
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 6px;
-      max-height: 164px;
-      overflow: auto;
-      padding-right: 2px;
+      max-height: none;
+      overflow: visible;
+      padding-right: 0;
     }
     .pqx-surface-search .pqx-check-grid {
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 5px;
-      max-height: 126px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 4px 10px;
+      max-height: none;
     }
     .pqx-check {
-      min-height: 42px;
+      min-height: 36px;
       display: grid;
-      grid-template-columns: auto 1fr;
-      gap: 7px;
+      grid-template-columns: 18px minmax(0, 1fr);
+      gap: 6px;
       align-items: start;
-      padding: 7px 8px;
-      border: 1px solid var(--pq-line);
-      border-radius: 8px;
-      background: var(--pq-panel);
+      padding: 6px 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
       cursor: pointer;
     }
     .pqx-surface-search .pqx-check {
@@ -1332,7 +1307,9 @@
     }
     .pqx-check > span {
       min-width: 0;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-check span span {
       display: block;
@@ -1340,7 +1317,9 @@
       font-size: 12px;
       font-weight: 730;
       line-height: 1.28;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-surface-search .pqx-check span span {
       font-size: 11px;
@@ -1351,7 +1330,9 @@
       color: var(--pq-muted);
       font-size: 10px;
       line-height: 1.25;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-surface-search .pqx-check small {
       font-size: 9px;
@@ -1479,9 +1460,6 @@
       .pqx-surface-search .pqx-field-tools .pqx-field-action {
         font-size: 11px;
       }
-      .pqx-surface-search .pqx-check-grid {
-        max-height: 112px;
-      }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="property_type"] {
         grid-template-columns: repeat(6, minmax(0, 1fr));
       }
@@ -1537,7 +1515,9 @@
     .pqx-pref-row small {
       display: block;
       min-width: 0;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-pref-row small {
       color: var(--pq-muted);
@@ -1679,7 +1659,9 @@
     .pqx-progress-board strong,
     .pqx-progress-board span {
       min-width: 0;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-concierge-pulse {
       display: grid;
@@ -1811,7 +1793,9 @@
     .pqx-route-preview-meta span,
     .pqx-route-preview-meta b {
       min-width: 0;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-route-preview-svg {
       width: 100%;
@@ -1968,7 +1952,9 @@
     .pqx-research-task-head span,
     .pqx-research-task .pqx-note {
       min-width: 0;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-research-task-head > div > span {
       display: block;
@@ -1991,7 +1977,9 @@
     }
     .pqx-research-value strong {
       min-width: 0;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-research-task-form {
       display: grid;
@@ -2099,7 +2087,9 @@
       font-size: 11px;
       font-weight: 800;
       line-height: 1.2;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-result-trust {
       display: flex;
@@ -2127,7 +2117,9 @@
       border-bottom: 1px solid var(--pq-line);
       text-align: left;
       vertical-align: top;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-table th {
       font-size: 11px;
@@ -2158,7 +2150,9 @@
     .pqx-source-card strong,
     .pqx-source-card span {
       min-width: 0;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-source-metrics {
       display: grid;
@@ -2596,10 +2590,13 @@
       }
       .pqx-main {
         width: min(100vw - 20px, 760px);
+        padding-top: 8px;
         padding-bottom: 96px;
       }
       .pqx-mobile-switch {
         display: flex;
+        padding: 6px;
+        margin-bottom: 8px;
       }
       .pqx-panel[data-pqx-mobile-panel]:not(.active),
       .pqx-review[data-pqx-mobile-panel]:not(.active),
@@ -2621,8 +2618,8 @@
         gap: 10px;
       }
       .pqx-running .pqx-command {
-        gap: 10px;
-        padding: 12px;
+        gap: 8px;
+        padding: 10px;
       }
       .pqx-run-head {
         gap: 10px;
@@ -2815,25 +2812,29 @@
           {% set selected_dashboard_agent = property_meta.get('search_agent') or (dashboard_agents[0] if dashboard_agents else {}) %}
           {% set previous_limit = 4 if surface_mode == 'search' else 6 %}
           <div class="pqx-title">
-            <span>{% if surface_mode == 'search' %}Search desk{% else %}Dashboard{% endif %}</span>
-            <h1>{% if surface_mode == 'search' %}Build the next search.{% else %}Previous searches.{% endif %}</h1>
+            <span>{% if surface_mode == 'search' %}Search{% else %}Previous searches{% endif %}</span>
+            <h1>{% if surface_mode == 'search' %}Edit the brief.{% else %}Continue where you left off.{% endif %}</h1>
           </div>
           {% if surface_mode != 'search' %}
           <div class="pqx-brief-stack">
-            <p class="pqx-note">Resume a recent search or open a saved one to edit it.</p>
+            <p class="pqx-note">Open a recent run, load a saved search, or start a new brief.</p>
           </div>
           {% endif %}
           <div class="pqx-dashboard-stack" data-pqx-dashboard-summary>
             <div class="pqx-dashboard-row">
               <span class="pqx-small">Saved searches</span>
               <strong>{{ active_dashboard_agents|length }} active · {{ dashboard_agents|length }} total</strong>
-              <span class="pqx-note">{% if selected_dashboard_agent %}Selected: {{ selected_dashboard_agent.get('name') or 'Saved search' }}{% else %}Create a saved search from the form when this brief should keep running.{% endif %}</span>
+              <span class="pqx-note">{% if selected_dashboard_agent %}Current: {{ selected_dashboard_agent.get('name') or 'Saved search' }}{% else %}Save this brief when it should keep running on its own.{% endif %}</span>
             </div>
             {% if surface_mode != 'search' %}
             <div class="pqx-dashboard-row">
-              <span class="pqx-small">Next action</span>
-              <strong>{% if dashboard_agents %}{% if surface_mode == 'search' %}Reuse a saved search or refine this brief{% else %}Edit or run a saved search{% endif %}{% else %}Create your first saved search{% endif %}</strong>
+              <span class="pqx-small">Start</span>
+              <strong>{% if dashboard_agents %}Open a saved search or launch a new brief{% else %}Create the first search brief{% endif %}</strong>
               <span class="pqx-note">Only the strongest homes are sent when limits apply.</span>
+            </div>
+            <div class="pqx-actions">
+              <a class="pqx-link-button primary" href="/app/search">New search</a>
+              <a class="pqx-link-button subtle" href="/app/agents">Saved searches</a>
             </div>
             {% endif %}
           </div>
@@ -2856,46 +2857,30 @@
                   {% if scope_preview.get('count_label') %}<span class="pqx-previous-scope-chip">{{ scope_preview.get('count_label') }}</span>{% endif %}
                 </div>
               </div>
-              <div class="pqx-previous-search-head">
-                <div>
-                  <strong class="pqx-previous-title">{{ previous.get('title') or 'Search' }}</strong>
-                  <span class="pqx-note">{{ previous.get('mode_label') }} · {{ scope_preview.get('market_label') or previous.get('scope_label') }}</span>
-                </div>
-                <span class="pqx-pill{% if previous.get('is_finished') %} good{% else %} warn{% endif %}">{{ previous.get('status_label') }}</span>
-              </div>
-              {% if previous.get('status_note') %}<div class="pqx-note">{{ previous.get('status_note') }}</div>{% endif %}
-              <div class="pqx-previous-metrics">
-                <span>Homes <b>{{ previous.get('listing_total') }}</b></span>
-                <span>Ranked <b>{{ previous.get('ranked_total') }}</b></span>
-                <span>Best fit <b>{{ previous.get('top_fit_score') }}</b></span>
-                <span>Sent <b>{{ previous.get('sent_total') }}</b></span>
-              </div>
-              {% if previous.get('top_candidates') %}
-              <div class="pqx-previous-candidates">
-                {% for candidate in previous.get('top_candidates')[:1] %}
-                <div class="pqx-previous-candidate">
+              <div class="pqx-previous-body">
+                <div class="pqx-previous-search-head">
                   <div>
-                    <strong class="pqx-previous-candidate-title">{{ candidate.get('title') }}</strong>
-                    <small>{{ candidate.get('source_label') }} · fit {{ candidate.get('fit_score') }}</small>
-                  </div>
-                  <div class="pqx-actions">
-                    {% if candidate.get('review_url') %}<a class="pqx-link-button subtle" href="{{ candidate.get('review_url') }}">Review</a>{% endif %}
-                    {% if candidate.get('map_url') %}<a class="pqx-link-button subtle" href="{{ candidate.get('map_url') }}" target="_blank" rel="noreferrer">Map</a>{% endif %}
+                    <strong class="pqx-previous-title">{{ previous.get('title') or 'Search' }}</strong>
+                    <span class="pqx-note">{{ previous.get('mode_label') }} · {{ scope_preview.get('market_label') or previous.get('scope_label') }} · {{ previous.get('status_label') }}</span>
                   </div>
                 </div>
-                {% endfor %}
+                <div class="pqx-previous-metrics">
+                  <span><b>{{ previous.get('ranked_total') or 0 }}</b> ranked</span>
+                  {% if previous.get('sent_total') %}<span><b>{{ previous.get('sent_total') }}</b> sent</span>{% endif %}
+                  {% if previous.get('top_fit_score') %}<span>best <b>{{ previous.get('top_fit_score') }}</b></span>{% endif %}
+                  {% if previous.get('held_back_total') %}<span><b>{{ previous.get('held_back_total') }}</b> held back</span>{% endif %}
+                </div>
+                {% if previous.get('status_note') %}<div class="pqx-note">{{ previous.get('status_note') }}</div>{% endif %}
               </div>
-              {% endif %}
-              <div class="pqx-actions">
-                <a class="pqx-link-button primary" href="{{ previous.get('href') }}">Open results</a>
+              <div class="pqx-previous-actions">
+                <a class="pqx-link-button primary" href="{{ previous.get('href') }}">Open</a>
                 <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ previous.get('run_id') }}">Delete</button>
-                {% if previous.get('held_back_total') %}<span class="pqx-note">{{ previous.get('held_back_total') }} held back by rules</span>{% endif %}
               </div>
             </article>
             {% else %}
             <div class="pqx-dashboard-row">
               <span class="pqx-small">No previous searches yet</span>
-              <strong>Run a search once, then it will appear here.</strong>
+              <strong>Start with one search or evaluate a single listing.</strong>
               <span class="pqx-note">Recent searches will appear here after the first run.</span>
             </div>
             {% endfor %}
@@ -2917,10 +2902,10 @@
         <section class="pqx-command active" data-pqx-mobile-panel="brief" data-workbench-brief-drawer>
           <div class="pqx-section-head">
             <div>
-              <h2>Search</h2>
-              <div class="pqx-note" data-property-step-summary>Market, area, budget, then launch.</div>
+              <h2>Edit search</h2>
+              <div class="pqx-note" data-property-step-summary>Market, property, must-haves, research, then launch.</div>
             </div>
-            <span class="pqx-pill" data-property-step-progress>Search</span>
+            <span class="pqx-pill" data-property-step-progress>Brief</span>
           </div>
           {% if console_form and show_form_controls %}
           <div class="pqx-loaded-agent" data-search-agent-loaded-state>
@@ -2960,13 +2945,13 @@
               <details class="pqx-advanced-panel" data-property-advanced-panel="{{ advanced_panel }}">
                 <summary>
                   {% if advanced_panel == 'children' %}
-                  Family & schools
+                  Family
                   {% elif advanced_panel == 'commute' %}
                   Commute
                   {% elif advanced_panel == 'provider_policies' %}
-                  Sources
+                  Providers
                   {% else %}
-                  More filters
+                  More
                   {% endif %}
                 </summary>
                 <div class="pqx-advanced-panel-grid">
@@ -3353,13 +3338,15 @@
             {% endif %}
           </div>
         </aside>
-        <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property" data-pqx-screenfit-target="run-progress">
+        <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property">
+          <div data-pqx-screenfit-target="run-progress">
           <div class="pqx-section-head">
             <div>
               <h2>Best matches</h2>
               <div class="pqx-note" data-pqx-run-summary>{{ run_summary.get('sources_total') or run_sources|length or 0 }} sources checked · {{ run_summary.get('listing_total') or 0 }} homes reviewed · {{ run_summary.get('filtered_low_fit_total') or 0 }} below your fit threshold · {{ run_summary.get('filtered_floorplan_total') or 0 }} pending layout proof</div>
             </div>
             <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
+          </div>
           </div>
           {{ search_guard_panel(workbench.get('search_guard_rows') or []) }}
           {{ suppression_panel(workbench.get('suppression_rows') or []) }}
@@ -3465,7 +3452,7 @@
           </details>
           {% if run_sources %}
           <details class="pqx-card">
-            <summary><strong>Search diagnostics</strong><span class="pqx-note">Open only when results look wrong or too narrow.</span></summary>
+            <summary><strong>How this search was filtered</strong><span class="pqx-note">Open only when results look wrong or too narrow.</span></summary>
           <div class="pqx-source-grid" data-pqx-source-breakdown>
             {% for source in run_sources %}
             <article class="pqx-source-card">
@@ -3686,7 +3673,7 @@
               </div>
             </details>
             <section class="pqx-card pqx-decision-wizard">
-              <div class="pqx-section-head"><h2>Would you pursue this property?</h2><span class="pqx-pill">Decision wizard</span></div>
+              <div class="pqx-section-head"><h2>Would you pursue this property?</h2><span class="pqx-pill">Decision</span></div>
               <div class="pqx-decision-copy">Start with the simple answer. Then add only the reasons that matter and save the next step.</div>
               <div class="pqx-decision-stepper" aria-label="Decision steps">
                 <span class="is-active">1 Answer</span>

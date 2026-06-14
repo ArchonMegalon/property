@@ -277,7 +277,7 @@ class OnboardingPropertySearchPreferencesIn(BaseModel):
     country_code: str = "AT"
     language_code: str = "de"
     listing_mode: str = "rent"
-    property_type: str = "any"
+    property_type: str | list[str] = "any"
     location_query: str = ""
     keywords: str = ""
     selected_platforms: list[str] = Field(default_factory=list)
