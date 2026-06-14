@@ -1134,21 +1134,23 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
                     <span class="pqx-previous-scope-chip">2 areas</span>
                   </div>
                 </div>
-                <div class="pqx-previous-search-head">
-                  <div>
-                    <strong class="pqx-previous-title">${longTitle}</strong>
-                    <span class="pqx-note">Buy · Vienna · AT</span>
-                  </div>
-                  <span class="pqx-pill good">Finished</span>
-                </div>
-                <div class="pqx-previous-candidates">
-                  <div class="pqx-previous-candidate">
+                <div class="pqx-previous-body">
+                  <div class="pqx-previous-search-head">
                     <div>
-                      <strong class="pqx-previous-candidate-title">${longTitle}</strong>
-                      <small>DER STANDARD Immobilien · fit 64</small>
+                      <strong class="pqx-previous-title">${longTitle}</strong>
+                      <span class="pqx-note">Buy · Vienna · AT</span>
                     </div>
-                    <div class="pqx-actions"><a class="pqx-link-button subtle" href="#">Review</a></div>
                   </div>
+                  <div class="pqx-previous-metrics">
+                    <span><b>4</b> ranked</span>
+                    <span><b>2</b> sent</span>
+                    <span>best <b>64</b></span>
+                  </div>
+                  <div class="pqx-note">Best match is still below the shortlist threshold.</div>
+                </div>
+                <div class="pqx-previous-actions">
+                  <a class="pqx-link-button primary" href="#">Open</a>
+                  <button class="pqx-link-button subtle" type="button">Delete</button>
                 </div>`;
               list.prepend(card);
             }
@@ -1174,12 +1176,20 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
               const previousTitleVisibleOverflow = previousCards
                 .flatMap((card) => {
                   const cardBox = card.getBoundingClientRect();
-                  return Array.from(card.querySelectorAll('.pqx-previous-title, .pqx-previous-candidate-title')).map((node) => ({
+                  return Array.from(card.querySelectorAll('.pqx-previous-title')).map((node) => ({
                     cardBox,
                     nodeBox: node.getBoundingClientRect(),
                   }));
                 })
                 .filter(({ cardBox, nodeBox }) => nodeBox.left < cardBox.left - 1 || nodeBox.right > cardBox.right + 1);
+              const previousPreviewPlacementFailures = previousCards
+                .map((card) => {
+                  const preview = card.querySelector('.pqx-previous-scope-preview');
+                  const body = card.querySelector('.pqx-previous-body');
+                  if (!preview || !body) return true;
+                  return preview.getBoundingClientRect().top > body.getBoundingClientRect().top + 1;
+                })
+                .filter(Boolean);
               const stageBox = stage?.getBoundingClientRect();
               const introBox = intro?.getBoundingClientRect();
               const commandBox = command?.getBoundingClientRect();
@@ -1193,6 +1203,7 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
                 previousCardHorizontalOverflowCount: previousCardHorizontalOverflow.length,
                 previewFailureCount: previewFailures.length,
                 previousTitleVisibleOverflowCount: previousTitleVisibleOverflow.length,
+                previousPreviewPlacementFailureCount: previousPreviewPlacementFailures.length,
                 visibleRowLabels: rows.map((node) => (node.querySelector('span')?.textContent || '').trim()),
                 visibleRowValues: rows.map((node) => (node.querySelector('strong')?.textContent || '').trim()),
               };
@@ -1209,6 +1220,7 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
         assert layout["previousCardHorizontalOverflowCount"] == 0
         assert layout["previewFailureCount"] == 0
         assert layout["previousTitleVisibleOverflowCount"] == 0
+        assert layout["previousPreviewPlacementFailureCount"] == 0
         assert {"Saved searches", "Start"}.issubset(set(layout["visibleRowLabels"]))
         assert len([value for value in layout["visibleRowValues"] if value]) >= 2
         _assert_property_shell_visual_gates(page, max_appbar_height=92)

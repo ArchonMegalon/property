@@ -744,10 +744,10 @@
     }
     .pqx-previous-search {
       display: grid;
-      grid-template-columns: 112px minmax(0, 1fr) auto;
-      gap: 12px;
-      align-items: center;
-      padding: 10px 0;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      padding: 12px 0;
       border: 0;
       border-bottom: 1px solid var(--pq-line);
       border-radius: 0;
@@ -762,7 +762,7 @@
     .pqx-previous-scope-image {
       display: block;
       width: 100%;
-      aspect-ratio: 16 / 10;
+      aspect-ratio: 16 / 8;
       object-fit: cover;
       border-radius: 8px;
       border: 1px solid var(--pq-line);
@@ -1588,7 +1588,7 @@
         padding: 8px;
       }
       .pqx-surface-search .pqx-previous-scope-image {
-        aspect-ratio: 16 / 8;
+        aspect-ratio: 16 / 7;
       }
       .pqx-surface-search .pqx-loaded-agent {
         gap: 4px 8px;

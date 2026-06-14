@@ -748,9 +748,9 @@ def test_property_workbench_previous_search_cards_have_explicit_overflow_gate() 
     assert ".pqx-previous-title" in body
     assert "-webkit-line-clamp: 1;" in body
     assert ".pqx-previous-scope-preview" in body
-    assert "aspect-ratio: 16 / 10;" in body
+    assert "aspect-ratio: 16 / 8;" in body
     assert ".pqx-previous-search {" in body
-    assert "grid-template-columns: 112px minmax(0, 1fr) auto;" in body
+    assert "grid-template-columns: minmax(0, 1fr);" in body
     assert "border-bottom: 1px solid var(--pq-line);" in body
 
 
