@@ -48,7 +48,6 @@
   .pq-shortlist-card *,
   .pq-plan-card * {
     min-width: 0;
-    overflow-wrap: anywhere;
   }
   .pq-hero {
     display: grid;
@@ -71,7 +70,9 @@
     line-height: 1.2;
     font-weight: 640;
     letter-spacing: 0;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
   }
   .pq-panel h3,
   .pq-card h3,
@@ -92,7 +93,9 @@
   }
   .pq-copy {
     max-width: min(70ch, 100%);
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
   }
   .pq-grid {
     grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
@@ -128,20 +131,26 @@
     color: var(--text);
     margin-bottom: 4px;
     max-width: 100%;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
     white-space: normal;
   }
   .pq-results-table td small {
     color: var(--text-dim);
     display: block;
     max-width: 100%;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
     white-space: normal;
   }
   .pq-agent-table-primary,
   .pq-agent-table-secondary {
     max-width: 100%;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
     white-space: normal;
   }
   .pq-agent-table-primary {
@@ -197,7 +206,9 @@
     display: block;
     font-size: 1.12rem;
     line-height: 1.2;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
   }
   .pq-hero-highlight small {
     color: var(--text-soft);
@@ -394,7 +405,9 @@
   }
   .pq-range-head > span:first-child {
     min-width: 0;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
   }
   .pq-tooltip {
     position: relative;
@@ -476,7 +489,9 @@
   }
   .pq-range-scale span {
     min-width: 0;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
   }
   .pq-range-scale [data-current-plan-cap] {
     color: var(--accent);
@@ -540,14 +555,18 @@
   }
   .pq-choice > span {
     min-width: 0;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
   }
   .pq-choice-label {
     display: block;
     font-weight: 620;
     color: var(--text);
     line-height: 1.35;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
   }
   .pq-choice-detail {
     display: block;
@@ -555,7 +574,9 @@
     color: var(--text-dim);
     font-size: 12px;
     line-height: 1.45;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
   }
   .pq-field-link {
     width: fit-content;
@@ -1399,12 +1420,12 @@
               {% endif %}
             </div>
             <div class="pq-actions">
-              {% if candidate.get('packet_url') %}<a class="pq-action primary" href="{{ candidate.get('packet_url') }}">Review packet</a>{% endif %}
-              {% if candidate.get('review_url') %}<a class="pq-action" href="{{ candidate.get('review_url') }}">Review details</a>{% endif %}
+              {% if candidate.get('packet_url') %}<a class="pq-action primary" href="{{ candidate.get('packet_url') }}">Open property page</a>{% endif %}
+              {% if candidate.get('review_url') %}<a class="pq-action" href="{{ candidate.get('review_url') }}">Open source page</a>{% endif %}
               {% if candidate.get('tour_url') %}<a class="pq-action" href="{{ candidate.get('tour_url') }}">Open 360</a>{% endif %}
-              <button class="pq-action" type="button" data-fliplink-packet>Create share packet</button>
-              <a class="pq-action" href="/app/properties/packets">Packet follow-up</a>
-              {% if candidate.get('property_url') %}<a class="pq-action" href="{{ candidate.get('property_url') }}">Listing</a>{% endif %}
+              <button class="pq-action" type="button" data-fliplink-packet>Share this home</button>
+              <a class="pq-action" href="/app/properties/packets">Shared pages</a>
+              {% if candidate.get('property_url') %}<a class="pq-action" href="{{ candidate.get('property_url') }}">Open listing</a>{% endif %}
             </div>
             <div class="pq-feedback-row">
               <button class="pq-chip" type="button" data-feedback-reaction="like">Yes</button>
@@ -1504,8 +1525,8 @@
                 <option value="prefer_low_crime_area"></option>
                 <option value="prefer_low_parking_pressure"></option>
                 <option value="prefer_high_quality_drinking_water"></option>
-                <option value="preferred_districts"></option>
-                <option value="avoided_districts"></option>
+                <option value="preferred_areas"></option>
+                <option value="avoided_areas"></option>
                 <option value="min_area_sqm_preference"></option>
                 <option value="max_total_rent_eur"></option>
               </datalist>
@@ -1806,23 +1827,25 @@
     const countryField = form.querySelector('select[name="country_code"]');
     const regionField = form.querySelector('select[name="region_code"]');
     const fullRegionScopeField = form.querySelector('input[name="full_region_scope"]');
-    const districtValues = Array.isArray(nodeValues.get('preferred_districts')) ? nodeValues.get('preferred_districts') : [];
-    if (districtValues.length) {
-      const inferredScope = inferCountryRegionForLocations(meta, districtValues);
+    const areaValues = Array.isArray(nodeValues.get('preferred_areas'))
+      ? nodeValues.get('preferred_areas')
+      : [];
+    if (areaValues.length) {
+      const inferredScope = inferCountryRegionForLocations(meta, areaValues);
       if (countryField && inferredScope?.countryCode) countryField.value = inferredScope.countryCode;
       refreshRegionAndLocationChoices();
       if (regionField && inferredScope?.regionCode) {
         regionField.value = inferredScope.regionCode;
         refreshRegionAndLocationChoices();
       }
-      const mappedDistricts = uniqueValues(districtValues.map((value) => matchLocationValue(form, value)));
-      const availableDistricts = new Set([...(form.querySelectorAll('input[name="location_query"]') || [])].map((node) => String(node.value || '').trim().toLowerCase()));
-      const visibleDistricts = mappedDistricts.filter((value) => availableDistricts.has(String(value || '').trim().toLowerCase()));
-      const customDistricts = mappedDistricts.filter((value) => !availableDistricts.has(String(value || '').trim().toLowerCase()));
+      const mappedAreas = uniqueValues(areaValues.map((value) => matchLocationValue(form, value)));
+      const availableAreas = new Set([...(form.querySelectorAll('input[name="location_query"]') || [])].map((node) => String(node.value || '').trim().toLowerCase()));
+      const visibleAreas = mappedAreas.filter((value) => availableAreas.has(String(value || '').trim().toLowerCase()));
+      const customAreas = mappedAreas.filter((value) => !availableAreas.has(String(value || '').trim().toLowerCase()));
       if (fullRegionScopeField) fullRegionScopeField.checked = false;
-      setCheckboxValues(form, 'location_query', visibleDistricts);
+      setCheckboxValues(form, 'location_query', visibleAreas);
       const customLocationField = form.querySelector('[name="custom_location_query"]');
-      if (customLocationField) customLocationField.value = customDistricts.join(', ');
+      if (customLocationField) customLocationField.value = customAreas.join(', ');
       syncAreaScopeControls();
     }
     const maxRent = Number(nodeValues.get('max_total_rent_eur') || nodeValues.get('prefer_lower_total_rent_eur') || 0);
@@ -1988,7 +2011,7 @@
   const createFlipLinkPacketFromCard = async (card, button) => {
     let candidate = {};
     try { candidate = JSON.parse(card?.getAttribute('data-property-payload') || '{}'); } catch (_error) { candidate = {}; }
-    const original = button?.textContent || 'Create share packet';
+    const original = button?.textContent || 'Share this home';
     if (button) {
       button.disabled = true;
       button.textContent = 'Rendering share packet...';

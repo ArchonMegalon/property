@@ -118,7 +118,7 @@
     }
     .pq-pack-card h3 { margin: 0; font-size: 18px; line-height: 1.25; }
     .pq-pack-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
-    .pq-pack-muted { color: var(--pq-muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+    .pq-pack-muted { color: var(--pq-muted); font-size: 13px; line-height: 1.45; overflow-wrap: normal; word-break: normal; hyphens: auto; }
     .pq-pack-decision-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -204,7 +204,9 @@
     .pq-pack-feedback small,
     .pq-pack-feedback span {
       min-width: 0;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pq-pack-feedback small { display: block; color: var(--pq-muted); margin-top: 3px; }
     .pq-pack-review-actions {

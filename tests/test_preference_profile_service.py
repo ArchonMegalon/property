@@ -107,7 +107,7 @@ def test_preference_profile_service_records_evidence_and_applies_preference_hint
                 {
                     "domain": "willhaben",
                     "category": "soft_preference",
-                    "key": "preferred_districts",
+                    "key": "preferred_areas",
                     "value_json": ["Waehring"],
                     "strength": "medium",
                     "merge_mode": "append_unique",
@@ -117,7 +117,7 @@ def test_preference_profile_service_records_evidence_and_applies_preference_hint
     )
 
     assert result["event"]["event_type"] == "listing_shortlisted"
-    assert result["applied_nodes"][0]["key"] == "preferred_districts"
+    assert result["applied_nodes"][0]["key"] == "preferred_areas"
     assert result["applied_nodes"][0]["value_json"] == ["Waehring"]
 
 
@@ -180,7 +180,7 @@ def test_preference_profile_service_builds_teable_projection_rows() -> None:
         person_id="self",
         domain="willhaben",
         category="soft_preference",
-        key="preferred_districts",
+        key="preferred_areas",
         value_json=["Waehring"],
         confidence=0.8,
     )

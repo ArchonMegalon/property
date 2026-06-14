@@ -21,28 +21,6 @@
 {% set show_form_controls = show_brief_form and setup_mode %}
 {% set research_tasks = workbench.get('research_tasks') or [] %}
 {% set research_task_counts = workbench.get('research_task_counts') or {} %}
-{% macro search_guard_panel(rows) -%}
-{% if rows %}
-<section class="pqx-card pqx-search-guard" data-pqx-search-guard>
-  <div class="pqx-section-head">
-    <div>
-      <h2>Search guard</h2>
-      <div class="pqx-note">What the search protected before ranking and messaging.</div>
-    </div>
-    <span class="pqx-pill good">Running</span>
-  </div>
-  <div class="pqx-guard-grid">
-    {% for row in rows %}
-    <article class="pqx-guard-item">
-      <span class="pqx-small">{{ row.get('tag') or 'Guard' }}</span>
-      <strong>{{ row.get('title') }}</strong>
-      <span class="pqx-note">{{ row.get('detail') }}</span>
-    </article>
-    {% endfor %}
-  </div>
-</section>
-{% endif %}
-{%- endmacro %}
 {% macro suppression_panel(rows) -%}
 {% if rows %}
 <details class="pqx-card pqx-suppression-panel" data-pqx-suppression-summary>
@@ -212,7 +190,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ page_title or 'PropertyQuarry' }}</title>
-  {{ clickrank_head_snippet(request) }}
   {{ rybbit_head_snippet(request) }}
   <style>
     :root {
@@ -2897,6 +2874,10 @@
       min-height: 0;
       place-items: stretch;
     }
+    .pqx-theater-frame.is-unavailable.is-compact .pqx-theater-placeholder {
+      min-height: 88px;
+      padding: 12px 16px;
+    }
     .pqx-theater-frame.is-unavailable .pqx-theater-placeholder {
       min-height: 104px;
       grid-template-columns: auto minmax(0, 1fr);
@@ -2919,6 +2900,10 @@
       gap: 12px;
       padding: 16px;
     }
+    .pqx-dossier-head {
+      display: grid;
+      gap: 10px;
+    }
     .pqx-dossier-title h1 {
       margin: 0;
       font-size: clamp(1.4rem, 2.4vw, 2.2rem);
@@ -2926,6 +2911,12 @@
       color: #fff9ed;
     }
     .pqx-dossier-title span { color: #d7cdbb; font-size: 12px; }
+    .pqx-dossier-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
     .pqx-context-actions {
       padding-top: 4px;
     }
@@ -3048,8 +3039,7 @@
       gap: 6px;
       color: var(--pq-muted);
       font-size: 11px;
-      font-weight: 760;
-      text-transform: uppercase;
+      font-weight: 700;
       letter-spacing: 0;
     }
     .pqx-result-kicker .pqx-rank {
@@ -3063,6 +3053,11 @@
       flex-wrap: wrap;
       gap: 6px;
       min-width: 0;
+    }
+    .pqx-result-reason {
+      color: var(--pq-ink);
+      font-size: 13px;
+      line-height: 1.38;
     }
     .pqx-result-fact {
       display: inline-flex;
@@ -3112,6 +3107,8 @@
       font-weight: 800;
     }
     .pqx-result-aside {
+      display: grid;
+      gap: 6px;
       justify-items: end;
       text-align: right;
       min-width: 114px;
@@ -3126,6 +3123,11 @@
       color: var(--pq-muted);
       font-size: 11px;
       font-weight: 720;
+    }
+    .pqx-status-line {
+      color: var(--pq-muted);
+      font-size: 11px;
+      line-height: 1.3;
     }
     .pqx-pill {
       display: inline-flex;
@@ -3399,7 +3401,7 @@
     <div hidden data-property-workspace-meta='{{ property_meta|tojson|safe }}'></div>
 
     <header class="pqx-topbar">
-      <a class="pqx-brand" href="/app/properties" aria-label="PropertyQuarry dashboard">
+      <a class="pqx-brand" href="/app/properties" aria-label="PropertyQuarry home">
         <span class="pqx-mark">PQ</span>
         <span>
           <strong>PropertyQuarry</strong>
@@ -3438,7 +3440,7 @@
           <a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}">Open 360</a>
           {% endif %}
           {% if has_results and selected.get('packet_url') %}
-          <a class="pqx-link-button" href="{{ selected.get('packet_url') }}">Review details</a>
+          <a class="pqx-link-button" href="{{ selected.get('packet_url') }}">Open property page</a>
           {% endif %}
         </span>
         {% if run_active %}
@@ -4031,8 +4033,8 @@
                     <option value="prefer_low_crime_area"></option>
                     <option value="prefer_low_parking_pressure"></option>
                     <option value="prefer_high_quality_drinking_water"></option>
-                    <option value="preferred_districts"></option>
-                    <option value="avoided_districts"></option>
+                    <option value="preferred_areas"></option>
+                    <option value="avoided_areas"></option>
                     <option value="min_area_sqm_preference"></option>
                     <option value="max_total_rent_eur"></option>
                   </datalist>
@@ -4196,7 +4198,7 @@
                     {% endif %}
                   </td>
                   <td>{{ candidate.get('fit_score') or 0 }}</td>
-                  <td>{{ candidate.get('compare_reason') or candidate.get('fit_summary') or (candidate.get('match_reasons') or ['Review details for more context'])[0] }}</td>
+                  <td>{{ candidate.get('compare_reason') or candidate.get('fit_summary') or (candidate.get('match_reasons') or ['Open the property page for more context'])[0] }}</td>
                   <td>
                     {% if candidate.get('packet_url') %}<a href="{{ candidate.get('packet_url') }}">Review</a>{% endif %}
                     {% if candidate.get('map_url') %}<a href="{{ candidate.get('map_url') }}" target="_blank" rel="noreferrer">Map</a>{% endif %}
@@ -4268,114 +4270,38 @@
           <div class="pqx-section-head">
             <div>
               <h2>Best homes first</h2>
-              <div class="pqx-note">Ranked from strongest fit to weakest fit in this run.</div>
+              <div class="pqx-note">{{ results|length }} ranked · select one home to review it on the right.</div>
             </div>
             <div class="pqx-actions">
               <button class="pqx-button" type="button" data-fliplink-shortlist-share>Share results</button>
               <span class="pqx-pill good">{{ results|length }} ranked</span>
             </div>
           </div>
-          <div class="pqx-compare-strip">
-            {% for candidate in results[:4] %}
-            {% set primary_price = candidate.get('price_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('costs_display') or 'Price open') %}
-            {% set secondary_price = candidate.get('costs_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('price_per_sqm_display') or candidate.get('costs_display') or '') %}
-            <article class="pqx-compare-card{% if candidate.get('candidate_ref') == selected.get('candidate_ref') %} is-selected{% endif %}">
-              {% if candidate.get('preview_image_url') %}
-              <img class="pqx-compare-thumb" src="{{ candidate.get('preview_image_url') }}" alt="{{ candidate.get('title') or 'Property preview' }}">
-              {% else %}
-              <div class="pqx-compare-thumb pqx-compare-thumb-fallback">{{ candidate.get('source_label') or 'Listing' }}</div>
-              {% endif %}
-              <div class="pqx-compare-body">
-                <div class="pqx-compare-headline">
-                  <span class="pqx-small">#{{ candidate.get('rank') }} · {{ candidate.get('source_label') or 'Source' }}</span>
-                  <h3>{{ candidate.get('title') or 'Property' }}</h3>
-                  <div class="pqx-compare-subline">{{ candidate.get('location_label') or 'Location pending' }}</div>
-                </div>
-                {% if candidate.get('orientation_preview', {}).get('image_url') %}
-                <div class="pqx-inline-map-preview">
-                  <button
-                    class="pqx-previous-scope-trigger"
-                    type="button"
-                    data-pqx-scope-open
-                    data-pqx-scope-image="{{ candidate.get('orientation_preview', {}).get('image_url') }}"
-                    data-pqx-scope-alt="{{ candidate.get('orientation_preview', {}).get('alt') }}"
-                    data-pqx-scope-title="{{ candidate.get('orientation_preview', {}).get('title') }}"
-                    data-pqx-scope-caption="{{ candidate.get('orientation_preview', {}).get('caption') }}"
-                    data-pqx-scope-overlay='{{ (candidate.get("orientation_preview", {}).get("district_rows") or [])|tojson }}'
-                  >
-                    <img class="pqx-previous-scope-image" src="{{ candidate.get('orientation_preview', {}).get('image_url') }}" alt="{{ candidate.get('orientation_preview', {}).get('alt') or '' }}">
-                  </button>
-                </div>
-                {% endif %}
-                <div class="pqx-compare-facts">
-                  <span>{{ candidate.get('layout_display') or 'Layout pending' }}</span>
-                  {% if candidate.get('price_per_sqm_display') %}<span>{{ candidate.get('price_per_sqm_display') }}</span>{% endif %}
-                  <span>Fit {{ candidate.get('fit_score') or 0 }}/100</span>
-                </div>
-                <p class="pqx-note">{{ candidate.get('ooda', {}).get('summary') or candidate.get('fit_summary') or 'Open the review details for the decision read.' }}</p>
-              </div>
-              <div class="pqx-compare-aside">
-                <div class="pqx-compare-price">
-                  <strong>{{ primary_price }}</strong>
-                  {% if secondary_price %}<span>{{ secondary_price }}</span>{% endif %}
-                </div>
-                <div class="pqx-actions">
-                  {% if candidate.get('packet_url') %}<a class="pqx-link-button primary" href="{{ candidate.get('packet_url') }}">Open property</a>{% endif %}
-                  {% if candidate.get('tour', {}).get('url') %}<a class="pqx-link-button" href="{{ candidate.get('tour', {}).get('url') }}">360</a>{% endif %}
-                  {% if candidate.get('map_url') %}<a class="pqx-link-button" href="{{ candidate.get('map_url') }}" target="_blank" rel="noreferrer">Map</a>{% endif %}
-                </div>
-              </div>
-            </article>
-            {% endfor %}
-          </div>
-          {% if run_sources %}
+          <div class="pqx-note">Price, layout, fit, and the next action stay in the main list. The right side is only for the currently selected home.</div>
           <details class="pqx-inline-disclosure" data-pqx-source-breakdown-disclosure>
             <summary><strong>How this search was filtered</strong><span class="pqx-note">Open only when results look wrong or too narrow.</span></summary>
+            {{ suppression_panel(workbench.get('suppression_rows') or []) }}
+            {% if run_sources %}
             <div class="pqx-source-grid" data-pqx-source-breakdown>
               {% for source in run_sources %}
               <article class="pqx-source-card">
                 <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
-                <span class="pqx-note">{{ source.get('source_status') or source.get('status') or 'Scanned' }}</span>
                 <div class="pqx-source-metrics">
                   <span>Reviewed <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
                   <span>High fit <b>{{ source.get('high_fit_total') or 0 }}</b></span>
-                  <span>Layout unverified <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
+                  <span>Filtered <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
+                  <span>Missing floorplan <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
                 </div>
-                {% set source_quality = source.get('provider_quality') or {} %}
-                {% if source_quality.get('floorplan_reliability') or source_quality.get('filter_pushdown_strength') or source_quality.get('last_verified') %}
-                <span class="pqx-note">Source quality: Floorplans {{ source_quality.get('floorplan_reliability') or 'n/a' }} · Filters {{ source_quality.get('filter_pushdown_strength') or 'n/a' }}{% if source_quality.get('last_verified') %} · Verified {{ source_quality.get('last_verified') }}{% endif %}.</span>
-                {% endif %}
-                {% if source.get('location_mismatch_reason') %}
-                <span class="pqx-note">No selected-area matches: provider returned {{ source.get('location_mismatch_candidate_total') or 0 }} outside the chosen target area.</span>
-                {% endif %}
-                {% if source.get('top_candidates') %}
-                <div class="pqx-source-candidates">
-                  {% for candidate in source.get('top_candidates')[:3] %}
-                  <div class="pqx-source-candidate">
-                    {% if candidate.get('packet_url') %}
-                    <a href="{{ candidate.get('packet_url') }}">{{ candidate.get('title') or 'Review candidate' }}</a>
-                    {% else %}
-                    <strong>{{ candidate.get('title') or 'Review candidate' }}</strong>
-                    {% endif %}
-                    <span class="pqx-note">{{ candidate.get('fit_summary') or candidate.get('recommendation') or 'Open the review for details and feedback.' }}</span>
-                    {% if candidate.get('property_url') %}<a class="pqx-note" href="{{ candidate.get('property_url') }}" target="_blank" rel="noopener noreferrer">Source listing</a>{% endif %}
-                  </div>
-                  {% endfor %}
-                </div>
-                {% endif %}
-                {% if source.get('message') or source.get('error') %}
-                <span class="pqx-note">{{ source.get('message') or source.get('error') }}</span>
-                {% endif %}
               </article>
               {% endfor %}
             </div>
+            {% endif %}
           </details>
-          {% endif %}
         </section>
         {% endif %}
         <section class="pqx-review" data-pqx-mobile-panel="property" data-workbench-dossier>
           <div class="pqx-theater" data-pq-theater>
-            <div class="pqx-theater-frame{% if not selected.get('tour', {}).get('embed_url') %} is-unavailable{% endif %}" data-pw-tour>
+            <div class="pqx-theater-frame{% if not selected.get('tour', {}).get('embed_url') %} is-unavailable is-compact{% endif %}" data-pw-tour>
               {% if selected.get('tour', {}).get('embed_url') %}
               <iframe src="{{ selected.get('tour', {}).get('embed_url') }}" title="Property 360 tour" loading="lazy" allowfullscreen></iframe>
               {% else %}
@@ -4386,44 +4312,33 @@
               {% endif %}
             </div>
             <div class="pqx-dossier">
-              <div class="pqx-dossier-title">
-                <h1 data-pw-title>{{ selected.get('title') or 'Select a property' }}</h1>
-                <span data-pw-source>{{ selected.get('source_label') or 'No candidate selected' }}{% if selected.get('location_label') %} · {{ selected.get('location_label') }}{% endif %}</span>
-              </div>
-              <div class="pqx-result-facts" style="margin: 12px 0 0;" data-pw-summary-facts>
-                {% if selected.get('price_display') %}<span class="pqx-result-fact"><strong>{{ selected.get('price_display') }}</strong></span>{% endif %}
-                {% if selected.get('costs_display') %}<span class="pqx-result-fact">{{ selected.get('costs_display') }}</span>{% endif %}
-                {% if selected.get('layout_display') %}<span class="pqx-result-fact">{{ selected.get('layout_display') }}</span>{% endif %}
-                {% if selected.get('location_label') %}<span class="pqx-result-fact">{{ selected.get('location_label') }}</span>{% endif %}
+              <div class="pqx-dossier-head">
+                <div class="pqx-dossier-title">
+                  <h1 data-pw-title>{{ selected.get('title') or 'Select a property' }}</h1>
+                  <span data-pw-source>{{ selected.get('source_label') or 'No candidate selected' }}{% if selected.get('location_label') %} · {{ selected.get('location_label') }}{% endif %}</span>
+                </div>
+                <div class="pqx-dossier-summary" data-pw-summary-facts>
+                  {% if selected.get('price_display') %}<span class="pqx-result-fact"><strong>{{ selected.get('price_display') }}</strong></span>{% endif %}
+                  {% if selected.get('costs_display') %}<span class="pqx-result-fact">{{ selected.get('costs_display') }}</span>{% endif %}
+                  {% if selected.get('layout_display') %}<span class="pqx-result-fact">{{ selected.get('layout_display') }}</span>{% endif %}
+                  {% if selected.get('location_label') %}<span class="pqx-result-fact">{{ selected.get('location_label') }}</span>{% endif %}
+                </div>
               </div>
               <div class="pqx-context-actions" data-pw-actions>
                 {% if selected.get('tour', {}).get('url') %}<a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}">Open 360</a>{% endif %}
-                {% if selected.get('packet_url') %}<a class="pqx-link-button" href="{{ selected.get('packet_url') }}">Open property page</a>{% endif %}
+                {% if selected.get('packet_url') %}<a class="pqx-link-button{% if not selected.get('tour', {}).get('url') %} primary{% endif %}" href="{{ selected.get('packet_url') }}">Open property page</a>{% endif %}
                 <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}">Share this home</button>
-                <button class="pqx-button" type="button" data-fliplink-shortlist-share>Share results</button>
                 {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}" target="_blank" rel="noreferrer">Open listing</a>{% endif %}
                 {% if not selected.get('tour', {}).get('url') and selected.get('property_url') %}
                 <button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="{{ selected.get('property_url') }}">Request 3D tour</button>
                 <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="{{ selected.get('property_url') }}">Request flythrough</button>
                 {% endif %}
+                <button class="pqx-button" type="button" data-fliplink-shortlist-share>Share results</button>
               </div>
               <div class="pqx-decision-status" data-pw-visual-request-status>{% if not selected.get('tour', {}).get('url') %}Request a visual from the available source material when this home matters enough to inspect further.{% endif %}</div>
             </div>
           </div>
           <div class="pqx-evidence">
-            <section class="pqx-card">
-              <div class="pqx-section-head">
-                <div>
-                  <h2>Overview</h2>
-                  <span class="pqx-note" data-pw-ooda-summary>{{ selected.get('ooda', {}).get('summary') or ('Start with the tour, then check the facts below before deciding.' if (selected.get('tour', {}).get('url') or selected.get('tour', {}).get('embed_url')) else 'No 360 is available here. Use the review details and the facts below before deciding.') }}</span>
-                </div>
-              </div>
-              <div class="pqx-ooda-grid" data-pw-ooda>
-                {% for row in selected.get('ooda', {}).get('rows') or [] %}
-                <div class="pqx-ooda-item"><span>{{ row.get('label') }}</span><strong>{{ row.get('value') }}</strong><small>{{ row.get('detail') }}</small></div>
-                {% endfor %}
-              </div>
-            </section>
             {% if selected.get('object_rows') %}
             <section class="pqx-card">
               <div class="pqx-section-head"><h2>Property details</h2></div>
@@ -4478,6 +4393,7 @@
             {% endif %}
             <section class="pqx-card">
               <div class="pqx-section-head"><h2>Why it surfaced</h2><span class="pqx-pill">{{ selected.get('fit_label') or 'Candidate' }}</span></div>
+              <div class="pqx-note" data-pw-ooda-summary>{{ selected.get('ooda', {}).get('summary') or selected.get('fit_summary') or 'This home stayed on the shortlist after the current fit pass.' }}</div>
               <div class="pqx-event-list" data-pw-match>
                 {% for reason in selected.get('match_reasons') or [] %}
                 <div class="pqx-event-card"><strong>For</strong><span class="pqx-note">{{ reason }}</span></div>
@@ -4492,23 +4408,6 @@
                 <div class="pqx-event-card"><strong>Money</strong><span class="pqx-note" data-pw-investment>{{ selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Open the review details for cost checks when buy mode is active.' }}</span></div>
               </div>
             </section>
-            <details class="pqx-card">
-              <summary><strong>Official checks</strong><span class="pqx-note">Open for source-backed location and risk evidence.</span></summary>
-              <div class="pqx-event-list" data-pw-official-posture>
-                {% for row in selected.get('official_posture_rows') or [] %}
-                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
-                {% else %}
-                <div class="pqx-note">No authority posture has been attached yet for the selected property.</div>
-                {% endfor %}
-              </div>
-              <div class="pqx-event-list" data-pw-official-evidence>
-                {% for row in selected.get('official_evidence_rows') or [] %}
-                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
-                {% else %}
-                <div class="pqx-note">No authoritative risk-evidence row is attached yet for the selected property.</div>
-                {% endfor %}
-              </div>
-            </details>
             <section class="pqx-card pqx-decision-wizard">
               <div class="pqx-section-head"><h2>Would you pursue this property?</h2><span class="pqx-pill">Decision</span></div>
               <div class="pqx-decision-copy">Start with the simple answer. Then add only the reasons that matter and save the next step.</div>
@@ -4553,106 +4452,39 @@
                 <div class="pqx-decision-status" data-pw-decision-state-status></div>
               </details>
             </section>
-            <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Questions</h2><span class="pqx-pill">Optional</span></div>
-              <div class="pqx-decision-copy">Ask a focused question about blockers, documents, household concerns, or cost risk.</div>
-              <div class="pqx-actions">
-                <button class="pqx-button" type="button" data-pw-clippy-toggle>Ask a question</button>
-              </div>
-              <div data-pw-clippy-panel hidden>
-                <div class="pqx-actions">
-                  <button class="pqx-button" type="button" data-pw-clippy-prompt="Why is this only Maybe?">Why is this only Maybe?</button>
-                  <button class="pqx-button" type="button" data-pw-clippy-prompt="What should I ask the agent next?">Ask agent next</button>
-                  <button class="pqx-button" type="button" data-pw-clippy-prompt="What changed since last time?">What changed?</button>
-                  <button class="pqx-button" type="button" data-pw-clippy-prompt="What is the biggest investment risk here?">Investment risk</button>
+            <details class="pqx-card">
+              <summary><strong>More context</strong><span class="pqx-note">Open only when you need deeper evidence or history.</span></summary>
+              {% if selected.get('location_text') %}
+              <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
+                <div class="pqx-section-head"><h2>Location & area</h2></div>
+                <div class="pqx-note">{{ selected.get('location_text') }}</div>
+              </section>
+              {% endif %}
+              {% if selected.get('energy_rows') %}
+              <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
+                <div class="pqx-section-head"><h2>Energy & heating</h2></div>
+                <div class="pqx-fact-grid">
+                  {% for row in selected.get('energy_rows') or [] %}
+                  <div class="pqx-fact"><span>{{ row.get('label') }}</span><strong>{{ row.get('value') }}</strong></div>
+                  {% endfor %}
                 </div>
-                <textarea class="pqx-decision-note" rows="3" placeholder="Ask about blockers, household disagreement, changes, or cost risk." data-pw-clippy-question></textarea>
-                <div class="pqx-actions">
-                  <button class="pqx-button primary" type="button" data-pw-clippy-ask>Ask</button>
-                </div>
-                <div class="pqx-decision-status" data-pw-clippy-status></div>
-                <div class="pqx-event-list" data-pw-clippy-answer>
-                  <div class="pqx-note">No question asked yet.</div>
-                </div>
-              </div>
-            </section>
-            <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Household review</h2><span class="pqx-pill" data-pw-household-label>{{ selected.get('household_alignment_label') or 'waiting' }}</span></div>
-              <div class="pqx-decision-copy" data-pw-household-score>Alignment score {{ selected.get('household_alignment_score') or 0 }}/100</div>
-              <div class="pqx-event-list" data-pw-household>
-                {% for row in selected.get('household_rows') or [] %}
+              </section>
+              {% endif %}
+              <div class="pqx-event-list" data-pw-official-posture>
+                {% for row in selected.get('official_posture_rows') or [] %}
                 <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
                 {% endfor %}
-              </div>
-            </section>
-            <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Open questions</h2><span class="pqx-pill">Tracked</span></div>
-              <div class="pqx-event-list" data-pw-followups>
+                {% for row in selected.get('official_evidence_rows') or [] %}
+                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
+                {% endfor %}
                 {% for row in selected.get('followup_rows') or [] %}
-                <div class="pqx-event-card">
-                  <strong>{{ row.get('title') }}</strong>
-                  <span class="pqx-note">{{ row.get('detail') }}</span>
-                  <span class="pqx-small">{{ row.get('tag') }}</span>
-                </div>
-                {% endfor %}
-              </div>
-              <div class="pqx-decision-status" data-pw-followup-status></div>
-            </section>
-            <section class="pqx-card">
-              <div class="pqx-section-head"><h2>Top objections</h2><span class="pqx-pill">Risk</span></div>
-              <div class="pqx-event-list" data-pw-objections>
-                {% for row in selected.get('objection_rows') or [] %}
-                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span></div>
-                {% endfor %}
-              </div>
-            </section>
-            <details class="pqx-card">
-              <summary><strong>Market warnings</strong><span class="pqx-note">Signals learned from previous decisions and similar listings.</span></summary>
-              <div class="pqx-event-list" data-pw-risk-signals>
-                {% for row in selected.get('risk_signal_rows') or [] %}
                 <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
                 {% endfor %}
-              </div>
-            </details>
-            <section class="pqx-card">
-              <div class="pqx-section-head"><h2>What changed</h2><span class="pqx-pill">Delta</span></div>
-              <div class="pqx-event-list" data-pw-recent-changes>
-                {% for row in selected.get('recent_change_rows') or [] %}
-                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
-                {% endfor %}
-              </div>
-            </section>
-            <details class="pqx-card">
-              <summary><strong>Source quality</strong><span class="pqx-note">Open when the listing looks incomplete or suspicious.</span></summary>
-              <div class="pqx-event-list" data-pw-provider-quality>
-                {% for row in workbench.get('provider_quality_rows') or [] %}
-                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
-                {% else %}
-                <div class="pqx-note">Source quality notes will appear after the first search completes.</div>
-                {% endfor %}
-              </div>
-            </details>
-            <details class="pqx-card" data-pw-delivery-proof>
-              <summary><strong>Behind the scenes</strong><span class="pqx-note">Files, messages, and writing status.</span></summary>
-              <div class="pqx-event-list">
-                {% for row in workbench.get('delivery_proof_rows') or [] %}
-                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
-                {% endfor %}
-              </div>
-            </details>
-            <details class="pqx-card" data-pw-artifact-receipts>
-              <summary><strong>Share checklist</strong><span class="pqx-note">What must be true before a share page is sent.</span></summary>
-              <div class="pqx-event-list">
-                {% for row in workbench.get('artifact_receipt_rows') or [] %}
-                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
-                {% endfor %}
-              </div>
-            </details>
-            <details class="pqx-card">
-              <summary><strong>Timeline</strong><span class="pqx-note">Who reacted, what changed, and when.</span></summary>
-              <div class="pqx-event-list" data-pw-timeline>
                 {% for row in selected.get('timeline_rows') or [] %}
                 <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span></div>
+                {% endfor %}
+                {% for row in workbench.get('provider_quality_rows') or [] %}
+                <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
                 {% endfor %}
               </div>
             </details>
@@ -4666,7 +4498,6 @@
             </div>
             <span class="pqx-pill good">{{ run.get('status_label') or 'Completed' }}</span>
           </div>
-          {{ suppression_panel(workbench.get('suppression_rows') or []) }}
           <div class="pqx-results-list" data-workbench-results-table>
             {% for candidate in results %}
             <article class="pqx-result pqx-card" role="button" tabindex="0" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
@@ -4682,9 +4513,9 @@
                     {% endif %}
                   </span>
                   <span class="pqx-result-summary">
-                    <span class="pqx-result-kicker"><span class="pqx-rank">#{{ candidate.get('rank') }}</span> {{ candidate.get('source_label') or 'Source' }}</span>
+                    <span class="pqx-result-kicker"><span class="pqx-rank">#{{ candidate.get('rank') }}</span>{% if candidate.get('location_label') %}<span>{{ candidate.get('location_label') }}</span>{% endif %}</span>
                     <span class="pqx-result-title">{{ candidate.get('title') }}</span>
-                    <span class="pqx-meta">{{ candidate.get('source_label') }}{% if candidate.get('location_label') %} · {{ candidate.get('location_label') }}{% endif %}</span>
+                    <span class="pqx-meta">{{ candidate.get('source_label') or 'Source' }}</span>
                   </span>
                 </span>
                 <span class="pqx-result-topline">
@@ -4714,20 +4545,15 @@
                   <span class="pqx-result-fact">Layout {{ candidate.get('layout_verification_label') or 'needs check' }}</span>
                   <span class="pqx-result-fact">{{ candidate.get('tour', {}).get('label') or '360 pending' }}</span>
                 </span>
+                <span class="pqx-result-reason">{{ (candidate.get('match_reasons') or [candidate.get('fit_summary') or ''])|first }}</span>
                 {% if candidate.get('provider_quality_line') %}<span class="pqx-small">{{ candidate.get('provider_quality_line') }}</span>{% endif %}
-                <span class="pqx-result-trust">
-                  <span class="pqx-trust-chip">Rank #{{ candidate.get('rank') or loop.index }}</span>
-                  <span class="pqx-trust-chip">Fit {{ candidate.get('fit_score') or 0 }}/100</span>
-                  <span class="pqx-trust-chip">Layout {{ candidate.get('layout_verification_label') or 'needs check' }}</span>
-                  <span class="pqx-trust-chip">Tour {{ candidate.get('tour', {}).get('status') or 'not ready' }}</span>
-                </span>
-                <span class="pqx-result-action">Select to inspect on the right</span>
+                <span class="pqx-result-action">Select to inspect on the right.</span>
               </span>
               <span class="pqx-result-aside">
                 <span class="pqx-pill{% if candidate.get('tour', {}).get('status') == 'ready' %} good{% else %} warn{% endif %}">{{ candidate.get('tour', {}).get('label') }}</span>
                 <strong class="pqx-result-price">{{ primary_price }}</strong>
                 {% if secondary_price %}<span class="pqx-result-secondary">{{ secondary_price }}</span>{% endif %}
-                {% if candidate.get('tour', {}).get('eta_label') %}<span class="pqx-small">{{ candidate.get('tour', {}).get('eta_label') }}</span>{% endif %}
+                <span class="pqx-status-line">{% if candidate.get('tour', {}).get('eta_label') %}{{ candidate.get('tour', {}).get('eta_label') }}{% else %}Open property{% endif %}</span>
               </span>
             </article>
             {% endfor %}
@@ -4888,12 +4714,12 @@
       const tour = candidate.tour || {};
       return [
         tour.url ? `<a class="pqx-link-button primary" href="${escapeHtml(tour.url)}">Open 360</a>` : '',
-        candidate.packet_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.packet_url)}">Open property page</a>` : '',
+        candidate.packet_url ? `<a class="pqx-link-button${tour.url ? '' : ' primary'}" href="${escapeHtml(candidate.packet_url)}">Open property page</a>` : '',
         `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${escapeHtml(candidate.candidate_ref || '')}">Share this home</button>`,
-        `<button class="pqx-button" type="button" data-fliplink-shortlist-share>Share results</button>`,
         candidate.source_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.source_url)}" target="_blank" rel="noreferrer">Open listing</a>` : '',
         !tour.url && candidate.property_url ? `<button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(candidate.property_url)}">Request 3D tour</button>` : '',
         !tour.url && candidate.property_url ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(candidate.property_url)}">Request flythrough</button>` : '',
+        `<button class="pqx-button" type="button" data-fliplink-shortlist-share>Share results</button>`,
       ].filter(Boolean).join('');
     };
     const feedbackPersonId = String(meta.feedback_person_id || 'self').trim() || 'self';
@@ -5638,10 +5464,10 @@
       const tourNode = root.querySelector('[data-pw-tour]');
       const tour = candidate.tour || {};
       if (tourNode && tour.embed_url) {
-        tourNode.classList.remove('is-unavailable');
+        tourNode.classList.remove('is-unavailable', 'is-compact');
         tourNode.innerHTML = `<iframe src="${escapeHtml(tour.embed_url)}" title="Property 360 tour" loading="lazy" allowfullscreen></iframe>`;
       } else if (tourNode) {
-        tourNode.classList.add('is-unavailable');
+        tourNode.classList.add('is-unavailable', 'is-compact');
         const tourMessage = tour.url
           ? 'The tour is available as a separate review page. It is not embedded here because the host is not PropertyQuarry-branded.'
           : (tour.eta_label || 'The tour queue is tracked here while the property can still be reviewed.');
@@ -5975,23 +5801,25 @@
       const countryField = form.querySelector('select[name="country_code"]');
       const regionField = form.querySelector('select[name="region_code"]');
       const fullRegionScopeField = form.querySelector('input[name="full_region_scope"]');
-      const districtValues = Array.isArray(nodeValues.get('preferred_districts')) ? nodeValues.get('preferred_districts') : [];
-      if (districtValues.length) {
-        const inferredScope = inferCountryRegionForLocations(meta, districtValues);
+      const areaValues = Array.isArray(nodeValues.get('preferred_areas'))
+        ? nodeValues.get('preferred_areas')
+        : [];
+      if (areaValues.length) {
+        const inferredScope = inferCountryRegionForLocations(meta, areaValues);
         if (countryField && inferredScope?.countryCode) countryField.value = inferredScope.countryCode;
         refreshRegionAndLocationChoices();
         if (regionField && inferredScope?.regionCode) {
           regionField.value = inferredScope.regionCode;
           refreshRegionAndLocationChoices();
         }
-        const mappedDistricts = uniqueValues(districtValues.map((value) => matchLocationValue(form, value)));
-        const availableDistricts = new Set([...(form.querySelectorAll('input[name="location_query"]') || [])].map((node) => String(node.value || '').trim().toLowerCase()));
-        const visibleDistricts = mappedDistricts.filter((value) => availableDistricts.has(String(value || '').trim().toLowerCase()));
-        const customDistricts = mappedDistricts.filter((value) => !availableDistricts.has(String(value || '').trim().toLowerCase()));
+        const mappedAreas = uniqueValues(areaValues.map((value) => matchLocationValue(form, value)));
+        const availableAreas = new Set([...(form.querySelectorAll('input[name="location_query"]') || [])].map((node) => String(node.value || '').trim().toLowerCase()));
+        const visibleAreas = mappedAreas.filter((value) => availableAreas.has(String(value || '').trim().toLowerCase()));
+        const customAreas = mappedAreas.filter((value) => !availableAreas.has(String(value || '').trim().toLowerCase()));
         if (fullRegionScopeField) fullRegionScopeField.checked = false;
-        setCheckboxValues(form, 'location_query', visibleDistricts);
+        setCheckboxValues(form, 'location_query', visibleAreas);
         const customLocationField = form.querySelector('[name="custom_location_query"]');
-        if (customLocationField) customLocationField.value = customDistricts.join(', ');
+        if (customLocationField) customLocationField.value = customAreas.join(', ');
         syncAreaScopeControls();
       }
       const maxRent = Number(nodeValues.get('max_total_rent_eur') || nodeValues.get('prefer_lower_total_rent_eur') || 0);
@@ -7003,7 +6831,7 @@
       const body = rows.map((candidate, index) => {
         const title = candidate?.title || 'Property candidate';
         const source = candidate?.source_label || candidate?.source_platform || 'Source';
-        const reason = candidate?.compare_reason || candidate?.fit_summary || (Array.isArray(candidate?.match_reasons) ? candidate.match_reasons[0] : '') || 'Review details for more context';
+        const reason = candidate?.compare_reason || candidate?.fit_summary || (Array.isArray(candidate?.match_reasons) ? candidate.match_reasons[0] : '') || 'Open the property page for more context';
         const image = candidate?.preview_image_url
           ? `<img src="${escapeHtml(candidate.preview_image_url)}" alt="">`
           : 'HOME';

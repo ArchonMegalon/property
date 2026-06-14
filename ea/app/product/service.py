@@ -9214,7 +9214,7 @@ def _property_alert_upstream_personalization(
     if not nodes:
         return {}
     facts = dict(property_facts or {})
-    district = str(facts.get("district") or facts.get("postal_name") or facts.get("location") or "").strip()
+    area_label = str(facts.get("district") or facts.get("postal_name") or facts.get("location") or "").strip()
     heating = str(facts.get("heating") or facts.get("heating_type") or "").strip()
     has_floorplan = bool(facts.get("has_floorplan") or facts.get("floorplan_count") or facts.get("floorplan_urls_json"))
     has_360 = bool(facts.get("has_360") or facts.get("source_virtual_tour_url"))
@@ -9257,21 +9257,21 @@ def _property_alert_upstream_personalization(
         key = str(row.get("key") or "").strip().lower()
         category = str(row.get("category") or "").strip().lower()
         value = row.get("value_json")
-        if key == "preferred_districts":
+        if key == "preferred_areas":
             preferred = {_normalized_token(item) for item in _list_value(value)}
-            if district and _normalized_token(district) in preferred:
-                matches.append(f"Matches your learned district preference for {district}.")
-                learned_axes.append("district_preference")
+            if area_label and _normalized_token(area_label) in preferred:
+                matches.append(f"Matches your learned area preference for {area_label}.")
+                learned_axes.append("area_preference")
                 score_delta += 4.0
-            elif district and preferred:
-                conflicts.append(f"Outside your learned preferred districts ({district}).")
-                learned_axes.append("district_preference")
+            elif area_label and preferred:
+                conflicts.append(f"Outside your learned preferred areas ({area_label}).")
+                learned_axes.append("area_preference")
                 score_delta -= 3.0
-        elif key == "avoided_districts":
+        elif key == "avoided_areas":
             avoided = {_normalized_token(item) for item in _list_value(value)}
-            if district and _normalized_token(district) in avoided:
-                conflicts.append(f"In a district you have been avoiding ({district}).")
-                learned_axes.append("district_avoidance")
+            if area_label and _normalized_token(area_label) in avoided:
+                conflicts.append(f"In an area you have been avoiding ({area_label}).")
+                learned_axes.append("area_avoidance")
                 hard_conflict_count += 1
                 score_delta -= 8.0
         elif key == "avoid_heating_types":
@@ -10254,7 +10254,7 @@ def _property_feedback_inferred_hints(
 ) -> list[dict[str, object]]:
     reaction_key = str(reaction or "").strip().lower()
     facts = dict(property_facts or {})
-    district = str(facts.get("postal_name") or facts.get("district") or facts.get("location") or "").strip()
+    area_label = str(facts.get("postal_name") or facts.get("district") or facts.get("location") or "").strip()
     heating = str(facts.get("heating") or facts.get("heating_type") or "").strip()
     total_rent = _float_or_none(facts.get("total_rent_eur"))
     area_sqm = _float_or_none(facts.get("area_sqm"))
@@ -10473,13 +10473,13 @@ def _property_feedback_inferred_hints(
                     "source_mode": source_mode,
                 }
             )
-        elif normalized in {"location_strong", "location_weak"} and district:
+        elif normalized in {"location_strong", "location_weak"} and area_label:
             _append_unique(
                 {
                     "domain": "willhaben",
                     "category": "soft_preference" if normalized == "location_strong" else "aversion",
-                    "key": "preferred_districts" if normalized == "location_strong" else "avoided_districts",
-                    "value_json": [district],
+                    "key": "preferred_areas" if normalized == "location_strong" else "avoided_areas",
+                    "value_json": [area_label],
                     "strength": "high" if normalized == "location_strong" else "medium",
                     "confidence": 0.9 if normalized == "location_strong" else 0.82,
                     "merge_mode": "append_unique",
@@ -10535,13 +10535,13 @@ def _property_feedback_inferred_hints(
                 }
             )
 
-    if reaction_key == "like" and district and not any(_normalize_key(row.get("key")) == "preferred_districts" for row in hints):
+    if reaction_key == "like" and area_label and not any(_normalize_key(row.get("key")) == "preferred_areas" for row in hints):
         _append_unique(
             {
                 "domain": "willhaben",
                 "category": "soft_preference",
-                "key": "preferred_districts",
-                "value_json": [district],
+                "key": "preferred_areas",
+                "value_json": [area_label],
                 "strength": "medium",
                 "confidence": 0.72,
                 "merge_mode": "append_unique",
@@ -10579,14 +10579,14 @@ def _property_feedback_learning_summary(bundle: dict[str, object], *, domain: st
     for row in nodes:
         key = str(row.get("key") or "").strip().lower()
         value = row.get("value_json")
-        if key == "preferred_districts":
+        if key == "preferred_areas":
             labels = ", ".join(_summary_list_value(value))
             if labels:
-                likes.append(f"Preferred districts: {labels}")
-        elif key == "avoided_districts":
+                likes.append(f"Preferred areas: {labels}")
+        elif key == "avoided_areas":
             labels = ", ".join(_summary_list_value(value))
             if labels:
-                dislikes.append(f"Avoid districts: {labels}")
+                dislikes.append(f"Avoid areas: {labels}")
         elif key == "avoid_heating_types":
             labels = ", ".join(_summary_list_value(value))
             if labels:
@@ -17185,21 +17185,21 @@ class ProductService:
             property_type = str(item.get("inferred_property_type") or "").strip()
             if property_type:
                 property_types.append(property_type)
-        unique_districts: list[str] = []
-        seen_districts: set[str] = set()
+        unique_areas: list[str] = []
+        seen_areas: set[str] = set()
         for item in districts:
             marker = item.lower()
-            if marker in seen_districts:
+            if marker in seen_areas:
                 continue
-            seen_districts.add(marker)
-            unique_districts.append(item)
-        if unique_districts:
+            seen_areas.add(marker)
+            unique_areas.append(item)
+        if unique_areas:
             hints.append(
                 {
                     "domain": "willhaben",
                     "category": "soft_preference",
-                    "key": "preferred_districts",
-                    "value_json": unique_districts[:12],
+                    "key": "preferred_areas",
+                    "value_json": unique_areas[:12],
                     "strength": "high",
                     "merge_mode": "append_unique",
                     "source_mode": "behavioral_inference",

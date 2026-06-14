@@ -491,20 +491,19 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert "Altbau near U6" in content
         assert "Family flat near Tiergarten" in content
         assert "360 ready" in content
-        assert "Review details" in content
+        assert "Open property page" in content
         assert "Open 360" in content
-        assert "Overview" in content
+        assert "Property details" in content
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
         assert "/app/properties" in page.url
         assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()
-        assert page.locator("body", has_text="Overview").is_visible()
+        assert page.locator("body", has_text="Property details").is_visible()
         assert page.locator("body", has_text="Why it surfaced").is_visible()
         assert page.locator("body", has_text="Would you pursue this property?").is_visible()
         page.get_by_role("button", name="Maybe").click()
         assert page.get_by_role("button", name="Save decision").is_visible()
-        assert page.get_by_role("button", name="Ask a question").is_visible()
     finally:
         context.close()
 
@@ -1514,13 +1513,13 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert preferences["require_floorplan"] is True
         assert len(observed["selected_platforms"]) == 3
         assert page.locator("body", has_text="Altbau near U6").is_visible()
-        assert page.locator("body", has_text="Review details").is_visible()
+        assert page.locator("body", has_text="Open property page").is_visible()
         assert page.locator("body", has_text="Open 360").is_visible()
         assert page.locator("body", has_text="What to check").is_visible()
         page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
         assert "/app/properties" in page.url
         assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()
-        assert page.locator("body", has_text="At a glance").is_visible()
+        assert page.locator("body", has_text="Property details").is_visible()
         assert page.locator("body", has_text="Would you pursue this property?").is_visible()
     finally:
         context.close()

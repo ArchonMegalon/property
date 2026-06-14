@@ -35,7 +35,7 @@ required_browser_workflows:
   - name: workbench_surfaces_top_objections
     checks:
       - operator can open decision workbench
-      - objection summary is visible
+      - unresolved issues summary is visible
       - dealbreakers are visually distinct
   - name: stakeholder_linked_feedback_visible
     checks:
@@ -49,7 +49,7 @@ required_ui_affordances:
   - Feedback table
   - Feedback category labels
   - Dealbreaker visual state
-  - Top objections section
+  - Still unclear section
   - Open questions count or section
 fail_closed_conditions:
   - structured feedback exists only in API but not in UI
@@ -64,5 +64,5 @@ exit_criteria:
   - no fail_closed_conditions are true
 evidence_artifacts:
   - packet feedback table screenshot
-  - decision workbench screenshot with objections
+  - decision workbench screenshot with unresolved issues
   - test output proving feedback and browser suites passed

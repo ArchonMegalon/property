@@ -4,7 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ page_title }}</title>
-  {{ clickrank_head_snippet(request) }}
   {{ rybbit_head_snippet(request) }}
   <style>
     :root {
@@ -139,7 +138,9 @@
     .account-menu-label strong {
       font-size: 14px;
       line-height: 1.25;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .account-menu-label span {
       color: var(--text-dim);
@@ -1128,7 +1129,7 @@
   <div class="pq-shell" data-property-app-shell>
     <aside class="pq-rail">
       <div class="pq-rail-brand">
-        <a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} dashboard">
+        <a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} home">
           <span class="brand-mark">{{ brand.mark }}</span>
           <span>{{ brand.name }}</span>
         </a>
@@ -1235,7 +1236,7 @@
   {% else %}
   <div class="console">
     <aside class="sidebar">
-      <a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} dashboard">
+      <a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} home">
         <span class="brand-mark">{{ brand.mark }}</span>
         <span>{{ brand.name }}</span>
       </a>

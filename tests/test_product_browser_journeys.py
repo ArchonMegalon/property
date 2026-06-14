@@ -248,12 +248,12 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Best homes first" in response.text
     assert "choose one to update the tour and review panel" in response.text
     assert "Open 360" in response.text
-    assert "Review details" in response.text
+    assert "Open property page" in response.text
     assert "Match" in response.text
     assert "Price" in response.text
     assert "Layout" in response.text
-    assert "At a glance" in response.text
-    assert "Risk and investment" in response.text
+    assert "Property details" in response.text
+    assert "Still unclear" in response.text
     assert "360 ready" in response.text
     assert "Berlin" in response.text
     assert "Germany" in response.text
@@ -266,8 +266,8 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert shortlist.status_code == 200
     assert "Review the properties that deserve attention now." in shortlist.text
     assert "Altbau near U6" in shortlist.text
-    assert "Review packet" in shortlist.text
-    assert "Review details" in shortlist.text
+    assert "Open property page" in shortlist.text
+    assert "Open source page" in shortlist.text
     assert "Open 360" in shortlist.text
     assert "data-feedback-save" in shortlist.text
 

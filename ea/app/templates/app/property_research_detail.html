@@ -78,14 +78,14 @@
   }
   .prd-headline-panel h1 {
     margin: 0;
-    font-size: clamp(2rem, 4.2vw, 3.6rem);
-    line-height: 0.98;
+    font-size: clamp(1.42rem, 2.4vw, 2.2rem);
+    line-height: 1.06;
     letter-spacing: 0;
   }
   .prd-price {
-    font-size: clamp(2rem, 4.4vw, 3.1rem);
-    line-height: 1;
-    margin: 12px 0 0;
+    font-size: clamp(1.38rem, 2.1vw, 2rem);
+    line-height: 1.04;
+    margin: 10px 0 0;
   }
   .prd-facts {
     display: flex;
@@ -138,11 +138,16 @@
   .prd-media-frame {
     position: relative;
     overflow: hidden;
-    min-height: clamp(340px, 56vh, 720px);
+    min-height: clamp(280px, 44vh, 560px);
+    max-height: min(60vh, 560px);
     padding: 0;
     background: var(--panel-2);
     border: 1px solid var(--line);
     border-radius: 18px;
+  }
+  .prd-media-frame.prd-media-frame-live {
+    min-height: min(56vh, 520px);
+    max-height: min(56vh, 520px);
   }
   .prd-media-frame iframe,
   .prd-media-frame img {
@@ -199,6 +204,11 @@
   }
   .prd-media-caption span {
     color: rgba(255, 253, 248, 0.82);
+    font-size: 13px;
+  }
+  .prd-visual-status {
+    margin-top: 10px;
+    color: var(--text-soft);
     font-size: 13px;
   }
   .prd-gallery {
@@ -554,8 +564,18 @@
 
 <section class="prd-shell" data-property-research-detail>
   <section class="prd-hero">
-    <section class="prd-media-frame prd-panel" data-object-media-stage>
-      <div class="prd-media-badge">{{ research_media.get('status_label') or 'Media' }}</div>
+    <section class="prd-media-frame prd-panel{% if research_media.get('has_live_viewer') %} prd-media-frame-live{% endif %}" data-object-media-stage>
+      <div class="prd-media-badge">
+        {% if research_media.get('show_status_line') %}
+          {{ research_media.get('status_label') or 'Media' }}
+        {% elif research_preview_image %}
+          Photos
+        {% elif research_location_preview.get('image_url') %}
+          Area map
+        {% else %}
+          Media
+        {% endif %}
+      </div>
       {% if research_media.get('embed_href') %}
       <iframe src="{{ research_media.get('embed_href') }}" title="Property 360 review" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
       {% elif research_preview_image %}
@@ -582,10 +602,12 @@
           {% if research_rooms %}<span class="prd-chip">{{ research_rooms }}</span>{% endif %}
           {% if research_location %}<span class="prd-chip">{{ research_location }}</span>{% endif %}
         </div>
+        {% if research_media.get('show_status_line') %}
         <div class="prd-status-line">
           <span class="prd-status-badge">{{ research_media.get('status_label') or 'Review ready' }}</span>
           <span class="prd-copy">{{ research_media.get('status_detail') or '' }}</span>
         </div>
+        {% endif %}
         <div class="prd-actions" style="margin-top:16px;">
           {% for action in research_actions %}
             {% if action.get('href') and action.get('copy') %}
@@ -597,6 +619,7 @@
             {% endif %}
           {% endfor %}
         </div>
+        <p class="prd-visual-status" data-prd-visual-status></p>
       </section>
 
       <aside class="prd-summary-stack">

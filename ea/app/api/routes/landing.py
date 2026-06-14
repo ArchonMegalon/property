@@ -61,6 +61,7 @@ from app.product.service import (
     _property_investment_location_seed,
     _property_investment_price_eur,
     _property_investment_research_snapshot,
+    _property_tour_control_link,
 )
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import complete_google_oauth_callback
@@ -118,6 +119,27 @@ def _property_title_price_fallback(title: object) -> str:
         if match:
             return " ".join(str(match.group(1) or "").split()).strip(" ,")
     return ""
+
+
+def _property_research_title_display(title: object) -> str:
+    text = " ".join(str(title or "").split()).strip()
+    if not text:
+        return "Research packet"
+    text = re.sub(r"\s+-\s+[^\-\|,]+$", "", text).strip()
+    trailing_patterns = (
+        r",\s*\d+(?:[.,]\d+)?\s*m².*$",
+        r",\s*[€$£]\s*[0-9][0-9\.\,\s-]*(?:\([^)]*\))?.*$",
+        r",\s*\([^)]*\)\s*$",
+    )
+    changed = True
+    while changed and text:
+        changed = False
+        for pattern in trailing_patterns:
+            updated = re.sub(pattern, "", text, flags=re.IGNORECASE).strip(" ,-")
+            if updated != text:
+                text = updated
+                changed = True
+    return text or "Research packet"
 
 templates.env.globals["clickrank_head_snippet"] = lambda request=None: Markup(_clickrank_head_snippet(_request_hostname(request)))
 templates.env.globals["rybbit_head_snippet"] = lambda request=None: Markup(_rybbit_head_snippet(request))
@@ -1791,7 +1813,7 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
             eta_minutes = int(float(eta_raw))
         except Exception:
             eta_minutes = 0
-    embed_href = tour_url
+    embed_href = _property_tour_control_link(tour_url) if tour_url else ""
     if tour_url:
         status_label = "Live 360 ready"
         status_detail = "Hosted 360 is ready on PropertyQuarry and should be reviewed before the raw listing."
@@ -1814,6 +1836,8 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "status_label": status_label,
         "status_detail": status_detail,
         "embed_href": embed_href,
+        "has_live_viewer": bool(embed_href),
+        "show_status_line": bool(tour_url or vendor_tour_url or status in {"queued", "pending", "processing", "running", "in_progress", "started"}),
         "primary_href": tour_url or vendor_tour_url or review_url,
         "primary_label": (
             "Open 3D reconstruction floor plan"
@@ -2571,6 +2595,7 @@ def property_research_packet(
     property_url = str(candidate.get("property_url") or "").strip()
     source_label = str(candidate.get("source_label") or "Property scout").strip() or "Property scout"
     title = str(candidate.get("title") or property_url or "Research packet").strip() or "Research packet"
+    display_title = _property_research_title_display(title)
     run_target = f"/app/research/{candidate_ref}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else "")
     preference_person_id = str(preferences.get("preference_person_id") or "self").strip() or "self"
     packet_score_rows = _property_packet_score_rows(
@@ -2955,7 +2980,7 @@ def property_research_packet(
         "suggestions": feedback_suggestions,
         "property_url": property_url,
         "packet_href": f"/app/research/{urllib.parse.quote(candidate_ref, safe='')}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else ""),
-        "property_title": title,
+        "property_title": display_title,
         "property_facts": facts,
         "assessment": assessment or candidate,
         "investment_context": investment_rows + investment_risk_rows,
@@ -2977,7 +3002,7 @@ def property_research_packet(
         **{
             **_console_shell_context(
                 request=request,
-                page_title=f"PropertyQuarry {title}",
+                page_title=f"PropertyQuarry {display_title}",
                 current_nav="research",
                 context=context,
                 console_title="Property",
@@ -2987,7 +3012,7 @@ def property_research_packet(
                 cards=[],
                 stats=[{"label": row["label"], "value": row["value"]} for row in overview_rows[:4]],
             ),
-            "research_title": title,
+            "research_title": display_title,
             "research_summary": object_summary,
             "research_source_label": source_label,
             "research_price": price_summary or "Price on request",

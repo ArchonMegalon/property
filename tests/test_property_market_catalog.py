@@ -593,7 +593,7 @@ def test_workspace_preference_schema_matches_backend_categories() -> None:
     assert "require_lift" in constraint_keys
     assert "require_lift" not in soft_keys
     assert "prefer_lift" in soft_keys
-    assert "avoided_districts" in aversion_keys
+    assert "avoided_areas" in aversion_keys
 
 
 def test_provider_listing_markers_follow_provider_host() -> None:

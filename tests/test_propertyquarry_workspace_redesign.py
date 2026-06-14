@@ -78,6 +78,11 @@ def test_property_candidate_orientation_preview_uses_openstreetmap_backdrop_for_
     assert preview["alt"] == "Wider area around Graz"
 
 
+def test_property_research_title_display_strips_provider_price_and_fact_noise() -> None:
+    raw = "Super nette 2 Zimmer Wohnung (ideal für WG) in bester Lage für Unis, 60 m², € 1.150,-, (1090 Wien) - willhaben"
+    assert landing_routes._property_research_title_display(raw) == "Super nette 2 Zimmer Wohnung (ideal für WG) in bester Lage für Unis"
+
+
 def test_property_scope_preview_uses_generic_boundary_projection(monkeypatch) -> None:
     def fake_record(query: str) -> dict[str, object]:
         lowered = query.lower()
@@ -543,12 +548,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'class="pqx-thumb"' in search.text
     assert "ranked homes" in search.text
     assert "price, layout, location, fit reason, and next action stay visible" in search.text
-    assert 'class="pqx-result-trust"' in search.text
-    assert 'class="pqx-trust-chip">Rank #' in search.text
-    assert 'class="pqx-trust-chip">Fit ' in search.text
+    assert 'class="pqx-result-reason"' in search.text
+    assert 'class="pqx-status-line"' in search.text
     assert "Layout verified" in search.text
     assert "Layout needs check" in search.text
-    assert "Tour queued" in search.text
     assert "Altbau near U6" in search.text
     assert "Family flat near Tiergarten" in search.text
     assert "360 ready" in search.text
@@ -564,7 +567,6 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Match" in search.text
     assert "EUR 420,000" in search.text
     assert "Layout" in search.text
-    assert "Overview" in search.text
     assert "Playground" in search.text
     assert "Supermarket" in search.text
     assert "Starbucks" in search.text
@@ -577,14 +579,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Costs" in search.text
     assert "Why it surfaced" in search.text
     assert "Still unclear" in search.text
-    assert "Official checks" in search.text
-    assert "Manual clearance required" in search.text
-    assert 'data-pw-artifact-receipts' in search.text
-    assert "Share checklist" in search.text
+    assert "More context" in search.text
     assert "Artifact receipts" not in search.text
-    assert "What must be true before a share page is sent" in search.text
-    assert "Fallback cube viewers are forbidden" in search.text
-    assert "Every outbound link must be sent as a titled hyperlink" in search.text
+    assert "Share checklist" not in search.text
     assert "Would you pursue this property?" in search.text
     assert 'class="pqx-decision-stepper" aria-label="Decision steps"' in search.text
     assert "Viewing requested" in search.text
@@ -592,20 +589,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Offer candidate" in search.text
     assert "Save decision" in search.text
     assert "Ask a question" in search.text
-    assert "Household review" in search.text
-    assert "Open questions" in search.text
     assert "Contradicted" in search.text
     assert "Resolved" in search.text
-    assert "What changed" in search.text
-    assert "Top objections" in search.text
-    assert "Market warnings" in search.text
-    assert "Timeline" in search.text
-    assert "Source quality" in search.text
-    assert "Behind the scenes" in search.text
     assert "Delivery proof" not in search.text
-    assert "Writing quality check" in search.text
-    assert "Message links" in search.text
-    assert "Generated files" in search.text
     assert "NeuronWriter editorial pass" not in search.text
     assert "Telegram links" not in search.text
     assert "Generated asset receipts" not in search.text
@@ -634,7 +620,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Chosen ahead of the next option because it scored 5 points higher on the current brief" in search.text
     assert "Preferred because: Lift and transit fit." in search.text
     assert "Preferred because: Includes a live 360 source" not in search.text
-    assert "Review details" in search.text
+    assert "Open property page" in search.text
     assert 'data-candidate-packet-url="/app/research/' in search.text
     assert 'data-pqx-notification-audit' not in search.text
     assert "Alert delivery" not in search.text
@@ -682,7 +668,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert shortlist.status_code == 200
     assert "Best homes first" in shortlist.text
     assert "Altbau near U6" in shortlist.text
-    assert "Review details" in shortlist.text
+    assert "Open property page" in shortlist.text
     assert "Hosted review" not in shortlist.text
     assert "Open feedback" not in shortlist.text
 
@@ -994,7 +980,7 @@ def test_property_workspace_hero_actions_use_visible_propertyquarry_surfaces() -
     assert '{"href": f"/app/search{run_suffix}", "label": "Open search"}' in body
     assert '{"href": f"/app/properties{run_suffix}", "label": "Back to Home"}' in body
     assert '{"href": f"/app/agents{run_suffix}", "label": "Search agents"}' in body
-    assert '{"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target districts.", "href": "/app/account#profile"}' in body
+    assert '{"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target areas.", "href": "/app/account#profile"}' in body
 
 
 def test_property_workspace_sign_out_clears_workspace_session_cookie() -> None:
@@ -1370,14 +1356,14 @@ def test_property_workspace_previous_search_delete_uses_real_api_endpoint() -> N
     assert '"scope_preview": scope_preview' in view_model
 
 
-def test_property_finished_search_results_start_with_compact_compare_strip() -> None:
+def test_property_finished_search_results_prioritize_main_list_and_filtered_disclosure() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
     body = template_path.read_text(encoding="utf-8")
 
     assert "data-pqx-finished-compare" in body
     assert "Best homes first" in body
-    assert "pqx-compare-card" in body
-    assert "Ranked from strongest fit to weakest fit in this run." in body
+    assert "How this search was filtered" in body
+    assert "Price, layout, fit, and the next action stay in the main list." in body
 
 
 def test_property_decision_save_uses_canonical_endpoint_and_renders_consequences() -> None:
@@ -1522,7 +1508,7 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
             "language_code": "de",
             "listing_mode": "buy",
             "region_code": "vienna",
-            "all_of_vienna": True,
+            "full_region_scope": True,
             "location_query": "Vienna",
             "selected_platforms": ["willhaben", "genossenschaften_at"],
         },
@@ -2068,7 +2054,7 @@ def test_propertyquarry_research_packet_shows_cooperative_investment_context_whe
     assert "Applicant pressure" in packet.text
     assert "Rental-led cooperative lane" in packet.text
     assert "Extremely high applicant pressure" in packet.text
-    assert "360 unavailable" in packet.text
+    assert "No hosted 3D tour yet" in packet.text
     assert "Floorplan missing" in packet.text
     assert "not scheduled yet" not in packet.text
 

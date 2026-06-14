@@ -9523,7 +9523,7 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
                     {
                         "domain": "willhaben",
                         "category": "soft_preference",
-                        "key": "preferred_districts",
+                        "key": "preferred_areas",
                         "value_json": ["Waehring"],
                         "strength": "medium",
                         "merge_mode": "append_unique",
@@ -9533,7 +9533,7 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
         },
     )
     assert evidence.status_code == 200
-    assert evidence.json()["applied_nodes"][0]["key"] == "preferred_districts"
+    assert evidence.json()["applied_nodes"][0]["key"] == "preferred_areas"
 
     invalid_evidence = client.post(
         "/app/api/people/self/preference-profile/evidence",
@@ -9688,7 +9688,7 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     assert bundle.status_code == 200
     body = bundle.json()
     assert body["profile"]["display_name"] == "Tibor"
-    assert any(item["key"] == "preferred_districts" for item in body["preference_nodes"])
+    assert any(item["key"] == "preferred_areas" for item in body["preference_nodes"])
     assert body["recent_decision_assessments"][0]["domain"] == "willhaben"
 
     preview = client.get("/app/api/property/notifications/preview", params={"template": "property_match"})
@@ -9799,7 +9799,7 @@ def test_preference_profile_mailbox_import_applies_property_history_without_revi
     assert body["activity_total"] == 2
     assert body["preregistration_total"] == 1
     assert body["inquiry_total"] == 1
-    assert any(item["key"] == "preferred_districts" for item in body["applied_nodes"])
+    assert any(item["key"] == "preferred_areas" for item in body["applied_nodes"])
     assert any(item["key"] == "min_area_sqm_preference" for item in body["applied_nodes"])
     assert any(item["key"] == "prefer_balcony" for item in body["applied_nodes"])
     assert any(item["key"] == "prefer_lift" for item in body["applied_nodes"])
@@ -9810,8 +9810,8 @@ def test_preference_profile_mailbox_import_applies_property_history_without_revi
     bundle = client.get("/app/api/people/elisabeth/preference-profile")
     assert bundle.status_code == 200
     bundle_body = bundle.json()
-    assert any(item["key"] == "preferred_districts" and "Währing" in item["value_json"] for item in bundle_body["preference_nodes"])
-    assert any(item["key"] == "preferred_districts" and "Döbling" in item["value_json"] for item in bundle_body["preference_nodes"])
+    assert any(item["key"] == "preferred_areas" and "Währing" in item["value_json"] for item in bundle_body["preference_nodes"])
+    assert any(item["key"] == "preferred_areas" and "Döbling" in item["value_json"] for item in bundle_body["preference_nodes"])
     assert any(item["key"] == "min_rooms" and item["value_json"] == 3 for item in bundle_body["preference_nodes"])
     assert any(item["key"] == "requires_floorplan_for_remote_review" and item["value_json"] is True for item in bundle_body["preference_nodes"])
     assert any(row["domain"] == "property" for row in bundle_body["recent_evidence_events"])
@@ -9856,7 +9856,7 @@ def test_preference_profile_node_api_rejects_unsupported_or_malformed_nodes() ->
         json={
             "domain": "willhaben",
             "category": "soft_preference",
-            "key": "preferred_districts",
+            "key": "preferred_areas",
             "value_json": "Waehring",
             "confidence": 1.0,
         },
@@ -9883,7 +9883,7 @@ def test_preference_profile_node_api_rejects_unsupported_or_malformed_nodes() ->
         json={
             "domain": "arbitrary_crm",
             "category": "soft_preference",
-            "key": "preferred_districts",
+            "key": "preferred_areas",
             "value_json": ["Waehring"],
         },
     )
@@ -10212,7 +10212,7 @@ def test_preference_profile_teable_projection_endpoints_return_live_rows() -> No
         json={
             "domain": "willhaben",
             "category": "soft_preference",
-            "key": "preferred_districts",
+            "key": "preferred_areas",
             "value_json": ["Waehring"],
             "confidence": 0.8,
         },
@@ -10223,7 +10223,7 @@ def test_preference_profile_teable_projection_endpoints_return_live_rows() -> No
     projection_body = projection.json()
     assert "preference_review_queue" in projection_body
     assert projection_body["preference_review_queue"][0]["display_name"] == "Tibor"
-    assert projection_body["preference_review_queue"][0]["key"] == "preferred_districts"
+    assert projection_body["preference_review_queue"][0]["key"] == "preferred_areas"
 
     summary = client.get("/app/api/people/self/preference-profile/teable-projection-summary")
     assert summary.status_code == 200
@@ -10554,7 +10554,7 @@ def test_preference_profile_teable_sync_preview_fails_closed_without_executable_
         json={
             "domain": "willhaben",
             "category": "soft_preference",
-            "key": "preferred_districts",
+            "key": "preferred_areas",
             "value_json": ["Waehring"],
             "confidence": 0.8,
         },
@@ -10598,7 +10598,7 @@ def test_preference_profile_teable_sync_can_use_executable_lane_when_available(m
         json={
             "domain": "willhaben",
             "category": "soft_preference",
-            "key": "preferred_districts",
+            "key": "preferred_areas",
             "value_json": ["Waehring"],
             "confidence": 0.8,
         },
@@ -10688,7 +10688,7 @@ def test_preference_profile_teable_sync_preview_blocks_when_runtime_is_unreachab
         json={
             "domain": "willhaben",
             "category": "soft_preference",
-            "key": "preferred_districts",
+            "key": "preferred_areas",
             "value_json": ["Waehring"],
             "confidence": 0.8,
         },
@@ -16158,7 +16158,7 @@ def test_google_property_sync_updates_elisabeth_preference_profile_from_mailbox_
     bundle = client.get("/app/api/people/elisabeth/preference-profile")
     assert bundle.status_code == 200
     body = bundle.json()
-    assert any(item["key"] == "preferred_districts" and "Währing" in item["value_json"] for item in body["preference_nodes"])
+    assert any(item["key"] == "preferred_areas" and "Währing" in item["value_json"] for item in body["preference_nodes"])
     assert any(item["key"] == "min_area_sqm_preference" and item["value_json"] == 82 for item in body["preference_nodes"])
     assert any(item["key"] == "min_rooms" and item["value_json"] == 3 for item in body["preference_nodes"])
     assert any(item["key"] == "prefer_balcony" and item["value_json"] is True for item in body["preference_nodes"])
@@ -16243,7 +16243,7 @@ def test_google_property_sync_splits_digest_into_per_listing_reviews(monkeypatch
     )
     assert profile.status_code == 200
     for node_payload in (
-        {"domain": "willhaben", "category": "soft_preference", "key": "preferred_districts", "value_json": ["Waehring"], "confidence": 1.0},
+        {"domain": "willhaben", "category": "soft_preference", "key": "preferred_areas", "value_json": ["Waehring"], "confidence": 1.0},
         {"domain": "willhaben", "category": "aversion", "key": "avoid_heating_types", "value_json": ["Gasheizung"], "confidence": 1.0},
         {"domain": "willhaben", "category": "constraint", "key": "require_floorplan", "value_json": True, "confidence": 1.0},
         {"domain": "willhaben", "category": "soft_preference", "key": "prefer_360_for_remote_review", "value_json": True, "confidence": 1.0},

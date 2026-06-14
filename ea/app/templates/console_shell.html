@@ -482,14 +482,18 @@
   }
   .console-choice > span {
     min-width: 0;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
   }
   .console-choice-label {
     display: block;
     color: var(--text);
     font-size: 13px;
     line-height: 1.35;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
   }
   .console-choice-detail {
     display: block;
@@ -497,7 +501,9 @@
     font-size: 12px;
     margin-top: 2px;
     line-height: 1.45;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
   }
   .console-action-row {
     display: flex;
@@ -1342,13 +1348,13 @@
             </div>
             <div class="console-row-actions">
               {% if candidate.get('review_url') %}
-              <a class="console-action" href="{{ candidate.get('review_url') }}">Review packet</a>
+              <a class="console-action" href="{{ candidate.get('review_url') }}">Open property page</a>
               {% endif %}
               {% if candidate.get('tour_url') %}
               <a class="console-action" href="{{ candidate.get('tour_url') }}">Open 360</a>
               {% endif %}
               {% if candidate.get('property_url') %}
-              <a class="console-action" href="{{ candidate.get('property_url') }}">Source</a>
+              <a class="console-action" href="{{ candidate.get('property_url') }}">Open listing</a>
               {% endif %}
             </div>
             <div class="property-feedback-row">

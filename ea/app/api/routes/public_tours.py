@@ -1402,8 +1402,10 @@ def _preference_snapshot_nodes(facts: dict[str, object]) -> list[dict[str, objec
 
 
 def _filter_node_active(nodes: list[dict[str, object]], *, key: str, category: str) -> bool:
+    normalized_key = str(key or "").strip().lower()
     for row in nodes:
-        if str(row.get("key") or "").strip().lower() != key.lower():
+        row_key = str(row.get("key") or "").strip().lower()
+        if row_key != normalized_key:
             continue
         if str(row.get("category") or "").strip().lower() != category.lower():
             continue
@@ -1513,12 +1515,12 @@ def _public_filter_specs(*, facts: dict[str, object]) -> list[dict[str, object]]
     if district_value:
         filters.append(
             {
-                "key": "prefer_this_district",
+                "key": "prefer_this_area",
                 "label": f"Prefer {district_value}",
-                "summary": "Bias future ranking toward this district.",
+                "summary": "Bias future ranking toward this area.",
                 "domain": "willhaben",
                 "category": "soft_preference",
-                "node_key": "preferred_districts",
+                "node_key": "preferred_areas",
                 "value_json": [district_value],
                 "strength": "medium",
                 "confidence": 0.88,
@@ -2393,7 +2395,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         positive: list[str] = []
         caution: list[str] = []
         open_questions: list[str] = []
-        district_value = _normalized_token(_fact_text("postal_name", "district", "location"))
+        area_value = _normalized_token(_fact_text("postal_name", "district", "location"))
         heating_value = _fact_text("heating", "heating_type")
         heating_lower = heating_value.lower()
         has_floorplan = _fact_bool("has_floorplan")
@@ -2409,12 +2411,12 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         for row in nodes:
             key = str(row.get("key") or "").strip().lower()
             value = row.get("value_json")
-            if key == "preferred_districts" and isinstance(value, list):
+            if key == "preferred_areas" and isinstance(value, list):
                 preferred = [_normalized_token(item) for item in value if str(item or "").strip()]
-                if district_value and any(item in district_value for item in preferred):
-                    positive.append(f"The district matches your preferred areas ({_fact_text('postal_name', 'district', 'location')}).")
+                if area_value and any(item in area_value for item in preferred):
+                    positive.append(f"The area matches your preferred places ({_fact_text('postal_name', 'district', 'location')}).")
                 elif preferred:
-                    caution.append(f"The district is outside your stated preferred areas ({', '.join(str(item or '') for item in value if str(item or '').strip())}).")
+                    caution.append(f"The area is outside your stated preferred places ({', '.join(str(item or '') for item in value if str(item or '').strip())}).")
             elif key == "avoid_heating_types" and isinstance(value, list):
                 avoided = [str(item or "").strip().lower() for item in value if str(item or "").strip()]
                 if heating_lower and any(item in heating_lower for item in avoided):

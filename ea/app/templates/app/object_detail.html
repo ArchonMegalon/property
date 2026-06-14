@@ -44,7 +44,9 @@
   .object-copy {
     color: var(--text-soft);
     max-width: 100%;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
   }
   .object-media-frame {
     position: relative;
@@ -122,7 +124,9 @@
   .object-media-placeholder > * {
     max-width: 100%;
     min-width: 0;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
   }
   .object-media-status {
     display: inline-flex;
@@ -842,12 +846,12 @@
 <section class="object-sections">
   <section class="object-section">
     <div class="object-kicker">Decision pipeline</div>
-    <h2>Brief set → Providers scanned → Ranked shortlist → Review packet → 360 and research → Decide</h2>
+    <h2>Brief set → Providers scanned → Ranked shortlist → Property page → 360 and research → Decide</h2>
     <div class="object-list">
       <div class="object-row"><div><strong>Brief set</strong><small>The search brief and personal rules are already loaded for this packet.</small></div><div class="object-tag">Completed</div></div>
       <div class="object-row"><div><strong>Providers scanned</strong><small>The provider sweep already produced this candidate and the supporting evidence.</small></div><div class="object-tag">Completed</div></div>
       <div class="object-row"><div><strong>Ranked shortlist</strong><small>This property survived the shortlist and moved into the deeper review lane.</small></div><div class="object-tag">Completed</div></div>
-      <div class="object-row"><div><strong>Review packet</strong><small>You are here: packet, timeline, household review, and agent next questions are visible.</small></div><div class="object-tag">Active</div></div>
+      <div class="object-row"><div><strong>Property page</strong><small>You are here: details, timeline, household review, and next questions stay visible in one review surface.</small></div><div class="object-tag">Active</div></div>
       <div class="object-row"><div><strong>360 and research</strong><small>Use the hosted 360 and underwriting sections before making a final call.</small></div><div class="object-tag">Active</div></div>
       <div class="object-row"><div><strong>Decide</strong><small>Record Yes, Maybe, No, or Hide so the next shortlist learns from the outcome.</small></div><div class="object-tag">Next</div></div>
     </div>

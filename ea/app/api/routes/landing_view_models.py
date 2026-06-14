@@ -1708,7 +1708,7 @@ def _property_counterfactual_rows(
 
     country_code = str(preferences.get("country_code") or "").strip().upper()
     region_code = str(preferences.get("region_code") or "").strip().lower()
-    full_region_scope = bool(preferences.get("full_region_scope") or preferences.get("all_of_vienna"))
+    full_region_scope = bool(preferences.get("full_region_scope"))
     if country_code and region_code and not full_region_scope:
         try:
             from app.services.property_market_catalog import region_label_for_country_region
@@ -2280,7 +2280,7 @@ def app_section_payload(
     except Exception:
         property_available_within_years_value = 0
     selected_region_code = str(property_preferences.get("region_code") or "").strip().lower()
-    selected_full_region_scope = bool(property_preferences.get("full_region_scope") or property_preferences.get("all_of_vienna"))
+    selected_full_region_scope = bool(property_preferences.get("full_region_scope"))
     country_options = [dict(option) for option in list(property_state.get("country_options") or []) if isinstance(option, dict)]
     language_options = [dict(option) for option in list(property_state.get("language_options") or []) if isinstance(option, dict)]
     listing_mode_options = [dict(option) for option in list(property_state.get("listing_mode_options") or []) if isinstance(option, dict)]
@@ -2695,14 +2695,14 @@ def app_section_payload(
             if review_url:
                 row["action_href"] = packet_url
                 row["action_method"] = "get"
-                row["action_label"] = "Review packet"
+                row["action_label"] = "Open property page"
                 row["secondary_action_href"] = review_url
                 row["secondary_action_method"] = "get"
-                row["secondary_action_label"] = "Review details"
+                row["secondary_action_label"] = "Open source page"
             else:
                 row["action_href"] = packet_url
                 row["action_method"] = "get"
-                row["action_label"] = "Review packet"
+                row["action_label"] = "Open property page"
             if tour_url:
                 if row.get("secondary_action_href"):
                     row["tertiary_action_href"] = tour_url
@@ -4987,7 +4987,7 @@ def property_workspace_payload(
                 "action_label": "Open property page",
                 "secondary_action_href": str(candidate.get("tour_url") or candidate.get("review_url") or "").strip(),
                 "secondary_action_method": "get" if (candidate.get("tour_url") or candidate.get("review_url")) else "",
-                "secondary_action_label": "Open 360" if candidate.get("tour_url") else ("Review details" if candidate.get("review_url") else ""),
+                "secondary_action_label": "Open 360" if candidate.get("tour_url") else ("Open source page" if candidate.get("review_url") else ""),
             }
         )
 
@@ -5272,7 +5272,7 @@ def property_workspace_payload(
             rows.append(
                 {
                     "title": "Packet ready",
-                    "detail": "Review packet is ready for household or advisor follow-up.",
+                    "detail": "The property page is ready for household or advisor follow-up.",
                     "tag": "Packet",
                 }
             )
@@ -5486,7 +5486,7 @@ def property_workspace_payload(
             or facts.get("floorplan_urls")
         )
         packet_url = str(candidate.get("packet_url") or candidate.get("review_url") or "").strip()
-        packet_label = "Review packet" if packet_url else "Pending"
+        packet_label = "Property page" if packet_url else "Pending"
         map_url = str(candidate.get("map_url") or "").strip() or _property_candidate_maps_url(candidate)
         tour_status_line = _tour_status_line(candidate)
         ooda_detail = _distance_line(candidate)
@@ -5667,7 +5667,7 @@ def property_workspace_payload(
                 "detail": str(search_posture_items[0].get("detail") or "").strip() if search_posture_items else "",
                 "href": f"/app/properties{run_suffix}",
             },
-            {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target districts.", "href": "/app/account#profile"},
+            {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target areas.", "href": "/app/account#profile"},
             {"label": "Priorities", "value": str(len(selected_keywords) or 0), "detail": ", ".join(selected_keywords[:3]) or "Record what should drive the ranking.", "href": "/app/account#profile"},
             {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "The selected portals for the next sweep.", "href": f"/app/search{run_suffix}"},
         ],
@@ -5899,7 +5899,7 @@ def property_workspace_payload(
                 "action_label": "Open property page",
                 "secondary_action_href": str(candidate.get("review_url") or candidate.get("tour_url") or "").strip(),
                 "secondary_action_method": "get" if (candidate.get("review_url") or candidate.get("tour_url")) else "",
-                "secondary_action_label": "Review details" if candidate.get("review_url") else ("Open 360" if candidate.get("tour_url") else ""),
+                "secondary_action_label": "Open source page" if candidate.get("review_url") else ("Open 360" if candidate.get("tour_url") else ""),
             }
         )
     if not research_rows:
@@ -6464,7 +6464,7 @@ def property_workspace_payload(
         ),
         "recent_packets": [
             {
-                "title": str(item.get("title") or item.get("label") or "Review packet").strip(),
+                "title": str(item.get("title") or item.get("label") or "Property page").strip(),
                 "detail": str(item.get("detail") or "").strip(),
                 "tag": str(item.get("tag") or "Packet").strip(),
                 "url": str(item.get("action_href") or "").strip(),

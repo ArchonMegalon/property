@@ -1743,7 +1743,7 @@ def test_telegram_real_ea_reply_text_calls_upstream_with_required_kwargs(monkeyp
                     {
                         "domain": "willhaben",
                         "status": "active",
-                        "key": "preferred_districts",
+                        "key": "preferred_areas",
                         "value_json": ["Waehring", "Doebling"],
                         "confidence": 0.95,
                     },
@@ -1891,7 +1891,7 @@ def test_telegram_real_ea_reply_text_calls_upstream_with_required_kwargs(monkeyp
     assert "active_queue_profile_refs: profile_followup:insurance_admin:rehab_authorization_management" in grounding_text
     assert "active_email_thread: gmail-thread:arc-1" in grounding_text
     assert "Active housing preferences:" in grounding_text
-    assert "preferred_districts: Waehring, Doebling" in grounding_text
+    assert "preferred_areas: Waehring, Doebling" in grounding_text
     assert "avoid_heating_types: gasheizung" in grounding_text
     assert "Active admin focus:" in grounding_text
     assert "Insurance admin is a real theme" in grounding_text
@@ -7760,7 +7760,7 @@ def test_public_tour_routes_keep_pure_360_white_labeled_when_origin_present(
                         "domain": "willhaben",
                         "person_id": "self",
                         "preference_nodes": [
-                            {"key": "preferred_districts", "category": "soft_preference", "value_json": ["Waehring"], "confidence": 1.0},
+                            {"key": "preferred_areas", "category": "soft_preference", "value_json": ["Waehring"], "confidence": 1.0},
                             {"key": "avoid_heating_types", "category": "aversion", "value_json": ["Gasheizung"], "confidence": 1.0},
                             {"key": "prefer_lift", "category": "soft_preference", "value_json": True, "confidence": 1.0},
                             {"key": "playground_nearby", "category": "soft_preference", "value_json": True, "confidence": 0.9},

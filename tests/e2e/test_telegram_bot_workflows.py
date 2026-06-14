@@ -365,7 +365,7 @@ def test_telegram_bot_workflow_persists_property_comparison_memory(monkeypatch: 
 
     class _FakeProductService:
         def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
-            return {"preference_nodes": [{"domain": "willhaben", "status": "active", "key": "preferred_districts", "value_json": ["Waehring", "Doebling"], "confidence": 0.95}]}
+            return {"preference_nodes": [{"domain": "willhaben", "status": "active", "key": "preferred_areas", "value_json": ["Waehring", "Doebling"], "confidence": 0.95}]}
 
         def list_office_events(self, *, principal_id: str, limit: int = 12, **kwargs):
             return [{"channel": "product", "event_type": "property_alert_review_created", "summary": "New property alert analyzed."}]

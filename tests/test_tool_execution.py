@@ -466,10 +466,10 @@ def test_tool_execution_service_executes_teable_table_sync(monkeypatch: pytest.M
                 "tables_json": {
                     "preference_review_queue": [
                         {
-                            "projection_id": "pref_node:self:willhaben:soft_preference:preferred_districts",
+                            "projection_id": "pref_node:self:willhaben:soft_preference:preferred_areas",
                             "display_name": "Tibor",
                             "domain": "willhaben",
-                            "key": "preferred_districts",
+                            "key": "preferred_areas",
                             "confidence": 0.8,
                             "editable_fields_allowlist": ["value_json", "strength"],
                         }
@@ -490,7 +490,7 @@ def test_tool_execution_service_executes_teable_table_sync(monkeypatch: pytest.M
     assert observed[0][0] == "GET"
     assert "/api/table/tbl_preference_review_queue/record?" in observed[0][1]
     assert observed[1][0] == "POST"
-    assert observed[1][2]["records"][0]["fields"]["projection_id"] == "pref_node:self:willhaben:soft_preference:preferred_districts"
+    assert observed[1][2]["records"][0]["fields"]["projection_id"] == "pref_node:self:willhaben:soft_preference:preferred_areas"
     assert isinstance(observed[1][2]["records"][0]["fields"]["editable_fields_allowlist"], str)
 
 

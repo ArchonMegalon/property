@@ -27,7 +27,7 @@ def test_teable_projection_adapter_can_project_live_preference_rows() -> None:
         person_id="self",
         domain="willhaben",
         category="soft_preference",
-        key="preferred_districts",
+        key="preferred_areas",
         value_json=["Waehring"],
         confidence=0.8,
     )
@@ -44,6 +44,6 @@ def test_teable_projection_adapter_can_project_live_preference_rows() -> None:
     )
 
     assert records["preference_review_queue"][0]["display_name"] == "Tibor"
-    assert records["preference_review_queue"][0]["key"] == "preferred_districts"
+    assert records["preference_review_queue"][0]["key"] == "preferred_areas"
     table = next(item for item in summary["tables"] if item["table_name"] == "preference_review_queue")
     assert table["record_count"] >= 1

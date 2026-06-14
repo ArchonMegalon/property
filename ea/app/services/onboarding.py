@@ -1394,12 +1394,9 @@ class OnboardingService(AssistantOnboardingService):
         country_code = normalize_country_code(raw.get("country_code"))
         region_code = str(raw.get("region_code") or "").strip().lower()
         raw_full_region_scope = raw.get("full_region_scope")
-        raw_all_of_vienna = raw.get("all_of_vienna")
         full_region_scope = (
             raw_full_region_scope is True
             or str(raw_full_region_scope or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
-            or raw_all_of_vienna is True
-            or str(raw_all_of_vienna or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
         )
         location_query = str(raw.get("location_query") or "").strip()
         if full_region_scope and not location_query and region_code:

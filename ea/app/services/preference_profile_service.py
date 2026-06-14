@@ -69,6 +69,10 @@ def _normalize_key(value: object) -> str:
     return str(value or "").strip().lower()
 
 
+def _canonical_preference_key(value: object) -> str:
+    return _normalize_key(value)
+
+
 def _list_value(value: object) -> list[str]:
     if isinstance(value, list):
         return [str(item or "").strip() for item in value if str(item or "").strip()]
@@ -135,6 +139,7 @@ class PreferenceProfileService:
         node_id: str | None = None,
     ) -> dict[str, object]:
         self.ensure_profile(principal_id=principal_id, person_id=person_id)
+        key = _canonical_preference_key(key)
         return self._repo.upsert_preference_node(
             principal_id=principal_id,
             person_id=person_id,
@@ -531,7 +536,7 @@ class PreferenceProfileService:
                     {
                         "domain": "willhaben",
                         "category": "soft_preference",
-                        "key": "preferred_districts",
+                        "key": "preferred_areas",
                         "value_json": [district],
                         "strength": "medium",
                         "merge_mode": "append_unique",
@@ -669,15 +674,15 @@ class PreferenceProfileService:
                 if bool(value) and not has_360:
                     blocking_constraints.append("A live 360 or panorama source is required, but the listing does not provide one.")
                     score -= 18.0
-            elif category in {"soft_preference", "aversion"} and key == "preferred_districts":
+            elif category in {"soft_preference", "aversion"} and _canonical_preference_key(key) == "preferred_areas":
                 preferred = {_normalize_key(item) for item in _list_value(value)}
                 if district and _normalize_key(district) in preferred:
                     score += 9.0 * weight
-                    match_reasons.append(f"The listing is in {district}, which matches established district preferences.")
+                    match_reasons.append(f"The listing is in {district}, which matches established area preferences.")
                 elif district:
                     score -= 2.5 * weight
-                    mismatch_reasons.append(f"The listing is outside the established preferred districts ({district}).")
-            elif category in {"soft_preference", "aversion"} and key == "avoided_districts":
+                    mismatch_reasons.append(f"The listing is outside the established preferred areas ({district}).")
+            elif category in {"soft_preference", "aversion"} and _canonical_preference_key(key) == "avoided_areas":
                 avoided = {_normalize_key(item) for item in _list_value(value)}
                 if district and _normalize_key(district) in avoided:
                     score -= 6.0 * weight

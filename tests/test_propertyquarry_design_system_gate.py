@@ -54,18 +54,18 @@ def test_propertyquarry_clickable_looking_recent_reviews_are_real_links_or_plain
     assert "<span class=\"pqx-pill\">{{ packet.get('title') }}</span>" not in body
     assert ".pqx-recent-review" in body
     assert "white-space: normal;" in body
-    assert "overflow-wrap: anywhere;" in body
+    assert "overflow-wrap: normal;" in body
 
 
 def test_propertyquarry_search_results_explain_suppression_and_provider_quality() -> None:
     body = (ROOT / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
 
-    assert "Search guard" in body
-    assert "Held back by rules" in body
+    assert "Search guard" not in body
+    assert "Filtered by rules" in body
     assert "What did not reach the shortlist" in body
-    assert "Source quality" in body
+    assert "How this search was filtered" in body
     assert "Floorplans {{ provider_quality.get('floorplan_reliability')" in body
-    assert "PropertyQuarry ranks the candidates" in body
+    assert "Best homes first" in body
 
 
 def test_propertyquarry_brand_marks_route_to_public_or_dashboard_home() -> None:
@@ -76,9 +76,9 @@ def test_propertyquarry_brand_marks_route_to_public_or_dashboard_home() -> None:
     assert "{% set brand_home_href = (brand.app_home or '/app/properties') if access_identity else (brand.public_base_url or '/') %}" in public_shell
     assert '<a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} home">' in public_shell
     assert "{% set brand_home_href = brand.app_home or '/app/properties' %}" in console_shell
-    assert '<a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} dashboard">' in console_shell
+    assert '<a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} home">' in console_shell
     assert "run.get('run_id')" not in workbench.split('<a class="pqx-brand"', 1)[1].split(">", 1)[0]
-    assert '<a class="pqx-brand" href="/app/properties" aria-label="PropertyQuarry dashboard">' in workbench
+    assert '<a class="pqx-brand" href="/app/properties" aria-label="PropertyQuarry home">' in workbench
 
 
 def test_propertyquarry_app_surfaces_expose_account_navigation() -> None:

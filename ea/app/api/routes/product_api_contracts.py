@@ -846,7 +846,7 @@ _PROPERTY_PREFERENCE_VALUE_SPECS = {
     ("constraint", "require_360"): "bool",
     ("constraint", "require_lift"): "bool",
     ("constraint", "require_quiet_micro_location"): "bool",
-    ("soft_preference", "preferred_districts"): "text_list",
+    ("soft_preference", "preferred_areas"): "text_list",
     ("soft_preference", "requires_floorplan_for_remote_review"): "bool",
     ("soft_preference", "prefer_balcony"): "bool",
     ("soft_preference", "prefer_outdoor_space"): "bool",
@@ -875,7 +875,7 @@ _PROPERTY_PREFERENCE_VALUE_SPECS = {
     ("soft_preference", "prefer_lower_total_rent_eur"): "positive_number",
     ("soft_preference", "min_area_sqm_preference"): "positive_number",
     ("aversion", "avoid_heating_types"): "text_list",
-    ("aversion", "avoided_districts"): "text_list",
+    ("aversion", "avoided_areas"): "text_list",
 }
 _GENERAL_PREFERENCE_VALUE_SPECS = {
     ("decision_style", "needs_side_by_side_comparison"): "bool",
@@ -883,6 +883,9 @@ _GENERAL_PREFERENCE_VALUE_SPECS = {
     ("workflow_preference", "prefers_concise_updates"): "bool",
     ("workflow_preference", "prefers_direct_followups"): "bool",
 }
+
+def _canonical_property_preference_key(key: object) -> str:
+    return _normalized_preference_text(key, max_length=120)
 
 
 def _preference_error(code: str) -> PydanticCustomError:
@@ -1027,6 +1030,7 @@ class PreferenceNodeUpsertIn(BaseModel):
 
     @model_validator(mode="after")
     def _validate_preference_node(self) -> "PreferenceNodeUpsertIn":
+        self.key = _canonical_property_preference_key(self.key)
         if self.domain not in _PREFERENCE_DOMAINS:
             raise _preference_error("unsupported_preference_domain")
         if self.strength not in _PREFERENCE_STRENGTHS:
@@ -1100,6 +1104,7 @@ class PreferenceCorrectionApplyIn(BaseModel):
 
     @model_validator(mode="after")
     def _validate_preference_correction(self) -> "PreferenceCorrectionApplyIn":
+        self.key = _canonical_property_preference_key(self.key)
         if self.domain not in _PREFERENCE_DOMAINS:
             raise _preference_error("unsupported_preference_domain")
         if self.strength not in _PREFERENCE_STRENGTHS:
