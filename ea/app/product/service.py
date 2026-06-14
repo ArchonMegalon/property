@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import contextlib
 import csv
 import fcntl
@@ -1569,6 +1570,110 @@ def _property_search_scan_cap_per_source() -> int:
     return max(0, min(parsed, 1000))
 
 
+def _property_search_provider_fetch_concurrency() -> int:
+    raw_value = str(os.getenv("PROPERTYQUARRY_SEARCH_PROVIDER_CONCURRENCY") or "").strip()
+    if not raw_value:
+        return 4
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return 4
+    return max(1, min(parsed, 12))
+
+
+def _property_search_browser_provider_concurrency() -> int:
+    raw_value = str(os.getenv("PROPERTYQUARRY_SEARCH_BROWSER_CONCURRENCY") or "").strip()
+    if not raw_value:
+        return 1
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return 1
+    return max(1, min(parsed, 4))
+
+
+def _property_search_official_evidence_concurrency() -> int:
+    raw_value = str(os.getenv("PROPERTYQUARRY_SEARCH_OFFICIAL_EVIDENCE_CONCURRENCY") or "").strip()
+    if not raw_value:
+        return 4
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return 4
+    return max(1, min(parsed, 8))
+
+
+def _property_search_source_fetch_lane(source_spec: dict[str, object]) -> str:
+    access_level = str(source_spec.get("source_access_level") or "").strip().lower()
+    provider_family = str(source_spec.get("provider_family") or "").strip().lower()
+    if "browser" in access_level:
+        return "browser"
+    if provider_family in {"municipal_housing", "public_housing", "distressed_sales"}:
+        return "official"
+    return "provider"
+
+
+def _property_search_prefetch_listing_urls(
+    *,
+    specs: list[dict[str, object]],
+    force_refresh: bool,
+) -> dict[tuple[str, str], dict[str, object]]:
+    if not specs:
+        return {}
+    provider_cap = _property_search_provider_fetch_concurrency()
+    browser_cap = _property_search_browser_provider_concurrency()
+    official_cap = _property_search_official_evidence_concurrency()
+    overall_cap = max(1, min(len(specs), max(provider_cap + official_cap, browser_cap, provider_cap)))
+    lane_semaphores = {
+        "provider": threading.Semaphore(provider_cap),
+        "browser": threading.Semaphore(browser_cap),
+        "official": threading.Semaphore(official_cap),
+    }
+
+    def _task(source_spec: dict[str, object]) -> tuple[tuple[str, str], dict[str, object]]:
+        source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
+        platform = str(source_spec.get("platform") or "").strip().lower()
+        lane = _property_search_source_fetch_lane(source_spec)
+        sem = lane_semaphores.get(lane, lane_semaphores["provider"])
+        started_at = time.perf_counter()
+        with sem:
+            try:
+                listing_urls, provider_cache_state = _property_scout_listing_urls_for_source(
+                    source_url=source_url,
+                    source_spec=source_spec,
+                    force_refresh=force_refresh,
+                )
+                return (
+                    (platform, source_url),
+                    {
+                        "listing_urls": listing_urls,
+                        "provider_cache_state": provider_cache_state,
+                        "timing_ms": {"provider_fetch": round((time.perf_counter() - started_at) * 1000.0, 2)},
+                        "lane": lane,
+                    },
+                )
+            except Exception as exc:
+                return (
+                    (platform, source_url),
+                    {
+                        "error": compact_text(str(exc or ""), fallback="property_scout_fetch_failed", limit=200),
+                        "timing_ms": {"provider_fetch": round((time.perf_counter() - started_at) * 1000.0, 2)},
+                        "lane": lane,
+                    },
+                )
+
+    prefetched: dict[tuple[str, str], dict[str, object]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=overall_cap, thread_name_prefix="property-source-fetch") as executor:
+        futures = [executor.submit(_task, dict(spec)) for spec in specs]
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                key, payload = future.result()
+            except Exception:
+                continue
+            prefetched[key] = payload
+    return prefetched
+
+
 def _property_candidate_supports_live_tour(candidate: dict[str, object]) -> bool:
     facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
     return bool(
@@ -2658,6 +2763,8 @@ def _property_scout_is_supported_listing_url(url: str) -> bool:
     if "gesiba.at" in host:
         query = urllib.parse.parse_qs(parsed.query)
         return path.startswith("/immobilien/wohnungen/objekt") and bool(query.get("objektnummer"))
+    if "findmyhome.at" in host:
+        return bool(re.fullmatch(r"/\d+", path)) and str(parsed.query or "").strip().lower().startswith("tl=")
     if not any(domain in host for domain in _PROPERTY_SCOUT_LISTING_HOSTS):
         return False
     for marker in provider_listing_markers_for_host(host):
@@ -2768,12 +2875,31 @@ def _property_scout_extract_frieden_listing_urls(*, source_url: str, html: str, 
     return tuple(rows)
 
 
+def _property_scout_extract_findmyhome_listing_urls(*, source_url: str, html: str) -> tuple[str, ...]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    pattern = re.compile(
+        r"""<h3[^>]*class=["'][^"']*obj_list[^"']*["'][^>]*>.*?<a[^>]*href=['"]([^'"]+/\d+\?tl=\d+)['"]""",
+        re.IGNORECASE | re.DOTALL,
+    )
+    for match in pattern.finditer(str(html or "")):
+        candidate = _property_scout_clean_url(urllib.parse.urljoin(source_url, str(match.group(1) or "").strip()))
+        if candidate and candidate not in seen and _property_scout_is_supported_listing_url(candidate):
+            seen.add(candidate)
+            rows.append(candidate)
+    return tuple(rows)
+
+
 def _property_scout_extract_listing_urls(*, source_url: str, html: str, source_spec: dict[str, object] | None = None) -> tuple[str, ...]:
     parsed_source = urllib.parse.urlparse(str(source_url or "").strip())
     source_query = urllib.parse.parse_qs(parsed_source.query)
     sozialbau_scope = str((source_query.get("pq_scope") or [""])[0]).strip().lower()
     requested_min_area_m2 = _property_scout_source_requested_min_area_m2(source_spec)
     source_host = parsed_source.netloc.lower()
+    if "findmyhome.at" in source_host:
+        rows = _property_scout_extract_findmyhome_listing_urls(source_url=source_url, html=html)
+        if rows:
+            return rows
     if "wbv-gpa.at" in source_host:
         rows = _property_scout_extract_wbv_gpa_listing_urls(source_url=source_url, html=html, min_area_m2=requested_min_area_m2)
         if rows:
@@ -7262,6 +7388,11 @@ def _property_distance_relaxation_factor(value: object) -> float:
     return 3.0
 
 
+def _property_distance_is_avoid_mode(value: object) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized in {"avoid", "avoid_nearby", "avoid-nearby", "avoid_in_vicinity", "avoid-vicinity"}
+
+
 def _property_append_distance_relaxation(
     facts: dict[str, object],
     *,
@@ -7289,6 +7420,21 @@ def _property_append_distance_unknown(
     facts["distance_unknowns_json"] = rows
 
 
+def _property_append_distance_avoidance(
+    facts: dict[str, object],
+    *,
+    label: str,
+    requested_m: int,
+    actual_m: float,
+) -> None:
+    existing = facts.get("distance_avoidances_json")
+    rows = list(existing) if isinstance(existing, list) else []
+    row = {"label": label, "requested_m": int(requested_m), "actual_m": int(actual_m)}
+    if row not in rows:
+        rows.append(row)
+    facts["distance_avoidances_json"] = rows
+
+
 def _property_apply_distance_gate(
     facts: dict[str, object],
     *,
@@ -7300,12 +7446,23 @@ def _property_apply_distance_gate(
     limit_m = int(request_preferences.get(preference_key) or 0)
     if limit_m <= 0:
         return True
+    importance_mode = request_preferences.get(preference_key.replace("_m", "_importance"))
+    if _property_distance_is_avoid_mode(importance_mode):
+        try:
+            actual = float(facts.get(fact_key) or 0.0)
+        except Exception:
+            actual = 0.0
+        if actual <= 0.0:
+            _property_append_distance_unknown(facts, label=label, requested_m=limit_m)
+            return True
+        if actual <= float(limit_m):
+            _property_append_distance_avoidance(facts, label=label, requested_m=limit_m, actual_m=actual)
+            return False
+        return True
     distance_ok, distance_mode, actual_m = _property_distance_within_relaxed_radius(
         actual_m=facts.get(fact_key),
         requested_limit_m=limit_m,
-        relaxation_factor=_property_distance_relaxation_factor(
-            request_preferences.get(preference_key.replace("_m", "_importance"))
-        ),
+        relaxation_factor=_property_distance_relaxation_factor(importance_mode),
     )
     if distance_mode == "unknown":
         _property_append_distance_unknown(facts, label=label, requested_m=limit_m)
@@ -27924,6 +28081,7 @@ class ProductService:
         max_results_per_source: int | None = None,
         progress_callback: callable | None = None,
     ) -> dict[str, object]:
+        run_started_at = time.perf_counter()
         run_platforms = _property_search_platforms_with_family_toggles(
             _normalize_property_search_platform_inputs(selected_platforms),
             property_search_preferences,
@@ -28086,6 +28244,10 @@ class ProductService:
                 or str(spec.get("principal_id") or "").strip() == str(principal_id or "").strip())
             and (not run_platforms or "all" in run_platforms or str(spec.get("platform") or "").strip() in run_platforms)
         ]
+        prefetched_source_results = _property_search_prefetch_listing_urls(
+            specs=specs,
+            force_refresh=effective_force_refresh,
+        )
 
         _report(
             step="sources_resolved",
@@ -28194,6 +28356,11 @@ class ProductService:
         provider_cache_refresh_total = 0
         watch_notified_total = 0
         filter_near_miss_notified_total = 0
+        partial_shortlist_reported = False
+        timing_ms = {
+            "provider_fetch_total": 0.0,
+            "provider_process_total": 0.0,
+        }
         policy = self.property_alert_policy(principal_id=principal_id)
         source_summaries: list[dict[str, object]] = []
         pending_telegram_notifications: list[dict[str, object]] = []
@@ -28212,7 +28379,9 @@ class ProductService:
             "max_distance_to_good_cafe_m",
         }
         for source_spec in specs:
+            source_started_at = time.perf_counter()
             source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
+            source_key = (str(source_spec.get("platform") or "").strip().lower(), source_url)
             source_label = compact_text(str(source_spec.get("label") or "").strip(), fallback="", limit=120) or urllib.parse.urlparse(source_url).netloc
             provider_filter_pushdown = (
                 dict(source_spec.get("provider_filter_pushdown") or {})
@@ -28335,6 +28504,9 @@ class ProductService:
                 steps_delta=1,
             )
 
+            prefetched_result = dict(prefetched_source_results.get(source_key) or {})
+            provider_fetch_ms = float(dict(prefetched_result.get("timing_ms") or {}).get("provider_fetch") or 0.0)
+            timing_ms["provider_fetch_total"] = round(float(timing_ms.get("provider_fetch_total") or 0.0) + provider_fetch_ms, 2)
             try:
                 _report(
                     step="source_fetching",
@@ -28346,11 +28518,10 @@ class ProductService:
                         "provider_cache_key": provider_cache_key,
                     },
                 )
-                listing_urls, provider_cache_state = _property_scout_listing_urls_for_source(
-                    source_url=source_url,
-                    source_spec=source_spec,
-                    force_refresh=effective_force_refresh,
-                )
+                if prefetched_result.get("error"):
+                    raise RuntimeError(str(prefetched_result.get("error") or "property_scout_fetch_failed"))
+                listing_urls = list(prefetched_result.get("listing_urls") or [])
+                provider_cache_state = dict(prefetched_result.get("provider_cache_state") or {})
                 cache_status = str(provider_cache_state.get("status") or "").strip()
                 if cache_status in {"hit", "stale_fallback"}:
                     provider_cache_hit_total += 1
@@ -28375,6 +28546,10 @@ class ProductService:
                         "listing_total": 0,
                         "review_created_total": 0,
                         "review_existing_total": 0,
+                        "timing_ms": {
+                            "provider_fetch": round(provider_fetch_ms, 2),
+                            "source_total": round((time.perf_counter() - source_started_at) * 1000.0, 2),
+                        },
                         "error": compact_text(str(exc or ""), fallback="property_scout_fetch_failed", limit=200),
                     }
                 )
@@ -29924,7 +30099,16 @@ class ProductService:
                     "top_fit_score": max((_property_alert_fit_score(dict(item.get("assessment") or {})) for item in ranked_rows), default=0.0),
                     "top_candidates": sorted_top_candidates_for_source[:5],
                     "research_candidates": sorted_top_candidates_for_source,
+                    "timing_ms": {
+                        "provider_fetch": round(provider_fetch_ms, 2),
+                        "source_total": round((time.perf_counter() - source_started_at) * 1000.0, 2),
+                    },
                 }
+            )
+            timing_ms["provider_process_total"] = round(
+                float(timing_ms.get("provider_process_total") or 0.0)
+                + max(0.0, (time.perf_counter() - source_started_at) * 1000.0 - provider_fetch_ms),
+                2,
             )
             _report(
                 step="source_completed",
@@ -29933,6 +30117,18 @@ class ProductService:
                 steps_delta=1,
                 summary_updates={"sources": source_summaries},
             )
+            if not partial_shortlist_reported and ranked_rows:
+                partial_shortlist_reported = True
+                _report(
+                    step="shortlist_ready",
+                    message=f"First ranked homes are ready from {source_label}.",
+                    status="in_progress",
+                    steps_delta=0,
+                    summary_updates={
+                        "sources": source_summaries,
+                        "ranked_candidates": _property_search_ranked_candidates_from_sources(source_summaries),
+                    },
+                )
 
         def _source_summary_for_notification(item: dict[str, object]) -> dict[str, object] | None:
             item_source_url = str(item.get("source_url") or "").strip()
@@ -30053,6 +30249,10 @@ class ProductService:
             "filter_near_miss_notified_total": filter_near_miss_notified_total,
             "failed_total": failed_total,
             "sources": source_summaries,
+            "timing_ms": {
+                **timing_ms,
+                "run_total": round((time.perf_counter() - run_started_at) * 1000.0, 2),
+            },
         }
         payload["search_broaden_suggestions"] = _property_search_broaden_suggestions(
             request_preferences=request_preferences,

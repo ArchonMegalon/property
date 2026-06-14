@@ -458,7 +458,7 @@ def _assert_property_shell_visual_gates(page: Page, *, max_appbar_height: int) -
 
 def _assert_research_packet_360_first(page: Page, *, min_stage_height: int) -> None:
     media = page.locator("[data-object-media-stage]").first
-    ooda = page.get_by_text("Decision summary").first
+    ooda = page.get_by_text("Quick read").first
     assert media.is_visible()
     assert ooda.is_visible()
     media_box = media.bounding_box()
@@ -888,7 +888,7 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
         assert page.locator(".object-media-frame").is_visible()
         assert "Open the space before you read the rest" not in page.content()
         _assert_research_packet_360_first(page, min_stage_height=420)
-        assert page.get_by_text("Decision summary").first.is_visible()
+        assert page.get_by_text("Quick read").first.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
     finally:
         context.close()
@@ -945,6 +945,10 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('details[data-property-advanced-panel="children"]').evaluate("(node) => node.hasAttribute('open')") is True
         page.locator('[data-property-field-name="school_stage_preferences"]').wait_for(state="visible")
         assert page.locator('[data-property-field-name="school_stage_preferences"]').is_visible()
+        assert page.locator('details[data-property-advanced-panel="children_distances"]').is_visible()
+        assert page.locator('details[data-property-advanced-panel="children_distances"]').evaluate("(node) => node.hasAttribute('open')") is False
+        page.locator('details[data-property-advanced-panel="children_distances"] summary').click()
+        assert page.locator('details[data-property-advanced-panel="children_distances"]').evaluate("(node) => node.hasAttribute('open')") is True
         assert page.locator('[data-property-field-name="max_distance_to_playground_m"]').is_visible()
         assert page.locator('[data-property-field-name="max_distance_to_library_m"]').is_visible()
         assert page.locator('[data-property-field-name="max_distance_to_zoo_m"]').is_visible()
@@ -975,9 +979,11 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         page.locator('input[name="enable_family_mode"]').check()
         children_panel = page.locator('details[data-property-advanced-panel="children"]')
         children_panel.locator("summary").click()
-        assert children_panel.locator('[data-property-unavailable-toggle-wrap]').is_visible()
+        children_distances_panel = page.locator('details[data-property-advanced-panel="children_distances"]')
+        children_distances_panel.locator("summary").click()
+        assert children_distances_panel.locator('[data-property-unavailable-toggle-wrap]').is_visible()
         assert page.locator('[data-property-field-name="max_distance_to_zoo_m"]').is_hidden()
-        children_panel.locator('[data-property-show-unavailable]').check()
+        children_distances_panel.locator('[data-property-show-unavailable]').check()
         page.locator('[data-property-field-name="max_distance_to_zoo_m"]').wait_for(state="visible")
         assert page.locator('[data-property-field-name="max_distance_to_zoo_m"]').is_visible()
         assert "No practical zoo or Tiergarten signal is configured for this market yet." in (page.locator('[data-property-field-name="max_distance_to_zoo_m"]').text_content() or "")
@@ -1000,6 +1006,11 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('details[data-property-advanced-panel="location_research"]').evaluate("(node) => node.hasAttribute('open')") is False
         page.locator('details[data-property-advanced-panel="location_research"] summary').click()
         assert page.locator('details[data-property-advanced-panel="location_research"]').evaluate("(node) => node.hasAttribute('open')") is True
+        shopping_panel = page.locator('details[data-property-advanced-panel="shopping_distances"]')
+        assert shopping_panel.is_visible()
+        assert shopping_panel.evaluate("(node) => node.hasAttribute('open')") is False
+        shopping_panel.locator("summary").click()
+        assert shopping_panel.evaluate("(node) => node.hasAttribute('open')") is True
         page.locator('[data-property-field-name="max_distance_to_market_m"]').wait_for(state="visible")
         assert page.locator('[data-property-field-name="max_distance_to_market_m"]').is_visible()
         assert page.locator('[data-property-field-name="max_distance_to_hardware_store_m"]').is_visible()
@@ -1705,7 +1716,7 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
         separator = "&" if "?" in packet_url else "?"
         response = page.goto(f"{packet_url}{separator}run_id=run-42&decision=no&clippy=1&prompt=What%20is%20the%20strongest%20blocker%20here%3F", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Decision summary").is_visible()
+        assert page.locator("body", has_text="Quick read").is_visible()
         assert page.locator("body", has_text="Decision shortcut loaded from the email or shared link.").is_visible()
         assert page.locator("body", has_text="Clippy prompt loaded from the email or shared link.").is_visible()
         assert page.locator("body", has_text="Tracked follow-up").is_visible()

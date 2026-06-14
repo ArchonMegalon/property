@@ -1405,6 +1405,7 @@ def _render_console_object_detail(
     object_ooda_title: str = "",
     object_ooda_copy: str = "",
     object_ooda_rows: list[dict[str, str]] | None = None,
+    object_sidebar_kicker: str = "",
     object_sidebar_title: str,
     object_sidebar_copy: str,
     object_sidebar_rows: list[dict[str, str]],
@@ -1436,6 +1437,7 @@ def _render_console_object_detail(
             "object_ooda_title": object_ooda_title,
             "object_ooda_copy": object_ooda_copy,
             "object_ooda_rows": object_ooda_rows or [],
+            "object_sidebar_kicker": object_sidebar_kicker,
             "object_sidebar_title": object_sidebar_title,
             "object_sidebar_copy": object_sidebar_copy,
             "object_sidebar_rows": object_sidebar_rows,
@@ -2685,6 +2687,40 @@ def property_research_packet(
                 "tag": "Waiting",
             }
         ]
+    price_summary = str(
+        facts.get("price_display")
+        or facts.get("rent_display")
+        or facts.get("price")
+        or facts.get("price_eur")
+        or ""
+    ).strip()
+    area_summary = str(facts.get("area_m2") or facts.get("living_area_m2") or "").strip()
+    rooms_summary = str(facts.get("rooms_label") or facts.get("rooms") or facts.get("room_count") or "").strip()
+    location_summary = str(
+        candidate.get("location_label")
+        or facts.get("source_scope_location")
+        or facts.get("district")
+        or facts.get("address")
+        or source_label
+        or ""
+    ).strip()
+    headline_summary_parts = [
+        part
+        for part in (
+            f"{area_summary} m²" if area_summary else "",
+            price_summary,
+            rooms_summary,
+            location_summary,
+        )
+        if str(part or "").strip()
+    ]
+    object_summary = " · ".join(headline_summary_parts) or source_label
+    object_meta = [
+        {"label": "Price", "value": price_summary or "n/a"},
+        {"label": "Area", "value": f"{area_summary} m²" if area_summary else "n/a"},
+        {"label": "Rooms", "value": rooms_summary or "n/a"},
+        {"label": "Location", "value": location_summary or source_label},
+    ]
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -2693,29 +2729,18 @@ def property_research_packet(
         current_nav="research",
         console_title="Review",
         console_summary="",
-        object_kind="Research packet",
+        object_kind="Property details",
         object_title=title,
-        object_summary=f"{fit_summary} · {source_label}",
+        object_summary=object_summary,
         object_media=_property_tour_media_payload(candidate),
-        object_meta=[
-            {"label": "Source", "value": source_label},
-            {"label": "Recommendation", "value": str(candidate.get("tag") or candidate.get("recommendation") or "Candidate").strip() or "Candidate"},
-            {"label": "Run", "value": str(run_id or "latest").strip() or "latest"},
-            {"label": "Packet", "value": str(candidate_ref)},
-        ],
-        object_ooda_title="Decision summary",
-        object_ooda_copy="Start here. Why this candidate was selected, what makes it compelling now, what still argues against it, and what the immediate neighbourhood looks like.",
+        object_meta=object_meta,
+        object_ooda_title="Quick read",
+        object_ooda_copy="What stands out, what still needs proof, and what to check next.",
         object_ooda_rows=ooda_summary_rows,
-        object_sidebar_title="Packet actions",
-        object_sidebar_copy="Open the internal packet first. Raw portals and hosted tours stay secondary to the actual research decision surface.",
+        object_sidebar_kicker="Open next",
+        object_sidebar_title="Useful links",
+        object_sidebar_copy="Open the review, tour, or original listing only when you need more detail.",
         object_sidebar_rows=[
-            _object_detail_row("Fit summary", fit_summary, "Fit"),
-            _object_detail_row(
-                "Internal packet",
-                "This page stays on PropertyQuarry and should remain the primary review surface.",
-                "Primary",
-                href=run_target,
-            ),
             _object_detail_row(
                 "Review page",
                 _property_review_detail_line(candidate),

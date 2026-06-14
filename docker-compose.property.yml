@@ -32,8 +32,7 @@ services:
       TZ: Europe/Vienna
     ports:
       - "${EA_HOST_PORT:-8090}:8090"
-    cpu_shares: ${PROPERTYQUARRY_API_CPU_SHARES:-256}
-    cpus: ${PROPERTYQUARRY_API_CPUS:-1.0}
+    cpu_shares: ${PROPERTYQUARRY_API_CPU_SHARES:-64}
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
@@ -68,8 +67,7 @@ services:
       PROPERTYQUARRY_TEABLE_AUTO_SYNC: "${PROPERTYQUARRY_TEABLE_AUTO_SYNC:-0}"
       HOME: /home/ea
       TZ: Europe/Vienna
-    cpu_shares: ${PROPERTYQUARRY_SCHEDULER_CPU_SHARES:-64}
-    cpus: ${PROPERTYQUARRY_SCHEDULER_CPUS:-1.0}
+    cpu_shares: ${PROPERTYQUARRY_SCHEDULER_CPU_SHARES:-32}
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro

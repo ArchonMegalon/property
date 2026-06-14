@@ -63,8 +63,8 @@
 <section class="pqx-research-queue" data-pqx-research-queue data-run-id="{{ run_id }}">
   <div class="pqx-section-head">
     <div>
-      <h2>Needs verification</h2>
-      <div class="pqx-note">Items that can change the decision: layout proof, documents, or answers worth checking before you shortlist.</div>
+      <h2>Open checks</h2>
+      <div class="pqx-note">Loose ends that can still change the decision, like layout proof, missing documents, or unanswered questions.</div>
     </div>
     <span class="pqx-pill warn" data-research-task-count>{{ counts.get('open') or 0 }} open</span>
   </div>
@@ -109,7 +109,7 @@
       </form>
       <div class="pqx-research-task-foot">
         {% if task.get('review_url') %}<a href="{{ task.get('review_url') }}">Open review</a>{% endif %}
-        {% if task.get('property_url') %}<a href="{{ task.get('property_url') }}">Open listing</a>{% endif %}
+        {% if task.get('property_url') %}<a href="{{ task.get('property_url') }}" target="_blank" rel="noopener noreferrer">Open listing</a>{% endif %}
         <span data-research-task-message></span>
       </div>
     </article>
@@ -602,6 +602,9 @@
       margin: 0 auto;
       padding: 16px 0 28px;
     }
+    .pqx-shell[data-pqx-surface="search"] .pqx-main {
+      padding: 12px 0 20px;
+    }
     .pqx-mobile-switch {
       display: none;
       position: sticky;
@@ -860,13 +863,14 @@
     }
     .pqx-compare-strip {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
       gap: 10px;
     }
     .pqx-compare-card {
       display: grid;
-      gap: 8px;
+      grid-template-columns: 180px minmax(0, 1fr) auto;
+      gap: 12px;
       min-width: 0;
+      align-items: start;
       padding: 12px;
       border: 1px solid var(--pq-line);
       border-radius: 8px;
@@ -878,11 +882,76 @@
     }
     .pqx-compare-card h3 {
       margin: 0;
-      font-size: 0.98rem;
+      font-size: 1rem;
       line-height: 1.18;
       overflow-wrap: normal;
       word-break: normal;
       hyphens: auto;
+    }
+    .pqx-compare-thumb {
+      display: block;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--pq-line);
+      background: linear-gradient(180deg, #f3ede2, #e7dfd0);
+    }
+    .pqx-compare-thumb-fallback {
+      display: grid;
+      place-items: center;
+      color: var(--pq-muted);
+      font-size: 12px;
+      font-weight: 760;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .pqx-compare-body {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+    .pqx-compare-headline {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+    .pqx-compare-subline {
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.3;
+    }
+    .pqx-compare-facts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      color: var(--pq-ink);
+      font-size: 13px;
+      line-height: 1.3;
+    }
+    .pqx-compare-facts span {
+      white-space: nowrap;
+    }
+    .pqx-compare-aside {
+      display: grid;
+      gap: 10px;
+      justify-items: end;
+      min-width: 126px;
+    }
+    .pqx-compare-price {
+      display: grid;
+      gap: 2px;
+      text-align: right;
+    }
+    .pqx-compare-price strong {
+      color: var(--pq-ink);
+      font-size: 1.08rem;
+      line-height: 1.1;
+    }
+    .pqx-compare-price span {
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.2;
     }
     .pqx-compare-meta {
       display: grid;
@@ -907,6 +976,19 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    @media (max-width: 980px) {
+      .pqx-compare-card {
+        grid-template-columns: 128px minmax(0, 1fr);
+      }
+      .pqx-compare-aside {
+        grid-column: 1 / -1;
+        justify-items: start;
+        min-width: 0;
+      }
+      .pqx-compare-price {
+        text-align: left;
+      }
     }
     .pqx-decision-consequence-grid {
       display: grid;
@@ -1363,6 +1445,53 @@
     }
     .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="property_type"] {
       grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+    }
+    .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="school_stage_preferences"] {
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+    .pqx-choice-groupbox {
+      display: grid;
+      gap: 8px;
+      padding: 10px 12px 12px;
+      border: 1px solid color-mix(in srgb, var(--pq-line) 88%, white);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--pq-panel) 92%, white);
+      min-width: 0;
+    }
+    .pqx-surface-search .pqx-choice-groupbox {
+      gap: 7px;
+      padding: 9px 11px 11px;
+    }
+    .pqx-choice-groupbox-legend {
+      padding: 0 6px;
+      color: var(--pq-ink);
+      font-size: 12px;
+      font-weight: 760;
+      line-height: 1.2;
+    }
+    .pqx-choice-groupbox-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .pqx-choice-groupbox-head .pqx-field-title,
+    .pqx-choice-groupbox-head strong {
+      margin: 0;
+    }
+    .pqx-choice-groupbox-head .pqx-note {
+      margin-top: 2px;
+    }
+    .pqx-choice-groupbox-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .pqx-choice-groupbox-grid {
+      display: grid;
+      gap: 8px;
     }
     .pqx-check {
       min-height: 36px;
@@ -3022,8 +3151,14 @@
                   <span class="pqx-disclosure-label">
                   {% if advanced_panel == 'children' %}
                   Family
+                  {% elif advanced_panel == 'children_distances' %}
+                  Family distances
                   {% elif advanced_panel == 'commute' %}
                   Commute
+                  {% elif advanced_panel == 'shopping_distances' %}
+                  Shopping and errands
+                  {% elif advanced_panel == 'lifestyle_distances' %}
+                  Leisure and daily life
                   {% elif advanced_panel == 'provider_policies' %}
                   Providers
                   {% else %}
@@ -3040,45 +3175,12 @@
               {% endif %}
               <div class="pqx-field" data-property-field-step="{{ field.get('step') or 'search' }}" data-property-field-name="{{ field.name }}"{% if field.get('availability_key') %} data-property-availability-key="{{ field.get('availability_key') }}"{% endif %}{% if field.get('disabled_reason') %} data-property-disabled-reason="{{ field.get('disabled_reason') }}"{% endif %}{% if field.get('hidden') %} hidden{% endif %}>
                 {% if field.name == 'property_type' and (field.get('options') or []) %}
-                <label class="pqx-field-title">{{ field.label }}</label>
-                <div class="pqx-check-grid" data-pqx-check-grid="{{ field.name }}">
-                  {% for option in field.options or [] %}
-                  {% set option_value = option.get('value') or '' %}
-                  <label class="pqx-check"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}{% if field.name == 'school_stage_preferences' and option_value == 'kindergarten' %} data-kindergarten-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('public_kindergarten', 'private_kindergarten') %} data-kindergarten-variant{% endif %}>
-                    <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}>
-                    <span>
-                      <span>{{ option.get('label') }}</span>
-                      {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
-                    </span>
-                  </label>
-                  {% endfor %}
-                </div>
-                {% elif field.type == 'checkbox_group' %}
-                <div class="pqx-field-title">{{ field.label }}</div>
-                {% if field.name == 'selected_platforms' %}
-                <div class="pqx-field-tools">
-                  <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select sources</button>
-                </div>
-                {% endif %}
-                {% if field.name == 'selected_platforms' and field.get('option_groups') %}
-                <div data-pqx-check-grid="{{ field.name }}">
-                {% for group in field.get('option_groups') or [] %}
-                <details class="pqx-advanced-panel" data-provider-group-panel style="margin-top:12px;">
-                  <summary class="pqx-disclosure-summary pqx-disclosure-summary-secondary">
-                    <span class="pqx-disclosure-copy">
-                      <strong>{{ group.get('title') }}</strong>
-                      <div class="pqx-note">{{ group.get('detail') }}</div>
-                    </span>
-                    <span class="pqx-disclosure-icon" aria-hidden="true">+</span>
-                  </summary>
-                  <div class="pqx-field-tools" style="margin:8px 0 10px;">
-                    <button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Add family</button>
-                    <button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear family</button>
-                  </div>
+                <fieldset class="pqx-choice-groupbox">
+                  <legend class="pqx-choice-groupbox-legend">{{ field.label }}</legend>
                   <div class="pqx-check-grid" data-pqx-check-grid="{{ field.name }}">
-                    {% for option in group.get('options') or [] %}
+                    {% for option in field.options or [] %}
                     {% set option_value = option.get('value') or '' %}
-                    <label class="pqx-check">
+                    <label class="pqx-check"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}{% if field.name == 'school_stage_preferences' and option_value == 'kindergarten' %} data-kindergarten-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('public_kindergarten', 'private_kindergarten') %} data-kindergarten-variant{% endif %}>
                       <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}>
                       <span>
                         <span>{{ option.get('label') }}</span>
@@ -3087,23 +3189,62 @@
                     </label>
                     {% endfor %}
                   </div>
-                </details>
-                {% endfor %}
-                </div>
-                {% else %}
-                <div class="pqx-check-grid" data-pqx-check-grid="{{ field.name }}">
-                  {% for option in field.options or [] %}
-                  {% set option_value = option.get('value') or '' %}
-                  <label class="pqx-check"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}{% if field.name == 'school_stage_preferences' and option_value == 'kindergarten' %} data-kindergarten-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('public_kindergarten', 'private_kindergarten') %} data-kindergarten-variant{% endif %}>
-                    <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}>
-                    <span>
-                      <span>{{ option.get('label') }}</span>
-                      {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
-                    </span>
-                  </label>
+                </fieldset>
+                {% elif field.type == 'checkbox_group' %}
+                <fieldset class="pqx-choice-groupbox">
+                  <legend class="pqx-choice-groupbox-legend">{{ field.label }}</legend>
+                  {% if field.name == 'selected_platforms' %}
+                  <div class="pqx-choice-groupbox-head">
+                    <div class="pqx-choice-groupbox-actions pqx-field-tools">
+                      <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select sources</button>
+                    </div>
+                  </div>
+                  {% endif %}
+                  {% if field.name == 'selected_platforms' and field.get('option_groups') %}
+                  <div class="pqx-choice-groupbox-grid" data-pqx-check-grid="{{ field.name }}">
+                  {% for group in field.get('option_groups') or [] %}
+                  <details class="pqx-advanced-panel" data-provider-group-panel style="margin-top:0;">
+                    <summary class="pqx-disclosure-summary pqx-disclosure-summary-secondary">
+                      <span class="pqx-disclosure-copy">
+                        <strong>{{ group.get('title') }}</strong>
+                        <div class="pqx-note">{{ group.get('detail') }}</div>
+                      </span>
+                      <span class="pqx-disclosure-icon" aria-hidden="true">+</span>
+                    </summary>
+                    <div class="pqx-field-tools" style="margin:8px 0 10px;">
+                      <button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Add family</button>
+                      <button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear family</button>
+                    </div>
+                    <div class="pqx-check-grid" data-pqx-check-grid="{{ field.name }}">
+                      {% for option in group.get('options') or [] %}
+                      {% set option_value = option.get('value') or '' %}
+                      <label class="pqx-check">
+                        <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}>
+                        <span>
+                          <span>{{ option.get('label') }}</span>
+                          {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
+                        </span>
+                      </label>
+                      {% endfor %}
+                    </div>
+                  </details>
                   {% endfor %}
-                </div>
-                {% endif %}
+                  </div>
+                  {% else %}
+                  <div class="pqx-check-grid" data-pqx-check-grid="{{ field.name }}">
+                    {% for option in field.options or [] %}
+                    {% set option_value = option.get('value') or '' %}
+                    <label class="pqx-check"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}{% if field.name == 'school_stage_preferences' and option_value == 'kindergarten' %} data-kindergarten-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('public_kindergarten', 'private_kindergarten') %} data-kindergarten-variant{% endif %}>
+                      <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}>
+                      <span>
+                        <span>{{ option.get('label') }}</span>
+                        {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
+                      </span>
+                    </label>
+                    {% endfor %}
+                  </div>
+                  {% endif %}
+                </fieldset>
                 {% if field.name == 'school_stage_preferences' %}
                 <div class="pqx-check-note" data-school-stage-note>Checked school types are treated as OR matches. Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants. Select Kindergarten to reveal public and private kindergarten options.</div>
                 {% endif %}
@@ -3566,7 +3707,7 @@
                   <strong>{{ candidate.get('title') or 'Review candidate' }}</strong>
                   {% endif %}
                   <span class="pqx-note">{{ candidate.get('fit_summary') or candidate.get('recommendation') or 'Open the review for details and feedback.' }}</span>
-                  {% if candidate.get('property_url') %}<a class="pqx-note" href="{{ candidate.get('property_url') }}">Source listing</a>{% endif %}
+                  {% if candidate.get('property_url') %}<a class="pqx-note" href="{{ candidate.get('property_url') }}" target="_blank" rel="noopener noreferrer">Source listing</a>{% endif %}
                 </div>
                 {% endfor %}
               </div>
@@ -3581,7 +3722,6 @@
           {% else %}
           <div class="pqx-empty">No provider breakdown was recorded for this run.</div>
           {% endif %}
-          {{ research_queue_panel(research_tasks, run.get('run_id') or '', research_task_counts) }}
           <div class="pqx-section-head">
             <div>
               <h2>Search progress</h2>
@@ -3647,18 +3787,34 @@
           <div class="pqx-compare-strip">
             {% for candidate in results[:4] %}
             <article class="pqx-compare-card{% if candidate.get('candidate_ref') == selected.get('candidate_ref') %} is-selected{% endif %}">
-              <span class="pqx-small">#{{ candidate.get('rank') }} · {{ candidate.get('source_label') or 'Source' }}</span>
-              <h3>{{ candidate.get('title') or 'Property' }}</h3>
-              <div class="pqx-compare-meta">
-                <span>Fit <b>{{ candidate.get('fit_label') or 'Candidate' }}</b></span>
-                <span>Price <b>{{ candidate.get('price_display') or 'n/a' }}</b></span>
-                <span>Layout <b>{{ candidate.get('layout_display') or 'n/a' }}</b></span>
+              {% if candidate.get('preview_image_url') %}
+              <img class="pqx-compare-thumb" src="{{ candidate.get('preview_image_url') }}" alt="{{ candidate.get('title') or 'Property preview' }}">
+              {% else %}
+              <div class="pqx-compare-thumb pqx-compare-thumb-fallback">{{ candidate.get('source_label') or 'Listing' }}</div>
+              {% endif %}
+              <div class="pqx-compare-body">
+                <div class="pqx-compare-headline">
+                  <span class="pqx-small">#{{ candidate.get('rank') }} · {{ candidate.get('source_label') or 'Source' }}</span>
+                  <h3>{{ candidate.get('title') or 'Property' }}</h3>
+                  <div class="pqx-compare-subline">{{ candidate.get('location_label') or 'Location pending' }}</div>
+                </div>
+                <div class="pqx-compare-facts">
+                  <span>{{ candidate.get('layout_display') or 'Layout pending' }}</span>
+                  {% if candidate.get('price_per_sqm_display') %}<span>{{ candidate.get('price_per_sqm_display') }}</span>{% endif %}
+                  <span>{{ candidate.get('fit_label') or 'Candidate' }}</span>
+                </div>
+                <p class="pqx-note">{{ candidate.get('ooda', {}).get('summary') or candidate.get('fit_summary') or 'Open the review details for the decision read.' }}</p>
               </div>
-              <p class="pqx-note">{{ candidate.get('ooda', {}).get('summary') or candidate.get('fit_summary') or 'Open the review details for the decision read.' }}</p>
-              <div class="pqx-actions">
-                {% if candidate.get('packet_url') %}<a class="pqx-link-button primary" href="{{ candidate.get('packet_url') }}">Review</a>{% endif %}
-                {% if candidate.get('tour', {}).get('url') %}<a class="pqx-link-button" href="{{ candidate.get('tour', {}).get('url') }}">360</a>{% endif %}
-                {% if candidate.get('map_url') %}<a class="pqx-link-button" href="{{ candidate.get('map_url') }}" target="_blank" rel="noreferrer">Map</a>{% endif %}
+              <div class="pqx-compare-aside">
+                <div class="pqx-compare-price">
+                  <strong>{{ candidate.get('price_display') or 'n/a' }}</strong>
+                  <span>{{ candidate.get('tour', {}).get('label') or candidate.get('layout_verification_label') or 'Review' }}</span>
+                </div>
+                <div class="pqx-actions">
+                  {% if candidate.get('packet_url') %}<a class="pqx-link-button primary" href="{{ candidate.get('packet_url') }}">Review</a>{% endif %}
+                  {% if candidate.get('tour', {}).get('url') %}<a class="pqx-link-button" href="{{ candidate.get('tour', {}).get('url') }}">360</a>{% endif %}
+                  {% if candidate.get('map_url') %}<a class="pqx-link-button" href="{{ candidate.get('map_url') }}" target="_blank" rel="noreferrer">Map</a>{% endif %}
+                </div>
               </div>
             </article>
             {% endfor %}
@@ -3912,7 +4068,6 @@
             </div>
             <span class="pqx-pill good">{{ run.get('status_label') or 'Completed' }}</span>
           </div>
-          {{ research_queue_panel(research_tasks, run.get('run_id') or '', research_task_counts) }}
           {{ search_guard_panel(workbench.get('search_guard_rows') or []) }}
           {{ suppression_panel(workbench.get('suppression_rows') or []) }}
           {% set notification_budget = run_summary.get('notification_budget') or {} %}
@@ -5071,7 +5226,7 @@
         cooperative: ['Cooperatives', 'Genossenschaften and cooperative housing sources.'],
         public_housing: ['Public housing', 'Municipal and public-housing-adjacent sources.'],
         developer_projects: ['Developer projects', 'New-build and launch pipeline sources.'],
-        distressed_sales: ['Distressed and judicial', 'Auction, forced-sale, and judicial sources.'],
+        distressed_sales: ['Court and auction', 'Court-published and auction-style listings that need extra legal review.'],
         community_signals: ['Community signals', 'Facebook, Telegram, and other weakly verified off-market hints.'],
         community_meta: ['Watch-tier meta', 'Long-tail meta or watch-tier sources with lower trust.'],
       };
@@ -6101,7 +6256,7 @@
         form.querySelectorAll('details[data-property-advanced-panel]').forEach((panel) => {
           const panelKey = String(panel.getAttribute('data-property-advanced-panel') || '').trim();
           const visibleFields = [...panel.querySelectorAll('.pqx-field')].filter((node) => !node.hidden && String(node.getAttribute('aria-hidden') || '').trim() !== 'true');
-          const shouldShow = panelKey === 'children'
+          const shouldShow = panelKey === 'children' || panelKey === 'children_distances'
             ? Boolean(familyModeField?.checked) && visibleFields.length > 0
             : panelKey === 'commute'
               ? Boolean(commuteResearchField?.checked) && visibleFields.length > 0

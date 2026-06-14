@@ -63,8 +63,8 @@ def test_property_plan_investment_research_levels_follow_tier() -> None:
     assert agent["magic_fit_video_period"] == "none"
 
 
-def test_findmyhome_entry_links_are_treated_as_supported_property_listings() -> None:
-    assert product_service._property_scout_is_supported_listing_url(
+def test_findmyhome_entry_links_are_not_treated_as_supported_property_listings() -> None:
+    assert not product_service._property_scout_is_supported_listing_url(
         "https://www.findmyhome.at/immo/wohnung-kaufen/wien?id=13&entry=20&sort=&dir=ASC&pp=20&vars=id%3A13%3Bw_e%3A1%3Bland%3AAT%3Bbl%3A9%3B&lang=de&module=select&list="
     )
 
@@ -75,10 +75,37 @@ def test_findmyhome_search_page_is_not_treated_as_property_listing() -> None:
     )
 
 
-def test_findmyhome_listing_urls_are_sanitized_before_support_check() -> None:
-    assert product_service._property_scout_is_supported_listing_url(
+def test_findmyhome_search_state_urls_stay_unsupported_after_sanitization() -> None:
+    assert not product_service._property_scout_is_supported_listing_url(
         "https://findmyhome.at/immo/wohnung-kaufen/wien?id=14&entry=10&sort=sort_fl&dir=ASC&pp=10&vars=&lang=&module=&list='/'"
     )
+
+
+def test_findmyhome_short_detail_url_is_treated_as_supported_listing() -> None:
+    assert product_service._property_scout_is_supported_listing_url(
+        "https://www.findmyhome.at/5620769?tl=1"
+    )
+
+
+def test_findmyhome_result_cards_extract_short_detail_urls() -> None:
+    html = '''
+    <div class="row margin-top-20">
+      <div class="col-xs-12 col-sm-9 col-md-9 col-lg-9">
+        <h3 class="obj_list">
+          <strong><span style="color:#c30a32">TOP: </span></strong>
+          <a href='/5620769?tl=1' class='btnHeadlineErgebnisliste'>Helle 2-Zimmer Wohnung, Nähe Meiselmarkt</a>
+        </h3>
+      </div>
+    </div>
+    '''
+
+    urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://www.findmyhome.at/immo/wohnung-kaufen/wien",
+        html=html,
+        source_spec={"provider_filter_pushdown": {"requested": {}, "applied": {}}},
+    )
+
+    assert urls == ("https://www.findmyhome.at/5620769?tl=1",)
 
 
 def test_free_property_plan_uses_daily_visual_generation_caps() -> None:
@@ -556,6 +583,60 @@ def test_property_distance_gate_records_relaxed_and_unknown_distances() -> None:
         label="Library",
     ) is False
     assert "distance_relaxations_json" not in outside_facts
+
+
+def test_property_distance_gate_can_avoid_nearby_locations() -> None:
+    too_close_facts = {"nearest_shopping_center_m": 220}
+    assert product_service._property_apply_distance_gate(
+        too_close_facts,
+        request_preferences={
+            "max_distance_to_shopping_center_m": 500,
+            "max_distance_to_shopping_center_importance": "avoid_nearby",
+        },
+        preference_key="max_distance_to_shopping_center_m",
+        fact_key="nearest_shopping_center_m",
+        label="shopping center",
+    ) is False
+    assert too_close_facts["distance_avoidances_json"] == [
+        {"label": "shopping center", "requested_m": 500, "actual_m": 220}
+    ]
+
+    far_enough_facts = {"nearest_shopping_center_m": 1400}
+    assert product_service._property_apply_distance_gate(
+        far_enough_facts,
+        request_preferences={
+            "max_distance_to_shopping_center_m": 500,
+            "max_distance_to_shopping_center_importance": "avoid_nearby",
+        },
+        preference_key="max_distance_to_shopping_center_m",
+        fact_key="nearest_shopping_center_m",
+        label="shopping center",
+    ) is True
+
+
+def test_property_search_prefetch_listing_urls_records_timings_and_errors(monkeypatch) -> None:
+    def _fake_listing_urls_for_source(*, source_url: str, source_spec: dict[str, object], force_refresh: bool):
+        if source_spec.get("platform") == "bad":
+            raise RuntimeError("fetch_failed")
+        return (("https://example.com/listing-1",), {"status": "miss"})
+
+    monkeypatch.setattr(product_service, "_property_scout_listing_urls_for_source", _fake_listing_urls_for_source)
+
+    prefetched = product_service._property_search_prefetch_listing_urls(
+        specs=[
+            {"url": "https://example.com/good", "platform": "good", "provider_family": "core_portal"},
+            {"url": "https://example.com/bad", "platform": "bad", "provider_family": "core_portal"},
+        ],
+        force_refresh=False,
+    )
+
+    good = prefetched[("good", "https://example.com/good")]
+    bad = prefetched[("bad", "https://example.com/bad")]
+    assert good["listing_urls"] == ("https://example.com/listing-1",)
+    assert good["provider_cache_state"]["status"] == "miss"
+    assert float(good["timing_ms"]["provider_fetch"]) >= 0.0
+    assert bad["error"] == "fetch_failed"
+    assert float(bad["timing_ms"]["provider_fetch"]) >= 0.0
 
 
 def test_property_filter_feedback_patch_disables_filter_and_reruns_search(monkeypatch) -> None:
@@ -2453,6 +2534,62 @@ def test_property_search_run_updates_active_search_agent_lifecycle(monkeypatch) 
     assert agents[0]["last_run_at"] == lifecycle["last_run_at"]
     assert agents[0]["next_run_at"] == lifecycle["next_run_at"]
     assert agents[0]["sent_in_current_window"] == 0
+
+
+def test_direct_property_scout_emits_timing_receipts_even_when_sources_are_empty(monkeypatch) -> None:
+    principal_id = "exec-property-scout-timing"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Timing")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": True,
+            "alert_frequency": "daily",
+            "property_commercial": {"active_plan_key": "agent", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"},
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien",
+                "label": "Willhaben Vienna",
+                "platform": "willhaben",
+                "provider_family": "core_portal",
+                "principal_id": principal_id,
+                "preference_person_id": "self",
+                "notify_telegram": False,
+                "max_results": 1,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_listing_urls_for_source",
+        lambda **kwargs: ((), {"status": "miss"}),
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="scheduler",
+        selected_platforms=("willhaben",),
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["status"] == "processed"
+    assert float(dict(result.get("timing_ms") or {}).get("run_total") or 0.0) >= 0.0
+    assert float(dict(result.get("timing_ms") or {}).get("provider_fetch_total") or 0.0) >= 0.0
+    assert len(result["sources"]) == 1
+    assert float(dict(result["sources"][0].get("timing_ms") or {}).get("provider_fetch") or 0.0) >= 0.0
 
 
 def test_property_search_run_explicit_empty_keywords_clear_saved_keywords(monkeypatch) -> None:

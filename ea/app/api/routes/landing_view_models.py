@@ -575,7 +575,7 @@ def _group_property_provider_options(options: list[dict[str, object]]) -> list[d
         "cooperative": ("Cooperatives", "Genossenschaften and cooperative housing sources."),
         "public_housing": ("Public housing", "Municipal and public-housing-adjacent sources."),
         "developer_projects": ("Developer projects", "New-build and launch pipeline sources."),
-        "distressed_sales": ("Distressed and judicial", "Auction, forced-sale, and judicial lanes."),
+        "distressed_sales": ("Court and auction", "Court-published and auction-style listings that need extra legal review."),
         "community_signals": ("Community signals", "Facebook, Telegram, and other weakly verified off-market hints."),
         "community_meta": ("Watch-tier meta", "Long-tail meta or watch-tier sources with lower trust."),
     }
@@ -658,7 +658,7 @@ def _provider_quality_rows(
         "cooperative": "cooperative and family housing",
         "public_housing": "municipal and public lanes",
         "developer_projects": "new-build pipeline",
-        "distressed_sales": "auction and forced-sale scans",
+        "distressed_sales": "court and auction scans",
         "community_signals": "weak-signal off-market leads",
         "community_meta": "watch-tier long tail",
     }
@@ -2407,6 +2407,15 @@ def app_section_payload(
         property_visible_max_match_score,
     )
     profile_manage_href = f"/app/profile?run_id={active_run_id}" if active_run_id else "/app/profile"
+    selected_preference_person_id = str(property_preferences.get("preference_person_id") or "self").strip() or "self"
+    preference_profile_options = [{"value": "self", "label": "Default"}]
+    if selected_preference_person_id != "self":
+        preference_profile_options.append(
+            {
+                "value": selected_preference_person_id,
+                "label": selected_preference_person_id,
+            }
+        )
     property_form = {
         "variant": "property_search",
         "title": "Run a premium market sweep",
@@ -2634,10 +2643,10 @@ def app_section_payload(
             {
                 "type": "checkbox",
                 "name": "include_distressed_sale_signals",
-                "label": "Notverkauf- und Justizsignale",
+                "label": "Court and auction listings",
                 "value": "true",
                 "checked": bool(property_preferences.get("include_distressed_sale_signals")),
-                "tooltip": "Track forced-sale, court-published, insolvency, and other distressed-sale lanes as their own signal family.",
+                "tooltip": "Keep court-published, auction, and forced-sale listings visible as a separate source family.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
             },
@@ -2659,11 +2668,11 @@ def app_section_payload(
                 "step": "areas",
             },
             {
-                "type": "text",
+                "type": "select",
                 "name": "preference_person_id",
                 "label": "Preference profile",
-                "value": str(property_preferences.get("preference_person_id") or "self"),
-                "placeholder": "self",
+                "value": selected_preference_person_id,
+                "options": preference_profile_options,
                 "manage_href": profile_manage_href,
                 "manage_label": "Manage feedback preferences",
                 "step": "areas",
@@ -2723,6 +2732,7 @@ def app_section_payload(
                 "tooltip": "Treat all-day school or childcare availability as a first-class family signal instead of a nice-to-have note.",
                 "step": "children",
                 "advanced_panel": "children",
+                "hidden": True,
             },
             {
                 "type": "checkbox_group",
@@ -2779,7 +2789,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Defines what nearby means for playground access. If good matches are scarce, PropertyQuarry relaxes this radius and marks the gap instead of returning nothing.",
                 "step": "children",
-                "advanced_panel": "children",
+                "advanced_panel": "children_distances",
             },
             {
                 "type": "select",
@@ -2793,7 +2803,7 @@ def app_section_payload(
                 ],
                 "tooltip": "Controls how strongly playground distance affects ranking and how far the adaptive fallback may relax the radius.",
                 "step": "children",
-                "advanced_panel": "children",
+                "advanced_panel": "children_distances",
             },
             {
                 "type": "range",
@@ -2810,7 +2820,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Defines what nearby means for a public library or comparable Bücherei. Sparse searches relax this radius before returning an empty shortlist.",
                 "step": "children",
-                "advanced_panel": "children",
+                "advanced_panel": "children_distances",
             },
             {
                 "type": "select",
@@ -2824,7 +2834,7 @@ def app_section_payload(
                 ],
                 "tooltip": "Controls how strongly library distance affects ranking and adaptive radius relaxation.",
                 "step": "children",
-                "advanced_panel": "children",
+                "advanced_panel": "children_distances",
             },
             {
                 "type": "range",
@@ -2841,7 +2851,7 @@ def app_section_payload(
                 "scale_max_label": "7 km",
                 "tooltip": "Optional family and weekend-life signal. Only keep listings within this distance of a zoo or Tiergarten.",
                 "step": "children",
-                "advanced_panel": "children",
+                "advanced_panel": "children_distances",
                 "availability_key": "family_zoo",
                 "disabled_reason": "No practical zoo or Tiergarten signal is configured for this market yet.",
             },
@@ -2980,10 +2990,10 @@ def app_section_payload(
             {
                 "type": "checkbox",
                 "name": "enable_action_readiness_research",
-                "label": "Action-readiness research",
+                "label": "Next steps",
                 "value": "true",
                 "checked": bool(property_preferences.get("enable_action_readiness_research")),
-                "tooltip": "Generate the next best actions, document asks, and viewing questions for each serious candidate.",
+                "tooltip": "Show the next questions, documents, and follow-ups for serious matches.",
                 "step": "research",
             },
             {
@@ -3007,10 +3017,10 @@ def app_section_payload(
             {
                 "type": "checkbox",
                 "name": "enable_auction_legal_review",
-                "label": "Enable auction and legal review",
+                "label": "Court and auction review",
                 "value": "true",
                 "checked": bool(property_preferences.get("enable_auction_legal_review")),
-                "tooltip": "Treat Ediktsdatei and other judicial-sale opportunities as legal-review candidates instead of normal family-home listings.",
+                "tooltip": "Keep court-sale and auction listings separate from normal homes and flag them for extra legal review.",
                 "step": "research",
             },
             {
@@ -3045,6 +3055,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Keep university proximity visible as a livability and investment signal. Use the university name above for a target campus or institution.",
                 "step": "areas",
+                "advanced_panel": "lifestyle_distances",
             },
             {
                 "type": "range",
@@ -3061,6 +3072,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest Starbucks.",
                 "step": "areas",
+                "advanced_panel": "lifestyle_distances",
             },
             {
                 "type": "range",
@@ -3077,6 +3089,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest fitness center or gym.",
                 "step": "areas",
+                "advanced_panel": "lifestyle_distances",
             },
             {
                 "type": "range",
@@ -3093,6 +3106,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest cinema.",
                 "step": "areas",
+                "advanced_panel": "lifestyle_distances",
             },
             {
                 "type": "range",
@@ -3109,6 +3123,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest bouldering or climbing gym.",
                 "step": "areas",
+                "advanced_panel": "lifestyle_distances",
             },
             {
                 "type": "range",
@@ -3125,6 +3140,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest dog park or dog exercise area.",
                 "step": "areas",
+                "advanced_panel": "lifestyle_distances",
             },
             {
                 "type": "range",
@@ -3141,6 +3157,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest cafe-quality proxy.",
                 "step": "areas",
+                "advanced_panel": "lifestyle_distances",
             },
             {
                 "type": "range",
@@ -3157,7 +3174,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Defines what nearby means for everyday groceries. If good matches are scarce, this radius is relaxed and reported instead of hiding every result.",
                 "step": "areas",
-                "advanced_panel": "location_research",
+                "advanced_panel": "shopping_distances",
             },
             {
                 "type": "select",
@@ -3171,7 +3188,7 @@ def app_section_payload(
                 ],
                 "tooltip": "Controls how strongly supermarket distance affects ranking and adaptive radius relaxation.",
                 "step": "areas",
-                "advanced_panel": "location_research",
+                "advanced_panel": "shopping_distances",
             },
             {
                 "type": "range",
@@ -3188,7 +3205,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Optional district-life filter. Covers produce markets and flanier markets like Naschmarkt.",
                 "step": "areas",
-                "advanced_panel": "location_research",
+                "advanced_panel": "shopping_distances",
             },
             {
                 "type": "range",
@@ -3205,7 +3222,7 @@ def app_section_payload(
                 "scale_max_label": "7 km",
                 "tooltip": "Useful for renovation and everyday practical access. Tracks DIY and hardware-store distance.",
                 "step": "areas",
-                "advanced_panel": "location_research",
+                "advanced_panel": "shopping_distances",
             },
             {
                 "type": "range",
@@ -3222,7 +3239,7 @@ def app_section_payload(
                 "scale_max_label": "7 km",
                 "tooltip": "Tracks larger shopping centers for errands and bad-weather convenience.",
                 "step": "areas",
-                "advanced_panel": "location_research",
+                "advanced_panel": "shopping_distances",
             },
             {
                 "type": "range",
@@ -3239,7 +3256,7 @@ def app_section_payload(
                 "scale_max_label": "7 km",
                 "tooltip": "Tracks pedestrian-heavy shopping streets and promenade zones for strolling and city-life fit.",
                 "step": "areas",
-                "advanced_panel": "location_research",
+                "advanced_panel": "lifestyle_distances",
             },
             {
                 "type": "range",
@@ -3256,7 +3273,7 @@ def app_section_payload(
                 "scale_max_label": "7 km",
                 "tooltip": "Optional culture filter. Only keep listings within this distance of a theatre.",
                 "step": "areas",
-                "advanced_panel": "location_research",
+                "advanced_panel": "lifestyle_distances",
             },
             {
                 "type": "range",
@@ -3273,7 +3290,7 @@ def app_section_payload(
                 "scale_max_label": "7 km",
                 "tooltip": "Useful for family leisure and everyday sport access. Tracks public swimming pools.",
                 "step": "areas",
-                "advanced_panel": "location_research",
+                "advanced_panel": "lifestyle_distances",
             },
             {
                 "type": "range",
@@ -4775,6 +4792,7 @@ def property_workspace_payload(
                 "candidate_ref": candidate_ref,
                 "rank": len(workbench_results) + 1,
                 "title": str(candidate.get("title") or "Candidate").strip() or "Candidate",
+                "preview_image_url": str(candidate.get("preview_image_url") or _property_candidate_preview_image(candidate) or "").strip(),
                 "source_label": str(candidate.get("source_label") or "").strip(),
                 "location_label": str(facts.get("postal_name") or facts.get("city") or facts.get("address") or "").strip(),
                 "price_display": price_line,
@@ -5260,12 +5278,10 @@ def property_workspace_payload(
                 {"label": "Run state", "value": run_status_label, "detail": run_message or "The current live run status."},
                 {"label": "Sources", "value": str(int(run_summary.get("sources_total") or 0)), "detail": "Places being checked for this search."},
                 {"label": "Listings", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Listings recovered so far."},
-                {"label": "Needs verification", "value": str(open_research_task_total), "detail": "Decision-relevant answers still being checked."},
             ] if run_in_progress else (hero_highlights["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
                 {"label": "Results", "value": str(len(results_table_rows)), "detail": "Final ranked candidates in this run."},
                 {"label": "Packets", "value": str(packet_ready_total), "detail": "Internal review packets ready now."},
                 {"label": "360 ready", "value": str(tour_ready_total), "detail": "Hosted tours available right now."},
-                {"label": "Needs verification", "value": str(open_research_task_total), "detail": "Decision-relevant answers still worth checking."},
             ]),
             "primary_cards": [] if (run_status_value in {"processed", "completed"} and results_table_rows) or run_in_progress else [search_posture_card, market_coverage_card],
             "secondary_cards": [] if run_status_value in {"processed", "completed"} and results_table_rows else ([run_card] if run_in_progress else [run_card, recent_matches_card]),

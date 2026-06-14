@@ -372,7 +372,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Add family" in setup.text
     assert "Clear family" in setup.text
     assert "Select sources" in setup.text
-    assert "Notverkauf und Justiz" in setup.text
+    assert "Court and auction listings" in setup.text
     assert "Justiz Edikte" in setup.text
     assert 'data-property-advanced-panel="children"' in setup.text
     assert 'data-property-advanced-panel="commute"' in setup.text
@@ -478,7 +478,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "360 not ready" not in search.text
     assert "360" in search.text
     assert "Match" in search.text
-    assert "Price" in search.text
+    assert "EUR 420,000" in search.text
     assert "Layout" in search.text
     assert "Quick read" in search.text
     assert "Playground" in search.text
@@ -532,10 +532,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Repair provider extraction" not in search.text
     assert "Missing facts" not in search.text
     assert "Facts still being completed from floorplans" not in search.text
-    assert "Needs verification" in search.text
-    assert "Items that can change the decision" in search.text
     assert "Room count not verified yet" in search.text
-    assert "Save answer" in search.text
+    assert "Save answer" not in search.text
     assert "Save fact" not in search.text
     assert 'data-pqx-progress-board' in search.text
     assert "Concierge is assembling the evidence" in search.text or "Evidence assembled" in search.text
@@ -543,9 +541,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'class="pqx-source-progress"' in search.text
     assert 'class="pqx-source-list"' in search.text
     assert 'class="pqx-route-preview-strip"' in search.text
-    assert 'data-research-task-id="mf_rooms_run_42"' in search.text
-    assert 'data-research-task-action="fill"' in search.text
-    assert 'data-research-task-action="dismiss"' in search.text
+    assert 'data-research-task-id="mf_rooms_run_42"' not in search.text
+    assert 'data-research-task-action="fill"' not in search.text
+    assert 'data-research-task-action="dismiss"' not in search.text
     assert "EUR 5,385/m2" in search.text
     assert "Open 360" in search.text
     assert "Chosen ahead of the next option because it scored 5 points higher on the current brief" in search.text
@@ -617,9 +615,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "360 review first" not in packet.text
     assert 'data-object-media-stage' in packet.text
     assert 'title="Property 360 review"' in packet.text
-    assert packet.text.index("data-object-media-stage") < packet.text.index("Decision summary")
+    assert packet.text.index("data-object-media-stage") < packet.text.index("Quick read")
     assert "Live 360 ready" in packet.text
-    assert "Decision summary" in packet.text
+    assert "The current recommendation in plain terms" in packet.text
     assert "Why this was selected" in packet.text
     assert "Nearest supermarket" in packet.text
     assert "https://www.google.com/maps/dir/" not in packet.text
@@ -866,7 +864,7 @@ def test_property_workspace_search_form_exposes_austria_evidence_and_eligibility
     assert "Require school evidence" in view_model_body
     assert "Require energy certificate evidence" in view_model_body
     assert "Require operating-cost evidence" in view_model_body
-    assert "Enable auction and legal review" in view_model_body
+    assert "Court and auction review" in view_model_body
     assert "Require high-speed internet evidence" in view_model_body
     assert "Avoid noise-risk area" in view_model_body
     assert "Austria fit rule" in view_model_body
@@ -1638,6 +1636,19 @@ def test_property_workspace_search_controls_have_explicit_click_handlers() -> No
     assert "root.querySelectorAll('[data-pqx-delete-run]').forEach((button) => {" in body
     assert "loadSearchAgentRow(row, false)" in body
     assert "loadSearchAgentRow(row, true)" in body
+
+
+def test_property_workspace_search_uses_groupboxes_and_default_profile_select() -> None:
+    template_body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+    view_model_body = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
+
+    assert "pqx-choice-groupbox" in template_body
+    assert "Family distances" in template_body
+    assert "Shopping and errands" in template_body
+    assert "Leisure and daily life" in template_body
+    assert '"name": "preference_person_id"' in view_model_body
+    assert '"type": "select"' in view_model_body
+    assert '"label": "Default"' in view_model_body
 
 
 def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> None:
