@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from app.api.routes import landing as landing_routes
+from app.api.routes import public_tours
 from app.api.routes import landing_view_models
 from app.product.models import HandoffNote
 from app.product.service import ProductService, _property_search_analysis_cap_per_source
@@ -770,18 +771,67 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_packets.html"
     body = template_path.read_text(encoding="utf-8")
 
-    assert "Send polished property packets and track the replies." in body
-    assert "Packet sharing" in body
+    assert "Share polished property pages and track the replies." in body
+    assert "Packet sharing" not in body
+    assert "Sharing" in body
     assert "Ready to send" in body
     assert "Privacy checked · PDF ready · Sharing controls active" in body
-    assert "Paste shared packet link" in body
+    assert "Paste shared page link" in body
     assert "Copy response endpoint" in body
+    assert "Which property pages can safely leave your account" in body
     assert "https://packets.propertyquarry.com/p/..." not in body
     assert "Copy response URL" not in body
     assert "Sharing cockpit" not in body
     assert "Publication queue" not in body
     assert "source_pdf_sha256" not in body
     assert "renderer_version" not in body
+    assert "Share page" in body
+    assert "Share packet" not in body
+    assert "Household reactions" in body
+    assert "Packet posture" not in body
+
+
+def test_property_object_detail_feedback_script_avoids_magicfit_preview_innerhtml() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/object_detail_feedback_script.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    render_magicfit_block = body.split("const renderMagicFitPreview = (scene) => {", 1)[1].split("const renderMagicFitReferenceList = () => {", 1)[0]
+    assert "innerHTML" not in render_magicfit_block
+    assert "document.createElement('img')" in render_magicfit_block
+    assert "appendTextNode(" in render_magicfit_block
+
+    legacy_template = Path(__file__).resolve().parents[1] / "ea/app/templates/app/object_detail.html"
+    legacy_body = legacy_template.read_text(encoding="utf-8")
+    legacy_block = legacy_body.split("const renderMagicFitPreview = (scene) => {", 1)[1].split("const renderMagicFitReferenceList = () => {", 1)[0]
+    assert "innerHTML" not in legacy_block
+    assert "document.createElement('img')" in legacy_block
+
+
+def test_public_tour_allow_and_deny_extension_sets_do_not_overlap() -> None:
+    overlap = public_tours._PUBLIC_TOUR_ALLOWED_ASSET_EXTENSIONS & public_tours._PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS
+    assert overlap == frozenset()
+
+
+def test_propertyquarry_public_product_copy_uses_property_page_language() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    product_page = (repo_root / "ea/app/templates/product_page.html").read_text(encoding="utf-8")
+    pricing_page = (repo_root / "ea/app/templates/pricing_page.html").read_text(encoding="utf-8")
+
+    assert "research packets" not in product_page
+    assert "research packet" not in pricing_page
+    assert "hosted packet" not in pricing_page
+    assert "property page" in product_page
+    assert "property page" in pricing_page
+
+
+def test_propertyquarry_settings_and_onboarding_avoid_workspace_customer_copy() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    onboarding = (repo_root / "ea/app/services/onboarding.py").read_text(encoding="utf-8")
+    view_models = (repo_root / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
+
+    assert "Finalize your workspace preferences" not in onboarding
+    assert "Current workspace posture" not in view_models
+    assert '"label": "Workspace"' not in view_models
 
 
 def test_property_workbench_recent_reviews_do_not_render_fake_links() -> None:
@@ -877,6 +927,8 @@ def test_property_search_agents_can_load_saved_filters_into_form() -> None:
     assert ">Edit</button>" in body
     assert "Load filters" not in body
     assert "applySearchAgentPayloadToForm" in body
+    assert "resetSearchBriefForm" in body
+    assert "resetSearchBriefForm();" in body
     assert "Saved search ready to edit. Tweak the filters or run it again." in body
     assert "data-search-agent-loaded-state" in body
     assert "Loaded: ${label}" in body
@@ -887,6 +939,7 @@ def test_property_search_agents_can_load_saved_filters_into_form() -> None:
     assert "data-search-agent-reset" in body
     assert "'search_mode'" in body
     assert "search_mode: fieldValue(form, 'search_mode') || 'strict'" in body
+    assert "Object.entries(source).forEach" in body
     assert "Save as new" in body
     assert "credentials: 'same-origin'" in body
     assert "authHeaders()" not in body

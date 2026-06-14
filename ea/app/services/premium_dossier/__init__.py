@@ -61,20 +61,6 @@ def _pdf_text_manifest_from_html(html: str) -> str:
     return plain[:12000]
 
 
-def _inject_pdf_text_manifest(pdf_bytes: bytes, html: str) -> bytes:
-    if not pdf_bytes.startswith(b"%PDF"):
-        return pdf_bytes
-    manifest = _pdf_text_manifest_from_html(html)
-    if not manifest:
-        return pdf_bytes
-    payload = (
-        b"\n%PQ_TEXT_BEGIN\n"
-        + manifest.encode("utf-8", errors="ignore")
-        + b"\n%PQ_TEXT_END\n"
-    )
-    return pdf_bytes + payload
-
-
 def render_property_packet_pdf_via_premium_pipeline(
     *,
     artifact_root: Path,
@@ -156,19 +142,6 @@ def render_property_packet_pdf_via_premium_pipeline(
         else:
             break
         if result.status == "rendered":
-            if result.pdf_bytes:
-                manifest_bytes = _inject_pdf_text_manifest(result.pdf_bytes, html)
-                result = PremiumDossierRenderResult(
-                    status=result.status,
-                    renderer=result.renderer,
-                    pdf_bytes=manifest_bytes,
-                    pdf_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
-                    render_seconds=result.render_seconds,
-                    provider_task_id=result.provider_task_id,
-                    page_count=result.page_count,
-                    error_code=result.error_code,
-                    error_detail=result.error_detail,
-                )
             candidate_quality = inspect_rendered_artifact(
                 artifact_bytes=result.pdf_bytes,
                 expected_text=request.expected_text,
@@ -222,7 +195,11 @@ def render_property_packet_pdf_via_premium_pipeline(
     pdf_path = target_dir / f"{publication_token}.pdf"
     receipt_path = target_dir / f"{publication_token}.receipt.json"
     preview_path = target_dir / f"{publication_token}.page-1.png"
+    text_manifest_path = target_dir / f"{publication_token}.text-manifest.txt"
     pdf_path.write_bytes(render_result.pdf_bytes)
+    text_manifest = _pdf_text_manifest_from_html(html)
+    if text_manifest:
+        text_manifest_path.write_text(text_manifest, encoding="utf-8")
     if quality_report is None:
         quality_report = inspect_rendered_artifact(
             artifact_bytes=render_result.pdf_bytes,
@@ -262,6 +239,7 @@ def render_property_packet_pdf_via_premium_pipeline(
             "floorplans": len(compiled.floorplan_urls),
             "photos": len(compiled.gallery_urls),
         },
+        "text_manifest_path": str(text_manifest_path) if text_manifest else "",
         "private_reference_media_included": private_reference_media_included,
         "redaction_policy_version": REDACTION_POLICY_VERSION,
         "premium_render_failures": render_failures[:5],
@@ -280,6 +258,7 @@ def render_property_packet_pdf_via_premium_pipeline(
         "pdf_sha256": render_result.pdf_sha256 or hashlib.sha256(render_result.pdf_bytes).hexdigest(),
         "pdf_size_bytes": len(render_result.pdf_bytes),
         "preview_path": str(preview_path) if preview_path.exists() else "",
+        "text_manifest_path": str(text_manifest_path) if text_manifest else "",
         "receipt": receipt,
         "redacted_payload": redaction.payload,
         "recommended_title": compiled.recommended_title,

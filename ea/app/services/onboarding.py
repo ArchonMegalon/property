@@ -1356,7 +1356,7 @@ class OnboardingService(AssistantOnboardingService):
         if "whatsapp" in state.selected_channels and str(dict(channel_statuses.get("whatsapp") or {}).get("status") or "") in {"planned_business", "export_planned", "not_selected"}:
             return "Choose the WhatsApp path: supported business onboarding or export-planned intake."
         if not dict(state.privacy_preferences_json):
-            return "Finalize your workspace preferences so PropertyQuarry can open the first useful property workflow cleanly."
+            return "Finalize your account preferences so PropertyQuarry can open the first useful property workflow cleanly."
         if bool(dict(state.privacy_preferences_json).get("allow_auto_briefs")) and not bool(
             dict(morning_memo_schedule or {}).get("resolved_recipient_email")
         ):

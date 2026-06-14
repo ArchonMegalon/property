@@ -5,6 +5,7 @@ import urllib.parse
 import uuid
 from typing import Any
 
+from fastapi.encoders import jsonable_encoder
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -32,13 +33,20 @@ def _error_payload(
     message: str,
     details: Any = None,
 ) -> JSONResponse:
+    safe_details = jsonable_encoder(
+        details,
+        custom_encoder={
+            Exception: lambda value: str(value),
+            type(ValueError()): lambda value: str(value),
+        },
+    )
     return JSONResponse(
         status_code=status_code,
         content={
             "error": {
                 "code": str(code or "error"),
                 "message": str(message or "request_failed"),
-                "details": details,
+                "details": safe_details,
                 "correlation_id": _correlation_id(request),
             }
         },

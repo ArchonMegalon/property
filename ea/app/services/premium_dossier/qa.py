@@ -36,9 +36,6 @@ def _extract_pdf_text(artifact_bytes: bytes) -> str:
             return text
     except Exception:
         pass
-    decoded = artifact_bytes.decode("utf-8", errors="ignore")
-    if "%PQ_TEXT_BEGIN" in decoded and "%PQ_TEXT_END" in decoded:
-        return decoded.split("%PQ_TEXT_BEGIN", 1)[1].split("%PQ_TEXT_END", 1)[0].strip()
     return ""
 
 
@@ -138,10 +135,11 @@ def inspect_rendered_artifact(
 ) -> PremiumDossierQualityReport:
     extracted_text = _extract_pdf_text(artifact_bytes)
     binary_text = artifact_bytes.decode("latin-1", errors="ignore")
+    required_hits = [item for item in expected_text if _contains_text(extracted_text, str(item or ""))]
     decoded = "\n".join(part for part in (extracted_text, binary_text) if part)
-    required_hits = [item for item in expected_text if _contains_text(decoded, str(item or ""))]
     forbidden_hits = [item for item in forbidden_text if _contains_text(decoded, str(item or ""))]
-    raw_url_hits = _raw_url_text_hits(extracted_text) if forbid_raw_url_text else []
+    raw_url_source = extracted_text if str(extracted_text or "").strip() else binary_text
+    raw_url_hits = _raw_url_text_hits(raw_url_source) if forbid_raw_url_text else []
     required_expected = [item for item in expected_text if str(item or "").strip()]
     all_required_ok = len(required_hits) == len(required_expected)
     required_ok = all_required_ok

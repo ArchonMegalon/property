@@ -26,7 +26,7 @@ def test_propertyquarry_phase1_exit_gate_is_green() -> None:
     )
     assert_contains_strings(
         payload["required_ui_affordances"],
-        ["Share packet", "Next best action", "Track follow-up entry point from workspace"],
+        ["Share page", "Next best action", "Open property page entry point from workspace"],
         field_name="required_ui_affordances",
     )
     assert_contains_strings(

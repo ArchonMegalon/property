@@ -458,7 +458,7 @@ def _assert_property_shell_visual_gates(page: Page, *, max_appbar_height: int) -
 
 def _assert_research_packet_360_first(page: Page, *, min_stage_height: int) -> None:
     media = page.locator("[data-object-media-stage]").first
-    ooda = page.get_by_text("At a glance").first
+    ooda = page.get_by_text("Property details").first
     assert media.is_visible()
     assert ooda.is_visible()
     media_box = media.bounding_box()
@@ -532,10 +532,9 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
         assert "/app/properties" in page.url
         assert page.locator("[data-pw-title]", has_text="Family flat near Tiergarten").is_visible()
-        assert page.locator("body", has_text="At a glance").is_visible()
-        assert page.locator("body", has_text="How this result was prepared").is_visible()
+        assert page.locator("body", has_text="Property details").is_visible()
+        assert page.locator("body", has_text="Why it surfaced").is_visible()
         assert page.locator("body", has_text="Would you pursue this property?").is_visible()
-        assert page.get_by_role("button", name="Ask a question").is_visible()
         page.get_by_role("button", name="Maybe").click()
         review_action = page.get_by_role("button", name="Save decision").bounding_box()
         assert review_action is not None and review_action["width"] <= 430
@@ -588,8 +587,8 @@ def test_propertyquarry_workbench_tracks_household_and_followup_state_in_browser
     try:
         response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Household review").is_visible()
-        assert page.locator("body", has_text="Agent follow-up").is_visible()
+        assert page.locator("body", has_text="Why it surfaced").is_visible()
+        assert page.locator("body", has_text="Still unclear").is_visible()
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
         packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
         assert packet_path
@@ -676,36 +675,17 @@ def test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser(
         assert save_response.ok, save_response.text()
         assert page.locator("[data-pw-feedback-status]", has_text="Saved durably.").is_visible()
 
-        page.get_by_role("button", name="Ask a question").click()
-        page.get_by_role("button", name="Ask agent next").click()
-        with page.expect_response("**/app/api/property/decision-copilot") as clippy_response_info:
-            page.get_by_role("button", name="Ask", exact=True).click()
-        clippy_response = clippy_response_info.value
-        assert clippy_response.ok, clippy_response.text()
-        with page.expect_response("**/app/api/property-feedback") as ask_agent_response_info:
-            page.get_by_role("button", name=re.compile(r"Ask agent:")).first.click()
-        ask_agent_response = ask_agent_response_info.value
-        assert ask_agent_response.ok, ask_agent_response.text()
-        assert page.locator("[data-pw-clippy-status]", has_text="Agent follow-up recorded").is_visible()
-
-        page.reload(wait_until="networkidle")
-        assert page.locator("body", has_text="Can you").is_visible()
-        assert page.locator("body", has_text="Asked").is_visible()
+        assert page.locator("[data-pw-feedback-questions]", has_text="Question 1").is_visible()
 
         response = page.goto(f"{base_url}{packet_path}?run_id=run-42" if "?" not in packet_path else f"{base_url}{packet_path}", wait_until="networkidle")
         assert response is not None and response.ok
         assert page.locator("body", has_text="Tracked follow-up").is_visible()
-        with page.expect_response("**/app/api/property-feedback/*/followup-status") as packet_update_info:
-            page.get_by_role("button", name="Answered").first.click()
-        packet_update = packet_update_info.value
-        assert packet_update.ok, packet_update.text()
-        assert page.locator("body", has_text="Follow-up marked answered").is_visible()
 
         response = page.goto(f"{base_url}/app/properties?run_id=run-42&candidate={candidate_ref}", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Agent follow-up").is_visible()
-        assert page.locator("body", has_text="Household review").is_visible()
-        assert page.locator("body", has_text="What to check").is_visible()
+        assert page.locator("body", has_text="Why it surfaced").is_visible()
+        assert page.locator("body", has_text="Still unclear").is_visible()
+        assert page.locator("body", has_text="Would you pursue this property?").is_visible()
     finally:
         context.close()
 
@@ -1662,23 +1642,23 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
         response = page.goto(f"{base_url}/app/properties/packets", wait_until="networkidle")
         assert response is not None and response.ok
         assert page.locator("[data-property-packets-dashboard]").is_visible()
-        assert page.locator("body", has_text="Send polished property packets and track the replies.").is_visible()
-        assert page.locator("body", has_text="Household review").is_visible()
+        assert page.locator("body", has_text="Share polished property pages and track the replies.").is_visible()
+        assert page.locator("body", has_text="Household reactions").is_visible()
         assert page.locator("body", has_text="Risk signals").is_visible()
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
-        page.locator('[data-packet-share-form] input[name="recipient_name"]').fill("Anna")
-        page.locator('[data-packet-share-form] input[name="recipient_email"]').fill("anna@example.com")
-        page.locator('[data-packet-share-form] input[name="relationship"]').fill("Sister")
+        page.locator('[data-packet-share-form] input[name="recipient_name"]').first.fill("Anna")
+        page.locator('[data-packet-share-form] input[name="recipient_email"]').first.fill("anna@example.com")
+        page.locator('[data-packet-share-form] input[name="relationship"]').first.fill("Sister")
         with page.expect_response("**/app/api/properties/packets/*/shares") as share_response_info:
-            page.locator('[data-packet-share-form] button[type="submit"]').click()
+            page.locator('[data-packet-share-form] button[type="submit"]').first.click()
         share_response = share_response_info.value
         assert share_response.ok, share_response.text()
 
-        page.locator('[data-fliplink-analytics-form] input[name="views"]').fill("8")
-        page.locator('[data-fliplink-analytics-form] input[name="unique_visitors"]').fill("2")
-        page.locator('[data-fliplink-analytics-form] input[name="average_time_seconds"]').fill("55")
+        page.locator('[data-fliplink-analytics-form] input[name="views"]').first.fill("8")
+        page.locator('[data-fliplink-analytics-form] input[name="unique_visitors"]').first.fill("2")
+        page.locator('[data-fliplink-analytics-form] input[name="average_time_seconds"]').first.fill("55")
         with page.expect_response("**/app/api/properties/packets/*/fliplink/analytics-snapshot") as analytics_response_info:
-            page.locator('[data-fliplink-analytics-form] button[type="submit"]').click()
+            page.locator('[data-fliplink-analytics-form] button[type="submit"]').first.click()
         analytics_response = analytics_response_info.value
         assert analytics_response.ok, analytics_response.text()
 
@@ -1744,31 +1724,24 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
     try:
         response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Source quality").is_visible()
+        assert page.locator("body", has_text="Best homes first").is_visible()
         candidate_ref = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-ref")
         packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
         assert candidate_ref
         assert packet_path
         response = page.goto(f"{base_url}/app/properties?run_id=run-42&candidate={candidate_ref}", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Official checks").is_visible()
+        assert page.locator("body", has_text="Why it surfaced").is_visible()
         with page.expect_response("**/app/api/property/decisions") as save_response_info:
             page.get_by_role("button", name="No", exact=True).click()
             page.get_by_role("button", name="Save decision").click()
         assert save_response_info.value.ok
-        page.get_by_role("button", name="Ask a question").click()
-        page.get_by_role("button", name="Ask agent next").click()
-        with page.expect_response("**/app/api/property/decision-copilot") as clippy_response_info:
-            page.get_by_role("button", name="Ask", exact=True).click()
-        assert clippy_response_info.value.ok
-        with page.expect_response("**/app/api/property-feedback") as followup_response_info:
-            page.get_by_role("button", name=re.compile(r"Ask agent:")).first.click()
-        assert followup_response_info.value.ok
+        assert page.locator("[data-pw-feedback-questions]", has_text="Question 1").is_visible()
         with page.expect_response("**/app/api/properties/*/packets/render") as packet_response_info:
-            page.get_by_role("button", name="Create share review").first.click()
+            page.get_by_role("button", name="Share this home").first.click()
         assert packet_response_info.value.ok
         page.wait_for_url(lambda url: "/app/properties/packets" in str(url), wait_until="networkidle", timeout=5000)
-        assert page.locator("body", has_text="Household review").is_visible()
+        assert page.locator("body", has_text="Household reactions").is_visible()
         assert page.locator("body", has_text="What changed").is_visible()
         share_form = page.locator('[data-packet-share-form]').first
         share_form.locator('input[name="recipient_name"]').fill("Anna")

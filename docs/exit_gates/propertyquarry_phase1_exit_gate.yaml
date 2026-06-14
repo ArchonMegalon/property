@@ -48,11 +48,11 @@ required_persistence_assertions:
   - engagement counts survive reload
   - next_best_action survives reload
 required_ui_affordances:
-  - Share packet
+  - Share page
   - Recipients section
   - Engagement metrics section
   - Next best action
-  - Track follow-up entry point from workspace
+  - Open property page entry point from workspace
 fail_closed_conditions:
   - packets can be shared but engagement is not visible in UI
   - engagement can be logged but does not change next_best_action

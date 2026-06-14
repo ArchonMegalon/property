@@ -10988,7 +10988,7 @@ def _property_tour_delivery_message(
         body.extend(["", "Why it may not fit:", *[f"- {entry}" for entry in bad_fit_reasons[:3]]])
     if unknowns:
         body.extend(["", "What still needs checking:", *[f"- {entry}" for entry in unknowns[:3]]])
-    body.extend(["", "Open the 360 review first, then continue into the research packet if needed."])
+    body.extend(["", "Open the 360 review first, then continue into the property page if needed."])
     return subject[:220], "\n".join(body).strip() + "\n"
 
 

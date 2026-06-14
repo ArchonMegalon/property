@@ -4866,6 +4866,49 @@
         return raw;
       }
     };
+    const packetCandidatePayload = (candidate) => {
+      const facts = candidate?.property_facts && typeof candidate.property_facts === 'object'
+        ? { ...candidate.property_facts }
+        : {};
+      delete facts.map_image_url;
+      delete facts.orientation_preview;
+      return {
+        title: String(candidate?.title || 'Property candidate').trim(),
+        property_title: String(candidate?.title || 'Property candidate').trim(),
+        property_url: absoluteUrl(candidate?.property_url || candidate?.source_url || ''),
+        source_url: absoluteUrl(candidate?.source_url || candidate?.property_url || ''),
+        source_label: String(candidate?.source_label || '').trim(),
+        price_display: String(candidate?.price_display || '').trim(),
+        costs_display: String(candidate?.costs_display || '').trim(),
+        layout_display: String(candidate?.layout_display || '').trim(),
+        location_label: String(candidate?.location_label || '').trim(),
+        description_text: String(candidate?.description_text || '').trim(),
+        fit_summary: String(candidate?.fit_summary || '').trim(),
+        recommendation: String(candidate?.recommendation || '').trim(),
+        match_reasons: Array.isArray(candidate?.match_reasons) ? candidate.match_reasons.slice(0, 8) : [],
+        mismatch_reasons: Array.isArray(candidate?.mismatch_reasons) ? candidate.mismatch_reasons.slice(0, 6) : [],
+        object_rows: Array.isArray(candidate?.object_rows) ? candidate.object_rows.slice(0, 12) : [],
+        cost_rows: Array.isArray(candidate?.cost_rows) ? candidate.cost_rows.slice(0, 8) : [],
+        energy_rows: Array.isArray(candidate?.energy_rows) ? candidate.energy_rows.slice(0, 8) : [],
+        household_rows: Array.isArray(candidate?.household_rows) ? candidate.household_rows.slice(0, 6) : [],
+        risk_signal_rows: Array.isArray(candidate?.risk_signal_rows) ? candidate.risk_signal_rows.slice(0, 6) : [],
+        followup_rows: Array.isArray(candidate?.followup_rows) ? candidate.followup_rows.slice(0, 6) : [],
+        recent_change_rows: Array.isArray(candidate?.recent_change_rows) ? candidate.recent_change_rows.slice(0, 6) : [],
+        official_posture_rows: Array.isArray(candidate?.official_posture_rows) ? candidate.official_posture_rows.slice(0, 6) : [],
+        official_evidence_rows: Array.isArray(candidate?.official_evidence_rows) ? candidate.official_evidence_rows.slice(0, 8) : [],
+        property_facts: facts,
+        risk: candidate?.risk && typeof candidate.risk === 'object' ? { ...candidate.risk } : {},
+        investment: candidate?.investment && typeof candidate.investment === 'object' ? { ...candidate.investment } : {},
+        tour: candidate?.tour && typeof candidate.tour === 'object'
+          ? {
+              label: String(candidate.tour.label || '').trim(),
+              status: String(candidate.tour.status || '').trim(),
+              url: absoluteUrl(candidate.tour.url || ''),
+              embed_url: absoluteUrl(candidate.tour.embed_url || ''),
+            }
+          : {},
+      };
+    };
     const shortlistSharePayload = () => {
       const selectedCandidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
       if (!selectedCandidate) return null;
@@ -4990,7 +5033,7 @@
             privacy_mode: 'family_review',
             fliplink_format: 'flipbook_3d',
             search_run_id: String(data.run?.run_id || meta.run_id || ''),
-            property_payload: candidate,
+            property_payload: packetCandidatePayload(candidate),
           }),
         });
         const payload = await response.json().catch(() => ({}));
@@ -7454,14 +7497,54 @@
       first.dispatchEvent(new Event('input', { bubbles: true }));
       first.dispatchEvent(new Event('change', { bubbles: true }));
     };
+    const resetSearchBriefForm = () => {
+      if (!form) return;
+      form.reset();
+      form.querySelectorAll('input[type="checkbox"]').forEach((node) => {
+        if (!(node instanceof HTMLInputElement)) return;
+        const defaultChecked = node.hasAttribute('checked');
+        node.checked = defaultChecked;
+      });
+      form.querySelectorAll('input[type="radio"]').forEach((node) => {
+        if (!(node instanceof HTMLInputElement)) return;
+        const defaultChecked = node.hasAttribute('checked');
+        node.checked = defaultChecked;
+      });
+      form.querySelectorAll('select').forEach((node) => {
+        if (!(node instanceof HTMLSelectElement)) return;
+        const firstSelected = [...node.options].find((option) => option.defaultSelected);
+        if (firstSelected) {
+          node.value = firstSelected.value;
+        } else if (node.options.length) {
+          node.selectedIndex = 0;
+        }
+      });
+      form.querySelectorAll('input:not([type="checkbox"]):not([type="radio"]), textarea').forEach((node) => {
+        if (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) {
+          node.value = node.defaultValue || '';
+        }
+      });
+      bindRangeOutputs(form);
+      syncMarketAwareFields(form, meta);
+      syncSchoolStageVariantVisibility(form);
+      setMode('brief');
+    };
     const applySearchAgentPayloadToForm = (payload) => {
       if (!form || !payload || typeof payload !== 'object') return;
-      const directKeys = [
+      resetSearchBriefForm();
+      const source = payload.preferences_json && typeof payload.preferences_json === 'object'
+        ? Object.assign({}, payload.preferences_json, payload)
+        : Object.assign({}, payload);
+      const prioritizedKeys = [
         'country_code',
         'region_code',
+        'full_region_scope',
         'listing_mode',
         'property_type',
         'search_mode',
+        'location_query',
+        'custom_location_query',
+        'keywords',
         'custom_location_query',
         'custom_keywords',
         'preference_person_id',
@@ -7506,55 +7589,14 @@
         'max_distance_to_public_pool_m',
         'max_distance_to_medical_care_m',
       ];
-      directKeys.forEach((key) => {
-        if (Object.prototype.hasOwnProperty.call(payload, key)) setFieldValue(key, payload[key]);
+      prioritizedKeys.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(source, key)) setFieldValue(key, source[key]);
       });
-      const listKeys = ['selected_platforms', 'keywords', 'preferred_reachability_modes', 'school_stage_preferences', 'desired_project_stages'];
-      listKeys.forEach((key) => {
-        if (Object.prototype.hasOwnProperty.call(payload, key)) setFieldValue(key, payload[key]);
+      Object.entries(source).forEach(([key, value]) => {
+        if (key === 'preferences_json' || key === 'search_agents' || key === 'property_commercial' || key === 'raw_preferences') return;
+        setFieldValue(key, value);
       });
-      const boolKeys = [
-        'use_stored_feedback_preferences',
-        'include_broker_direct_sources',
-        'include_community_signals',
-        'require_manual_validation_for_community',
-        'include_developer_project_signals',
-        'include_public_housing_signals',
-        'include_distressed_sale_signals',
-        'enable_building_risk_research',
-        'enable_market_supply_research',
-        'enable_location_risk_research',
-        'enable_trust_risk_scoring',
-        'enable_family_mode',
-        'ganztag_required',
-        'enable_commute_research',
-        'apply_unknowns_penalty',
-        'enable_action_readiness_research',
-        'enable_lifestyle_research',
-        'require_school_evidence',
-        'prefer_good_air_quality',
-        'avoid_noise_risk_area',
-        'require_high_speed_internet',
-        'prefer_low_crime_area',
-        'require_drinking_water_quality_research',
-        'require_parking_pressure_check',
-        'avoid_cesspit_or_septic_risk',
-        'require_winter_access_research',
-        'avoid_flood_risk_area',
-        'wiener_wohnticket_available',
-        'subsidized_required',
-        'miete_mit_kaufoption',
-        'search_agent_enabled',
-        'require_floorplan',
-        'require_energy_certificate',
-        'require_operating_cost_statement',
-        'enable_auction_legal_review',
-        'use_flatbee_reputation_penalty',
-      ];
-      boolKeys.forEach((key) => {
-        if (Object.prototype.hasOwnProperty.call(payload, key)) setFieldValue(key, payload[key]);
-      });
-      if (payload.keywords && !payload.custom_keywords) setFieldValue('custom_keywords', payload.keywords);
+      if (source.keywords && !source.custom_keywords) setFieldValue('custom_keywords', source.keywords);
       bindRangeOutputs(form);
       syncMarketAwareFields(form, meta);
       syncSchoolStageVariantVisibility(form);

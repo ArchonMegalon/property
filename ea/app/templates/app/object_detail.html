@@ -1009,26 +1009,43 @@
   let magicFitUploadedReferenceUrls = [];
   let magicFitSessionId = '';
   let magicFitPollingTimer = null;
+  const clearNode = (node) => {
+    while (node?.firstChild) node.removeChild(node.firstChild);
+  };
+  const appendTextNode = (parent, tagName, text) => {
+    const node = document.createElement(tagName);
+    node.textContent = String(text || '');
+    parent.appendChild(node);
+    return node;
+  };
   const renderMagicFitPreview = (scene) => {
     if (!magicFitPreview) return;
     const imageUrl = String(scene?.image_url || '').trim();
     const summary = String(scene?.summary || '').trim();
     const sceneType = String(scene?.scene_type || 'visual simulation').replaceAll('_', ' ');
     if (!imageUrl) {
-      magicFitPreview.innerHTML = '';
+      clearNode(magicFitPreview);
       return;
     }
-    magicFitPreview.innerHTML = `
-      <div class="object-row">
-        <div>
-          <strong>${sceneType}</strong>
-          <small>${summary || 'Visual simulation ready for the dossier PDF.'}</small>
-        </div>
-        <div class="object-tag">Ready</div>
-      </div>
-      <img src="${imageUrl.replaceAll('&', '&amp;')}" alt="Magic Fit visual simulation" loading="lazy">
-      <div class="object-copy">Visual simulation only. This is generated guidance for the decision dossier, not listing photography.</div>
-    `;
+    clearNode(magicFitPreview);
+    const row = document.createElement('div');
+    row.className = 'object-row';
+    const textWrap = document.createElement('div');
+    appendTextNode(textWrap, 'strong', sceneType);
+    appendTextNode(textWrap, 'small', summary || 'Visual simulation ready for the dossier PDF.');
+    row.appendChild(textWrap);
+    appendTextNode(row, 'div', 'Ready').className = 'object-tag';
+    magicFitPreview.appendChild(row);
+    const image = document.createElement('img');
+    image.src = imageUrl;
+    image.alt = 'Magic Fit visual simulation';
+    image.loading = 'lazy';
+    magicFitPreview.appendChild(image);
+    appendTextNode(
+      magicFitPreview,
+      'div',
+      'Visual simulation only. This is generated guidance for the decision dossier, not listing photography.',
+    ).className = 'object-copy';
   };
   const renderMagicFitReferenceList = () => {
     if (!magicFitReferenceList) return;

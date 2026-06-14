@@ -24,7 +24,7 @@ def test_packet_dashboard_shows_variant_and_republish_controls(tmp_path: Path) -
     page = client.get("/app/properties/packets")
     assert page.status_code == 200
     assert "Sharing status:" in page.text
-    assert "Republish revised packet" in page.text
+    assert "Republish page" in page.text
 
 
 def test_packet_dashboard_republishes_variant_in_real_browser(
@@ -81,8 +81,8 @@ def test_packet_dashboard_republishes_variant_in_real_browser(
         assert response is not None and response.ok
         assert page.locator("[data-property-packets-dashboard]").is_visible()
         assert page.locator("body", has_text="Family Review Packet").is_visible()
-        assert page.locator("body", has_text="Republish revised packet").is_visible()
-        assert page.locator("body", has_text="Household review").is_visible()
+        assert page.locator("body", has_text="Republish page").is_visible()
+        assert page.locator("body", has_text="Household reactions").is_visible()
         assert page.locator("body", has_text="Risk signals").is_visible()
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
         with page.expect_response("**/app/api/properties/packets/*/republish") as republish_response_info:

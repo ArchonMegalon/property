@@ -434,8 +434,34 @@ def test_premium_dossier_quality_gate_rejects_visible_raw_urls() -> None:
         forbid_raw_url_text=True,
     )
 
+    assert report.raw_url_text_check == "failed"
+    assert report.raw_url_text_hits == ["https://example.com/raw-url"]
+
+
+def test_premium_dossier_quality_gate_ignores_raw_url_only_in_binary_stream(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.premium_dossier.qa._extract_pdf_text", lambda artifact_bytes: "PropertyQuarry")
+    report = inspect_rendered_artifact(
+        artifact_bytes=b"%PDF-1.4 https://example.com/raw-url",
+        expected_text=["PropertyQuarry"],
+        forbidden_text=["token", "session"],
+        forbid_raw_url_text=True,
+    )
+
     assert report.raw_url_text_check == "passed"
     assert report.raw_url_text_hits == []
+
+
+def test_premium_dossier_quality_gate_requires_real_pdf_text_extraction(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.premium_dossier.qa._extract_pdf_text", lambda artifact_bytes: "")
+    report = inspect_rendered_artifact(
+        artifact_bytes=b"%PDF-1.4 PropertyQuarry Premium Test Wohnung",
+        expected_text=["PropertyQuarry", "Premium Test Wohnung"],
+        forbidden_text=[],
+    )
+
+    assert report.required_text_check == "failed"
+    assert report.required_text_hits == []
+    assert report.ok is False
 
 
 def test_premium_dossier_quality_gate_rejects_missing_cover_or_footer_when_required(monkeypatch) -> None:
@@ -562,12 +588,111 @@ def test_premium_pipeline_writes_visual_preview_receipt_fields(monkeypatch, tmp_
 
     assert rendered["preview_path"].endswith(".page-1.png")
     assert Path(str(rendered["preview_path"])).is_file()
+    assert rendered["text_manifest_path"].endswith(".text-manifest.txt")
+    assert Path(str(rendered["text_manifest_path"])).is_file()
     assert rendered["receipt"]["visual_preview_check"] == "passed"
     assert rendered["receipt"]["cover_dominance_check"] == "passed"
     assert rendered["receipt"]["footer_band_check"] == "passed"
     assert rendered["receipt"]["raw_url_text_check"] == "passed"
     assert rendered["receipt"]["visual_preview_artifact_ref"].endswith(".page-1.png")
     assert rendered["receipt"]["page_count"] == 3
+
+
+def test_premium_pipeline_keeps_text_manifest_outside_pdf_bytes(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
+
+    def _fake_playwright(_request):
+        pdf_text = "%PDF-1.4 " + " ".join(_request.expected_text)
+        return PremiumDossierRenderResult(
+            status="rendered",
+            renderer="playwright",
+            pdf_bytes=pdf_text.encode("utf-8"),
+            pdf_sha256="manifest123",
+            render_seconds=0.2,
+        )
+
+    monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_playwright", _fake_playwright)
+    rendered = render_property_packet_pdf_via_premium_pipeline(
+        artifact_root=tmp_path,
+        publication_id="pub_text_manifest",
+        principal_id="cf-email:tibor@example.com",
+        source=_sample_source(),
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        include_exact_address=False,
+        include_floorplan=True,
+        include_photos=True,
+        legacy_renderer=lambda **kwargs: {"status": "legacy_should_not_run"},
+    )
+
+    pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
+    assert b"%PQ_TEXT_BEGIN" not in pdf_bytes
+    text_manifest = Path(str(rendered["text_manifest_path"])).read_text(encoding="utf-8")
+    assert "PropertyQuarry" in text_manifest
+
+
+def test_playwright_renderer_blocks_remote_network_requests(monkeypatch, tmp_path: Path) -> None:
+    from app.services.premium_dossier import playwright_adapter
+
+    observed: dict[str, object] = {"route_pattern": "", "allowed": [], "blocked": []}
+
+    class _FakeRoute:
+        def __init__(self, url: str) -> None:
+            self.request = type("Request", (), {"url": url})()
+
+        def continue_(self) -> None:
+            observed["allowed"].append(self.request.url)
+
+        def abort(self) -> None:
+            observed["blocked"].append(self.request.url)
+
+    class _FakePage:
+        def route(self, pattern, handler) -> None:
+            observed["route_pattern"] = pattern
+            handler(_FakeRoute("file:///tmp/dossier.html"))
+            handler(_FakeRoute("https://cdn.example.test/hero.jpg"))
+
+        def goto(self, url, wait_until="load") -> None:
+            observed["goto_url"] = url
+
+        def pdf(self, *, path: str, **kwargs) -> None:
+            Path(path).write_bytes(b"%PDF-1.4 PropertyQuarry")
+
+    class _FakeBrowser:
+        def new_page(self):
+            return _FakePage()
+
+        def close(self) -> None:
+            return None
+
+    class _FakePlaywright:
+        chromium = type("Chromium", (), {"launch": staticmethod(lambda **kwargs: _FakeBrowser())})()
+
+    class _FakeContextManager:
+        def __enter__(self):
+            return _FakePlaywright()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(playwright_adapter, "sync_playwright", lambda: _FakeContextManager())
+    result = playwright_adapter.render_pdf_with_playwright(
+        PremiumDossierRenderRequest(
+            dossier_id="pub_local_only",
+            renderer_version="v1_premium_playwright_dossier",
+            html="<html><body>PropertyQuarry</body></html>",
+            title="PropertyQuarry",
+            privacy_mode="family_review",
+            packet_kind="family_review",
+        )
+    )
+
+    assert result.status == "rendered"
+    assert observed["route_pattern"] == "**/*"
+    assert observed["allowed"] == ["file:///tmp/dossier.html"]
+    assert observed["blocked"] == ["https://cdn.example.test/hero.jpg"]
 
 
 def test_premium_pipeline_legacy_fallback_requires_emergency_flag(monkeypatch, tmp_path: Path) -> None:

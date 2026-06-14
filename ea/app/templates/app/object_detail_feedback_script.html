@@ -36,26 +36,43 @@
   let magicFitUploadedReferenceUrls = [];
   let magicFitSessionId = '';
   let magicFitPollingTimer = null;
+  const clearNode = (node) => {
+    while (node?.firstChild) node.removeChild(node.firstChild);
+  };
+  const appendTextNode = (parent, tagName, text) => {
+    const node = document.createElement(tagName);
+    node.textContent = String(text || '');
+    parent.appendChild(node);
+    return node;
+  };
   const renderMagicFitPreview = (scene) => {
     if (!magicFitPreview) return;
     const imageUrl = String(scene?.image_url || '').trim();
     const summary = String(scene?.summary || '').trim();
     const sceneType = String(scene?.scene_type || 'visual simulation').replaceAll('_', ' ');
     if (!imageUrl) {
-      magicFitPreview.innerHTML = '';
+      clearNode(magicFitPreview);
       return;
     }
-    magicFitPreview.innerHTML = `
-      <div class="object-row">
-        <div>
-          <strong>${sceneType}</strong>
-          <small>${summary || 'Visual simulation ready for the dossier PDF.'}</small>
-        </div>
-        <div class="object-tag">Ready</div>
-      </div>
-      <img src="${imageUrl.replaceAll('&', '&amp;')}" alt="Magic Fit visual simulation" loading="lazy">
-      <div class="object-copy">Visual simulation only. This is generated guidance for the decision dossier, not listing photography.</div>
-    `;
+    clearNode(magicFitPreview);
+    const row = document.createElement('div');
+    row.className = 'object-row';
+    const textWrap = document.createElement('div');
+    appendTextNode(textWrap, 'strong', sceneType);
+    appendTextNode(textWrap, 'small', summary || 'Visual simulation ready for the dossier PDF.');
+    row.appendChild(textWrap);
+    appendTextNode(row, 'div', 'Ready').className = 'object-tag';
+    magicFitPreview.appendChild(row);
+    const image = document.createElement('img');
+    image.src = imageUrl;
+    image.alt = 'Magic Fit visual simulation';
+    image.loading = 'lazy';
+    magicFitPreview.appendChild(image);
+    appendTextNode(
+      magicFitPreview,
+      'div',
+      'Visual simulation only. This is generated guidance for the decision dossier, not listing photography.',
+    ).className = 'object-copy';
   };
   const renderMagicFitReferenceList = () => {
     if (!magicFitReferenceList) return;
@@ -68,15 +85,18 @@
       ...manualUrls.map((url, index) => ({ title: `Manual reference ${index + 1}`, detail: url, tag: 'URL' })),
       ...(magicFitSessionId ? [{ title: 'Google Photos session', detail: magicFitSessionId, tag: 'Picker' }] : []),
     ];
-    magicFitReferenceList.innerHTML = rows.map((row) => `
-      <div class="object-row">
-        <div>
-          <strong>${String(row.title || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</strong>
-          <small>${String(row.detail || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</small>
-        </div>
-        <div class="object-tag">${String(row.tag || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</div>
-      </div>
-    `).join('') || '<div class="object-row"><div><strong>No references selected yet</strong><small>Upload 1 to 3 portraits, start Google Photos Picker, or paste image URLs.</small></div><div class="object-tag">Waiting</div></div>';
+    clearNode(magicFitReferenceList);
+    const targetRows = rows.length ? rows : [{ title: 'No references selected yet', detail: 'Upload 1 to 3 portraits, start Google Photos Picker, or paste image URLs.', tag: 'Waiting' }];
+    targetRows.forEach((row) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'object-row';
+      const textWrap = document.createElement('div');
+      appendTextNode(textWrap, 'strong', row.title || '');
+      appendTextNode(textWrap, 'small', row.detail || '');
+      wrapper.appendChild(textWrap);
+      appendTextNode(wrapper, 'div', row.tag || '').className = 'object-tag';
+      magicFitReferenceList.appendChild(wrapper);
+    });
   };
   renderMagicFitPreview(payload.magic_fit_scene || {});
   renderMagicFitReferenceList();

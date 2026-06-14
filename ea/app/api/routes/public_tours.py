@@ -241,7 +241,6 @@ _PUBLIC_TOUR_ALLOWED_ASSET_EXTENSIONS = frozenset(
         ".mp4",
         ".pdf",
         ".png",
-        ".txt",
         ".webm",
         ".webp",
     }

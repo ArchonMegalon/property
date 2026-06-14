@@ -159,6 +159,20 @@ def _text(value: object, fallback: str = "") -> str:
     return normalized or fallback
 
 
+def _memorial_avatar_url(payload: dict[str, object], slug: str) -> str:
+    icon_payload = dict(payload.get("pwa_icon") or {})
+    for key in ("src_512", "src_192", "src_180"):
+        relpath = _text(icon_payload.get(key))
+        if not relpath:
+            continue
+        try:
+            _asset_file(slug, relpath)
+        except HTTPException:
+            continue
+        return f"/memorials/files/{html.escape(slug)}/{html.escape(relpath)}"
+    return ""
+
+
 def _list_of_dicts(value: object) -> list[dict[str, object]]:
     return [dict(item) for item in (value or []) if isinstance(item, dict)]
 
@@ -1194,6 +1208,7 @@ def _memorial_html(
     external_sources = _list_of_dicts(payload.get("external_sources"))
     suggested_prompts = [str(item).strip() for item in (payload.get("suggested_prompts") or []) if str(item).strip()]
     resolved_private_profile = private_profile or _load_private_profile(slug)
+    memorial_avatar_url = _memorial_avatar_url(payload, slug)
     chat_models = _collect_memorial_chat_models(payload, resolved_private_profile)
     chat_model_default = _resolve_memorial_chat_default_model(payload, resolved_private_profile, chat_models)
     chat_model_options = _collect_memorial_chat_model_options(payload, resolved_private_profile, chat_models)
@@ -1459,6 +1474,19 @@ def _memorial_html(
         color: rgba(255,244,226,.92);
         font: 600 1.8rem/1 Georgia, "Times New Roman", serif;
         letter-spacing: .04em;
+        overflow: hidden;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
+      }}
+      .hero-medallion.has-photo {{
+        color: transparent;
+      }}
+      .hero-medallion img {{
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
       }}
       .hero-mark {{
         display: inline-flex;
@@ -1898,9 +1926,37 @@ def _memorial_html(
         padding: 12px 14px;
         background: rgba(255,252,247,.8);
       }}
+      .speech-turn-head {{
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 6px;
+      }}
+      .speech-avatar {{
+        width: 34px;
+        height: 34px;
+        border-radius: 12px;
+        flex: 0 0 34px;
+        background:
+          radial-gradient(circle at 35% 30%, rgba(255,242,210,.34), rgba(255,242,210,0) 48%),
+          linear-gradient(180deg, rgba(193,160,103,.28), rgba(84,66,45,.38));
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
+        box-shadow:
+          inset 0 1px 0 rgba(255,255,255,.18),
+          0 8px 18px rgba(0,0,0,.12);
+      }}
+      .speech-avatar.user {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(255,244,226,.92);
+        font: 700 11px/1 "Trebuchet MS", ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .08em;
+      }}
       .speech-turn strong {{
         display: block;
-        margin-bottom: 6px;
         color: var(--wine);
         font: 700 12px/1.2 "Trebuchet MS", ui-sans-serif, system-ui, sans-serif;
         letter-spacing: .08em;
@@ -2094,7 +2150,9 @@ def _memorial_html(
           </div>
           <aside class="hero-memorial" aria-label="Memorial focus card">
             <div class="hero-memorial-card">
-              <div class="hero-medallion" aria-hidden="true">M</div>
+              <div class="hero-medallion{' has-photo' if memorial_avatar_url else ''}" aria-hidden="true">
+                {'<img src="' + memorial_avatar_url + '" alt="" loading="lazy" decoding="async" />' if memorial_avatar_url else 'M'}
+              </div>
               <span class="hero-mark">In Erinnerung</span>
               <strong>{html.escape(person_name)}</strong>
               <p>Ein stiller Ort für Stimme, Haltung, Wien-Döbling und das, was aus Aufnahmen und Erinnerungen bleibt.</p>
@@ -2320,6 +2378,7 @@ def _memorial_html(
       let realtimeTurnData = null;
       let realtimeTurnCounter = 0;
       let activeRealtimeTurnId = "";
+      const memorialAvatarUrl = {json.dumps(memorial_avatar_url)};
       let memorialVoiceConfig = {{
         tts_plugin: "browser_speech_synthesis",
         tts_plugin_voice_id: "",
@@ -2387,11 +2446,21 @@ def _memorial_html(
         if (!speechTranscript || !text) return;
         const turn = document.createElement("div");
         turn.className = "speech-turn " + (role === "assistant" ? "assistant" : "user");
+        const head = document.createElement("div");
+        head.className = "speech-turn-head";
+        const avatar = document.createElement("span");
+        avatar.className = "speech-avatar " + (role === "assistant" ? "assistant" : "user");
+        if (role === "assistant" && memorialAvatarUrl) {{
+          avatar.style.backgroundImage = 'url(' + JSON.stringify(memorialAvatarUrl) + ')';
+        }} else if (role !== "assistant") {{
+          avatar.textContent = "DU";
+        }}
         const label = document.createElement("strong");
         label.textContent = role === "assistant" ? "Manfred" : "Du";
+        head.append(avatar, label);
         const body = document.createElement("p");
         body.textContent = text;
-        turn.append(label, body);
+        turn.append(head, body);
         speechTranscript.prepend(turn);
         while (speechTranscript.childElementCount > 8) {{
           speechTranscript.removeChild(speechTranscript.lastElementChild);

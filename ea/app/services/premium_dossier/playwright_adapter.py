@@ -32,6 +32,44 @@ def _playwright_browser_env() -> dict[str, str]:
     return env
 
 
+def _playwright_helper_code() -> str:
+    return """
+import json
+import sys
+from pathlib import Path
+from playwright.sync_api import sync_playwright
+
+def _is_local_asset(url: str) -> bool:
+    value = str(url or "").strip().lower()
+    return value.startswith(("file://", "data:", "blob:", "about:blank"))
+
+request = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+html_path = Path(request["html_path"])
+pdf_path = Path(request["pdf_path"])
+with sync_playwright() as playwright:
+    browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+    try:
+        page = browser.new_page()
+        page.route("**/*", lambda route: route.continue_() if _is_local_asset(route.request.url) else route.abort())
+        page.goto(html_path.as_uri(), wait_until="load")
+        page.pdf(path=str(pdf_path), format="A4", print_background=True, margin={"top": "0", "right": "0", "bottom": "0", "left": "0"})
+    finally:
+        browser.close()
+"""
+
+
+def _allow_local_playwright_request(url: str) -> bool:
+    normalized = str(url or "").strip().lower()
+    return normalized.startswith(("file://", "data:", "blob:", "about:blank"))
+
+
+def _configure_local_only_page(page) -> None:
+    page.route(
+        "**/*",
+        lambda route: route.continue_() if _allow_local_playwright_request(getattr(route.request, "url", "")) else route.abort(),
+    )
+
+
 def _render_pdf_via_helper_python(
     helper_python: str,
     request: PremiumDossierRenderRequest,
@@ -48,26 +86,8 @@ def _render_pdf_via_helper_python(
             encoding="utf-8",
         )
         html_path.write_text(request.html, encoding="utf-8")
-        helper_code = """
-import json
-import sys
-from pathlib import Path
-from playwright.sync_api import sync_playwright
-
-request = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-html_path = Path(request["html_path"])
-pdf_path = Path(request["pdf_path"])
-with sync_playwright() as playwright:
-    browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-    try:
-        page = browser.new_page()
-        page.goto(html_path.as_uri(), wait_until="load")
-        page.pdf(path=str(pdf_path), format="A4", print_background=True, margin={"top": "0", "right": "0", "bottom": "0", "left": "0"})
-    finally:
-        browser.close()
-"""
         completed = subprocess.run(
-            [helper_python, "-c", helper_code, str(request_path)],
+            [helper_python, "-c", _playwright_helper_code(), str(request_path)],
             text=True,
             capture_output=True,
             check=False,
@@ -118,6 +138,7 @@ def render_pdf_with_playwright(request: PremiumDossierRenderRequest) -> PremiumD
                 browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
                 try:
                     page = browser.new_page()
+                    _configure_local_only_page(page)
                     page.goto(html_path.as_uri(), wait_until="load")
                     page.pdf(path=str(pdf_path), format="A4", print_background=True, margin={"top": "0", "right": "0", "bottom": "0", "left": "0"})
                 finally:

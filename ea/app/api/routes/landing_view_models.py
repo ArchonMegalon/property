@@ -529,13 +529,13 @@ def _build_scope_boundary_preview(
             "query": normalized_query,
             "areas": [row["label"] for row in district_rows],
             "zoom": zoom,
-            "overlay_mode": "html",
+            "overlay_mode": "image",
         },
         center_lat=center_lat,
         center_lon=center_lon,
         zoom=zoom,
         boundary_paths=boundary_paths,
-        draw_overlay=False,
+        draw_overlay=True,
     )
     return {
         "image_url": image_url,
@@ -4443,7 +4443,7 @@ def app_section_payload(
             "title": "Audit",
             "summary": "Audit explains what changed, what left the system, and which rule or review point allowed it.",
             "cards": [
-                {"eyebrow": "Workspace", "title": "Current state", "items": string_rows([f"Status: {status_label}", f"Setup state: {status.get('onboarding_id') or 'not started'}", f"Next step: {status.get('next_step') or 'None'}"], ("No workspace state yet.",), tag="State", detail="This is the current workspace status.")},
+                {"eyebrow": "Account", "title": "Current state", "items": string_rows([f"Status: {status_label}", f"Setup state: {status.get('onboarding_id') or 'not started'}", f"Next step: {status.get('next_step') or 'None'}"], ("No account state yet.",), tag="State", detail="This is the current account status.")},
                 {"eyebrow": "Channels", "title": "Recent changes", "items": channel_items},
                 {"eyebrow": "Trust", "title": "Why this feed matters", "items": string_rows(trust_notes, ("No trust notes yet.",), tag="Context", detail="This keeps the activity feed understandable.")},
             ],
@@ -4452,7 +4452,7 @@ def app_section_payload(
             "title": "Rules",
             "summary": "Rules stay boring and explicit once the first working loop already exists.",
             "cards": [
-                {"eyebrow": "Workspace", "title": "Current workspace posture", "items": string_rows([f"Name: {workspace.get('name') or 'PropertyQuarry'}", f"Mode: {humanize(str(workspace.get('mode') or 'personal'))}", f"Timezone: {workspace.get('timezone') or 'unspecified'}", f"Region: {workspace.get('region') or 'unspecified'}"], ("No workspace posture yet.",), tag="Workspace", detail="These are the current office defaults.")},
+                {"eyebrow": "Account", "title": "Current account posture", "items": string_rows([f"Name: {workspace.get('name') or 'PropertyQuarry'}", f"Mode: {humanize(str(workspace.get('mode') or 'personal'))}", f"Timezone: {workspace.get('timezone') or 'unspecified'}", f"Region: {workspace.get('region') or 'unspecified'}"], ("No account posture yet.",), tag="Account", detail="These are the current PropertyQuarry defaults.")},
                 {"eyebrow": "Policy", "title": "Assistant behavior", "items": string_rows(privacy_lines, ("No privacy posture set yet.",), tag="Rule", detail="These controls shape what the assistant may do.")},
                 {"eyebrow": "Channels", "title": "Selected linked channels", "items": channel_items},
             ],
@@ -5301,7 +5301,7 @@ def property_workspace_payload(
             if isinstance(row, dict)
         ]
         if not rows:
-            rows.append({"title": "No household votes yet", "detail": "Shared reactions will appear here after packet or workspace decisions are recorded.", "tag": "Waiting"})
+            rows.append({"title": "No household votes yet", "detail": "Shared reactions will appear here after a property page decision is recorded.", "tag": "Waiting"})
         return rows
 
     def _candidate_risk_signal_rows(candidate: dict[str, object]) -> list[dict[str, str]]:
@@ -5709,16 +5709,16 @@ def property_workspace_payload(
         ],
         "settings": [
             {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": f"/app/settings{run_suffix}"},
-            {"label": "Workspace", "value": str(workspace.get("name") or "PropertyQuarry"), "detail": str(workspace.get("timezone") or "Europe/Vienna"), "href": f"/app/settings{run_suffix}"},
+            {"label": "Account", "value": str(workspace.get("name") or "PropertyQuarry"), "detail": str(workspace.get("timezone") or "Europe/Vienna"), "href": f"/app/settings{run_suffix}"},
             {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": f"/app/billing{run_suffix}"},
             {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/profile{run_suffix}"},
         ],
     }
     preference_rows = [
         row_item(
-            "Workspace",
+            "Account",
             str(workspace.get("name") or "PropertyQuarry"),
-            "Workspace",
+            "Account",
         ),
         row_item(
             "Google sign-in",
@@ -5748,7 +5748,7 @@ def property_workspace_payload(
             "Alerts",
         ),
         row_item(
-            "Workspace posture",
+            "Account posture",
             "Billing, saved defaults, and security should stay explicit and product-specific.",
             "Control",
         ),

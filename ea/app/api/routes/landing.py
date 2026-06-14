@@ -2763,14 +2763,14 @@ def property_research_packet(
     ]
     if not timeline_rows:
         timeline_rows = [
-            _object_detail_row("Shortlist state", "This packet is ready for a decision and agent follow-up.", "Now"),
+            _object_detail_row("Shortlist state", "This property page is ready for a decision and agent follow-up.", "Now"),
             _object_detail_row("Tour state", _property_tour_detail_line(candidate), "360"),
-            _object_detail_row("Feedback state", "No packet timeline events are recorded yet. The first saved decision will start the visible timeline.", "Waiting"),
+            _object_detail_row("Feedback state", "No timeline events are recorded yet. The first saved decision will start the visible timeline.", "Waiting"),
         ]
     changed_rows = timeline_rows[:3] or [
         _object_detail_row(
             "No new deltas yet",
-            "The first saved decision, packet event, or follow-up update will appear here.",
+            "The first saved decision, share event, or follow-up update will appear here.",
             "Waiting",
         )
     ]

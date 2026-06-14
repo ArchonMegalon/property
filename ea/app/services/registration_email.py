@@ -894,7 +894,7 @@ def send_property_tour_email(
     body.extend(
         [
             "",
-            "Open the 360 review first, then continue into the research packet if needed.",
+            "Open the 360 review first, then continue into the property page if you need the full evidence and decisions.",
         ]
     )
     facts_table_html = "".join(
@@ -912,20 +912,20 @@ def send_property_tour_email(
     )
     html_body = (
         '<div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;margin:0 0 10px;">Review page</div>'
-        '<p style="margin:0 0 16px;font-size:15px;line-height:1.65;color:#51493f;">PropertyQuarry prepared a 360 review page for this property. Open the space first, then continue into the research packet and the decision desk.</p>'
+        '<p style="margin:0 0 16px;font-size:15px;line-height:1.65;color:#51493f;">PropertyQuarry prepared a 360 review page for this property. Open the space first, then continue into the property page and the decision desk.</p>'
     )
     action_urls = _property_decision_action_urls(packet_url=property_url, tour_url=tour_url, property_url=property_url)
     html_body += _email_button_row(
         [
             _email_button(href=tour_url, label="Open 360 review"),
-            _email_button(href=property_url, label="Open research packet", kind="secondary") if str(property_url or "").strip() else "",
+            _email_button(href=property_url, label="Open property page", kind="secondary") if str(property_url or "").strip() else "",
             _email_button(href=action_urls["yes"], label="Yes, shortlist", kind="secondary"),
             _email_button(href=action_urls["no"], label="No — tell us why", kind="secondary"),
             _email_button(href=action_urls["ask_agent"], label="Ask agent", kind="secondary"),
         ]
     )
     if str(property_url or "").strip():
-        html_body += f'<p style="margin:0 0 14px;">{_html_link(href=property_url, label="Open research packet or listing context")}</p>'
+        html_body += f'<p style="margin:0 0 14px;">{_html_link(href=property_url, label="Open property page or listing context")}</p>'
     if facts_table_html:
         html_body += (
             '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:12px 0 0;">'
@@ -1346,7 +1346,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                 "Hello,\n\n"
                 "PropertyQuarry prepared a 360 review page for Family flat near Augarten:\n\n"
                 "Use the titled review and source-listing buttons in this email.\n\n"
-                "Open the 360 review first, then continue into the research packet if needed.\n"
+                "Open the 360 review first, then continue into the property page if needed.\n"
             ),
             "html": _html_email_shell(
                 title="360 review ready",
@@ -1357,7 +1357,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                     + _email_button_row(
                         [
                             _email_button(href="https://propertyquarry.com/tours/family-flat-near-augarten", label="Open 360 review"),
-                            _email_button(href="https://propertyquarry.com/app/research/run-42/family-flat-near-augarten", label="Open research packet", kind="secondary"),
+                            _email_button(href="https://propertyquarry.com/app/research/run-42/family-flat-near-augarten", label="Open property page", kind="secondary"),
                             _email_button(href=action_urls["yes"], label="Yes, shortlist", kind="secondary"),
                             _email_button(href=action_urls["no"], label="No — tell us why", kind="secondary"),
                         ]
@@ -1377,18 +1377,18 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
             "preheader": "The underwriting packet is ready for review.",
             "text": (
                 "Hello,\n\n"
-                "PropertyQuarry prepared the investment review packet.\n\n"
+                "PropertyQuarry prepared the investment property page.\n\n"
                 "Current read:\n"
                 "- Recommendation: investigate further\n"
                 "- Gross yield: 4.14%\n"
                 "- Net yield: 2.8-3.2%\n"
                 "- Missing documents: operating costs, energy certificate\n\n"
-                "Open the investment packet with the titled button in this email.\n"
+                "Open the investment property page with the titled button in this email.\n"
             ),
             "html": _html_email_shell(
                 title="Investment research ready",
                 body_html=(
-                    '<div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;">Investment packet</div>'
+                    '<div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a37a2c;font-weight:700;">Investment page</div>'
                     '<h1 style="margin:10px 0 12px 0;font-size:28px;line-height:1.2;color:#242321;">Investment research ready</h1>'
                     '<p style="margin:0 0 16px 0;font-size:15px;line-height:1.65;color:#51493f;">PropertyQuarry prepared the underwriting read with yield, risk, and missing-document posture.</p>'
                     '<ul style="margin:0 0 16px;padding-left:20px;"><li>Gross yield: 4.14%</li><li>Net yield: 2.8-3.2%</li><li>Missing documents: operating costs, energy certificate</li></ul>'

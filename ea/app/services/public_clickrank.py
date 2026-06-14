@@ -9,6 +9,8 @@ from urllib.parse import urlparse
 
 
 _CLICKRANK_HOST_CONFIG = {
+    "propertyquarry.com": ("CLICKRANK_AI_PROPERTYQUARRY_SITE_ID", ""),
+    "www.propertyquarry.com": ("CLICKRANK_AI_PROPERTYQUARRY_SITE_ID", ""),
     "myexternalbrain.com": ("CLICKRANK_AI_MYEXTERNALBRAIN_SITE_ID", ""),
     "www.myexternalbrain.com": ("CLICKRANK_AI_MYEXTERNALBRAIN_SITE_ID", ""),
 }

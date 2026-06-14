@@ -75,7 +75,7 @@ FEATURE_CARDS = (
 HOW_STEPS = (
     {"title": "Create the account", "body": "Use email first, then optional Google identity so return access stays simple and narrow."},
     {"title": "Set your search posture", "body": "Define market, budget, household needs, and hard rules before the first sweep runs."},
-    {"title": "Review the shortlist", "body": "Keep the first run focused on ranked candidates, research packets, and visible feedback."},
+    {"title": "Review the shortlist", "body": "Keep the first run focused on ranked candidates, property pages, and visible feedback."},
 )
 
 PERSONAS = (
@@ -101,24 +101,24 @@ LANDING_FAQS = (
     },
     {
         "question": "Can I start alone and add others later?",
-        "answer": "Yes. Start with a private workspace, then add shared review and commercial seats later from the workspace settings.",
+        "answer": "Yes. Start with a private account, then add shared review and commercial seats later from account settings.",
     },
 )
 
 PRODUCT_MODULES = (
     {"title": "Property brief", "body": "Capture country, search mode, budget, household needs, and hard rules once so every later search starts from the same frame."},
     {"title": "Provider sweep", "body": "Scan the selected portals as one run instead of forcing the user to maintain separate browser rituals for every source."},
-    {"title": "Research packet", "body": "Attach fit reasons, missing information, distances, and follow-up cues to each strong candidate."},
+    {"title": "Property page", "body": "Attach fit reasons, missing information, distances, and follow-up cues to each strong candidate."},
     {"title": "Shortlist review", "body": "Keep the best candidates in one place with review links, tours, and clear next actions."},
     {"title": "Learning loop", "body": "Turn likes, dislikes, and hard rules into better ranking on the next run instead of leaving them as forgotten opinions."},
     {"title": "Preferences", "body": "Keep profile, limits, integrations, and billing visible without dragging the user through unrelated assistant tooling."},
 )
 
 SIGN_IN_NOTES = (
-    "Return through a current session, a secure email link, a workspace invite, or SSO.",
+    "Return through a current session, a secure email link, an account invite, or SSO.",
     "Create a PropertyQuarry account from /register if you are starting fresh.",
     "Google connection is optional identity and return access, not the required center of the product.",
-    "Shared review, billing, and broader workspace controls come later from Preferences after the first shortlist proves useful.",
+    "Shared review, billing, and broader account controls come later from Preferences after the first shortlist proves useful.",
 )
 
 PRICING_TIERS = (
@@ -127,7 +127,7 @@ PRICING_TIERS = (
         "price": "0",
         "body": "A narrow entry lane for account creation, profile setup, and a first useful shortlist.",
         "facts": (
-            "1 workspace",
+            "1 account",
             "Limited shortlist volume",
             "Google identity optional",
             "Basic saved preferences",
@@ -137,10 +137,10 @@ PRICING_TIERS = (
     {
         "title": "Plus",
         "price": "Paid",
-        "body": "For users who want more searches, deeper packets, and more persistent property review coverage.",
+        "body": "For users who want more searches, deeper property research, and more persistent review coverage.",
         "facts": (
             "More provider coverage",
-            "Deeper research packets",
+            "Deeper property research",
             "Email alerts and saved runs",
             "Longer shortlist history",
             "Self-serve billing",

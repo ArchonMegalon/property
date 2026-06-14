@@ -471,8 +471,8 @@ def test_fliplink_packet_dashboard_and_property_actions_render(monkeypatch, tmp_
     dashboard = client.get("/app/properties/packets", headers={"host": "propertyquarry.com"})
     assert dashboard.status_code == 200, dashboard.text
     assert "data-property-packets-dashboard" in dashboard.text
-    assert "Packet sharing" in dashboard.text
-    assert "Send polished property packets and track the replies." in dashboard.text
+    assert "Sharing" in dashboard.text
+    assert "Share polished property pages and track the replies." in dashboard.text
     assert "Viewer responses" in dashboard.text
     assert "FlipLink leads" not in dashboard.text
     assert "Leads" not in dashboard.text
@@ -484,7 +484,7 @@ def test_fliplink_packet_dashboard_and_property_actions_render(monkeypatch, tmp_
     assert "data-copy-lead-schema" in dashboard.text
     assert "data-browseract-publish" in dashboard.text
     assert "data-archive-publication" in dashboard.text
-    assert "Household review" in dashboard.text
+    assert "Household reactions" in dashboard.text
     assert "Risk signals" in dashboard.text
     assert "What changed" in dashboard.text
     assert "data-feedback-action=\"accept_as_preference_signal\"" in dashboard.text or "No viewer responses" in dashboard.text

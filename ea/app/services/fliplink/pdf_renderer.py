@@ -1441,7 +1441,7 @@ def _visual_pdf(
     if cover_image is None:
         _draw_text(
             ops,
-            district_value or "Vienna review packet",
+            district_value or "Vienna property page",
             x=MARGIN_X,
             y=86,
             size=10.0,
@@ -1499,7 +1499,7 @@ def _visual_pdf(
         _draw_rect(ops, review_x, cta_y, review_width, review_height, fill=(0.93, 0.96, 0.94))
         _draw_text(
             ops,
-            "Open review packet",
+            "Open property page",
             x=review_x + 16,
             y=cta_y + 14,
             size=10,
@@ -1635,7 +1635,7 @@ def _visual_pdf(
         media_annotations.append({"url": redacted_flythrough_url, "rect": [MARGIN_X + 386, cta_y - 46, MARGIN_X + 526, cta_y - 12]})
     if redacted_review_url:
         _draw_rect(ops, MARGIN_X + 386, cta_y - 92, 150, 34, fill=(0.93, 0.96, 0.94))
-        _draw_text(ops, "Open review packet", x=MARGIN_X + 412, y=183, size=9.2, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, "Open property page", x=MARGIN_X + 412, y=183, size=9.2, font="F2", fill=(0.15, 0.38, 0.30))
         media_annotations.append({"url": redacted_review_url, "rect": [MARGIN_X + 386, cta_y - 92, MARGIN_X + 536, cta_y - 58]})
     pages.append({"ops": ops, "images": media_page_images, "annotations": media_annotations})
     page_number += 1
