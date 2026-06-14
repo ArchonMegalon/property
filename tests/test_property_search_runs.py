@@ -146,6 +146,48 @@ class _QuotaContainer:
         self.channel_runtime = _QuotaRuntime(rows)
 
 
+class _PreviewCacheRuntime:
+    def __init__(self) -> None:
+        self.rows: list[object] = []
+
+    def ingest_observation(
+        self,
+        principal_id: str,
+        channel: str,
+        event_type: str,
+        payload: dict[str, object] | None = None,
+        *,
+        source_id: str = "",
+        dedupe_key: str = "",
+        **_kwargs,
+    ) -> object:
+        row = SimpleNamespace(
+            principal_id=principal_id,
+            channel=channel,
+            event_type=event_type,
+            payload=dict(payload or {}),
+            source_id=source_id,
+            dedupe_key=dedupe_key,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            observation_id=str(uuid.uuid4()),
+        )
+        self.rows.insert(0, row)
+        return row
+
+    def list_recent_observations(self, limit: int = 4000, principal_id: str = "") -> list[object]:
+        rows = [
+            row
+            for row in self.rows
+            if not principal_id or str(getattr(row, "principal_id", "") or "").strip() == str(principal_id or "").strip()
+        ]
+        return rows[:limit]
+
+
+class _PreviewCacheContainer:
+    def __init__(self) -> None:
+        self.channel_runtime = _PreviewCacheRuntime()
+
+
 def test_property_visual_quota_enforces_free_daily_magic_fit_limit() -> None:
     service = ProductService.__new__(ProductService)
     service._container = _QuotaContainer(
@@ -193,6 +235,60 @@ def test_propertyquarry_public_urls_do_not_inherit_external_brain_defaults(monke
 
     assert product_service._property_public_app_base_url() == "https://propertyquarry.com"
     assert product_service._property_public_tour_base_url() == "https://propertyquarry.com/tours"
+
+
+def test_property_public_preview_cache_reuses_sanitized_public_facts() -> None:
+    service = ProductService.__new__(ProductService)
+    service._container = _PreviewCacheContainer()
+    cache_index: dict[str, dict[str, object]] = {}
+    stored = service._property_public_preview_cache_store(
+        cache_index=cache_index,
+        property_url="https://example.test/listing/1",
+        preview={
+            "property_url": "https://example.test/listing/1",
+            "listing_id": "listing-1",
+            "title": "Quiet courtyard flat",
+            "summary": "Useful public preview facts.",
+            "property_facts_json": {
+                "provider_channel": "findmyhome_at",
+                "postal_name": "1200 Wien",
+                "rooms": 3,
+                "has_floorplan": True,
+                "exact_address": "Hidden 1",
+                "lat": 48.2,
+                "cookie_debug": "nope",
+            },
+            "floorplan_urls_json": ["https://cdn.example.test/floorplan.png"],
+        },
+    )
+
+    assert stored["property_facts_json"]["provider_channel"] == "findmyhome_at"
+    assert "exact_address" not in stored["property_facts_json"]
+    assert "lat" not in stored["property_facts_json"]
+    assert "cookie_debug" not in stored["property_facts_json"]
+
+    indexed = service._property_public_preview_cache_index()
+    loaded = service._property_public_preview_cache_lookup(
+        cache_index=indexed,
+        property_url="https://example.test/listing/1",
+    )
+
+    assert loaded is not None
+    assert loaded["title"] == "Quiet courtyard flat"
+    assert loaded["property_facts_json"]["has_floorplan"] is True
+
+
+def test_austria_noise_preference_uses_layout_quiet_signal_only_as_weak_hint() -> None:
+    adjustment, notes = product_service._property_austria_preference_score_adjustment(
+        preferences={"country_code": "AT", "avoid_noise_risk_area": True},
+        property_facts={"quiet_layout_signal": "weak_positive"},
+        title="Wohnung",
+        summary="Ruhige Lage",
+    )
+
+    assert adjustment == -2.0
+    assert "noise evidence missing" in notes
+    assert "layout-derived quiet signal" in notes
 
 
 def test_property_search_location_matching_prefers_requested_districts() -> None:
