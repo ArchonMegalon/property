@@ -116,7 +116,7 @@ PRODUCT_MODULES = (
 
 SIGN_IN_NOTES = (
     "Return through a current session, a secure email link, a workspace invite, or SSO.",
-    "Create a property workspace from /register if you are starting fresh.",
+    "Create a PropertyQuarry account from /register if you are starting fresh.",
     "Google connection is optional identity and return access, not the required center of the product.",
     "Shared review, billing, and broader workspace controls come later from Preferences after the first shortlist proves useful.",
 )

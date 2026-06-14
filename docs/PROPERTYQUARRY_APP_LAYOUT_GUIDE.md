@@ -230,7 +230,9 @@ Machine text only:
 .pq-machine-token,
 .pq-url,
 .pq-id {
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: auto;
   word-break: break-word;
 }
 ```

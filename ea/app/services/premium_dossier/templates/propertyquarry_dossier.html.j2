@@ -251,7 +251,7 @@
             <a class="cta cta-secondary" href="{{ payload.dadan_context.recording_url }}">Open latest response</a>
             {% endif %}
             {% if dossier.review_url %}
-            <a class="cta cta-secondary" href="{{ dossier.review_url }}">Open review surface</a>
+            <a class="cta cta-secondary" href="{{ dossier.review_url }}">Open property page</a>
             {% endif %}
           </div>
         </div>
@@ -272,13 +272,13 @@
           </div>
           <div class="action-rail">
             <div class="action-copy">
-              <h3>Open the full review surface</h3>
-              <p>Die digitale Medienebene führt direkt in die 3D-Tour, das Flythrough-Video und den Review-Pfad, statt nur rohe Quellenlinks zu sammeln.</p>
+              <h3>Open the full property page</h3>
+              <p>Die digitale Medienebene führt direkt in die 3D-Tour, das Flythrough-Video und den PropertyQuarry-Pfad, statt nur rohe Quellenlinks zu sammeln.</p>
             </div>
             {% if dossier.tour_url %}<a class="cta" href="{{ dossier.tour_url }}">Open 3D reconstruction</a>{% endif %}
             {% if dossier.flythrough_url %}<a class="cta" href="{{ dossier.flythrough_url }}">Play flythrough</a>{% endif %}
             {% if dossier.map_url %}<a class="cta cta-secondary" href="{{ dossier.map_url }}">Open Google Maps</a>{% endif %}
-            {% if dossier.review_url %}<a class="cta cta-secondary" href="{{ dossier.review_url }}">Open review packet</a>{% endif %}
+            {% if dossier.review_url %}<a class="cta cta-secondary" href="{{ dossier.review_url }}">Open property page</a>{% endif %}
           </div>
         </div>
       </div>

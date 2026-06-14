@@ -215,7 +215,7 @@ PropertyQuarry promo-video rendering is **MagicFit only**.
 
 ### 7. Das Packet wird teilbar
 
-- review packet becomes shareable family packet
+- property page becomes a shareable family page
 - dialogue:
   - Jonas: `Okay. Das ist viel klarer.`
 - VO:
@@ -536,7 +536,7 @@ Abstract premium product visualization of many real estate listing cards floatin
 ### Shot 5
 
 ```text
-Cinematic desk scene with laptop showing a clean review packet interface area left blank for overlay, printed floorplan neatly aligned, woman reviewing structured property dossier, warmer calmer light, partner nearby, sense of clarity and control, premium real estate due diligence mood, no readable screen text
+Cinematic desk scene with laptop showing a clean property page interface area left blank for overlay, printed floorplan neatly aligned, woman reviewing structured property dossier, warmer calmer light, partner nearby, sense of clarity and control, premium real estate due diligence mood, no readable screen text
 ```
 
 ### Shot 6

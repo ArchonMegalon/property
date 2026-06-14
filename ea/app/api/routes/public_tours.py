@@ -2938,7 +2938,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         detail_request_button = (
             '<div class="request-row">'
             '<span id="request-details-status" class="request-status">'
-            'Open the authenticated PropertyQuarry review packet to request deeper research.'
+            'Open the authenticated PropertyQuarry property page to request deeper research.'
             '</span>'
             '</div>'
         )
@@ -3623,7 +3623,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       }});
       if (requestButton && requestStatus) {{
         requestButton.addEventListener("click", async () => {{
-          requestStatus.textContent = "Open the authenticated PropertyQuarry review packet to request deeper research.";
+          requestStatus.textContent = "Open the authenticated PropertyQuarry property page to request deeper research.";
         }});
       }}
     </script>

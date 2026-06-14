@@ -1115,7 +1115,7 @@ def register_page(
         **_public_context(
             request=request,
             current_nav="product",
-            page_title="Create your property workspace" if request_brand(request)["key"] == "propertyquarry" else "Start your workspace",
+            page_title="Create your PropertyQuarry account" if request_brand(request)["key"] == "propertyquarry" else "Start your workspace",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -1921,7 +1921,7 @@ def _property_research_gallery_items(
 def _property_review_detail_line(candidate: dict[str, object]) -> str:
     review_url = str(candidate.get("review_url") or "").strip()
     if review_url:
-        return "Open the review packet on PropertyQuarry."
+        return "Open the property page on PropertyQuarry."
     return "No review page exists for this candidate yet."
 
 

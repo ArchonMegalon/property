@@ -38,7 +38,7 @@ The clean product has five authenticated surfaces.
 
 3. **Shortlist**
    - ranked cards for the few properties that deserve attention
-   - each card shows fit score, top reasons, risk flags, unknowns, next action, review packet link, tour link if available, and source link as secondary
+   - each card shows fit score, top reasons, risk flags, unknowns, next action, property page link, tour link if available, and source link as secondary
 
 4. **Research Packet**
    - one property decision page
@@ -186,7 +186,7 @@ Each card should show:
 - price, area, rooms
 - strongest match reason
 - strongest risk or unknown
-- review packet CTA
+- property page CTA
 - tour CTA when real 360 exists
 - source link as secondary
 - feedback buttons:
@@ -459,7 +459,7 @@ Fields:
 
 Rules:
 
-- reuse completed review packets and tours where the listing identity matches
+- reuse completed property pages and tours where the listing identity matches
 - verify that the source listing still exists before reuse
 - never reuse owner-private or paid-customer artifacts across principals
 - regenerate only when source hash, privacy mode, or packet renderer contract changes
@@ -534,7 +534,7 @@ Required gates:
 - free tier allows deep research with capped results
 - Google sign-in uses PropertyQuarry callback
 - PropertyQuarry settings do not show EA sync language
-- review packet links stay on PropertyQuarry/MyExternalBrain-hosted property pages
+- hosted property page links stay on PropertyQuarry/MyExternalBrain-hosted property pages
 - feedback save updates learning summary
 
 Existing tests already cover parts of this. Add missing tests before changing routes.

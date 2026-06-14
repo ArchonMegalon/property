@@ -2698,7 +2698,7 @@ def app_section_payload(
                 row["action_label"] = "Open property page"
                 row["secondary_action_href"] = review_url
                 row["secondary_action_method"] = "get"
-                row["secondary_action_label"] = "Open source page"
+                row["secondary_action_label"] = "Open listing"
             else:
                 row["action_href"] = packet_url
                 row["action_method"] = "get"
@@ -4507,13 +4507,13 @@ def app_section_payload(
                 {
                     "eyebrow": "Shortlist",
                     "title": "Ranked review desk",
-                    "body": "The strongest matches stay review-ready: fit, risk, 360 status, packet link, and the next useful action are visible before operational crawl details.",
+                    "body": "The strongest matches stay review-ready: fit, risk, 360 status, property page, and the next useful action are visible before operational crawl details.",
                     "items": property_shortlist_rows
                     or property_recent_matches
                     or [
                         row_item(
                             "First shortlist still pending",
-                            "Launch the first sweep to generate a ranked candidate lane with review packets, hosted tours, and visible fit reasons.",
+                            "Launch the first sweep to generate a ranked candidate lane with property pages, hosted tours, and visible fit reasons.",
                             "First run",
                         )
                     ],
@@ -4549,7 +4549,7 @@ def app_section_payload(
                 {
                     "eyebrow": "Recent matches",
                     "title": "Hosted pages already delivered",
-                    "body": "Strong matches should resolve to branded hosted property pages or review packets, not raw portal links.",
+                    "body": "Strong matches should resolve to branded hosted property pages, not raw portal links.",
                     "items": property_recent_matches
                     or property_event_rows
                     or [
@@ -4987,7 +4987,7 @@ def property_workspace_payload(
                 "action_label": "Open property page",
                 "secondary_action_href": str(candidate.get("tour_url") or candidate.get("review_url") or "").strip(),
                 "secondary_action_method": "get" if (candidate.get("tour_url") or candidate.get("review_url")) else "",
-                "secondary_action_label": "Open 360" if candidate.get("tour_url") else ("Open source page" if candidate.get("review_url") else ""),
+                "secondary_action_label": "Open 360" if candidate.get("tour_url") else ("Open listing" if candidate.get("review_url") else ""),
             }
         )
 
@@ -5673,12 +5673,12 @@ def property_workspace_payload(
         ],
         "shortlist": [
             {"label": "Candidates", "value": str(len(shortlist_candidates)), "detail": "Ranked properties worth direct review now.", "href": f"/app/shortlist{run_suffix}"},
-            {"label": "Packets", "value": str(packet_ready_total), "detail": "Internal packets ready before the raw portal listing.", "href": f"/app/research{run_suffix}"},
+            {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready before the raw portal listing.", "href": f"/app/research{run_suffix}"},
             {"label": "360 ready", "value": str(tour_ready_total), "detail": "Hosted or embedded tours already available.", "href": f"/app/research{run_suffix}"},
             {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest run status.", "href": f"/app/properties{run_suffix}"},
         ],
         "research": [
-            {"label": "Packets", "value": str(packet_ready_total), "detail": "Internal dossiers ready for inspection.", "href": f"/app/research{run_suffix}"},
+            {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready for inspection.", "href": f"/app/research{run_suffix}"},
             {"label": "Tours", "value": str(tour_ready_total), "detail": "Candidates already backed by a 360 or hosted tour.", "href": f"/app/research{run_suffix}"},
             {"label": "Signals", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Raw listings considered in the latest run.", "href": f"/app/properties{run_suffix}"},
             {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest research pass.", "href": f"/app/properties{run_suffix}"},
@@ -5766,7 +5766,7 @@ def property_workspace_payload(
         alerts_rows = [
             row_item(
                 "No client-facing alert has been sent yet",
-                "This lane will show the first hosted page, review packet, or run update once the shortlist is strong enough to notify.",
+                "This lane will show the first hosted page or run update once the shortlist is strong enough to notify.",
                 "Quiet",
             )
         ]
@@ -5899,15 +5899,15 @@ def property_workspace_payload(
                 "action_label": "Open property page",
                 "secondary_action_href": str(candidate.get("review_url") or candidate.get("tour_url") or "").strip(),
                 "secondary_action_method": "get" if (candidate.get("review_url") or candidate.get("tour_url")) else "",
-                "secondary_action_label": "Open source page" if candidate.get("review_url") else ("Open 360" if candidate.get("tour_url") else ""),
+                "secondary_action_label": "Open listing" if candidate.get("review_url") else ("Open 360" if candidate.get("tour_url") else ""),
             }
         )
     if not research_rows:
         research_rows = list(recent_matches_card.get("items") or []) or [
             row_item(
-                "Research packets have not been opened yet",
-                "As soon as a run finishes with credible matches, the strongest candidates will be promoted into packets from this desk.",
-                "First packet",
+                "Research pages have not been opened yet",
+                "As soon as a run finishes with credible matches, the strongest candidates will be promoted into hosted property pages from this desk.",
+                "First page",
             )
         ]
     saved_search_rows = [
@@ -6000,7 +6000,7 @@ def property_workspace_payload(
                 else ("Keep the run visible until the shortlist is ready." if run_in_progress else "Shape the next market sweep before the crawlers fan out.")
             ),
             "hero_summary": (
-                "Once the run is done, keep the result surface simple: one ranked table, packet links, and clear 360 status."
+                "Once the run is done, keep the result surface simple: one ranked table, property pages, and clear 360 status."
                 if run_status_value in {"processed", "completed"} and results_table_rows
                 else (
                     "Hide the search form while the run is active. Show only progress, source events, and the first usable signals until the final ranked table is ready."
@@ -6019,7 +6019,7 @@ def property_workspace_payload(
                 {"label": "Listings", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Listings recovered so far."},
             ] if run_in_progress else (hero_highlights["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
                 {"label": "Results", "value": str(len(results_table_rows)), "detail": "Final ranked candidates in this run."},
-                {"label": "Packets", "value": str(packet_ready_total), "detail": "Internal review packets ready now."},
+                {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready now."},
                 {"label": "360 ready", "value": str(tour_ready_total), "detail": "Hosted tours available right now."},
             ]),
             "primary_cards": [] if (run_status_value in {"processed", "completed"} and results_table_rows) or run_in_progress else [search_posture_card, market_coverage_card],
@@ -6037,13 +6037,13 @@ def property_workspace_payload(
             "summary": "Keep the strongest candidates in one ranked lane and record preference feedback directly on the cards.",
             "hero_kicker": "Shortlist",
             "hero_title": "Review the properties that deserve attention now.",
-            "hero_summary": "Start with fit, risks, packet link, 360 link, and one-step feedback. Crawl counters stay secondary.",
+            "hero_summary": "Start with fit, risks, property page, 360 link, and one-step feedback. Crawl counters stay secondary.",
             "hero_actions": hero_actions["shortlist"],
             "hero_highlights": hero_highlights["shortlist"],
             "primary_cards": [
                 {
                     "eyebrow": "At a glance",
-                    "title": "Compare the top shortlist before opening deeper packets",
+                    "title": "Compare the top shortlist before opening deeper property pages",
                     "body": "The first scan should show which candidate looks strongest right now without forcing the user to open five pages.",
                     "items": compare_rows or [row_item("No ranked shortlist yet", "Complete the next run and this panel becomes the first comparison desk for the leading candidates.", "First run")],
                 },
@@ -6056,17 +6056,17 @@ def property_workspace_payload(
         },
         "research": {
             "title": "Research",
-            "summary": "Turn high-fit candidates into property dossiers with evidence, packets, and hosted follow-ups.",
-            "hero_kicker": "Research packets",
+            "summary": "Turn high-fit candidates into property dossiers with evidence, property pages, and hosted follow-ups.",
+            "hero_kicker": "Research pages",
             "hero_title": "Inspect the evidence before you open the raw listing.",
-            "hero_summary": "This lane should feel like a property dossier desk: fit reasons, decision checks, packet links, and hosted tours where they exist.",
+            "hero_summary": "This lane should feel like a property dossier desk: fit reasons, decision checks, property pages, and hosted tours where they exist.",
             "hero_actions": hero_actions["research"],
             "hero_highlights": hero_highlights["research"],
             "primary_cards": [
                 {
-                    "eyebrow": "Research packets",
-                    "title": "Open the strongest packets first",
-                    "body": "Hosted packet links and 360 tours stay primary. Raw portal links remain secondary.",
+                    "eyebrow": "Research pages",
+                    "title": "Open the strongest property pages first",
+                    "body": "Hosted property pages and 360 tours stay primary. Raw portal links remain secondary.",
                     "items": research_rows,
                 }
             ],
@@ -6104,17 +6104,17 @@ def property_workspace_payload(
         },
         "alerts": {
             "title": "Alerts",
-            "summary": "Track what has already been delivered and which run events are preparing the next outbound packet.",
+            "summary": "Track what has already been delivered and which run events are preparing the next outbound property page.",
             "hero_kicker": "Alerts",
             "hero_title": "See what has been sent and what is about to leave.",
-            "hero_summary": "Alerts are product output, not hidden queue state. Keep hosted matches, review packets, and run updates visible in one lane.",
+            "hero_summary": "Alerts are product output, not hidden queue state. Keep hosted matches, property pages, and run updates visible in one lane.",
             "hero_actions": hero_actions["alerts"],
             "hero_highlights": hero_highlights["alerts"],
             "primary_cards": [
                 {
                     "eyebrow": "Client alerts",
                     "title": "Recent outbound property follow-ups",
-                    "body": "Hosted pages, review briefs, and run updates that mattered enough to notify the client.",
+                    "body": "Hosted pages, property briefs, and run updates that mattered enough to notify the client.",
                     "items": alerts_rows,
                 }
             ],

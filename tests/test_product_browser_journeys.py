@@ -267,7 +267,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Review the properties that deserve attention now." in shortlist.text
     assert "Altbau near U6" in shortlist.text
     assert "Open property page" in shortlist.text
-    assert "Open source page" in shortlist.text
+    assert "Open listing" in shortlist.text
     assert "Open 360" in shortlist.text
     assert "data-feedback-save" in shortlist.text
 

@@ -679,7 +679,7 @@ def handoff_detail(
                     "Candidate",
                     href=candidate_url,
                     secondary_action_href=candidate_url,
-                    secondary_action_label="Open source" if candidate_url else "",
+                    secondary_action_label="Open listing" if candidate_url else "",
                     secondary_action_method="get" if candidate_url else "",
                 )
             )
@@ -690,7 +690,7 @@ def handoff_detail(
             page_title=f"PropertyQuarry {handoff.summary}",
             current_nav="research",
             console_title=input_json.get("title") or handoff.summary,
-            console_summary="Property review packet with a 360-first read, the strongest fit evidence, and the next useful action.",
+            console_summary="Property page with a 360-first read, the strongest fit evidence, and the next useful action.",
             object_kind="Property review",
             object_title=str(input_json.get("title") or handoff.summary or "Property review"),
             object_summary=f"{_property_fit_label(assessment)} · {str(input_json.get('counterparty') or handoff.owner or 'Property scout').strip()}",
@@ -722,7 +722,7 @@ def handoff_detail(
                     "Listing",
                     href=property_url,
                     secondary_action_href=property_url,
-                    secondary_action_label="Open source" if property_url else "",
+                    secondary_action_label="Open listing" if property_url else "",
                     secondary_action_method="get" if property_url else "",
                 ),
                 _object_detail_row("Recommendation", str(assessment.get("recommendation") or "No recommendation projected.").replace("_", " "), "Decision"),

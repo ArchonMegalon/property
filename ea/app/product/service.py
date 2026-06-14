@@ -1049,7 +1049,7 @@ def _property_enrich_missing_fact_research(
                     "ooda": {
                         "observe": "Room count is missing while floorplan or auction-document evidence exists.",
                         "orient": "The correct next move is detail-document parsing, floorplan OCR, and source-page recheck, not showing a question mark.",
-                        "decide": "Keep the candidate eligible, mark the room count as an active research gap, and surface it in the review packet.",
+                        "decide": "Keep the candidate eligible, mark the room count as an active research gap, and surface it on the property page.",
                         "act": "Queue missing-fact research: inspect downloadable auction/cooperative documents, OCR floorplans, and rerun source extraction.",
                     },
                     "next_actions": [
@@ -9917,7 +9917,7 @@ def _property_decision_copilot_answer(
                     "source": "packet",
                 }
             )
-        actions.append({"label": "Open review packet", "action": "open_packet", "href": compact_text(property_url, fallback="", limit=2000)})
+        actions.append({"label": "Open property page", "action": "open_packet", "href": compact_text(property_url, fallback="", limit=2000)})
     elif mode == "ask_agent":
         primary = agent_questions[:3]
         answer = "The next strongest agent brief is driven by your blockers and the missing facts still open on this property."
@@ -10070,7 +10070,7 @@ def _property_decision_copilot_answer(
             )
 
     if property_url:
-        actions.append({"label": "Open review packet", "action": "open_packet", "href": property_url, "detail": "Review the packet or continue the decision flow."})
+        actions.append({"label": "Open property page", "action": "open_packet", "href": property_url, "detail": "Open the property page or continue the decision flow."})
     deduped_actions: list[dict[str, str]] = []
     seen_actions: set[tuple[str, str, str]] = set()
     for row in actions:
@@ -23685,7 +23685,7 @@ class ProductService:
                 action_key="publish_property_flipbook",
                 reason=(
                     "Signal references a property review workflow that can benefit from a redacted, shareable "
-                    "FlipLink review packet after PropertyQuarry has built the source dossier."
+                    "FlipLink property page after PropertyQuarry has built the source dossier."
                 ),
                 score=78 if property_url else 68,
                 context_json={
@@ -30392,7 +30392,7 @@ class ProductService:
                 )
                 _report(
                     step="source_review_packet",
-                    message=f"Prepared review packet for {title[:72]}.",
+                    message=f"Prepared property page for {title[:72]}.",
                     status="in_progress",
                     steps_delta=1,
                 )

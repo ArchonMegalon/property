@@ -201,17 +201,17 @@ def app_channel_action(
             current_nav="sign-in",
             link_kicker="Action unavailable",
             link_title="This action link is no longer valid.",
-            link_summary="Use another secure workspace path to review the item directly or request a fresh sign-in link.",
+            link_summary="Use another secure account path to review the item directly or request a fresh sign-in link.",
             link_detail_title="What happened",
             link_status_label="Link unavailable",
             link_rows=[
                 {"label": "Action state", "value": "Expired or already used", "detail": "Secure action links are time-bound and rotate after use."},
-                {"label": "Next step", "value": "Open the workspace directly", "detail": "Use a current session, sign-in link, invite, or SSO to reach the same review surface."},
+                {"label": "Next step", "value": "Open the account directly", "detail": "Use a current session, sign-in link, invite, or SSO to reach the same property page."},
             ],
             primary_action_href="/sign-in",
             primary_action_label="Request new sign-in link",
             secondary_action_href="/register",
-            secondary_action_label="Create personal workspace",
+            secondary_action_label="Create personal account",
             status_code=404,
         )
     workspace_session = _workspace_session_payload(request, container)
@@ -241,17 +241,17 @@ def app_channel_action(
             current_nav="sign-in",
             link_kicker="Action unavailable",
             link_title="This action link is no longer valid.",
-            link_summary="Use another secure workspace path to review the item directly or request a fresh sign-in link.",
+            link_summary="Use another secure account path to review the item directly or request a fresh sign-in link.",
             link_detail_title="What happened",
             link_status_label="Link unavailable",
             link_rows=[
                 {"label": "Action state", "value": "Expired or already used", "detail": "Secure action links are time-bound and rotate after use."},
-                {"label": "Next step", "value": "Open the workspace directly", "detail": "Use a current session, sign-in link, invite, or SSO to reach the same review surface."},
+                {"label": "Next step", "value": "Open the account directly", "detail": "Use a current session, sign-in link, invite, or SSO to reach the same property page."},
             ],
             primary_action_href="/sign-in",
             primary_action_label="Request new sign-in link",
             secondary_action_href="/register",
-            secondary_action_label="Create personal workspace",
+            secondary_action_label="Create personal account",
             status_code=404,
         )
     return_to = _normalize_browser_return_to(str(resolved.get("return_to") or "").strip(), default="/sign-in")
