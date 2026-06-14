@@ -293,7 +293,7 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
             interactive_shapes.append(
                 f'<path class="pqx-previous-district-hotspot{" is-selected" if selected else ""}" d="{path}" '
                 f'data-label="{html.escape(label)}" data-pqx-scope-open data-pqx-scope-title="{html.escape(label)}" '
-                f'cx="{centroid_x:.2f}" cy="{centroid_y:.2f}" />'
+                f'cx="{centroid_x:.2f}" cy="{centroid_y:.2f}"><title>{html.escape(label)}</title></path>'
             )
             district_rows.append(
                 {
@@ -777,16 +777,13 @@ def _property_progress_route_preview_rows(
 def _property_candidate_preview_image(candidate: dict[str, object]) -> str:
     facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
     for key in (
-        "diorama_image_url",
-        "diorama_preview_url",
-        "telegram_preview_url",
         "preview_image_url",
         "thumbnail_url",
         "image_url",
         "hero_image_url",
     ):
         value = str(candidate.get(key) or facts.get(key) or "").strip()
-        if value.startswith(("https://", "/")):
+        if value.startswith(("https://", "/")) and "diorama-preview" not in value and "telegram-preview" not in value:
             return value
     for key in ("media_urls_json", "photo_urls_json", "image_urls_json"):
         values = facts.get(key) or candidate.get(key)
@@ -836,6 +833,80 @@ def _property_candidate_orientation_preview(candidate: dict[str, object]) -> dic
         "title": label,
         "caption": "Open a larger map preview",
         "map_url": map_url,
+    }
+
+
+def _first_fact_text(facts: dict[str, object], *keys: str) -> str:
+    for key in keys:
+        value = facts.get(key)
+        if value in (None, "", []):
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
+def _bool_fact_text(facts: dict[str, object], *keys: str, label: str) -> str:
+    for key in keys:
+        value = facts.get(key)
+        if isinstance(value, bool):
+            return label if value else ""
+        text = str(value).strip().lower()
+        if text in {"1", "true", "yes", "ja", "available", "present"}:
+            return label
+    return ""
+
+
+def _candidate_detail_sections(facts: dict[str, object]) -> dict[str, object]:
+    object_rows = [
+        ("Type", _first_fact_text(facts, "object_type", "property_type", "asset_type")),
+        ("Building", _first_fact_text(facts, "building_type", "bautyp")),
+        ("Condition", _first_fact_text(facts, "condition", "zustand")),
+        ("Living area", _first_fact_text(facts, "area_display", "area_label") or (f"{facts.get('area_m2') or facts.get('area_sqm')} m2" if (facts.get("area_m2") or facts.get("area_sqm")) else "")),
+        ("Rooms", _first_fact_text(facts, "rooms_display") or str(facts.get("rooms") or "").strip()),
+        ("Floor", _first_fact_text(facts, "floor", "floor_label", "stockwerk")),
+        ("Available", _first_fact_text(facts, "available_from", "available", "verfuegbar", "verfügbar")),
+        ("Term", _first_fact_text(facts, "lease_term", "befristung")),
+        ("Heating", _first_fact_text(facts, "heating", "heating_type")),
+    ]
+    cost_rows = [
+        ("Rent / price", _first_fact_text(facts, "price_display", "rent_display")),
+        ("Operating costs", _first_fact_text(facts, "operating_costs_display", "operating_costs_monthly_display")),
+        ("Additional costs", _first_fact_text(facts, "additional_costs_display", "side_costs_display", "service_charges_display")),
+        ("Deposit", _first_fact_text(facts, "deposit_display", "kaution_display")),
+        ("Commission", _first_fact_text(facts, "commission_display", "maklerprovision_display")),
+    ]
+    feature_values = [
+        _bool_fact_text(facts, "has_fitted_kitchen", "kitchen", label="Kitchen"),
+        _bool_fact_text(facts, "has_cellar", "cellar", "keller", label="Cellar"),
+        _bool_fact_text(facts, "has_garage", "garage", label="Garage"),
+        _bool_fact_text(facts, "barrier_free", "accessible", label="Barrier-free"),
+        _bool_fact_text(facts, "furnished", "has_furniture", label="Furnished"),
+        _bool_fact_text(facts, "has_lift", "lift", "elevator", label="Lift"),
+        _bool_fact_text(facts, "has_parking", "parking", label="Parking"),
+        _bool_fact_text(facts, "has_storage_room", "storage_room", "abstellraum", label="Storage room"),
+        _bool_fact_text(facts, "has_balcony", "balcony", label="Balcony"),
+        _bool_fact_text(facts, "has_terrace", "terrace", label="Terrace"),
+        _bool_fact_text(facts, "has_garden", "garden", label="Garden"),
+        _bool_fact_text(facts, "has_loggia", "loggia", label="Loggia"),
+    ]
+    description_text = _first_fact_text(facts, "description", "object_description", "listing_description", "summary")
+    location_text = _first_fact_text(facts, "location_description", "lage", "neighborhood_description", "micro_location_summary")
+    energy_rows = [
+        ("HWB", _first_fact_text(facts, "hwb", "hwb_kwh_m2_year")),
+        ("HWB class", _first_fact_text(facts, "hwb_class", "hwb_energieklasse")),
+        ("fGEE", _first_fact_text(facts, "f_gee", "fgee")),
+        ("fGEE class", _first_fact_text(facts, "f_gee_class", "fgee_energieklasse")),
+        ("Heating", _first_fact_text(facts, "heating", "heating_type")),
+    ]
+    return {
+        "object_rows": [{"label": label, "value": value} for label, value in object_rows if str(value or "").strip()],
+        "cost_rows": [{"label": label, "value": value} for label, value in cost_rows if str(value or "").strip()],
+        "feature_values": [value for value in feature_values if value],
+        "description_text": description_text,
+        "location_text": location_text,
+        "energy_rows": [{"label": label, "value": value} for label, value in energy_rows if str(value or "").strip()],
     }
 
 
@@ -5181,6 +5252,7 @@ def property_workspace_payload(
         match_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("match_reasons") or []) if _clean_property_candidate_copy(item)]
         mismatch_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("mismatch_reasons") or []) if _clean_property_candidate_copy(item)]
         provider_quality = dict(candidate.get("provider_quality") or {}) if isinstance(candidate.get("provider_quality"), dict) else {}
+        detail_sections = _candidate_detail_sections(facts)
         provider_quality_line = " · ".join(
             part
             for part in (
@@ -5271,6 +5343,12 @@ def property_workspace_payload(
                     if isinstance(facts.get("official_risk_evidence"), dict)
                     else {}
                 ),
+                "object_rows": detail_sections["object_rows"],
+                "cost_rows": detail_sections["cost_rows"],
+                "feature_values": detail_sections["feature_values"],
+                "description_text": detail_sections["description_text"],
+                "location_text": detail_sections["location_text"],
+                "energy_rows": detail_sections["energy_rows"],
                 "household_alignment_score": int(dict(candidate.get("feedback_summary") or {}).get("household_alignment_score") or 0) if isinstance(candidate.get("feedback_summary"), dict) else 0,
                 "household_alignment_label": str(dict(candidate.get("feedback_summary") or {}).get("family_alignment") or "waiting") if isinstance(candidate.get("feedback_summary"), dict) else "waiting",
             }

@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from app.api.routes import landing as landing_routes
+from app.api.routes import landing_view_models
 from app.product.models import HandoffNote
 from app.product.service import ProductService, _property_search_analysis_cap_per_source
 from tests.product_test_helpers import build_property_client, start_workspace
@@ -43,6 +44,19 @@ def test_propertyquarry_object_detail_template_exposes_opt_in_magic_fit_panel() 
     assert "Upload reference photos" in body
     assert "Use Google Photos Picker" in body
     assert "Attach the generated still to the packet PDF dossier" in body
+
+
+def test_propertyquarry_results_prefer_real_media_over_generated_diorama_previews() -> None:
+    candidate = {
+        "preview_image_url": "https://propertyquarry.com/tours/files/demo-tour/diorama-preview.png",
+        "property_facts": {
+            "media_urls_json": [
+                "https://cdn.example.com/provider/photo-1.jpg",
+                "https://cdn.example.com/provider/photo-2.jpg",
+            ]
+        },
+    }
+    assert landing_view_models._property_candidate_preview_image(candidate) == "https://cdn.example.com/provider/photo-1.jpg"
 
 
 def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch) -> None:
@@ -480,7 +494,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Match" in search.text
     assert "EUR 420,000" in search.text
     assert "Layout" in search.text
-    assert "Quick read" in search.text
+    assert "Overview" in search.text
     assert "Playground" in search.text
     assert "Supermarket" in search.text
     assert "Starbucks" in search.text
@@ -489,15 +503,16 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Bouldering" in search.text
     assert "SchoolAtlas" in search.text
     assert "Gymnasium path" in search.text
-    assert "Why it fits" in search.text
-    assert "What to check" in search.text
+    assert "Property details" in search.text
+    assert "Costs" in search.text
+    assert "Why it surfaced" in search.text
+    assert "Still unclear" in search.text
     assert "Official checks" in search.text
     assert "Manual clearance required" in search.text
-    assert "How this result was prepared" in search.text
     assert 'data-pw-artifact-receipts' in search.text
-    assert "Send checklist" in search.text
+    assert "Share checklist" in search.text
     assert "Artifact receipts" not in search.text
-    assert "What must be true before a packet is sent" in search.text
+    assert "What must be true before a share page is sent" in search.text
     assert "Fallback cube viewers are forbidden" in search.text
     assert "Every outbound link must be sent as a titled hyperlink" in search.text
     assert "Would you pursue this property?" in search.text
@@ -508,7 +523,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Save decision" in search.text
     assert "Ask a question" in search.text
     assert "Household review" in search.text
-    assert "Agent follow-up" in search.text
+    assert "Open questions" in search.text
     assert "Contradicted" in search.text
     assert "Resolved" in search.text
     assert "What changed" in search.text
@@ -516,7 +531,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Market warnings" in search.text
     assert "Timeline" in search.text
     assert "Source quality" in search.text
-    assert "Delivery status" in search.text
+    assert "Behind the scenes" in search.text
     assert "Delivery proof" not in search.text
     assert "Writing quality check" in search.text
     assert "Message links" in search.text
