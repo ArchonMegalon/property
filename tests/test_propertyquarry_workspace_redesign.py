@@ -743,8 +743,10 @@ def test_property_workbench_previous_search_cards_have_explicit_overflow_gate() 
     assert 'data-pqx-previous-search-card' in body
     assert 'data-pqx-scope-preview' in body
     assert 'class="pqx-previous-scope-image"' in body
+    assert 'class="pqx-previous-scope-trigger"' in body
     assert 'class="pqx-previous-title"' in body
     assert 'class="pqx-previous-actions"' in body
+    assert 'data-pqx-scope-lightbox' in body
     assert ".pqx-previous-title" in body
     assert "-webkit-line-clamp: 1;" in body
     assert ".pqx-previous-scope-preview" in body
@@ -1298,10 +1300,9 @@ def test_property_finished_search_results_start_with_compact_compare_strip() -> 
     body = template_path.read_text(encoding="utf-8")
 
     assert "data-pqx-finished-compare" in body
-    assert "Compare this search" in body
+    assert "Best homes first" in body
     assert "pqx-compare-card" in body
-    assert "Ranked from best fit to weakest fit" in body
-    assert "Open the details only after the top options are clear." in body
+    assert "Ranked from strongest fit to weakest fit in this run." in body
 
 
 def test_property_decision_save_uses_canonical_endpoint_and_renders_consequences() -> None:

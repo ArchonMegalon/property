@@ -759,6 +759,15 @@
       display: grid;
       gap: 4px;
     }
+    .pqx-previous-scope-trigger {
+      display: block;
+      width: 100%;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      cursor: zoom-in;
+    }
     .pqx-previous-scope-image {
       display: block;
       width: 100%;
@@ -767,6 +776,39 @@
       border-radius: 8px;
       border: 1px solid var(--pq-line);
       background: var(--pq-panel);
+    }
+    .pqx-previous-scope-hover {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      gap: 6px;
+      padding: 6px;
+      border: 1px solid rgba(33, 41, 56, 0.16);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.98);
+      box-shadow: 0 18px 44px rgba(28, 40, 58, 0.18);
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(1.45);
+      transform-origin: top center;
+      transition: opacity 140ms ease, transform 140ms ease;
+      z-index: 12;
+    }
+    .pqx-previous-scope-hover img {
+      width: 100%;
+      display: block;
+      aspect-ratio: 16 / 9;
+      object-fit: cover;
+      border-radius: 10px;
+      border: 1px solid var(--pq-line);
+      background: var(--pq-panel);
+    }
+    .pqx-previous-scope-trigger:hover + .pqx-previous-scope-hover,
+    .pqx-previous-scope-trigger:focus-visible + .pqx-previous-scope-hover,
+    .pqx-previous-scope-hover:hover {
+      opacity: 1;
+      transform: scale(1.62);
+      pointer-events: none;
     }
     .pqx-previous-scope-caption {
       display: flex;
@@ -860,6 +902,60 @@
       background: var(--pq-paper);
       box-shadow: var(--pq-shadow);
     }
+    .pqx-scope-lightbox {
+      width: min(900px, calc(100vw - 32px));
+      max-width: 900px;
+      padding: 0;
+      border: 0;
+      border-radius: 16px;
+      background: transparent;
+      box-shadow: none;
+    }
+    .pqx-scope-lightbox::backdrop {
+      background: rgba(18, 24, 34, 0.72);
+      backdrop-filter: blur(3px);
+    }
+    .pqx-scope-lightbox-card {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 16px;
+      background: var(--pq-paper);
+      box-shadow: 0 24px 56px rgba(16, 24, 38, 0.28);
+    }
+    .pqx-scope-lightbox-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .pqx-scope-lightbox-head strong,
+    .pqx-scope-lightbox-head span {
+      min-width: 0;
+    }
+    .pqx-scope-lightbox-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 36px;
+      min-height: 36px;
+      padding: 0;
+      border-radius: 999px;
+      border: 1px solid var(--pq-line);
+      background: var(--pq-panel);
+      color: var(--pq-ink);
+      font-size: 18px;
+      cursor: pointer;
+    }
+    .pqx-scope-lightbox-image {
+      width: 100%;
+      display: block;
+      aspect-ratio: 16 / 10;
+      object-fit: cover;
+      border-radius: 12px;
+      border: 1px solid var(--pq-line);
+      background: var(--pq-panel);
+    }
     .pqx-compare-strip {
       display: grid;
       gap: 10px;
@@ -919,6 +1015,27 @@
       color: var(--pq-muted);
       font-size: 12px;
       line-height: 1.3;
+    }
+    .pqx-inline-map-preview {
+      position: relative;
+      display: grid;
+      gap: 4px;
+      width: min(100%, 156px);
+    }
+    .pqx-inline-map-preview .pqx-previous-scope-image {
+      aspect-ratio: 16 / 10;
+      border-radius: 7px;
+    }
+    .pqx-inline-map-preview .pqx-previous-scope-hover {
+      transform-origin: top left;
+    }
+    .pqx-inline-map-preview .pqx-previous-scope-trigger:hover + .pqx-previous-scope-hover,
+    .pqx-inline-map-preview .pqx-previous-scope-trigger:focus-visible + .pqx-previous-scope-hover,
+    .pqx-inline-map-preview .pqx-previous-scope-hover:hover {
+      transform: scale(1.56);
+    }
+    .pqx-inline-map-preview .pqx-previous-scope-caption {
+      justify-content: flex-start;
     }
     .pqx-compare-facts {
       display: flex;
@@ -2584,6 +2701,12 @@
       display: grid;
       gap: 8px;
     }
+    .pqx-result-topline {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
     .pqx-result-summary {
       display: grid;
       gap: 3px;
@@ -2632,6 +2755,21 @@
       color: var(--pq-muted);
       font-size: 12px;
       font-weight: 720;
+    }
+    .pqx-result-open {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 30px;
+      padding: 0 10px;
+      border: 1px solid var(--pq-line);
+      border-radius: 999px;
+      background: var(--pq-panel);
+      color: var(--pq-ink);
+      font-size: 12px;
+      font-weight: 760;
+      text-decoration: none;
+      white-space: nowrap;
     }
     .pqx-rank {
       width: 38px;
@@ -2751,6 +2889,9 @@
       }
     }
     @media (max-width: 760px) {
+      .pqx-previous-scope-hover {
+        display: none;
+      }
       .pqx-source-metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
@@ -3050,13 +3191,27 @@
               {% set scope_preview = previous.get('scope_preview') or {} %}
               <div class="pqx-previous-scope-preview">
                 {% if scope_preview.get('image_url') %}
-                <img
-                  class="pqx-previous-scope-image"
-                  data-pqx-scope-preview
-                  src="{{ scope_preview.get('image_url') }}"
-                  alt="{{ scope_preview.get('alt') or 'Search area preview' }}"
-                  loading="lazy"
+                <button
+                  class="pqx-previous-scope-trigger"
+                  type="button"
+                  data-pqx-scope-open
+                  data-pqx-scope-image="{{ scope_preview.get('image_url') }}"
+                  data-pqx-scope-alt="{{ scope_preview.get('alt') or 'Search area preview' }}"
+                  data-pqx-scope-title="{{ previous.get('title') or 'Search' }}"
+                  data-pqx-scope-caption="{{ previous.get('scope_summary') or previous.get('scope_label') }}"
                 >
+                  <img
+                    class="pqx-previous-scope-image"
+                    data-pqx-scope-preview
+                    src="{{ scope_preview.get('image_url') }}"
+                    alt="{{ scope_preview.get('alt') or 'Search area preview' }}"
+                    loading="lazy"
+                  >
+                </button>
+                <div class="pqx-previous-scope-hover" aria-hidden="true">
+                  <img src="{{ scope_preview.get('image_url') }}" alt="{{ scope_preview.get('alt') or 'Search area preview' }}" loading="lazy">
+                  <span class="pqx-note">{{ previous.get('scope_summary') or previous.get('scope_label') }}</span>
+                </div>
                 {% endif %}
                 <div class="pqx-previous-scope-caption">
                   <span class="pqx-note">{{ previous.get('scope_summary') or previous.get('scope_label') }}</span>
@@ -3091,6 +3246,18 @@
             </div>
             {% endfor %}
           </div>
+          <dialog class="pqx-scope-lightbox" data-pqx-scope-lightbox>
+            <div class="pqx-scope-lightbox-card">
+              <div class="pqx-scope-lightbox-head">
+                <div>
+                  <strong data-pqx-scope-lightbox-title>Search area preview</strong>
+                  <span class="pqx-note" data-pqx-scope-lightbox-caption></span>
+                </div>
+                <button class="pqx-scope-lightbox-close" type="button" data-pqx-scope-lightbox-close aria-label="Close preview">×</button>
+              </div>
+              <img class="pqx-scope-lightbox-image" data-pqx-scope-lightbox-image src="" alt="">
+            </div>
+          </dialog>
           {% if recent_packets and surface_mode != 'search' %}
           <div class="pqx-brief-stack">
             <strong>Recent decisions and reviews</strong>
@@ -3782,8 +3949,8 @@
         <section class="pqx-finished-compare" data-pqx-finished-compare>
           <div class="pqx-section-head">
             <div>
-              <h2>Compare this search</h2>
-              <div class="pqx-note">Ranked from best fit to weakest fit in this finished run. Open the details only after the top options are clear.</div>
+              <h2>Best homes first</h2>
+              <div class="pqx-note">Ranked from strongest fit to weakest fit in this run.</div>
             </div>
             <span class="pqx-pill good">{{ results|length }} ranked</span>
           </div>
@@ -3801,17 +3968,35 @@
                   <h3>{{ candidate.get('title') or 'Property' }}</h3>
                   <div class="pqx-compare-subline">{{ candidate.get('location_label') or 'Location pending' }}</div>
                 </div>
+                {% if candidate.get('orientation_preview', {}).get('image_url') %}
+                <div class="pqx-inline-map-preview">
+                  <button
+                    class="pqx-previous-scope-trigger"
+                    type="button"
+                    data-pqx-scope-open
+                    data-pqx-scope-image="{{ candidate.get('orientation_preview', {}).get('image_url') }}"
+                    data-pqx-scope-alt="{{ candidate.get('orientation_preview', {}).get('alt') }}"
+                    data-pqx-scope-title="{{ candidate.get('orientation_preview', {}).get('title') }}"
+                    data-pqx-scope-caption="{{ candidate.get('orientation_preview', {}).get('caption') }}"
+                  >
+                    <img class="pqx-previous-scope-image" src="{{ candidate.get('orientation_preview', {}).get('image_url') }}" alt="{{ candidate.get('orientation_preview', {}).get('alt') or '' }}">
+                  </button>
+                  <div class="pqx-previous-scope-hover" aria-hidden="true">
+                    <img src="{{ candidate.get('orientation_preview', {}).get('image_url') }}" alt="">
+                  </div>
+                </div>
+                {% endif %}
                 <div class="pqx-compare-facts">
                   <span>{{ candidate.get('layout_display') or 'Layout pending' }}</span>
                   {% if candidate.get('price_per_sqm_display') %}<span>{{ candidate.get('price_per_sqm_display') }}</span>{% endif %}
-                  <span>{{ candidate.get('fit_label') or 'Candidate' }}</span>
+                  <span>Fit {{ candidate.get('fit_score') or 0 }}/100</span>
                 </div>
                 <p class="pqx-note">{{ candidate.get('ooda', {}).get('summary') or candidate.get('fit_summary') or 'Open the review details for the decision read.' }}</p>
               </div>
               <div class="pqx-compare-aside">
                 <div class="pqx-compare-price">
                   <strong>{{ candidate.get('price_display') or 'n/a' }}</strong>
-                  <span>{{ candidate.get('tour', {}).get('label') or candidate.get('layout_verification_label') or 'Review' }}</span>
+                  <span>{{ candidate.get('costs_display') or candidate.get('layout_verification_label') or 'Costs open' }}</span>
                 </div>
                 <div class="pqx-actions">
                   {% if candidate.get('packet_url') %}<a class="pqx-link-button primary" href="{{ candidate.get('packet_url') }}">Review</a>{% endif %}
@@ -4100,7 +4285,7 @@
           </details>
           <div class="pqx-results-list" data-workbench-results-table>
             {% for candidate in results %}
-            <button class="pqx-result" type="button" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
+            <article class="pqx-result pqx-card" role="button" tabindex="0" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
               <span class="pqx-result-main">
                 <span class="pqx-result-media">
                   <span class="pqx-thumb">
@@ -4116,10 +4301,33 @@
                     <span class="pqx-meta">{{ candidate.get('source_label') }}{% if candidate.get('location_label') %} · {{ candidate.get('location_label') }}{% endif %}</span>
                   </span>
                 </span>
+                <span class="pqx-result-topline">
+                  {% if candidate.get('orientation_preview', {}).get('image_url') %}
+                  <span class="pqx-inline-map-preview">
+                    <button
+                      class="pqx-previous-scope-trigger"
+                      type="button"
+                      data-pqx-scope-open
+                      data-pqx-scope-image="{{ candidate.get('orientation_preview', {}).get('image_url') }}"
+                      data-pqx-scope-alt="{{ candidate.get('orientation_preview', {}).get('alt') }}"
+                      data-pqx-scope-title="{{ candidate.get('orientation_preview', {}).get('title') }}"
+                      data-pqx-scope-caption="{{ candidate.get('orientation_preview', {}).get('caption') }}"
+                    >
+                      <img class="pqx-previous-scope-image" src="{{ candidate.get('orientation_preview', {}).get('image_url') }}" alt="{{ candidate.get('orientation_preview', {}).get('alt') or '' }}">
+                    </button>
+                    <div class="pqx-previous-scope-hover" aria-hidden="true">
+                      <img src="{{ candidate.get('orientation_preview', {}).get('image_url') }}" alt="">
+                    </div>
+                  </span>
+                  {% endif %}
+                  {% if candidate.get('packet_url') %}
+                  <a class="pqx-result-open" href="{{ candidate.get('packet_url') }}">Open review</a>
+                  {% endif %}
+                </span>
                 <span class="pqx-result-facts">
                   {% if candidate.get('layout_display') %}<span class="pqx-result-fact">{{ candidate.get('layout_display') }}</span>{% endif %}
-                  {% if candidate.get('location_label') %}<span class="pqx-result-fact">{{ candidate.get('location_label') }}</span>{% endif %}
                   <span class="pqx-result-fact">Fit {{ candidate.get('fit_score') or 0 }}/100</span>
+                  <span class="pqx-result-fact">Layout {{ candidate.get('layout_verification_label') or 'needs check' }}</span>
                   <span class="pqx-result-fact">{{ candidate.get('tour', {}).get('label') or '360 pending' }}</span>
                 </span>
                 {% if candidate.get('provider_quality_line') %}<span class="pqx-small">{{ candidate.get('provider_quality_line') }}</span>{% endif %}
@@ -4129,15 +4337,15 @@
                   <span class="pqx-trust-chip">Layout {{ candidate.get('layout_verification_label') or 'needs check' }}</span>
                   <span class="pqx-trust-chip">Tour {{ candidate.get('tour', {}).get('status') or 'not ready' }}</span>
                 </span>
-                <span class="pqx-result-action">Review this home</span>
+                <span class="pqx-result-action">Select to inspect on the right</span>
               </span>
               <span class="pqx-result-aside">
                 <span class="pqx-pill{% if candidate.get('tour', {}).get('status') == 'ready' %} good{% else %} warn{% endif %}">{{ candidate.get('tour', {}).get('label') }}</span>
                 <strong class="pqx-result-price">{{ candidate.get('price_display') or 'n/a' }}</strong>
-                <span class="pqx-result-secondary">{{ candidate.get('layout_display') or 'Layout pending' }}</span>
+                <span class="pqx-result-secondary">{{ candidate.get('costs_display') or 'Costs open' }}</span>
                 {% if candidate.get('tour', {}).get('eta_label') %}<span class="pqx-small">{{ candidate.get('tour', {}).get('eta_label') }}</span>{% endif %}
               </span>
-            </button>
+            </article>
             {% endfor %}
           </div>
         </section>
@@ -4969,7 +5177,17 @@
       }
     };
     root.querySelectorAll('[data-workbench-row]').forEach((row) => {
-      row.addEventListener('click', () => {
+      row.addEventListener('click', (event) => {
+        const interactiveTarget = event.target?.closest?.('a, button, [data-pqx-scope-open]');
+        if (interactiveTarget && interactiveTarget !== row) return;
+        selectCandidate(row.getAttribute('data-candidate-ref'));
+        setMode('property');
+      });
+      row.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const interactiveTarget = event.target?.closest?.('a, button, [data-pqx-scope-open]');
+        if (interactiveTarget && interactiveTarget !== row) return;
+        event.preventDefault();
         selectCandidate(row.getAttribute('data-candidate-ref'));
         setMode('property');
       });
@@ -6898,6 +7116,33 @@
           if (status) status.textContent = err instanceof Error ? err.message : 'Could not delete the previous search.';
         }
       });
+    });
+    const scopeLightbox = root.querySelector('[data-pqx-scope-lightbox]');
+    const scopeLightboxImage = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-image]');
+    const scopeLightboxTitle = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-title]');
+    const scopeLightboxCaption = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-caption]');
+    const closeScopeLightbox = () => {
+      if (scopeLightbox && typeof scopeLightbox.close === 'function' && scopeLightbox.open) scopeLightbox.close();
+    };
+    scopeLightbox?.querySelector('[data-pqx-scope-lightbox-close]')?.addEventListener('click', closeScopeLightbox);
+    scopeLightbox?.addEventListener('click', (event) => {
+      if (event.target === scopeLightbox) closeScopeLightbox();
+    });
+    root.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('[data-pqx-scope-open]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const imageUrl = String(button.getAttribute('data-pqx-scope-image') || '').trim();
+      if (!scopeLightbox || !scopeLightboxImage || !imageUrl) return;
+      const alt = String(button.getAttribute('data-pqx-scope-alt') || 'Search area preview').trim() || 'Search area preview';
+      const title = String(button.getAttribute('data-pqx-scope-title') || 'Search area preview').trim() || 'Search area preview';
+      const caption = String(button.getAttribute('data-pqx-scope-caption') || '').trim();
+      scopeLightboxImage.setAttribute('src', imageUrl);
+      scopeLightboxImage.setAttribute('alt', alt);
+      if (scopeLightboxTitle) scopeLightboxTitle.textContent = title;
+      if (scopeLightboxCaption) scopeLightboxCaption.textContent = caption;
+      if (typeof scopeLightbox.showModal === 'function') scopeLightbox.showModal();
     });
     root.querySelectorAll('[data-pqx-counterfactual]').forEach((button) => {
       button.addEventListener('click', async () => {

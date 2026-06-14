@@ -880,7 +880,7 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
     try:
         response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.get_by_role("heading", name="Compare this search").first.is_visible()
+        assert page.get_by_role("heading", name="Best homes first").first.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         packet_href = page.locator('a[href*="/app/research/"]').first.get_attribute("href")
@@ -1128,7 +1128,20 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
                 </svg>`);
               card.innerHTML = `
                 <div class="pqx-previous-scope-preview">
-                  <img class="pqx-previous-scope-image" data-pqx-scope-preview src="data:image/svg+xml;utf8,${scopeSvg}" alt="Search area preview for 1020 Vienna">
+                  <button
+                    class="pqx-previous-scope-trigger"
+                    type="button"
+                    data-pqx-scope-open
+                    data-pqx-scope-image="data:image/svg+xml;utf8,${scopeSvg}"
+                    data-pqx-scope-alt="Search area preview for 1020 Vienna"
+                    data-pqx-scope-title="${longTitle}"
+                    data-pqx-scope-caption="1020 Vienna, 1030 Vienna">
+                    <img class="pqx-previous-scope-image" data-pqx-scope-preview src="data:image/svg+xml;utf8,${scopeSvg}" alt="Search area preview for 1020 Vienna">
+                  </button>
+                  <div class="pqx-previous-scope-hover" aria-hidden="true">
+                    <img src="data:image/svg+xml;utf8,${scopeSvg}" alt="Search area preview for 1020 Vienna">
+                    <span class="pqx-note">1020 Vienna, 1030 Vienna</span>
+                  </div>
                   <div class="pqx-previous-scope-caption">
                     <span class="pqx-note">1020 Vienna, 1030 Vienna</span>
                     <span class="pqx-previous-scope-chip">2 areas</span>
@@ -1171,7 +1184,11 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
                 .map((node) => node.querySelector('strong'))
                 .filter(Boolean)
                 .filter((node) => node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1);
-              const previousCardHorizontalOverflow = previousCards.filter((node) => node.scrollWidth > node.clientWidth + 1);
+              const previousCardHorizontalOverflow = previousCards.filter((node) => {
+                const hoveredOverlay = node.querySelector('.pqx-previous-scope-hover');
+                const visibleWidth = hoveredOverlay ? hoveredOverlay.getBoundingClientRect().width : 0;
+                return node.scrollWidth > node.clientWidth + Math.max(1, visibleWidth);
+              });
               const previewFailures = previews.filter((node) => !(node.complete && node.naturalWidth > 0 && node.clientHeight > 0));
               const previousTitleVisibleOverflow = previousCards
                 .flatMap((card) => {
@@ -1223,6 +1240,24 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
         assert layout["previousPreviewPlacementFailureCount"] == 0
         assert {"Saved searches", "Start"}.issubset(set(layout["visibleRowLabels"]))
         assert len([value for value in layout["visibleRowValues"] if value]) >= 2
+        page.locator('[data-pqx-scope-open]').first.click()
+        page.locator('[data-pqx-scope-lightbox]').wait_for(state="visible")
+        lightbox_state = page.evaluate(
+            """
+            () => {
+              const dialog = document.querySelector('[data-pqx-scope-lightbox]');
+              const image = dialog?.querySelector('[data-pqx-scope-lightbox-image]');
+              return {
+                open: Boolean(dialog && dialog.open),
+                width: image?.naturalWidth || 0,
+                src: image?.getAttribute('src') || '',
+              };
+            }
+            """
+        )
+        assert lightbox_state["open"] is True
+        assert lightbox_state["width"] > 0
+        assert lightbox_state["src"].startswith("data:image/svg+xml")
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
     finally:
         context.close()

@@ -573,6 +573,47 @@ def _property_candidate_preview_image(candidate: dict[str, object]) -> str:
     return ""
 
 
+def _property_candidate_orientation_preview(candidate: dict[str, object]) -> dict[str, str]:
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    label = str(facts.get("postal_name") or facts.get("city") or facts.get("address") or "Wider area").strip() or "Wider area"
+    try:
+        lat = float(facts.get("map_lat") or facts.get("lat") or 0.0)
+    except Exception:
+        lat = 0.0
+    try:
+        lng = float(facts.get("map_lng") or facts.get("lng") or 0.0)
+    except Exception:
+        lng = 0.0
+    if lat or lng:
+        pin_x = 24.0 + abs(lng % 1.0) * 72.0
+        pin_y = 24.0 + (1.0 - abs(lat % 1.0)) * 48.0
+    else:
+        digest = hashlib.sha1(label.lower().encode("utf-8")).digest()
+        pin_x = 28.0 + (digest[0] / 255.0) * 64.0
+        pin_y = 24.0 + (digest[1] / 255.0) * 48.0
+    pin_x = max(18.0, min(102.0, pin_x))
+    pin_y = max(16.0, min(76.0, pin_y))
+    map_url = str(candidate.get("map_url") or "").strip() or _property_candidate_maps_url(candidate)
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 92" role="img" aria-label="Wider area map preview">'
+        '<rect width="120" height="92" rx="12" fill="#f6f1e6"/>'
+        '<path d="M8 68 C28 54, 43 56, 59 48 S90 34, 112 18" fill="none" stroke="#d7cfbf" stroke-width="8" stroke-linecap="round"/>'
+        '<path d="M14 24 C36 30, 58 20, 78 28 S102 38, 112 30" fill="none" stroke="#e4ddcf" stroke-width="5" stroke-linecap="round"/>'
+        '<path d="M18 82 C38 76, 52 78, 68 68 S95 60, 108 66" fill="none" stroke="#ddd4c5" stroke-width="6" stroke-linecap="round"/>'
+        f'<circle cx="{pin_x:.1f}" cy="{pin_y:.1f}" r="13" fill="#d34b4b" fill-opacity="0.18" />'
+        f'<path d="M{pin_x:.1f} {pin_y - 12:.1f}c-5.8 0-10.5 4.7-10.5 10.5 0 7.8 10.5 19.1 10.5 19.1s10.5-11.3 10.5-19.1c0-5.8-4.7-10.5-10.5-10.5z" fill="#d34b4b"/>'
+        f'<circle cx="{pin_x:.1f}" cy="{pin_y - 1.8:.1f}" r="4.2" fill="#fff7ee"/>'
+        "</svg>"
+    )
+    return {
+        "image_url": f"data:image/svg+xml;utf8,{urllib.parse.quote(svg, safe='/:;,+-=()%')}",
+        "alt": f"Wider area around {label}",
+        "title": label,
+        "caption": "Open a larger map preview",
+        "map_url": map_url,
+    }
+
+
 def _group_property_provider_options(options: list[dict[str, object]]) -> list[dict[str, object]]:
     family_order = {
         "marketplace": 0,
@@ -4772,6 +4813,88 @@ def property_workspace_payload(
             return {"status": "blocked", "label": "360 unavailable", "url": "", "embed_url": "", "eta_label": _tour_source_gap_detail(candidate)}
         return {"status": "missing", "label": "360 unavailable", "url": "", "embed_url": "", "eta_label": _tour_source_gap_detail(candidate)}
 
+    def _fit_score_value(candidate: dict[str, object], facts: dict[str, object]) -> int:
+        assessment = dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {}
+        assessment = assessment or (dict(facts.get("personal_fit_assessment") or {}) if isinstance(facts.get("personal_fit_assessment"), dict) else {})
+        for raw_value in (
+            candidate.get("fit_score"),
+            candidate.get("assessment_fit_score"),
+            assessment.get("adjusted_fit_score"),
+            assessment.get("fit_score"),
+        ):
+            if raw_value in (None, ""):
+                continue
+            try:
+                return max(0, min(100, int(round(float(raw_value)))))
+            except Exception:
+                continue
+        return 0
+
+    def _money_display(value: object) -> str:
+        if value in (None, "", []):
+            return ""
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return ""
+            lowered = text.lower()
+            if "eur" in lowered or "€" in text:
+                return text
+            try:
+                value = float(text.replace(",", "."))
+            except Exception:
+                return text
+        if isinstance(value, (int, float)):
+            amount = float(value)
+            if abs(amount) >= 1000:
+                formatted = f"{amount:,.0f}".replace(",", ",")
+                return f"EUR {formatted}"
+            if amount:
+                return f"EUR {amount:.0f}"
+        return ""
+
+    def _candidate_costs_line(facts: dict[str, object], *, listing_mode: str, price_line: str) -> str:
+        normalized_mode = str(listing_mode or "").strip().lower()
+        for key in (
+            "operating_costs_display",
+            "operating_costs_monthly_display",
+            "service_charges_display",
+            "additional_costs_display",
+            "side_costs_display",
+            "monthly_costs_display",
+        ):
+            value = str(facts.get(key) or "").strip()
+            if value:
+                return value
+        for key in (
+            "operating_costs_monthly",
+            "operating_costs",
+            "service_charges_eur",
+            "additional_costs_eur",
+            "side_costs_eur",
+            "betriebskosten_eur",
+        ):
+            value = _money_display(facts.get(key))
+            if value:
+                return f"Costs {value}/mo" if normalized_mode == "buy" else f"Costs {value}"
+        if normalized_mode == "rent":
+            warm_rent = _money_display(facts.get("warm_rent_eur") or facts.get("warm_rent"))
+            cold_rent = _money_display(facts.get("cold_rent_eur") or facts.get("cold_rent"))
+            total_rent = _money_display(facts.get("total_rent_eur") or facts.get("rent_eur"))
+            if warm_rent and cold_rent and warm_rent != cold_rent:
+                return f"Cold {cold_rent} · Warm {warm_rent}"
+            if total_rent and total_rent != price_line:
+                return f"Monthly total {total_rent}"
+            if warm_rent and warm_rent != price_line:
+                return f"Warm rent {warm_rent}"
+            if cold_rent and cold_rent != price_line:
+                return f"Cold rent {cold_rent}"
+            return "Costs open"
+        price_per_sqm = _money_per_sqm_line(facts)
+        if price_per_sqm:
+            return price_per_sqm
+        return "Costs open"
+
     for candidate in shortlist_candidates:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
         price_line = str(
@@ -4780,10 +4903,10 @@ def property_workspace_payload(
             or facts.get("price_eur")
             or ""
         ).strip() or "n/a"
+        fit_score = _fit_score_value(candidate, facts)
         layout_parts = [
             _rooms_layout_part(facts),
             f"{facts.get('area_m2') or facts.get('area_sqm')} m2" if (facts.get("area_m2") or facts.get("area_sqm")) else "",
-            str(facts.get("postal_name") or "").strip(),
         ]
         layout_verified = bool(
             facts.get("has_floorplan")
@@ -4818,6 +4941,7 @@ def property_workspace_payload(
             "price_per_sqm": _money_per_sqm_line(facts),
             "headline": "Open packet for full underwriting" if str(property_preferences.get("listing_mode") or "").strip().lower() == "buy" else "",
         }
+        orientation_preview = _property_candidate_orientation_preview(candidate)
         workbench_results.append(
             {
                 "candidate_ref": candidate_ref,
@@ -4827,14 +4951,21 @@ def property_workspace_payload(
                 "source_label": str(candidate.get("source_label") or "").strip(),
                 "location_label": str(facts.get("postal_name") or facts.get("city") or facts.get("address") or "").strip(),
                 "price_display": price_line,
+                "costs_display": _candidate_costs_line(
+                    facts,
+                    listing_mode=str(property_preferences.get("listing_mode") or ""),
+                    price_line=price_line,
+                ),
                 "price_per_sqm_display": investment_payload["price_per_sqm"],
                 "layout_display": " | ".join(part for part in layout_parts if part) or "n/a",
                 "layout_verification_label": "verified" if layout_verified else "needs check",
+                "fit_score": fit_score,
                 "fit_label": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(),
                 "fit_summary": str(candidate.get("fit_summary") or "").strip(),
                 "provider_quality": provider_quality,
                 "provider_quality_line": provider_quality_line,
                 "tour": tour_payload,
+                "orientation_preview": orientation_preview,
                 "ooda": {
                     "summary": ooda_detail or (match_reasons[0] if match_reasons else "Open the packet to inspect the decision read."),
                     "rows": ooda_rows,
