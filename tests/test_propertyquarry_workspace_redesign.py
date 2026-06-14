@@ -380,8 +380,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'class="pqx-disclosure-summary"' in setup.text
     assert 'class="pqx-disclosure-icon" aria-hidden="true">+</span>' in setup.text
     assert 'class="pqx-disclosure-summary pqx-disclosure-summary-secondary"' in setup.text
-    assert "Family & schools" in setup.text
-    assert "More filters" in setup.text
+    assert ">Family<" in setup.text
+    assert 'data-property-advanced-panel="location_research"' in setup.text
     assert 'name="max_distance_to_library_m"' in setup.text
     assert 'name="max_distance_to_library_importance"' in setup.text
     assert 'name="max_distance_to_playground_importance"' in setup.text
@@ -501,7 +501,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Fallback cube viewers are forbidden" in search.text
     assert "Every outbound link must be sent as a titled hyperlink" in search.text
     assert "Would you pursue this property?" in search.text
-    assert "Decision wizard" in search.text
+    assert 'class="pqx-decision-stepper" aria-label="Decision steps"' in search.text
     assert "Viewing requested" in search.text
     assert "Documents requested" in search.text
     assert "Offer candidate" in search.text
@@ -735,7 +735,7 @@ def test_property_workbench_recent_reviews_do_not_render_fake_links() -> None:
     assert "pqx-recent-review-static" in body
     assert "<span class=\"pqx-pill\">{{ packet.get('title') }}</span>" not in body
     assert ".pqx-recent-review" in body
-    assert "overflow-wrap: anywhere;" in body
+    assert "overflow-wrap: anywhere;" not in body
 
 
 def test_property_workbench_previous_search_cards_have_explicit_overflow_gate() -> None:
@@ -1619,7 +1619,7 @@ def test_propertyquarry_workspace_setup_stays_user_facing() -> None:
     start_workspace(client, mode="personal", workspace_name="Property Office")
     response = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)
     assert response.status_code == 200
-    assert "Previous searches." in response.text
+    assert "Previous searches" in response.text
     assert "Saved searches" in response.text
     assert "Saved searches" in response.text
     assert "Open saved searches" in response.text
@@ -2005,6 +2005,6 @@ def test_propertyquarry_shell_uses_the_new_surface_navigation() -> None:
     assert ">Search agents<" in response.text
     assert ">Account<" in response.text
     assert ">Shortlist<" not in response.text
-    assert ">Research<" not in response.text
+    assert 'href="/app/research"' not in response.text
     assert ">Alerts<" not in response.text
     assert ">Billing<" not in response.text

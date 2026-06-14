@@ -911,10 +911,10 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('[data-property-field-name="location_query"]').is_hidden()
 
         page.select_option('select[name="country_code"]', "AT")
-        page.locator("[data-property-step-next]").click()
-        page.locator('[data-property-field-name="region_code"]').wait_for(state="visible")
         assert page.locator('[data-property-field-name="region_code"]').is_visible()
+        page.locator("[data-property-step-next]").click()
         assert page.locator('[data-property-field-name="country_code"]').is_hidden()
+        assert page.locator('[data-property-field-name="region_code"]').is_hidden()
         assert page.locator('[data-property-field-name="location_query"]').is_visible()
 
         page.locator('input[name="all_of_vienna"]').check()
@@ -969,7 +969,7 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('[data-property-field-name="max_distance_to_library_m"]').is_hidden()
         assert page.locator('[data-property-field-name="max_distance_to_zoo_m"]').is_hidden()
 
-        page.locator('[data-property-step-trigger="areas"]').click()
+        page.locator('[data-property-step-trigger="search"]').click()
         page.select_option('select[name="region_code"]', "lower_austria")
         page.locator('[data-property-step-trigger="children"]').click()
         page.locator('input[name="enable_family_mode"]').check()
