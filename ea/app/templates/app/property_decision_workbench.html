@@ -1000,17 +1000,24 @@
       flex: 0 0 auto;
       min-height: 36px;
       padding: 0 10px;
-      border: 0;
-      border-bottom: 2px solid transparent;
-      border-radius: 0;
-      background: transparent;
-      color: var(--pq-ink);
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: rgba(255, 253, 248, 0.9);
+      color: var(--pq-muted);
       text-align: center;
       cursor: pointer;
       min-width: 0;
+      transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
     }
     .pqx-surface-search .pqx-workflow-step {
       padding: 4px 6px;
+    }
+    .pqx-workflow-step:hover,
+    .pqx-workflow-step:focus-visible {
+      border-color: var(--pq-line-strong);
+      background: #fff8ea;
+      color: var(--pq-ink);
+      outline: none;
     }
     .pqx-workflow-step strong {
       display: block;
@@ -1019,7 +1026,7 @@
       white-space: nowrap;
     }
     .pqx-surface-search .pqx-workflow-step strong {
-      font-size: 11px;
+      font-size: 12px;
     }
     .pqx-form-body {
       display: grid;
@@ -1048,6 +1055,67 @@
       font-size: 13px;
       font-weight: 760;
       list-style: none;
+    }
+    .pqx-disclosure-summary {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      min-height: 40px;
+      padding: 0 12px;
+      border: 1px solid var(--pq-line-strong);
+      border-radius: 10px;
+      background: #fffefa;
+      transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+    }
+    .pqx-disclosure-summary:hover,
+    .pqx-advanced-panel[open] > .pqx-disclosure-summary {
+      border-color: #ccb48b;
+      background: #fff7e7;
+      box-shadow: 0 0 0 1px rgba(204, 180, 139, 0.18);
+    }
+    .pqx-disclosure-label {
+      display: block;
+      min-width: 0;
+    }
+    .pqx-disclosure-copy {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+    .pqx-disclosure-copy .pqx-note {
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
+    }
+    .pqx-disclosure-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      border: 1px solid rgba(70, 56, 25, 0.16);
+      background: rgba(70, 56, 25, 0.04);
+      color: #463819;
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1;
+      transition: transform 140ms ease, background 140ms ease;
+    }
+    .pqx-advanced-panel[open] > .pqx-disclosure-summary .pqx-disclosure-icon {
+      transform: rotate(45deg);
+      background: rgba(200, 156, 72, 0.14);
+    }
+    .pqx-disclosure-summary-secondary {
+      min-height: 38px;
+      padding: 8px 10px;
+      border-radius: 9px;
+    }
+    .pqx-disclosure-summary-secondary .pqx-disclosure-icon {
+      width: 20px;
+      height: 20px;
+      font-size: 14px;
     }
     .pqx-advanced-panel summary::-webkit-details-marker {
       display: none;
@@ -1078,7 +1146,7 @@
     .pqx-field label,
     .pqx-field-title {
       color: var(--pq-muted);
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 760;
     }
     .pqx-field input:not([type="checkbox"]),
@@ -1132,8 +1200,8 @@
     }
     .pqx-surface-search .pqx-check-note {
       margin-top: 5px;
-      font-size: 11px;
-      line-height: 1.3;
+      font-size: 12px;
+      line-height: 1.4;
     }
     .pqx-field-tools {
       display: flex;
@@ -1147,15 +1215,27 @@
       margin-bottom: 4px;
     }
     .pqx-field-tools .pqx-field-action {
-      border: 0;
-      background: transparent;
+      min-height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 10px;
+      border: 1px solid rgba(200, 156, 72, 0.26);
+      border-radius: 999px;
+      background: rgba(255, 248, 228, 0.7);
       color: var(--pq-gold-strong);
       font-size: 12px;
       font-weight: 760;
-      text-decoration: underline;
-      text-underline-offset: 3px;
+      text-decoration: none;
       cursor: pointer;
-      padding: 0;
+      transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+    }
+    .pqx-field-tools .pqx-field-action:hover,
+    .pqx-field-tools .pqx-field-action:focus-visible {
+      border-color: rgba(200, 156, 72, 0.48);
+      background: rgba(255, 241, 208, 0.94);
+      color: #463819;
+      outline: none;
     }
     .pqx-check[data-school-stage-parent] {
       border-color: rgba(171, 77, 51, 0.3);
@@ -1277,9 +1357,12 @@
       padding-right: 0;
     }
     .pqx-surface-search .pqx-check-grid {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 4px 10px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 6px 12px;
       max-height: none;
+    }
+    .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="property_type"] {
+      grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
     }
     .pqx-check {
       min-height: 36px;
@@ -1322,21 +1405,21 @@
       hyphens: auto;
     }
     .pqx-surface-search .pqx-check span span {
-      font-size: 11px;
-      line-height: 1.18;
+      font-size: 13px;
+      line-height: 1.24;
     }
     .pqx-check small {
       display: block;
       color: var(--pq-muted);
-      font-size: 10px;
+      font-size: 12px;
       line-height: 1.25;
       overflow-wrap: normal;
       word-break: normal;
       hyphens: auto;
     }
     .pqx-surface-search .pqx-check small {
-      font-size: 9px;
-      line-height: 1.15;
+      font-size: 12px;
+      line-height: 1.3;
     }
     .pqx-form-footer {
       display: flex;
@@ -1399,14 +1482,11 @@
         gap: 3px;
         padding: 3px;
       }
-      .pqx-surface-search .pqx-workflow legend {
-        font-size: 10px;
-      }
       .pqx-surface-search .pqx-workflow-step {
         padding: 3px 5px;
       }
       .pqx-surface-search .pqx-workflow-step strong {
-        font-size: 10px;
+        font-size: 12px;
       }
       .pqx-surface-search .pqx-form-body {
         gap: 4px 6px;
@@ -1428,8 +1508,8 @@
       .pqx-surface-search .pqx-field-title,
       .pqx-surface-search .pqx-note,
       .pqx-surface-search .pqx-small {
-        font-size: 10px;
-        line-height: 1.2;
+        font-size: 12px;
+        line-height: 1.35;
       }
       .pqx-surface-search .pqx-field input:not([type="checkbox"]),
       .pqx-surface-search .pqx-field select {
@@ -1450,18 +1530,15 @@
       }
       .pqx-surface-search .pqx-range-scale,
       .pqx-surface-search .pqx-range-upgrade {
-        font-size: 10px;
-        line-height: 1.2;
+        font-size: 12px;
+        line-height: 1.35;
       }
       .pqx-surface-search .pqx-field-tools {
         gap: 6px;
         margin-bottom: 3px;
       }
       .pqx-surface-search .pqx-field-tools .pqx-field-action {
-        font-size: 11px;
-      }
-      .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="property_type"] {
-        grid-template-columns: repeat(6, minmax(0, 1fr));
+        font-size: 12px;
       }
       .pqx-surface-search .pqx-check {
         min-height: 32px;
@@ -1469,10 +1546,7 @@
         padding: 5px 6px;
       }
       .pqx-surface-search .pqx-check span span {
-        font-size: 10px;
-      }
-      .pqx-surface-search .pqx-check small {
-        font-size: 8px;
+        font-size: 13px;
       }
       .pqx-surface-search .pqx-form-footer {
         padding-top: 3px;
@@ -2943,7 +3017,9 @@
               {% set panel.open = true %}
               {% set panel.current = advanced_panel %}
               <details class="pqx-advanced-panel" data-property-advanced-panel="{{ advanced_panel }}">
-                <summary>
+                <summary class="pqx-disclosure-summary">
+                  <span class="pqx-disclosure-copy">
+                  <span class="pqx-disclosure-label">
                   {% if advanced_panel == 'children' %}
                   Family
                   {% elif advanced_panel == 'commute' %}
@@ -2953,6 +3029,9 @@
                   {% else %}
                   More
                   {% endif %}
+                  </span>
+                  </span>
+                  <span class="pqx-disclosure-icon" aria-hidden="true">+</span>
                 </summary>
                 <div class="pqx-advanced-panel-grid">
                   <div class="pqx-note" data-property-unavailable-toggle-wrap hidden>
@@ -2985,9 +3064,12 @@
                 <div data-pqx-check-grid="{{ field.name }}">
                 {% for group in field.get('option_groups') or [] %}
                 <details class="pqx-advanced-panel" data-provider-group-panel style="margin-top:12px;">
-                  <summary>
-                    <strong>{{ group.get('title') }}</strong>
-                    <div class="pqx-note">{{ group.get('detail') }}</div>
+                  <summary class="pqx-disclosure-summary pqx-disclosure-summary-secondary">
+                    <span class="pqx-disclosure-copy">
+                      <strong>{{ group.get('title') }}</strong>
+                      <div class="pqx-note">{{ group.get('detail') }}</div>
+                    </span>
+                    <span class="pqx-disclosure-icon" aria-hidden="true">+</span>
                   </summary>
                   <div class="pqx-field-tools" style="margin:8px 0 10px;">
                     <button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Add family</button>
@@ -5012,7 +5094,7 @@
           .sort((a, b) => familyOrder.indexOf(a[0]) - familyOrder.indexOf(b[0]))
           .map(([family, items]) => {
             const [title, detail] = familyHeadings[family] || [String(family).replaceAll('_', ' '), 'Grouped source.'];
-            return `<details class="pqx-advanced-panel" data-provider-group-panel style="margin-top:12px;"><summary><strong>${escapeHtml(title)}</strong><div class="pqx-note">${escapeHtml(detail)}</div></summary><div class="pqx-field-tools" style="margin:8px 0 10px;"><button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Add family</button><button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear family</button></div><div class="pqx-check-grid" data-pqx-check-grid="${escapeHtml(name)}-group">${items.map(renderOption).join('')}</div></details>`;
+            return `<details class="pqx-advanced-panel" data-provider-group-panel style="margin-top:12px;"><summary class="pqx-disclosure-summary pqx-disclosure-summary-secondary"><span class="pqx-disclosure-copy"><strong>${escapeHtml(title)}</strong><div class="pqx-note">${escapeHtml(detail)}</div></span><span class="pqx-disclosure-icon" aria-hidden="true">+</span></summary><div class="pqx-field-tools" style="margin:8px 0 10px;"><button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Add family</button><button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear family</button></div><div class="pqx-check-grid" data-pqx-check-grid="${escapeHtml(name)}-group">${items.map(renderOption).join('')}</div></details>`;
           })
           .join('');
         return;

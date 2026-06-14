@@ -2451,7 +2451,7 @@ def app_section_payload(
                 "label": "State or metro area",
                 "value": selected_region_code,
                 "options": region_options,
-                "step": "areas",
+                "step": "search",
             },
             {
                 "type": "checkbox",
@@ -3607,32 +3607,32 @@ def app_section_payload(
             "wizard_steps": [
                 {
                     "key": "search",
-                    "label": "Search posture",
+                    "label": "Market",
                     "detail": "Market, mode, and budget.",
                 },
                 {
                     "key": "areas",
-                    "label": "Areas and priorities",
+                    "label": "Areas",
                     "detail": "Areas, fit signals, and lifestyle priorities.",
                 },
                 {
                     "key": "children",
-                    "label": "Children",
+                    "label": "Family",
                     "detail": "Playgrounds, schools, and childcare.",
                 },
                 {
                     "key": "reachability",
-                    "label": "Reachability",
+                    "label": "Commute",
                     "detail": "Destinations, travel modes, and time limits.",
                 },
                 {
                     "key": "research",
-                    "label": "Research modes",
+                    "label": "Research",
                     "detail": "Risk, supply, investment, and evidence depth.",
                 },
                 {
                     "key": "providers",
-                    "label": "Providers and launch",
+                    "label": "Sources",
                     "detail": "Choose sources, then save or launch.",
                 },
             ],

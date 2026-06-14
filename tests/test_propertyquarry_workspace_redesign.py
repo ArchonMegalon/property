@@ -377,6 +377,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-property-advanced-panel="children"' in setup.text
     assert 'data-property-advanced-panel="commute"' in setup.text
     assert 'data-property-advanced-panel="location_research"' in setup.text
+    assert 'class="pqx-disclosure-summary"' in setup.text
+    assert 'class="pqx-disclosure-icon" aria-hidden="true">+</span>' in setup.text
+    assert 'class="pqx-disclosure-summary pqx-disclosure-summary-secondary"' in setup.text
     assert "Family & schools" in setup.text
     assert "More filters" in setup.text
     assert 'name="max_distance_to_library_m"' in setup.text
@@ -1244,6 +1247,7 @@ def test_property_search_agents_can_open_focused_cockpit_view(monkeypatch) -> No
 def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
     body = template_path.read_text(encoding="utf-8")
+    view_model = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
 
     assert "Continue where you left off." in body
     assert "data-pqx-previous-searches" in body
@@ -1258,7 +1262,20 @@ def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     assert "grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);" in body
     assert "display: flex;" in body
     assert "<legend>Search flow</legend>" in body
+    assert ".pqx-disclosure-summary {" in body
+    assert ".pqx-disclosure-icon {" in body
+    assert ".pqx-workflow-step:hover," in body
+    assert ".pqx-field-tools .pqx-field-action {" in body
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in body
+    assert '"label": "Market"' in view_model
+    assert '"label": "Sources"' in view_model
+    assert '"label": "Family"' in view_model
+    assert '"label": "Commute"' in view_model
+    assert '"label": "Research"' in view_model
+    assert '"label": "State or metro area"' in view_model
+    assert "font-size: 8px" not in body
+    assert "font-size: 9px" not in body
+    assert 'grid-template-columns: repeat(6, minmax(0, 1fr));' not in body
     assert "pqx-state-strip" not in body
     assert 'aria-label="Current search context"' not in body
     assert 'aria-label="Account navigation"' in body
