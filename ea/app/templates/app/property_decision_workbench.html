@@ -153,7 +153,7 @@
         </div>
         <div class="pqx-worker-progress" aria-hidden="true"><i style="--progress: {{ worker.get('progress_pct') or 0 }}"></i></div>
         <div class="pqx-worker-popover">
-          <strong>{{ worker.get('provider') or 'Waiting for a source' }}</strong>
+          <strong>{{ worker.get('provider') or 'Waiting for a source' }}{% if worker.get('shard_count') %} · +{{ worker.get('shard_count') }} more shard{% if worker.get('shard_count') != 1 %}s{% endif %}{% endif %}</strong>
           <span class="pqx-note">{{ worker.get('status_label') or 'Idle' }}</span>
           <div class="pqx-worker-progress detailed" aria-hidden="true"><i style="--progress: {{ worker.get('progress_pct') or 0 }}"></i></div>
         </div>
@@ -6967,11 +6967,32 @@
       }).join('');
       const sourceMeta = `${reviewed} homes reviewed${layout > 0 ? ` · ${layout} floorplans still missing` : ''}`;
       const sourceRows = Array.isArray(summary.sources) ? summary.sources : [];
+      const sourceProviderGroup = (source) => {
+        const family = String(source?.provider_family || '').trim().toLowerCase();
+        if (family) return family;
+        const platform = String(source?.platform || '').trim().toLowerCase();
+        if (platform) return platform;
+        const label = String(source?.source_label || source?.label || '').trim();
+        return (label.split('|')[0] || label).trim().toLowerCase() || 'provider';
+      };
       const activeSources = sourceRows.filter((source) => !['completed', 'processed', 'done', 'success', 'failed', 'error', 'skipped'].includes(String(source?.status || source?.state || '').toLowerCase()));
       const completedPool = sourceRows.filter((source) => ['completed', 'processed', 'done', 'success'].includes(String(source?.status || source?.state || '').toLowerCase()));
-      const workerQueue = [...activeSources, ...completedPool];
+      const rawWorkerQueue = [...activeSources, ...completedPool];
+      const seenWorkerGroups = new Set();
+      const workerQueue = [];
+      rawWorkerQueue.forEach((source) => {
+        const key = sourceProviderGroup(source);
+        if (seenWorkerGroups.has(key)) return;
+        seenWorkerGroups.add(key);
+        workerQueue.push(source);
+      });
+      rawWorkerQueue.forEach((source) => {
+        if (workerQueue.includes(source)) return;
+        workerQueue.push(source);
+      });
       const workers = Array.from({ length: workerCount }, (_, index) => {
         const source = workerQueue[index] || null;
+        const groupKey = sourceProviderGroup(source);
         const rawStatus = String(source?.status || source?.state || '').toLowerCase();
         let progressPct = Number(source?.progress || 0);
         if (!(progressPct > 0)) {
@@ -6985,9 +7006,11 @@
           : ((['failed', 'error'].includes(rawStatus) || source?.error) ? 'Needs retry'
           : (['running', 'processing', 'in_progress', 'working', 'warming'].includes(rawStatus) ? 'Running' : 'Queued')));
         const tone = !source ? 'idle' : (progressPct >= 100 ? 'done' : (statusLabel === 'Running' ? 'active' : 'queued'));
+        const shardCount = source ? Math.max(0, rawWorkerQueue.filter((row) => sourceProviderGroup(row) === groupKey).length - 1) : 0;
         return {
           label: `W${index + 1}`,
           provider: String(source?.source_label || source?.label || (sourceRows.length ? 'Waiting for a source' : 'Stand by')),
+          shardCount,
           statusLabel,
           progressPct,
           tone,
@@ -7005,7 +7028,7 @@
           <div class="pqx-worker-progress" aria-hidden="true"><i style="--progress: ${escapeHtml(worker.progressPct)}"></i></div>
           ${planKey === 'free' ? '' : `
             <div class="pqx-worker-popover">
-              <strong>${escapeHtml(worker.provider)}</strong>
+              <strong>${escapeHtml(worker.provider)}${worker.shardCount ? ` · +${escapeHtml(worker.shardCount)} more shard${worker.shardCount === 1 ? '' : 's'}` : ''}</strong>
               <span class="pqx-note">${escapeHtml(worker.statusLabel)}</span>
               <div class="pqx-worker-progress detailed" aria-hidden="true"><i style="--progress: ${escapeHtml(worker.progressPct)}"></i></div>
             </div>

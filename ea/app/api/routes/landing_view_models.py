@@ -726,6 +726,18 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
     visible_workers = max(1, min(slot_cap, configured_workers))
     source_rows = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
 
+    def _source_provider_group(source_row: dict[str, object]) -> str:
+        provider_family = str(source_row.get("provider_family") or "").strip().lower()
+        if provider_family:
+            return provider_family
+        platform = str(source_row.get("platform") or "").strip().lower()
+        if platform:
+            return platform
+        label = str(source_row.get("source_label") or source_row.get("label") or "").strip()
+        if "|" in label:
+            label = label.split("|", 1)[0].strip()
+        return label.casefold() or "provider"
+
     def _source_progress(source_row: dict[str, object]) -> int:
         raw_status = str(source_row.get("status") or source_row.get("state") or "").strip().lower()
         if raw_status in {"completed", "processed", "done", "success"}:
@@ -766,16 +778,37 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
     ]
     queue = active_sources + completed_sources
 
+    diversified_queue: list[dict[str, object]] = []
+    seen_groups: set[str] = set()
+    duplicate_counts: dict[str, int] = {}
+    for source_row in queue:
+        group_key = _source_provider_group(source_row)
+        duplicate_counts[group_key] = duplicate_counts.get(group_key, 0) + 1
+        if group_key in seen_groups:
+            continue
+        seen_groups.add(group_key)
+        diversified_queue.append(source_row)
+    for source_row in queue:
+        group_key = _source_provider_group(source_row)
+        if any(_source_provider_group(existing) == group_key for existing in diversified_queue):
+            if source_row in diversified_queue:
+                continue
+        diversified_queue.append(source_row)
+    queue = diversified_queue
+
     worker_rows: list[dict[str, object]] = []
     for index in range(visible_workers):
         source_row = queue[index] if index < len(queue) else {}
         source_label = str(source_row.get("source_label") or source_row.get("label") or "").strip()
+        provider_group = _source_provider_group(source_row) if source_row else ""
+        shard_count = max(0, int(duplicate_counts.get(provider_group, 0)) - 1) if provider_group else 0
         status_label = _source_status_label(source_row) if source_row else "Idle"
         progress = _source_progress(source_row) if source_row else 0
         worker_rows.append(
             {
                 "label": f"W{index + 1}",
                 "provider": source_label or ("Waiting for a source" if active_sources or source_rows else "Stand by"),
+                "shard_count": shard_count,
                 "status_label": status_label,
                 "progress_pct": progress,
                 "tone": "done" if progress >= 100 and source_row else ("active" if status_label == "Running" else ("queued" if status_label == "Queued" else "idle")),

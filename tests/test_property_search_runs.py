@@ -335,6 +335,7 @@ def test_property_public_preview_workers_warm_multiple_provider_urls(monkeypatch
             },
         },
         cache_index=cache_index,
+        plan_key="plus",
     )
 
     assert result["enabled"] is True
@@ -352,6 +353,25 @@ def test_property_public_preview_workers_warm_multiple_provider_urls(monkeypatch
         cache_index=cache_index,
         property_url="https://example.test/listing/3",
     ) is not None
+
+
+def test_property_search_interleave_by_provider_group_spreads_same_provider_shards() -> None:
+    ordered = product_service._property_search_interleave_by_provider_group(
+        [
+            {"platform": "derstandard_at", "label": "DER STANDARD | 1010 Vienna"},
+            {"platform": "derstandard_at", "label": "DER STANDARD | 1020 Vienna"},
+            {"platform": "immmo_at", "label": "immmo | 1010 Vienna"},
+            {"platform": "findmyhome_at", "label": "FindMyHome | 1010 Vienna"},
+            {"platform": "derstandard_at", "label": "DER STANDARD | 1080 Vienna"},
+        ]
+    )
+
+    assert [row["platform"] for row in ordered[:4]] == [
+        "derstandard_at",
+        "immmo_at",
+        "findmyhome_at",
+        "derstandard_at",
+    ]
 
 
 def test_property_search_location_matching_prefers_requested_districts() -> None:

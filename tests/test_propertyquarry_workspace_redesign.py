@@ -135,6 +135,29 @@ def test_property_workbench_no_longer_embeds_vienna_district_mapping_js() -> Non
     assert "syncViennaScopeControls" not in body
 
 
+def test_property_search_worker_slots_prioritize_distinct_providers() -> None:
+    worker_state = landing_view_models._property_search_worker_slots(
+        {
+            "provider_workers": {"worker_concurrency": 3},
+            "sources": [
+                {"source_label": "DER STANDARD Immobilien | Austria | Rent | 1010 Vienna", "platform": "derstandard_at", "status": "in_progress"},
+                {"source_label": "DER STANDARD Immobilien | Austria | Rent | 1020 Vienna", "platform": "derstandard_at", "status": "in_progress"},
+                {"source_label": "immmo | Austria | Rent | 1010 Vienna", "platform": "immmo_at", "status": "in_progress"},
+                {"source_label": "FindMyHome.at | Austria | Rent | 1010 Vienna", "platform": "findmyhome_at", "status": "queued"},
+            ],
+        },
+        plan_key="plus",
+    )
+
+    providers = [row.get("provider") for row in worker_state.get("workers") or []]
+    assert providers[:3] == [
+        "DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
+        "immmo | Austria | Rent | 1010 Vienna",
+        "FindMyHome.at | Austria | Rent | 1010 Vienna",
+    ]
+    assert worker_state["workers"][0]["shard_count"] == 1
+
+
 def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch) -> None:
     principal_id = "pq-redesign-browser"
     client = build_property_client(principal_id=principal_id)

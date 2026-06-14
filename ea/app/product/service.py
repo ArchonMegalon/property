@@ -26,6 +26,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from collections import defaultdict, deque
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -1751,6 +1752,43 @@ def _property_search_source_fetch_lane(source_spec: dict[str, object]) -> str:
     return "provider"
 
 
+def _property_search_provider_group_key(source_spec: dict[str, object]) -> str:
+    provider_family = str(source_spec.get("provider_family") or "").strip().lower()
+    if provider_family:
+        return provider_family
+    platform = str(source_spec.get("platform") or "").strip().lower()
+    if platform:
+        return platform
+    label = " ".join(str(source_spec.get("label") or "").split()).strip()
+    if "|" in label:
+        label = label.split("|", 1)[0].strip()
+    return label.casefold() or "provider"
+
+
+def _property_search_interleave_by_provider_group(specs: list[dict[str, object]]) -> list[dict[str, object]]:
+    if len(specs) < 2:
+        return [dict(spec) for spec in specs]
+    grouped: dict[str, deque[dict[str, object]]] = defaultdict(deque)
+    ordered_keys: list[str] = []
+    for spec in specs:
+        copied = dict(spec)
+        key = _property_search_provider_group_key(copied)
+        if key not in grouped:
+            ordered_keys.append(key)
+        grouped[key].append(copied)
+    interleaved: list[dict[str, object]] = []
+    while grouped:
+        for key in list(ordered_keys):
+            queue = grouped.get(key)
+            if not queue:
+                continue
+            interleaved.append(queue.popleft())
+            if not queue:
+                grouped.pop(key, None)
+                ordered_keys = [existing for existing in ordered_keys if existing != key]
+    return interleaved
+
+
 def _property_search_prefetch_listing_urls(
     *,
     specs: list[dict[str, object]],
@@ -1758,6 +1796,7 @@ def _property_search_prefetch_listing_urls(
 ) -> dict[tuple[str, str], dict[str, object]]:
     if not specs:
         return {}
+    ordered_specs = _property_search_interleave_by_provider_group(specs)
     provider_cap = _property_search_provider_fetch_concurrency()
     browser_cap = _property_search_browser_provider_concurrency()
     official_cap = _property_search_official_evidence_concurrency()
@@ -1802,7 +1841,7 @@ def _property_search_prefetch_listing_urls(
 
     prefetched: dict[tuple[str, str], dict[str, object]] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=overall_cap, thread_name_prefix="property-source-fetch") as executor:
-        futures = [executor.submit(_task, dict(spec)) for spec in specs]
+        futures = [executor.submit(_task, dict(spec)) for spec in ordered_specs]
         for future in concurrent.futures.as_completed(futures):
             try:
                 key, payload = future.result()
@@ -19772,6 +19811,19 @@ class ProductService:
                 tasks.append((dict(source_spec), property_url))
         if not tasks:
             return {"enabled": False, "warmed_total": 0, "sources_touched": 0}
+        tasks = [
+            (spec, property_url)
+            for spec, property_url in (
+                (grouped_spec, grouped_spec.get("__property_url__", ""))
+                for grouped_spec in _property_search_interleave_by_provider_group(
+                    [
+                        {**dict(source_spec), "__property_url__": property_url}
+                        for source_spec, property_url in tasks
+                    ]
+                )
+            )
+            if property_url
+        ]
 
         touched_sources: set[str] = set()
         warmed_total = 0
@@ -28782,6 +28834,7 @@ class ProductService:
                 or str(spec.get("principal_id") or "").strip() == str(principal_id or "").strip())
             and (not run_platforms or "all" in run_platforms or str(spec.get("platform") or "").strip() in run_platforms)
         ]
+        specs = _property_search_interleave_by_provider_group(specs)
         prefetched_source_results = _property_search_prefetch_listing_urls(
             specs=specs,
             force_refresh=effective_force_refresh,
