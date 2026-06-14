@@ -27,7 +27,7 @@
       <h2>Search guard</h2>
       <div class="pqx-note">What the search protected before ranking and messaging.</div>
     </div>
-    <span class="pqx-pill good">Active</span>
+    <span class="pqx-pill good">Running</span>
   </div>
   <div class="pqx-guard-grid">
     {% for row in rows %}
@@ -126,14 +126,13 @@
 {% set listing_total = (summary.get('listing_total') or summary.get('raw_listing_total') or 0)|int %}
 {% set layout_unverified = (summary.get('filtered_floorplan_total') or 0)|int %}
 {% set run_progress = (run.get('progress') or summary.get('progress') or 0)|int %}
-{% set layout_eta_minutes = ([layout_unverified * 2, 2]|max) if layout_unverified else 0 %}
-{% set source_eta_minutes = ([((source_total * 3 + 1) // 2), 3]|max) if source_total else 0 %}
+{% set eta_label = run.get('eta_label') or summary.get('eta_label') or '' %}
 {% set route_previews = run.get('route_previews') or [] %}
 <div class="pqx-progress-board" data-pqx-progress-board data-progress-state="{{ status }}">
   <div class="pqx-concierge-pulse">
     <div class="pqx-progress-headline">
-      <strong data-pqx-progress-board-title>{% if status in ['processed', 'completed'] %}Evidence assembled{% elif status == 'failed' %}Search stopped{% else %}Concierge is assembling the evidence{% endif %}</strong>
-      <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>{% if status in ['processed', 'completed'] %}100% · complete{% elif status == 'failed' %}stopped{% elif run_progress > 0 and layout_unverified %}{{ run_progress }}% · about {{ layout_eta_minutes }} min{% elif run_progress > 0 and source_eta_minutes %}{{ run_progress }}% · about {{ source_eta_minutes }} min{% elif run_progress > 0 %}{{ run_progress }}% · estimating{% elif layout_unverified %}estimating · about {{ layout_eta_minutes }} min{% elif source_eta_minutes %}starting · about {{ source_eta_minutes }} min{% else %}estimating{% endif %}</span>
+      <strong data-pqx-progress-board-title>{% if status in ['processed', 'completed'] %}Results are ready{% elif status == 'failed' %}Search stopped{% else %}Search in progress{% endif %}</strong>
+      <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>{% if status in ['processed', 'completed'] %}100% · complete{% elif status == 'failed' %}stopped{% elif run_progress > 0 and eta_label %}{{ run_progress }}% · {{ eta_label }}{% elif run_progress > 0 %}{{ run_progress }}% · estimating{% elif eta_label %}starting · {{ eta_label }}{% else %}estimating{% endif %}</span>
     </div>
     <div class="pqx-pulse-line" aria-hidden="true"></div>
     <div class="pqx-progress-meter" aria-hidden="true">
@@ -143,7 +142,7 @@
   <div class="pqx-source-progress" data-pqx-source-progress>
     <div class="pqx-source-progress-head">
       <strong data-pqx-radar-count>{{ source_completed }}/{{ source_total }} sources checked</strong>
-      <span class="pqx-small">{{ listing_total }} listings seen{% if layout_unverified %} · {{ layout_unverified }} layout checks pending{% endif %}</span>
+      <span class="pqx-small">{{ listing_total }} listings seen{% if layout_unverified %} · {{ layout_unverified }} floorplans still missing{% endif %}</span>
     </div>
     <span class="pqx-note">{{ run.get('message') or 'Waiting for the first source update.' }}</span>
   </div>
@@ -1855,9 +1854,12 @@
       overflow: hidden;
       margin-top: 14px;
       padding: 12px;
-      border: 1px solid rgba(255, 249, 237, 0.18);
+      border: 1px solid color-mix(in srgb, var(--pq-blue) 18%, var(--pq-line));
       border-radius: 10px;
-      background: rgba(255, 249, 237, 0.08);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(245, 249, 253, 0.94)),
+        color-mix(in srgb, var(--pq-blue) 4%, var(--pq-paper));
+      box-shadow: 0 8px 24px rgba(34, 43, 54, 0.06);
     }
     .pqx-progress-board strong,
     .pqx-progress-board span {
@@ -1883,7 +1885,7 @@
       height: 4px;
       overflow: hidden;
       border-radius: 999px;
-      background: rgba(255, 249, 237, 0.16);
+      background: color-mix(in srgb, var(--pq-blue) 12%, white);
     }
     .pqx-pulse-line::after {
       content: "";
@@ -1891,7 +1893,7 @@
       inset: 0 auto 0 -34%;
       width: 34%;
       border-radius: inherit;
-      background: linear-gradient(90deg, transparent, var(--pq-gold), transparent);
+      background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--pq-blue) 80%, white), transparent);
       animation: pqxPulseSlide 2.8s ease-in-out infinite;
     }
     .pqx-progress-board[data-progress-state="processed"] .pqx-pulse-line::after,
@@ -1905,7 +1907,7 @@
       position: relative;
       height: 8px;
       border-radius: 999px;
-      background: rgba(255, 249, 237, 0.14);
+      background: color-mix(in srgb, var(--pq-blue) 10%, white);
       overflow: hidden;
     }
     .pqx-progress-meter-fill {
@@ -1914,7 +1916,7 @@
       min-width: 18px;
       height: 100%;
       border-radius: inherit;
-      background: linear-gradient(90deg, var(--pq-gold), #f4d188);
+      background: linear-gradient(90deg, var(--pq-blue), color-mix(in srgb, var(--pq-blue) 58%, white));
       transition: width .4s ease;
     }
     .pqx-source-progress {
@@ -1922,9 +1924,9 @@
       display: grid;
       gap: 6px;
       padding: 10px;
-      border: 1px solid rgba(255, 249, 237, 0.16);
+      border: 1px solid color-mix(in srgb, var(--pq-blue) 16%, var(--pq-line));
       border-radius: 8px;
-      background: rgba(255, 249, 237, 0.08);
+      background: rgba(255, 255, 255, 0.56);
     }
     .pqx-source-progress-head {
       display: flex;
@@ -1934,7 +1936,7 @@
       flex-wrap: wrap;
     }
     .pqx-source-progress .pqx-small {
-      color: #d7cdbb;
+      color: var(--pq-muted);
       font-size: 11px;
       letter-spacing: .02em;
       text-transform: uppercase;
@@ -1952,20 +1954,21 @@
       display: inline-flex;
       align-items: center;
       padding: 6px 9px;
-      border: 1px solid rgba(255, 249, 237, 0.16);
+      border: 1px solid color-mix(in srgb, var(--pq-blue) 18%, var(--pq-line));
       border-radius: 999px;
-      color: #eadfcc;
+      color: var(--pq-ink);
       font-size: 11px;
       font-weight: 720;
       white-space: nowrap;
+      background: rgba(255, 255, 255, 0.82);
     }
     .pqx-source-chip.good {
-      border-color: rgba(39, 107, 83, 0.3);
-      background: rgba(39, 107, 83, 0.12);
+      border-color: color-mix(in srgb, var(--pq-blue) 24%, var(--pq-line));
+      background: color-mix(in srgb, var(--pq-blue) 10%, white);
     }
     .pqx-source-chip.warn {
       border-color: rgba(166, 83, 71, 0.3);
-      background: rgba(166, 83, 71, 0.12);
+      background: rgba(166, 83, 71, 0.08);
     }
     .pqx-route-preview-strip {
       display: grid;
@@ -1976,9 +1979,9 @@
     }
     .pqx-route-preview-card {
       min-width: 0;
-      border: 1px solid rgba(255, 249, 237, 0.16);
+      border: 1px solid color-mix(in srgb, var(--pq-blue) 14%, var(--pq-line));
       border-radius: 8px;
-      background: rgba(255, 249, 237, 0.08);
+      background: rgba(255, 255, 255, 0.72);
       overflow: hidden;
     }
     .pqx-route-preview-link {
@@ -3749,15 +3752,15 @@
         <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property" data-pqx-screenfit-target="run-progress">
           <div class="pqx-section-head">
             <div>
-              <h2>{% if run_active %}Search is running. Inputs are locked.{% else %}Search progress{% endif %}</h2>
-              <div class="pqx-note" data-pqx-run-summary>{{ (run.get('summary') or {}).get('sources_total') or 0 }} sources · {{ (run.get('summary') or {}).get('listing_total') or 0 }} listings · {{ ((run.get('summary') or {}).get('tour_created_total') or 0) + ((run.get('summary') or {}).get('tour_existing_total') or 0) }} tours</div>
+              <h2>{% if run_active %}Search in progress{% else %}Search progress{% endif %}</h2>
+              <div class="pqx-note" data-pqx-run-summary>{{ (run.get('summary') or {}).get('sources_total') or 0 }} sources · {{ (run.get('summary') or {}).get('listing_total') or 0 }} listings{% if ((run.get('summary') or {}).get('filtered_floorplan_total') or 0) %} · {{ (run.get('summary') or {}).get('filtered_floorplan_total') or 0 }} awaiting floorplans{% endif %}</div>
             </div>
             {% if run_active %}<button class="pqx-button" type="button" data-pqx-refresh-status>Refresh</button>{% else %}<a class="pqx-link-button" href="/app/properties">New search</a>{% endif %}
           </div>
           <div class="pqx-note" data-pqx-run-message>{{ run.get('message') or 'The search is queued.' }}</div>
           {{ progress_board(run, run_sources, research_task_counts) }}
           <details class="pqx-card" data-pqx-running-details>
-            <summary><strong>Search details</strong><span class="pqx-note">Open for source events and decision checks.</span></summary>
+            <summary><strong>Live updates</strong><span class="pqx-note">Source-by-source progress.</span></summary>
             {{ research_queue_panel(research_tasks, run.get('run_id') or '', research_task_counts) }}
             <div class="pqx-event-list" data-pqx-run-events>
               {% for event in (run.get('events') or [])|reverse %}
@@ -5838,9 +5841,8 @@
       const summary = runPayload?.summary || {};
       const sources = Number(summary.sources_total || 0);
       const listings = Number(summary.listing_total || 0);
-      const tours = Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
-      return `${sources} sources · ${listings} listings · ${tours} tours · ${noPlan} pending layout proof`;
+      return `${sources} sources · ${listings} listings${noPlan > 0 ? ` · ${noPlan} awaiting floorplans` : ''}`;
     };
     const renderRunEvents = (events) => {
       const rows = Array.isArray(events) ? [...events].reverse().slice(0, 12) : [];
@@ -5857,7 +5859,7 @@
         const label = source?.source_label || source?.platform || 'Provider';
         const pushdown = source?.provider_filter_pushdown && typeof source.provider_filter_pushdown === 'object' ? source.provider_filter_pushdown : {};
         const weakFilters = pushdown.filter_strength === 'weak_search_then_post_filter'
-          ? `<span class="pqx-note">Provider filter weak: PropertyQuarry cleaned up ${escapeHtml((Array.isArray(pushdown.post_filter_only) ? pushdown.post_filter_only : []).join(', ') || 'selected filters')} after the provider returned raw results.</span>`
+          ? `<span class="pqx-note">Some filters had to be checked after the provider returned results.</span>`
           : '';
         const areaMiss = source?.location_mismatch_reason
           ? `<span class="pqx-note">No selected-area matches: provider returned ${escapeHtml(source?.location_mismatch_candidate_total || 0)} outside the chosen target area.</span>`
@@ -6056,7 +6058,7 @@
       const completedSources = Array.isArray(summary.sources) ? summary.sources.length : 0;
       const listings = Number(summary.listing_total || summary.raw_listing_total || 0);
       const layout = Number(summary.filtered_floorplan_total || 0);
-      const title = status === 'processed' || status === 'completed' ? 'Evidence assembled' : (status === 'failed' ? 'Search stopped' : 'Concierge is assembling the evidence');
+      const title = status === 'processed' || status === 'completed' ? 'Results are ready' : (status === 'failed' ? 'Search stopped' : 'Search in progress');
       const etaLabel = estimateRunEtaLabel(runPayload, summary, layout);
       const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
       const progressFill = status === 'processed' || status === 'completed' ? 100 : (progress > 0 ? progress : 4);
@@ -6065,7 +6067,7 @@
         const state = source?.error ? 'warn' : 'good';
         return `<span class="pqx-source-chip ${state}">${escapeHtml(label)}</span>`;
       }).join('');
-      const sourceMeta = `${listings} listings seen${layout > 0 ? ` · ${layout} layout checks pending` : ''}`;
+      const sourceMeta = `${listings} listings seen${layout > 0 ? ` · ${layout} floorplans still missing` : ''}`;
       return `
         <div class="pqx-concierge-pulse">
           <div class="pqx-progress-headline">

@@ -1540,6 +1540,102 @@ def test_property_search_run_status_reconstructs_missing_status_url() -> None:
     assert status["status_url"] == f"/app/api/signals/property/search/run/{run_id}"
 
 
+def test_property_search_run_progress_stays_monotonic_when_stage_totals_expand() -> None:
+    principal_id = "exec-property-search-progress-monotonic"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"progress-{uuid.uuid4().hex}"
+    created_at = (datetime.now(timezone.utc) - timedelta(minutes=12)).isoformat()
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": created_at,
+            "updated_at": created_at,
+            "status": "in_progress",
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "selected_platforms": ["willhaben"],
+            "progress": 41,
+            "current_step": "source_previewing",
+            "message": "Reviewing candidate 4 of 31.",
+            "stages_total": 120,
+            "steps_completed": 49,
+            "summary": {
+                "sources_total": 10,
+                "sources": [{"source_label": f"Source {index}"} for index in range(4)],
+            },
+            "events": [],
+            "property_search_preferences": {},
+            "eta_seconds": 0,
+            "eta_label": "",
+            "eta_seconds_smoothed": 0,
+        }
+
+    service._record_property_search_run_event(
+        run_id=run_id,
+        principal_id=principal_id,
+        step="source_extracting",
+        message="Extracting listing candidates from the next source.",
+        status="in_progress",
+        steps_delta=1,
+        summary_updates={"sources_total": 10},
+        stages_total_override=220,
+    )
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+    assert status is not None
+    assert int(status["progress"]) >= 41
+    assert str(status.get("eta_label") or "").startswith("about") or str(status.get("eta_label") or "").startswith("under")
+
+
+def test_property_search_run_progress_records_sources_completed_and_eta_summary() -> None:
+    principal_id = "exec-property-search-progress-eta"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"progress-{uuid.uuid4().hex}"
+    created_at = (datetime.now(timezone.utc) - timedelta(minutes=18)).isoformat()
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": created_at,
+            "updated_at": created_at,
+            "status": "in_progress",
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "selected_platforms": ["immowelt_at"],
+            "progress": 0,
+            "current_step": "sources_resolved",
+            "message": "Resolved 6 source(s) for scanning.",
+            "stages_total": 120,
+            "steps_completed": 2,
+            "summary": {
+                "sources_total": 6,
+                "sources": [{"source_label": "Source A"}, {"source_label": "Source B"}],
+            },
+            "events": [],
+            "property_search_preferences": {},
+            "eta_seconds": 0,
+            "eta_label": "",
+            "eta_seconds_smoothed": 0,
+        }
+
+    service._record_property_search_run_event(
+        run_id=run_id,
+        principal_id=principal_id,
+        step="source_assessing",
+        message="Enriching top 6 candidate(s) out of 31 for immowelt Austria.",
+        status="in_progress",
+        steps_delta=1,
+        summary_updates={"sources_total": 6},
+    )
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+    assert status is not None
+    assert int(status["summary"]["sources_completed"]) == 2
+    assert int(status["summary"]["eta_seconds"]) > 0
+    assert str(status["summary"]["eta_label"])
+
+
 def test_property_search_run_surfaces_and_updates_missing_fact_research_tasks() -> None:
     principal_id = "exec-property-search-research-queue"
     client = build_property_client(principal_id=principal_id)

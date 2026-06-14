@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.api.routes import landing as landing_routes
 from app.product.models import HandoffNote
-from app.product.service import ProductService
+from app.product.service import ProductService, _property_search_analysis_cap_per_source
 from tests.product_test_helpers import build_property_client, start_workspace
 
 
@@ -473,7 +473,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "about 12 min" in search.text
     assert 'data-tour-status="queued"' in search.text
     assert 'data-tour-eta="about 12 min"' in search.text
-    assert "Pending layout proof" in search.text
+    assert "awaiting floorplans" in search.text
     assert "not scheduled yet" not in search.text
     assert "360 not ready" not in search.text
     assert "360" in search.text
@@ -526,8 +526,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Generated asset receipts" not in search.text
     assert "repair check queued" not in search.text
     assert "Repair: ea_one_manager" not in search.text
-    assert "Pending layout proof" in search.text
-    assert "Pending layout proof" in search.text
+    assert "awaiting floorplans" in search.text
+    assert "Pending layout proof" not in search.text
     assert "These are not invalid" in search.text
     assert "Repair provider extraction" not in search.text
     assert "Missing facts" not in search.text
@@ -536,7 +536,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Save answer" not in search.text
     assert "Save fact" not in search.text
     assert 'data-pqx-progress-board' in search.text
-    assert "Concierge is assembling the evidence" in search.text or "Evidence assembled" in search.text
+    assert "Search in progress" in search.text or "Results are ready" in search.text
     assert 'data-pqx-progress-eta' in search.text
     assert 'class="pqx-source-progress"' in search.text
     assert 'class="pqx-source-list"' in search.text
@@ -563,7 +563,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Layout proof rule" in search.text
     assert "Floorplan gate" not in search.text
     assert "Held back by rules" in search.text
-    assert "Pending layout proof" in search.text
+    assert "awaiting floorplans" in search.text
     assert "These are not invalid" in search.text
     assert "Layout not verified" not in search.text
     assert "Missing floorplan" not in search.text
@@ -1328,7 +1328,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     run_visible_branch = body.split("{% elif run_visible %}", 1)[1].split("{% elif run_terminal_no_results %}", 1)[0]
     assert run_visible_branch.count("{{ progress_board(run, run_sources, research_task_counts) }}") == 1
     assert 'data-pqx-running-details' in run_visible_branch
-    assert "Open for source events and decision checks." in run_visible_branch
+    assert "Source-by-source progress." in run_visible_branch
     assert "Provider checks" not in body
     assert "0 lanes in progress" not in body
     assert "lanes in progress" not in body
@@ -1460,16 +1460,17 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
             "status_url": f"/app/api/signals/property/search/run/{run_id}",
             "status": "in_progress",
             "progress": 42,
-            "message": "Scoring shortlist candidate 2 of 4 for Willhaben | Austria | Buy | Wien.",
+            "message": "Scoring enriched candidate 2 of 4 for Willhaben | Austria | Buy | Wien.",
             "summary": {
                 "sources_total": 4,
                 "listing_total": 6,
                 "tour_created_total": 0,
                 "tour_existing_total": 0,
+                "eta_label": "about 6 min",
                 "sources": [],
             },
             "events": [
-                {"step": "source_assessing", "message": "Scoring shortlist candidate 2 of 4 for Willhaben | Austria | Buy | Wien.", "status": "in_progress"},
+                {"step": "source_assessing", "message": "Scoring enriched candidate 2 of 4 for Willhaben | Austria | Buy | Wien.", "status": "in_progress"},
             ],
         }
 
@@ -1480,21 +1481,33 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert 'data-property-decision-workbench' in live.text
     assert 'data-pq-greenfield-shell' in live.text
     assert 'data-pqx-state="running"' in live.text
-    assert "Search is running. Inputs are locked." in live.text
+    assert "Search in progress" in live.text
     assert 'class="pqx-run-head"' not in live.text
     assert live.text.count('class="pqx-progress-board"') == 1
     assert 'data-pqx-run-summary' in live.text
-    assert "Concierge is assembling the evidence" in live.text
+    assert "Search in progress" in live.text
     assert 'data-pqx-progress-board' in live.text
     assert 'data-pqx-progress-eta' in live.text
-    assert "42% · about" in live.text
+    assert "42% · about 6 min" in live.text
     assert 'class="pqx-source-progress"' in live.text
     assert 'class="pqx-source-list"' in live.text
     assert 'class="pqx-route-preview-strip"' in live.text
-    assert "Scoring shortlist candidate 2 of 4" in live.text
+    assert "Scoring enriched candidate 2 of 4" in live.text
     assert "Launch search" not in live.text
     assert "Save defaults" not in live.text
     assert "Test a wider budget ceiling" not in live.text
+
+
+def test_property_search_analysis_cap_defaults_to_top_k_slice(monkeypatch) -> None:
+    monkeypatch.delenv("PROPERTYQUARRY_SEARCH_ANALYSIS_CAP_PER_SOURCE", raising=False)
+    assert _property_search_analysis_cap_per_source(max_results=2, candidate_total=31) == 6
+    assert _property_search_analysis_cap_per_source(max_results=5, candidate_total=31) == 12
+    assert _property_search_analysis_cap_per_source(max_results=5, candidate_total=4) == 4
+
+
+def test_property_search_analysis_cap_allows_env_override(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_SEARCH_ANALYSIS_CAP_PER_SOURCE", "9")
+    assert _property_search_analysis_cap_per_source(max_results=2, candidate_total=31) == 9
 
 
 def test_propertyquarry_running_progress_ring_stays_compact_and_top_aligned() -> None:

@@ -773,8 +773,97 @@ def _property_search_run_default_summary(property_preferences: dict[str, object]
         "min_area_m2": dict(property_preferences or {}).get("min_area_m2") or 0,
         "watch_notified_total": 0,
         "top_fit_score": 0.0,
+        "sources_completed": 0,
+        "eta_seconds": 0,
+        "eta_label": "",
         "sources": [],
     }
+
+
+def _property_search_run_step_source_fraction(step: str) -> float:
+    normalized = str(step or "").strip().lower()
+    fractions = {
+        "queued": 0.0,
+        "starting": 0.01,
+        "sources_resolved": 0.03,
+        "source_started": 0.06,
+        "source_fetching": 0.12,
+        "source_extracting": 0.18,
+        "source_rank_prep": 0.24,
+        "source_previewing": 0.38,
+        "source_assessing": 0.58,
+        "source_ranking": 0.72,
+        "source_shortlist": 0.84,
+        "source_review_packet": 0.92,
+        "source_completed": 1.0,
+        "completed": 1.0,
+    }
+    return max(0.0, min(float(fractions.get(normalized, 0.0)), 1.0))
+
+
+def _property_search_eta_label(seconds: float) -> str:
+    bounded = max(0.0, float(seconds or 0.0))
+    if bounded < 45.0:
+        return "under 1 min"
+    minutes = int(round(bounded / 60.0))
+    if minutes < 60:
+        return f"about {minutes} min"
+    hours = minutes // 60
+    remainder = minutes % 60
+    if remainder == 0:
+        return f"about {hours} hr"
+    return f"about {hours} hr {remainder} min"
+
+
+def _property_search_run_progress_projection(
+    *,
+    state: dict[str, object],
+    step: str,
+    status: str,
+    summary: dict[str, object],
+    stages_total: int,
+    steps_completed: int,
+) -> tuple[int, int, str]:
+    normalized_status = str(status or "").strip().lower()
+    if normalized_status in _PROPERTY_SEARCH_TERMINAL_STATUSES:
+        return 100, 0, ""
+
+    previous_progress = max(0, min(99, int(state.get("progress") or 0)))
+    raw_progress = int((max(0, steps_completed) * 100) / max(1, stages_total))
+    sources_total = max(0, int(summary.get("sources_total") or 0))
+    source_rows = list(summary.get("sources") or [])
+    source_completed = len([row for row in source_rows if isinstance(row, dict)])
+    summary["sources_completed"] = source_completed
+
+    progress_candidate = raw_progress
+    eta_seconds = 0
+    eta_label = ""
+    if sources_total > 0:
+        phase_fraction = _property_search_run_step_source_fraction(step)
+        if phase_fraction >= 1.0:
+            effective_completed_sources = float(min(sources_total, source_completed))
+        else:
+            effective_completed_sources = min(float(sources_total), float(source_completed) + phase_fraction)
+        progress_candidate = int(round(3.0 + (effective_completed_sources / float(sources_total)) * 93.0))
+
+        created_at = _parse_utcish(str(state.get("created_at") or ""))
+        if created_at is not None and effective_completed_sources > 0.0:
+            elapsed_seconds = max(1.0, (datetime.now(timezone.utc) - created_at).total_seconds())
+            remaining_sources = max(0.0, float(sources_total) - effective_completed_sources)
+            observed_eta_seconds = min(8 * 60 * 60, max(0.0, (elapsed_seconds / effective_completed_sources) * remaining_sources))
+            previous_eta_seconds = float(state.get("eta_seconds_smoothed") or 0.0)
+            eta_seconds = int(
+                round(
+                    observed_eta_seconds
+                    if previous_eta_seconds <= 0.0
+                    else ((previous_eta_seconds * 0.7) + (observed_eta_seconds * 0.3))
+                )
+            )
+            if eta_seconds > 0:
+                eta_label = _property_search_eta_label(float(eta_seconds))
+
+    normalized_progress = max(previous_progress, min(99, max(1, progress_candidate, raw_progress)))
+    return normalized_progress, eta_seconds, eta_label
 
 
 _PROPERTY_PUBLIC_CACHE_PRINCIPAL_ID = "propertyquarry:public-cache"
@@ -1599,6 +1688,19 @@ def _property_search_browser_provider_concurrency() -> int:
     return max(1, min(parsed, 4))
 
 
+def _property_search_analysis_cap_per_source(*, max_results: int, candidate_total: int) -> int:
+    raw_value = str(os.getenv("PROPERTYQUARRY_SEARCH_ANALYSIS_CAP_PER_SOURCE") or "").strip()
+    if raw_value:
+        try:
+            parsed = int(raw_value)
+        except Exception:
+            parsed = 0
+        if parsed > 0:
+            return max(1, min(parsed, max(1, candidate_total)))
+    derived = max(max_results, min(max(3, max_results * 3), 12))
+    return max(1, min(derived, max(1, candidate_total)))
+
+
 def _property_search_official_evidence_concurrency() -> int:
     raw_value = str(os.getenv("PROPERTYQUARRY_SEARCH_OFFICIAL_EVIDENCE_CONCURRENCY") or "").strip()
     if not raw_value:
@@ -1889,6 +1991,9 @@ def _new_property_search_run_record(
         "property_search_preferences": requested_preferences,
         "force_refresh": bool(force_refresh),
         "generated_at": _now_iso(),
+        "eta_seconds": 0,
+        "eta_label": "",
+        "eta_seconds_smoothed": 0,
     }
 
 
@@ -27086,13 +27191,33 @@ class ProductService:
             if updated_status in _PROPERTY_SEARCH_TERMINAL_STATUSES:
                 state["steps_completed"] = stages_total
                 state["progress"] = 100
+                state["eta_seconds"] = 0
+                state["eta_label"] = ""
+                state["eta_seconds_smoothed"] = 0
             else:
                 state["steps_completed"] = min(stages_total, max(0, int(state.get("steps_completed") or 0) + int(steps_delta)))
-                state["progress"] = int((int(state["steps_completed"]) * 100) / stages_total)
             if summary_updates:
                 summary = dict(state.get("summary") or {})
                 summary.update(dict(summary_updates))
                 state["summary"] = summary
+            summary = dict(state.get("summary") or {})
+            state["summary"] = summary
+            if updated_status not in _PROPERTY_SEARCH_TERMINAL_STATUSES:
+                normalized_progress, eta_seconds, eta_label = _property_search_run_progress_projection(
+                    state=state,
+                    step=step,
+                    status=updated_status,
+                    summary=summary,
+                    stages_total=stages_total,
+                    steps_completed=int(state.get("steps_completed") or 0),
+                )
+                state["progress"] = normalized_progress
+                state["eta_seconds"] = eta_seconds
+                state["eta_label"] = eta_label
+                state["eta_seconds_smoothed"] = eta_seconds
+                summary["progress"] = normalized_progress
+                summary["eta_seconds"] = eta_seconds
+                summary["eta_label"] = eta_label
             events = list(state.get("events") or [])
             events.append(
                 {
@@ -28896,7 +29021,19 @@ class ProductService:
                     "min_area_m2": request_preferences.get("min_area_m2") or 0,
                     "available_within_years": available_within_years,
                 },
-                stages_total_override=2 + (len(specs) * max(8, (max(1, len(listing_urls)) * 2) + 6)),
+                stages_total_override=2
+                + (
+                    len(specs)
+                    * max(
+                        8,
+                        max(1, len(listing_urls))
+                        + _property_search_analysis_cap_per_source(
+                            max_results=max_results,
+                            candidate_total=max(1, len(listing_urls)),
+                        )
+                        + 6,
+                    )
+                ),
             )
             preliminary_rows: list[dict[str, object]] = []
             for ordinal, property_url in enumerate(listing_urls, start=1):
@@ -29285,15 +29422,29 @@ class ProductService:
                 preliminary_location_miss_count = max(0, preliminary_before_location_count - len(preliminary_matching_rows))
                 preliminary_rows = preliminary_matching_rows
             analysis_limit = len(preliminary_rows)
+            enrichment_limit = _property_search_analysis_cap_per_source(
+                max_results=max_results,
+                candidate_total=analysis_limit,
+            )
+            if analysis_limit > 0:
+                _report(
+                    step="source_assessing",
+                    message=(
+                        f"Enriching top {enrichment_limit} candidate(s) out of {analysis_limit} "
+                        f"for {source_label} before final shortlist scoring."
+                    ),
+                    status="in_progress",
+                    steps_delta=1,
+                )
             ranked_rows: list[dict[str, object]] = []
             top_watch_candidate_for_source: dict[str, object] | None = None
-            for ordinal, row in enumerate(preliminary_rows[:analysis_limit], start=1):
+            for ordinal, row in enumerate(preliminary_rows[:enrichment_limit], start=1):
                 if len(ranked_rows) >= max_results:
                     break
                 property_url = str(row.get("property_url") or "").strip()
                 _report(
                     step="source_assessing",
-                    message=f"Scoring shortlist candidate {ordinal} of {analysis_limit} for {source_label}.",
+                    message=f"Scoring enriched candidate {ordinal} of {enrichment_limit} for {source_label}.",
                     status="in_progress",
                     steps_delta=1,
                 )
@@ -29966,10 +30117,10 @@ class ProductService:
                         summary_updates={"filtered_low_fit_total": filtered_low_fit_total},
                     )
                     continue
-                if ordinal == 1 or ordinal == analysis_limit or ordinal % 2 == 0:
+                if ordinal == 1 or ordinal == enrichment_limit or ordinal % 2 == 0:
                     _report(
                         step="source_ranking",
-                        message=f"Scored {min(ordinal, analysis_limit)} of {analysis_limit} shortlist candidate(s) for {source_label}.",
+                        message=f"Scored {min(ordinal, enrichment_limit)} of {enrichment_limit} enriched candidate(s) for {source_label}.",
                         status="in_progress",
                         steps_delta=1,
                     )

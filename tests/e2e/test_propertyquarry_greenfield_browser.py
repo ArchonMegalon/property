@@ -761,16 +761,19 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
 def test_propertyquarry_running_progress_panel_fits_the_first_viewport(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
+    screenshot_path = tmp_path / "property_running_progress_desktop.png"
     try:
         response = page.goto(f"{base_url}/app/properties?run_id=run-active-empty", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.wait_for_selector('[data-pqx-screenfit-target="run-progress"]', timeout=5000)
         assert page.locator('[data-pqx-screenfit-target="run-progress"] h2').first.is_visible()
         assert page.locator('[data-pqx-progress-eta], [data-pqx-run-summary]').first.is_visible()
+        page.screenshot(path=str(screenshot_path), full_page=False)
         layout = page.evaluate(
             """
             () => {
