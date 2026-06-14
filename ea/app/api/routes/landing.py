@@ -90,6 +90,18 @@ from app.services.fliplink import build_fliplink_packet_service
 router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
 
+
+def _clean_property_candidate_copy(value: object) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    if text == "Provider-ranked fallback candidate kept because strict personal-fit scoring produced no shortlist.":
+        return ""
+    return text.replace(
+        "Provider-ranked fallback candidate kept because strict personal-fit scoring produced no shortlist.",
+        "Fallback candidate because no stronger fit cleared the shortlist.",
+    ).strip()
+
 templates.env.globals["clickrank_head_snippet"] = lambda request=None: Markup(_clickrank_head_snippet(_request_hostname(request)))
 templates.env.globals["rybbit_head_snippet"] = lambda request=None: Markup(_rybbit_head_snippet(request))
 
@@ -2532,16 +2544,16 @@ def property_research_packet(
         requested=bool(int(investment or 0)),
     )
     ooda_summary_rows = [
-        _object_detail_row("Why this was selected", match_reasons[0], "Match")
+        _object_detail_row("Why this was selected", _clean_property_candidate_copy(match_reasons[0]), "Match")
         if match_reasons
-        else _object_detail_row("Why this was selected", fit_summary or "This candidate survived the shortlist ranking.", "Match"),
+        else _object_detail_row("Why this was selected", _clean_property_candidate_copy(fit_summary) or "This candidate survived the shortlist ranking.", "Match"),
         _object_detail_row(
             "Best reason to act",
-            str(decision_rows[0].get("detail") or fit_summary).strip()
+            _clean_property_candidate_copy(str(decision_rows[0].get("detail") or fit_summary).strip())
             or "The current packet sees enough signal to keep this candidate open.",
             "Quick read",
         ),
-        _object_detail_row("Main concern", mismatch_reasons[0], "Risk")
+        _object_detail_row("Main concern", _clean_property_candidate_copy(mismatch_reasons[0]), "Risk")
         if mismatch_reasons
         else _object_detail_row("Main concern", "Some evidence is still missing, so this packet should be treated as a research view, not final diligence.", "Risk"),
         _object_detail_row("Current recommendation", str(candidate.get("tag") or candidate.get("recommendation") or "Candidate").strip() or "Candidate", "Decision"),

@@ -132,6 +132,12 @@ def _comparison_rows(value: object, *, limit: int = 6) -> list[dict[str, str]]:
                 "area": str(row.get("area_sqm") or row.get("area") or "").strip(),
                 "recommendation": str(row.get("recommendation") or "").strip(),
                 "compare_reason": str(row.get("compare_reason") or "").strip(),
+                "fit_summary": str(row.get("fit_summary") or "").strip(),
+                "source_label": str(row.get("source_label") or "").strip(),
+                "property_url": str(row.get("property_url") or row.get("source_url") or "").strip(),
+                "review_url": str(row.get("review_url") or "").strip(),
+                "tour_url": str(row.get("tour_url") or "").strip(),
+                "map_url": str(row.get("map_url") or "").strip(),
             }
         )
     return rows

@@ -317,7 +317,18 @@
           <tbody>
             {% for row in dossier.comparison_rows %}
             <tr>
-              <td>{{ row.title or row.label }}</td>
+              <td>
+                <div>{{ row.title or row.label }}</div>
+                {% if row.source_label %}<div class="muted">{{ row.source_label }}</div>{% endif %}
+                {% if row.review_url or row.tour_url or row.map_url or row.property_url %}
+                <div class="muted">
+                  {% if row.review_url %}<a href="{{ row.review_url }}">Review</a>{% endif %}
+                  {% if row.tour_url %} · <a href="{{ row.tour_url }}">360</a>{% endif %}
+                  {% if row.map_url %} · <a href="{{ row.map_url }}">Map</a>{% endif %}
+                  {% if row.property_url %} · <a href="{{ row.property_url }}">Listing</a>{% endif %}
+                </div>
+                {% endif %}
+              </td>
               <td>{{ row.price or "Offen" }}</td>
               <td>{{ row.area or row.area_sqm or "Offen" }}</td>
               <td>{{ row.rooms or "Offen" }}</td>

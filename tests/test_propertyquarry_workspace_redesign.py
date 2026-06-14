@@ -440,7 +440,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-workbench-dossier' in search.text
     assert 'data-workbench-row' in search.text
     assert '<a class="pqx-result"' not in search.text
-    assert '<button class="pqx-result"' in search.text
+    assert '<article class="pqx-result pqx-card"' in search.text
     assert "Best homes first" in search.text
     assert "Match" in search.text
     assert "Source" in search.text
@@ -553,20 +553,21 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-candidate-packet-url="/app/research/' in search.text
     assert 'data-pqx-notification-audit' in search.text
     assert "Alert delivery" in search.text
-    assert "Held back" in search.text
-    assert "2 candidates held back after ranking" in search.text
-    assert "Search guard" in search.text
-    assert "Target area guard" in search.text
-    assert "Outside-area results suppressed" in search.text
-    assert "Source filters are limited" in search.text
+    assert "Filtered" in search.text
+    assert "2 candidates filtered out after ranking" in search.text
+    assert "Search guard" not in search.text
+    assert "Target area guard" not in search.text
+    assert "Outside-area results suppressed" not in search.text
+    assert "Source filters are limited" not in search.text
     assert "Provider filters needed cleanup" not in search.text
-    assert "Layout proof rule" in search.text
+    assert "Missing floorplan evidence" in search.text
     assert "Floorplan gate" not in search.text
-    assert "Held back by rules" in search.text
+    assert "Filtered by rules" in search.text
     assert "awaiting floorplans" in search.text
     assert "These are not invalid" in search.text
     assert "Layout not verified" not in search.text
-    assert "Missing floorplan" not in search.text
+    assert "Missing floorplan evidence" in search.text
+    assert 'data-pqx-filtered-dialog' in search.text
     assert "Below fit threshold" in search.text
     assert "Outside selected area" in search.text
     assert "Alert budget" in search.text
@@ -1049,7 +1050,7 @@ def test_property_dashboard_renders_previous_searches_with_compact_finished_resu
     assert "1020 Vienna" in page.text
     assert "Open" in page.text
     assert "Delete" in page.text
-    assert "held back" in page.text
+    assert "filtered" in page.text
 
 
 def test_property_dashboard_failed_previous_search_uses_customer_facing_copy(monkeypatch) -> None:

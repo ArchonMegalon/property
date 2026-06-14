@@ -1128,6 +1128,28 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
                 </svg>`);
               card.innerHTML = `
                 <div class="pqx-previous-scope-preview">
+                  <div class="pqx-previous-district-hotspots" aria-hidden="true">
+                    <button
+                      class="pqx-previous-district-hotspot"
+                      type="button"
+                      data-label="1020 Vienna"
+                      data-pqx-scope-open
+                      data-pqx-scope-image="data:image/svg+xml;utf8,${scopeSvg}"
+                      data-pqx-scope-alt="Search area preview for 1020 Vienna"
+                      data-pqx-scope-title="1020 Vienna"
+                      data-pqx-scope-caption="1020 Vienna, 1030 Vienna"
+                      style="left: 31.1%; top: 26.25%; width: 22.297%; height: 26.25%;"></button>
+                    <button
+                      class="pqx-previous-district-hotspot is-selected"
+                      type="button"
+                      data-label="1030 Vienna"
+                      data-pqx-scope-open
+                      data-pqx-scope-image="data:image/svg+xml;utf8,${scopeSvg}"
+                      data-pqx-scope-alt="Search area preview for 1020 Vienna"
+                      data-pqx-scope-title="1030 Vienna"
+                      data-pqx-scope-caption="1020 Vienna, 1030 Vienna"
+                      style="left: 56.081%; top: 38.75%; width: 19.595%; height: 21.25%;"></button>
+                  </div>
                   <button
                     class="pqx-previous-scope-trigger"
                     type="button"
@@ -1144,7 +1166,6 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
                   </div>
                   <div class="pqx-previous-scope-caption">
                     <span class="pqx-note">1020 Vienna, 1030 Vienna</span>
-                    <span class="pqx-previous-scope-chip">2 areas</span>
                   </div>
                 </div>
                 <div class="pqx-previous-body">

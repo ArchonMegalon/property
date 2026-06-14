@@ -10,6 +10,8 @@
 {% set run_summary = run.get('summary') or {} %}
 {% set run_sources = run_summary.get('sources') or [] %}
 {% set previous_search_runs = workbench.get('previous_search_runs') or [] %}
+{% set suppression_rows = workbench.get('suppression_rows') or [] %}
+{% set counterfactual_rows = workbench.get('counterfactual_rows') or [] %}
 {% set terminal_states = ['processed', 'completed', 'failed', 'noop', 'cancelled'] %}
 {% set run_active = run.get('run_id') and run_status not in terminal_states %}
 {% set run_terminal_no_results = run.get('run_id') and run_status in terminal_states and not results %}
@@ -44,7 +46,7 @@
 {% macro suppression_panel(rows) -%}
 {% if rows %}
 <details class="pqx-card pqx-suppression-panel" data-pqx-suppression-summary>
-  <summary><strong>Held back by rules</strong><span class="pqx-note">What did not reach the shortlist and what to relax deliberately.</span></summary>
+  <summary><strong>Filtered by rules</strong><span class="pqx-note">What did not reach the shortlist and what to relax deliberately.</span></summary>
   <div class="pqx-suppression-grid">
     {% for row in rows %}
     <article class="pqx-suppression-item">
@@ -759,6 +761,44 @@
       display: grid;
       gap: 4px;
     }
+    .pqx-previous-district-hotspots {
+      position: absolute;
+      inset: 0;
+      z-index: 3;
+    }
+    .pqx-previous-district-hotspot {
+      position: absolute;
+      border: 1px solid rgba(120, 107, 90, 0.28);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.02);
+      cursor: zoom-in;
+    }
+    .pqx-previous-district-hotspot.is-selected {
+      border-color: rgba(211, 75, 75, 0.64);
+      background: rgba(211, 75, 75, 0.22);
+      box-shadow: inset 0 0 0 1px rgba(255, 242, 242, 0.35);
+    }
+    .pqx-previous-district-hotspot::after {
+      content: attr(data-label);
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% + 6px);
+      transform: translateX(-50%);
+      padding: 4px 7px;
+      border-radius: 6px;
+      background: rgba(27, 24, 20, 0.92);
+      color: #fff8ec;
+      font-size: 11px;
+      line-height: 1.2;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 120ms ease;
+    }
+    .pqx-previous-district-hotspot:hover::after,
+    .pqx-previous-district-hotspot:focus-visible::after {
+      opacity: 1;
+    }
     .pqx-previous-scope-trigger {
       display: block;
       width: 100%;
@@ -955,6 +995,89 @@
       border-radius: 12px;
       border: 1px solid var(--pq-line);
       background: var(--pq-panel);
+    }
+    .pqx-filtered-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 2px;
+    }
+    .pqx-filtered-link:hover,
+    .pqx-filtered-link:focus-visible {
+      color: #8f1d2c;
+      outline: none;
+    }
+    .pqx-filtered-dialog {
+      width: min(760px, calc(100vw - 28px));
+      max-width: 760px;
+      padding: 0;
+      border: 0;
+      border-radius: 18px;
+      background: transparent;
+      box-shadow: none;
+    }
+    .pqx-filtered-dialog::backdrop {
+      background: rgba(18, 24, 34, 0.62);
+      backdrop-filter: blur(3px);
+    }
+    .pqx-filtered-dialog-card {
+      display: grid;
+      gap: 14px;
+      padding: 18px;
+      border-radius: 18px;
+      background: var(--pq-paper);
+      box-shadow: 0 24px 56px rgba(16, 24, 38, 0.28);
+    }
+    .pqx-filtered-dialog-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 14px;
+    }
+    .pqx-filtered-dialog-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 36px;
+      min-height: 36px;
+      padding: 0;
+      border-radius: 999px;
+      border: 1px solid var(--pq-line);
+      background: var(--pq-panel);
+      color: var(--pq-ink);
+      font-size: 18px;
+      cursor: pointer;
+    }
+    .pqx-filtered-dialog-grid,
+    .pqx-filtered-dialog-actions {
+      display: grid;
+      gap: 10px;
+    }
+    .pqx-filtered-dialog-rule {
+      display: grid;
+      gap: 6px;
+      padding: 14px;
+      border: 1px solid var(--pq-line);
+      border-radius: 12px;
+      background: var(--pq-panel);
+    }
+    .pqx-filtered-dialog-rule .pqx-actions {
+      align-items: center;
+    }
+    .pqx-filtered-dialog-estimate {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--pq-muted);
+      font-size: 12px;
     }
     .pqx-compare-strip {
       display: grid;
@@ -3191,6 +3314,24 @@
               {% set scope_preview = previous.get('scope_preview') or {} %}
               <div class="pqx-previous-scope-preview">
                 {% if scope_preview.get('image_url') %}
+                {% if scope_preview.get('district_rows') %}
+                <div class="pqx-previous-district-hotspots" aria-hidden="true">
+                  {% for district in scope_preview.get('district_rows') or [] %}
+                  <button
+                    class="pqx-previous-district-hotspot{% if district.get('selected') %} is-selected{% endif %}"
+                    type="button"
+                    data-label="{{ district.get('label') }}"
+                    data-pqx-scope-open
+                    data-pqx-scope-image="{{ scope_preview.get('image_url') }}"
+                    data-pqx-scope-alt="{{ scope_preview.get('alt') or 'Search area preview' }}"
+                    data-pqx-scope-title="{{ district.get('label') }}"
+                    data-pqx-scope-caption="{{ previous.get('scope_summary') or previous.get('scope_label') }}"
+                    style="left: {{ district.get('left_pct') }}%; top: {{ district.get('top_pct') }}%; width: {{ district.get('width_pct') }}%; height: {{ district.get('height_pct') }}%;"
+                    aria-label="{{ district.get('label') }}"
+                  ></button>
+                  {% endfor %}
+                </div>
+                {% endif %}
                 <button
                   class="pqx-previous-scope-trigger"
                   type="button"
@@ -3215,7 +3356,6 @@
                 {% endif %}
                 <div class="pqx-previous-scope-caption">
                   <span class="pqx-note">{{ previous.get('scope_summary') or previous.get('scope_label') }}</span>
-                  {% if scope_preview.get('count_label') %}<span class="pqx-previous-scope-chip">{{ scope_preview.get('count_label') }}</span>{% endif %}
                 </div>
               </div>
               <div class="pqx-previous-body">
@@ -3229,7 +3369,19 @@
                   <span><b>{{ previous.get('ranked_total') or 0 }}</b> ranked</span>
                   {% if previous.get('sent_total') %}<span><b>{{ previous.get('sent_total') }}</b> sent</span>{% endif %}
                   {% if previous.get('top_fit_score') %}<span>best <b>{{ previous.get('top_fit_score') }}</b></span>{% endif %}
-                  {% if previous.get('held_back_total') %}<span><b>{{ previous.get('held_back_total') }}</b> held back</span>{% endif %}
+                  {% if previous.get('held_back_total') %}
+                  <span>
+                    <b>{{ previous.get('held_back_total') }}</b> filtered
+                    <button
+                      type="button"
+                      class="pqx-tooltip"
+                      title="Filtered means matches were found but stayed outside the shortlist because of your current rules, missing evidence, or alert limits."
+                      aria-label="Filtered means matches were found but stayed outside the shortlist because of your current rules, missing evidence, or alert limits."
+                      aria-expanded="false"
+                      data-tooltip-trigger
+                    >?</button>
+                  </span>
+                  {% endif %}
                 </div>
                 {% if previous.get('status_note') %}<div class="pqx-note">{{ previous.get('status_note') }}</div>{% endif %}
               </div>
@@ -3256,6 +3408,59 @@
                 <button class="pqx-scope-lightbox-close" type="button" data-pqx-scope-lightbox-close aria-label="Close preview">×</button>
               </div>
               <img class="pqx-scope-lightbox-image" data-pqx-scope-lightbox-image src="" alt="">
+            </div>
+          </dialog>
+          <dialog class="pqx-filtered-dialog" data-pqx-filtered-dialog>
+            <div class="pqx-filtered-dialog-card">
+              <div class="pqx-filtered-dialog-head">
+                <div>
+                  <strong>Why more homes were filtered</strong>
+                  <div class="pqx-note">These are the next blockers after location. Relax one deliberately and restart the search.</div>
+                </div>
+                <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close filtered rules">×</button>
+              </div>
+              <div class="pqx-filtered-dialog-grid">
+                {% for row in suppression_rows %}
+                {% if row.get('title') != 'Outside selected area' %}
+                <article class="pqx-filtered-dialog-rule">
+                  <strong>{{ row.get('title') }}</strong>
+                  <span class="pqx-note">{{ row.get('detail') }}</span>
+                  <span class="pqx-small">{{ row.get('tag') }}</span>
+                </article>
+                {% endif %}
+                {% endfor %}
+              </div>
+              <div class="pqx-filtered-dialog-actions">
+                {% for row in counterfactual_rows %}
+                {% if row.get('tag') != 'Area' %}
+                <div class="pqx-filtered-dialog-rule">
+                  <strong>{{ row.get('title') }}</strong>
+                  <span class="pqx-note">{{ row.get('detail') }}</span>
+                  <div class="pqx-actions">
+                    <button
+                      class="pqx-button primary"
+                      type="button"
+                      data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}'
+                    >{{ row.get('action_label') or 'Relax and restart' }}</button>
+                    {% if row.get('affected_total') %}
+                    <span class="pqx-filtered-dialog-estimate">
+                      +{{ row.get('affected_total') }} more
+                      <button
+                        type="button"
+                        class="pqx-tooltip"
+                        title="Estimated homes currently blocked mainly by this rule. The actual shortlist gain can be lower after deduplication and availability checks."
+                        aria-label="Estimated homes currently blocked mainly by this rule. The actual shortlist gain can be lower after deduplication and availability checks."
+                        aria-expanded="false"
+                        data-tooltip-trigger
+                      >?</button>
+                    </span>
+                    {% endif %}
+                  </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+              </div>
+              <div class="pqx-note" data-pqx-counterfactual-status></div>
             </div>
           </dialog>
           {% if recent_packets and surface_mode != 'search' %}
@@ -3741,7 +3946,6 @@
             <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
           </div>
           </div>
-          {{ search_guard_panel(workbench.get('search_guard_rows') or []) }}
           {{ suppression_panel(workbench.get('suppression_rows') or []) }}
           {% set ranked_candidates = run_summary.get('ranked_candidates') or [] %}
           {% if ranked_candidates %}
@@ -3826,7 +4030,11 @@
               <span>Period <b>{{ notification_budget.get('period') or property_meta.get('search_agent', {}).get('notification_period_label') or 'day' }}</b></span>
               <span>Already sent <b>{{ notification_budget.get('sent_in_window') or 0 }}</b></span>
               <span>Remaining <b>{{ notification_budget.get('remaining_after_run') if notification_budget.get('remaining_after_run') is not none else notification_budget.get('remaining') or 0 }}</b></span>
-              <span>Held back <b>{{ run_summary.get('notification_budget_suppressed_total') or 0 }}</b></span>
+              <span>
+                <button class="pqx-filtered-link" type="button" data-pqx-filtered-open>
+                  Filtered <b>{{ run_summary.get('notification_budget_suppressed_total') or 0 }}</b>
+                </button>
+              </span>
             </div>
             <div class="pqx-note">When a search finds more homes than the alert budget allows, PropertyQuarry ranks the candidates and sends only the best fits. Lower-ranked candidates stay in the review table.</div>
             {% if run_sources %}
@@ -3836,7 +4044,7 @@
               {% if suppressed %}
               <article class="pqx-source-card">
                 <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
-                <span class="pqx-note">{{ suppressed }} candidate{{ '' if suppressed == 1 else 's' }} held back after ranking because the alert budget was full.</span>
+                <span class="pqx-note">{{ suppressed }} candidate{{ '' if suppressed == 1 else 's' }} filtered out after ranking because the alert budget was full.</span>
               </article>
               {% endif %}
               {% endfor %}
@@ -3952,7 +4160,10 @@
               <h2>Best homes first</h2>
               <div class="pqx-note">Ranked from strongest fit to weakest fit in this run.</div>
             </div>
-            <span class="pqx-pill good">{{ results|length }} ranked</span>
+            <div class="pqx-actions">
+              <button class="pqx-button" type="button" data-fliplink-shortlist-share>Share results</button>
+              <span class="pqx-pill good">{{ results|length }} ranked</span>
+            </div>
           </div>
           <div class="pqx-compare-strip">
             {% for candidate in results[:4] %}
@@ -4026,10 +4237,17 @@
                 <h1 data-pw-title>{{ selected.get('title') or 'Select a property' }}</h1>
                 <span data-pw-source>{{ selected.get('source_label') or 'No candidate selected' }}{% if selected.get('location_label') %} · {{ selected.get('location_label') }}{% endif %}</span>
               </div>
+              <div class="pqx-result-facts" style="margin: 12px 0 0;" data-pw-summary-facts>
+                {% if selected.get('price_display') %}<span class="pqx-result-fact"><strong>{{ selected.get('price_display') }}</strong></span>{% endif %}
+                {% if selected.get('costs_display') %}<span class="pqx-result-fact">{{ selected.get('costs_display') }}</span>{% endif %}
+                {% if selected.get('layout_display') %}<span class="pqx-result-fact">{{ selected.get('layout_display') }}</span>{% endif %}
+                {% if selected.get('location_label') %}<span class="pqx-result-fact">{{ selected.get('location_label') }}</span>{% endif %}
+              </div>
               <div class="pqx-context-actions" data-pw-actions>
                 {% if selected.get('tour', {}).get('url') %}<a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}">Open 360</a>{% endif %}
                 {% if selected.get('packet_url') %}<a class="pqx-link-button" href="{{ selected.get('packet_url') }}">Review details</a>{% endif %}
                 <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}">Create share review</button>
+                <button class="pqx-button" type="button" data-fliplink-shortlist-share>Share results</button>
                 {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}">Source</a>{% endif %}
               </div>
             </div>
@@ -4256,7 +4474,6 @@
             </div>
             <span class="pqx-pill good">{{ run.get('status_label') or 'Completed' }}</span>
           </div>
-          {{ search_guard_panel(workbench.get('search_guard_rows') or []) }}
           {{ suppression_panel(workbench.get('suppression_rows') or []) }}
           {% set notification_budget = run_summary.get('notification_budget') or {} %}
           <details class="pqx-card" data-pqx-notification-audit>
@@ -4266,7 +4483,11 @@
               <span>Period <b>{{ notification_budget.get('period') or property_meta.get('search_agent', {}).get('notification_period_label') or 'day' }}</b></span>
               <span>Already sent <b>{{ notification_budget.get('sent_in_window') or 0 }}</b></span>
               <span>Remaining <b>{{ notification_budget.get('remaining_after_run') if notification_budget.get('remaining_after_run') is not none else notification_budget.get('remaining') or 0 }}</b></span>
-              <span>Held back <b>{{ run_summary.get('notification_budget_suppressed_total') or 0 }}</b></span>
+              <span>
+                <button class="pqx-filtered-link" type="button" data-pqx-filtered-open>
+                  Filtered <b>{{ run_summary.get('notification_budget_suppressed_total') or 0 }}</b>
+                </button>
+              </span>
             </div>
             <div class="pqx-note">When a search finds more homes than the alert budget allows, PropertyQuarry ranks the candidates and sends only the best fits. Lower-ranked candidates stay in the review table.</div>
             {% if run_sources %}
@@ -4276,7 +4497,7 @@
               {% if suppressed %}
               <article class="pqx-source-card">
                 <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
-                <span class="pqx-note">{{ suppressed }} candidate{{ '' if suppressed == 1 else 's' }} held back after ranking because the alert budget was full.</span>
+                <span class="pqx-note">{{ suppressed }} candidate{{ '' if suppressed == 1 else 's' }} filtered out after ranking because the alert budget was full.</span>
               </article>
               {% endif %}
               {% endfor %}
@@ -4296,7 +4517,7 @@
                     {% endif %}
                   </span>
                   <span class="pqx-result-summary">
-                    <span class="pqx-result-kicker"><span class="pqx-rank">{{ candidate.get('rank') }}</span> Match</span>
+                    <span class="pqx-result-kicker"><span class="pqx-rank">#{{ candidate.get('rank') }}</span> {{ candidate.get('source_label') or 'Source' }}</span>
                     <span class="pqx-result-title">{{ candidate.get('title') }}</span>
                     <span class="pqx-meta">{{ candidate.get('source_label') }}{% if candidate.get('location_label') %} · {{ candidate.get('location_label') }}{% endif %}</span>
                   </span>
@@ -4506,6 +4727,7 @@
         tour.url ? `<a class="pqx-link-button primary" href="${escapeHtml(tour.url)}">Open 360</a>` : '',
         candidate.packet_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.packet_url)}">Review details</a>` : '',
         `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${escapeHtml(candidate.candidate_ref || '')}">Create share review</button>`,
+        `<button class="pqx-button" type="button" data-fliplink-shortlist-share>Share results</button>`,
         candidate.source_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.source_url)}">Source</a>` : '',
       ].filter(Boolean).join('');
     };
@@ -4557,6 +4779,50 @@
       candidate?.title ||
       'property'
     ).trim() || 'property';
+    const absoluteUrl = (value) => {
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      try {
+        return new URL(raw, window.location.origin).toString();
+      } catch (_error) {
+        return raw;
+      }
+    };
+    const shortlistSharePayload = () => {
+      const selectedCandidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+      if (!selectedCandidate) return null;
+      const shareRows = candidates.slice(0, 10).map((candidate, index) => ({
+        title: String(candidate.title || `Match ${index + 1}`).trim(),
+        property_title: String(candidate.title || `Match ${index + 1}`).trim(),
+        price: candidate.price_value || candidate.price_display || '',
+        rooms: candidate.rooms_value || '',
+        area_sqm: candidate.area_value || '',
+        recommendation: String(candidate.recommendation || '').trim(),
+        compare_reason: String(candidate.compare_reason || candidate.fit_summary || '').trim(),
+        fit_summary: String(candidate.fit_summary || '').trim(),
+        property_url: absoluteUrl(candidate.source_url || candidate.property_url || ''),
+        source_url: absoluteUrl(candidate.source_url || candidate.property_url || ''),
+        review_url: absoluteUrl(candidate.packet_url || candidate.review_url || ''),
+        tour_url: absoluteUrl((candidate.tour && candidate.tour.url) || candidate.tour_url || ''),
+        map_url: absoluteUrl(candidate.map_url || ''),
+        source_label: String(candidate.source_label || '').trim(),
+      }));
+      const regionLabel = String(data?.brief?.region || data?.brief?.country || 'Search').trim();
+      const modeLabel = String(data?.brief?.mode || '').trim();
+      const title = [regionLabel, modeLabel, 'shortlist'].filter(Boolean).join(' ');
+      return {
+        ...selectedCandidate,
+        title,
+        property_title: title,
+        summary: `Shareable shortlist from PropertyQuarry with ${shareRows.length} ranked homes.`,
+        fit_summary: String(selectedCandidate.fit_summary || `${shareRows.length} ranked homes ready to review.`).trim(),
+        comparison_candidates: shareRows,
+        comparison_rows: shareRows,
+        review_url: absoluteUrl(window.location.href),
+        map_url: absoluteUrl(selectedCandidate.map_url || ''),
+        next_action: 'Open the shared shortlist and review the top homes first.',
+      };
+    };
     const saveCounterfactualBrief = async (adjustments) => {
       const endpoint = String(meta.preferences_endpoint || data.endpoints?.preferences || '').trim();
       if (!endpoint) throw new Error('Brief endpoint missing.');
@@ -4571,6 +4837,37 @@
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not apply the broader search.'));
       return nextPreferences;
+    };
+    const startSearchWithPreferences = async (nextPreferences, statusNode) => {
+      const startEndpoint = String(meta.start_endpoint || data.endpoints?.start || '').trim();
+      if (!startEndpoint) throw new Error('Search endpoint missing.');
+      const selectedPlatforms = Array.isArray(nextPreferences?.selected_platforms) && nextPreferences.selected_platforms.length
+        ? nextPreferences.selected_platforms
+        : (Array.isArray(data?.selected_platforms) ? data.selected_platforms : []);
+      const payload = {
+        selected_platforms: selectedPlatforms,
+        property_preferences: nextPreferences || {},
+        force_refresh: false,
+        max_results_per_source: Number(nextPreferences?.max_results_per_source || 0) || null,
+      };
+      const runResponse = await fetch(startEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const runBody = await runResponse.json().catch(() => ({}));
+      if (!runResponse.ok) {
+        throw new Error(readableErrorDetail(runBody.detail || runBody.error || runBody.message || runBody, 'Could not restart property search.'));
+      }
+      if (statusNode) statusNode.textContent = 'Restarting search...';
+      if (runBody.run_id) {
+        window.location.href = `/app/properties?run_id=${encodeURIComponent(runBody.run_id)}`;
+        return;
+      }
+      if (runBody.status_url) {
+        await pollRun(String(runBody.status_url || ''));
+      }
     };
     const recordDecisionState = async (candidate, decisionState, statusNode) => {
       if (!candidate) return;
@@ -4620,6 +4917,37 @@
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error, 'Could not create the share review.'));
+        window.location.href = '/app/properties/packets';
+      } catch (error) {
+        if (button) {
+          button.disabled = false;
+          button.textContent = String(error?.message || original);
+          window.setTimeout(() => { button.textContent = original; }, 4200);
+        }
+      }
+    };
+    const createShortlistSharePacket = async (button) => {
+      const payload = shortlistSharePayload();
+      if (!payload) return;
+      const original = button?.textContent || 'Share results';
+      if (button) {
+        button.disabled = true;
+        button.textContent = 'Creating shortlist...';
+      }
+      try {
+        const response = await fetch(`/app/api/properties/${encodeURIComponent(candidatePropertyRef(payload))}/packets/render`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            packet_kind: 'shortlist_brochure',
+            privacy_mode: 'family_review',
+            fliplink_format: 'flipbook_3d',
+            search_run_id: String(data.run?.run_id || meta.run_id || ''),
+            property_payload: payload,
+          }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(body.detail || body.error, 'Could not create the shortlist packet.'));
         window.location.href = '/app/properties/packets';
       } catch (error) {
         if (button) {
@@ -5079,8 +5407,17 @@
       });
       const title = root.querySelector('[data-pw-title]');
       const source = root.querySelector('[data-pw-source]');
+      const summaryFacts = root.querySelector('[data-pw-summary-facts]');
       if (title) title.textContent = candidate.title || 'Selected property';
       if (source) source.textContent = [candidate.source_label, candidate.location_label].filter(Boolean).join(' · ') || 'PropertyQuarry candidate';
+      if (summaryFacts) {
+        summaryFacts.innerHTML = [
+          candidate.price_display ? `<span class="pqx-result-fact"><strong>${escapeHtml(candidate.price_display)}</strong></span>` : '',
+          candidate.costs_display ? `<span class="pqx-result-fact">${escapeHtml(candidate.costs_display)}</span>` : '',
+          candidate.layout_display ? `<span class="pqx-result-fact">${escapeHtml(candidate.layout_display)}</span>` : '',
+          candidate.location_label ? `<span class="pqx-result-fact">${escapeHtml(candidate.location_label)}</span>` : '',
+        ].filter(Boolean).join('');
+      }
       const tourNode = root.querySelector('[data-pw-tour]');
       const tour = candidate.tour || {};
       if (tourNode && tour.embed_url) {
@@ -5199,6 +5536,13 @@
       event.stopPropagation();
       const ref = button.getAttribute('data-candidate-ref') || root.querySelector('[aria-selected="true"][data-candidate-ref]')?.getAttribute('data-candidate-ref') || '';
       createFlipLinkPacket(candidateByRef.get(ref) || candidates[0], button);
+    });
+    root.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('[data-fliplink-shortlist-share]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      createShortlistSharePacket(button);
     });
     root.addEventListener('click', (event) => {
       const agentButton = event.target?.closest?.('[data-pw-agent-question-id]');
@@ -6442,9 +6786,9 @@
       next?.addEventListener('click', () => applyStep(current + 1));
       applyStep(0);
     };
+    bindTooltips(root);
     if (form) {
       bindRangeOutputs(form);
-      bindTooltips(form);
       initWizard(form);
       const countryField = form.querySelector('select[name="country_code"]');
       const regionField = form.querySelector('select[name="region_code"]');
@@ -7121,12 +7465,20 @@
     const scopeLightboxImage = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-image]');
     const scopeLightboxTitle = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-title]');
     const scopeLightboxCaption = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-caption]');
+    const filteredDialog = root.querySelector('[data-pqx-filtered-dialog]');
     const closeScopeLightbox = () => {
       if (scopeLightbox && typeof scopeLightbox.close === 'function' && scopeLightbox.open) scopeLightbox.close();
     };
+    const closeFilteredDialog = () => {
+      if (filteredDialog && typeof filteredDialog.close === 'function' && filteredDialog.open) filteredDialog.close();
+    };
     scopeLightbox?.querySelector('[data-pqx-scope-lightbox-close]')?.addEventListener('click', closeScopeLightbox);
+    filteredDialog?.querySelector('[data-pqx-filtered-close]')?.addEventListener('click', closeFilteredDialog);
     scopeLightbox?.addEventListener('click', (event) => {
       if (event.target === scopeLightbox) closeScopeLightbox();
+    });
+    filteredDialog?.addEventListener('click', (event) => {
+      if (event.target === filteredDialog) closeFilteredDialog();
     });
     root.addEventListener('click', (event) => {
       const button = event.target?.closest?.('[data-pqx-scope-open]');
@@ -7144,21 +7496,26 @@
       if (scopeLightboxCaption) scopeLightboxCaption.textContent = caption;
       if (typeof scopeLightbox.showModal === 'function') scopeLightbox.showModal();
     });
+    root.querySelectorAll('[data-pqx-filtered-open]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (filteredDialog && typeof filteredDialog.showModal === 'function') filteredDialog.showModal();
+      });
+    });
     root.querySelectorAll('[data-pqx-counterfactual]').forEach((button) => {
       button.addEventListener('click', async () => {
         let adjustments = {};
+        const localStatusNode = button.closest('[data-pqx-empty-results], [data-pqx-filtered-dialog-card]')?.querySelector('[data-pqx-counterfactual-status]') || counterfactualStatusNode;
         try {
           adjustments = JSON.parse(String(button.getAttribute('data-pqx-counterfactual') || '{}'));
         } catch (_error) {
           adjustments = {};
         }
-        if (counterfactualStatusNode) counterfactualStatusNode.textContent = 'Applying broader search...';
+        if (localStatusNode) localStatusNode.textContent = 'Applying broader search...';
         try {
-          await saveCounterfactualBrief(adjustments);
-          if (counterfactualStatusNode) counterfactualStatusNode.textContent = 'Broader search saved. Reopening results...';
-          window.location.href = '/app/properties';
+          const nextPreferences = await saveCounterfactualBrief(adjustments);
+          await startSearchWithPreferences(nextPreferences, localStatusNode);
         } catch (error) {
-          if (counterfactualStatusNode) counterfactualStatusNode.textContent = error instanceof Error ? error.message : 'Could not apply the broader search.';
+          if (localStatusNode) localStatusNode.textContent = error instanceof Error ? error.message : 'Could not apply the broader search.';
         }
       });
     });

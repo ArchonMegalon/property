@@ -48,6 +48,23 @@ def _normalize_property_type_values(value: object) -> list[str]:
     return values
 
 
+def _clean_property_candidate_copy(value: object) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    noisy_exact = {
+        "Provider-ranked fallback candidate kept because strict personal-fit scoring produced no shortlist.",
+    }
+    if text in noisy_exact:
+        return ""
+    replacements = {
+        "Provider-ranked fallback candidate kept because strict personal-fit scoring produced no shortlist.": "Fallback candidate because no stronger fit cleared the shortlist.",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text.strip()
+
+
 def _merge_option_catalog(
     base: list[dict[str, str]],
     selected_values: list[str],
@@ -210,6 +227,7 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
     market_label = " · ".join(market_label_parts) or "Search area"
 
     shapes: list[str] = []
+    district_labels: list[str] = []
     selected_count = 0
     for row in layout_rows:
         value = str(row.get("value") or "").strip().lower()
@@ -221,12 +239,36 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
         width = float(row.get("width") or 16.0)
         height = float(row.get("height") or 12.0)
         radius = min(7.0, max(3.0, min(width, height) * 0.22))
-        fill = "#d44f4f" if selected else "#d8d3c8"
+        digest = hashlib.sha1(str(row.get("label") or row.get("value") or "").strip().lower().encode("utf-8")).digest()
+        fill = f"#{170 + (digest[0] % 48):02x}{52 + (digest[1] % 40):02x}{58 + (digest[2] % 34):02x}" if selected else "#d8d3c8"
         fill_opacity = "0.44" if selected else "0.62"
         stroke = "#f2a3a3" if selected else "#b9b1a1"
         stroke_width = "1.8" if selected else "1.1"
-        shapes.append(
-            f'<rect x="{x:.1f}" y="{y:.1f}" width="{width:.1f}" height="{height:.1f}" rx="{radius:.1f}" fill="{fill}" fill-opacity="{fill_opacity}" stroke="{stroke}" stroke-width="{stroke_width}" />'
+        if normalized_country == "AT" and normalized_region == "vienna":
+            inset_left = 1.6 + (digest[0] % 5) * 0.7
+            inset_top = 1.2 + (digest[1] % 4) * 0.6
+            inset_right = 1.8 + (digest[2] % 5) * 0.65
+            inset_bottom = 1.4 + (digest[3] % 4) * 0.55
+            path = (
+                f"M {x + inset_left:.1f} {y + inset_top:.1f} "
+                f"L {x + (width * 0.62):.1f} {y + 0.8:.1f} "
+                f"L {x + width - inset_right:.1f} {y + (height * 0.18):.1f} "
+                f"L {x + width - 0.8:.1f} {y + (height * 0.55):.1f} "
+                f"L {x + width - inset_right * 0.75:.1f} {y + height - inset_bottom:.1f} "
+                f"L {x + (width * 0.34):.1f} {y + height - 0.6:.1f} "
+                f"L {x + 0.7:.1f} {y + (height * 0.7):.1f} Z"
+            )
+            shapes.append(
+                f'<path d="{path}" fill="{fill}" fill-opacity="{fill_opacity}" stroke="{stroke}" stroke-width="{stroke_width}" stroke-linejoin="round" />'
+            )
+        else:
+            shapes.append(
+                f'<rect x="{x:.1f}" y="{y:.1f}" width="{width:.1f}" height="{height:.1f}" rx="{radius:.1f}" fill="{fill}" fill-opacity="{fill_opacity}" stroke="{stroke}" stroke-width="{stroke_width}" />'
+            )
+        label_text = html.escape(str(row.get("label") or row.get("value") or "").strip().split(" ", 1)[0][:8])
+        font_size = max(8.0, min(12.0, min(width, height) * 0.38))
+        district_labels.append(
+            f'<text x="{x + (width / 2):.1f}" y="{y + (height / 2) + (font_size * 0.33):.1f}" fill="{"#7C2020" if selected else "#5D574D"}" font-size="{font_size:.1f}" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-weight="700" opacity="0.86">{label_text}</text>'
         )
 
     custom_marker = ""
@@ -237,33 +279,68 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
             '<circle cx="0" cy="0" r="3.5" fill="#d44f4f" />'
             "</g>"
         )
-    context_chip = f"{selected_count} area{'s' if selected_count != 1 else ''}" if selected_count else "Custom area"
-    focus_chip = selected_labels[0] if len(selected_labels) == 1 else market_label.split(" · ")[0]
-    context_text = html.escape(context_chip)
-    focus_text = html.escape(focus_chip[:22])
+    city_boundary = '<path d="M20 20 L276 20 L276 140 L20 140 Z" stroke="#9E9689" stroke-width="2.1" stroke-linejoin="round" fill="none" opacity="0.72"/>'
+    if normalized_country == "AT" and normalized_region == "vienna":
+        city_boundary = (
+            '<path d="M26 22 C52 18, 76 22, 98 18 C132 14, 164 20, 198 18 C226 16, 252 22, 272 34 '
+            'L282 54 L278 84 L284 108 L274 132 L250 142 L212 140 L178 146 L142 142 L108 148 '
+            'L74 144 L44 136 L24 118 L18 92 L20 64 L14 42 Z" '
+            'stroke="#908878" stroke-width="2.3" stroke-linejoin="round" fill="none" opacity="0.82"/>'
+        )
+    road_lines = [
+        '<path d="M24 40 C60 48, 82 44, 110 58 C138 72, 168 70, 204 60 C232 52, 252 54, 278 48" stroke="#D8D2C7" stroke-width="5" stroke-linecap="round" opacity="0.88"/>',
+        '<path d="M20 96 C44 88, 70 90, 96 82 C132 70, 162 82, 194 94 C226 106, 252 106, 280 94" stroke="#DDD6CB" stroke-width="4.2" stroke-linecap="round" opacity="0.84"/>',
+        '<path d="M52 16 C60 42, 62 70, 60 142" stroke="#E6E0D6" stroke-width="2.4" stroke-linecap="round" opacity="0.78"/>',
+        '<path d="M108 14 C114 36, 118 68, 116 144" stroke="#E3DDD2" stroke-width="2.1" stroke-linecap="round" opacity="0.74"/>',
+        '<path d="M176 18 C174 42, 178 74, 184 144" stroke="#E3DDD2" stroke-width="2.2" stroke-linecap="round" opacity="0.76"/>',
+        '<path d="M234 20 C228 48, 232 82, 246 140" stroke="#E6E0D6" stroke-width="2.0" stroke-linecap="round" opacity="0.72"/>',
+    ]
+    park_patches = [
+        '<path d="M28 54 C42 42, 58 42, 66 56 C72 68, 60 82, 42 82 C28 80, 20 66, 28 54 Z" fill="#D9E3D2" opacity="0.78"/>',
+        '<path d="M206 104 C220 92, 244 94, 252 110 C258 124, 244 136, 224 134 C208 130, 198 118, 206 104 Z" fill="#D7E1CF" opacity="0.72"/>',
+    ]
+    water_layer = ''
+    if normalized_country == "AT" and normalized_region == "vienna":
+        water_layer = (
+            '<path d="M214 12 C226 30, 236 44, 238 64 C240 82, 234 100, 238 124 C242 138, 252 148, 260 156" '
+            'stroke="#9FC7DA" stroke-width="18" stroke-linecap="round" opacity="0.6"/>'
+            '<path d="M196 18 C208 34, 214 50, 214 68 C214 84, 208 102, 210 124 C212 136, 218 146, 224 154" '
+            'stroke="#C8DEE8" stroke-width="8" stroke-linecap="round" opacity="0.86"/>'
+        )
+    district_rows = [
+        {
+            "label": str(row.get("label") or row.get("value") or "").strip(),
+            "selected": bool(str(row.get("value") or "").strip().lower() in selected_lookup),
+            "left_pct": round((float(row.get("x") or 0.0) / 296.0) * 100.0, 3),
+            "top_pct": round((float(row.get("y") or 0.0) / 160.0) * 100.0, 3),
+            "width_pct": round((float(row.get("width") or 0.0) / 296.0) * 100.0, 3),
+            "height_pct": round((float(row.get("height") or 0.0) / 160.0) * 100.0, 3),
+        }
+        for row in layout_rows
+        if str(row.get("label") or row.get("value") or "").strip()
+    ]
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="184" viewBox="0 0 320 184" fill="none">'
         '<defs>'
         '<linearGradient id="bg" x1="18" y1="16" x2="280" y2="168" gradientUnits="userSpaceOnUse">'
-        '<stop stop-color="#F5F0E5"/>'
-        '<stop offset="1" stop-color="#E4DDD0"/>'
+        '<stop stop-color="#F8F6F0"/>'
+        '<stop offset="1" stop-color="#ECE6DA"/>'
         '</linearGradient>'
         '<filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">'
         '<feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#2D2418" flood-opacity="0.16"/>'
         '</filter>'
         '</defs>'
-        '<rect width="320" height="184" rx="18" fill="#1E1A15"/>'
+        '<rect width="320" height="184" rx="18" fill="#E7E2D8"/>'
         '<g transform="translate(12 12)" filter="url(#shadow)">'
         '<rect width="296" height="160" rx="14" fill="url(#bg)"/>'
-        '<path d="M12 126C48 92 76 98 114 72C142 53 182 54 214 38C239 25 264 28 284 18" stroke="#CFC6B7" stroke-width="5" stroke-linecap="round" opacity="0.38"/>'
-        '<path d="M18 46C48 62 72 58 96 70C127 86 154 96 186 96C225 96 249 86 278 74" stroke="#D8D0C2" stroke-width="3" stroke-linecap="round" opacity="0.55"/>'
-        '<path d="M238 18C258 36 274 48 286 82" stroke="#BED4DF" stroke-width="12" stroke-linecap="round" opacity="0.34"/>'
+        '<rect x="0.5" y="0.5" width="295" height="159" rx="14" fill="none" stroke="#D4CCBE" stroke-width="1"/>'
+        f'{"".join(park_patches)}'
+        f'{water_layer}'
+        f'{"".join(road_lines)}'
+        f'{city_boundary}'
         f'{"".join(shapes)}'
+        f'{"".join(district_labels)}'
         f"{custom_marker}"
-        '<rect x="14" y="14" width="108" height="28" rx="14" fill="#FFFBF2" fill-opacity="0.92"/>'
-        f'<text x="28" y="32" fill="#3F362A" font-size="13" font-family="Inter, Arial, sans-serif" font-weight="700">{context_text}</text>'
-        '<rect x="172" y="118" width="110" height="28" rx="14" fill="#261E18" fill-opacity="0.84"/>'
-        f'<text x="186" y="136" fill="#FFF8EC" font-size="13" font-family="Inter, Arial, sans-serif" font-weight="700">{focus_text}</text>'
         "</g>"
         "</svg>"
     )
@@ -271,8 +348,9 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
         "image_url": f"data:image/svg+xml;utf8,{urllib.parse.quote(svg, safe='/:;,+-=()%')}",
         "alt": f"Search area preview for {normalized_query or market_label}",
         "summary": ", ".join(selected_labels[:2]) if selected_labels else (normalized_query or market_label),
-        "count_label": context_chip,
+        "count_label": "",
         "market_label": market_label,
+        "district_rows": district_rows,
     }
 
 
@@ -871,7 +949,7 @@ def _property_suppression_rows(
 ) -> list[dict[str, str]]:
     counters = {
         "Outside selected area": 0,
-        "Pending layout proof": 0,
+        "Missing floorplan evidence": 0,
         "Below fit threshold": 0,
         "Wrong property type": 0,
         "Outside area/size rule": 0,
@@ -882,7 +960,7 @@ def _property_suppression_rows(
     source_labels: dict[str, set[str]] = {key: set() for key in counters}
     field_map = (
         ("Outside selected area", "location_mismatch_candidate_total"),
-        ("Pending layout proof", "filtered_floorplan_total"),
+        ("Missing floorplan evidence", "filtered_floorplan_total"),
         ("Below fit threshold", "filtered_low_fit_total"),
         ("Wrong property type", "filtered_property_type_total"),
         ("Outside area/size rule", "filtered_area_total"),
@@ -908,7 +986,7 @@ def _property_suppression_rows(
         counters["Alert budget"] = summary_budget
     action_map = {
         "Outside selected area": "Keep suppressed unless you widen the target area.",
-        "Pending layout proof": "These are not invalid. PropertyQuarry is still looking for floorplans in photos, PDFs, downloads, and 360 media.",
+        "Missing floorplan evidence": "These are not invalid. PropertyQuarry is still looking for floorplans in photos, PDFs, downloads, and 360 media.",
         "Below fit threshold": "Lower the fit threshold only for a broader discovery run.",
         "Wrong property type": "Change property category if these should be included.",
         "Outside area/size rule": "Relax area limits only after reviewing the near-miss table.",
@@ -924,11 +1002,11 @@ def _property_suppression_rows(
         rows.append(
             {
                 "title": label,
-                "detail": f"{total} candidate{' was' if total == 1 else 's were'} held back. {action_map[label]}",
+                "detail": f"{total} candidate{' was' if total == 1 else 's were'} filtered out. {action_map[label]}",
                 "tag": providers or "Search rule",
                 "action_label": {
                     "Outside selected area": "Review area",
-                    "Pending layout proof": "Run layout recovery",
+                    "Missing floorplan evidence": "Recover floorplans",
                     "Below fit threshold": "Show near misses",
                     "Wrong property type": "Edit category",
                     "Outside area/size rule": "Relax size",
@@ -1114,8 +1192,21 @@ def _property_counterfactual_rows(
     provider_options: list[dict[str, object]],
     current_platform_cap: int,
 ) -> list[dict[str, object]]:
+    def _sanitize_counterfactual_row(row: dict[str, object]) -> dict[str, object]:
+        item = dict(row)
+        title = str(item.get("title") or "").strip()
+        detail = str(item.get("detail") or "").strip()
+        action_label = str(item.get("action_label") or "").strip()
+        if title.lower() == "pending layout proof":
+            item["title"] = "Missing floorplan evidence"
+            if detail:
+                item["detail"] = detail.replace("layout proof", "floorplan evidence")
+            if action_label.lower() == "run layout recovery":
+                item["action_label"] = "Recover floorplans"
+        return item
+
     rows: list[dict[str, object]] = [
-        dict(row)
+        _sanitize_counterfactual_row(dict(row))
         for row in list(run_summary.get("search_broaden_suggestions") or [])
         if isinstance(row, dict) and str(row.get("title") or "").strip()
     ]
@@ -1143,7 +1234,21 @@ def _property_counterfactual_rows(
         except Exception:
             return False
 
+    def _sum_source_total(field_name: str) -> int:
+        total = 0
+        for source in list(run_summary.get("sources") or []):
+            if not isinstance(source, dict):
+                continue
+            try:
+                total += max(0, int(float(source.get(field_name) or 0)))
+            except Exception:
+                continue
+        return total
+
     current_score = _positive_int(preferences.get("min_match_score"), 0)
+    low_fit_total = _sum_source_total("filtered_low_fit_total")
+    outside_area_or_size_total = _sum_source_total("filtered_area_total")
+    outside_selected_area_total = _sum_source_total("location_mismatch_candidate_total")
     if current_score > 35:
         next_score = 35 if current_score <= 45 else max(35, current_score - 10)
         rows.append(
@@ -1153,6 +1258,7 @@ def _property_counterfactual_rows(
                 "tag": "Threshold",
                 "action_label": f"Apply {next_score}/80",
                 "adjustments": {"min_match_score": next_score},
+                "affected_total": low_fit_total,
             }
         )
 
@@ -1161,10 +1267,11 @@ def _property_counterfactual_rows(
         rows.append(
             {
                 "title": "Try a discovery run without requiring layout proof",
-                "detail": f"{filtered_floorplan_total} listing(s) were held back because layout proof was not verified yet. Use this only to inspect the wider market, then restore the requirement.",
+                "detail": f"{filtered_floorplan_total} listing(s) were filtered out because layout proof was not verified yet. Use this only to inspect the wider market, then restore the requirement.",
                 "tag": "Research",
                 "action_label": "Run discovery pass",
                 "adjustments": {"require_floorplan": False},
+                "affected_total": filtered_floorplan_total,
             }
         )
 
@@ -1178,6 +1285,7 @@ def _property_counterfactual_rows(
                 "tag": "Area",
                 "action_label": "Use all Vienna",
                 "adjustments": {"all_of_vienna": True, "location_query": "Vienna", "custom_location_query": ""},
+                "affected_total": outside_selected_area_total,
             }
         )
 
@@ -1203,6 +1311,7 @@ def _property_counterfactual_rows(
                 "tag": "Providers",
                 "action_label": "Use full provider cap",
                 "adjustments": {"selected_platforms": widened_platforms},
+                "affected_total": 0,
             }
         )
 
@@ -1217,6 +1326,7 @@ def _property_counterfactual_rows(
                 "tag": "Budget",
                 "action_label": f"Raise to EUR {next_budget:,}".replace(",", ","),
                 "adjustments": {"max_price_eur": next_budget},
+                "affected_total": outside_area_or_size_total,
             }
         )
 
@@ -1242,6 +1352,7 @@ def _property_counterfactual_rows(
                 "tag": "Alltag",
                 "action_label": "Relax distance caps",
                 "adjustments": relaxed_adjustments,
+                "affected_total": outside_area_or_size_total,
             }
         )
 
@@ -2096,20 +2207,20 @@ def app_section_payload(
                 continue
             title = str(candidate.get("title") or candidate.get("property_url") or "Property candidate").strip() or "Property candidate"
             detail_parts = [
-                str(candidate.get("fit_summary") or "").strip(),
+                _clean_property_candidate_copy(candidate.get("fit_summary") or ""),
                 source_label,
             ]
             match_reasons = [
-                str(item or "").strip()
+                _clean_property_candidate_copy(item)
                 for item in list(candidate.get("match_reasons") or [])
-                if str(item or "").strip()
+                if _clean_property_candidate_copy(item)
             ]
             mismatch_reasons = [
-                str(item or "").strip()
+                _clean_property_candidate_copy(item)
                 for item in list(candidate.get("mismatch_reasons") or [])
-                if str(item or "").strip()
+                if _clean_property_candidate_copy(item)
             ]
-            priority_reason = _candidate_priority_reason(match_reasons, mismatch_reasons, str(candidate.get("fit_summary") or "").strip())
+            priority_reason = _candidate_priority_reason(match_reasons, mismatch_reasons, _clean_property_candidate_copy(candidate.get("fit_summary") or ""))
             compare_reason = str(candidate.get("compare_reason") or "").strip()
             if compare_reason:
                 detail_parts.append(compare_reason)
@@ -4119,11 +4230,6 @@ def property_workspace_payload(
     selected_keywords = _csv_values(property_preferences.get("keywords"))
     selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
     provider_quality_rows = _provider_quality_rows(run_sources, provider_options)
-    search_guard_rows = _property_search_guard_rows(
-        preferences=property_preferences,
-        run_summary=run_summary,
-        source_rows=run_sources,
-    )
     suppression_rows = _property_suppression_rows(
         run_summary=run_summary,
         source_rows=run_sources,
@@ -4603,8 +4709,8 @@ def property_workspace_payload(
                     "detail": f"about {max(1, int(round(float(meters) / 330.0)))} min by bike",
                 }
             )
-        match_reasons = [str(item).strip() for item in list(candidate.get("match_reasons") or []) if str(item).strip()]
-        mismatch_reasons = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
+        match_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("match_reasons") or []) if _clean_property_candidate_copy(item)]
+        mismatch_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("mismatch_reasons") or []) if _clean_property_candidate_copy(item)]
         rows.insert(
             0,
             {
@@ -4639,7 +4745,7 @@ def property_workspace_payload(
         return rows[:6]
 
     def _candidate_objection_rows(candidate: dict[str, object], facts: dict[str, object]) -> list[dict[str, str]]:
-        mismatch_reasons = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
+        mismatch_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("mismatch_reasons") or []) if _clean_property_candidate_copy(item)]
         rows: list[dict[str, str]] = []
         feedback_summary = dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {}
         for reason in mismatch_reasons[:3]:
@@ -4694,7 +4800,7 @@ def property_workspace_payload(
             },
             {
                 "title": "Ranked",
-                "detail": str(candidate.get("fit_summary") or candidate.get("recommendation") or "Candidate ranked for review.").strip(),
+                "detail": _clean_property_candidate_copy(candidate.get("fit_summary") or candidate.get("recommendation") or "Candidate ranked for review."),
                 "tag": "Ranked",
             },
             {
@@ -4924,8 +5030,8 @@ def property_workspace_payload(
         tour_payload = _tour_payload(candidate)
         ooda_rows = _candidate_ooda_rows(candidate, facts)
         risk_payload = _risk_summary(candidate, facts)
-        match_reasons = [str(item).strip() for item in list(candidate.get("match_reasons") or []) if str(item).strip()]
-        mismatch_reasons = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
+        match_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("match_reasons") or []) if _clean_property_candidate_copy(item)]
+        mismatch_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("mismatch_reasons") or []) if _clean_property_candidate_copy(item)]
         provider_quality = dict(candidate.get("provider_quality") or {}) if isinstance(candidate.get("provider_quality"), dict) else {}
         provider_quality_line = " · ".join(
             part
@@ -4961,7 +5067,7 @@ def property_workspace_payload(
                 "layout_verification_label": "verified" if layout_verified else "needs check",
                 "fit_score": fit_score,
                 "fit_label": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(),
-                "fit_summary": str(candidate.get("fit_summary") or "").strip(),
+                "fit_summary": _clean_property_candidate_copy(candidate.get("fit_summary") or ""),
                 "provider_quality": provider_quality,
                 "provider_quality_line": provider_quality_line,
                 "tour": tour_payload,
@@ -5560,7 +5666,7 @@ def property_workspace_payload(
             "hero_kicker": "Search agents",
             "hero_title": str((selected_agent or {}).get("name") or "Edit the searches that keep watching the market."),
             "hero_summary": (
-                f"{str((selected_agent or {}).get('scope_label') or '').strip()} | {str((selected_agent or {}).get('delivery_label') or '').strip()} | {str((selected_agent_latest_run or {}).get('held_back_total') or 0)} held back on the latest finished run."
+                f"{str((selected_agent or {}).get('scope_label') or '').strip()} | {str((selected_agent or {}).get('delivery_label') or '').strip()} | {str((selected_agent_latest_run or {}).get('held_back_total') or 0)} filtered on the latest finished run."
                 if selected_agent
                 else "Each agent owns one saved brief, its allowed message volume, and whether it is active. When more listings fit than the budget allows, PropertyQuarry ranks them and sends only the strongest matches."
             ),
@@ -5593,7 +5699,7 @@ def property_workspace_payload(
                             row_item(
                                 "Latest finished run",
                                 (
-                                    f"Ranked {str((selected_agent_latest_run or {}).get('ranked_total') or 0)} | Sent {str((selected_agent_latest_run or {}).get('sent_total') or 0)} | Held back {str((selected_agent_latest_run or {}).get('held_back_total') or 0)}"
+                                    f"Ranked {str((selected_agent_latest_run or {}).get('ranked_total') or 0)} | Sent {str((selected_agent_latest_run or {}).get('sent_total') or 0)} | Filtered {str((selected_agent_latest_run or {}).get('held_back_total') or 0)}"
                                     if selected_agent_latest_run
                                     else "No finished run for this saved search yet."
                                 ),
@@ -5623,12 +5729,12 @@ def property_workspace_payload(
                 {
                     "eyebrow": "Recent runs",
                     "title": "What changed on the latest sweeps",
-                    "body": "Use finished runs to inspect what was ranked, what left the budget, and what stayed held back behind the guardrails.",
+                    "body": "Use finished runs to inspect what was ranked, what left the budget, and what stayed filtered behind the active rules.",
                     "items": (
                         [
                             {
                                 "title": str(run.get("title") or "Saved search"),
-                                "detail": f"{str(run.get('status_label') or 'Run').strip()} | Ranked {str(run.get('ranked_total') or 0)} | Sent {str(run.get('sent_total') or 0)} | Held back {str(run.get('held_back_total') or 0)}",
+                                "detail": f"{str(run.get('status_label') or 'Run').strip()} | Ranked {str(run.get('ranked_total') or 0)} | Sent {str(run.get('sent_total') or 0)} | Filtered {str(run.get('held_back_total') or 0)}",
                                 "tag": str(run.get("top_fit_score") or 0),
                                 "action_href": str(run.get("href") or ""),
                                 "action_method": "get",
@@ -5895,7 +6001,7 @@ def property_workspace_payload(
         ],
         "previous_search_runs": previous_search_runs,
         "results": workbench_results,
-        "search_guard_rows": search_guard_rows,
+        "search_guard_rows": [],
         "suppression_rows": suppression_rows,
         "provider_quality_rows": provider_quality_rows,
         "delivery_proof_rows": delivery_proof_rows,

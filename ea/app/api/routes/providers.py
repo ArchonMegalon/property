@@ -1524,8 +1524,22 @@ def _fastestvpn_compose_command() -> list[str] | None:
 
 
 def _fastestvpn_on_demand_enabled() -> bool:
-    raw = str(upstream._env("EA_FASTESTVPN_ON_DEMAND_ENABLED") or "1").strip()  # type: ignore[attr-defined]
+    raw = str(upstream._env("EA_FASTESTVPN_ON_DEMAND_ENABLED") or "0").strip()  # type: ignore[attr-defined]
     return raw.lower() not in {"0", "false", "off", "no"}
+
+
+def _fastestvpn_reason_allowed(reason: str) -> bool:
+    normalized_reason = str(reason or "").strip().lower()
+    if not normalized_reason:
+        return False
+    raw = str(
+        upstream._env("EA_FASTESTVPN_ALLOWED_REASON_TOKENS")
+        or "worker_scrape,provider_worker,source_scrape,provider_scrape"
+    ).strip()  # type: ignore[attr-defined]
+    tokens = [str(item or "").strip().lower() for item in raw.split(",") if str(item or "").strip()]
+    if not tokens:
+        return False
+    return any(token in normalized_reason for token in tokens)
 
 
 def _fastestvpn_auto_stop_after_refresh() -> bool:
@@ -1622,7 +1636,7 @@ def _ensure_fastestvpn_services(*, service_names: tuple[str, ...], reason: str) 
         "stdout": "",
         "stderr": "",
     }
-    if not normalized_services or not _fastestvpn_on_demand_enabled():
+    if not normalized_services or not _fastestvpn_on_demand_enabled() or not _fastestvpn_reason_allowed(reason):
         return event
     compose_command = _fastestvpn_compose_command()
     if compose_command is None:
@@ -1700,6 +1714,7 @@ def _managed_fastestvpn_services(*, service_names: tuple[str, ...], reason: str)
         "started_services": [],
         "already_running_services": [],
         "provision_event": {},
+        "rotation_events": [],
         "cleanup_event": {},
     }
     if not normalized_services:
@@ -1709,6 +1724,16 @@ def _managed_fastestvpn_services(*, service_names: tuple[str, ...], reason: str)
     lease["provision_event"] = provision_event
     lease["started_services"] = list(provision_event.get("started_services") or [])
     lease["already_running_services"] = list(provision_event.get("already_running_services") or [])
+    if _fastestvpn_reason_allowed(reason):
+        rotation_events: list[dict[str, object]] = []
+        for service_name in normalized_services:
+            rotation_events.append(
+                _rotate_fastestvpn_proxy_compat(
+                    reason=f"{reason}:rotate_before_use",
+                    service_name=service_name,
+                )
+            )
+        lease["rotation_events"] = rotation_events
     try:
         yield lease
     finally:

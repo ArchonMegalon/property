@@ -537,6 +537,13 @@
   </section>
 
   <aside class="object-panel">
+    {% set sidebar_link_state = namespace(has_links=false) %}
+    {% for item in object_sidebar_rows %}
+      {% if item.get('href') or item.get('action_href') or item.get('secondary_action_href') or item.get('tertiary_action_href') or item.get('quaternary_action_href') %}
+        {% set sidebar_link_state.has_links = true %}
+      {% endif %}
+    {% endfor %}
+    {% if sidebar_link_state.has_links %}
     <div class="object-kicker">{{ object_sidebar_kicker or 'Useful links' }}</div>
     <h2>{{ object_sidebar_title }}</h2>
     <p class="object-copy">{{ object_sidebar_copy }}</p>
@@ -612,6 +619,7 @@
       </div>
       {% endfor %}
     </div>
+    {% endif %}
     {% if object_sidebar_form %}
     <div class="object-kicker" style="margin-top: 18px;">{{ object_sidebar_form.get('eyebrow') or 'Update' }}</div>
     <h2>{{ object_sidebar_form.get('title') or 'Update state' }}</h2>
