@@ -36,7 +36,7 @@ from app.services.property_market_catalog import (
     normalize_language_code,
     normalize_listing_mode,
     normalize_property_platform,
-    normalize_property_type,
+    normalize_property_type_values,
     provider_options,
 )
 from app.services.provider_registry import ProviderRegistryService
@@ -985,6 +985,37 @@ class OnboardingService(AssistantOnboardingService):
                 google_binding=google_binding,
                 connectors=connectors,
             )
+        raw_property_preferences = dict(state.property_search_preferences_json if state is not None else {})
+
+        def _normalize_property_type_for_response(value: object) -> str:
+            if isinstance(value, (list, tuple, set)):
+                normalized = [str(item or "").strip().lower() for item in value if str(item or "").strip()]
+                return ",".join(normalized) if len(normalized) > 1 else (normalized[0] if normalized else "any")
+            text = str(value or "").strip()
+            return text or "any"
+
+        if isinstance(raw_property_preferences.get("property_type"), (list, tuple, set)):
+            raw_property_preferences["property_type"] = _normalize_property_type_for_response(
+                raw_property_preferences.get("property_type")
+            )
+
+        normalized_search_agents: list[dict[str, object]] = []
+        for raw_agent in list(raw_property_preferences.get("search_agents") or ()):
+            if not isinstance(raw_agent, dict):
+                continue
+            agent_copy = dict(raw_agent)
+            if isinstance(agent_copy.get("property_type"), (list, tuple, set)):
+                agent_copy["property_type"] = _normalize_property_type_for_response(agent_copy.get("property_type"))
+            preferences_json = agent_copy.get("preferences_json")
+            if isinstance(preferences_json, dict) and isinstance(preferences_json.get("property_type"), (list, tuple, set)):
+                normalized_preferences_json = dict(preferences_json)
+                normalized_preferences_json["property_type"] = _normalize_property_type_for_response(
+                    normalized_preferences_json.get("property_type")
+                )
+                agent_copy["preferences_json"] = normalized_preferences_json
+            normalized_search_agents.append(agent_copy)
+        if normalized_search_agents:
+            raw_property_preferences["search_agents"] = normalized_search_agents
         preview_privacy = dict(preview.get("privacy_posture") or {})
         preview_privacy["auto_briefs_schedule"] = morning_memo_schedule
         preview["privacy_posture"] = preview_privacy
@@ -999,7 +1030,7 @@ class OnboardingService(AssistantOnboardingService):
                 "timezone": state.timezone if state is not None else "",
             },
             "selected_channels": list(state.selected_channels if state is not None else ()),
-            "property_search_preferences": dict(state.property_search_preferences_json if state is not None else {}),
+            "property_search_preferences": raw_property_preferences,
             "privacy": dict(state.privacy_preferences_json) if state is not None else {},
             "delivery_preferences": {"morning_memo": morning_memo_schedule},
             "assistant_modes": [dict(row) for row in ASSISTANT_MODE_CATALOG],
@@ -1372,7 +1403,7 @@ class OnboardingService(AssistantOnboardingService):
             location_query = "Vienna"
         language_code = normalize_language_code(raw.get("language_code"), country_code=country_code)
         listing_mode = normalize_listing_mode(raw.get("listing_mode"))
-        property_type = normalize_property_type(raw.get("property_type"))
+        property_type = normalize_property_type_values(raw.get("property_type"))
 
         max_results_per_source = raw.get("max_results_per_source")
         try:
@@ -1568,8 +1599,19 @@ class OnboardingService(AssistantOnboardingService):
                 break
             agent_id = str(agent.get("agent_id") or "").strip()
             if not agent_id or agent_id in seen:
+                property_type_seed = agent.get("property_type")
+                if isinstance(property_type_seed, (list, tuple, set)):
+                    property_type_seed = ",".join(
+                        str(item or "").strip().lower()
+                        for item in property_type_seed
+                        if str(item or "").strip()
+                    )
+                else:
+                    property_type_seed = str(property_type_seed or "")
                 seed = "|".join(
                     str(agent.get(key) or "")
+                    if key != "property_type"
+                    else property_type_seed
                     for key in ("name", "country_code", "region_code", "location_query", "listing_mode", "property_type")
                 )
                 agent_id = f"agent-{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:12]}"
@@ -1610,7 +1652,7 @@ class OnboardingService(AssistantOnboardingService):
         region_code = str(raw.get("region_code") or base.get("region_code") or "").strip().lower()
         location_query = str(raw.get("location_query") or base.get("location_query") or "").strip()
         listing_mode = normalize_listing_mode(raw.get("listing_mode") or base.get("listing_mode"))
-        property_type = normalize_property_type(raw.get("property_type") or base.get("property_type"))
+        property_type = normalize_property_type_values(raw.get("property_type") or base.get("property_type"))
         try:
             duration_days = max(7, min(365, int(float(str(raw.get("duration_days") or raw.get("search_agent_duration_days") or base.get("search_agent_duration_days") or 30).strip()))))
         except Exception:
@@ -1641,7 +1683,7 @@ class OnboardingService(AssistantOnboardingService):
         if not name:
             label_location = location_query or country_code
             name = f"{listing_mode.title()} search · {label_location}"
-        seed = "|".join([name, country_code, region_code, location_query, listing_mode, property_type])
+        seed = "|".join([name, country_code, region_code, location_query, listing_mode, ",".join(property_type)])
         agent_id = str(raw.get("agent_id") or raw.get("id") or "").strip() or f"agent-{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:12]}"
         try:
             sent_in_current_window = max(

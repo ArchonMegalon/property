@@ -145,7 +145,7 @@ from app.services.property_market_catalog import (
     normalize_listing_mode,
     normalize_property_platform,
     normalize_property_search_preferences,
-    normalize_property_type,
+    normalize_property_type_values,
     location_options_for_country_region,
     region_options_for_country,
     resolve_country_code,
@@ -6956,17 +6956,26 @@ def _property_candidate_matches_requested_property_type(
     summary: str = "",
     property_facts: dict[str, object] | None = None,
 ) -> bool:
-    requested_type = normalize_property_type(property_type)
+    requested_types = [item for item in normalize_property_type_values(property_type) if item]
+    if not requested_types:
+        return True
+    if requested_types == ["any"]:
+        requested_types = ["apartment", "house", "land"]
+
     facts = dict(property_facts or {})
-    fact_type = normalize_property_type(
+    fact_types = normalize_property_type_values(
         facts.get("property_type")
         or facts.get("object_type")
         or facts.get("category")
         or facts.get("listing_type")
     )
     concrete_types = {"apartment", "house", "office", "land"}
-    if requested_type in concrete_types and fact_type in concrete_types:
-        return fact_type == requested_type
+
+    concrete_requested_types = [item for item in requested_types if item in concrete_types]
+    concrete_fact_types = [item for item in fact_types if item in concrete_types]
+    if concrete_requested_types and concrete_fact_types and any(item in concrete_fact_types for item in concrete_requested_types):
+        return True
+
     text = _property_candidate_text(
         property_url=property_url,
         title=title,
@@ -6974,27 +6983,55 @@ def _property_candidate_matches_requested_property_type(
         property_facts=facts,
     )
     compact_text_value = re.sub(r"[^a-z0-9äöüß]+", "", text)
-    has_office_marker = any(marker in text or marker.replace(" ", "") in compact_text_value for marker in _PROPERTY_OFFICE_TEXT_MARKERS)
-    if any(marker in text or marker.replace(" ", "") in compact_text_value for marker in _PROPERTY_NON_RESIDENTIAL_ONLY_MARKERS):
-        return False
-    if requested_type == "office":
-        return has_office_marker
-    if has_office_marker:
-        return False
-    if requested_type not in {"apartment", "house", "land"}:
+    def _has_text_marker(markers: tuple[str, ...], include_compact: bool = False) -> bool:
+        if include_compact:
+            return any(
+                marker in text or marker.replace(" ", "") in compact_text_value or marker.replace("-", "") in compact_text_value
+                for marker in markers
+            )
+        return any(marker in text for marker in markers)
+
+    has_office_marker = _has_text_marker(_PROPERTY_OFFICE_TEXT_MARKERS, include_compact=True)
+    has_non_residential_only_marker = any(
+        marker in text or marker.replace(" ", "") in compact_text_value
+        for marker in _PROPERTY_NON_RESIDENTIAL_ONLY_MARKERS
+    )
+
+    has_apartment_marker = _has_text_marker(_PROPERTY_APARTMENT_TEXT_MARKERS)
+    has_house_marker = _has_text_marker(_PROPERTY_HOUSE_TEXT_MARKERS)
+    has_land_marker = _has_text_marker(_PROPERTY_LAND_TEXT_MARKERS, include_compact=True)
+    has_residential_text_signal = has_apartment_marker or has_house_marker or has_land_marker
+
+    def _single_requested_type_match(requested_type: str) -> bool:
+        if requested_type == "any":
+            return True
+        if requested_type == "office":
+            return has_office_marker
+        if requested_type == "land":
+            return has_land_marker and not (has_apartment_marker or has_house_marker)
+        if requested_type == "apartment":
+            if has_non_residential_only_marker and not has_residential_text_signal:
+                return False
+            if has_office_marker and not (has_apartment_marker or has_house_marker or has_land_marker):
+                return False
+            if has_house_marker and not has_apartment_marker:
+                return False
+            if has_land_marker and not (has_apartment_marker or has_house_marker):
+                return False
+            return True
+        if requested_type == "house":
+            if has_non_residential_only_marker and not has_residential_text_signal:
+                return False
+            if has_office_marker and not (has_house_marker or has_apartment_marker or has_land_marker):
+                return False
+            if has_apartment_marker and not has_house_marker:
+                return False
+            if has_land_marker and not (has_apartment_marker or has_house_marker):
+                return False
+            return True
         return True
-    has_apartment_marker = any(marker in text for marker in _PROPERTY_APARTMENT_TEXT_MARKERS)
-    has_house_marker = any(marker in text for marker in _PROPERTY_HOUSE_TEXT_MARKERS)
-    has_land_marker = any(marker in text or marker.replace(" ", "") in compact_text_value for marker in _PROPERTY_LAND_TEXT_MARKERS)
-    if requested_type == "land":
-        return has_land_marker and not (has_apartment_marker or has_house_marker)
-    if requested_type == "apartment" and has_house_marker and not has_apartment_marker:
-        return False
-    if requested_type == "house" and has_apartment_marker and not has_house_marker:
-        return False
-    if requested_type in {"apartment", "house"} and has_land_marker and not (has_apartment_marker or has_house_marker):
-        return False
-    return True
+
+    return any(_single_requested_type_match(item) for item in requested_types)
 
 
 def _property_candidate_area_sqm(
@@ -27957,7 +27994,7 @@ class ProductService:
             or str(request_preferences.get("use_stored_feedback_preferences") or "").strip().lower() in {"0", "false", "no", "n", "off"}
         )
         location_hints = _property_search_location_hints(request_preferences)
-        requested_property_type = normalize_property_type(request_preferences.get("property_type"))
+        requested_property_type = normalize_property_type_values(request_preferences.get("property_type"))
         listing_mode = str(request_preferences.get("listing_mode") or "rent").strip().lower() or "rent"
         investment_research_mode = str(request_preferences.get("investment_research_mode") or "off").strip().lower() or "off"
         if listing_mode != "buy":

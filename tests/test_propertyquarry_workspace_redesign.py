@@ -795,6 +795,23 @@ def test_property_workspace_source_cards_do_not_display_raw_source_urls() -> Non
     assert "source.source_label || source.platform || 'Provider'" in body
 
 
+def test_property_search_property_type_uses_checkbox_multi_select() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    templates = [
+        repo_root / "ea/app/templates/app/property_workspace.html",
+        repo_root / "ea/app/templates/app/property_decision_workbench.html",
+        repo_root / "ea/app/templates/console_shell.html",
+    ]
+
+    for template_path in templates:
+        body = template_path.read_text(encoding="utf-8")
+        assert "field.name == 'property_type'" in body, f"{template_path.name} does not include property_type control branch"
+        assert re.search(r'type="checkbox"\s*name="{{\s*field\.name\s*}}"', body), (
+            f"{template_path.name} does not render property_type as checkbox"
+        )
+        assert '<select name="property_type"' not in body, f"{template_path.name} still renders property_type as select"
+
+
 def test_property_search_agents_can_load_saved_filters_into_form() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
     body = template_path.read_text(encoding="utf-8")

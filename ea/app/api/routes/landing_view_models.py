@@ -22,6 +22,31 @@ def _csv_values(value: object) -> list[str]:
     return values
 
 
+def _normalize_property_type_values(value: object) -> list[str]:
+    """Normalize property_type payloads from single, list, or comma-separated forms."""
+    values: list[str] = []
+    if isinstance(value, (list, tuple, set)):
+        raw_values = [str(item or "") for item in value]
+    elif isinstance(value, str) and "," in value:
+        raw_values = [item.strip() for item in value.split(",")]
+    else:
+        raw_values = [str(value or "")]
+
+    for item in raw_values:
+        normalized = item.strip().lower()
+        if not normalized:
+            continue
+        if normalized == "any" and len(raw_values) > 1:
+            values = [value for value in values if value != "any"]
+            continue
+        if normalized not in values:
+            values.append(normalized)
+
+    if not values:
+        values = ["any"]
+    return values
+
+
 def _merge_option_catalog(
     base: list[dict[str, str]],
     selected_values: list[str],
@@ -2068,6 +2093,7 @@ def app_section_payload(
         agent_listing_mode = str(raw_agent.get("listing_mode") or selected_listing_mode).strip().lower() or selected_listing_mode
         agent_country_code = str(raw_agent.get("country_code") or property_preferences.get("country_code") or "AT").strip().upper()
         agent_location_query = str(raw_agent.get("location_query") or property_preferences.get("location_query") or "").strip()
+        agent_property_types = _normalize_property_type_values(raw_agent.get("property_type") or property_preferences.get("property_type"))
         agent_name = str(raw_agent.get("name") or "").strip()
         if not agent_name:
             agent_name = f"{agent_listing_mode.title()} search · {agent_location_query or agent_country_code}"
@@ -2101,7 +2127,7 @@ def app_section_payload(
             "listing_mode": agent_listing_mode,
             "country_code": agent_country_code,
             "region_code": str(raw_agent.get("region_code") or property_preferences.get("region_code") or "").strip().lower(),
-            "property_type": str(raw_agent.get("property_type") or property_preferences.get("property_type") or "any").strip().lower(),
+            "property_type": ", ".join(agent_property_types),
             "provider_count": len(agent_selected_platforms),
             "last_run_label": last_run_at or "not run yet",
             "next_run_label": next_run_at or ("waiting for scheduler" if agent_enabled else "paused"),
@@ -2120,7 +2146,7 @@ def app_section_payload(
                     "region_code": str(raw_agent.get("region_code") or property_preferences.get("region_code") or "").strip().lower(),
                     "location_query": agent_location_query,
                     "listing_mode": agent_listing_mode,
-                    "property_type": str(raw_agent.get("property_type") or property_preferences.get("property_type") or "any").strip().lower(),
+                    "property_type": agent_property_types,
                     "search_mode": str(raw_agent.get("search_mode") or property_search_mode_requested or "strict").strip().lower() or "strict",
                     "selected_platforms": list(agent_selected_platforms or []),
                     "search_agent_enabled": agent_enabled,
@@ -2132,6 +2158,7 @@ def app_section_payload(
         }
 
     raw_property_search_agents = property_preferences.get("search_agents") if isinstance(property_preferences.get("search_agents"), list) else []
+    selected_property_type_values = _normalize_property_type_values(property_preferences.get("property_type"))
     property_search_agents = [
         _format_property_search_agent(agent)
         for agent in raw_property_search_agents
@@ -2210,10 +2237,10 @@ def app_section_payload(
                 "step": "search",
             },
             {
-                "type": "select",
+                "type": "checkbox_group",
                 "name": "property_type",
                 "label": "Property type",
-                "value": str(property_preferences.get("property_type") or "any"),
+                "values": selected_property_type_values,
                 "options": property_type_options,
                 "step": "search",
             },

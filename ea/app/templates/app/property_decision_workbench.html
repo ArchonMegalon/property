@@ -2568,7 +2568,21 @@
                   </div>
               {% endif %}
               <div class="pqx-field" data-property-field-step="{{ field.get('step') or 'search' }}" data-property-field-name="{{ field.name }}"{% if field.get('availability_key') %} data-property-availability-key="{{ field.get('availability_key') }}"{% endif %}{% if field.get('disabled_reason') %} data-property-disabled-reason="{{ field.get('disabled_reason') }}"{% endif %}{% if field.get('hidden') %} hidden{% endif %}>
-                {% if field.type == 'checkbox_group' %}
+                {% if field.name == 'property_type' and (field.get('options') or []) %}
+                <label class="pqx-field-title">{{ field.label }}</label>
+                <div class="pqx-check-grid" data-pqx-check-grid="{{ field.name }}">
+                  {% for option in field.options or [] %}
+                  {% set option_value = option.get('value') or '' %}
+                  <label class="pqx-check"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}{% if field.name == 'school_stage_preferences' and option_value == 'kindergarten' %} data-kindergarten-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('public_kindergarten', 'private_kindergarten') %} data-kindergarten-variant{% endif %}>
+                    <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}>
+                    <span>
+                      <span>{{ option.get('label') }}</span>
+                      {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
+                    </span>
+                  </label>
+                  {% endfor %}
+                </div>
+                {% elif field.type == 'checkbox_group' %}
                 <div class="pqx-field-title">{{ field.label }}</div>
                 {% if field.name == 'selected_platforms' %}
                 <div class="pqx-field-tools">
@@ -4877,7 +4891,7 @@
           region_code: regionCode,
           language_code: browserLanguageCode(),
           listing_mode: listingMode,
-          property_type: fieldValue(form, 'property_type') || 'any',
+          property_type: checkedValues(form, 'property_type').length ? checkedValues(form, 'property_type') : ['any'],
           search_mode: fieldValue(form, 'search_mode') || 'strict',
           investment_research_mode: listingMode === 'buy' ? (fieldValue(form, 'investment_research_mode') || 'off') : 'off',
           all_of_vienna: allOfVienna,

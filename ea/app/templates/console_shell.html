@@ -1129,6 +1129,26 @@
             </span>
             {% endif %}
             {% if field.upgrade_hint %}<span class="console-range-upgrade">{{ field.upgrade_hint }}</span>{% endif %}
+            {% elif field.name == 'property_type' and (field.get('options') or []) %}
+            <div class="console-choice-grid">
+              {% for option in field.options or [] %}
+              {% set option_value = option.get('value') or '' %}
+              <label class="console-choice">
+                <input
+                  type="checkbox"
+                  name="{{ field.name }}"
+                  value="{{ option_value }}"
+                  {% if option_value in (field.get('values') or []) %}checked{% endif %}
+                >
+                <span>
+                  <span class="console-choice-label">{{ option.get('label') }}</span>
+                  {% if option.get('detail') or option.get('description') %}
+                  <span class="console-choice-detail">{{ option.get('detail') or option.get('description') }}</span>
+                  {% endif %}
+                </span>
+              </label>
+              {% endfor %}
+            </div>
             {% elif field.type == 'checkbox' %}
             <input
               type="checkbox"
@@ -1603,6 +1623,7 @@
 
   const collectPayload = (form) => {
     const selectedPlatforms = selectedPlatformsForForm(form);
+    const selectedPropertyTypes = selectedValuesForForm(form, 'property_type');
     const selectedLocations = selectedValuesForForm(form, 'location_query');
     const selectedKeywords = selectedValuesForForm(form, 'keywords');
     const parsedMaxResults = integerValue(form, 'max_results_per_source');
@@ -1614,7 +1635,7 @@
         region_code: fieldValue(form, 'region_code') || '',
         language_code: fieldValue(form, 'language_code') || 'en',
         listing_mode: fieldValue(form, 'listing_mode') || 'rent',
-        property_type: fieldValue(form, 'property_type') || 'any',
+        property_type: selectedPropertyTypes.length ? selectedPropertyTypes : ['any'],
         search_mode: fieldValue(form, 'search_mode') || 'strict',
         location_query: selectedLocations.join(', '),
         keywords: selectedKeywords.join(', '),

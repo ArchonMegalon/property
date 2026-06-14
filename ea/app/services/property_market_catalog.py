@@ -2951,9 +2951,17 @@ def normalize_listing_mode(value: object) -> str:
     return normalized if normalized in {"rent", "buy"} else "rent"
 
 
-def normalize_property_type(value: object) -> str:
-    normalized = str(value or "").strip().lower()
-    normalized = {
+def normalize_property_type_values(value: object) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        raw_values = [str(item or "") for item in value]
+    elif isinstance(value, str) and "," in value:
+        raw_values = [item.strip() for item in value.split(",")]
+    else:
+        raw_values = [str(value or "")]
+
+    normalized_values: list[str] = []
+    known_values = PROPERTY_TYPE_LABELS
+    alias_map = {
         "büro": "office",
         "buero": "office",
         "bueroflaeche": "office",
@@ -2965,8 +2973,27 @@ def normalize_property_type(value: object) -> str:
         "gewerbefläche": "office",
         "praxis": "office",
         "ordination": "office",
-    }.get(normalized, normalized)
-    return normalized if normalized in PROPERTY_TYPE_LABELS else "any"
+    }
+    for item in raw_values:
+        normalized = str(item or "").strip().lower()
+        if not normalized:
+            continue
+        normalized = alias_map.get(normalized, normalized)
+        if normalized not in known_values:
+            continue
+        if normalized == "any" and len(raw_values) > 1:
+            normalized_values = [value for value in normalized_values if value != "any"]
+            continue
+        if normalized not in normalized_values:
+            normalized_values.append(normalized)
+    if not normalized_values:
+        return ["any"]
+    return normalized_values
+
+
+def normalize_property_type(value: object) -> str:
+    values = normalize_property_type_values(value)
+    return values[0] if values else "any"
 
 
 def country_options() -> list[dict[str, str]]:
@@ -3221,7 +3248,11 @@ def listing_mode_label(listing_mode: object) -> str:
 
 
 def property_type_label(property_type: object) -> str:
-    return PROPERTY_TYPE_LABELS.get(normalize_property_type(property_type), PROPERTY_TYPE_LABELS["any"])
+    property_types = normalize_property_type_values(property_type)
+    if not property_types or "any" in property_types:
+        return PROPERTY_TYPE_LABELS["any"]
+    labels = [PROPERTY_TYPE_LABELS.get(value, str(value).title()) for value in property_types]
+    return ", ".join(labels)
 
 
 def provider_host_markers() -> tuple[str, ...]:
@@ -3259,7 +3290,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     payload["region_code"] = str(payload.get("region_code") or "").strip().lower()
     payload["language_code"] = normalize_language_code(payload.get("language_code"), country_code=country_code)
     payload["listing_mode"] = normalize_listing_mode(payload.get("listing_mode"))
-    payload["property_type"] = normalize_property_type(payload.get("property_type"))
+    payload["property_type"] = normalize_property_type_values(payload.get("property_type"))
     investment_mode = str(payload.get("investment_research_mode") or "").strip().lower() or "off"
     if investment_mode not in INVESTMENT_RESEARCH_MODE_LABELS:
         investment_mode = "off"
@@ -4241,7 +4272,8 @@ def generated_source_specs(
     listing_mode = str(normalized_preferences.get("listing_mode") or "rent").strip().lower() or "rent"
     location_query = str(normalized_preferences.get("location_query") or "").strip()
     keywords = str(normalized_preferences.get("keywords") or "").strip()
-    property_type = str(normalized_preferences.get("property_type") or "any").strip().lower() or "any"
+    normalized_property_types = normalize_property_type_values(normalized_preferences.get("property_type"))
+    property_type = normalize_property_type(normalized_property_types)
     max_price_eur = normalized_preferences.get("max_price_eur")
     min_rooms = normalized_preferences.get("min_rooms")
     min_area_m2 = normalized_preferences.get("min_area_m2")

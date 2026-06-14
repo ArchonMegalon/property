@@ -1098,7 +1098,27 @@
               {% if field.get('disabled_reason') %}<span class="pq-note" data-property-unavailable-note hidden>{{ field.get('disabled_reason') }}</span>{% endif %}
               {% else %}
               <label>{{ field.label }}{% if field.tooltip %} <button type="button" class="pq-tooltip" title="{{ field.tooltip }}" aria-label="{{ field.tooltip }}" aria-expanded="false" data-tooltip-trigger>?</button>{% endif %}
-                {% if field.type == 'number' %}
+                {% if field.name == 'property_type' and (field.get('options') or []) %}
+                <div class="pq-choice-grid">
+                  {% for option in field.options or [] %}
+                  {% set option_value = option.get('value') or '' %}
+                  <label class="pq-choice"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}{% if field.name == 'school_stage_preferences' and option_value == 'kindergarten' %} data-kindergarten-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('public_kindergarten', 'private_kindergarten') %} data-kindergarten-variant{% endif %}>
+                    <input
+                      type="checkbox"
+                      name="{{ field.name }}"
+                      value="{{ option_value }}"
+                      {% if option_value in (field.get('values') or []) %}checked{% endif %}
+                    >
+                    <span>
+                      <span class="pq-choice-label">{{ option.get('label') }}</span>
+                      {% if option.get('detail') or option.get('description') %}
+                      <span class="pq-choice-detail">{{ option.get('detail') or option.get('description') }}</span>
+                      {% endif %}
+                    </span>
+                  </label>
+                  {% endfor %}
+                </div>
+                {% elif field.type == 'number' %}
                 <input
                   type="number"
                   name="{{ field.name }}"
@@ -2185,7 +2205,7 @@
         region_code: regionCode,
         language_code: browserLanguageCode(),
         listing_mode: listingMode,
-        property_type: fieldValue(form, 'property_type') || 'any',
+        property_type: selectedValuesForForm(form, 'property_type').length ? selectedValuesForForm(form, 'property_type') : ['any'],
         search_mode: fieldValue(form, 'search_mode') || 'strict',
         investment_research_mode: listingMode === 'buy' ? (fieldValue(form, 'investment_research_mode') || 'off') : 'off',
         all_of_vienna: allOfVienna,
