@@ -130,6 +130,7 @@
 {% set run_progress = (run.get('progress') or summary.get('progress') or 0)|int %}
 {% set eta_label = run.get('eta_label') or summary.get('eta_label') or '' %}
 {% set route_previews = run.get('route_previews') or [] %}
+{% set worker_state = run.get('worker_state') or summary.get('worker_state') or {} %}
 <div class="pqx-progress-board" data-pqx-progress-board data-progress-state="{{ status }}">
   <div class="pqx-concierge-pulse">
     <div class="pqx-progress-headline">
@@ -144,10 +145,35 @@
   <div class="pqx-source-progress" data-pqx-source-progress>
     <div class="pqx-source-progress-head">
       <strong data-pqx-radar-count>{{ source_completed }}/{{ source_total }} sources checked</strong>
-      <span class="pqx-small">{{ listing_total }} listings seen{% if layout_unverified %} · {{ layout_unverified }} floorplans still missing{% endif %}</span>
+      <span class="pqx-small">{{ (run.get('summary') or {}).get('reviewed_listing_total') or listing_total }} homes reviewed{% if layout_unverified %} · {{ layout_unverified }} floorplans still missing{% endif %}</span>
     </div>
     <span class="pqx-note">{{ run.get('message') or 'Waiting for the first source update.' }}</span>
   </div>
+  {% if worker_state.get('workers') %}
+  <div class="pqx-worker-strip" data-pqx-worker-strip>
+    <div class="pqx-worker-strip-head">
+      <strong>{{ worker_state.get('visible_workers') or (worker_state.get('workers')|length) }} worker{% if (worker_state.get('visible_workers') or (worker_state.get('workers')|length)) != 1 %}s{% endif %}</strong>
+      <button type="button" class="pqx-tooltip" title="{{ worker_state.get('tooltip') }}" aria-label="{{ worker_state.get('tooltip') }}" aria-expanded="false" data-tooltip-trigger>?</button>
+      {% if worker_state.get('upgrade_copy') %}<span class="pqx-note">{{ worker_state.get('upgrade_copy') }}</span>{% endif %}
+    </div>
+    <div class="pqx-worker-lanes">
+      {% for worker in worker_state.get('workers') or [] %}
+      <div class="pqx-worker-lane tone-{{ worker.get('tone') or 'idle' }}">
+        <div class="pqx-worker-lane-head">
+          <strong>{{ worker.get('label') or ('W' ~ loop.index) }}</strong>
+          <span class="pqx-small">{{ worker.get('status_label') or 'Idle' }}</span>
+        </div>
+        <div class="pqx-worker-progress" aria-hidden="true"><i style="--progress: {{ worker.get('progress_pct') or 0 }}"></i></div>
+        <div class="pqx-worker-popover">
+          <strong>{{ worker.get('provider') or 'Waiting for a source' }}</strong>
+          <span class="pqx-note">{{ worker.get('status_label') or 'Idle' }}</span>
+          <div class="pqx-worker-progress detailed" aria-hidden="true"><i style="--progress: {{ worker.get('progress_pct') or 0 }}"></i></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
   <div class="pqx-source-list" data-pqx-source-list>
     {% for source in run_sources[:8] %}
     <span class="pqx-source-chip {{ 'warn' if source.get('error') else 'good' }}">
@@ -2087,6 +2113,7 @@
       grid-template-areas:
         "pulse"
         "sources"
+        "workers"
         "source-list";
       gap: 10px;
       min-width: 0;
@@ -2189,6 +2216,92 @@
       min-width: 0;
       max-width: 100%;
       overflow: hidden;
+    }
+    .pqx-worker-strip {
+      grid-area: workers;
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid color-mix(in srgb, var(--pq-blue) 14%, var(--pq-line));
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.6);
+    }
+    .pqx-worker-strip-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .pqx-worker-lanes {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
+      gap: 8px;
+    }
+    .pqx-worker-lane {
+      position: relative;
+      display: grid;
+      gap: 6px;
+      padding: 8px 9px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.9);
+      min-width: 0;
+    }
+    .pqx-worker-lane-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .pqx-worker-lane.tone-active { border-color: color-mix(in srgb, var(--pq-blue) 32%, var(--pq-line)); }
+    .pqx-worker-lane.tone-done { border-color: color-mix(in srgb, var(--pq-green) 32%, var(--pq-line)); }
+    .pqx-worker-lane.tone-queued { border-color: color-mix(in srgb, var(--pq-gold) 22%, var(--pq-line)); }
+    .pqx-worker-progress {
+      position: relative;
+      height: 6px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--pq-blue) 10%, white);
+      overflow: hidden;
+    }
+    .pqx-worker-progress i {
+      display: block;
+      width: calc(var(--progress, 0) * 1%);
+      height: 100%;
+      min-width: 8px;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--pq-blue), color-mix(in srgb, var(--pq-blue) 50%, white));
+    }
+    .pqx-worker-lane.tone-done .pqx-worker-progress i {
+      background: linear-gradient(90deg, var(--pq-green), color-mix(in srgb, var(--pq-green) 48%, white));
+    }
+    .pqx-worker-lane.tone-queued .pqx-worker-progress i {
+      background: linear-gradient(90deg, #c88a38, #e1bb7e);
+    }
+    .pqx-worker-popover {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% + 6px);
+      display: grid;
+      gap: 5px;
+      padding: 8px 9px;
+      border: 1px solid color-mix(in srgb, var(--pq-blue) 18%, var(--pq-line));
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.98);
+      box-shadow: 0 16px 34px rgba(28, 40, 58, 0.16);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-2px);
+      transition: opacity 120ms ease, transform 120ms ease;
+      z-index: 8;
+    }
+    .pqx-worker-lane:hover .pqx-worker-popover,
+    .pqx-worker-lane:focus-within .pqx-worker-popover {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .pqx-worker-progress.detailed {
+      height: 8px;
     }
     .pqx-source-chip {
       display: inline-flex;
@@ -3941,7 +4054,7 @@
           <div class="pqx-section-head">
             <div>
               <h2>Best matches</h2>
-              <div class="pqx-note" data-pqx-run-summary>{{ run_summary.get('sources_total') or run_sources|length or 0 }} sources checked · {{ run_summary.get('listing_total') or 0 }} homes reviewed · {{ run_summary.get('filtered_low_fit_total') or 0 }} below your fit threshold · {{ run_summary.get('filtered_floorplan_total') or 0 }} pending layout proof</div>
+              <div class="pqx-note" data-pqx-run-summary>{{ run_summary.get('sources_total') or run_sources|length or 0 }} sources checked · {{ run_summary.get('reviewed_listing_total') or run_summary.get('listing_total') or 0 }} homes reviewed · {{ run_summary.get('filtered_low_fit_total') or 0 }} below your fit threshold · {{ run_summary.get('filtered_floorplan_total') or 0 }} pending layout proof</div>
             </div>
             <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
           </div>
@@ -4128,7 +4241,7 @@
           <div class="pqx-section-head">
             <div>
               <h2>{% if run_active %}Search in progress{% else %}Search progress{% endif %}</h2>
-              <div class="pqx-note" data-pqx-run-summary>{{ (run.get('summary') or {}).get('sources_total') or 0 }} sources · {{ (run.get('summary') or {}).get('listing_total') or 0 }} listings{% if ((run.get('summary') or {}).get('filtered_floorplan_total') or 0) %} · {{ (run.get('summary') or {}).get('filtered_floorplan_total') or 0 }} awaiting floorplans{% endif %}</div>
+              <div class="pqx-note" data-pqx-run-summary>{{ (run.get('summary') or {}).get('sources_total') or 0 }} sources · {{ (run.get('summary') or {}).get('reviewed_listing_total') or (run.get('summary') or {}).get('listing_total') or 0 }} homes reviewed{% if ((run.get('summary') or {}).get('filtered_floorplan_total') or 0) %} · {{ (run.get('summary') or {}).get('filtered_floorplan_total') or 0 }} awaiting floorplans{% endif %}</div>
             </div>
             {% if run_active %}<button class="pqx-button" type="button" data-pqx-refresh-status>Refresh</button>{% else %}<a class="pqx-link-button" href="/app/properties">New search</a>{% endif %}
           </div>
@@ -6402,9 +6515,9 @@
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
       const sources = Number(summary.sources_total || 0);
-      const listings = Number(summary.listing_total || 0);
+      const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
-      return `${sources} sources · ${listings} listings${noPlan > 0 ? ` · ${noPlan} awaiting floorplans` : ''}`;
+      return `${sources} sources · ${reviewed} homes reviewed${noPlan > 0 ? ` · ${noPlan} awaiting floorplans` : ''}`;
     };
     const renderRunEvents = (events) => {
       const rows = Array.isArray(events) ? [...events].reverse().slice(0, 12) : [];
@@ -6618,18 +6731,69 @@
       const status = String(runPayload?.status || summary.status || 'queued');
       const sources = Number(summary.sources_total || 0);
       const completedSources = Array.isArray(summary.sources) ? summary.sources.length : 0;
-      const listings = Number(summary.listing_total || summary.raw_listing_total || 0);
+      const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || summary.raw_listing_total || 0);
       const layout = Number(summary.filtered_floorplan_total || 0);
       const title = status === 'processed' || status === 'completed' ? 'Results are ready' : (status === 'failed' ? 'Search stopped' : 'Search in progress');
       const etaLabel = estimateRunEtaLabel(runPayload, summary, layout);
       const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
       const progressFill = status === 'processed' || status === 'completed' ? 100 : (progress > 0 ? progress : 4);
+      const planKey = String(runPayload?.brief?.plan_key || data?.brief?.plan_key || meta?.commercial?.current_plan_key || 'free').toLowerCase();
+      const planCap = planKey === 'agent' ? 6 : (planKey === 'plus' ? 3 : 1);
+      const configuredWorkers = Math.max(1, Number(summary?.provider_workers?.worker_concurrency || planCap));
+      const workerCount = Math.max(1, Math.min(planCap, configuredWorkers));
+      const workerTooltip = 'Search workers handle source lanes in parallel. Faster tiers unlock more concurrent workers.';
       const sourceChips = (Array.isArray(summary.sources) ? summary.sources.slice(0, 8) : []).map((source) => {
         const label = source?.source_label || source?.label || 'Source';
         const state = source?.error ? 'warn' : 'good';
         return `<span class="pqx-source-chip ${state}">${escapeHtml(label)}</span>`;
       }).join('');
-      const sourceMeta = `${listings} listings seen${layout > 0 ? ` · ${layout} floorplans still missing` : ''}`;
+      const sourceMeta = `${reviewed} homes reviewed${layout > 0 ? ` · ${layout} floorplans still missing` : ''}`;
+      const sourceRows = Array.isArray(summary.sources) ? summary.sources : [];
+      const activeSources = sourceRows.filter((source) => !['completed', 'processed', 'done', 'success', 'failed', 'error', 'skipped'].includes(String(source?.status || source?.state || '').toLowerCase()));
+      const completedPool = sourceRows.filter((source) => ['completed', 'processed', 'done', 'success'].includes(String(source?.status || source?.state || '').toLowerCase()));
+      const workerQueue = [...activeSources, ...completedPool];
+      const workers = Array.from({ length: workerCount }, (_, index) => {
+        const source = workerQueue[index] || null;
+        const rawStatus = String(source?.status || source?.state || '').toLowerCase();
+        let progressPct = Number(source?.progress || 0);
+        if (!(progressPct > 0)) {
+          if (['completed', 'processed', 'done', 'success', 'failed', 'error', 'skipped'].includes(rawStatus)) progressPct = 100;
+          else if (['running', 'processing', 'in_progress', 'working', 'warming'].includes(rawStatus)) progressPct = 58;
+          else if (['queued', 'pending', 'starting'].includes(rawStatus)) progressPct = 18;
+          else progressPct = 0;
+        }
+        const statusLabel = !source ? 'Idle'
+          : (['completed', 'processed', 'done', 'success'].includes(rawStatus) ? 'Done'
+          : ((['failed', 'error'].includes(rawStatus) || source?.error) ? 'Needs retry'
+          : (['running', 'processing', 'in_progress', 'working', 'warming'].includes(rawStatus) ? 'Running' : 'Queued')));
+        const tone = !source ? 'idle' : (progressPct >= 100 ? 'done' : (statusLabel === 'Running' ? 'active' : 'queued'));
+        return {
+          label: `W${index + 1}`,
+          provider: String(source?.source_label || source?.label || (sourceRows.length ? 'Waiting for a source' : 'Stand by')),
+          statusLabel,
+          progressPct,
+          tone,
+        };
+      });
+      const upgradeCopy = planKey === 'free'
+        ? 'Upgrade to Plus for 3 search workers or Agent for 6.'
+        : (planKey === 'plus' ? 'Upgrade to Agent for 6 search workers.' : '');
+      const workerHtml = workers.map((worker) => `
+        <div class="pqx-worker-lane tone-${escapeHtml(worker.tone)}">
+          <div class="pqx-worker-lane-head">
+            <strong>${escapeHtml(worker.label)}</strong>
+            <span class="pqx-small">${escapeHtml(worker.statusLabel)}</span>
+          </div>
+          <div class="pqx-worker-progress" aria-hidden="true"><i style="--progress: ${escapeHtml(worker.progressPct)}"></i></div>
+          ${planKey === 'free' ? '' : `
+            <div class="pqx-worker-popover">
+              <strong>${escapeHtml(worker.provider)}</strong>
+              <span class="pqx-note">${escapeHtml(worker.statusLabel)}</span>
+              <div class="pqx-worker-progress detailed" aria-hidden="true"><i style="--progress: ${escapeHtml(worker.progressPct)}"></i></div>
+            </div>
+          `}
+        </div>
+      `).join('');
       return `
         <div class="pqx-concierge-pulse">
           <div class="pqx-progress-headline">
@@ -6646,6 +6810,14 @@
           </div>
           <span class="pqx-note">${escapeHtml(String(runPayload?.message || 'Waiting for the first source update.'))}</span>
         </div>
+        <div class="pqx-worker-strip" data-pqx-worker-strip>
+          <div class="pqx-worker-strip-head">
+            <strong>${escapeHtml(workerCount)} worker${workerCount === 1 ? '' : 's'}</strong>
+            <button type="button" class="pqx-tooltip" title="${escapeHtml(workerTooltip)}" aria-label="${escapeHtml(workerTooltip)}" aria-expanded="false" data-tooltip-trigger>?</button>
+            ${upgradeCopy ? `<span class="pqx-note">${escapeHtml(upgradeCopy)}</span>` : ''}
+          </div>
+          <div class="pqx-worker-lanes">${workerHtml}</div>
+        </div>
         <div class="pqx-source-list" data-pqx-source-list>${sourceChips}</div>
         ${renderRoutePreviewStrip(runPayload)}
       `;
@@ -6654,6 +6826,7 @@
       root.querySelectorAll('[data-pqx-progress-board]').forEach((board) => {
         board.dataset.progressState = String(runPayload?.status || runPayload?.summary?.status || 'queued');
         board.innerHTML = progressBoardHtml(runPayload);
+        bindTooltips(board);
       });
     };
     const renderRankedCandidates = (candidates) => {

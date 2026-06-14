@@ -1723,6 +1723,13 @@ def _property_search_provider_worker_concurrency() -> int:
     return max(1, min(parsed, 8))
 
 
+def _property_search_provider_worker_concurrency_for_plan(plan_key: object) -> int:
+    normalized_plan = str(plan_key or "free").strip().lower() or "free"
+    desired = {"free": 1, "plus": 3, "agent": 6}.get(normalized_plan, 1)
+    configured = _property_search_provider_worker_concurrency()
+    return max(1, min(desired, configured if configured > 0 else desired))
+
+
 def _property_search_provider_worker_warm_limit() -> int:
     raw_value = str(os.getenv("PROPERTYQUARRY_SEARCH_PROVIDER_WORKER_WARM_LIMIT") or "").strip()
     if not raw_value:
@@ -19738,9 +19745,10 @@ class ProductService:
         specs: list[dict[str, object]],
         prefetched_source_results: dict[tuple[str, str], dict[str, object]],
         cache_index: dict[str, dict[str, object]],
+        plan_key: str = "free",
     ) -> dict[str, object]:
         warm_limit = _property_search_provider_worker_warm_limit()
-        worker_cap = _property_search_provider_worker_concurrency()
+        worker_cap = _property_search_provider_worker_concurrency_for_plan(plan_key)
         if warm_limit <= 0 or worker_cap <= 0 or not specs or not prefetched_source_results:
             return {"enabled": False, "warmed_total": 0, "sources_touched": 0}
 
@@ -28782,6 +28790,7 @@ class ProductService:
             specs=specs,
             prefetched_source_results=prefetched_source_results,
             cache_index=public_preview_cache,
+            plan_key=plan_key,
         )
 
         _report(
@@ -28870,6 +28879,7 @@ class ProductService:
             }
 
         listing_total = 0
+        reviewed_listing_total = 0
         duplicate_listing_total = 0
         review_created_total = 0
         review_existing_total = 0
@@ -29146,6 +29156,11 @@ class ProductService:
                     message=f"Reviewing candidate {ordinal} of {len(listing_urls)} for {source_label}.",
                     status="in_progress",
                     steps_delta=1,
+                    summary_updates={
+                        "reviewed_listing_total": reviewed_listing_total,
+                        "current_source_reviewed_total": max(0, ordinal - 1),
+                        "current_source_candidate_total": len(listing_urls),
+                    },
                 )
                 preview: dict[str, object]
                 try:
@@ -30604,6 +30619,7 @@ class ProductService:
                         }
                     )
 
+            reviewed_listing_total += len(listing_urls)
             source_summaries.append(
                 {
                     "source_url": source_url,
@@ -30622,6 +30638,7 @@ class ProductService:
                     "provider_filter_pushdown": provider_filter_pushdown,
                     "provider_cache": provider_cache_state,
                     "listing_total": len(ranked_rows),
+                    "reviewed_listing_total": len(listing_urls),
                     "duplicate_listing_total": duplicate_for_source,
                     "filtered_property_type_total": filtered_property_type_for_source,
                     "filtered_area_total": filtered_area_for_source,
@@ -30703,7 +30720,11 @@ class ProductService:
                 message=f"Completed scanning {source_label}.",
                 status="in_progress",
                 steps_delta=1,
-                summary_updates={"sources": source_summaries},
+                summary_updates={
+                    "sources": source_summaries,
+                    "reviewed_listing_total": reviewed_listing_total,
+                    "listing_total": reviewed_listing_total,
+                },
             )
             if not partial_shortlist_reported and ranked_rows:
                 partial_shortlist_reported = True
@@ -30875,6 +30896,7 @@ class ProductService:
             "status": "processed",
             "sources_total": len(specs),
             "listing_total": listing_total,
+            "reviewed_listing_total": reviewed_listing_total,
             "duplicate_listing_total": duplicate_listing_total,
             "filtered_property_type_total": filtered_property_type_total,
             "filtered_area_total": filtered_area_total,

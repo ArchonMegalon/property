@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import hashlib
+import re
 import urllib.parse
 from typing import Any
 
@@ -226,50 +227,112 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
     market_label_parts = [part for part in (normalized_region.replace("_", " ").title(), normalized_country) if part]
     market_label = " · ".join(market_label_parts) or "Search area"
 
+    vienna_district_map: dict[str, dict[str, object]] = {
+        "1010 vienna": {"path": "M140 70 L151 64 L163 67 L165 80 L154 89 L141 85 Z", "label": "1010 Vienna"},
+        "1020 vienna": {"path": "M166 62 L186 54 L205 58 L208 76 L199 91 L178 92 L165 81 Z", "label": "1020 Vienna"},
+        "1030 vienna": {"path": "M164 84 L178 92 L200 92 L210 109 L198 123 L176 124 L160 110 Z", "label": "1030 Vienna"},
+        "1040 vienna": {"path": "M139 88 L155 87 L161 109 L154 121 L138 119 L130 103 Z", "label": "1040 Vienna"},
+        "1050 vienna": {"path": "M120 92 L130 101 L138 119 L126 126 L111 119 L109 103 Z", "label": "1050 Vienna"},
+        "1060 vienna": {"path": "M101 84 L118 82 L120 94 L109 104 L95 100 L94 88 Z", "label": "1060 Vienna"},
+        "1070 vienna": {"path": "M101 68 L119 64 L120 82 L101 84 L93 75 Z", "label": "1070 Vienna"},
+        "1080 vienna": {"path": "M118 54 L136 52 L136 67 L120 74 L110 66 Z", "label": "1080 Vienna"},
+        "1090 vienna": {"path": "M136 45 L160 42 L170 56 L165 70 L152 72 L136 67 Z", "label": "1090 Vienna"},
+        "1100 vienna": {"path": "M137 120 L155 123 L177 124 L198 123 L219 129 L218 145 L143 146 L131 133 Z", "label": "1100 Vienna"},
+        "1110 vienna": {"path": "M219 127 L241 127 L265 135 L276 149 L233 152 L219 145 Z", "label": "1110 Vienna"},
+        "1120 vienna": {"path": "M90 111 L110 106 L126 126 L131 133 L123 146 L88 146 L76 134 Z", "label": "1120 Vienna"},
+        "1130 vienna": {"path": "M54 95 L75 90 L91 111 L76 134 L52 132 L41 111 Z", "label": "1130 Vienna"},
+        "1140 vienna": {"path": "M27 83 L53 76 L74 89 L54 95 L41 111 L26 110 L18 95 Z", "label": "1140 Vienna"},
+        "1150 vienna": {"path": "M73 88 L90 86 L95 100 L90 111 L75 90 Z", "label": "1150 Vienna"},
+        "1160 vienna": {"path": "M67 70 L89 66 L101 68 L94 88 L73 88 L63 80 Z", "label": "1160 Vienna"},
+        "1170 vienna": {"path": "M73 45 L96 38 L111 48 L102 68 L89 66 L67 70 L58 56 Z", "label": "1170 Vienna"},
+        "1180 vienna": {"path": "M101 36 L125 30 L139 35 L136 52 L118 54 L110 66 L101 49 Z", "label": "1180 Vienna"},
+        "1190 vienna": {"path": "M126 19 L158 16 L191 18 L205 32 L196 49 L170 56 L160 42 L136 45 L125 30 Z", "label": "1190 Vienna"},
+        "1200 vienna": {"path": "M170 57 L195 48 L211 52 L214 69 L208 76 L186 54 Z", "label": "1200 Vienna"},
+        "1210 vienna": {"path": "M206 31 L228 27 L253 34 L269 52 L266 75 L242 87 L214 69 L211 52 L196 49 Z", "label": "1210 Vienna"},
+        "1220 vienna": {"path": "M214 69 L242 87 L266 75 L282 95 L280 122 L266 136 L241 127 L219 127 L210 109 L200 92 L208 76 Z", "label": "1220 Vienna"},
+        "1230 vienna": {"path": "M18 110 L26 110 L41 111 L52 132 L88 146 L26 146 L18 128 Z", "label": "1230 Vienna"},
+    }
+
+    def _district_centroid_from_path(path: str) -> tuple[float, float]:
+        numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
+        points = list(zip(numbers[0::2], numbers[1::2]))
+        if not points:
+            return 0.0, 0.0
+        x_total = sum(point[0] for point in points)
+        y_total = sum(point[1] for point in points)
+        return x_total / len(points), y_total / len(points)
+
     shapes: list[str] = []
-    district_labels: list[str] = []
+    interactive_shapes: list[str] = []
     selected_count = 0
-    for row in layout_rows:
-        value = str(row.get("value") or "").strip().lower()
-        selected = bool(value and value in selected_lookup)
-        if selected:
-            selected_count += 1
-        x = float(row.get("x") or 0.0)
-        y = float(row.get("y") or 0.0)
-        width = float(row.get("width") or 16.0)
-        height = float(row.get("height") or 12.0)
-        radius = min(7.0, max(3.0, min(width, height) * 0.22))
-        digest = hashlib.sha1(str(row.get("label") or row.get("value") or "").strip().lower().encode("utf-8")).digest()
-        fill = f"#{170 + (digest[0] % 48):02x}{52 + (digest[1] % 40):02x}{58 + (digest[2] % 34):02x}" if selected else "#d8d3c8"
-        fill_opacity = "0.44" if selected else "0.62"
-        stroke = "#f2a3a3" if selected else "#b9b1a1"
-        stroke_width = "1.8" if selected else "1.1"
-        if normalized_country == "AT" and normalized_region == "vienna":
-            inset_left = 1.6 + (digest[0] % 5) * 0.7
-            inset_top = 1.2 + (digest[1] % 4) * 0.6
-            inset_right = 1.8 + (digest[2] % 5) * 0.65
-            inset_bottom = 1.4 + (digest[3] % 4) * 0.55
-            path = (
-                f"M {x + inset_left:.1f} {y + inset_top:.1f} "
-                f"L {x + (width * 0.62):.1f} {y + 0.8:.1f} "
-                f"L {x + width - inset_right:.1f} {y + (height * 0.18):.1f} "
-                f"L {x + width - 0.8:.1f} {y + (height * 0.55):.1f} "
-                f"L {x + width - inset_right * 0.75:.1f} {y + height - inset_bottom:.1f} "
-                f"L {x + (width * 0.34):.1f} {y + height - 0.6:.1f} "
-                f"L {x + 0.7:.1f} {y + (height * 0.7):.1f} Z"
-            )
+    district_rows: list[dict[str, object]] = []
+    if normalized_country == "AT" and normalized_region == "vienna":
+        for row in layout_rows:
+            label = str(row.get("label") or row.get("value") or "").strip()
+            value = str(row.get("value") or label).strip().lower()
+            selected = bool(value and value in selected_lookup)
+            if selected:
+                selected_count += 1
+            district_spec = vienna_district_map.get(value)
+            if not district_spec:
+                continue
+            digest = hashlib.sha1(label.lower().encode("utf-8")).digest()
+            red_tint = 108 + (digest[0] % 42)
+            green_tint = 30 + (digest[1] % 28)
+            blue_tint = 34 + (digest[2] % 24)
+            fill = f"#{red_tint:02x}{green_tint:02x}{blue_tint:02x}" if selected else "#efe8da"
+            fill_opacity = "0.78" if selected else "0.38"
+            stroke = "#7b6a5a" if not selected else "#8a1e1e"
+            stroke_width = "1.45" if selected else "1.05"
+            path = str(district_spec.get("path") or "")
+            centroid_x, centroid_y = _district_centroid_from_path(path)
             shapes.append(
-                f'<path d="{path}" fill="{fill}" fill-opacity="{fill_opacity}" stroke="{stroke}" stroke-width="{stroke_width}" stroke-linejoin="round" />'
+                f'<path d="{path}" fill="{fill}" fill-opacity="{fill_opacity}" stroke="{stroke}" stroke-width="{stroke_width}" '
+                'stroke-linejoin="round" stroke-linecap="round" />'
             )
-        else:
+            interactive_shapes.append(
+                f'<path class="pqx-previous-district-hotspot{" is-selected" if selected else ""}" d="{path}" '
+                f'data-label="{html.escape(label)}" data-pqx-scope-open data-pqx-scope-title="{html.escape(label)}" '
+                f'cx="{centroid_x:.2f}" cy="{centroid_y:.2f}" />'
+            )
+            district_rows.append(
+                {
+                    "label": label,
+                    "selected": selected,
+                    "path": path,
+                    "center_x_pct": round((centroid_x / 296.0) * 100.0, 3),
+                    "center_y_pct": round((centroid_y / 160.0) * 100.0, 3),
+                }
+            )
+    else:
+        for row in layout_rows:
+            value = str(row.get("value") or "").strip().lower()
+            selected = bool(value and value in selected_lookup)
+            if selected:
+                selected_count += 1
+            x = float(row.get("x") or 0.0)
+            y = float(row.get("y") or 0.0)
+            width = float(row.get("width") or 16.0)
+            height = float(row.get("height") or 12.0)
+            radius = min(7.0, max(3.0, min(width, height) * 0.22))
+            digest = hashlib.sha1(str(row.get("label") or row.get("value") or "").strip().lower().encode("utf-8")).digest()
+            fill = f"#{170 + (digest[0] % 48):02x}{52 + (digest[1] % 40):02x}{58 + (digest[2] % 34):02x}" if selected else "#d8d3c8"
+            fill_opacity = "0.44" if selected else "0.62"
+            stroke = "#f2a3a3" if selected else "#b9b1a1"
+            stroke_width = "1.8" if selected else "1.1"
             shapes.append(
                 f'<rect x="{x:.1f}" y="{y:.1f}" width="{width:.1f}" height="{height:.1f}" rx="{radius:.1f}" fill="{fill}" fill-opacity="{fill_opacity}" stroke="{stroke}" stroke-width="{stroke_width}" />'
             )
-        label_text = html.escape(str(row.get("label") or row.get("value") or "").strip().split(" ", 1)[0][:8])
-        font_size = max(8.0, min(12.0, min(width, height) * 0.38))
-        district_labels.append(
-            f'<text x="{x + (width / 2):.1f}" y="{y + (height / 2) + (font_size * 0.33):.1f}" fill="{"#7C2020" if selected else "#5D574D"}" font-size="{font_size:.1f}" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-weight="700" opacity="0.86">{label_text}</text>'
-        )
+            district_rows.append(
+                {
+                    "label": str(row.get("label") or row.get("value") or "").strip(),
+                    "selected": selected,
+                    "left_pct": round((x / 296.0) * 100.0, 3),
+                    "top_pct": round((y / 160.0) * 100.0, 3),
+                    "width_pct": round((width / 296.0) * 100.0, 3),
+                    "height_pct": round((height / 160.0) * 100.0, 3),
+                }
+            )
 
     custom_marker = ""
     if normalized_query and not selected_count:
@@ -282,64 +345,67 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
     city_boundary = '<path d="M20 20 L276 20 L276 140 L20 140 Z" stroke="#9E9689" stroke-width="2.1" stroke-linejoin="round" fill="none" opacity="0.72"/>'
     if normalized_country == "AT" and normalized_region == "vienna":
         city_boundary = (
-            '<path d="M26 22 C52 18, 76 22, 98 18 C132 14, 164 20, 198 18 C226 16, 252 22, 272 34 '
-            'L282 54 L278 84 L284 108 L274 132 L250 142 L212 140 L178 146 L142 142 L108 148 '
-            'L74 144 L44 136 L24 118 L18 92 L20 64 L14 42 Z" '
-            'stroke="#908878" stroke-width="2.3" stroke-linejoin="round" fill="none" opacity="0.82"/>'
+            '<path d="M18 44 L28 28 L44 22 L74 18 L108 22 L138 18 L176 16 L208 18 L242 24 L266 34 '
+            'L280 52 L276 72 L282 95 L279 119 L266 136 L236 146 L200 143 L173 148 L138 146 L104 150 '
+            'L70 146 L43 138 L24 124 L16 102 L16 74 L14 56 Z" '
+            'stroke="#5f5648" stroke-width="2.2" stroke-linejoin="round" fill="none" opacity="0.92"/>'
         )
     road_lines = [
-        '<path d="M24 40 C60 48, 82 44, 110 58 C138 72, 168 70, 204 60 C232 52, 252 54, 278 48" stroke="#D8D2C7" stroke-width="5" stroke-linecap="round" opacity="0.88"/>',
-        '<path d="M20 96 C44 88, 70 90, 96 82 C132 70, 162 82, 194 94 C226 106, 252 106, 280 94" stroke="#DDD6CB" stroke-width="4.2" stroke-linecap="round" opacity="0.84"/>',
-        '<path d="M52 16 C60 42, 62 70, 60 142" stroke="#E6E0D6" stroke-width="2.4" stroke-linecap="round" opacity="0.78"/>',
-        '<path d="M108 14 C114 36, 118 68, 116 144" stroke="#E3DDD2" stroke-width="2.1" stroke-linecap="round" opacity="0.74"/>',
-        '<path d="M176 18 C174 42, 178 74, 184 144" stroke="#E3DDD2" stroke-width="2.2" stroke-linecap="round" opacity="0.76"/>',
-        '<path d="M234 20 C228 48, 232 82, 246 140" stroke="#E6E0D6" stroke-width="2.0" stroke-linecap="round" opacity="0.72"/>',
+        '<path d="M24 44 C54 46, 84 42, 116 54 C146 66, 178 66, 214 58 C242 50, 258 50, 278 46" stroke="#c9c0b2" stroke-width="6" stroke-linecap="round" opacity="0.92"/>',
+        '<path d="M20 104 C48 94, 72 92, 101 84 C136 74, 166 84, 196 96 C224 106, 248 106, 278 96" stroke="#cdc5b7" stroke-width="4.8" stroke-linecap="round" opacity="0.88"/>',
+        '<path d="M58 18 C62 36, 62 62, 60 142" stroke="#d7cfbf" stroke-width="2.4" stroke-linecap="round" opacity="0.84"/>',
+        '<path d="M110 18 C114 38, 118 64, 116 146" stroke="#d2c9bb" stroke-width="2.1" stroke-linecap="round" opacity="0.8"/>',
+        '<path d="M176 18 C174 42, 178 72, 184 146" stroke="#d2c9bb" stroke-width="2.2" stroke-linecap="round" opacity="0.82"/>',
+        '<path d="M234 22 C228 50, 232 82, 246 142" stroke="#d7cfbf" stroke-width="2.0" stroke-linecap="round" opacity="0.78"/>',
+        '<path d="M34 64 C72 56, 94 62, 126 76 C156 88, 182 92, 210 86 C238 80, 258 78, 274 82" stroke="#bcae9f" stroke-width="1.4" stroke-linecap="round" opacity="0.72"/>',
+        '<path d="M34 122 C64 112, 92 116, 122 124 C152 132, 184 134, 220 128 C246 124, 262 122, 274 124" stroke="#bcae9f" stroke-width="1.2" stroke-linecap="round" opacity="0.65"/>',
     ]
     park_patches = [
-        '<path d="M28 54 C42 42, 58 42, 66 56 C72 68, 60 82, 42 82 C28 80, 20 66, 28 54 Z" fill="#D9E3D2" opacity="0.78"/>',
-        '<path d="M206 104 C220 92, 244 94, 252 110 C258 124, 244 136, 224 134 C208 130, 198 118, 206 104 Z" fill="#D7E1CF" opacity="0.72"/>',
+        '<path d="M24 58 C36 44, 58 42, 68 56 C76 68, 62 84, 42 84 C26 82, 18 68, 24 58 Z" fill="#dfe2d2" opacity="0.74"/>',
+        '<path d="M203 104 C218 92, 246 94, 254 110 C260 124, 246 138, 224 136 C206 132, 196 118, 203 104 Z" fill="#d7dcc9" opacity="0.7"/>',
+        '<path d="M108 26 C118 18, 132 20, 136 31 C138 40, 130 48, 118 48 C108 46, 102 36, 108 26 Z" fill="#dde0cf" opacity="0.64"/>',
     ]
     water_layer = ''
     if normalized_country == "AT" and normalized_region == "vienna":
         water_layer = (
-            '<path d="M214 12 C226 30, 236 44, 238 64 C240 82, 234 100, 238 124 C242 138, 252 148, 260 156" '
-            'stroke="#9FC7DA" stroke-width="18" stroke-linecap="round" opacity="0.6"/>'
-            '<path d="M196 18 C208 34, 214 50, 214 68 C214 84, 208 102, 210 124 C212 136, 218 146, 224 154" '
-            'stroke="#C8DEE8" stroke-width="8" stroke-linecap="round" opacity="0.86"/>'
+            '<path d="M204 14 C214 28, 219 42, 220 60 C221 80, 214 96, 217 116 C220 132, 229 144, 236 154" '
+            'stroke="#9db5c3" stroke-width="16" stroke-linecap="round" opacity="0.58"/>'
+            '<path d="M200 18 C209 33, 212 48, 212 64 C212 83, 206 100, 208 120 C210 133, 216 145, 222 154" '
+            'stroke="#d8e4ea" stroke-width="7" stroke-linecap="round" opacity="0.9"/>'
+            '<path d="M218 54 C228 62, 234 72, 236 84 C238 95, 236 108, 240 121" stroke="#d8e4ea" stroke-width="3" stroke-linecap="round" opacity="0.82"/>'
         )
-    district_rows = [
-        {
-            "label": str(row.get("label") or row.get("value") or "").strip(),
-            "selected": bool(str(row.get("value") or "").strip().lower() in selected_lookup),
-            "left_pct": round((float(row.get("x") or 0.0) / 296.0) * 100.0, 3),
-            "top_pct": round((float(row.get("y") or 0.0) / 160.0) * 100.0, 3),
-            "width_pct": round((float(row.get("width") or 0.0) / 296.0) * 100.0, 3),
-            "height_pct": round((float(row.get("height") or 0.0) / 160.0) * 100.0, 3),
-        }
-        for row in layout_rows
-        if str(row.get("label") or row.get("value") or "").strip()
-    ]
+    district_overlay_svg = ""
+    if interactive_shapes:
+        district_overlay_svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 296 160" class="pqx-previous-district-hotspots" '
+            'preserveAspectRatio="none" aria-hidden="true">'
+            f'{"".join(interactive_shapes)}'
+            "</svg>"
+        )
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="184" viewBox="0 0 320 184" fill="none">'
         '<defs>'
         '<linearGradient id="bg" x1="18" y1="16" x2="280" y2="168" gradientUnits="userSpaceOnUse">'
-        '<stop stop-color="#F8F6F0"/>'
-        '<stop offset="1" stop-color="#ECE6DA"/>'
+        '<stop stop-color="#f5f0e5"/>'
+        '<stop offset="1" stop-color="#e8decc"/>'
         '</linearGradient>'
+        '<pattern id="paper" width="12" height="12" patternUnits="userSpaceOnUse">'
+        '<path d="M0 12 L12 0 M-3 3 L3 -3 M9 15 L15 9" stroke="#c8bea9" stroke-opacity="0.18" stroke-width="0.8"/>'
+        '</pattern>'
         '<filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">'
         '<feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#2D2418" flood-opacity="0.16"/>'
         '</filter>'
         '</defs>'
-        '<rect width="320" height="184" rx="18" fill="#E7E2D8"/>'
+        '<rect width="320" height="184" rx="18" fill="#d9cdb8"/>'
         '<g transform="translate(12 12)" filter="url(#shadow)">'
         '<rect width="296" height="160" rx="14" fill="url(#bg)"/>'
-        '<rect x="0.5" y="0.5" width="295" height="159" rx="14" fill="none" stroke="#D4CCBE" stroke-width="1"/>'
+        '<rect x="0.5" y="0.5" width="295" height="159" rx="14" fill="url(#paper)" opacity="0.42"/>'
+        '<rect x="0.5" y="0.5" width="295" height="159" rx="14" fill="none" stroke="#c7baa1" stroke-width="1"/>'
         f'{"".join(park_patches)}'
         f'{water_layer}'
         f'{"".join(road_lines)}'
         f'{city_boundary}'
         f'{"".join(shapes)}'
-        f'{"".join(district_labels)}'
         f"{custom_marker}"
         "</g>"
         "</svg>"
@@ -351,6 +417,7 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
         "count_label": "",
         "market_label": market_label,
         "district_rows": district_rows,
+        "district_overlay_svg": district_overlay_svg,
     }
 
 
@@ -381,6 +448,86 @@ def _property_candidate_maps_url(candidate: dict[str, object]) -> str:
     if not query:
         return ""
     return f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(query)}"
+
+
+def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: str) -> dict[str, object]:
+    normalized_plan = str(plan_key or "free").strip().lower() or "free"
+    slot_cap = {"free": 1, "plus": 3, "agent": 6}.get(normalized_plan, 1)
+    provider_workers = dict(run_summary.get("provider_workers") or {}) if isinstance(run_summary.get("provider_workers"), dict) else {}
+    configured_workers = max(1, int(provider_workers.get("worker_concurrency") or slot_cap or 1))
+    visible_workers = max(1, min(slot_cap, configured_workers))
+    source_rows = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
+
+    def _source_progress(source_row: dict[str, object]) -> int:
+        raw_status = str(source_row.get("status") or source_row.get("state") or "").strip().lower()
+        if raw_status in {"completed", "processed", "done", "success"}:
+            return 100
+        if raw_status in {"failed", "error", "skipped"} or source_row.get("error"):
+            return 100
+        try:
+            explicit = int(float(str(source_row.get("progress") or "").strip()))
+        except Exception:
+            explicit = 0
+        if explicit > 0:
+            return max(0, min(explicit, 100))
+        if raw_status in {"running", "processing", "in_progress", "working", "warming"}:
+            return 58
+        if raw_status in {"queued", "pending", "starting"}:
+            return 18
+        return 10
+
+    def _source_status_label(source_row: dict[str, object]) -> str:
+        raw_status = str(source_row.get("status") or source_row.get("state") or "").strip().lower()
+        if raw_status in {"completed", "processed", "done", "success"}:
+            return "Done"
+        if raw_status in {"failed", "error"} or source_row.get("error"):
+            return "Needs retry"
+        if raw_status in {"running", "processing", "in_progress", "working", "warming"}:
+            return "Running"
+        if raw_status in {"queued", "pending", "starting"}:
+            return "Queued"
+        return "Queued"
+
+    active_sources = [
+        row for row in source_rows
+        if str(row.get("status") or row.get("state") or "").strip().lower() not in {"completed", "processed", "done", "success", "failed", "error", "skipped"}
+    ]
+    completed_sources = [
+        row for row in source_rows
+        if str(row.get("status") or row.get("state") or "").strip().lower() in {"completed", "processed", "done", "success"}
+    ]
+    queue = active_sources + completed_sources
+
+    worker_rows: list[dict[str, object]] = []
+    for index in range(visible_workers):
+        source_row = queue[index] if index < len(queue) else {}
+        source_label = str(source_row.get("source_label") or source_row.get("label") or "").strip()
+        status_label = _source_status_label(source_row) if source_row else "Idle"
+        progress = _source_progress(source_row) if source_row else 0
+        worker_rows.append(
+            {
+                "label": f"W{index + 1}",
+                "provider": source_label or ("Waiting for a source" if active_sources or source_rows else "Stand by"),
+                "status_label": status_label,
+                "progress_pct": progress,
+                "tone": "done" if progress >= 100 and source_row else ("active" if status_label == "Running" else ("queued" if status_label == "Queued" else "idle")),
+            }
+        )
+
+    upgrade_copy = ""
+    if normalized_plan == "free":
+        upgrade_copy = "Upgrade to Plus for 3 search workers or Agent for 6."
+    elif normalized_plan == "plus":
+        upgrade_copy = "Upgrade to Agent for 6 search workers."
+
+    return {
+        "plan_key": normalized_plan,
+        "visible_workers": visible_workers,
+        "slot_cap": slot_cap,
+        "workers": worker_rows,
+        "upgrade_copy": upgrade_copy,
+        "tooltip": "Search workers handle source lanes in parallel. Faster tiers unlock more concurrent workers.",
+    }
 
 
 def _property_candidate_directions_url(
@@ -4273,6 +4420,7 @@ def property_workspace_payload(
         run_summary=run_summary,
         property_preferences=property_preferences,
     )
+    search_worker_state = _property_search_worker_slots(run_summary, plan_key=str(commercial.get("current_plan_key") or "free"))
 
     research_tasks: list[dict[str, object]] = []
     for task in raw_research_tasks:
@@ -5959,6 +6107,7 @@ def property_workspace_payload(
             "status_url": str(run_payload.get("status_url") or "").strip(),
             "summary": run_summary,
             "events": run_events[-8:],
+            "worker_state": search_worker_state,
             "research_task_total": research_task_total,
             "open_research_task_total": open_research_task_total,
             "filled_research_task_total": filled_research_task_total,
@@ -5973,6 +6122,7 @@ def property_workspace_payload(
             "priorities": selected_keywords,
             "providers": selected_platforms,
             "plan": current_plan_label,
+            "plan_key": str(commercial.get("current_plan_key") or "free").strip().lower() or "free",
             "research_depth": str(commercial.get("research_depth") or "deep").strip(),
         },
         "brief_preferences": dict(property_preferences),
