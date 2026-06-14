@@ -5827,6 +5827,14 @@
       });
       return values;
     };
+    const normalizeLocationText = (value) => String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[()]/g, '')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
     const setCheckboxValues = (form, name, values) => {
       const selected = new Set((values || []).map((item) => String(item || '').trim().toLowerCase()).filter(Boolean));
       form?.querySelectorAll(`input[name="${name}"]`).forEach((node) => {
@@ -5834,48 +5842,82 @@
       });
     };
     const preferenceProfileEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile`;
-    const normalizeDistrictValue = (value) => {
+    const locationOptionRows = (form) => [...(form?.querySelectorAll('input[name="location_query"]') || [])].map((node) => {
+      const labelNode = node.closest('label');
+      const title = String(labelNode?.querySelector('.pqx-check-label')?.textContent || node.value || '').trim();
+      const detail = String(labelNode?.querySelector('small')?.textContent || '').trim();
+      return {
+        value: String(node.value || '').trim(),
+        normalizedValue: normalizeLocationText(node.value),
+        normalizedTitle: normalizeLocationText(title),
+        normalizedDetail: normalizeLocationText(detail),
+      };
+    });
+    const matchLocationValue = (form, value) => {
       const raw = String(value || '').trim();
       if (!raw) return '';
-      const normalized = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').replace(/[()]/g, '').trim();
-      const districtMap = {
-        'innere stadt': '1010 Vienna',
-        'leopoldstadt': '1020 Vienna',
-        'landstrasse': '1030 Vienna',
-        'landstraße': '1030 Vienna',
-        'wieden': '1040 Vienna',
-        'margareten': '1050 Vienna',
-        'mariahilf': '1060 Vienna',
-        'neubau': '1070 Vienna',
-        'josefstadt': '1080 Vienna',
-        'alsergrund': '1090 Vienna',
-        'favoriten': '1100 Vienna',
-        'simmering': '1110 Vienna',
-        'meidling': '1120 Vienna',
-        'hietzing': '1130 Vienna',
-        'penzing': '1140 Vienna',
-        'rudolfsheim funfhaus': '1150 Vienna',
-        'rudolfsheim-funfhaus': '1150 Vienna',
-        'rudolfsheim fünfhaus': '1150 Vienna',
-        'ottakring': '1160 Vienna',
-        'hernals': '1170 Vienna',
-        'waehring': '1180 Vienna',
-        'wahring': '1180 Vienna',
-        'währing': '1180 Vienna',
-        'doebling': '1190 Vienna',
-        'dobling': '1190 Vienna',
-        'döbling': '1190 Vienna',
-        'brigittenau': '1200 Vienna',
-        'floridsdorf': '1210 Vienna',
-        'donaustadt': '1220 Vienna',
-        'liesing': '1230 Vienna',
-      };
-      if (districtMap[normalized]) return districtMap[normalized];
-      const digits = normalized.match(/\b(10[1-9]0|11[0-9]0|1200|1210|1220|1230)\b/);
-      if (digits) return `${digits[1]} Vienna`;
-      return raw;
+      const normalized = normalizeLocationText(raw);
+      const postalDigits = normalized.match(/\b\d{4,5}\b/);
+      const rows = locationOptionRows(form);
+      const exact = rows.find((row) => row.normalizedValue === normalized || row.normalizedTitle === normalized);
+      if (exact) return exact.value;
+      if (postalDigits) {
+        const byPostal = rows.find((row) => row.normalizedValue.includes(postalDigits[0]) || row.normalizedTitle.includes(postalDigits[0]));
+        if (byPostal) return byPostal.value;
+      }
+      const byDetail = rows.find((row) => row.normalizedDetail && (row.normalizedDetail === normalized || normalized.includes(row.normalizedDetail) || row.normalizedDetail.includes(normalized)));
+      if (byDetail) return byDetail.value;
+      const fuzzy = rows.find((row) => normalized && (row.normalizedTitle.includes(normalized) || normalized.includes(row.normalizedTitle)));
+      return fuzzy?.value || raw;
     };
-    const applyPreferenceProfileToForm = async (form, refreshRegionAndLocationChoices, syncViennaScopeControls) => {
+    const matchRegionValue = (form, cityValue) => {
+      const regionField = form?.querySelector('select[name="region_code"]');
+      const normalizedCity = normalizeLocationText(cityValue);
+      if (!regionField || !normalizedCity) return '';
+      const options = [...regionField.options];
+      const exact = options.find((option) => normalizeLocationText(option.textContent || option.value) === normalizedCity);
+      if (exact) return exact.value;
+      const fuzzy = options.find((option) => {
+        const normalizedOption = normalizeLocationText(option.textContent || option.value);
+        return normalizedOption && (normalizedCity.includes(normalizedOption) || normalizedOption.includes(normalizedCity));
+      });
+      return fuzzy?.value || '';
+    };
+    const inferCountryRegionForLocations = (meta, values) => {
+      const normalizedValues = (values || []).map((value) => normalizeLocationText(value)).filter(Boolean);
+      if (!normalizedValues.length) return null;
+      const catalog = meta?.location_catalog_by_country_region || {};
+      let best = null;
+      Object.entries(catalog).forEach(([countryCode, regions]) => {
+        Object.entries(regions || {}).forEach(([regionCode, options]) => {
+          const optionRows = (Array.isArray(options) ? options : []).map((option) => ({
+            value: String(option?.value || '').trim(),
+            normalizedValue: normalizeLocationText(option?.value),
+            normalizedLabel: normalizeLocationText(option?.label || option?.value),
+            normalizedDetail: normalizeLocationText(option?.detail),
+          }));
+          let score = 0;
+          normalizedValues.forEach((needle) => {
+            const matched = optionRows.some((row) => (
+              row.normalizedValue === needle
+              || row.normalizedLabel === needle
+              || (row.normalizedDetail && row.normalizedDetail === needle)
+              || row.normalizedValue.includes(needle)
+              || row.normalizedLabel.includes(needle)
+              || (row.normalizedDetail && row.normalizedDetail.includes(needle))
+              || needle.includes(row.normalizedValue)
+              || needle.includes(row.normalizedLabel)
+            ));
+            if (matched) score += 1;
+          });
+          if (!best || score > best.score) {
+            best = { countryCode, regionCode, score };
+          }
+        });
+      });
+      return best && best.score > 0 ? best : null;
+    };
+    const applyPreferenceProfileToForm = async (form, refreshRegionAndLocationChoices, syncAreaScopeControls) => {
       const personId = fieldValue(form, 'preference_person_id') || 'self';
       if (!personId) return;
       let bundle = {};
@@ -5898,10 +5940,14 @@
       const allViennaField = form.querySelector('input[name="all_of_vienna"]');
       const districtValues = Array.isArray(nodeValues.get('preferred_districts')) ? nodeValues.get('preferred_districts') : [];
       if (districtValues.length) {
-        if (countryField) countryField.value = 'AT';
-        if (regionField) regionField.value = 'vienna';
+        const inferredScope = inferCountryRegionForLocations(meta, districtValues);
+        if (countryField && inferredScope?.countryCode) countryField.value = inferredScope.countryCode;
         refreshRegionAndLocationChoices();
-        const mappedDistricts = uniqueValues(districtValues.map((value) => normalizeDistrictValue(value)));
+        if (regionField && inferredScope?.regionCode) {
+          regionField.value = inferredScope.regionCode;
+          refreshRegionAndLocationChoices();
+        }
+        const mappedDistricts = uniqueValues(districtValues.map((value) => matchLocationValue(form, value)));
         const availableDistricts = new Set([...(form.querySelectorAll('input[name="location_query"]') || [])].map((node) => String(node.value || '').trim().toLowerCase()));
         const visibleDistricts = mappedDistricts.filter((value) => availableDistricts.has(String(value || '').trim().toLowerCase()));
         const customDistricts = mappedDistricts.filter((value) => !availableDistricts.has(String(value || '').trim().toLowerCase()));
@@ -5909,7 +5955,7 @@
         setCheckboxValues(form, 'location_query', visibleDistricts);
         const customLocationField = form.querySelector('[name="custom_location_query"]');
         if (customLocationField) customLocationField.value = customDistricts.join(', ');
-        syncViennaScopeControls();
+        syncAreaScopeControls();
       }
       const maxRent = Number(nodeValues.get('max_total_rent_eur') || nodeValues.get('prefer_lower_total_rent_eur') || 0);
       const minRooms = Number(nodeValues.get('min_rooms') || 0);
@@ -7100,7 +7146,7 @@
         syncAdvancedPanels();
         syncMarketAwareFields(form, meta);
       };
-      const syncViennaScopeControls = () => {
+      const syncAreaScopeControls = () => {
         const activeStep = String(form.dataset.propertyActiveStep || '').trim();
         const isAreasStep = !activeStep || activeStep === 'areas';
         const isViennaScope = String(countryField?.value || '').trim() === 'AT' && String(regionField?.value || '').trim() === 'vienna';
@@ -7177,7 +7223,7 @@
         syncAdvancedPanels();
         syncMarketAwareFields(form, meta);
       };
-      const applyPreferenceProfile = () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncViennaScopeControls).finally(syncFamilyModeControls);
+      const applyPreferenceProfile = () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncAreaScopeControls).finally(syncFamilyModeControls);
       const refreshRegionAndLocationChoices = () => {
         const regionCatalog = meta.region_catalog_by_country || {};
         const locationCatalog = meta.location_catalog_by_country_region || {};
@@ -7195,7 +7241,7 @@
         const effectiveRegion = String(regionField?.value || regionOptions[0]?.value || '').trim();
         const locationOptions = locationCatalog[selectedCountry]?.[effectiveRegion] || [];
         renderCheckboxOptions(form, 'location_query', locationOptions, []);
-        syncViennaScopeControls();
+        syncAreaScopeControls();
       };
       const applyBrowserAndIpDefaults = async () => {
         if (!shouldApplyBrowserDefaults(form)) return;
@@ -7227,16 +7273,17 @@
             syncMarketAwareFields(form, meta);
           }
         }
-        if (String(countryField?.value || '').trim() === 'AT' && ipCity.includes('wien') && regionField) {
-          regionField.value = 'vienna';
+        const inferredRegion = matchRegionValue(form, ipCity);
+        if (inferredRegion && regionField) {
+          regionField.value = inferredRegion;
           refreshRegionAndLocationChoices();
           if (ipPostal) {
-            const districtValue = `${ipPostal} Vienna`;
+            const districtValue = matchLocationValue(form, ipPostal);
             const locationInput = form.querySelector(`input[name="location_query"][value="${districtValue}"]`);
             if (locationInput) {
               if (allViennaField) allViennaField.checked = false;
               locationInput.checked = true;
-              syncViennaScopeControls();
+              syncAreaScopeControls();
             }
           }
         }
@@ -7261,7 +7308,7 @@
         refreshRegionAndLocationChoices();
         syncMarketAwareFields(form, meta);
       });
-      allViennaField?.addEventListener('change', syncViennaScopeControls);
+      allViennaField?.addEventListener('change', syncAreaScopeControls);
       listingModeField?.addEventListener('change', () => {
         const selectedCountry = String(countryField?.value || 'AT').trim();
         const catalog = meta.platform_catalog_by_country || {};
@@ -7317,12 +7364,12 @@
         syncSelectAllButtons(form, planPlatformCap);
       });
       form.addEventListener('propertyquarry:stepchange', () => {
-        syncViennaScopeControls();
+        syncAreaScopeControls();
         syncListingModeControls();
         syncCommuteControls();
         syncFamilyModeControls();
       });
-      syncViennaScopeControls();
+      syncAreaScopeControls();
       syncListingModeControls();
       syncCommuteControls();
       syncFamilyModeControls();

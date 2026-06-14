@@ -122,6 +122,13 @@ def test_property_scope_preview_uses_generic_boundary_projection(monkeypatch) ->
     assert all(str(row.get("path") or "").startswith("M") for row in preview["district_rows"])
 
 
+def test_property_workbench_no_longer_embeds_vienna_district_mapping_js() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
+    body = template_path.read_text(encoding="utf-8")
+    assert "const districtMap = {" not in body
+    assert "syncViennaScopeControls" not in body
+
+
 def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch) -> None:
     principal_id = "pq-redesign-browser"
     client = build_property_client(principal_id=principal_id)
