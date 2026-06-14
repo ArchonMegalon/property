@@ -665,9 +665,37 @@
     }
     .pqx-setup.pqx-surface-search .pqx-command {
       order: 1;
+      gap: 10px;
+      padding: 10px 12px;
+    }
+    .pqx-setup.pqx-surface-search > [data-pqx-mobile-panel="results"] {
+      max-height: calc(100vh - 172px);
+      overflow: auto;
+      scrollbar-gutter: stable;
     }
     .pqx-surface-search [data-pqx-mobile-panel="results"] {
       order: 2;
+    }
+    .pqx-surface-search > [data-pqx-mobile-panel="results"] {
+      gap: 10px;
+      padding: 12px 14px;
+    }
+    .pqx-surface-search .pqx-dashboard-row {
+      padding: 8px 10px;
+      gap: 3px;
+    }
+    .pqx-surface-search .pqx-previous-search-list {
+      gap: 8px;
+    }
+    .pqx-surface-search .pqx-previous-search {
+      gap: 8px;
+      padding: 9px;
+    }
+    .pqx-surface-search .pqx-previous-scope-preview {
+      gap: 6px;
+    }
+    .pqx-surface-search .pqx-previous-scope-caption .pqx-note {
+      font-size: 11px;
     }
     .pqx-setup-intro {
       display: grid;
@@ -956,6 +984,9 @@
       gap: clamp(12px, 1.6vw, 18px);
       padding: clamp(12px, 1.6vw, 18px);
     }
+    .pqx-surface-search .pqx-section-head {
+      margin-bottom: 2px;
+    }
     .pqx-running .pqx-command {
       gap: 12px;
       padding: clamp(14px, 1.8vw, 20px);
@@ -982,6 +1013,10 @@
       background: rgba(255, 253, 248, 0.78);
       min-width: 0;
     }
+    .pqx-surface-search .pqx-workflow {
+      gap: 4px;
+      padding: 4px;
+    }
     .pqx-workflow legend {
       padding: 0 6px;
       color: var(--pq-muted);
@@ -1002,6 +1037,9 @@
       cursor: pointer;
       min-width: 0;
     }
+    .pqx-surface-search .pqx-workflow-step {
+      padding: 4px 6px;
+    }
     .pqx-workflow-step strong {
       display: block;
       width: 100%;
@@ -1010,11 +1048,18 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .pqx-surface-search .pqx-workflow-step strong {
+      font-size: 11px;
+    }
     .pqx-form-body {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 6px 8px;
       align-items: start;
+    }
+    .pqx-surface-search .pqx-form-body {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 5px 7px;
     }
     .pqx-advanced-panel {
       grid-column: 1 / -1;
@@ -1022,6 +1067,9 @@
       border-radius: 12px;
       background: linear-gradient(180deg, rgba(247, 241, 229, 0.72), rgba(255, 253, 248, 0.9));
       padding: 8px 10px 10px;
+    }
+    .pqx-surface-search .pqx-advanced-panel {
+      padding: 6px 8px 8px;
     }
     .pqx-advanced-panel summary {
       cursor: pointer;
@@ -1038,6 +1086,10 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
       margin-top: 8px;
+    }
+    .pqx-surface-search .pqx-advanced-panel-grid {
+      gap: 6px;
+      margin-top: 6px;
     }
     .pqx-field {
       display: grid;
@@ -1068,6 +1120,11 @@
       color: var(--pq-ink);
       padding: 0 10px;
     }
+    .pqx-surface-search .pqx-field input:not([type="checkbox"]),
+    .pqx-surface-search .pqx-field select {
+      min-height: 34px;
+      padding: 0 8px;
+    }
     .pqx-field select option {
       color: var(--pq-ink);
       background: #fffefa;
@@ -1079,6 +1136,10 @@
       border: 1px solid rgba(185, 173, 154, 0.72);
       border-radius: 8px;
       background: rgba(255, 253, 248, 0.74);
+    }
+    .pqx-surface-search .pqx-range-label {
+      gap: 5px;
+      padding: 6px 8px;
     }
     .pqx-range-head {
       display: flex;
@@ -1096,12 +1157,21 @@
       font-size: 12px;
       line-height: 1.45;
     }
+    .pqx-surface-search .pqx-check-note {
+      margin-top: 5px;
+      font-size: 11px;
+      line-height: 1.3;
+    }
     .pqx-field-tools {
       display: flex;
       justify-content: flex-end;
       flex-wrap: wrap;
       gap: 10px;
       margin-bottom: 6px;
+    }
+    .pqx-surface-search .pqx-field-tools {
+      gap: 8px;
+      margin-bottom: 4px;
     }
     .pqx-field-tools .pqx-field-action {
       border: 0;
@@ -1176,6 +1246,10 @@
       text-align: right;
       white-space: nowrap;
     }
+    .pqx-surface-search .pqx-range-value {
+      min-width: 92px;
+      font-size: 12px;
+    }
     .pqx-field input[type="range"] {
       width: 100%;
       min-height: 42px;
@@ -1185,6 +1259,9 @@
       border: 0;
       cursor: pointer;
       touch-action: pan-y;
+    }
+    .pqx-surface-search .pqx-field input[type="range"] {
+      min-height: 34px;
     }
     .pqx-field input[type="range"]::-webkit-slider-thumb {
       width: 24px;
@@ -1224,6 +1301,11 @@
       overflow: auto;
       padding-right: 2px;
     }
+    .pqx-surface-search .pqx-check-grid {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 5px;
+      max-height: 126px;
+    }
     .pqx-check {
       min-height: 42px;
       display: grid;
@@ -1236,9 +1318,17 @@
       background: var(--pq-panel);
       cursor: pointer;
     }
+    .pqx-surface-search .pqx-check {
+      min-height: 36px;
+      padding: 6px 7px;
+      gap: 6px;
+    }
     .pqx-check input {
       margin-top: 4px;
       accent-color: var(--pq-charcoal);
+    }
+    .pqx-surface-search .pqx-check input {
+      margin-top: 3px;
     }
     .pqx-check > span {
       min-width: 0;
@@ -1252,12 +1342,20 @@
       line-height: 1.28;
       overflow-wrap: anywhere;
     }
+    .pqx-surface-search .pqx-check span span {
+      font-size: 11px;
+      line-height: 1.18;
+    }
     .pqx-check small {
       display: block;
       color: var(--pq-muted);
       font-size: 10px;
       line-height: 1.25;
       overflow-wrap: anywhere;
+    }
+    .pqx-surface-search .pqx-check small {
+      font-size: 9px;
+      line-height: 1.15;
     }
     .pqx-form-footer {
       display: flex;
@@ -1267,6 +1365,140 @@
       align-items: center;
       padding-top: 6px;
       border-top: 1px solid var(--pq-line);
+    }
+    .pqx-surface-search .pqx-form-footer {
+      padding-top: 4px;
+    }
+    @media (min-width: 1400px) and (min-height: 1100px) {
+      .pqx-setup.pqx-surface-search {
+        min-height: calc(100vh - 146px);
+        grid-template-columns: minmax(700px, 1fr) minmax(220px, 276px);
+        gap: 10px;
+      }
+      .pqx-setup.pqx-surface-search .pqx-command {
+        gap: 8px;
+        padding: 8px 10px;
+      }
+      .pqx-setup.pqx-surface-search > [data-pqx-mobile-panel="results"] {
+        max-height: calc(100vh - 146px);
+        padding: 10px 12px;
+      }
+      .pqx-surface-search .pqx-title h1 {
+        font-size: 1.75rem;
+      }
+      .pqx-surface-search .pqx-brief-stack,
+      .pqx-surface-search .pqx-dashboard-stack,
+      .pqx-surface-search .pqx-previous-search-list {
+        gap: 8px;
+      }
+      .pqx-surface-search .pqx-dashboard-row,
+      .pqx-surface-search .pqx-previous-search {
+        padding: 8px;
+      }
+      .pqx-surface-search .pqx-previous-scope-image {
+        aspect-ratio: 16 / 8;
+      }
+      .pqx-surface-search .pqx-loaded-agent {
+        gap: 4px 8px;
+        padding: 4px 6px;
+      }
+      .pqx-surface-search .pqx-loaded-agent .pqx-actions {
+        gap: 6px;
+      }
+      .pqx-surface-search .pqx-form {
+        gap: 8px;
+      }
+      .pqx-surface-search .pqx-section-head {
+        align-items: center;
+      }
+      .pqx-surface-search .pqx-section-head h2 {
+        font-size: 0.98rem;
+      }
+      .pqx-surface-search .pqx-workflow {
+        gap: 3px;
+        padding: 3px;
+      }
+      .pqx-surface-search .pqx-workflow legend {
+        font-size: 10px;
+      }
+      .pqx-surface-search .pqx-workflow-step {
+        padding: 3px 5px;
+      }
+      .pqx-surface-search .pqx-workflow-step strong {
+        font-size: 10px;
+      }
+      .pqx-surface-search .pqx-form-body {
+        gap: 4px 6px;
+      }
+      .pqx-surface-search .pqx-advanced-panel {
+        padding: 5px 7px 7px;
+      }
+      .pqx-surface-search .pqx-advanced-panel summary {
+        font-size: 12px;
+      }
+      .pqx-surface-search .pqx-advanced-panel-grid {
+        gap: 5px;
+        margin-top: 5px;
+      }
+      .pqx-surface-search .pqx-field {
+        gap: 4px;
+      }
+      .pqx-surface-search .pqx-field label,
+      .pqx-surface-search .pqx-field-title,
+      .pqx-surface-search .pqx-note,
+      .pqx-surface-search .pqx-small {
+        font-size: 10px;
+        line-height: 1.2;
+      }
+      .pqx-surface-search .pqx-field input:not([type="checkbox"]),
+      .pqx-surface-search .pqx-field select {
+        min-height: 32px;
+        padding: 0 7px;
+      }
+      .pqx-surface-search .pqx-range-label {
+        gap: 4px;
+        padding: 5px 7px;
+      }
+      .pqx-surface-search .pqx-range-value {
+        min-width: 84px;
+        padding: 4px 6px;
+        font-size: 11px;
+      }
+      .pqx-surface-search .pqx-field input[type="range"] {
+        min-height: 28px;
+      }
+      .pqx-surface-search .pqx-range-scale,
+      .pqx-surface-search .pqx-range-upgrade {
+        font-size: 10px;
+        line-height: 1.2;
+      }
+      .pqx-surface-search .pqx-field-tools {
+        gap: 6px;
+        margin-bottom: 3px;
+      }
+      .pqx-surface-search .pqx-field-tools .pqx-field-action {
+        font-size: 11px;
+      }
+      .pqx-surface-search .pqx-check-grid {
+        max-height: 112px;
+      }
+      .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="property_type"] {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+      }
+      .pqx-surface-search .pqx-check {
+        min-height: 32px;
+        gap: 5px;
+        padding: 5px 6px;
+      }
+      .pqx-surface-search .pqx-check span span {
+        font-size: 10px;
+      }
+      .pqx-surface-search .pqx-check small {
+        font-size: 8px;
+      }
+      .pqx-surface-search .pqx-form-footer {
+        padding-top: 3px;
+      }
     }
     .pqx-inline-status { color: var(--pq-green); font-size: 12px; }
     .pqx-inline-error { color: var(--pq-red); font-size: 12px; }
@@ -2568,27 +2800,32 @@
           {% set dashboard_agents = property_meta.get('search_agents') or [] %}
           {% set active_dashboard_agents = dashboard_agents|selectattr('enabled')|list %}
           {% set selected_dashboard_agent = property_meta.get('search_agent') or (dashboard_agents[0] if dashboard_agents else {}) %}
+          {% set previous_limit = 4 if surface_mode == 'search' else 6 %}
           <div class="pqx-title">
             <span>{% if surface_mode == 'search' %}Search desk{% else %}Dashboard{% endif %}</span>
             <h1>{% if surface_mode == 'search' %}Build the next search.{% else %}Previous searches.{% endif %}</h1>
           </div>
+          {% if surface_mode != 'search' %}
           <div class="pqx-brief-stack">
-            <p class="pqx-note">{% if surface_mode == 'search' %}Use this rail only for recent searches and saved watches.{% else %}Resume a recent search or open a saved one to edit it.{% endif %}</p>
+            <p class="pqx-note">Resume a recent search or open a saved one to edit it.</p>
           </div>
+          {% endif %}
           <div class="pqx-dashboard-stack" data-pqx-dashboard-summary>
             <div class="pqx-dashboard-row">
               <span class="pqx-small">Saved searches</span>
               <strong>{{ active_dashboard_agents|length }} active · {{ dashboard_agents|length }} total</strong>
               <span class="pqx-note">{% if selected_dashboard_agent %}Selected: {{ selected_dashboard_agent.get('name') or 'Saved search' }}{% else %}Create a saved search from the form when this brief should keep running.{% endif %}</span>
             </div>
+            {% if surface_mode != 'search' %}
             <div class="pqx-dashboard-row">
               <span class="pqx-small">Next action</span>
               <strong>{% if dashboard_agents %}{% if surface_mode == 'search' %}Reuse a saved search or refine this brief{% else %}Edit or run a saved search{% endif %}{% else %}Create your first saved search{% endif %}</strong>
               <span class="pqx-note">Only the strongest homes are sent when limits apply.</span>
             </div>
+            {% endif %}
           </div>
           <div class="pqx-previous-search-list" data-pqx-previous-searches>
-            {% for previous in previous_search_runs[:6] %}
+            {% for previous in previous_search_runs[:previous_limit] %}
             <article class="pqx-previous-search" data-pqx-previous-search-card>
               {% set scope_preview = previous.get('scope_preview') or {} %}
               <div class="pqx-previous-scope-preview">
@@ -2650,7 +2887,7 @@
             </div>
             {% endfor %}
           </div>
-          {% if recent_packets %}
+          {% if recent_packets and surface_mode != 'search' %}
           <div class="pqx-brief-stack">
             <strong>Recent decisions and reviews</strong>
             {% for packet in recent_packets[:3] %}

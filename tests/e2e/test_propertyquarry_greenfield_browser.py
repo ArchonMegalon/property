@@ -397,9 +397,18 @@ def browser() -> Iterator[Browser]:
             browser.close()
 
 
-def _new_context(browser: Browser, *, mobile: bool = False) -> BrowserContext:
+def _new_context(
+    browser: Browser,
+    *,
+    mobile: bool = False,
+    width: int | None = None,
+    height: int | None = None,
+) -> BrowserContext:
     return browser.new_context(
-        viewport={"width": 430 if mobile else 1440, "height": 932 if mobile else 1100},
+        viewport={
+            "width": width if width is not None else (430 if mobile else 1440),
+            "height": height if height is not None else (932 if mobile else 1100),
+        },
         extra_http_headers={"X-EA-Principal-ID": "pq-greenfield-browser"},
     )
 
@@ -1027,7 +1036,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
     tmp_path: Path,
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
-    desktop = _new_context(browser, mobile=False)
+    desktop = _new_context(browser, mobile=False, width=1600, height=1200)
     mobile = _new_context(browser, mobile=True)
     desktop_shot = tmp_path / "property_search_setup_desktop.png"
     mobile_shot = tmp_path / "property_search_setup_mobile.png"
@@ -1051,6 +1060,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     drawerBottom: drawerRect ? drawerRect.bottom : 0,
                     workflowHeight: workflowRect ? workflowRect.height : 0,
                     propertyTypeHeight: propertyTypeRect ? propertyTypeRect.height : 0,
+                    propertyTypeBottom: propertyTypeRect ? propertyTypeRect.bottom : 0,
                 };
             }"""
         )
@@ -1058,6 +1068,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert metrics["scrollHeight"] <= metrics["innerHeight"] + 1
         assert metrics["workflowHeight"] <= 84
         assert metrics["propertyTypeHeight"] <= 170
+        assert metrics["propertyTypeBottom"] <= metrics["innerHeight"] + 1
         assert desktop_shot.exists()
 
         mobile_page = mobile.new_page()
