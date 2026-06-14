@@ -1773,7 +1773,7 @@ def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
         return False
 
     if _false_flag(facts.get("has_floorplan")) or _zero_count("floorplan_count", "floorplans_count"):
-        return "No hosted 3D tour yet. This listing still needs a floorplan or usable source 360 media before a hosted tour can be built."
+        return "No hosted 3D tour yet. Floorplan missing or usable source 360 media still needs to be found before a hosted tour can be built."
     if _false_flag(facts.get("has_360")) or _zero_count("media_count", "image_count"):
         return "No hosted 3D tour yet. The source did not expose enough room media, a floorplan, or a usable 360."
     return "No hosted 3D tour yet. More source media is needed before PropertyQuarry can build it."
@@ -1835,6 +1835,63 @@ def _property_tour_detail_line(candidate: dict[str, object]) -> str:
     if vendor_tour_url:
         return "A source 360 exists, but the preferred PropertyQuarry-hosted tour is not ready yet."
     return _property_tour_source_gap_detail(candidate)
+
+
+def _property_research_money_display(value: object) -> str:
+    if value in (None, "", []):
+        return ""
+    if isinstance(value, str):
+        text = " ".join(value.split()).strip()
+        if not text:
+            return ""
+        if "eur" in text.lower() or "€" in text:
+            return text
+        try:
+            value = float(text.replace(",", "."))
+        except Exception:
+            return text
+    if isinstance(value, (int, float)):
+        amount = float(value)
+        if amount <= 0:
+            return ""
+        return f"EUR {amount:,.0f}".replace(",", ",")
+    return ""
+
+
+def _property_research_gallery_items(
+    *,
+    candidate: dict[str, object],
+    facts: dict[str, object],
+    preview_image: str,
+    latest_magic_fit_scene: dict[str, object] | None,
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def _append(url: object, *, label: str, kind: str) -> None:
+        normalized = str(url or "").strip()
+        if not normalized or normalized in seen:
+            return
+        if not normalized.startswith(("https://", "http://", "/")):
+            return
+        seen.add(normalized)
+        rows.append({"url": normalized, "label": label, "kind": kind})
+
+    _append(preview_image, label="Lead photo", kind="photo")
+    for key in ("media_urls_json", "photo_urls_json", "image_urls_json"):
+        values = facts.get(key) or candidate.get(key)
+        if not isinstance(values, (list, tuple)):
+            continue
+        for index, value in enumerate(values[:8], start=1):
+            _append(value, label=f"Photo {index}", kind="photo")
+
+    if isinstance(latest_magic_fit_scene, dict):
+        _append(
+            latest_magic_fit_scene.get("image_url"),
+            label=str(latest_magic_fit_scene.get("scene_type") or "Lifestyle still").replace("_", " ").title(),
+            kind="diorama",
+        )
+    return rows[:8]
 
 
 def _property_review_detail_line(candidate: dict[str, object]) -> str:
@@ -2754,7 +2811,7 @@ def property_research_packet(
         facts.get("price_display")
         or facts.get("rent_display")
         or facts.get("price")
-        or facts.get("price_eur")
+        or _property_research_money_display(facts.get("price_eur"))
         or ""
     ).strip()
     if not price_summary or price_summary.lower() == "n/a":
@@ -2785,6 +2842,12 @@ def property_research_packet(
     research_media = _property_tour_media_payload(candidate)
     orientation_preview = _property_candidate_orientation_preview(candidate)
     preview_image = _property_candidate_preview_image(candidate)
+    gallery_items = _property_research_gallery_items(
+        candidate=candidate,
+        facts=facts,
+        preview_image=preview_image,
+        latest_magic_fit_scene=latest_magic_fit_scene if isinstance(latest_magic_fit_scene, dict) else None,
+    )
     location_preview = {
         "image_url": str(orientation_preview.get("image_url") or "").strip(),
         "map_url": str(orientation_preview.get("map_url") or "").strip(),
@@ -2933,6 +2996,7 @@ def property_research_packet(
             "research_location": location_summary or source_label,
             "research_media": research_media,
             "research_preview_image": preview_image,
+            "research_gallery_items": gallery_items,
             "research_location_preview": location_preview,
             "research_actions": hero_actions,
             "research_overview_rows": overview_rows,

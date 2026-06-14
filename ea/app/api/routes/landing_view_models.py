@@ -191,6 +191,7 @@ def _cached_preview_data_url(
     overlay_rows: list[dict[str, object]] | None = None,
     boundary_paths: list[str] | None = None,
     pin: tuple[float, float] | None = None,
+    draw_overlay: bool = True,
     width: int = 640,
     height: int = 368,
 ) -> str:
@@ -232,19 +233,20 @@ def _cached_preview_data_url(
         if len(points) < 3:
             continue
         draw.line(points + [points[0]], fill=(70, 68, 65, 210), width=4, joint="curve")
-    for index, row in enumerate(overlay_rows or []):
-        path = str(row.get("path") or "").strip()
-        if not path:
-            continue
-        numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
-        points = list(zip(numbers[0::2], numbers[1::2]))
-        if len(points) < 3:
-            continue
-        selected = bool(row.get("selected"))
-        shade = 94 + (index % 5) * 22
-        fill = (182 + min(shade, 40), 36 + (index % 3) * 10, 42 + (index % 4) * 8, 130 if selected else 72)
-        stroke = (132, 23, 29, 245 if selected else 190)
-        draw.polygon(points, fill=fill, outline=stroke)
+    if draw_overlay:
+        for index, row in enumerate(overlay_rows or []):
+            path = str(row.get("path") or "").strip()
+            if not path:
+                continue
+            numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
+            points = list(zip(numbers[0::2], numbers[1::2]))
+            if len(points) < 3:
+                continue
+            selected = bool(row.get("selected"))
+            shade = 94 + (index % 5) * 22
+            fill = (182 + min(shade, 40), 36 + (index % 3) * 10, 42 + (index % 4) * 8, 130 if selected else 72)
+            stroke = (132, 23, 29, 245 if selected else 190)
+            draw.polygon(points, fill=fill, outline=stroke)
     if pin:
         marker_x, marker_y = pin
         draw.ellipse((marker_x - 18, marker_y - 18, marker_x + 18, marker_y + 18), fill=(207, 53, 53, 58))
@@ -527,12 +529,13 @@ def _build_scope_boundary_preview(
             "query": normalized_query,
             "areas": [row["label"] for row in district_rows],
             "zoom": zoom,
+            "overlay_mode": "html",
         },
         center_lat=center_lat,
         center_lon=center_lon,
         zoom=zoom,
-        overlay_rows=overlay_rows,
         boundary_paths=boundary_paths,
+        draw_overlay=False,
     )
     return {
         "image_url": image_url,
@@ -737,6 +740,15 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         "upgrade_copy": upgrade_copy,
         "tooltip": "Search workers handle source lanes in parallel. Faster tiers unlock more concurrent workers.",
     }
+
+
+def _compact_provider_label(value: object) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return "Provider"
+    if "|" in text:
+        text = text.split("|", 1)[0].strip()
+    return text or "Provider"
 
 
 def _property_candidate_directions_url(
@@ -1372,15 +1384,13 @@ def _property_suppression_rows(
     *,
     run_summary: dict[str, object],
     source_rows: list[dict[str, object]],
-) -> list[dict[str, str]]:
+) -> list[dict[str, object]]:
     counters = {
         "Outside selected area": 0,
         "Missing floorplan evidence": 0,
         "Below fit threshold": 0,
-        "Wrong property type": 0,
         "Outside area/size rule": 0,
         "Availability mismatch": 0,
-        "Duplicate listing": 0,
         "Alert budget": 0,
     }
     source_labels: dict[str, set[str]] = {key: set() for key in counters}
@@ -1388,10 +1398,8 @@ def _property_suppression_rows(
         ("Outside selected area", "location_mismatch_candidate_total"),
         ("Missing floorplan evidence", "filtered_floorplan_total"),
         ("Below fit threshold", "filtered_low_fit_total"),
-        ("Wrong property type", "filtered_property_type_total"),
         ("Outside area/size rule", "filtered_area_total"),
         ("Availability mismatch", "filtered_availability_total"),
-        ("Duplicate listing", "duplicate_listing_total"),
         ("Alert budget", "notification_budget_suppressed_total"),
     )
     for source in source_rows:
@@ -1414,10 +1422,8 @@ def _property_suppression_rows(
         "Outside selected area": "Keep suppressed unless you widen the target area.",
         "Missing floorplan evidence": "These are not invalid. PropertyQuarry is still looking for floorplans in photos, PDFs, downloads, and 360 media.",
         "Below fit threshold": "Lower the fit threshold only for a broader discovery run.",
-        "Wrong property type": "Change property category if these should be included.",
         "Outside area/size rule": "Relax area limits only after reviewing the near-miss table.",
         "Availability mismatch": "Adjust timing if move-in date is flexible.",
-        "Duplicate listing": "No action needed; duplicates stay collapsed.",
         "Alert budget": "Increase daily/weekly message limits or review the held-back table.",
     }
     rows: list[dict[str, str]] = []
@@ -1430,14 +1436,13 @@ def _property_suppression_rows(
                 "title": label,
                 "detail": f"{total} candidate{' was' if total == 1 else 's were'} filtered out. {action_map[label]}",
                 "tag": providers or "Search rule",
+                "affected_total": total,
                 "action_label": {
                     "Outside selected area": "Review area",
                     "Missing floorplan evidence": "Recover floorplans",
                     "Below fit threshold": "Show near misses",
-                    "Wrong property type": "Edit category",
                     "Outside area/size rule": "Relax size",
                     "Availability mismatch": "Edit timing",
-                    "Duplicate listing": "Keep collapsed",
                     "Alert budget": "Edit alert budget",
                 }.get(label, "Review rule"),
             }
@@ -2501,12 +2506,14 @@ def app_section_payload(
             continue
         source_row = dict(source)
         source_label = str(source_row.get("source_label") or source_row.get("source_url") or "Source").strip()
+        source_row["display_source_label"] = _compact_provider_label(source_label)
         enriched_candidates: list[dict[str, object]] = []
         for candidate in list(source_row.get("top_candidates") or []):
             if not isinstance(candidate, dict):
                 continue
             candidate_row = dict(candidate)
             candidate_row.setdefault("source_label", source_label)
+            candidate_row.setdefault("source_short_label", _compact_provider_label(source_label))
             if isinstance(source_row.get("provider_quality"), dict):
                 candidate_row.setdefault("provider_quality", dict(source_row.get("provider_quality") or {}))
             else:
@@ -2544,6 +2551,7 @@ def app_section_payload(
                     if candidate_key:
                         seen_candidates.add(candidate_key)
                     candidate_row.setdefault("source_label", source_label)
+                    candidate_row.setdefault("source_short_label", _compact_provider_label(source_label))
                     if isinstance(source_row.get("provider_quality"), dict):
                         candidate_row.setdefault("provider_quality", dict(source_row.get("provider_quality") or {}))
                     ranked_candidates.append(candidate_row)
@@ -4785,10 +4793,12 @@ def property_workspace_payload(
         for candidate in ranked_candidates[:3]:
             title = str(candidate.get("title") or "Property").strip() or "Property"
             source_label = str(candidate.get("source_label") or candidate.get("source_platform") or "Source").strip() or "Source"
+            source_short_label = _compact_provider_label(source_label)
             top_candidates.append(
                 {
                     "title": title,
                     "source_label": source_label,
+                    "source_short_label": source_short_label,
                     "fit_score": _previous_run_int(candidate.get("fit_score")),
                     "detail": str(
                         candidate.get("compare_reason")

@@ -3,39 +3,61 @@
 <style>
   .prd-shell,
   .prd-hero,
-  .prd-summary,
+  .prd-headline,
+  .prd-summary-stack,
   .prd-meta,
+  .prd-gallery,
+  .prd-body,
   .prd-sections,
-  .prd-feedback-grid,
+  .prd-side-stack,
   .prd-map-card,
   .prd-media-frame {
     display: grid;
     gap: 18px;
   }
   .prd-shell {
-    gap: 24px;
+    width: min(1360px, calc(100vw - 32px));
+    margin: 0 auto;
+    padding-bottom: 44px;
+    gap: 28px;
   }
   .prd-hero {
-    grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+    gap: 16px;
+  }
+  .prd-body {
+    grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
     align-items: start;
+    gap: 22px;
+  }
+  .prd-headline {
+    grid-template-columns: minmax(0, 1.12fr) minmax(300px, 0.88fr);
+    align-items: start;
+    gap: 18px;
+  }
+  .prd-summary-stack,
+  .prd-side-stack {
+    align-content: start;
   }
   .prd-panel,
-  .prd-section,
+  .prd-band,
   .prd-map-card,
   .prd-meta-card,
   .prd-lightbox-card {
     border: 1px solid var(--line);
-    border-radius: 16px;
+    border-radius: 14px;
     background: var(--panel);
-    box-shadow: var(--shadow);
+    box-shadow: none;
     padding: 18px;
     box-sizing: border-box;
     min-width: 0;
   }
+  .prd-band {
+    background: linear-gradient(180deg, rgba(255,255,255,0.58), rgba(255,255,255,0.2));
+  }
   .prd-panel h1,
   .prd-panel h2,
   .prd-panel h3,
-  .prd-section h2,
+  .prd-band h2,
   .prd-copy,
   .prd-row strong,
   .prd-row small {
@@ -54,21 +76,28 @@
     color: var(--text-soft);
     margin: 0;
   }
-  .prd-price {
-    font-size: clamp(2rem, 4.8vw, 3.2rem);
-    line-height: 1;
+  .prd-headline-panel h1 {
     margin: 0;
+    font-size: clamp(2rem, 4.2vw, 3.6rem);
+    line-height: 0.98;
+    letter-spacing: 0;
+  }
+  .prd-price {
+    font-size: clamp(2rem, 4.4vw, 3.1rem);
+    line-height: 1;
+    margin: 12px 0 0;
   }
   .prd-facts {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+    margin-top: 14px;
   }
   .prd-chip {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    min-height: 34px;
+    min-height: 32px;
     padding: 0 12px;
     border-radius: 999px;
     border: 1px solid var(--line);
@@ -85,12 +114,35 @@
   .prd-actions .pqx-button {
     min-height: 40px;
   }
+  .prd-status-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .prd-status-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 0 11px;
+    border-radius: 999px;
+    border: 1px solid rgba(195, 159, 86, 0.44);
+    background: rgba(195, 159, 86, 0.12);
+    color: #6b4f20;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
   .prd-media-frame {
     position: relative;
     overflow: hidden;
-    aspect-ratio: 16 / 10;
+    min-height: clamp(340px, 56vh, 720px);
     padding: 0;
     background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 18px;
   }
   .prd-media-frame iframe,
   .prd-media-frame img {
@@ -106,6 +158,13 @@
     place-items: center;
     padding: 24px;
     color: var(--text-soft);
+  }
+  .prd-media-gradient {
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 38%;
+    background: linear-gradient(180deg, rgba(19, 21, 25, 0), rgba(19, 21, 25, 0.74));
+    pointer-events: none;
   }
   .prd-media-badge {
     position: absolute;
@@ -124,6 +183,57 @@
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
+  .prd-media-caption {
+    position: absolute;
+    left: 18px;
+    right: 18px;
+    bottom: 18px;
+    z-index: 2;
+    display: grid;
+    gap: 6px;
+    color: #fffdf8;
+  }
+  .prd-media-caption strong {
+    font-size: clamp(1.1rem, 2vw, 1.42rem);
+    line-height: 1.08;
+  }
+  .prd-media-caption span {
+    color: rgba(255, 253, 248, 0.82);
+    font-size: 13px;
+  }
+  .prd-gallery {
+    grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+    gap: 10px;
+  }
+  .prd-gallery-item {
+    display: grid;
+    gap: 6px;
+  }
+  .prd-gallery-thumb {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1.18 / 1;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    padding: 0;
+    cursor: zoom-in;
+  }
+  .prd-gallery-thumb img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+  .prd-gallery-label {
+    color: var(--text-soft);
+    font-size: 12px;
+    line-height: 1.2;
+  }
+  .prd-gallery-label b {
+    color: var(--text);
+  }
   .prd-meta {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -139,8 +249,7 @@
     font-size: 1rem;
   }
   .prd-map-card {
-    grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
-    align-items: center;
+    gap: 14px;
   }
   .prd-map-thumb {
     display: block;
@@ -160,8 +269,14 @@
     object-fit: cover;
   }
   .prd-sections {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
     align-items: start;
+    gap: 16px;
+  }
+  .prd-section-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
   }
   .prd-row {
     display: flex;
@@ -264,6 +379,10 @@
     object-fit: contain;
     display: block;
     background: var(--panel);
+  }
+  .prd-side-stack {
+    position: sticky;
+    top: 24px;
   }
   .object-feedback {
     margin-top: 0;
@@ -394,12 +513,14 @@
     margin-top: 3px;
   }
   @media (max-width: 1080px) {
-    .prd-hero,
-    .prd-sections,
-    .prd-map-card,
-    .prd-feedback-grid,
+    .prd-headline,
+    .prd-body,
+    .prd-section-grid,
     .object-magicfit-grid {
       grid-template-columns: 1fr;
+    }
+    .prd-side-stack {
+      position: static;
     }
   }
   @media (max-width: 760px) {
@@ -416,6 +537,9 @@
       display: grid;
       grid-template-columns: 1fr;
     }
+    .prd-shell {
+      width: calc(100vw - 20px);
+    }
     .prd-lightbox {
       width: calc(100vw - 16px);
       max-width: calc(100vw - 16px);
@@ -430,25 +554,27 @@
 
 <section class="prd-shell" data-property-research-detail>
   <section class="prd-hero">
-    <section class="prd-panel">
-      <div class="prd-kicker">{{ research_source_label }}</div>
-      <div class="prd-media-frame" data-object-media-stage>
-        <div class="prd-media-badge">{{ research_media.get('status_label') or 'Media' }}</div>
-        {% if research_media.get('embed_href') %}
-        <iframe src="{{ research_media.get('embed_href') }}" title="Property 360 review" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
-        {% elif research_preview_image %}
-        <img src="{{ research_preview_image }}" alt="{{ research_title }}" loading="lazy">
-        {% elif research_location_preview.get('image_url') %}
-        <img src="{{ research_location_preview.get('image_url') }}" alt="{{ research_location_preview.get('alt') or research_title }}" loading="lazy">
-        {% else %}
-        <div class="prd-media-empty">{{ research_media.get('status_detail') or 'No media attached yet.' }}</div>
-        {% endif %}
+    <section class="prd-media-frame prd-panel" data-object-media-stage>
+      <div class="prd-media-badge">{{ research_media.get('status_label') or 'Media' }}</div>
+      {% if research_media.get('embed_href') %}
+      <iframe src="{{ research_media.get('embed_href') }}" title="Property 360 review" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+      {% elif research_preview_image %}
+      <img src="{{ research_preview_image }}" alt="{{ research_title }}" loading="lazy">
+      {% elif research_location_preview.get('image_url') %}
+      <img src="{{ research_location_preview.get('image_url') }}" alt="{{ research_location_preview.get('alt') or research_title }}" loading="lazy">
+      {% else %}
+      <div class="prd-media-empty">{{ research_media.get('status_detail') or 'No media attached yet.' }}</div>
+      {% endif %}
+      <div class="prd-media-gradient" aria-hidden="true"></div>
+      <div class="prd-media-caption">
+        <strong>{{ research_title }}</strong>
+        <span>{{ research_summary }}</span>
       </div>
     </section>
 
-    <aside class="prd-summary">
-      <section class="prd-panel">
-        <div class="prd-kicker">Property</div>
+    <section class="prd-headline">
+      <section class="prd-panel prd-headline-panel">
+        <div class="prd-kicker">{{ research_source_label }}</div>
         <h1>{{ research_title }}</h1>
         <h2 class="prd-price">{{ research_price }}</h2>
         <div class="prd-facts">
@@ -456,11 +582,14 @@
           {% if research_rooms %}<span class="prd-chip">{{ research_rooms }}</span>{% endif %}
           {% if research_location %}<span class="prd-chip">{{ research_location }}</span>{% endif %}
         </div>
-        <p class="prd-copy" style="margin-top:10px;">{{ research_summary }}</p>
-        <div class="prd-actions" style="margin-top:14px;">
+        <div class="prd-status-line">
+          <span class="prd-status-badge">{{ research_media.get('status_label') or 'Review ready' }}</span>
+          <span class="prd-copy">{{ research_media.get('status_detail') or '' }}</span>
+        </div>
+        <div class="prd-actions" style="margin-top:16px;">
           {% for action in research_actions %}
             {% if action.get('href') and action.get('copy') %}
-            <button class="console-action" type="button" data-prd-copy-link="{{ action.get('href') }}">Copy page link</button>
+            <button class="console-action" type="button" data-prd-copy-link="{{ action.get('href') }}">Copy share link</button>
             {% elif action.get('href') %}
             <a class="console-action" href="{{ action.get('href') }}"{% if action.get('external') %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ action.get('label') }}</a>
             {% elif action.get('kind') %}
@@ -468,89 +597,114 @@
             {% endif %}
           {% endfor %}
         </div>
-        <p class="prd-copy" data-prd-visual-status style="margin-top:10px;">{{ research_media.get('status_detail') or '' }}</p>
       </section>
 
-      <section class="prd-panel">
-        <div class="prd-kicker">At a glance</div>
-        <div class="prd-meta">
-          {% for row in research_overview_rows %}
-          <div class="prd-meta-card">
-            <span>{{ row.label }}</span>
-            <strong>{{ row.value }}</strong>
-          </div>
-          {% endfor %}
-        </div>
-      </section>
-    </aside>
-  </section>
-
-  {% if research_location_preview.get('image_url') %}
-  <section class="prd-map-card">
-    <div>
-      <div class="prd-kicker">Wider area</div>
-      <h2>{{ research_location_preview.get('title') }}</h2>
-      <p class="prd-copy">Open the area map for a closer orientation view.</p>
-      {% if research_location_preview.get('map_url') %}
-      <div class="prd-actions"><a class="console-action" href="{{ research_location_preview.get('map_url') }}" target="_blank" rel="noopener noreferrer">Open map</a></div>
-      {% endif %}
-    </div>
-    <button class="prd-map-thumb" type="button" data-prd-map-open data-prd-map-src="{{ research_location_preview.get('image_url') }}" data-prd-map-title="{{ research_location_preview.get('title') }}">
-      <img src="{{ research_location_preview.get('image_url') }}" alt="{{ research_location_preview.get('alt') }}">
-    </button>
-  </section>
-  {% endif %}
-
-  <section class="prd-sections">
-    {% for section in research_sections %}
-    <section class="prd-section">
-      <div class="prd-kicker">{{ section.get('eyebrow') }}</div>
-      <h2>{{ section.get('title') }}</h2>
-      {% if section.get('copy') %}<p class="prd-copy">{{ section.get('copy') }}</p>{% endif %}
-      {% if section.get('table_headers') and section.get('table_rows') %}
-      <div class="prd-table-wrap">
-        <table class="prd-table">
-          <thead>
-            <tr>{% for header in section.get('table_headers') or [] %}<th>{{ header }}</th>{% endfor %}</tr>
-          </thead>
-          <tbody>
-            {% for row in section.get('table_rows') or [] %}
-            <tr>
-              {% for cell in row %}
-              <td>
-                {% if cell is mapping %}
-                  {% if cell.get('href') %}<strong><a href="{{ cell.get('href') }}">{{ cell.get('title') }}</a></strong>{% else %}<strong>{{ cell.get('title') }}</strong>{% endif %}
-                  {% if cell.get('detail') %}<small>{{ cell.get('detail') }}</small>{% endif %}
-                {% else %}
-                  {{ cell }}
-                {% endif %}
-              </td>
-              {% endfor %}
-            </tr>
+      <aside class="prd-summary-stack">
+        <section class="prd-panel">
+          <div class="prd-kicker">At a glance</div>
+          <div class="prd-meta">
+            {% for row in research_overview_rows %}
+            <div class="prd-meta-card">
+              <span>{{ row.label }}</span>
+              <strong>{{ row.value }}</strong>
+            </div>
             {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% endif %}
-      {% if section.get('items') %}
-      <div class="object-list">
-        {% for item in section.get('items') or [] %}
-        <div class="prd-row">
-          <div>
-            <strong>{% if item.get('href') %}<a href="{{ item.get('href') }}">{{ item.get('title') }}</a>{% else %}{{ item.get('title') }}{% endif %}</strong>
-            <small>{{ item.get('detail') }}</small>
           </div>
-          <span class="prd-tag">{{ item.get('tag') }}</span>
+        </section>
+        {% if research_location_preview.get('image_url') %}
+        <section class="prd-map-card prd-panel">
+          <div>
+            <div class="prd-kicker">Wider area</div>
+            <h2 style="margin:0 0 8px;">{{ research_location_preview.get('title') }}</h2>
+            <p class="prd-copy">Open the area map for a closer orientation view.</p>
+            {% if research_location_preview.get('map_url') %}
+            <div class="prd-actions" style="margin-top:12px;"><a class="console-action" href="{{ research_location_preview.get('map_url') }}" target="_blank" rel="noopener noreferrer">Open map</a></div>
+            {% endif %}
+          </div>
+          <button class="prd-map-thumb" type="button" data-prd-map-open data-prd-map-src="{{ research_location_preview.get('image_url') }}" data-prd-map-title="{{ research_location_preview.get('title') }}">
+            <img src="{{ research_location_preview.get('image_url') }}" alt="{{ research_location_preview.get('alt') }}">
+          </button>
+        </section>
+        {% endif %}
+      </aside>
+    </section>
+    {% if research_gallery_items %}
+    <section class="prd-panel">
+      <div class="prd-kicker">Photos & diorama</div>
+      <div class="prd-gallery">
+        {% for item in research_gallery_items %}
+        <div class="prd-gallery-item">
+          <button
+            class="prd-gallery-thumb"
+            type="button"
+            data-prd-map-open
+            data-prd-map-src="{{ item.get('url') }}"
+            data-prd-map-title="{{ item.get('label') }}"
+          >
+            <img src="{{ item.get('url') }}" alt="{{ item.get('label') }}" loading="lazy">
+          </button>
+          <div class="prd-gallery-label"><b>{{ item.get('kind')|title }}</b> · {{ item.get('label') }}</div>
         </div>
         {% endfor %}
       </div>
-      {% endif %}
     </section>
-    {% endfor %}
+    {% endif %}
   </section>
 
-  <section class="prd-feedback-grid">
-    <section class="prd-panel">
+  <section class="prd-body">
+    <section class="prd-sections">
+      <div class="prd-section-grid">
+        {% for section in research_sections %}
+        <section class="prd-band">
+          <div class="prd-kicker">{{ section.get('eyebrow') }}</div>
+          <h2>{{ section.get('title') }}</h2>
+          {% if section.get('copy') %}<p class="prd-copy">{{ section.get('copy') }}</p>{% endif %}
+          {% if section.get('table_headers') and section.get('table_rows') %}
+          <div class="prd-table-wrap">
+            <table class="prd-table">
+              <thead>
+                <tr>{% for header in section.get('table_headers') or [] %}<th>{{ header }}</th>{% endfor %}</tr>
+              </thead>
+              <tbody>
+                {% for row in section.get('table_rows') or [] %}
+                <tr>
+                  {% for cell in row %}
+                  <td>
+                    {% if cell is mapping %}
+                      {% if cell.get('href') %}<strong><a href="{{ cell.get('href') }}">{{ cell.get('title') }}</a></strong>{% else %}<strong>{{ cell.get('title') }}</strong>{% endif %}
+                      {% if cell.get('detail') %}<small>{{ cell.get('detail') }}</small>{% endif %}
+                    {% else %}
+                      {{ cell }}
+                    {% endif %}
+                  </td>
+                  {% endfor %}
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+          {% if section.get('items') %}
+          <div class="object-list">
+            {% for item in section.get('items') or [] %}
+            <div class="prd-row">
+              <div>
+                <strong>{% if item.get('href') %}<a href="{{ item.get('href') }}">{{ item.get('title') }}</a>{% else %}{{ item.get('title') }}{% endif %}</strong>
+                <small>{{ item.get('detail') }}</small>
+              </div>
+              <span class="prd-tag">{{ item.get('tag') }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </section>
+        {% endfor %}
+      </div>
+    </section>
+
+    <aside class="prd-side-stack">
+      <div class="prd-kicker">{{ research_source_label }}</div>
+      <section class="prd-panel">
       <div class="prd-kicker">Household view</div>
       <h2>What others flagged</h2>
       <div class="object-list">
@@ -572,16 +726,16 @@
       </div>
       <div class="prd-kicker" style="margin-top:18px;">Risk signals</div>
       <div class="object-list">
-        {% for item in research_risk_signal_rows %}
+      {% for item in research_risk_signal_rows %}
         <div class="prd-row">
           <div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div>
           <span class="prd-tag">{{ item.get('tag') }}</span>
         </div>
-        {% endfor %}
+      {% endfor %}
       </div>
-    </section>
+      </section>
 
-    <section class="prd-panel object-feedback" data-object-feedback data-object-feedback-payload='{{ research_feedback|tojson|safe }}'>
+      <section class="prd-panel object-feedback" data-object-feedback data-object-feedback-payload='{{ research_feedback|tojson|safe }}'>
       <div class="prd-kicker">Decision</div>
       <h2>Would you pursue this home?</h2>
       <p class="object-copy">Record the outcome here so the next shortlist learns from it and the follow-up stays explicit.</p>
@@ -688,7 +842,8 @@
         <div class="object-copy" data-object-magicfit-status></div>
         <div class="object-magicfit-preview" data-object-magicfit-preview></div>
       </div>
-    </section>
+      </section>
+    </aside>
   </section>
 </section>
 

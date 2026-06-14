@@ -800,7 +800,7 @@
       pointer-events: auto;
     }
     .pqx-previous-district-hotspot {
-      cursor: zoom-in;
+      cursor: default;
       transition: fill 140ms ease, stroke 140ms ease, stroke-width 140ms ease, background 140ms ease, border-color 140ms ease;
     }
     .pqx-previous-district-hotspots button.pqx-previous-district-hotspot {
@@ -839,16 +839,17 @@
       border: 0;
       background: transparent;
       text-align: left;
-      cursor: zoom-in;
+      cursor: default;
     }
     .pqx-previous-scope-image {
       display: block;
       width: 100%;
-      aspect-ratio: 640 / 368;
+      aspect-ratio: 16 / 8;
       object-fit: cover;
       border-radius: 8px;
       border: 1px solid var(--pq-line);
       background: var(--pq-panel);
+      cursor: default;
     }
     .pqx-previous-scope-caption {
       display: flex;
@@ -942,6 +943,26 @@
       background: var(--pq-paper);
       box-shadow: var(--pq-shadow);
     }
+    .pqx-inline-disclosure {
+      display: grid;
+      gap: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--pq-line);
+    }
+    .pqx-inline-disclosure > summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      cursor: pointer;
+      list-style: none;
+    }
+    .pqx-inline-disclosure > summary::-webkit-details-marker {
+      display: none;
+    }
+    .pqx-inline-disclosure > summary span {
+      min-width: 0;
+    }
     .pqx-scope-lightbox {
       width: min(900px, calc(100vw - 32px));
       max-width: 900px;
@@ -1023,9 +1044,57 @@
       stroke: rgba(123, 15, 15, 0.92);
       stroke-width: 1.7;
       vector-effect: non-scaling-stroke;
+      pointer-events: auto;
     }
     .pqx-scope-lightbox-overlay path.is-selected {
       fill: rgba(177, 28, 28, 0.34);
+    }
+    .pqx-scope-lightbox-overlay path:hover,
+    .pqx-scope-lightbox-overlay path:focus-visible {
+      fill: rgba(177, 28, 28, 0.42);
+      stroke-width: 1.95;
+      outline: none;
+    }
+    .pqx-scope-lightbox-tooltip {
+      position: absolute;
+      z-index: 4;
+      display: none;
+      min-height: 28px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: rgba(20, 24, 32, 0.92);
+      color: #fff8f1;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+      white-space: nowrap;
+      transform: translate3d(-50%, calc(-100% - 10px), 0);
+      box-shadow: 0 8px 20px rgba(16, 24, 38, 0.22);
+      pointer-events: none;
+    }
+    .pqx-scope-lightbox-tooltip.is-visible {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .pqx-filtered-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 2px;
+    }
+    .pqx-filtered-trigger:hover,
+    .pqx-filtered-trigger:focus-visible {
+      color: #8f1d2c;
+      outline: none;
     }
     .pqx-filtered-link {
       display: inline-flex;
@@ -1093,12 +1162,31 @@
       gap: 10px;
     }
     .pqx-filtered-dialog-rule {
+      position: relative;
       display: grid;
       gap: 6px;
       padding: 14px;
       border: 1px solid var(--pq-line);
       border-radius: 12px;
       background: var(--pq-panel);
+      overflow: hidden;
+    }
+    .pqx-filtered-dialog-rule > * {
+      position: relative;
+      z-index: 1;
+    }
+    .pqx-filtered-dialog-impact {
+      position: absolute;
+      right: 10px;
+      bottom: 4px;
+      z-index: 0;
+      font-size: clamp(2.4rem, 7vw, 4.4rem);
+      font-weight: 860;
+      line-height: 0.82;
+      letter-spacing: 0;
+      color: rgba(143, 29, 44, 0.14);
+      pointer-events: none;
+      user-select: none;
     }
     .pqx-filtered-dialog-rule .pqx-actions {
       align-items: center;
@@ -1109,6 +1197,15 @@
       gap: 6px;
       color: var(--pq-muted);
       font-size: 12px;
+    }
+    .pqx-source-card[data-pqx-filtered-open] {
+      cursor: pointer;
+    }
+    .pqx-source-card[data-pqx-filtered-open]:hover,
+    .pqx-source-card[data-pqx-filtered-open]:focus-visible {
+      border-color: rgba(143, 29, 44, 0.28);
+      box-shadow: 0 0 0 2px rgba(143, 29, 44, 0.08);
+      outline: none;
     }
     .pqx-compare-strip {
       display: grid;
@@ -3438,42 +3535,6 @@
                     alt="{{ scope_preview.get('alt') or 'Search area preview' }}"
                     loading="lazy"
                   >
-                  {% if scope_preview.get('district_rows') %}
-                  {% if (scope_preview.get('district_rows') or [{}])[0].get('path') %}
-                  <svg class="pqx-previous-district-hotspots" viewBox="0 0 640 368" preserveAspectRatio="none" aria-hidden="true">
-                    {% for district in scope_preview.get('district_rows') or [] %}
-                    <path
-                      class="pqx-previous-district-hotspot{% if district.get('selected') %} is-selected{% endif %}"
-                      d="{{ district.get('path') }}"
-                      data-label="{{ district.get('label') }}"
-                      data-pqx-scope-open
-                      data-pqx-scope-image="{{ scope_preview.get('image_url') }}"
-                      data-pqx-scope-alt="{{ scope_preview.get('alt') or 'Search area preview' }}"
-                      data-pqx-scope-title="{{ district.get('label') }}"
-                      data-pqx-scope-caption="{{ previous.get('scope_summary') or previous.get('scope_label') }}"
-                      data-pqx-scope-overlay='{{ (scope_preview.get("district_rows") or [])|tojson }}'
-                    ><title>{{ district.get('label') }}</title></path>
-                    {% endfor %}
-                  </svg>
-                  {% else %}
-                  <div class="pqx-previous-district-hotspots" aria-hidden="true">
-                    {% for district in scope_preview.get('district_rows') or [] %}
-                    <button
-                      class="pqx-previous-district-hotspot{% if district.get('selected') %} is-selected{% endif %}"
-                      type="button"
-                      data-label="{{ district.get('label') }}"
-                      data-pqx-scope-open
-                      data-pqx-scope-image="{{ scope_preview.get('image_url') }}"
-                      data-pqx-scope-alt="{{ scope_preview.get('alt') or 'Search area preview' }}"
-                      data-pqx-scope-title="{{ district.get('label') }}"
-                      data-pqx-scope-caption="{{ previous.get('scope_summary') or previous.get('scope_label') }}"
-                      style="left: {{ district.get('left_pct') }}%; top: {{ district.get('top_pct') }}%; width: {{ district.get('width_pct') }}%; height: {{ district.get('height_pct') }}%;"
-                      aria-label="{{ district.get('label') }}"
-                    ></button>
-                    {% endfor %}
-                  </div>
-                  {% endif %}
-                  {% endif %}
                 </button>
                 {% endif %}
                 <div class="pqx-previous-scope-caption">
@@ -3492,17 +3553,14 @@
                   {% if previous.get('sent_total') %}<span><b>{{ previous.get('sent_total') }}</b> sent</span>{% endif %}
                   {% if previous.get('top_fit_score') %}<span>best <b>{{ previous.get('top_fit_score') }}</b></span>{% endif %}
                   {% if previous.get('held_back_total') %}
-                  <span>
-                    <b>{{ previous.get('held_back_total') }}</b> filtered
-                    <button
-                      type="button"
-                      class="pqx-tooltip"
-                      title="Filtered means matches were found but stayed outside the shortlist because of your current rules, missing evidence, or alert limits."
-                      aria-label="Filtered means matches were found but stayed outside the shortlist because of your current rules, missing evidence, or alert limits."
-                      aria-expanded="false"
-                      data-tooltip-trigger
-                    >?</button>
-                  </span>
+                  <button
+                    type="button"
+                    class="pqx-filtered-trigger"
+                    title="Filtered means matches were found but stayed outside the shortlist because of your current rules, missing evidence, or alert limits. Click to relax the strongest blockers."
+                    aria-label="Filtered means matches were found but stayed outside the shortlist because of your current rules, missing evidence, or alert limits. Click to relax the strongest blockers."
+                    data-tooltip-trigger
+                    data-pqx-filtered-open
+                  ><b>{{ previous.get('held_back_total') }}</b> filtered <span aria-hidden="true">?</span></button>
                   {% endif %}
                 </div>
                 {% if previous.get('status_note') %}<div class="pqx-note">{{ previous.get('status_note') }}</div>{% endif %}
@@ -3533,6 +3591,7 @@
                 <div class="pqx-scope-lightbox-zoomable" data-pqx-scope-lightbox-zoomable>
                   <img class="pqx-scope-lightbox-image" data-pqx-scope-lightbox-image src="" alt="">
                   <svg class="pqx-scope-lightbox-overlay" data-pqx-scope-lightbox-overlay viewBox="0 0 640 368" preserveAspectRatio="none" aria-hidden="true"></svg>
+                  <div class="pqx-scope-lightbox-tooltip" data-pqx-scope-lightbox-tooltip></div>
                 </div>
               </div>
             </div>
@@ -3550,6 +3609,7 @@
                 {% for row in suppression_rows %}
                 {% if row.get('title') != 'Outside selected area' %}
                 <article class="pqx-filtered-dialog-rule">
+                  {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true">{{ row.get('affected_total') }}</span>{% endif %}
                   <strong>{{ row.get('title') }}</strong>
                   <span class="pqx-note">{{ row.get('detail') }}</span>
                   <span class="pqx-small">{{ row.get('tag') }}</span>
@@ -3561,6 +3621,7 @@
                 {% for row in counterfactual_rows %}
                 {% if row.get('tag') != 'Area' %}
                 <div class="pqx-filtered-dialog-rule">
+                  {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true">{{ row.get('affected_total') }}</span>{% endif %}
                   <strong>{{ row.get('title') }}</strong>
                   <span class="pqx-note">{{ row.get('detail') }}</span>
                   <div class="pqx-actions">
@@ -3571,7 +3632,7 @@
                     >{{ row.get('action_label') or 'Relax and restart' }}</button>
                     {% if row.get('affected_total') %}
                     <span class="pqx-filtered-dialog-estimate">
-                      +{{ row.get('affected_total') }} more
+                      about {{ row.get('affected_total') }} more
                       <button
                         type="button"
                         class="pqx-tooltip"
@@ -4149,55 +4210,6 @@
           {% else %}
           <div class="pqx-empty" data-pqx-ranked-candidates>No matches are ready yet.</div>
           {% endif %}
-          {% if run_sources %}
-          <details class="pqx-card">
-            <summary><strong>How this search was filtered</strong><span class="pqx-note">Open only when results look wrong or too narrow.</span></summary>
-          <div class="pqx-source-grid" data-pqx-source-breakdown>
-            {% for source in run_sources %}
-            <article class="pqx-source-card">
-              <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
-              <span class="pqx-note">{{ source.get('source_status') or source.get('status') or 'Scanned' }}</span>
-              <div class="pqx-source-metrics">
-                <span>Reviewed <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
-                <span>High fit <b>{{ source.get('high_fit_total') or 0 }}</b></span>
-                <span>Layout unverified <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
-              </div>
-              {% set source_quality = source.get('provider_quality') or {} %}
-              {% if source_quality.get('floorplan_reliability') or source_quality.get('filter_pushdown_strength') or source_quality.get('last_verified') %}
-              <span class="pqx-note">Source quality: Floorplans {{ source_quality.get('floorplan_reliability') or 'n/a' }} · Filters {{ source_quality.get('filter_pushdown_strength') or 'n/a' }}{% if source_quality.get('last_verified') %} · Verified {{ source_quality.get('last_verified') }}{% endif %}.</span>
-              {% endif %}
-              {% set pushdown = source.get('provider_filter_pushdown') or {} %}
-              {% if pushdown.get('filter_strength') == 'weak_search_then_post_filter' %}
-              <span class="pqx-note">Source filters are limited: PropertyQuarry checked {{ (pushdown.get('post_filter_only') or [])|join(', ') }} after reading the listings.</span>
-              {% endif %}
-              {% if source.get('location_mismatch_reason') %}
-              <span class="pqx-note">No selected-area matches: provider returned {{ source.get('location_mismatch_candidate_total') or 0 }} outside the chosen target area.</span>
-              {% endif %}
-              {% if source.get('top_candidates') %}
-              <div class="pqx-source-candidates">
-                {% for candidate in source.get('top_candidates')[:3] %}
-                <div class="pqx-source-candidate">
-                  {% if candidate.get('packet_url') %}
-                  <a href="{{ candidate.get('packet_url') }}">{{ candidate.get('title') or 'Review candidate' }}</a>
-                  {% else %}
-                  <strong>{{ candidate.get('title') or 'Review candidate' }}</strong>
-                  {% endif %}
-                  <span class="pqx-note">{{ candidate.get('fit_summary') or candidate.get('recommendation') or 'Open the review for details and feedback.' }}</span>
-                  {% if candidate.get('property_url') %}<a class="pqx-note" href="{{ candidate.get('property_url') }}" target="_blank" rel="noopener noreferrer">Source listing</a>{% endif %}
-                </div>
-                {% endfor %}
-              </div>
-              {% endif %}
-              {% if source.get('message') or source.get('error') %}
-              <span class="pqx-note">{{ source.get('message') or source.get('error') }}</span>
-              {% endif %}
-            </article>
-            {% endfor %}
-          </div>
-          </details>
-          {% else %}
-          <div class="pqx-empty">No provider breakdown was recorded for this run.</div>
-          {% endif %}
           <div class="pqx-section-head">
             <div>
               <h2>Search progress</h2>
@@ -4316,6 +4328,49 @@
             </article>
             {% endfor %}
           </div>
+          {% if run_sources %}
+          <details class="pqx-inline-disclosure" data-pqx-source-breakdown-disclosure>
+            <summary><strong>How this search was filtered</strong><span class="pqx-note">Open only when results look wrong or too narrow.</span></summary>
+            <div class="pqx-source-grid" data-pqx-source-breakdown>
+              {% for source in run_sources %}
+              <article class="pqx-source-card">
+                <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
+                <span class="pqx-note">{{ source.get('source_status') or source.get('status') or 'Scanned' }}</span>
+                <div class="pqx-source-metrics">
+                  <span>Reviewed <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
+                  <span>High fit <b>{{ source.get('high_fit_total') or 0 }}</b></span>
+                  <span>Layout unverified <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
+                </div>
+                {% set source_quality = source.get('provider_quality') or {} %}
+                {% if source_quality.get('floorplan_reliability') or source_quality.get('filter_pushdown_strength') or source_quality.get('last_verified') %}
+                <span class="pqx-note">Source quality: Floorplans {{ source_quality.get('floorplan_reliability') or 'n/a' }} · Filters {{ source_quality.get('filter_pushdown_strength') or 'n/a' }}{% if source_quality.get('last_verified') %} · Verified {{ source_quality.get('last_verified') }}{% endif %}.</span>
+                {% endif %}
+                {% if source.get('location_mismatch_reason') %}
+                <span class="pqx-note">No selected-area matches: provider returned {{ source.get('location_mismatch_candidate_total') or 0 }} outside the chosen target area.</span>
+                {% endif %}
+                {% if source.get('top_candidates') %}
+                <div class="pqx-source-candidates">
+                  {% for candidate in source.get('top_candidates')[:3] %}
+                  <div class="pqx-source-candidate">
+                    {% if candidate.get('packet_url') %}
+                    <a href="{{ candidate.get('packet_url') }}">{{ candidate.get('title') or 'Review candidate' }}</a>
+                    {% else %}
+                    <strong>{{ candidate.get('title') or 'Review candidate' }}</strong>
+                    {% endif %}
+                    <span class="pqx-note">{{ candidate.get('fit_summary') or candidate.get('recommendation') or 'Open the review for details and feedback.' }}</span>
+                    {% if candidate.get('property_url') %}<a class="pqx-note" href="{{ candidate.get('property_url') }}" target="_blank" rel="noopener noreferrer">Source listing</a>{% endif %}
+                  </div>
+                  {% endfor %}
+                </div>
+                {% endif %}
+                {% if source.get('message') or source.get('error') %}
+                <span class="pqx-note">{{ source.get('message') or source.get('error') }}</span>
+                {% endif %}
+              </article>
+              {% endfor %}
+            </div>
+          </details>
+          {% endif %}
         </section>
         {% endif %}
         <section class="pqx-review" data-pqx-mobile-panel="property" data-workbench-dossier>
@@ -7754,6 +7809,7 @@
     const scopeLightboxStage = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-stage]');
     const scopeLightboxZoomable = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-zoomable]');
     const scopeLightboxOverlay = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-overlay]');
+    const scopeLightboxTooltip = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-tooltip]');
     const scopeLightboxTitle = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-title]');
     const scopeLightboxCaption = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-caption]');
     const filteredDialog = root.querySelector('[data-pqx-filtered-dialog]');
@@ -7764,6 +7820,10 @@
     };
     const closeScopeLightbox = () => {
       resetScopeLightboxZoom();
+      if (scopeLightboxTooltip) {
+        scopeLightboxTooltip.classList.remove('is-visible');
+        scopeLightboxTooltip.textContent = '';
+      }
       if (scopeLightbox && typeof scopeLightbox.close === 'function' && scopeLightbox.open) scopeLightbox.close();
     };
     const closeFilteredDialog = () => {
@@ -7810,12 +7870,32 @@
         scopeLightboxOverlay.innerHTML = Array.isArray(overlayRows)
           ? overlayRows
               .filter((row) => row && typeof row === 'object' && String(row.path || '').trim())
-              .map((row) => `<path class="${row.selected ? 'is-selected' : ''}" d="${escapeHtml(String(row.path || ''))}"><title>${escapeHtml(String(row.label || 'Area'))}</title></path>`)
+              .map((row) => `<path class="${row.selected ? 'is-selected' : ''}" d="${escapeHtml(String(row.path || ''))}" data-label="${escapeHtml(String(row.label || 'Area'))}"><title>${escapeHtml(String(row.label || 'Area'))}</title></path>`)
               .join('')
           : '';
       }
       resetScopeLightboxZoom();
       if (typeof scopeLightbox.showModal === 'function') scopeLightbox.showModal();
+    });
+    scopeLightboxOverlay?.addEventListener('mousemove', (event) => {
+      const path = event.target?.closest?.('path[data-label]');
+      if (!path || !scopeLightboxTooltip || !scopeLightboxStage) {
+        if (scopeLightboxTooltip) scopeLightboxTooltip.classList.remove('is-visible');
+        return;
+      }
+      const stageRect = scopeLightboxStage.getBoundingClientRect();
+      const label = String(path.getAttribute('data-label') || '').trim();
+      if (!label) {
+        scopeLightboxTooltip.classList.remove('is-visible');
+        return;
+      }
+      scopeLightboxTooltip.textContent = label;
+      scopeLightboxTooltip.style.left = `${event.clientX - stageRect.left}px`;
+      scopeLightboxTooltip.style.top = `${event.clientY - stageRect.top}px`;
+      scopeLightboxTooltip.classList.add('is-visible');
+    });
+    scopeLightboxOverlay?.addEventListener('mouseleave', () => {
+      if (scopeLightboxTooltip) scopeLightboxTooltip.classList.remove('is-visible');
     });
     root.querySelectorAll('[data-pqx-filtered-open]').forEach((button) => {
       button.addEventListener('click', () => {
