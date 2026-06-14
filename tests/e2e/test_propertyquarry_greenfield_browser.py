@@ -749,7 +749,7 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
         assert page.locator("body", has_text="Ways to get more matches").is_visible()
         assert page.locator("[data-pqx-counterfactuals]").is_visible()
         assert page.get_by_role("button", name=re.compile("Apply|Allow|Use|Raise|Relax|Reopen")).first.is_visible()
-        page.get_by_text("Search diagnostics", exact=True).click()
+        page.get_by_text("How this search was filtered", exact=True).click()
         assert page.locator("[data-pqx-source-breakdown]", has_text="Genossenschaften Austria").is_visible()
         assert page.evaluate("window.localStorage.getItem('pq-test-notification-title')") == "PropertyQuarry results are ready"
         assert "0 high-fit matches" in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
@@ -1195,7 +1195,7 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
         assert layout["previousCardHorizontalOverflowCount"] == 0
         assert layout["previewFailureCount"] == 0
         assert layout["previousTitleVisibleOverflowCount"] == 0
-        assert {"Saved searches", "Next action"}.issubset(set(layout["visibleRowLabels"]))
+        assert {"Saved searches", "Start"}.issubset(set(layout["visibleRowLabels"]))
         assert len([value for value in layout["visibleRowValues"] if value]) >= 2
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
     finally:
