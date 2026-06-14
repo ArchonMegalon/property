@@ -1546,7 +1546,6 @@ class OnboardingService(AssistantOnboardingService):
             "listing_mode": listing_mode,
             "property_type": property_type,
             "location_query": location_query,
-            "all_of_vienna": full_region_scope and country_code == "AT" and region_code in {"vienna", "wien"},
             "full_region_scope": full_region_scope,
             "search_mode": search_mode,
             "selected_platforms": selected_platforms,

@@ -3311,7 +3311,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         or raw_all_of_vienna is True
         or str(raw_all_of_vienna or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
     )
-    payload["all_of_vienna"] = payload["full_region_scope"] and payload["country_code"] == "AT" and payload["region_code"] in {"vienna", "wien"}
+    payload.pop("all_of_vienna", None)
     raw_location_query = str(payload.get("location_query") or "").strip()
     raw_custom_location_query = str(payload.get("custom_location_query") or "").strip()
     if country_code != "AT":

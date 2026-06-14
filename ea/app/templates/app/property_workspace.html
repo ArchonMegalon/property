@@ -1511,10 +1511,10 @@
               </datalist>
             </label>
             <label>
-              Value <button type="button" class="pq-tooltip" title="Examples: true for a yes/no rule, 70 for a minimum area, or 1020 Wien, 1200 Wien for district lists." aria-label="Examples: true for a yes/no rule, 70 for a minimum area, or 1020 Wien, 1200 Wien for district lists." aria-expanded="false" data-tooltip-trigger>?</button>
-              <input name="value" placeholder="true, 70, or 1020 Wien, 1200 Wien" autocomplete="off">
+              Value <button type="button" class="pq-tooltip" title="Examples: true for a yes/no rule, 70 for a minimum area, or Downtown, Northside for area lists." aria-label="Examples: true for a yes/no rule, 70 for a minimum area, or Downtown, Northside for area lists." aria-expanded="false" data-tooltip-trigger>?</button>
+              <input name="value" placeholder="true, 70, or Downtown, Northside" autocomplete="off">
             </label>
-            <div class="pq-copy" data-preference-value-help>Examples: <code>true</code> for yes/no, <code>70</code> for a threshold, or <code>1020 Wien, 1200 Wien</code> for a district list.</div>
+            <div class="pq-copy" data-preference-value-help>Examples: <code>true</code> for yes/no, <code>70</code> for a threshold, or <code>Downtown, Northside</code> for an area list.</div>
             <label>
               Strength
               <select name="strength">
@@ -2240,7 +2240,6 @@
         search_mode: fieldValue(form, 'search_mode') || 'strict',
         investment_research_mode: listingMode === 'buy' ? (fieldValue(form, 'investment_research_mode') || 'off') : 'off',
         full_region_scope: fullRegionScope,
-        all_of_vienna: countryCode === 'AT' && regionCode === 'vienna' && fullRegionScope,
         location_query: resolvedLocationQuery,
         custom_location_query: customLocationQuery,
         keywords: resolvedKeywords,

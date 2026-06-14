@@ -2581,7 +2581,6 @@ def test_property_search_preferences_persist_full_region_scope_as_hard_location_
     assert preferences["country_code"] == "AT"
     assert preferences["region_code"] == "vienna"
     assert preferences["full_region_scope"] is True
-    assert preferences["all_of_vienna"] is True
     assert preferences["location_query"] == "Vienna"
 
 

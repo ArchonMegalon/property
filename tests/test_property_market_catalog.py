@@ -110,7 +110,6 @@ def test_normalize_property_search_preferences_scopes_full_region_backend_runs()
     )
 
     assert payload["full_region_scope"] is True
-    assert payload["all_of_vienna"] is True
     assert payload["location_query"] == "Vienna"
 
 

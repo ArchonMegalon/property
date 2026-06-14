@@ -1498,7 +1498,6 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert preferences["country_code"] == "AT"
         assert preferences["region_code"] == "vienna"
         assert preferences["full_region_scope"] is True
-        assert preferences["all_of_vienna"] is True
         assert preferences["location_query"] == "Vienna"
         assert preferences["prefer_good_air_quality"] is True
         assert preferences["prefer_low_crime_area"] is True
