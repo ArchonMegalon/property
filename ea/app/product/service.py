@@ -2628,8 +2628,20 @@ def _property_scout_fetch_html_compat(url: str, *, timeout_seconds: float = 60.0
         return _property_scout_fetch_html(url)
 
 
+def _property_scout_clean_url(url: str) -> str:
+    normalized = urllib.parse.urldefrag(str(url or "").strip().strip("\"'"))[0]
+    if not normalized:
+        return ""
+    parsed = urllib.parse.urlparse(normalized)
+    if not str(parsed.query or "").strip():
+        return normalized
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    cleaned_query = [(key, str(value or "").strip("\"'")) for key, value in query]
+    return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(cleaned_query, doseq=True)))
+
+
 def _property_scout_is_supported_listing_url(url: str) -> bool:
-    normalized = urllib.parse.urldefrag(str(url or "").strip())[0]
+    normalized = _property_scout_clean_url(url)
     if not normalized:
         return False
     parsed = urllib.parse.urlparse(normalized)
@@ -2854,7 +2866,7 @@ def _property_scout_extract_listing_urls(*, source_url: str, html: str, source_s
                 except ValueError:
                     continue
     for raw_url in raw_urls:
-        normalized = urllib.parse.urldefrag(str(raw_url or "").strip())[0]
+        normalized = _property_scout_clean_url(raw_url)
         if not normalized or normalized in seen:
             continue
         if not _property_scout_is_supported_listing_url(normalized):

@@ -63,6 +63,24 @@ def test_property_plan_investment_research_levels_follow_tier() -> None:
     assert agent["magic_fit_video_period"] == "none"
 
 
+def test_findmyhome_entry_links_are_treated_as_supported_property_listings() -> None:
+    assert product_service._property_scout_is_supported_listing_url(
+        "https://www.findmyhome.at/immo/wohnung-kaufen/wien?id=13&entry=20&sort=&dir=ASC&pp=20&vars=id%3A13%3Bw_e%3A1%3Bland%3AAT%3Bbl%3A9%3B&lang=de&module=select&list="
+    )
+
+
+def test_findmyhome_search_page_is_not_treated_as_property_listing() -> None:
+    assert not product_service._property_scout_is_supported_listing_url(
+        "https://www.findmyhome.at/immo/wohnung-kaufen/wien"
+    )
+
+
+def test_findmyhome_listing_urls_are_sanitized_before_support_check() -> None:
+    assert product_service._property_scout_is_supported_listing_url(
+        "https://findmyhome.at/immo/wohnung-kaufen/wien?id=14&entry=10&sort=sort_fl&dir=ASC&pp=10&vars=&lang=&module=&list='/'"
+    )
+
+
 def test_free_property_plan_uses_daily_visual_generation_caps() -> None:
     snapshot = property_commercial_snapshot({})
 

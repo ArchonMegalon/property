@@ -205,8 +205,8 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         host_markers=("immowelt.at",),
         listing_path_markers=("/expose/", "/immobilien/", "/anzeige/"),
         search_urls={
-            "rent": "https://www.immowelt.at/suche/mietwohnungen",
-            "buy": "https://www.immowelt.at/suche/kaufen/wohnung",
+            "rent": "https://www.immowelt.at/suche/wohnungen/mieten",
+            "buy": "https://www.immowelt.at/suche/wohnungen/kaufen",
         },
         description="Austria immowelt residential marketplace for rent and purchase inventory.",
     ),
@@ -215,10 +215,10 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         label="FindMyHome.at",
         country_code="AT",
         host_markers=("findmyhome.at",),
-        listing_path_markers=("/immobilie/", "/immo/", "/objekt/", "/detail/"),
+        listing_path_markers=("/immobilie/", "/objekt/", "/detail/", "entry="),
         search_urls={
-            "rent": "https://findmyhome.at/immobilien/miete",
-            "buy": "https://findmyhome.at/immobilien/kauf",
+            "rent": "https://www.findmyhome.at/immo/wohnung-mieten/wien",
+            "buy": "https://www.findmyhome.at/immo/wohnung-kaufen/wien",
         },
         description="Austria quality-oriented property portal with residential rental and purchase listings.",
     ),
@@ -3893,6 +3893,30 @@ def _provider_property_type_segment(property_type: str) -> str:
     return ""
 
 
+def _findmyhome_property_segment(*, listing_mode: str, property_type: str) -> str:
+    normalized_type = normalize_property_type(property_type)
+    normalized_mode = normalize_listing_mode(listing_mode)
+    mode_segment = "kaufen" if normalized_mode == "buy" else "mieten"
+    if normalized_type == "house":
+        return f"haus-{mode_segment}"
+    if normalized_type == "land":
+        return f"grundstueck-{mode_segment}"
+    if normalized_type == "office":
+        return "sonderobjekt" if normalized_mode != "buy" else "sonderobjekt-kaufen"
+    if normalized_type in {"apartment", "any"}:
+        return f"wohnung-{mode_segment}"
+    return f"immobilie-{mode_segment}"
+
+
+def _findmyhome_location_segment(location_query: str) -> str:
+    normalized = str(location_query or "").strip().lower()
+    if not normalized:
+        return ""
+    if "wien" in normalized or "vienna" in normalized:
+        return "wien"
+    return _location_slug(location_query)
+
+
 def _build_provider_search_url(
     *,
     provider: PropertyProviderSpec,
@@ -3958,6 +3982,13 @@ def _build_provider_search_url(
         if min_area_m2:
             query_items["minArea"] = str(min_area_m2)
         return _append_query(base_url, query_items)
+    if provider.key == "findmyhome_at":
+        location_segment = _findmyhome_location_segment(location_query)
+        property_segment = _findmyhome_property_segment(listing_mode=listing_mode, property_type=property_type)
+        target_url = f"https://www.findmyhome.at/immo/{property_segment}"
+        if location_segment:
+            target_url = f"{target_url}/{location_segment}"
+        return target_url
     if provider.key in {
         "immowelt_at",
         "findmyhome_at",

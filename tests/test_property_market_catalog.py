@@ -993,3 +993,25 @@ def test_generated_source_specs_use_public_fallback_for_immoscout_at_and_kalandr
     assert str(immoscout_spec["url"]).startswith("https://www.immmo.at/suche/kauf")
     assert "pq_upstream=immoscout_at" in str(immoscout_spec["url"])
     assert kalandra_spec["url"] == "https://www.kalandra.at/immobiliensuche"
+
+
+def test_generated_source_specs_use_live_austrian_paths_for_immowelt_and_findmyhome() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "location_query": "Vienna",
+            "property_type": "apartment",
+        },
+        selected_platforms=("immowelt_at", "findmyhome_at"),
+        principal_id="exec-property-at-live-paths",
+        default_person_id="self",
+        max_results=3,
+    )
+
+    assert len(specs) == 2
+    immowelt_spec = next(row for row in specs if row["platform"] == "immowelt_at")
+    findmyhome_spec = next(row for row in specs if row["platform"] == "findmyhome_at")
+    assert str(immowelt_spec["url"]).startswith("https://www.immowelt.at/suche/wohnungen/kaufen")
+    assert findmyhome_spec["url"] == "https://www.findmyhome.at/immo/wohnung-kaufen/wien"
