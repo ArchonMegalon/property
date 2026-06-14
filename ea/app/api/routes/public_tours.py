@@ -25,7 +25,7 @@ from app.api.dependencies import get_container
 from app.container import AppContainer
 from app.api.routes.landing import _anonymous_onboarding_status, _public_context, templates as public_templates
 from app.product.service import _property_feedback_reason_map, build_product_service
-from app.services.public_clickrank import clickrank_head_snippet, request_hostname
+from app.services.public_clickrank import clickrank_head_snippet, request_hostname, request_path
 
 router = APIRouter(tags=["public-tours"])
 
@@ -2049,7 +2049,7 @@ def _public_tour_host_brand_label(hostname: str, *, fallback: str = "this domain
     return str(fallback or "this domain").strip() or "this domain"
 
 
-def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
+def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = "") -> str:
     early_scene_strategy = str(payload.get("scene_strategy") or "").strip()
     if early_scene_strategy == "pure_360_cube":
         safe_title = html.escape(str(payload.get("display_title") or payload.get("title") or payload.get("slug") or "Property tour").strip())
@@ -2059,7 +2059,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{safe_title} - 3D fallback blocked</title>
-    {clickrank_head_snippet(hostname)}
+    {clickrank_head_snippet(hostname, path)}
     <style>
       html, body {{ margin: 0; min-height: 100%; background: #111; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
       body {{ display: grid; place-items: center; padding: 24px; }}
@@ -2126,7 +2126,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{safe_title}</title>
-    {clickrank_head_snippet(hostname)}
+    {clickrank_head_snippet(hostname, path)}
     <style>
       html, body {{ margin: 0; min-height: 100%; background: #111; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
       body {{ display: grid; place-items: center; padding: 24px; }}
@@ -2180,7 +2180,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{safe_title} - 3D fallback blocked</title>
-    {clickrank_head_snippet(hostname)}
+    {clickrank_head_snippet(hostname, path)}
     <style>
       html, body {{ margin: 0; min-height: 100%; background: #111; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
       body {{ display: grid; place-items: center; padding: 24px; }}
@@ -3004,7 +3004,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title_html}</title>
-    {clickrank_head_snippet(hostname)}
+    {clickrank_head_snippet(hostname, path)}
     <style>
       :root {{
         --bg: #f5f2ec;
@@ -3696,7 +3696,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title_html}</title>
-    {clickrank_head_snippet(hostname)}
+    {clickrank_head_snippet(hostname, path)}
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@photo-sphere-viewer/core/index.min.css">
     <style>
       :root {{
@@ -4631,7 +4631,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         '</div>'
         '</section>'
     )
-    clickrank_html = clickrank_head_snippet(hostname)
+    clickrank_html = clickrank_head_snippet(hostname, path)
     return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -5670,7 +5670,7 @@ def public_tour_page(
         rendered_payload["_feedback_suggestions"] = dict(feedback_context.get("feedback_suggestions") or {})
         rendered_payload["_learning_summary"] = dict(feedback_context.get("learning_summary") or {})
         rendered_payload["_shortlist_compare"] = dict(shortlist_compare or {})
-        return HTMLResponse(_tour_html(rendered_payload, hostname=hostname), headers=_public_tour_security_headers())
+        return HTMLResponse(_tour_html(rendered_payload, hostname=hostname, path=request_path(request)), headers=_public_tour_security_headers())
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()
         if exc.status_code == 404 and detail == "tour_disabled_fallback":

@@ -206,6 +206,32 @@ def test_premium_pipeline_uses_configured_playwright_before_legacy(monkeypatch, 
         )
 
     monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_playwright", _fake_playwright)
+    monkeypatch.setattr(
+        "app.services.premium_dossier.inspect_rendered_artifact",
+        lambda **kwargs: type(
+            "Report",
+            (),
+            {
+                "ok": True,
+                "required_text_check": "passed",
+                "forbidden_text_check": "passed",
+                "page_count": 1,
+                "visual_preview_check": "passed",
+                "cover_dominance_check": "passed",
+                "footer_band_check": "passed",
+                "raw_url_text_check": "passed",
+                "visual_preview_artifact_ref": "",
+                "first_page_width_px": 0,
+                "first_page_height_px": 0,
+                "first_page_nonwhite_ratio": 0.0,
+                "first_page_top_band_nonwhite_ratio": 0.0,
+                "first_page_footer_band_nonwhite_ratio": 0.0,
+                "required_text_hits": list(kwargs.get("expected_text") or []),
+                "forbidden_text_hits": [],
+                "raw_url_text_hits": [],
+            },
+        )(),
+    )
     rendered = render_property_packet_pdf_via_premium_pipeline(
         artifact_root=tmp_path,
         publication_id="pub_test",
@@ -245,6 +271,32 @@ def test_premium_pipeline_blocks_markupgo_for_private_references(monkeypatch, tm
 
     monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_markupgo", _markupgo_should_not_run)
     monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_playwright", _fake_playwright)
+    monkeypatch.setattr(
+        "app.services.premium_dossier.inspect_rendered_artifact",
+        lambda **kwargs: type(
+            "Report",
+            (),
+            {
+                "ok": True,
+                "required_text_check": "passed",
+                "forbidden_text_check": "passed",
+                "page_count": 1,
+                "visual_preview_check": "passed",
+                "cover_dominance_check": "passed",
+                "footer_band_check": "passed",
+                "raw_url_text_check": "passed",
+                "visual_preview_artifact_ref": "",
+                "first_page_width_px": 0,
+                "first_page_height_px": 0,
+                "first_page_nonwhite_ratio": 0.0,
+                "first_page_top_band_nonwhite_ratio": 0.0,
+                "first_page_footer_band_nonwhite_ratio": 0.0,
+                "required_text_hits": list(kwargs.get("expected_text") or []),
+                "forbidden_text_hits": [],
+                "raw_url_text_hits": [],
+            },
+        )(),
+    )
     rendered = render_property_packet_pdf_via_premium_pipeline(
         artifact_root=tmp_path,
         publication_id="pub_private_refs",
@@ -613,6 +665,32 @@ def test_premium_pipeline_keeps_text_manifest_outside_pdf_bytes(monkeypatch, tmp
         )
 
     monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_playwright", _fake_playwright)
+    monkeypatch.setattr(
+        "app.services.premium_dossier.inspect_rendered_artifact",
+        lambda **kwargs: type(
+            "Report",
+            (),
+            {
+                "ok": True,
+                "required_text_check": "passed",
+                "forbidden_text_check": "passed",
+                "page_count": 1,
+                "visual_preview_check": "passed",
+                "cover_dominance_check": "passed",
+                "footer_band_check": "passed",
+                "raw_url_text_check": "passed",
+                "visual_preview_artifact_ref": "",
+                "first_page_width_px": 0,
+                "first_page_height_px": 0,
+                "first_page_nonwhite_ratio": 0.0,
+                "first_page_top_band_nonwhite_ratio": 0.0,
+                "first_page_footer_band_nonwhite_ratio": 0.0,
+                "required_text_hits": list(kwargs.get("expected_text") or []),
+                "forbidden_text_hits": [],
+                "raw_url_text_hits": [],
+            },
+        )(),
+    )
     rendered = render_property_packet_pdf_via_premium_pipeline(
         artifact_root=tmp_path,
         publication_id="pub_text_manifest",

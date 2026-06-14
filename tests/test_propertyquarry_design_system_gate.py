@@ -61,7 +61,8 @@ def test_propertyquarry_search_results_explain_suppression_and_provider_quality(
 
     assert "Search guard" not in body
     assert "Filtered by rules" in body
-    assert "What did not reach the shortlist" in body
+    assert "Open to relax one rule and rerun the search." in body
+    assert "data-pqx-counterfactual" in body
     assert "How this search was filtered" in body
     assert "Floorplans {{ provider_quality.get('floorplan_reliability')" in body
     assert "Best homes first" in body

@@ -77,6 +77,27 @@ def _clean_property_candidate_copy(value: object) -> str:
     return text.strip()
 
 
+def _property_result_title_display(title: object) -> str:
+    text = " ".join(str(title or "").split()).strip()
+    if not text:
+        return "Property"
+    text = re.sub(r"\s+-\s+(willhaben|immobilienscout24|immoscout|immowelt|idealista|kleinanzeigen)\b.*$", "", text, flags=re.IGNORECASE).strip()
+    trailing_patterns = (
+        r",\s*\d+(?:[.,]\d+)?\s*m².*$",
+        r",\s*(?:€|eur|usd|chf)\s*[0-9][0-9\.\,\s-]*(?:\([^)]*\))?.*$",
+        r",\s*\([^)]*\)\s*$",
+    )
+    changed = True
+    while changed and text:
+        changed = False
+        for pattern in trailing_patterns:
+            updated = re.sub(pattern, "", text, flags=re.IGNORECASE).strip(" ,-")
+            if updated != text:
+                text = updated
+                changed = True
+    return text or "Property"
+
+
 def _merge_option_catalog(
     base: list[dict[str, str]],
     selected_values: list[str],
@@ -144,6 +165,41 @@ def _latlon_to_tile(lat: float, lon: float, zoom: int) -> tuple[float, float]:
     tile_x = (lon + 180.0) / 360.0 * scale
     tile_y = (1.0 - math.log(math.tan(lat_rad) + (1.0 / math.cos(lat_rad))) / math.pi) / 2.0 * scale
     return tile_x, tile_y
+
+
+def _tile_to_lonlat(tile_x: float, tile_y: float, zoom: int) -> tuple[float, float]:
+    scale = 2.0 ** zoom
+    lon = (tile_x / scale) * 360.0 - 180.0
+    n = math.pi - (2.0 * math.pi * tile_y / scale)
+    lat = math.degrees(math.atan(math.sinh(n)))
+    return lon, lat
+
+
+def _tile_crop_geo_bounds(
+    *,
+    center_lat: float,
+    center_lon: float,
+    zoom: int,
+    width: int = 640,
+    height: int = 368,
+    tile_size: int = 256,
+    tile_span: int = 4,
+) -> tuple[float, float, float, float]:
+    tile_x, tile_y = _latlon_to_tile(center_lat, center_lon, zoom)
+    tile_origin_x = int(math.floor(tile_x)) - (tile_span // 2)
+    tile_origin_y = int(math.floor(tile_y)) - (tile_span // 2)
+    center_x = int(round((tile_x - tile_origin_x) * tile_size))
+    center_y = int(round((tile_y - tile_origin_y) * tile_size))
+    canvas_size = tile_size * tile_span
+    left = max(0, min(canvas_size - width, center_x - (width // 2)))
+    top = max(0, min(canvas_size - height, center_y - (height // 2)))
+    west, north = _tile_to_lonlat(tile_origin_x + (left / tile_size), tile_origin_y + (top / tile_size), zoom)
+    east, south = _tile_to_lonlat(
+        tile_origin_x + ((left + width) / tile_size),
+        tile_origin_y + ((top + height) / tile_size),
+        zoom,
+    )
+    return west, south, east, north
 
 
 def _mercator_fraction_y(lat: float) -> float:
@@ -490,37 +546,37 @@ def _build_scope_boundary_preview(
         return {}
     render_bounds = _expand_geo_bounds(context_bounds or union_bounds)
 
+    center_lon = (render_bounds[0] + render_bounds[2]) / 2.0
+    center_lat = (render_bounds[1] + render_bounds[3]) / 2.0
+    zoom = _preview_zoom_for_bounds(render_bounds)
+    preview_bounds = _tile_crop_geo_bounds(center_lat=center_lat, center_lon=center_lon, zoom=zoom, width=640, height=368)
+
     district_rows: list[dict[str, object]] = []
-    overlay_rows: list[dict[str, object]] = []
     for index, row in enumerate(rows):
         rings = row.get("rings") if isinstance(row.get("rings"), list) else []
         if rings:
-            path, _ = _project_lonlat_to_preview_path(rings[0], render_bounds, width=640.0, height=368.0)
+            path, _ = _project_lonlat_to_preview_path(rings[0], preview_bounds, width=640.0, height=368.0)
         else:
             bounds = row.get("bounds") if isinstance(row.get("bounds"), tuple) else None
             if not bounds:
                 continue
             west, south, east, north = bounds
             rect_points = [(west, south), (east, south), (east, north), (west, north)]
-            path, _ = _project_lonlat_to_preview_path(rect_points, render_bounds, width=640.0, height=368.0)
+            path, _ = _project_lonlat_to_preview_path(rect_points, preview_bounds, width=640.0, height=368.0)
         if not path:
             continue
         overlay_row = {"label": str(row.get("label") or f"Area {index + 1}").strip(), "selected": True, "path": path}
         district_rows.append(overlay_row)
-        overlay_rows.append(overlay_row)
 
     if not district_rows:
         return {}
 
     if context_bounds:
         for ring in _geojson_outer_rings(dict(context_record.get("geojson") or {}))[:1]:
-            boundary_path, _ = _project_lonlat_to_preview_path(ring, render_bounds, width=640.0, height=368.0)
+            boundary_path, _ = _project_lonlat_to_preview_path(ring, preview_bounds, width=640.0, height=368.0)
             if boundary_path:
                 boundary_paths.append(boundary_path)
 
-    center_lon = (render_bounds[0] + render_bounds[2]) / 2.0
-    center_lat = (render_bounds[1] + render_bounds[3]) / 2.0
-    zoom = _preview_zoom_for_bounds(render_bounds)
     image_url = _cached_preview_data_url(
         cache_key={
             "kind": "scope",
@@ -529,7 +585,7 @@ def _build_scope_boundary_preview(
             "query": normalized_query,
             "areas": [row["label"] for row in district_rows],
             "zoom": zoom,
-            "overlay_mode": "image",
+            "overlay_mode": "svg_tile_crop_v2",
         },
         center_lat=center_lat,
         center_lon=center_lon,
@@ -1419,7 +1475,7 @@ def _property_suppression_rows(
     if summary_budget > counters["Alert budget"]:
         counters["Alert budget"] = summary_budget
     action_map = {
-        "Outside selected area": "Keep suppressed unless you widen the target area.",
+        "Outside selected area": "Add nearby homes with a controlled radius instead of opening the whole city.",
         "Missing floorplan evidence": "These are not invalid. PropertyQuarry is still looking for floorplans in photos, PDFs, downloads, and 360 media.",
         "Below fit threshold": "Lower the fit threshold only for a broader discovery run.",
         "Outside area/size rule": "Relax area limits only after reviewing the near-miss table.",
@@ -1430,15 +1486,17 @@ def _property_suppression_rows(
     for label, total in counters.items():
         if total <= 0:
             continue
+        display_title = "Add adjacent-district homes" if label == "Outside selected area" else label
         providers = ", ".join(sorted(source_labels[label])[:3])
         rows.append(
             {
-                "title": label,
+                "title": display_title,
+                "rule_key": label,
                 "detail": f"{total} candidate{' was' if total == 1 else 's were'} filtered out. {action_map[label]}",
                 "tag": providers or "Search rule",
                 "affected_total": total,
                 "action_label": {
-                    "Outside selected area": "Review area",
+                    "Outside selected area": "Tune nearby radius",
                     "Missing floorplan evidence": "Recover floorplans",
                     "Below fit threshold": "Show near misses",
                     "Outside area/size rule": "Relax size",
@@ -1628,6 +1686,9 @@ def _property_counterfactual_rows(
         title = str(item.get("title") or "").strip()
         detail = str(item.get("detail") or "").strip()
         action_label = str(item.get("action_label") or "").strip()
+        lowered_title = title.lower()
+        if "duplicate listing" in lowered_title or "wrong property type" in lowered_title:
+            return {}
         if title.lower() == "pending layout proof":
             item["title"] = "Missing floorplan evidence"
             if detail:
@@ -1717,11 +1778,11 @@ def _property_counterfactual_rows(
             region_label = region_code.replace("_", " ").title()
         rows.append(
             {
-                "title": f"Expand from selected areas to all {region_label}",
-                "detail": f"Keep {region_label} selected but stop suppressing the rest of the area in the next pass.",
+                "title": "Add homes near the selected districts",
+                "detail": f"Include homes within a small radius of the selected districts when they sit in adjacent parts of {region_label}.",
                 "tag": "Area",
-                "action_label": f"Use all {region_label}",
-                "adjustments": {"full_region_scope": True, "location_query": region_label, "custom_location_query": ""},
+                "action_label": "Add nearby homes",
+                "adjustments": {"full_region_scope": True, "location_query": region_label, "custom_location_query": "", "adjacent_area_radius_m": 750},
                 "affected_total": outside_selected_area_total,
             }
         )
@@ -2265,7 +2326,7 @@ def app_section_payload(
     property_preferences = dict(property_state.get("preferences") or {})
     property_run = dict(property_state.get("run") or {})
     property_summary = dict(property_run.get("summary") or {})
-    property_country_label = str(property_state.get("country_label") or "Austria")
+    property_country_label = str(property_state.get("country_label") or "Market")
     property_language_label = str(property_state.get("language_label") or "Deutsch")
     property_listing_mode_label = str(property_state.get("listing_mode_label") or "Rent")
     property_investment_research_mode_label = str(property_state.get("investment_research_mode_label") or "Off")
@@ -3910,7 +3971,7 @@ def app_section_payload(
                 "scale_max_label": "7 km",
                 "tooltip": "Useful for family leisure and everyday sport access. Tracks public swimming pools.",
                 "step": "children",
-                "advanced_panel": "children_distances",
+                "advanced_panel": "children_wellbeing",
             },
             {
                 "type": "range",
@@ -3927,7 +3988,7 @@ def app_section_payload(
                 "scale_max_label": "7 km",
                 "tooltip": "Tracks proximity to doctors, health centers, clinics, and hospitals. Stronger signal when children or elder-care logistics matter.",
                 "step": "children",
-                "advanced_panel": "children_distances",
+                "advanced_panel": "children_wellbeing",
             },
             {
                 "type": "checkbox",
@@ -5382,6 +5443,27 @@ def property_workspace_payload(
                 continue
         return 0
 
+    def _normalized_money_text(text: str) -> str:
+        currency = "EUR" if ("eur" in text.lower() or "€" in text) else ""
+        money_match = re.search(r"[0-9][0-9\.\,\s]*(?:[,.][0-9]{1,2})?", text)
+        if not money_match:
+            return text if currency else ""
+        number_text = money_match.group(0).replace(" ", "").strip(".,")
+        if "." in number_text and "," in number_text:
+            number_text = number_text.replace(".", "").replace(",", ".")
+        elif "," in number_text:
+            integer_part, decimal_part = number_text.rsplit(",", 1)
+            number_text = integer_part + decimal_part if len(decimal_part) == 3 else integer_part + "." + decimal_part
+        elif number_text.count(".") > 1:
+            number_text = number_text.replace(".", "")
+        try:
+            amount = float(number_text)
+        except Exception:
+            return text if currency else ""
+        if amount <= 0:
+            return ""
+        return f"{currency or 'EUR'} {amount:,.0f}".replace(",", ",")
+
     def _money_display(value: object) -> str:
         if value in (None, "", []):
             return ""
@@ -5391,7 +5473,7 @@ def property_workspace_payload(
                 return ""
             lowered = text.lower()
             if "eur" in lowered or "€" in text:
-                return text
+                return _normalized_money_text(text)
             try:
                 value = float(text.replace(",", "."))
             except Exception:
@@ -5458,7 +5540,8 @@ def property_workspace_payload(
         for pattern in patterns:
             match = re.search(pattern, text, flags=re.IGNORECASE)
             if match:
-                return " ".join(str(match.group(1) or "").split()).strip(" ,")
+                raw = " ".join(str(match.group(1) or "").split()).strip(" ,")
+                return _normalized_money_text(raw) or raw
         return ""
 
     for candidate in shortlist_candidates:
@@ -5517,7 +5600,9 @@ def property_workspace_payload(
             {
                 "candidate_ref": candidate_ref,
                 "rank": len(workbench_results) + 1,
-                "title": str(candidate.get("title") or "Candidate").strip() or "Candidate",
+                "title": _property_result_title_display(candidate.get("title") or "Candidate"),
+                "recovered_by_filter": bool(candidate.get("recovered_by_filter") or candidate.get("counterfactual_recovered")),
+                "relaxed_filter_label": str(candidate.get("relaxed_filter_label") or candidate.get("counterfactual_label") or "").strip(),
                 "preview_image_url": str(candidate.get("preview_image_url") or _property_candidate_preview_image(candidate) or "").strip(),
                 "source_label": str(candidate.get("source_label") or "").strip(),
                 "location_label": str(facts.get("postal_name") or facts.get("city") or facts.get("address") or "").strip(),
@@ -5663,7 +5748,7 @@ def property_workspace_payload(
         "properties": [
             {
                 "label": "Market",
-                "value": str(property_state.get("country_label") or "Austria"),
+                "value": str(property_state.get("country_label") or "Market"),
                 "detail": str(search_posture_items[0].get("detail") or "").strip() if search_posture_items else "",
                 "href": f"/app/properties{run_suffix}",
             },
@@ -6444,7 +6529,7 @@ def property_workspace_payload(
             "route_previews": progress_route_previews,
         },
         "brief": {
-            "country": str(property_state.get("country_label") or "Austria"),
+            "country": str(property_state.get("country_label") or "Market"),
             "mode": str(property_preferences.get("listing_mode") or "rent").strip().title(),
             "region": str(property_state.get("region_label") or property_preferences.get("region_code") or "").strip(),
             "areas": selected_locations,

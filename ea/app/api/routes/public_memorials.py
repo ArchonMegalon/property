@@ -26,6 +26,7 @@ from app.services.memorial_openvoice import (
     openvoice_synthesize_request_with_variant,
 )
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
+from app.services.public_heyy_live_chat import heyy_live_chat_head_snippet
 from app.services.responses_upstream import ResponsesUpstreamError, generate_text
 from app.services.memorial_voice_profile import build_memorial_voice_profile, load_memorial_voice_profile
 
@@ -1259,7 +1260,8 @@ def _memorial_html(
     if not tts_plugin_options_html:
         tts_plugin_options_html = '<option value="" disabled selected>Keine TTS-Plug-ins verfügbar</option>'
     voice_build_default_query = html.escape(f"{person_name} interview")
-    clickrank_html = clickrank_head_snippet(hostname)
+    clickrank_html = clickrank_head_snippet(hostname, f"/memorials/{slug}")
+    heyy_live_chat_html = heyy_live_chat_head_snippet(hostname=hostname, path=f"/memorials/{slug}")
     clips_html = "\n".join(
         f"""
         <article class="clip">
@@ -1340,6 +1342,7 @@ def _memorial_html(
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{page_title}</title>
     {clickrank_html}
+    {heyy_live_chat_html}
     <style>
       :root {{
         --sky-top: #a9bdd0;

@@ -78,6 +78,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
     deadlines = client.get("/app/api/deadlines")
     assert deadlines.status_code == 200
     deadlines_body = deadlines.json()
+
     assert deadlines_body["total"] >= 1
     assert any(item["id"] == f"deadline:{seeded['deadline_window_id']}" for item in deadlines_body["items"])
     deadline_detail = client.get(f"/app/api/deadlines/deadline:{seeded['deadline_window_id']}")
@@ -388,6 +389,24 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert invalid_action.status_code == 404
     assert "This action link is no longer valid." in invalid_action.text
     assert "Request new sign-in link" in invalid_action.text
+
+
+def test_default_property_person_motion_hint_ignores_scanned_documents_io_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-motion-hint-ioerror"
+    client = build_product_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    original_exists = Path.exists
+
+    def _fake_exists(path: Path) -> bool:
+        if str(path) == "/mnt/onedrive/Documents/Scanned Documents":
+            raise OSError(5, "Input/output error")
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", _fake_exists)
+
+    assert service._default_property_person_motion_hint(principal_id=principal_id, person_id="self") == ""
 
 
 def test_public_channel_action_links_preview_before_applying_changes() -> None:

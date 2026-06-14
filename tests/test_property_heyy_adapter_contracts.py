@@ -60,7 +60,7 @@ def test_heyy_verify_channel_uses_bearer_auth(monkeypatch: pytest.MonkeyPatch) -
     def _fake_urlopen(request, timeout=0):  # noqa: ANN001
         observed["url"] = request.full_url
         observed["authorization"] = request.headers.get("Authorization")
-        return _FakeUrlopenResponse({"id": "channel-1", "type": "whatsapp", "status": "active"})
+        return _FakeUrlopenResponse({"data": {"id": "channel-1", "type": "whatsapp", "status": "active"}})
 
     client = build_product_client(principal_id="heyy-owner")
     service = HeyyWhatsAppBridgeService(tool_runtime=client.app.state.container.tool_runtime)
@@ -82,7 +82,7 @@ def test_heyy_send_template_posts_whatsapp_message(monkeypatch: pytest.MonkeyPat
         observed["url"] = request.full_url
         observed["authorization"] = request.headers.get("Authorization")
         observed["payload"] = json.loads((request.data or b"{}").decode("utf-8"))
-        return _FakeUrlopenResponse({"id": "msg-1", "status": "queued"})
+        return _FakeUrlopenResponse({"data": {"id": "msg-1", "status": "queued"}})
 
     client = build_product_client(principal_id="heyy-owner")
     service = HeyyWhatsAppBridgeService(tool_runtime=client.app.state.container.tool_runtime)

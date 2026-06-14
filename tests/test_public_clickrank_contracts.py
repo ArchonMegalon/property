@@ -8,7 +8,12 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
-from app.services.public_clickrank import clickrank_head_snippet, clickrank_site_id_for_hostname, request_hostname
+from app.services.public_clickrank import (
+    clickrank_head_snippet,
+    clickrank_route_allowed,
+    clickrank_site_id_for_hostname,
+    request_hostname,
+)
 
 
 _MYEXTERNALBRAIN_SITE_ID = "33ff8f39-6213-4903-99d7-81048b5b3e1f"
@@ -114,7 +119,17 @@ def test_clickrank_head_snippet_returns_empty_for_unknown_host_without_config(
     monkeypatch.delenv("CLICKRANK_AI_MYEXTERNALBRAIN_SITE_ID", raising=False)
     monkeypatch.delenv("EA_PUBLIC_APP_BASE_URL", raising=False)
 
-    assert clickrank_head_snippet("example.com") == ""
+    assert clickrank_head_snippet("example.com", "/") == ""
+
+
+def test_clickrank_route_allowlist_blocks_private_and_generated_routes() -> None:
+    assert clickrank_route_allowed("/") is True
+    assert clickrank_route_allowed("/guides/wohnung-kaufen-wien-checkliste") is True
+    assert clickrank_route_allowed("/app/properties") is False
+    assert clickrank_route_allowed("/results/demo") is False
+    assert clickrank_route_allowed("/tours/demo") is False
+    assert clickrank_route_allowed("/memorials/manfred") is False
+    assert clickrank_route_allowed("") is False
 
 
 def test_public_landing_includes_clickrank_snippet_for_myexternalbrain_host() -> None:
@@ -175,7 +190,7 @@ def test_clickrank_head_snippet_can_include_rybbit_for_propertyquarry_host(
     monkeypatch.setenv("RYBBIT_IO_PROPERTYQUARRY_SITE_ID", _PROPERTYQUARRY_RYBBIT_SITE_ID)
     monkeypatch.delenv("EA_ENABLE_CLICKRANK", raising=False)
 
-    snippet = clickrank_head_snippet("propertyquarry.com")
+    snippet = clickrank_head_snippet("propertyquarry.com", "/")
 
     assert 'https://app.rybbit.io/api/script.js' in snippet
     assert f'data-site-id="{_PROPERTYQUARRY_RYBBIT_SITE_ID}"' in snippet
@@ -193,7 +208,7 @@ def test_clickrank_head_snippet_can_include_optional_rybbit_attributes(
     monkeypatch.setenv("EA_PUBLIC_RYBBIT_SKIP_PATTERNS", '["/health","/ready"]')
     monkeypatch.setenv("EA_PUBLIC_RYBBIT_MASK_PATTERNS", '["token","session"]')
 
-    snippet = clickrank_head_snippet("propertyquarry.com")
+    snippet = clickrank_head_snippet("propertyquarry.com", "/")
 
     assert 'data-tag="propertyquarry-public"' in snippet
     assert 'data-debounce="750"' in snippet

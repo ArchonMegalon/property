@@ -86,7 +86,12 @@ from app.services.property_market_catalog import (
     provider_options as property_provider_options,
 )
 from app.services.public_branding import request_brand
-from app.services.public_clickrank import clickrank_head_snippet as _clickrank_head_snippet, request_hostname as _request_hostname
+from app.services.public_clickrank import (
+    clickrank_head_snippet as _clickrank_head_snippet,
+    request_hostname as _request_hostname,
+    request_path as _request_path,
+)
+from app.services.public_heyy_live_chat import heyy_live_chat_head_snippet as _heyy_live_chat_head_snippet
 from app.services.public_rybbit import rybbit_head_snippet as _rybbit_head_snippet
 from app.services.registration_email import email_delivery_enabled, property_notification_preview
 from app.services.fliplink import build_fliplink_packet_service
@@ -117,7 +122,8 @@ def _property_title_price_fallback(title: object) -> str:
     ):
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
-            return " ".join(str(match.group(1) or "").split()).strip(" ,")
+            raw = " ".join(str(match.group(1) or "").split()).strip(" ,")
+            return _property_research_money_display(raw) or raw
     return ""
 
 
@@ -141,8 +147,11 @@ def _property_research_title_display(title: object) -> str:
                 changed = True
     return text or "Research packet"
 
-templates.env.globals["clickrank_head_snippet"] = lambda request=None: Markup(_clickrank_head_snippet(_request_hostname(request)))
+templates.env.globals["clickrank_head_snippet"] = lambda request=None: Markup(
+    _clickrank_head_snippet(_request_hostname(request), _request_path(request))
+)
 templates.env.globals["rybbit_head_snippet"] = lambda request=None: Markup(_rybbit_head_snippet(request))
+templates.env.globals["heyy_live_chat_head_snippet"] = lambda request=None: Markup(_heyy_live_chat_head_snippet(request))
 
 
 @router.get("/robots.txt", include_in_schema=False, response_class=PlainTextResponse)
@@ -1868,7 +1877,24 @@ def _property_research_money_display(value: object) -> str:
         text = " ".join(value.split()).strip()
         if not text:
             return ""
-        if "eur" in text.lower() or "€" in text:
+        currency = "EUR" if ("eur" in text.lower() or "€" in text) else ""
+        money_match = re.search(r"[0-9][0-9\.\,\s]*(?:[,.][0-9]{1,2})?", text)
+        if currency and money_match:
+            number_text = money_match.group(0).replace(" ", "").strip(".,")
+            if "." in number_text and "," in number_text:
+                number_text = number_text.replace(".", "").replace(",", ".")
+            elif "," in number_text:
+                integer_part, decimal_part = number_text.rsplit(",", 1)
+                number_text = integer_part + decimal_part if len(decimal_part) == 3 else integer_part + "." + decimal_part
+            elif number_text.count(".") > 1:
+                number_text = number_text.replace(".", "")
+            try:
+                amount = float(number_text)
+                if amount > 0:
+                    return f"{currency} {amount:,.0f}".replace(",", ",")
+            except Exception:
+                return text
+        if currency:
             return text
         try:
             value = float(text.replace(",", "."))
@@ -3067,7 +3093,7 @@ def property_notification_preview_page(
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title>PropertyQuarry notification preview</title>
-      {_clickrank_head_snippet(_request_hostname(request))}
+      {_clickrank_head_snippet(_request_hostname(request), _request_path(request))}
       <style>
         body {{ margin:0; background:#f6f3ee; color:#242321; font:14px/1.6 Arial,Helvetica,sans-serif; }}
         .wrap {{ max-width:1280px; margin:0 auto; padding:24px; display:grid; gap:18px; }}

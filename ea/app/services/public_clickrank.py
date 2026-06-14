@@ -22,9 +22,60 @@ _RYBBIT_HOST_CONFIG = {
     "www.myexternalbrain.com": ("RYBBIT_IO_MYEXTERNALBRAIN_SITE_ID", ""),
 }
 
+_CLICKRANK_PUBLIC_EXACT_PATHS = {
+    "/",
+    "/pricing",
+    "/features",
+    "/guides",
+    "/markets",
+    "/blog",
+    "/compare",
+}
+
+_CLICKRANK_PUBLIC_PREFIXES = (
+    "/features/",
+    "/guides/",
+    "/markets/",
+    "/blog/",
+    "/compare/",
+)
+
+_CLICKRANK_PRIVATE_PREFIXES = (
+    "/app",
+    "/api",
+    "/v1",
+    "/auth",
+    "/admin",
+    "/results",
+    "/tours",
+    "/memorials",
+)
+
 
 def _normalize_hostname(hostname: str | None) -> str:
     return str(hostname or "").strip().lower().rstrip(".")
+
+
+def _normalize_path(path: str | None) -> str:
+    raw = str(path or "").strip()
+    if not raw:
+        return ""
+    parsed_path = urlparse(raw).path if "://" in raw or "?" in raw else raw
+    normalized = "/" + str(parsed_path or "").lstrip("/")
+    if len(normalized) > 1:
+        normalized = normalized.rstrip("/")
+    return normalized
+
+
+def clickrank_route_allowed(path: str | None) -> bool:
+    normalized = _normalize_path(path)
+    if not normalized:
+        return False
+    if any(normalized == prefix or normalized.startswith(prefix + "/") for prefix in _CLICKRANK_PRIVATE_PREFIXES):
+        return False
+    if normalized in _CLICKRANK_PUBLIC_EXACT_PATHS:
+        return True
+    return any(normalized.startswith(prefix) for prefix in _CLICKRANK_PUBLIC_PREFIXES)
 
 
 def _clickrank_enabled() -> bool:
@@ -88,6 +139,13 @@ def request_hostname(request: Any) -> str:
     return _normalize_hostname(getattr(url, "hostname", ""))
 
 
+def request_path(request: Any) -> str:
+    if request is None:
+        return ""
+    url = getattr(request, "url", None)
+    return _normalize_path(getattr(url, "path", "") or getattr(request, "scope", {}).get("path", ""))
+
+
 def clickrank_site_id_for_hostname(hostname: str | None) -> str:
     if not _clickrank_enabled():
         return ""
@@ -145,7 +203,9 @@ def _rybbit_script_attributes(site_id: str) -> list[str]:
     return attributes
 
 
-def clickrank_head_snippet(hostname: str | None) -> str:
+def clickrank_head_snippet(hostname: str | None, path: str | None = None) -> str:
+    if not clickrank_route_allowed(path):
+        return ""
     snippets: list[str] = []
     clickrank_site_id = clickrank_site_id_for_hostname(hostname)
     if clickrank_site_id:

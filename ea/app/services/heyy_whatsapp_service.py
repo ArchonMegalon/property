@@ -188,12 +188,13 @@ class HeyyWhatsAppBridgeService:
         if not normalized_channel_id:
             raise ValueError("heyy_channel_id_required")
         channel = _request("GET", f"channels/{normalized_channel_id}")
+        channel_data = channel.get("data") if isinstance(channel.get("data"), dict) else channel
         return {
             "status": "ready",
             "provider": "heyy",
             "channel_id": normalized_channel_id,
-            "channel_type": str(channel.get("type") or "").strip(),
-            "channel_status": str(channel.get("status") or "").strip(),
+            "channel_type": str(channel_data.get("type") or "").strip(),
+            "channel_status": str(channel_data.get("status") or "").strip(),
             "raw": channel,
         }
 
@@ -243,12 +244,13 @@ class HeyyWhatsAppBridgeService:
                 "variables": list(variables or []),
             },
         )
+        message_data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
         return {
             "status": "sent",
             "provider": "heyy",
             "channel_id": normalized_channel_id,
-            "message_id": str(payload.get("id") or payload.get("messageId") or "").strip(),
-            "delivery_status": str(payload.get("status") or "").strip(),
+            "message_id": str(message_data.get("id") or message_data.get("messageId") or "").strip(),
+            "delivery_status": str(message_data.get("status") or "").strip(),
             **redact_phone_number(normalized_phone),
             "raw": payload,
         }

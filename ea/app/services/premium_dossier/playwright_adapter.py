@@ -11,6 +11,13 @@ from pathlib import Path
 
 from app.services.premium_dossier.models import PremiumDossierRenderRequest, PremiumDossierRenderResult
 
+try:
+    from playwright.sync_api import sync_playwright as _sync_playwright
+except Exception:  # pragma: no cover - exercised through runtime fallback behavior
+    _sync_playwright = None
+
+sync_playwright = _sync_playwright
+
 
 def _fallback_playwright_python() -> str:
     explicit = str(os.getenv("PROPERTYQUARRY_PLAYWRIGHT_PYTHON") or "").strip()
@@ -114,9 +121,7 @@ def _render_pdf_via_helper_python(
 
 def render_pdf_with_playwright(request: PremiumDossierRenderRequest) -> PremiumDossierRenderResult:
     started = time.time()
-    try:
-        from playwright.sync_api import sync_playwright
-    except Exception as exc:
+    if sync_playwright is None:
         helper_python = _fallback_playwright_python()
         if helper_python != sys.executable:
             try:
@@ -126,9 +131,9 @@ def render_pdf_with_playwright(request: PremiumDossierRenderRequest) -> PremiumD
                     status="failed",
                     renderer="playwright",
                     error_code="playwright_missing",
-                    error_detail=str(helper_exc or exc or "playwright_missing")[:240],
+                    error_detail=str(helper_exc or "playwright_missing")[:240],
                 )
-        return PremiumDossierRenderResult(status="failed", renderer="playwright", error_code="playwright_missing", error_detail=str(exc or "playwright_missing")[:240])
+        return PremiumDossierRenderResult(status="failed", renderer="playwright", error_code="playwright_missing", error_detail="playwright_missing")
     try:
         with tempfile.TemporaryDirectory(prefix="pq-premium-dossier-") as tmp_dir:
             html_path = Path(tmp_dir) / "dossier.html"

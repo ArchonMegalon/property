@@ -31377,15 +31377,16 @@ class ProductService:
                 ).lower()
         scanned_report_present = False
         scanned_root = Path("/mnt/onedrive/Documents/Scanned Documents")
-        if scanned_root.exists():
-            with contextlib.suppress(Exception):
-                scanned_report_present = any(
-                    path.exists()
-                    for path in (
-                        scanned_root / "20260325 Physiotherapiebericht NRZ Tibor.pdf",
-                        scanned_root / "20250510AKH Ergotherapeutischer Bericht.pdf",
+        with contextlib.suppress(OSError):
+            if scanned_root.exists():
+                with contextlib.suppress(Exception):
+                    scanned_report_present = any(
+                        path.exists()
+                        for path in (
+                            scanned_root / "20260325 Physiotherapiebericht NRZ Tibor.pdf",
+                            scanned_root / "20250510AKH Ergotherapeutischer Bericht.pdf",
+                        )
                     )
-                )
         if any(token in profile_text for token in ("hemipleg", "hemipare", "halbseiten", "schlaganfall", "stroke recovery")):
             return (
                 "depict the resident with dignified left-sided hemiplegia or hemiparesis: reduced left arm swing, "
