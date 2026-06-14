@@ -1712,6 +1712,28 @@ def _property_search_official_evidence_concurrency() -> int:
     return max(1, min(parsed, 8))
 
 
+def _property_search_provider_worker_concurrency() -> int:
+    raw_value = str(os.getenv("PROPERTYQUARRY_SEARCH_PROVIDER_WORKER_CONCURRENCY") or "").strip()
+    if not raw_value:
+        return 3
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return 3
+    return max(1, min(parsed, 8))
+
+
+def _property_search_provider_worker_warm_limit() -> int:
+    raw_value = str(os.getenv("PROPERTYQUARRY_SEARCH_PROVIDER_WORKER_WARM_LIMIT") or "").strip()
+    if not raw_value:
+        return 3
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return 3
+    return max(0, min(parsed, 8))
+
+
 def _property_search_source_fetch_lane(source_spec: dict[str, object]) -> str:
     access_level = str(source_spec.get("source_access_level") or "").strip().lower()
     provider_family = str(source_spec.get("provider_family") or "").strip().lower()
@@ -19710,6 +19732,81 @@ class ProductService:
         cache_index[normalized_url] = normalized_preview
         return normalized_preview
 
+    def _warm_property_public_preview_cache_for_sources(
+        self,
+        *,
+        specs: list[dict[str, object]],
+        prefetched_source_results: dict[tuple[str, str], dict[str, object]],
+        cache_index: dict[str, dict[str, object]],
+    ) -> dict[str, object]:
+        warm_limit = _property_search_provider_worker_warm_limit()
+        worker_cap = _property_search_provider_worker_concurrency()
+        if warm_limit <= 0 or worker_cap <= 0 or not specs or not prefetched_source_results:
+            return {"enabled": False, "warmed_total": 0, "sources_touched": 0}
+
+        cache_lock = threading.Lock()
+        lane_semaphores = {
+            "provider": threading.Semaphore(worker_cap),
+            "browser": threading.Semaphore(max(1, min(_property_search_browser_provider_concurrency(), worker_cap))),
+            "official": threading.Semaphore(max(1, min(_property_search_official_evidence_concurrency(), worker_cap))),
+        }
+        tasks: list[tuple[dict[str, object], str]] = []
+        for source_spec in specs:
+            source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
+            platform = str(source_spec.get("platform") or "").strip().lower()
+            prefetched_result = dict(prefetched_source_results.get((platform, source_url)) or {})
+            listing_urls = [
+                urllib.parse.urldefrag(str(url or "").strip())[0]
+                for url in list(prefetched_result.get("listing_urls") or [])[:warm_limit]
+                if str(url or "").strip()
+            ]
+            for property_url in listing_urls:
+                tasks.append((dict(source_spec), property_url))
+        if not tasks:
+            return {"enabled": False, "warmed_total": 0, "sources_touched": 0}
+
+        touched_sources: set[str] = set()
+        warmed_total = 0
+
+        def _task(source_spec: dict[str, object], property_url: str) -> bool:
+            lane = _property_search_source_fetch_lane(source_spec)
+            sem = lane_semaphores.get(lane, lane_semaphores["provider"])
+            with sem:
+                with cache_lock:
+                    if self._property_public_preview_cache_lookup(cache_index=cache_index, property_url=property_url):
+                        return False
+                try:
+                    preview = _property_scout_page_preview_compat(property_url, prefer_fast=True)
+                except Exception:
+                    return False
+                with cache_lock:
+                    stored = self._property_public_preview_cache_store(
+                        cache_index=cache_index,
+                        property_url=property_url,
+                        preview=preview,
+                    )
+                if stored:
+                    touched_sources.add(str(source_spec.get("label") or source_spec.get("platform") or "").strip())
+                    return True
+                return False
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(worker_cap, len(tasks))), thread_name_prefix="property-source-worker") as executor:
+            futures = [executor.submit(_task, source_spec, property_url) for source_spec, property_url in tasks]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    if future.result():
+                        warmed_total += 1
+                except Exception:
+                    continue
+
+        return {
+            "enabled": True,
+            "warmed_total": warmed_total,
+            "sources_touched": len(touched_sources),
+            "worker_concurrency": worker_cap,
+            "warm_limit": warm_limit,
+        }
+
     def _resolve_google_location_history_import_path(self, path: str) -> Path:
         raw = str(path or "").strip()
         if not raw:
@@ -28681,6 +28778,11 @@ class ProductService:
             specs=specs,
             force_refresh=effective_force_refresh,
         )
+        provider_worker_state = self._warm_property_public_preview_cache_for_sources(
+            specs=specs,
+            prefetched_source_results=prefetched_source_results,
+            cache_index=public_preview_cache,
+        )
 
         _report(
             step="sources_resolved",
@@ -28698,6 +28800,7 @@ class ProductService:
                 "investment_research_mode": investment_research_mode,
                 "use_stored_feedback_preferences": use_stored_feedback_preferences,
                 "notification_budget": dict(notification_budget),
+                "provider_workers": dict(provider_worker_state),
             },
             steps_delta=1,
             stages_total_override=2 + (len(specs) * max(8, (max(1, int(resolved_max_results or 2)) * 3) + 5)),
@@ -28756,6 +28859,7 @@ class ProductService:
                 "enable_action_readiness_research": enable_action_readiness_research,
                 "watch_notified_total": 0,
                 "notification_budget": dict(notification_budget),
+                "provider_workers": dict(provider_worker_state),
                 "notification_budget_suppressed_total": 0,
                 "tour_auto_min_score": _PROPERTY_SCOUT_AUTO_TOUR_MIN_SCORE,
                 "magicfit_flythrough_min_score": _PROPERTY_SCOUT_MAGICFIT_FLYTHROUGH_MIN_SCORE,
@@ -30818,6 +30922,7 @@ class ProductService:
                 **dict(notification_budget),
                 "remaining_after_run": notification_budget_remaining,
             },
+            "provider_workers": dict(provider_worker_state),
             "notification_budget_suppressed_total": notification_budget_suppressed_total,
             "tour_created_total": tour_created_total,
             "tour_existing_total": tour_existing_total,

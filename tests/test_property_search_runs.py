@@ -291,6 +291,69 @@ def test_austria_noise_preference_uses_layout_quiet_signal_only_as_weak_hint() -
     assert "layout-derived quiet signal" in notes
 
 
+def test_property_public_preview_workers_warm_multiple_provider_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = ProductService.__new__(ProductService)
+    service._container = _PreviewCacheContainer()
+    cache_index: dict[str, dict[str, object]] = {}
+    monkeypatch.setenv("PROPERTYQUARRY_SEARCH_PROVIDER_WORKER_CONCURRENCY", "2")
+    monkeypatch.setenv("PROPERTYQUARRY_SEARCH_PROVIDER_WORKER_WARM_LIMIT", "2")
+
+    preview_calls: list[str] = []
+
+    def _fake_preview(property_url: str, prefer_fast: bool = False) -> dict[str, object]:
+        preview_calls.append(property_url)
+        return {
+            "property_url": property_url,
+            "listing_id": property_url.rsplit("/", 1)[-1],
+            "title": f"Preview for {property_url.rsplit('/', 1)[-1]}",
+            "summary": "Reusable public facts.",
+            "property_facts_json": {
+                "provider_channel": "provider",
+                "has_floorplan": property_url.endswith("1"),
+            },
+        }
+
+    monkeypatch.setattr(product_service, "_property_scout_page_preview_compat", _fake_preview)
+
+    result = service._warm_property_public_preview_cache_for_sources(
+        specs=[
+            {"platform": "derstandard_at", "label": "DER STANDARD", "url": "https://example.test/derstandard", "source_access_level": "browser"},
+            {"platform": "immmo_at", "label": "immmo", "url": "https://example.test/immmo", "source_access_level": "public"},
+        ],
+        prefetched_source_results={
+            ("derstandard_at", "https://example.test/derstandard"): {
+                "listing_urls": [
+                    "https://example.test/listing/1",
+                    "https://example.test/listing/2",
+                ]
+            },
+            ("immmo_at", "https://example.test/immmo"): {
+                "listing_urls": [
+                    "https://example.test/listing/3",
+                    "https://example.test/listing/4",
+                ]
+            },
+        },
+        cache_index=cache_index,
+    )
+
+    assert result["enabled"] is True
+    assert result["worker_concurrency"] == 2
+    assert result["warm_limit"] == 2
+    assert result["warmed_total"] == 4
+    assert result["sources_touched"] == 2
+    assert set(preview_calls) == {
+        "https://example.test/listing/1",
+        "https://example.test/listing/2",
+        "https://example.test/listing/3",
+        "https://example.test/listing/4",
+    }
+    assert service._property_public_preview_cache_lookup(
+        cache_index=cache_index,
+        property_url="https://example.test/listing/3",
+    ) is not None
+
+
 def test_property_search_location_matching_prefers_requested_districts() -> None:
     hints = _property_search_location_hints({"location_query": "1200 Vienna, 1020 Vienna, 1090"})
 
