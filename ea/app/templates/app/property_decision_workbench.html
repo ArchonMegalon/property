@@ -229,10 +229,8 @@
       top: 0;
       z-index: 30;
       display: grid;
-      grid-template-columns: minmax(220px, auto) minmax(0, 1fr) auto;
-      grid-template-areas:
-        "brand nav account"
-        "state state actions";
+      grid-template-columns: minmax(220px, auto) minmax(0, 1fr) auto auto;
+      grid-template-areas: "brand nav actions account";
       gap: 14px 18px;
       align-items: center;
       padding: 14px clamp(16px, 3vw, 34px);
@@ -306,40 +304,57 @@
       color: var(--pq-muted);
       font-size: 12px;
     }
-    .pqx-state-strip {
-      grid-area: state;
+    .pqx-brand-copy {
+      display: none;
+    }
+    .pqx-run-summary {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
-      justify-content: flex-start;
-      align-items: stretch;
+      align-items: center;
       min-width: 0;
+      margin-right: 4px;
     }
-    .pqx-state-pill {
-      min-width: 116px;
-      display: grid;
-      gap: 2px;
-      padding: 8px 10px;
+    .pqx-run-chip {
+      min-height: 30px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 10px;
       border: 1px solid var(--pq-line);
-      border-radius: 8px;
+      border-radius: 999px;
       background: rgba(255, 253, 248, 0.78);
-    }
-    .pqx-state-pill span {
       color: var(--pq-muted);
-      font-size: 11px;
-      text-transform: uppercase;
-    }
-    .pqx-state-pill strong {
-      overflow: hidden;
-      font-size: 13px;
-      text-overflow: ellipsis;
+      font-size: 12px;
+      font-weight: 680;
       white-space: nowrap;
+    }
+    .pqx-run-chip strong {
+      color: var(--pq-ink);
+      font-size: 12px;
+      font-weight: 760;
+    }
+    .pqx-run-chip.is-status {
+      border-color: rgba(189, 139, 47, 0.24);
+      background: rgba(189, 139, 47, 0.09);
+    }
+    .pqx-run-chip.is-muted {
+      color: var(--pq-faint);
+    }
+    .pqx-run-chip.is-count {
+      border-color: rgba(39, 107, 83, 0.18);
+    }
+    .pqx-run-chip.is-market {
+      max-width: 220px;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .pqx-top-actions,
     .pqx-actions,
     .pqx-mobile-switch,
     .pqx-context-actions {
       display: flex;
+      align-items: stretch;
+      gap: 8px;
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
@@ -388,8 +403,9 @@
       min-height: 38px;
       display: inline-flex;
       align-items: center;
-      gap: 7px;
-      padding: 0 13px;
+      justify-content: center;
+      min-width: 38px;
+      padding: 0 10px;
       border: 1px solid var(--pq-line);
       border-radius: 8px;
       background: rgba(255, 253, 248, 0.84);
@@ -2132,16 +2148,19 @@
     .pqx-shell [hidden] { display: none !important; }
     @media (max-width: 1180px) {
       .pqx-topbar {
-        grid-template-columns: 1fr auto;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+          "brand account"
+          "nav nav"
+          "actions actions";
+        gap: 10px 12px;
       }
-      .pqx-state-strip {
-        grid-column: 1 / -1;
-        order: 3;
-        justify-content: stretch;
-        overflow-x: auto;
+      .pqx-top-actions {
+        justify-content: flex-start;
       }
-      .pqx-state-pill {
-        min-width: 148px;
+      .pqx-run-summary {
+        width: 100%;
+        order: -1;
       }
       .pqx-setup,
       .pqx-running,
@@ -2182,11 +2201,11 @@
       .pqx-brand > span > span {
         display: none;
       }
-      .pqx-state-strip {
-        display: none;
-      }
       .pqx-top-actions {
         justify-content: stretch;
+      }
+      .pqx-run-summary {
+        display: none;
       }
       .pqx-top-actions .pqx-link-button,
       .pqx-top-actions .pqx-button {
@@ -2327,7 +2346,7 @@
         <span class="pqx-mark">PQ</span>
         <span>
           <strong>PropertyQuarry</strong>
-          <span>{{ workspace_label or 'Decision desk' }}</span>
+          <span class="pqx-brand-copy">{{ workspace_label or 'Decision desk' }}</span>
         </span>
       </a>
       <nav class="pqx-primary-nav" aria-label="PropertyQuarry sections">
@@ -2336,26 +2355,23 @@
         <a href="/app/agents"{% if surface_mode == 'agents' %} class="is-active"{% endif %}>Search agents</a>
         <a href="/app/account"{% if surface_mode == 'account' %} class="is-active"{% endif %}>Account</a>
       </nav>
-      <div class="pqx-state-strip" data-property-pulse-strip aria-label="Current search context">
-        <div class="pqx-state-pill">
-          <span>Status</span>
-          <strong data-pqx-run-status>{{ run.get('status_label') or ('Ready' if setup_mode else 'Not started') }}</strong>
-        </div>
-        <div class="pqx-state-pill">
-          <span>Market</span>
-          <strong>{{ brief.get('country') or 'Austria' }}{% if brief.get('region') %} · {{ brief.get('region') }}{% endif %}</strong>
-        </div>
-        <div class="pqx-state-pill">
-          <span>Plan</span>
-          <strong>{{ brief.get('plan') or current_plan_label or 'Free' }}</strong>
-        </div>
-        <div class="pqx-state-pill">
-          <span>Results</span>
-          <strong>{{ results|length }} ranked</strong>
-        </div>
-      </div>
       <div class="pqx-top-actions" data-pq-context-actions>
-        <a class="pqx-link-button subtle" href="/app/properties/packets">Reviews</a>
+        {% if run_active or has_results or run_terminal_no_results %}
+        <div class="pqx-run-summary" data-property-pulse-strip aria-label="Current search summary">
+          <span class="pqx-run-chip is-market">{{ brief.get('country') or 'Austria' }}{% if brief.get('region') %} · {{ brief.get('region') }}{% endif %}</span>
+          {% if run_active %}
+          <span class="pqx-run-chip is-status"><strong data-pqx-run-status>{{ run.get('status_label') or 'Running' }}</strong></span>
+          {% elif run_terminal_no_results %}
+          <span class="pqx-run-chip is-muted"><strong data-pqx-run-status>{{ run.get('status_label') or 'No matches yet' }}</strong></span>
+          {% endif %}
+          {% if has_results %}
+          <span class="pqx-run-chip is-count">{{ results|length }} ranked</span>
+          {% endif %}
+        </div>
+        {% endif %}
+        {% if has_results %}
+        <a class="pqx-link-button subtle" href="/app/properties/packets">Review</a>
+        {% endif %}
         {% if has_results %}
         <a class="pqx-link-button subtle" href="/app/search">Edit search</a>
         {% endif %}
@@ -2377,7 +2393,7 @@
         {% endif %}
         {% if account_nav %}
         <details class="pqx-account-menu">
-          <summary aria-label="Account navigation">Account</summary>
+          <summary aria-label="Account navigation" title="Account">{{ ((account_nav.label or 'Me')[:1])|upper }}</summary>
           <div class="pqx-account-menu-panel">
             <div class="pqx-account-menu-label">
               <span>Signed in</span>
@@ -2416,7 +2432,7 @@
             <h1>{% if surface_mode == 'search' %}Build the next search.{% else %}Previous searches.{% endif %}</h1>
           </div>
           <div class="pqx-brief-stack">
-            <p class="pqx-note">{% if surface_mode == 'search' %}Keep the brief on the left and use this rail only for watch context: saved searches, recent runs, and the last things worth reopening.{% else %}Start from searches you already ran. Open a finished search for its compact ranked results, or edit a saved search beside this dashboard.{% endif %}</p>
+            <p class="pqx-note">{% if surface_mode == 'search' %}Use this rail only for recent searches and saved watches.{% else %}Resume a recent search or open a saved one to edit it.{% endif %}</p>
           </div>
           <div class="pqx-dashboard-stack" data-pqx-dashboard-summary>
             <div class="pqx-dashboard-row">
@@ -2427,7 +2443,7 @@
             <div class="pqx-dashboard-row">
               <span class="pqx-small">Next action</span>
               <strong>{% if dashboard_agents %}{% if surface_mode == 'search' %}Reuse a saved search or refine this brief{% else %}Edit or run a saved search{% endif %}{% else %}Create your first saved search{% endif %}</strong>
-              <span class="pqx-note">Message limits are handled by ranking first and sending only the strongest homes.</span>
+              <span class="pqx-note">Only the strongest homes are sent when limits apply.</span>
             </div>
           </div>
           <div class="pqx-previous-search-list" data-pqx-previous-searches>
@@ -2473,7 +2489,7 @@
             <div class="pqx-dashboard-row">
               <span class="pqx-small">No previous searches yet</span>
               <strong>Run a search once, then it will appear here.</strong>
-              <span class="pqx-note">The dashboard will keep finished searches, compact results, and saved search agents together.</span>
+              <span class="pqx-note">Recent searches will appear here after the first run.</span>
             </div>
             {% endfor %}
           </div>
@@ -2494,8 +2510,8 @@
         <section class="pqx-command active" data-pqx-mobile-panel="brief" data-workbench-brief-drawer>
           <div class="pqx-section-head">
             <div>
-              <h2>Edit search</h2>
-              <div class="pqx-note" data-property-step-summary>Choose the market, areas, budget, must-haves, and how many updates you want.</div>
+              <h2>Search</h2>
+              <div class="pqx-note" data-property-step-summary>Choose the market, area, budget, and must-haves.</div>
             </div>
             <span class="pqx-pill" data-property-step-progress>Step 1</span>
           </div>
@@ -2541,7 +2557,7 @@
                   {% elif advanced_panel == 'commute' %}
                   Pendelziele und Zeitlimits
                   {% elif advanced_panel == 'provider_policies' %}
-                  Signal- und Quellenpolitik
+                  Quellen
                   {% else %}
                   Erweiterte Lage- und Researchfilter
                   {% endif %}
@@ -2663,8 +2679,8 @@
             <section class="pqx-card pqx-evidence-catalog" data-pqx-evidence-catalog hidden>
               <div class="pqx-section-head">
                 <div>
-                  <h2>Official evidence layers</h2>
-                  <div class="pqx-note">Public datasets used for school, transport, flood, air, noise, and broadband checks in this market.</div>
+                  <h2>Official checks</h2>
+                  <div class="pqx-note">Public data used for this market.</div>
                 </div>
               </div>
               <div class="pqx-source-grid" data-pqx-evidence-source-list></div>
@@ -2683,6 +2699,7 @@
             <div class="pqx-inline-error" data-property-inline-error></div>
           </form>
           {% set search_agents = property_meta.get('search_agents') or [] %}
+          {% if surface_mode == 'agents' %}
           <section class="pqx-advanced-panel" data-property-search-agent-management>
             <div class="pqx-section-head">
               <div>
@@ -2729,7 +2746,22 @@
             <div class="pqx-note">Change duration, message budget, and daily or weekly reset above, then save the limits.</div>
             <div class="pqx-inline-status" data-search-agent-status></div>
           </section>
+          {% else %}
+          <section class="pqx-card">
+            <div class="pqx-section-head">
+              <div>
+                <h2>Saved searches</h2>
+                <div class="pqx-note">Edit cadence, limits, and delivery in the dedicated view.</div>
+              </div>
+              <span class="pqx-pill">{{ (search_agents|selectattr('enabled')|list)|length }} active</span>
+            </div>
+            <div class="pqx-actions">
+              <a class="pqx-link-button" href="/app/agents">Open saved searches</a>
+            </div>
+          </section>
+          {% endif %}
           {% set preference_manager = preference_manager or {} %}
+          {% if surface_mode == 'account' %}
           <details
             class="pqx-advanced-panel pqx-pref-manager"
             data-property-preference-manager
@@ -2835,6 +2867,20 @@
             </form>
             </div>
           </details>
+          {% else %}
+          <section class="pqx-card">
+            <div class="pqx-section-head">
+              <div>
+                <h2>Saved preferences</h2>
+                <div class="pqx-note">Manage durable rules in Account.</div>
+              </div>
+              <span class="pqx-pill">{{ (preference_manager.get('active_nodes') or [])|length }} active</span>
+            </div>
+            <div class="pqx-actions">
+              <a class="pqx-link-button" href="/app/account#profile">Open preferences</a>
+            </div>
+          </section>
+          {% endif %}
           {% else %}
           <div class="pqx-empty">Search settings are locked while this search is running or already completed.</div>
           {% endif %}
@@ -4560,12 +4606,20 @@
         node.dispatchEvent(new Event('change', { bubbles: true }));
       });
     };
+    const revealSelectedProviderGroups = (form, selectedInputs) => {
+      const selectedSet = new Set(selectedInputs);
+      form.querySelectorAll('[data-provider-group-panel]').forEach((panel) => {
+        const panelInputs = [...panel.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')];
+        panel.open = panelInputs.some((node) => selectedSet.has(node));
+      });
+    };
     const selectAllCheckboxValues = (form, name, maxCount) => {
       const inputs = [...(form?.querySelectorAll(`input[name="${name}"]`) || [])];
       if (!inputs.length) return;
       const normalizedMax = Number.isFinite(Number(maxCount)) ? Math.max(1, Number(maxCount)) : inputs.length;
       const selectedInputs = inputs.slice(0, normalizedMax);
       applyCheckboxSelection(inputs, selectedInputs);
+      revealSelectedProviderGroups(form, selectedInputs);
       if (selectedInputs.length < inputs.length) {
         setCheckboxGroupStatus(`Selected ${selectedInputs.length} providers. Your current plan allows up to ${normalizedMax} at once.`);
         return;
@@ -5689,7 +5743,14 @@
       familyModeField?.addEventListener('change', syncFamilyModeControls);
       form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));
       form.querySelectorAll('[data-property-show-unavailable]').forEach((node) => node.addEventListener('change', () => syncMarketAwareFields(form, meta)));
+      form.querySelectorAll('[data-checkbox-group-select-all]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          selectAllCheckboxValues(form, String(button.getAttribute('data-checkbox-group-select-all') || '').trim(), planPlatformCap);
+        });
+      });
       form.addEventListener('click', (event) => {
+        if (event.defaultPrevented) return;
         const groupSelect = event.target?.closest?.('[data-checkbox-group-select-scope]');
         const groupClear = event.target?.closest?.('[data-checkbox-group-clear-scope]');
         if (groupSelect || groupClear) {
@@ -5701,13 +5762,16 @@
           if (groupSelect) {
             const selectedInputs = sectionInputs.slice(0, normalizedMax);
             applyCheckboxSelection(allInputs, selectedInputs);
+            revealSelectedProviderGroups(form, selectedInputs);
             if (selectedInputs.length < sectionInputs.length) {
               setCheckboxGroupStatus(`Selected ${selectedInputs.length} providers from this family. Your current plan allows up to ${normalizedMax} at once.`);
             } else {
               setCheckboxGroupStatus('Selected provider group.');
             }
           } else {
-            applyCheckboxSelection(allInputs, allInputs.filter((node) => !sectionInputs.includes(node) && node.checked));
+            const selectedInputs = allInputs.filter((node) => !sectionInputs.includes(node) && node.checked);
+            applyCheckboxSelection(allInputs, selectedInputs);
+            revealSelectedProviderGroups(form, selectedInputs);
             setCheckboxGroupStatus('Cleared provider group.');
           }
           return;
@@ -6015,7 +6079,7 @@
       updateLoadedSearchAgentDirtyState();
       if (status) status.textContent = 'Saved search reset to the last loaded filters.';
     });
-    const loadSearchAgentRow = async (row, *, startAfterLoad = false) => {
+    const loadSearchAgentRow = async (row, startAfterLoad = false) => {
       const status = root.querySelector('[data-search-agent-status]');
       const agentId = row?.getAttribute('data-search-agent-id') || 'current';
       let payload = {};
@@ -6049,11 +6113,11 @@
                 : 'Updating saved search...';
           }
           if (action === 'load') {
-            await loadSearchAgentRow(row, { startAfterLoad: false });
+            await loadSearchAgentRow(row, false);
             return;
           }
           if (action === 'run') {
-            await loadSearchAgentRow(row, { startAfterLoad: true });
+            await loadSearchAgentRow(row, true);
             return;
           }
           await updateSearchAgent(agentId, action, action === 'save' ? currentSearchAgentPatch() : {});
@@ -6080,7 +6144,7 @@
     if (requestedAgentId) {
       const requestedRow = root.querySelector(`[data-property-search-agent-row][data-search-agent-id="${CSS.escape(requestedAgentId)}"]`);
       if (requestedRow) {
-        loadSearchAgentRow(requestedRow, { startAfterLoad: false }).catch((error) => {
+        loadSearchAgentRow(requestedRow, false).catch((error) => {
           const status = root.querySelector('[data-search-agent-status]');
           if (status) status.textContent = error instanceof Error ? error.message : 'Could not load the saved search.';
         });

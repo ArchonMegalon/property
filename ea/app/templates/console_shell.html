@@ -1077,7 +1077,7 @@
               {% elif advanced_panel == 'commute' %}
               Pendelziele und Zeitlimits
               {% elif advanced_panel == 'provider_policies' %}
-              Signal- und Quellenpolitik
+              Quellen
               {% else %}
               Erweiterte Lage- und Researchfilter
               {% endif %}
@@ -1988,22 +1988,34 @@
       if (statusNode) statusNode.textContent = String(message || '').trim();
       if (errorNode && message) errorNode.textContent = '';
     };
+    const applyCheckboxSelection = (inputs, selectedInputs) => {
+      const selectedSet = new Set(selectedInputs);
+      inputs.forEach((node) => {
+        const nextChecked = selectedSet.has(node);
+        if (node.checked === nextChecked) return;
+        node.checked = nextChecked;
+        node.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    };
+    const revealSelectedProviderGroups = (selectedInputs) => {
+      const selectedSet = new Set(selectedInputs);
+      form.querySelectorAll('[data-provider-group-panel]').forEach((panel) => {
+        const panelInputs = [...panel.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')];
+        panel.open = panelInputs.some((node) => selectedSet.has(node));
+      });
+    };
     const selectAllCheckboxValues = (name, maxCount) => {
       const inputs = [...(form?.querySelectorAll(`input[name="${name}"]`) || [])];
       if (!inputs.length) return;
       const normalizedMax = Number.isFinite(Number(maxCount)) ? Math.max(1, Number(maxCount)) : inputs.length;
-      let selectedCount = inputs.filter((node) => node.checked).length;
-      inputs.forEach((node) => {
-        if (node.checked || selectedCount >= normalizedMax) return;
-        node.checked = true;
-        selectedCount += 1;
-        node.dispatchEvent(new Event('change', { bubbles: true }));
-      });
-      if (selectedCount < inputs.length) {
-        setCheckboxGroupStatus(`Selected ${selectedCount} providers. Your current plan allows up to ${normalizedMax} at once.`);
+      const selectedInputs = inputs.slice(0, normalizedMax);
+      applyCheckboxSelection(inputs, selectedInputs);
+      revealSelectedProviderGroups(selectedInputs);
+      if (selectedInputs.length < inputs.length) {
+        setCheckboxGroupStatus(`Selected ${selectedInputs.length} providers. Your current plan allows up to ${normalizedMax} at once.`);
         return;
       }
-      setCheckboxGroupStatus(`Selected all ${selectedCount} providers.`);
+      setCheckboxGroupStatus(`Selected all ${selectedInputs.length} providers.`);
     };
     const refreshRegionAndLocationChoices = () => {
       const regionCatalog = meta.region_catalog_by_country || {};
@@ -2055,24 +2067,40 @@
     form.querySelectorAll('[data-property-show-unavailable]').forEach((node) => {
       node.addEventListener('change', () => syncMarketAwareFields(form, meta));
     });
+    form.querySelectorAll('[data-checkbox-group-select-all]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        selectAllCheckboxValues(String(button.getAttribute('data-checkbox-group-select-all') || '').trim(), planPlatformCap);
+      });
+    });
     form.addEventListener('click', (event) => {
+      if (event.defaultPrevented) return;
       const groupSelect = event.target?.closest?.('[data-checkbox-group-select-scope]');
       const groupClear = event.target?.closest?.('[data-checkbox-group-clear-scope]');
       if (groupSelect || groupClear) {
         event.preventDefault();
         const section = (groupSelect || groupClear).closest('[data-provider-group-panel]') || form;
-        section.querySelectorAll('input[type="checkbox"][name="selected_platforms"]').forEach((node) => {
-          node.checked = Boolean(groupSelect);
-          node.dispatchEvent(new Event('change', { bubbles: true }));
-        });
-        setCheckboxGroupStatus(groupSelect ? 'Selected provider group.' : 'Cleared provider group.');
+        const allInputs = [...form.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')];
+        const sectionInputs = [...section.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')];
+        const normalizedMax = Number.isFinite(Number(planPlatformCap)) ? Math.max(1, Number(planPlatformCap)) : allInputs.length;
+        if (groupSelect) {
+          const selectedInputs = sectionInputs.slice(0, normalizedMax);
+          applyCheckboxSelection(allInputs, selectedInputs);
+          revealSelectedProviderGroups(selectedInputs);
+          setCheckboxGroupStatus(selectedInputs.length < sectionInputs.length ? `Selected ${selectedInputs.length} providers from this family. Your current plan allows up to ${normalizedMax} at once.` : 'Selected provider group.');
+        } else {
+          const selectedInputs = allInputs.filter((node) => !sectionInputs.includes(node) && node.checked);
+          applyCheckboxSelection(allInputs, selectedInputs);
+          revealSelectedProviderGroups(selectedInputs);
+          setCheckboxGroupStatus('Cleared provider group.');
+        }
         return;
       }
       const button = event.target?.closest?.('[data-checkbox-group-select-all]');
       if (!button) return;
       event.preventDefault();
-	      selectAllCheckboxValues(String(button.getAttribute('data-checkbox-group-select-all') || '').trim(), planPlatformCap);
-	    });
+      selectAllCheckboxValues(String(button.getAttribute('data-checkbox-group-select-all') || '').trim(), planPlatformCap);
+    });
     renderRun(form, meta.initial_run || {});
     syncFamilyModeControls();
     syncCommuteControls();

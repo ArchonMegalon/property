@@ -410,22 +410,19 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'value="halbtags_volksschule"' in setup.text
     assert 'data-property-show-unavailable' in setup.text
     assert 'No practical zoo or Tiergarten signal is configured for this market yet.' in setup.text
+    assert 'data-property-pulse-strip' not in setup.text
     assert "Min area" in setup.text
-    assert "Search agents" in setup.text
-    assert "Keep a search running, cap the number of messages" in setup.text
+    assert "Saved searches" in setup.text
+    assert "Edit cadence, limits, and delivery in the dedicated view." in setup.text
+    assert "Open saved searches" in setup.text
     assert "Last:" in setup.text
     assert "Next:" in setup.text
     assert "Sent 0/" in setup.text
-    assert "Resume" in setup.text
-    assert "Save limits" in setup.text
-    assert "Duplicate" in setup.text
-    assert "Delete" in setup.text
-    assert "Run now" in setup.text
-    assert 'data-search-agent-id="' in setup.text
-    assert 'data-search-agent-action="resume"' in setup.text
-    assert 'data-search-agent-action="duplicate"' in setup.text
-    assert 'data-search-agent-action="delete"' in setup.text
-    assert 'data-search-agent-action="run"' in setup.text
+    assert "Save limits" not in setup.text
+    assert 'data-search-agent-action="resume"' not in setup.text
+    assert 'data-search-agent-action="duplicate"' not in setup.text
+    assert 'data-search-agent-action="delete"' not in setup.text
+    assert 'data-search-agent-action="run"' not in setup.text
 
     search = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)
     assert search.status_code == 200
@@ -575,7 +572,6 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Floorplans medium" in search.text
     assert "Filters partial" in search.text
     assert "Verified 2026-06-13" in search.text
-    assert "Edit search" in search.text
     assert "Launch search" not in search.text
     assert "Morning Memo" not in search.text
     assert "Office signals ingested" not in search.text
@@ -862,7 +858,7 @@ def test_property_workspace_search_form_exposes_austria_evidence_and_eligibility
     assert "enable_auction_legal_review" in template_body
     assert "platform_defaults_by_country_mode" in template_body
     assert "defaultPlatformsForCountryMode" in template_body
-    assert "Official evidence layers" in template_body
+    assert "Official checks" in template_body
     assert "evidence_source_catalog_by_country" in template_body
     assert "ganztag_required" in workspace_template_body
     assert "require_school_evidence" in workspace_template_body
@@ -1240,6 +1236,10 @@ def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     assert "Next action" in body
     assert "Recent decisions and reviews" in body
     assert "grid-template-columns: minmax(220px, 320px) minmax(640px, 1fr);" in body
+    assert "pqx-state-strip" not in body
+    assert 'aria-label="Current search context"' not in body
+    assert 'aria-label="Account navigation"' in body
+    assert ">Me<" not in body
     assert "Tell us what to find." not in body
 
 
@@ -1533,12 +1533,9 @@ def test_propertyquarry_workspace_supports_all_of_vienna_toggle() -> None:
     search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert search.status_code == 200
     assert 'data-workbench-brief-drawer' in search.text
-    assert 'data-property-preference-manager' in search.text
-    assert "Search profile" in search.text
-    assert "Prefer Outdoor Space (Soft Preference)" in search.text
-    assert 'data-preference-remove' in search.text
-    assert 'data-preference-add-form' in search.text
-    assert 'name="key" list="pqx-preference-key-options"' in search.text
+    assert "<h2>Search profile</h2>" not in search.text
+    assert 'href="/app/account#profile">Open preferences</a>' in search.text
+    assert "Prefer Outdoor Space (Soft Preference)" not in search.text
     assert 'name="all_of_vienna" value="true" checked' in search.text
 
 
@@ -1582,8 +1579,23 @@ def test_propertyquarry_workspace_setup_stays_user_facing() -> None:
     assert response.status_code == 200
     assert "Previous searches." in response.text
     assert "Saved searches" in response.text
-    assert "Search agents" in response.text
+    assert "Saved searches" in response.text
+    assert "Open saved searches" in response.text
+    assert "Open preferences" in response.text
     assert "Build the brief. Then let the agents work." not in response.text
+
+
+def test_property_workspace_search_controls_have_explicit_click_handlers() -> None:
+    body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+
+    assert 'data-checkbox-group-select-all="{{ field.name }}"' in body
+    assert "field.name == 'selected_platforms'" in body
+    assert "form.querySelectorAll('[data-checkbox-group-select-all]').forEach((button) => {" in body
+    assert "const groupSelect = event.target?.closest?.('[data-checkbox-group-select-scope]');" in body
+    assert "const groupClear = event.target?.closest?.('[data-checkbox-group-clear-scope]');" in body
+    assert "root.querySelectorAll('[data-pqx-delete-run]').forEach((button) => {" in body
+    assert "loadSearchAgentRow(row, false)" in body
+    assert "loadSearchAgentRow(row, true)" in body
 
 
 def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> None:

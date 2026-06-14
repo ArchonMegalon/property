@@ -790,6 +790,29 @@ def test_propertyquarry_running_progress_panel_fits_the_first_viewport(
         context.close()
 
 
+def test_propertyquarry_setup_header_stays_minimal_and_single_row(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    screenshot_path = tmp_path / "propertyquarry-setup-header.png"
+    try:
+        response = page.goto(f"{base_url}/app/properties", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.wait_for_selector(".pqx-topbar", timeout=5000)
+        page.screenshot(path=str(screenshot_path), full_page=False)
+        assert page.locator("[data-property-pulse-strip]").count() == 0
+        assert page.get_by_role("navigation", name="PropertyQuarry sections").get_by_text("Account", exact=True).count() == 1
+        assert page.locator(".pqx-account-menu > summary").count() == 1
+        assert page.locator(".pqx-account-menu > summary").inner_text().strip() != "Account"
+        _assert_property_shell_visual_gates(page, max_appbar_height=84)
+    finally:
+        context.close()
+
+
 def test_propertyquarry_running_progress_panel_fits_the_first_mobile_viewport(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
@@ -1283,6 +1306,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         checkedProviderCount = page.locator('input[name="selected_platforms"]:checked').count()
         assert providerCount > checkedProviderCount
         assert checkedProviderCount == expectedProviderCap
+        assert page.locator('[data-provider-group-panel][open]').count() >= 1
         assert page.locator('[data-property-inline-status]', has_text="allows up to 3 at once").is_visible()
         page.locator('input[name="min_match_score"]').evaluate(
             "(node) => { node.value = '45'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
