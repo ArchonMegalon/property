@@ -59,6 +59,69 @@ def test_propertyquarry_results_prefer_real_media_over_generated_diorama_preview
     assert landing_view_models._property_candidate_preview_image(candidate) == "https://cdn.example.com/provider/photo-1.jpg"
 
 
+def test_property_candidate_orientation_preview_uses_openstreetmap_backdrop_for_generic_locations(monkeypatch) -> None:
+    monkeypatch.setattr(
+        landing_view_models,
+        "_openstreetmap_static_preview_data_url",
+        lambda lat_key, lon_key, zoom=13: "data:image/png;base64,preview",
+    )
+    preview = landing_view_models._property_candidate_orientation_preview(
+        {
+            "property_facts": {
+                "postal_name": "Graz",
+                "map_lat": 47.0707,
+                "map_lng": 15.4395,
+            }
+        }
+    )
+    assert preview["image_url"] == "data:image/png;base64,preview"
+    assert preview["alt"] == "Wider area around Graz"
+
+
+def test_property_scope_preview_uses_generic_boundary_projection(monkeypatch) -> None:
+    def fake_record(query: str) -> dict[str, object]:
+        lowered = query.lower()
+        if "vienna" in lowered:
+            return {
+                "display_name": "Vienna, Austria",
+                "bounds": (16.18, 48.12, 16.55, 48.32),
+                "geojson": {
+                    "type": "Polygon",
+                    "coordinates": [[[16.18, 48.12], [16.55, 48.12], [16.55, 48.32], [16.18, 48.32], [16.18, 48.12]]],
+                },
+            }
+        if "1020" in lowered:
+            return {
+                "display_name": "Leopoldstadt, Vienna, Austria",
+                "bounds": (16.39, 48.20, 16.46, 48.24),
+                "geojson": {
+                    "type": "Polygon",
+                    "coordinates": [[[16.39, 48.20], [16.46, 48.20], [16.46, 48.24], [16.39, 48.24], [16.39, 48.20]]],
+                },
+            }
+        if "1200" in lowered:
+            return {
+                "display_name": "Brigittenau, Vienna, Austria",
+                "bounds": (16.35, 48.22, 16.41, 48.27),
+                "geojson": {
+                    "type": "Polygon",
+                    "coordinates": [[[16.35, 48.22], [16.41, 48.22], [16.41, 48.27], [16.35, 48.27], [16.35, 48.22]]],
+                },
+            }
+        return {}
+
+    monkeypatch.setattr(landing_view_models, "_nominatim_boundary_record", fake_record)
+    monkeypatch.setattr(
+        landing_view_models,
+        "_cached_preview_data_url",
+        lambda **kwargs: "data:image/png;base64,scopepreview",
+    )
+    preview = landing_view_models._property_scope_preview("AT", "vienna", "1020 Vienna, 1200 Vienna")
+    assert preview["image_url"] == "data:image/png;base64,scopepreview"
+    assert len(preview["district_rows"]) == 2
+    assert all(str(row.get("path") or "").startswith("M") for row in preview["district_rows"])
+
+
 def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch) -> None:
     principal_id = "pq-redesign-browser"
     client = build_property_client(principal_id=principal_id)

@@ -1,10 +1,21 @@
 from __future__ import annotations
 
+import base64
 import html
 import hashlib
+import io
+import json
+import math
+import os
 import re
+import urllib.error
 import urllib.parse
+import urllib.request
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
+
+from PIL import Image, ImageDraw
 
 from app.services.property_artifact_contracts import required_artifact_receipt_rows
 
@@ -104,64 +115,6 @@ def _split_known_and_custom_values(
 
 
 def _scope_preview_layout(country_code: str, region_code: str, options: list[dict[str, str]]) -> list[dict[str, object]]:
-    normalized_country = str(country_code or "").strip().upper()
-    normalized_region = str(region_code or "").strip().lower()
-    explicit_layouts: dict[tuple[str, str], dict[str, tuple[float, float, float, float]]] = {
-        (
-            "AT",
-            "vienna",
-        ): {
-            "1010 vienna": (45, 67, 10, 10),
-            "1020 vienna": (57, 58, 18, 22),
-            "1030 vienna": (52, 82, 17, 18),
-            "1040 vienna": (41, 80, 10, 12),
-            "1050 vienna": (34, 82, 11, 11),
-            "1060 vienna": (27, 75, 11, 12),
-            "1070 vienna": (24, 66, 11, 10),
-            "1080 vienna": (30, 60, 9, 9),
-            "1090 vienna": (38, 54, 12, 12),
-            "1100 vienna": (41, 96, 19, 20),
-            "1110 vienna": (61, 100, 16, 19),
-            "1120 vienna": (24, 92, 16, 15),
-            "1130 vienna": (8, 81, 19, 16),
-            "1140 vienna": (2, 63, 24, 18),
-            "1150 vienna": (19, 80, 8, 11),
-            "1160 vienna": (12, 57, 16, 18),
-            "1170 vienna": (18, 46, 15, 14),
-            "1180 vienna": (31, 40, 18, 15),
-            "1190 vienna": (41, 25, 24, 24),
-            "1200 vienna": (51, 47, 14, 12),
-            "1210 vienna": (60, 26, 28, 24),
-            "1220 vienna": (76, 48, 24, 34),
-            "1230 vienna": (5, 98, 31, 18),
-            "klosterneuburg": (58, 8, 18, 12),
-            "mödling": (31, 112, 18, 12),
-            "purkersdorf": (-4, 75, 18, 12),
-        },
-    }
-    explicit = explicit_layouts.get((normalized_country, normalized_region), {})
-    if explicit:
-        layout_rows: list[dict[str, object]] = []
-        for option in options:
-            value = str(option.get("value") or "").strip()
-            rect = explicit.get(value.lower())
-            if not rect:
-                continue
-            x, y, width, height = rect
-            layout_rows.append(
-                {
-                    "value": value,
-                    "label": str(option.get("label") or value).strip() or value,
-                    "detail": str(option.get("detail") or "").strip(),
-                    "x": x,
-                    "y": y,
-                    "width": width,
-                    "height": height,
-                }
-            )
-        if layout_rows:
-            return layout_rows
-
     total = max(1, len(options))
     columns = 3 if total > 6 else 2
     rows = max(1, (total + columns - 1) // columns)
@@ -185,12 +138,422 @@ def _scope_preview_layout(country_code: str, region_code: str, options: list[dic
     return grid_rows
 
 
+def _latlon_to_tile(lat: float, lon: float, zoom: int) -> tuple[float, float]:
+    lat_rad = math.radians(max(min(lat, 85.05112878), -85.05112878))
+    scale = 2.0 ** zoom
+    tile_x = (lon + 180.0) / 360.0 * scale
+    tile_y = (1.0 - math.log(math.tan(lat_rad) + (1.0 / math.cos(lat_rad))) / math.pi) / 2.0 * scale
+    return tile_x, tile_y
+
+
+def _mercator_fraction_y(lat: float) -> float:
+    lat_rad = math.radians(max(min(lat, 85.05112878), -85.05112878))
+    return (1.0 - math.log(math.tan(lat_rad) + (1.0 / math.cos(lat_rad))) / math.pi) / 2.0
+
+
+def _map_preview_cache_root() -> Path:
+    root = Path(str(os.environ.get("EA_ARTIFACTS_DIR") or "/tmp/ea_artifacts")).resolve() / "map_previews"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _png_file_to_data_url(path: Path) -> str:
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+def _preview_zoom_for_bounds(
+    bounds: tuple[float, float, float, float],
+    *,
+    width: int = 640,
+    height: int = 368,
+    min_zoom: int = 3,
+    max_zoom: int = 16,
+) -> int:
+    west, south, east, north = bounds
+    lon_span = max(abs(east - west), 0.0005)
+    world_width = 256.0
+    zoom_x = math.log2((360.0 * width) / (lon_span * world_width))
+    mercator_north = _mercator_fraction_y(north)
+    mercator_south = _mercator_fraction_y(south)
+    y_span = max(abs(mercator_south - mercator_north), 0.000001)
+    zoom_y = math.log2(height / (y_span * world_width))
+    zoom = int(max(min_zoom, min(max_zoom, math.floor(min(zoom_x, zoom_y) - 0.25))))
+    return zoom
+
+
+def _cached_preview_data_url(
+    *,
+    cache_key: dict[str, object],
+    center_lat: float,
+    center_lon: float,
+    zoom: int,
+    overlay_rows: list[dict[str, object]] | None = None,
+    boundary_paths: list[str] | None = None,
+    pin: tuple[float, float] | None = None,
+    width: int = 640,
+    height: int = 368,
+) -> str:
+    normalized_key = json.dumps(cache_key, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    digest = hashlib.sha1(normalized_key.encode("utf-8")).hexdigest()
+    cache_path = _map_preview_cache_root() / f"{digest}.png"
+    if cache_path.exists():
+        return _png_file_to_data_url(cache_path)
+
+    tile_x, tile_y = _latlon_to_tile(center_lat, center_lon, zoom)
+    tile_size = 256
+    tile_span = 4
+    tile_origin_x = int(math.floor(tile_x)) - (tile_span // 2)
+    tile_origin_y = int(math.floor(tile_y)) - (tile_span // 2)
+    canvas = Image.new("RGB", (tile_size * tile_span, tile_size * tile_span), color=(242, 236, 225))
+    for dx in range(tile_span):
+        for dy in range(tile_span):
+            x_index = tile_origin_x + dx
+            y_index = tile_origin_y + dy
+            url = f"https://tile.openstreetmap.org/{zoom}/{x_index}/{y_index}.png"
+            request = urllib.request.Request(url, headers={"User-Agent": "PropertyQuarry/1.0"})
+            try:
+                with urllib.request.urlopen(request, timeout=6.0) as response:
+                    tile_bytes = response.read()
+                tile_image = Image.open(io.BytesIO(tile_bytes)).convert("RGB")
+            except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+                tile_image = Image.new("RGB", (tile_size, tile_size), color=(242, 236, 225))
+            canvas.paste(tile_image, (dx * tile_size, dy * tile_size))
+    center_x = int(round((tile_x - tile_origin_x) * tile_size))
+    center_y = int(round((tile_y - tile_origin_y) * tile_size))
+    left = max(0, min(canvas.width - width, center_x - (width // 2)))
+    top = max(0, min(canvas.height - height, center_y - (height // 2)))
+    cropped = canvas.crop((left, top, left + width, top + height))
+    draw = ImageDraw.Draw(cropped, "RGBA")
+
+    for path in boundary_paths or []:
+        numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
+        points = list(zip(numbers[0::2], numbers[1::2]))
+        if len(points) < 3:
+            continue
+        draw.line(points + [points[0]], fill=(70, 68, 65, 210), width=4, joint="curve")
+    for index, row in enumerate(overlay_rows or []):
+        path = str(row.get("path") or "").strip()
+        if not path:
+            continue
+        numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
+        points = list(zip(numbers[0::2], numbers[1::2]))
+        if len(points) < 3:
+            continue
+        selected = bool(row.get("selected"))
+        shade = 94 + (index % 5) * 22
+        fill = (182 + min(shade, 40), 36 + (index % 3) * 10, 42 + (index % 4) * 8, 130 if selected else 72)
+        stroke = (132, 23, 29, 245 if selected else 190)
+        draw.polygon(points, fill=fill, outline=stroke)
+    if pin:
+        marker_x, marker_y = pin
+        draw.ellipse((marker_x - 18, marker_y - 18, marker_x + 18, marker_y + 18), fill=(207, 53, 53, 58))
+        draw.polygon(
+            [
+                (marker_x, marker_y - 18),
+                (marker_x - 12, marker_y - 1),
+                (marker_x, marker_y + 19),
+                (marker_x + 12, marker_y - 1),
+            ],
+            fill=(197, 40, 40, 255),
+        )
+        draw.ellipse((marker_x - 5, marker_y - 10, marker_x + 5, marker_y), fill=(255, 248, 241, 255))
+
+    cropped.save(cache_path, format="PNG", optimize=True)
+    return _png_file_to_data_url(cache_path)
+
+
+@lru_cache(maxsize=96)
+def _openstreetmap_static_preview_data_url(lat_key: int, lon_key: int, zoom: int = 13) -> str:
+    lat = lat_key / 10000.0
+    lon = lon_key / 10000.0
+    return _cached_preview_data_url(
+        cache_key={"kind": "point", "lat_key": lat_key, "lon_key": lon_key, "zoom": zoom},
+        center_lat=lat,
+        center_lon=lon,
+        zoom=zoom,
+        pin=(320.0, 184.0),
+    )
+
+
+@lru_cache(maxsize=96)
+def _forward_geocode_preview_point(query: str) -> tuple[float, float] | None:
+    normalized = str(query or "").strip()
+    if not normalized:
+        return None
+    request = urllib.request.Request(
+        "https://nominatim.openstreetmap.org/search?"
+        f"format=jsonv2&limit=1&q={urllib.parse.quote(normalized)}",
+        headers={"User-Agent": "PropertyQuarry/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8.0) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, list) or not payload:
+        return None
+    row = payload[0]
+    if not isinstance(row, dict):
+        return None
+    try:
+        return float(row.get("lat") or 0.0), float(row.get("lon") or 0.0)
+    except (TypeError, ValueError):
+        return None
+
+
+@lru_cache(maxsize=128)
+def _nominatim_boundary_record(query: str) -> dict[str, object]:
+    normalized = str(query or "").strip()
+    if not normalized:
+        return {}
+    request = urllib.request.Request(
+        "https://nominatim.openstreetmap.org/search?"
+        f"format=jsonv2&limit=1&polygon_geojson=1&q={urllib.parse.quote(normalized)}",
+        headers={"User-Agent": "PropertyQuarry/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8.0) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, list) or not payload:
+        return {}
+    row = payload[0]
+    if not isinstance(row, dict):
+        return {}
+    boundingbox = row.get("boundingbox") if isinstance(row.get("boundingbox"), list) else []
+    try:
+        south = float(boundingbox[0])
+        north = float(boundingbox[1])
+        west = float(boundingbox[2])
+        east = float(boundingbox[3])
+    except (IndexError, TypeError, ValueError):
+        south = north = west = east = 0.0
+    return {
+        "display_name": str(row.get("display_name") or normalized).strip(),
+        "geojson": row.get("geojson") if isinstance(row.get("geojson"), dict) else {},
+        "bounds": (west, south, east, north),
+        "lat": float(row.get("lat") or 0.0) if str(row.get("lat") or "").strip() else 0.0,
+        "lon": float(row.get("lon") or 0.0) if str(row.get("lon") or "").strip() else 0.0,
+    }
+
+
+def _geojson_outer_rings(geojson: dict[str, object]) -> list[list[tuple[float, float]]]:
+    geometry_type = str(geojson.get("type") or "").strip()
+    coordinates = geojson.get("coordinates")
+    rings: list[list[tuple[float, float]]] = []
+    if geometry_type == "Polygon" and isinstance(coordinates, list):
+        polygons = [coordinates]
+    elif geometry_type == "MultiPolygon" and isinstance(coordinates, list):
+        polygons = coordinates
+    else:
+        polygons = []
+    for polygon in polygons:
+        if not isinstance(polygon, list) or not polygon:
+            continue
+        outer = polygon[0]
+        if not isinstance(outer, list):
+            continue
+        points: list[tuple[float, float]] = []
+        for pair in outer:
+            if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+                continue
+            try:
+                lon = float(pair[0])
+                lat = float(pair[1])
+            except (TypeError, ValueError):
+                continue
+            points.append((lon, lat))
+        if points:
+            rings.append(points)
+    return rings
+
+
+def _union_geo_bounds(bounds_rows: list[tuple[float, float, float, float]]) -> tuple[float, float, float, float] | None:
+    if not bounds_rows:
+        return None
+    west = min(row[0] for row in bounds_rows)
+    south = min(row[1] for row in bounds_rows)
+    east = max(row[2] for row in bounds_rows)
+    north = max(row[3] for row in bounds_rows)
+    if west == east:
+        east += 0.01
+        west -= 0.01
+    if south == north:
+        north += 0.01
+        south -= 0.01
+    return west, south, east, north
+
+
+def _project_lonlat_to_preview_path(
+    points: list[tuple[float, float]],
+    bounds: tuple[float, float, float, float],
+    *,
+    width: float = 296.0,
+    height: float = 160.0,
+) -> tuple[str, tuple[float, float]]:
+    west, south, east, north = bounds
+    lon_span = max(east - west, 0.000001)
+    lat_span = max(north - south, 0.000001)
+    projected: list[tuple[float, float]] = []
+    for lon, lat in points:
+        x = ((lon - west) / lon_span) * width
+        y = height - (((lat - south) / lat_span) * height)
+        projected.append((x, y))
+    if not projected:
+        return "", (0.0, 0.0)
+    commands = [f"M{projected[0][0]:.1f} {projected[0][1]:.1f}"]
+    commands.extend(f"L{x:.1f} {y:.1f}" for x, y in projected[1:])
+    commands.append("Z")
+    centroid_x = sum(point[0] for point in projected) / len(projected)
+    centroid_y = sum(point[1] for point in projected) / len(projected)
+    return " ".join(commands), (centroid_x, centroid_y)
+
+
+def _expand_geo_bounds(
+    bounds: tuple[float, float, float, float],
+    *,
+    padding_ratio: float = 0.12,
+) -> tuple[float, float, float, float]:
+    west, south, east, north = bounds
+    lon_pad = max((east - west) * padding_ratio, 0.01)
+    lat_pad = max((north - south) * padding_ratio, 0.01)
+    return west - lon_pad, south - lat_pad, east + lon_pad, north + lat_pad
+
+
+def _preview_query_with_context(value: str, country_code: str, region_code: str) -> str:
+    label = str(value or "").strip()
+    region = str(region_code or "").strip().replace("_", " ")
+    country = str(country_code or "").strip().upper()
+    if not label:
+        return ""
+    parts = [label]
+    lowered = label.lower()
+    if region and region.lower() not in lowered:
+        parts.append(region.title())
+    if country and country.lower() not in lowered:
+        parts.append(country)
+    return ", ".join(part for part in parts if part)
+
+
+def _context_preview_query(country_code: str, region_code: str, location_query: str, selected_labels: list[str]) -> str:
+    if location_query and len(_csv_values(location_query)) <= 1:
+        return _preview_query_with_context(location_query, country_code, region_code)
+    region = str(region_code or "").strip().replace("_", " ")
+    if region:
+        return _preview_query_with_context(region, country_code, "")
+    if selected_labels:
+        return _preview_query_with_context(selected_labels[0], country_code, "")
+    return _preview_query_with_context(location_query, country_code, region_code)
+
+
+def _build_scope_boundary_preview(
+    *,
+    country_code: str,
+    region_code: str,
+    normalized_query: str,
+    selected_labels: list[str],
+    selected_values: list[str],
+    option_lookup: dict[str, str],
+    market_label: str,
+) -> dict[str, object]:
+    queries = [
+        _preview_query_with_context(option_lookup.get(value.lower(), value), country_code, region_code)
+        for value in selected_values
+        if str(value or "").strip()
+    ]
+    if not queries and normalized_query:
+        queries = [_preview_query_with_context(normalized_query, country_code, region_code)]
+    rows: list[dict[str, object]] = []
+    bounds_rows: list[tuple[float, float, float, float]] = []
+    for query in queries[:12]:
+        record = _nominatim_boundary_record(query)
+        if not record:
+            continue
+        bounds = record.get("bounds")
+        if isinstance(bounds, tuple) and len(bounds) == 4:
+            bounds_rows.append(bounds)
+        rings = _geojson_outer_rings(dict(record.get("geojson") or {}))
+        label = str(record.get("display_name") or query).split(",")[0].strip() or query
+        rows.append({"label": label, "bounds": bounds, "rings": rings, "selected": True})
+    if not rows:
+        return {}
+
+    union_bounds = _union_geo_bounds(bounds_rows)
+    if not union_bounds:
+        return {}
+    padded_bounds = _expand_geo_bounds(union_bounds)
+    district_rows: list[dict[str, object]] = []
+    overlay_rows: list[dict[str, object]] = []
+    for index, row in enumerate(rows):
+        rings = row.get("rings") if isinstance(row.get("rings"), list) else []
+        if rings:
+            path, centroid = _project_lonlat_to_preview_path(rings[0], padded_bounds)
+        else:
+            bounds = row.get("bounds") if isinstance(row.get("bounds"), tuple) else None
+            if not bounds:
+                continue
+            west, south, east, north = bounds
+            rect_points = [(west, south), (east, south), (east, north), (west, north)]
+            path, centroid = _project_lonlat_to_preview_path(rect_points, padded_bounds)
+        if not path:
+            continue
+        overlay_row = {
+            "label": str(row.get("label") or f"Area {index + 1}").strip(),
+            "selected": True,
+            "path": path,
+        }
+        district_rows.append(overlay_row)
+        overlay_rows.append(overlay_row)
+
+    if not district_rows:
+        return {}
+
+    context_record = _nominatim_boundary_record(_context_preview_query(country_code, region_code, normalized_query, selected_labels))
+    boundary_paths: list[str] = []
+    context_bounds = context_record.get("bounds") if isinstance(context_record.get("bounds"), tuple) else None
+    if context_bounds:
+        padded_bounds = _expand_geo_bounds(context_bounds)
+        for ring in _geojson_outer_rings(dict(context_record.get("geojson") or {}))[:1]:
+            boundary_path, _ = _project_lonlat_to_preview_path(ring, padded_bounds)
+            if boundary_path:
+                boundary_paths.append(boundary_path)
+
+    center_lon = (padded_bounds[0] + padded_bounds[2]) / 2.0
+    center_lat = (padded_bounds[1] + padded_bounds[3]) / 2.0
+    zoom = _preview_zoom_for_bounds(padded_bounds)
+    image_url = _cached_preview_data_url(
+        cache_key={
+            "kind": "scope",
+            "country": country_code,
+            "region": region_code,
+            "query": normalized_query,
+            "areas": [row["label"] for row in district_rows],
+            "zoom": zoom,
+        },
+        center_lat=center_lat,
+        center_lon=center_lon,
+        zoom=zoom,
+        overlay_rows=overlay_rows,
+        boundary_paths=boundary_paths,
+    )
+    return {
+        "image_url": image_url,
+        "alt": f"Search area preview for {normalized_query or market_label}",
+        "summary": ", ".join(selected_labels[:2]) if selected_labels else (normalized_query or market_label),
+        "count_label": "",
+        "market_label": market_label,
+        "district_rows": district_rows,
+        "district_overlay_svg": "",
+    }
+
+
 def _property_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
     normalized_country = str(country_code or "").strip().upper()
     normalized_region = str(region_code or "").strip().lower()
     normalized_query = str(location_query or "").strip()
     option_rows = _property_location_options(normalized_country, normalized_region)
-    layout_rows = _scope_preview_layout(normalized_country, normalized_region, option_rows)
     option_lookup = {
         str(option.get("value") or "").strip().lower(): str(option.get("label") or option.get("value") or "").strip()
         for option in option_rows
@@ -218,197 +581,47 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
         for value in selected_values
         if str(value or "").strip()
     ]
-    if not selected_labels and selected_lookup:
-        selected_labels = [
-            str(row.get("label") or row.get("value") or "").strip()
-            for row in layout_rows
-            if str(row.get("value") or "").strip().lower() in selected_lookup
-        ]
     market_label_parts = [part for part in (normalized_region.replace("_", " ").title(), normalized_country) if part]
     market_label = " · ".join(market_label_parts) or "Search area"
+    preview = _build_scope_boundary_preview(
+        country_code=normalized_country,
+        region_code=normalized_region,
+        normalized_query=normalized_query,
+        selected_labels=selected_labels,
+        selected_values=selected_values,
+        option_lookup=option_lookup,
+        market_label=market_label,
+    )
+    if preview:
+        return preview
 
-    vienna_district_map: dict[str, dict[str, object]] = {
-        "1010 vienna": {"path": "M140 70 L151 64 L163 67 L165 80 L154 89 L141 85 Z", "label": "1010 Vienna"},
-        "1020 vienna": {"path": "M166 62 L186 54 L205 58 L208 76 L199 91 L178 92 L165 81 Z", "label": "1020 Vienna"},
-        "1030 vienna": {"path": "M164 84 L178 92 L200 92 L210 109 L198 123 L176 124 L160 110 Z", "label": "1030 Vienna"},
-        "1040 vienna": {"path": "M139 88 L155 87 L161 109 L154 121 L138 119 L130 103 Z", "label": "1040 Vienna"},
-        "1050 vienna": {"path": "M120 92 L130 101 L138 119 L126 126 L111 119 L109 103 Z", "label": "1050 Vienna"},
-        "1060 vienna": {"path": "M101 84 L118 82 L120 94 L109 104 L95 100 L94 88 Z", "label": "1060 Vienna"},
-        "1070 vienna": {"path": "M101 68 L119 64 L120 82 L101 84 L93 75 Z", "label": "1070 Vienna"},
-        "1080 vienna": {"path": "M118 54 L136 52 L136 67 L120 74 L110 66 Z", "label": "1080 Vienna"},
-        "1090 vienna": {"path": "M136 45 L160 42 L170 56 L165 70 L152 72 L136 67 Z", "label": "1090 Vienna"},
-        "1100 vienna": {"path": "M137 120 L155 123 L177 124 L198 123 L219 129 L218 145 L143 146 L131 133 Z", "label": "1100 Vienna"},
-        "1110 vienna": {"path": "M219 127 L241 127 L265 135 L276 149 L233 152 L219 145 Z", "label": "1110 Vienna"},
-        "1120 vienna": {"path": "M90 111 L110 106 L126 126 L131 133 L123 146 L88 146 L76 134 Z", "label": "1120 Vienna"},
-        "1130 vienna": {"path": "M54 95 L75 90 L91 111 L76 134 L52 132 L41 111 Z", "label": "1130 Vienna"},
-        "1140 vienna": {"path": "M27 83 L53 76 L74 89 L54 95 L41 111 L26 110 L18 95 Z", "label": "1140 Vienna"},
-        "1150 vienna": {"path": "M73 88 L90 86 L95 100 L90 111 L75 90 Z", "label": "1150 Vienna"},
-        "1160 vienna": {"path": "M67 70 L89 66 L101 68 L94 88 L73 88 L63 80 Z", "label": "1160 Vienna"},
-        "1170 vienna": {"path": "M73 45 L96 38 L111 48 L102 68 L89 66 L67 70 L58 56 Z", "label": "1170 Vienna"},
-        "1180 vienna": {"path": "M101 36 L125 30 L139 35 L136 52 L118 54 L110 66 L101 49 Z", "label": "1180 Vienna"},
-        "1190 vienna": {"path": "M126 19 L158 16 L191 18 L205 32 L196 49 L170 56 L160 42 L136 45 L125 30 Z", "label": "1190 Vienna"},
-        "1200 vienna": {"path": "M170 57 L195 48 L211 52 L214 69 L208 76 L186 54 Z", "label": "1200 Vienna"},
-        "1210 vienna": {"path": "M206 31 L228 27 L253 34 L269 52 L266 75 L242 87 L214 69 L211 52 L196 49 Z", "label": "1210 Vienna"},
-        "1220 vienna": {"path": "M214 69 L242 87 L266 75 L282 95 L280 122 L266 136 L241 127 L219 127 L210 109 L200 92 L208 76 Z", "label": "1220 Vienna"},
-        "1230 vienna": {"path": "M18 110 L26 110 L41 111 L52 132 L88 146 L26 146 L18 128 Z", "label": "1230 Vienna"},
-    }
-
-    def _district_centroid_from_path(path: str) -> tuple[float, float]:
-        numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
-        points = list(zip(numbers[0::2], numbers[1::2]))
-        if not points:
-            return 0.0, 0.0
-        x_total = sum(point[0] for point in points)
-        y_total = sum(point[1] for point in points)
-        return x_total / len(points), y_total / len(points)
-
-    shapes: list[str] = []
-    interactive_shapes: list[str] = []
-    selected_count = 0
+    layout_rows = _scope_preview_layout(normalized_country, normalized_region, option_rows)
     district_rows: list[dict[str, object]] = []
-    if normalized_country == "AT" and normalized_region == "vienna":
-        for row in layout_rows:
-            label = str(row.get("label") or row.get("value") or "").strip()
-            value = str(row.get("value") or label).strip().lower()
-            selected = bool(value and value in selected_lookup)
-            if selected:
-                selected_count += 1
-            district_spec = vienna_district_map.get(value)
-            if not district_spec:
-                continue
-            digest = hashlib.sha1(label.lower().encode("utf-8")).digest()
-            red_tint = 108 + (digest[0] % 42)
-            green_tint = 30 + (digest[1] % 28)
-            blue_tint = 34 + (digest[2] % 24)
-            fill = f"#{red_tint:02x}{green_tint:02x}{blue_tint:02x}" if selected else "#efe8da"
-            fill_opacity = "0.78" if selected else "0.38"
-            stroke = "#7b6a5a" if not selected else "#8a1e1e"
-            stroke_width = "1.45" if selected else "1.05"
-            path = str(district_spec.get("path") or "")
-            centroid_x, centroid_y = _district_centroid_from_path(path)
-            shapes.append(
-                f'<path d="{path}" fill="{fill}" fill-opacity="{fill_opacity}" stroke="{stroke}" stroke-width="{stroke_width}" '
-                'stroke-linejoin="round" stroke-linecap="round" />'
-            )
-            interactive_shapes.append(
-                f'<path class="pqx-previous-district-hotspot{" is-selected" if selected else ""}" d="{path}" '
-                f'data-label="{html.escape(label)}" data-pqx-scope-open data-pqx-scope-title="{html.escape(label)}" '
-                f'cx="{centroid_x:.2f}" cy="{centroid_y:.2f}"><title>{html.escape(label)}</title></path>'
-            )
-            district_rows.append(
-                {
-                    "label": label,
-                    "selected": selected,
-                    "path": path,
-                    "center_x_pct": round((centroid_x / 296.0) * 100.0, 3),
-                    "center_y_pct": round((centroid_y / 160.0) * 100.0, 3),
-                }
-            )
-    else:
-        for row in layout_rows:
-            value = str(row.get("value") or "").strip().lower()
-            selected = bool(value and value in selected_lookup)
-            if selected:
-                selected_count += 1
-            x = float(row.get("x") or 0.0)
-            y = float(row.get("y") or 0.0)
-            width = float(row.get("width") or 16.0)
-            height = float(row.get("height") or 12.0)
-            radius = min(7.0, max(3.0, min(width, height) * 0.22))
-            digest = hashlib.sha1(str(row.get("label") or row.get("value") or "").strip().lower().encode("utf-8")).digest()
-            fill = f"#{170 + (digest[0] % 48):02x}{52 + (digest[1] % 40):02x}{58 + (digest[2] % 34):02x}" if selected else "#d8d3c8"
-            fill_opacity = "0.44" if selected else "0.62"
-            stroke = "#f2a3a3" if selected else "#b9b1a1"
-            stroke_width = "1.8" if selected else "1.1"
-            shapes.append(
-                f'<rect x="{x:.1f}" y="{y:.1f}" width="{width:.1f}" height="{height:.1f}" rx="{radius:.1f}" fill="{fill}" fill-opacity="{fill_opacity}" stroke="{stroke}" stroke-width="{stroke_width}" />'
-            )
-            district_rows.append(
-                {
-                    "label": str(row.get("label") or row.get("value") or "").strip(),
-                    "selected": selected,
-                    "left_pct": round((x / 296.0) * 100.0, 3),
-                    "top_pct": round((y / 160.0) * 100.0, 3),
-                    "width_pct": round((width / 296.0) * 100.0, 3),
-                    "height_pct": round((height / 160.0) * 100.0, 3),
-                }
-            )
-
-    custom_marker = ""
-    if normalized_query and not selected_count:
-        custom_marker = (
-            '<g transform="translate(94 24)">'
-            '<circle cx="0" cy="0" r="9" fill="#d44f4f" fill-opacity="0.24" stroke="#f2a3a3" stroke-width="1.6" />'
-            '<circle cx="0" cy="0" r="3.5" fill="#d44f4f" />'
-            "</g>"
-        )
-    city_boundary = '<path d="M20 20 L276 20 L276 140 L20 140 Z" stroke="#9E9689" stroke-width="2.1" stroke-linejoin="round" fill="none" opacity="0.72"/>'
-    if normalized_country == "AT" and normalized_region == "vienna":
-        city_boundary = (
-            '<path d="M18 44 L28 28 L44 22 L74 18 L108 22 L138 18 L176 16 L208 18 L242 24 L266 34 '
-            'L280 52 L276 72 L282 95 L279 119 L266 136 L236 146 L200 143 L173 148 L138 146 L104 150 '
-            'L70 146 L43 138 L24 124 L16 102 L16 74 L14 56 Z" '
-            'stroke="#5f5648" stroke-width="2.2" stroke-linejoin="round" fill="none" opacity="0.92"/>'
-        )
-    road_lines = [
-        '<path d="M24 44 C54 46, 84 42, 116 54 C146 66, 178 66, 214 58 C242 50, 258 50, 278 46" stroke="#c9c0b2" stroke-width="6" stroke-linecap="round" opacity="0.92"/>',
-        '<path d="M20 104 C48 94, 72 92, 101 84 C136 74, 166 84, 196 96 C224 106, 248 106, 278 96" stroke="#cdc5b7" stroke-width="4.8" stroke-linecap="round" opacity="0.88"/>',
-        '<path d="M58 18 C62 36, 62 62, 60 142" stroke="#d7cfbf" stroke-width="2.4" stroke-linecap="round" opacity="0.84"/>',
-        '<path d="M110 18 C114 38, 118 64, 116 146" stroke="#d2c9bb" stroke-width="2.1" stroke-linecap="round" opacity="0.8"/>',
-        '<path d="M176 18 C174 42, 178 72, 184 146" stroke="#d2c9bb" stroke-width="2.2" stroke-linecap="round" opacity="0.82"/>',
-        '<path d="M234 22 C228 50, 232 82, 246 142" stroke="#d7cfbf" stroke-width="2.0" stroke-linecap="round" opacity="0.78"/>',
-        '<path d="M34 64 C72 56, 94 62, 126 76 C156 88, 182 92, 210 86 C238 80, 258 78, 274 82" stroke="#bcae9f" stroke-width="1.4" stroke-linecap="round" opacity="0.72"/>',
-        '<path d="M34 122 C64 112, 92 116, 122 124 C152 132, 184 134, 220 128 C246 124, 262 122, 274 124" stroke="#bcae9f" stroke-width="1.2" stroke-linecap="round" opacity="0.65"/>',
-    ]
-    park_patches = [
-        '<path d="M24 58 C36 44, 58 42, 68 56 C76 68, 62 84, 42 84 C26 82, 18 68, 24 58 Z" fill="#dfe2d2" opacity="0.74"/>',
-        '<path d="M203 104 C218 92, 246 94, 254 110 C260 124, 246 138, 224 136 C206 132, 196 118, 203 104 Z" fill="#d7dcc9" opacity="0.7"/>',
-        '<path d="M108 26 C118 18, 132 20, 136 31 C138 40, 130 48, 118 48 C108 46, 102 36, 108 26 Z" fill="#dde0cf" opacity="0.64"/>',
-    ]
-    water_layer = ''
-    if normalized_country == "AT" and normalized_region == "vienna":
-        water_layer = (
-            '<path d="M204 14 C214 28, 219 42, 220 60 C221 80, 214 96, 217 116 C220 132, 229 144, 236 154" '
-            'stroke="#9db5c3" stroke-width="16" stroke-linecap="round" opacity="0.58"/>'
-            '<path d="M200 18 C209 33, 212 48, 212 64 C212 83, 206 100, 208 120 C210 133, 216 145, 222 154" '
-            'stroke="#d8e4ea" stroke-width="7" stroke-linecap="round" opacity="0.9"/>'
-            '<path d="M218 54 C228 62, 234 72, 236 84 C238 95, 236 108, 240 121" stroke="#d8e4ea" stroke-width="3" stroke-linecap="round" opacity="0.82"/>'
-        )
-    district_overlay_svg = ""
-    if interactive_shapes:
-        district_overlay_svg = (
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 296 160" class="pqx-previous-district-hotspots" '
-            'preserveAspectRatio="none" aria-hidden="true">'
-            f'{"".join(interactive_shapes)}'
-            "</svg>"
+    for row in layout_rows:
+        value = str(row.get("value") or "").strip().lower()
+        selected = bool(value and value in selected_lookup)
+        x = float(row.get("x") or 0.0)
+        y = float(row.get("y") or 0.0)
+        width = float(row.get("width") or 16.0)
+        height = float(row.get("height") or 12.0)
+        district_rows.append(
+            {
+                "label": str(row.get("label") or row.get("value") or "").strip(),
+                "selected": selected,
+                "left_pct": round((x / 296.0) * 100.0, 3),
+                "top_pct": round((y / 160.0) * 100.0, 3),
+                "width_pct": round((width / 296.0) * 100.0, 3),
+                "height_pct": round((height / 160.0) * 100.0, 3),
+            }
         )
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="184" viewBox="0 0 320 184" fill="none">'
-        '<defs>'
-        '<linearGradient id="bg" x1="18" y1="16" x2="280" y2="168" gradientUnits="userSpaceOnUse">'
-        '<stop stop-color="#f5f0e5"/>'
-        '<stop offset="1" stop-color="#e8decc"/>'
-        '</linearGradient>'
-        '<pattern id="paper" width="12" height="12" patternUnits="userSpaceOnUse">'
-        '<path d="M0 12 L12 0 M-3 3 L3 -3 M9 15 L15 9" stroke="#c8bea9" stroke-opacity="0.18" stroke-width="0.8"/>'
-        '</pattern>'
-        '<filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">'
-        '<feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#2D2418" flood-opacity="0.16"/>'
-        '</filter>'
-        '</defs>'
-        '<rect width="320" height="184" rx="18" fill="#d9cdb8"/>'
-        '<g transform="translate(12 12)" filter="url(#shadow)">'
-        '<rect width="296" height="160" rx="14" fill="url(#bg)"/>'
-        '<rect x="0.5" y="0.5" width="295" height="159" rx="14" fill="url(#paper)" opacity="0.42"/>'
-        '<rect x="0.5" y="0.5" width="295" height="159" rx="14" fill="none" stroke="#c7baa1" stroke-width="1"/>'
-        f'{"".join(park_patches)}'
-        f'{water_layer}'
-        f'{"".join(road_lines)}'
-        f'{city_boundary}'
-        f'{"".join(shapes)}'
-        f"{custom_marker}"
-        "</g>"
-        "</svg>"
+        '<rect width="320" height="184" rx="18" fill="#ddd3c1"/>'
+        '<rect x="12" y="12" width="296" height="160" rx="14" fill="#f4efe5" stroke="#c6baa7"/>'
+        '<path d="M16 128 C54 104, 86 110, 120 96 S188 70, 236 58 S276 34, 304 22" fill="none" stroke="#cfc4b3" stroke-width="10" stroke-linecap="round"/>'
+        '<path d="M26 42 C64 52, 98 42, 134 50 S210 66, 300 48" fill="none" stroke="#ddd5c6" stroke-width="6" stroke-linecap="round"/>'
+        '<path d="M32 156 C68 144, 98 148, 134 136 S210 114, 292 126" fill="none" stroke="#d6cbbb" stroke-width="7" stroke-linecap="round"/>'
+        '</svg>'
     )
     return {
         "image_url": f"data:image/svg+xml;utf8,{urllib.parse.quote(svg, safe='/:;,+-=()%')}",
@@ -417,7 +630,7 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
         "count_label": "",
         "market_label": market_label,
         "district_rows": district_rows,
-        "district_overlay_svg": district_overlay_svg,
+        "district_overlay_svg": "",
     }
 
 
@@ -806,32 +1019,31 @@ def _property_candidate_orientation_preview(candidate: dict[str, object]) -> dic
         lng = float(facts.get("map_lng") or facts.get("lng") or 0.0)
     except Exception:
         lng = 0.0
-    if lat or lng:
-        pin_x = 24.0 + abs(lng % 1.0) * 72.0
-        pin_y = 24.0 + (1.0 - abs(lat % 1.0)) * 48.0
-    else:
-        digest = hashlib.sha1(label.lower().encode("utf-8")).digest()
-        pin_x = 28.0 + (digest[0] / 255.0) * 64.0
-        pin_y = 24.0 + (digest[1] / 255.0) * 48.0
-    pin_x = max(18.0, min(102.0, pin_x))
-    pin_y = max(16.0, min(76.0, pin_y))
     map_url = str(candidate.get("map_url") or "").strip() or _property_candidate_maps_url(candidate)
-    svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 92" role="img" aria-label="Wider area map preview">'
-        '<rect width="120" height="92" rx="12" fill="#f6f1e6"/>'
-        '<path d="M8 68 C28 54, 43 56, 59 48 S90 34, 112 18" fill="none" stroke="#d7cfbf" stroke-width="8" stroke-linecap="round"/>'
-        '<path d="M14 24 C36 30, 58 20, 78 28 S102 38, 112 30" fill="none" stroke="#e4ddcf" stroke-width="5" stroke-linecap="round"/>'
-        '<path d="M18 82 C38 76, 52 78, 68 68 S95 60, 108 66" fill="none" stroke="#ddd4c5" stroke-width="6" stroke-linecap="round"/>'
-        f'<circle cx="{pin_x:.1f}" cy="{pin_y:.1f}" r="13" fill="#d34b4b" fill-opacity="0.18" />'
-        f'<path d="M{pin_x:.1f} {pin_y - 12:.1f}c-5.8 0-10.5 4.7-10.5 10.5 0 7.8 10.5 19.1 10.5 19.1s10.5-11.3 10.5-19.1c0-5.8-4.7-10.5-10.5-10.5z" fill="#d34b4b"/>'
-        f'<circle cx="{pin_x:.1f}" cy="{pin_y - 1.8:.1f}" r="4.2" fill="#fff7ee"/>'
-        "</svg>"
-    )
+    if not (lat or lng):
+        geocoded = _forward_geocode_preview_point(label)
+        if geocoded:
+            lat, lng = geocoded
+    if lat or lng:
+        image_url = _openstreetmap_static_preview_data_url(int(round(lat * 10000.0)), int(round(lng * 10000.0)))
+    else:
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="368" viewBox="0 0 320 184" role="img" aria-label="Area map preview">'
+            '<rect width="320" height="184" rx="18" fill="#ddd3c1"/>'
+            '<rect x="12" y="12" width="296" height="160" rx="14" fill="#f4efe5" stroke="#c6baa7"/>'
+            '<path d="M16 128 C54 104, 86 110, 120 96 S188 70, 236 58 S276 34, 304 22" fill="none" stroke="#cfc4b3" stroke-width="10" stroke-linecap="round"/>'
+            '<path d="M26 42 C64 52, 98 42, 134 50 S210 66, 300 48" fill="none" stroke="#ddd5c6" stroke-width="6" stroke-linecap="round"/>'
+            '<path d="M32 156 C68 144, 98 148, 134 136 S210 114, 292 126" fill="none" stroke="#d6cbbb" stroke-width="7" stroke-linecap="round"/>'
+            '</svg>'
+        )
+        image_url = f"data:image/svg+xml;utf8,{urllib.parse.quote(svg, safe='/:;,+-=()%')}"
+    alt = f"Wider area around {label}"
+    caption = "Open a larger area map"
     return {
-        "image_url": f"data:image/svg+xml;utf8,{urllib.parse.quote(svg, safe='/:;,+-=()%')}",
-        "alt": f"Wider area around {label}",
+        "image_url": image_url,
+        "alt": alt,
         "title": label,
-        "caption": "Open a larger map preview",
+        "caption": caption,
         "map_url": map_url,
     }
 
@@ -4698,9 +4910,9 @@ def property_workspace_payload(
         blocked_reason = str(candidate.get("blocked_reason") or "").strip()
         if blocked_reason:
             reason_map = {
-                "listing_360_media_missing": "Tour not ready yet: the listing does not expose usable layout or 360 material.",
-                "pure_360_assets_unavailable": "Tour not ready yet: the source media cannot be opened reliably.",
-                "property_tour_fallback_disabled": "Tour not ready yet: PropertyQuarry needs source layout or 360 material first.",
+                "listing_360_media_missing": "3D tour not ready yet. This listing still needs a floorplan or usable 360 source.",
+                "pure_360_assets_unavailable": "3D tour not ready yet. The source media could not be opened reliably enough to rebuild it.",
+                "property_tour_fallback_disabled": "3D tour not ready yet. A floorplan or usable 360 source is still missing.",
             }
             return reason_map.get(blocked_reason, blocked_reason.replace("_", " "))
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
@@ -4720,10 +4932,10 @@ def property_workspace_payload(
             return False
 
         if _false_flag(facts.get("has_floorplan")) or _zero_count("floorplan_count", "floorplans_count"):
-            return "Tour not ready yet: layout proof or source 360 media is not verified."
+            return "3D tour not ready yet. This listing still needs a floorplan or usable 360 source."
         if _false_flag(facts.get("has_360")) or _zero_count("media_count", "image_count"):
-            return "Tour not ready yet: source room media is not verified."
-        return "Tour not ready yet: source layout or 360 media is not verified."
+            return "3D tour not ready yet. More usable room media is still needed."
+        return "3D tour not ready yet. More source material is still needed before it can be built."
 
     def _candidate_fact_line(candidate: dict[str, object]) -> str:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
@@ -5220,6 +5432,20 @@ def property_workspace_payload(
             return price_per_sqm
         return "Costs open"
 
+    def _title_price_fallback(title: object) -> str:
+        text = " ".join(str(title or "").split()).strip()
+        if not text:
+            return ""
+        patterns = [
+            r"(€\s?[0-9][0-9\.\s]*(?:,[0-9]{1,2})?\s*,-?)",
+            r"((?:EUR|USD|CHF)\s?[0-9][0-9\.,\s]*)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if match:
+                return " ".join(str(match.group(1) or "").split()).strip(" ,")
+        return ""
+
     for candidate in shortlist_candidates:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
         price_line = str(
@@ -5227,7 +5453,11 @@ def property_workspace_payload(
             or facts.get("rent_display")
             or facts.get("price_eur")
             or ""
-        ).strip() or "n/a"
+        ).strip()
+        if not price_line or price_line.lower() == "n/a":
+            price_line = _title_price_fallback(candidate.get("title") or "")
+        if not price_line:
+            price_line = "n/a"
         fit_score = _fit_score_value(candidate, facts)
         layout_parts = [
             _rooms_layout_part(facts),

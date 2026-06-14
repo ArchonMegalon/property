@@ -4257,7 +4257,7 @@
           <div class="pqx-compare-strip">
             {% for candidate in results[:4] %}
             {% set primary_price = candidate.get('price_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('costs_display') or 'Price open') %}
-            {% set secondary_price = candidate.get('costs_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('price_per_sqm_display') or candidate.get('layout_verification_label') or 'Costs open') %}
+            {% set secondary_price = candidate.get('costs_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('price_per_sqm_display') or candidate.get('costs_display') or '') %}
             <article class="pqx-compare-card{% if candidate.get('candidate_ref') == selected.get('candidate_ref') %} is-selected{% endif %}">
               {% if candidate.get('preview_image_url') %}
               <img class="pqx-compare-thumb" src="{{ candidate.get('preview_image_url') }}" alt="{{ candidate.get('title') or 'Property preview' }}">
@@ -4295,7 +4295,7 @@
               <div class="pqx-compare-aside">
                 <div class="pqx-compare-price">
                   <strong>{{ primary_price }}</strong>
-                  <span>{{ secondary_price }}</span>
+                  {% if secondary_price %}<span>{{ secondary_price }}</span>{% endif %}
                 </div>
                 <div class="pqx-actions">
                   {% if candidate.get('packet_url') %}<a class="pqx-link-button primary" href="{{ candidate.get('packet_url') }}">Open property</a>{% endif %}
@@ -4635,7 +4635,7 @@
             {% for candidate in results %}
             <article class="pqx-result pqx-card" role="button" tabindex="0" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
               {% set primary_price = candidate.get('price_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('costs_display') or 'Price open') %}
-              {% set secondary_price = candidate.get('costs_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('price_per_sqm_display') or candidate.get('layout_verification_label') or 'Costs open') %}
+              {% set secondary_price = candidate.get('costs_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('price_per_sqm_display') or candidate.get('costs_display') or '') %}
               <span class="pqx-result-main">
                 <span class="pqx-result-media">
                   <span class="pqx-thumb">
@@ -4689,7 +4689,7 @@
               <span class="pqx-result-aside">
                 <span class="pqx-pill{% if candidate.get('tour', {}).get('status') == 'ready' %} good{% else %} warn{% endif %}">{{ candidate.get('tour', {}).get('label') }}</span>
                 <strong class="pqx-result-price">{{ primary_price }}</strong>
-                <span class="pqx-result-secondary">{{ secondary_price }}</span>
+                {% if secondary_price %}<span class="pqx-result-secondary">{{ secondary_price }}</span>{% endif %}
                 {% if candidate.get('tour', {}).get('eta_label') %}<span class="pqx-small">{{ candidate.get('tour', {}).get('eta_label') }}</span>{% endif %}
               </span>
             </article>
