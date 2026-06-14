@@ -1021,6 +1021,56 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         context.close()
 
 
+def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screenshots(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    desktop = _new_context(browser, mobile=False)
+    mobile = _new_context(browser, mobile=True)
+    desktop_shot = tmp_path / "property_search_setup_desktop.png"
+    mobile_shot = tmp_path / "property_search_setup_mobile.png"
+    try:
+        desktop_page = desktop.new_page()
+        response = desktop_page.goto(f"{base_url}/app/properties", wait_until="networkidle")
+        assert response is not None and response.ok
+        desktop_page.locator("[data-workbench-brief-drawer]").wait_for(state="visible")
+        desktop_page.screenshot(path=str(desktop_shot), full_page=True)
+        metrics = desktop_page.evaluate(
+            """() => {
+                const drawer = document.querySelector('[data-workbench-brief-drawer]');
+                const workflow = document.querySelector('.pqx-workflow');
+                const propertyType = document.querySelector('[data-property-field-name="property_type"]');
+                const drawerRect = drawer ? drawer.getBoundingClientRect() : null;
+                const workflowRect = workflow ? workflow.getBoundingClientRect() : null;
+                const propertyTypeRect = propertyType ? propertyType.getBoundingClientRect() : null;
+                return {
+                    innerHeight: window.innerHeight,
+                    scrollHeight: document.scrollingElement ? document.scrollingElement.scrollHeight : 0,
+                    drawerBottom: drawerRect ? drawerRect.bottom : 0,
+                    workflowHeight: workflowRect ? workflowRect.height : 0,
+                    propertyTypeHeight: propertyTypeRect ? propertyTypeRect.height : 0,
+                };
+            }"""
+        )
+        assert metrics["drawerBottom"] <= metrics["innerHeight"] + 1
+        assert metrics["scrollHeight"] <= metrics["innerHeight"] + 1
+        assert metrics["workflowHeight"] <= 84
+        assert metrics["propertyTypeHeight"] <= 170
+        assert desktop_shot.exists()
+
+        mobile_page = mobile.new_page()
+        response = mobile_page.goto(f"{base_url}/app/properties", wait_until="networkidle")
+        assert response is not None and response.ok
+        mobile_page.locator("[data-workbench-brief-drawer]").wait_for(state="visible")
+        mobile_page.screenshot(path=str(mobile_shot), full_page=True)
+        assert mobile_shot.exists()
+    finally:
+        desktop.close()
+        mobile.close()
+
+
 def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_compact(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
@@ -1041,11 +1091,27 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
               card.className = 'pqx-previous-search';
               card.setAttribute('data-pqx-previous-search-card', '');
               const longTitle = 'Review apartment alert: Ruhige und moderne 2-Zimmer Wohnung - sehr gepflegt - optimale Raumaufteilung / Top Innenhoflage mit extra langem Titel fuer Layout Gate';
+              const scopeSvg = encodeURIComponent(`
+                <svg xmlns="http://www.w3.org/2000/svg" width="320" height="184" viewBox="0 0 320 184" fill="none">
+                  <rect width="320" height="184" rx="18" fill="#1E1A15"/>
+                  <rect x="12" y="12" width="296" height="160" rx="14" fill="#F3ECDD"/>
+                  <rect x="38" y="34" width="44" height="24" rx="8" fill="#D7D0C3" stroke="#BBAF9B"/>
+                  <rect x="92" y="42" width="66" height="42" rx="10" fill="#D44F4F" fill-opacity="0.42" stroke="#F2A3A3" stroke-width="2"/>
+                  <rect x="166" y="62" width="58" height="34" rx="10" fill="#D7D0C3" stroke="#BBAF9B"/>
+                  <rect x="122" y="98" width="76" height="32" rx="10" fill="#D7D0C3" stroke="#BBAF9B"/>
+                </svg>`);
               card.innerHTML = `
+                <div class="pqx-previous-scope-preview">
+                  <img class="pqx-previous-scope-image" data-pqx-scope-preview src="data:image/svg+xml;utf8,${scopeSvg}" alt="Search area preview for 1020 Vienna">
+                  <div class="pqx-previous-scope-caption">
+                    <span class="pqx-note">1020 Vienna, 1030 Vienna</span>
+                    <span class="pqx-previous-scope-chip">2 areas</span>
+                  </div>
+                </div>
                 <div class="pqx-previous-search-head">
                   <div>
                     <strong class="pqx-previous-title">${longTitle}</strong>
-                    <span class="pqx-note">Buy · 1020 Vienna with a deliberately long scope label</span>
+                    <span class="pqx-note">Buy · Vienna · AT</span>
                   </div>
                   <span class="pqx-pill good">Finished</span>
                 </div>
@@ -1071,12 +1137,14 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
               const command = document.querySelector('.pqx-command');
               const rows = Array.from(document.querySelectorAll('.pqx-setup-intro .pqx-dashboard-row'));
               const previousCards = Array.from(document.querySelectorAll('[data-pqx-previous-search-card]'));
+              const previews = Array.from(document.querySelectorAll('[data-pqx-scope-preview]'));
               const overflowRows = rows.filter((node) => node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1);
               const strongOverflow = rows
                 .map((node) => node.querySelector('strong'))
                 .filter(Boolean)
                 .filter((node) => node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1);
               const previousCardHorizontalOverflow = previousCards.filter((node) => node.scrollWidth > node.clientWidth + 1);
+              const previewFailures = previews.filter((node) => !(node.complete && node.naturalWidth > 0 && node.clientHeight > 0));
               const previousTitleVisibleOverflow = previousCards
                 .flatMap((card) => {
                   const cardBox = card.getBoundingClientRect();
@@ -1097,6 +1165,7 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
                 strongOverflowCount: strongOverflow.length,
                 previousCardCount: previousCards.length,
                 previousCardHorizontalOverflowCount: previousCardHorizontalOverflow.length,
+                previewFailureCount: previewFailures.length,
                 previousTitleVisibleOverflowCount: previousTitleVisibleOverflow.length,
                 visibleRowLabels: rows.map((node) => (node.querySelector('span')?.textContent || '').trim()),
                 visibleRowValues: rows.map((node) => (node.querySelector('strong')?.textContent || '').trim()),
@@ -1112,6 +1181,7 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
         assert layout["strongOverflowCount"] == 0
         assert layout["previousCardCount"] >= 1
         assert layout["previousCardHorizontalOverflowCount"] == 0
+        assert layout["previewFailureCount"] == 0
         assert layout["previousTitleVisibleOverflowCount"] == 0
         assert {"Saved searches", "Next action"}.issubset(set(layout["visibleRowLabels"]))
         assert len([value for value in layout["visibleRowValues"] if value]) >= 2
@@ -1293,11 +1363,11 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert expectedProviderCap > 0
         firstProviderFamily = page.locator('[data-provider-group-panel]').first
         firstProviderFamily.locator("summary").click()
-        assert firstProviderFamily.get_by_role("button", name="Use this family").is_visible()
-        assert firstProviderFamily.get_by_role("button", name="Clear this family").is_visible()
+        assert firstProviderFamily.get_by_role("button", name="Add family").is_visible()
+        assert firstProviderFamily.get_by_role("button", name="Clear family").is_visible()
         familyProviderCount = firstProviderFamily.locator('input[name="selected_platforms"]').count()
         assert familyProviderCount > 0
-        firstProviderFamily.get_by_role("button", name="Use this family").click()
+        firstProviderFamily.get_by_role("button", name="Add family").click()
         checkedFamilyProviderCount = firstProviderFamily.locator('input[name="selected_platforms"]:checked').count()
         checkedTotalAfterFamily = page.locator('input[name="selected_platforms"]:checked').count()
         assert checkedFamilyProviderCount == min(familyProviderCount, expectedProviderCap)

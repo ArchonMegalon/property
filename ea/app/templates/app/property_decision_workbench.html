@@ -600,7 +600,7 @@
     .pqx-main {
       width: min(1840px, calc(100vw - 40px));
       margin: 0 auto;
-      padding: clamp(18px, 3vw, 44px) 0 96px;
+      padding: clamp(8px, 1.2vw, 14px) 0 48px;
     }
     .pqx-mobile-switch {
       display: none;
@@ -637,7 +637,7 @@
       justify-content: space-between;
       gap: 14px;
       align-items: flex-start;
-      margin-bottom: 14px;
+      margin-bottom: 8px;
     }
     .pqx-section-head h1,
     .pqx-section-head h2,
@@ -657,7 +657,7 @@
       min-height: calc(100vh - 172px);
       display: grid;
       grid-template-columns: minmax(220px, 320px) minmax(640px, 1fr);
-      gap: clamp(14px, 2vw, 26px);
+      gap: clamp(10px, 1.4vw, 18px);
       align-items: start;
     }
     .pqx-setup.pqx-surface-search {
@@ -728,7 +728,7 @@
     .pqx-previous-search {
       display: grid;
       gap: 10px;
-      padding: 12px;
+      padding: 10px;
       border: 1px solid rgba(255, 249, 237, 0.16);
       border-radius: 8px;
       background: rgba(255, 249, 237, 0.07);
@@ -736,11 +736,52 @@
       max-width: 100%;
       overflow: hidden;
     }
+    .pqx-previous-scope-preview {
+      position: relative;
+      display: grid;
+      gap: 8px;
+    }
+    .pqx-previous-scope-image {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      object-fit: cover;
+      border-radius: 9px;
+      border: 1px solid rgba(255, 249, 237, 0.14);
+      background: rgba(255, 249, 237, 0.08);
+    }
+    .pqx-previous-scope-caption {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+    .pqx-previous-scope-caption .pqx-note {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pqx-previous-scope-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      padding: 0 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 249, 237, 0.18);
+      background: rgba(0, 0, 0, 0.12);
+      color: #fff9ed;
+      font-size: 11px;
+      font-weight: 760;
+      white-space: nowrap;
+    }
     .pqx-previous-search-head {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
-      gap: 10px;
-      align-items: flex-start;
+      gap: 8px;
+      align-items: center;
       min-width: 0;
       max-width: 100%;
     }
@@ -761,12 +802,12 @@
     .pqx-previous-metrics {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 6px;
+      gap: 5px;
     }
     .pqx-previous-metrics span {
       display: grid;
       gap: 1px;
-      padding: 7px 8px;
+      padding: 6px 7px;
       border: 1px solid rgba(255, 249, 237, 0.14);
       border-radius: 7px;
       background: rgba(255, 249, 237, 0.05);
@@ -789,7 +830,7 @@
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 8px;
       align-items: center;
-      padding: 8px;
+      padding: 7px 8px;
       border-radius: 7px;
       background: rgba(0, 0, 0, 0.12);
       min-width: 0;
@@ -874,17 +915,18 @@
     }
     .pqx-loaded-agent {
       display: none;
-      align-items: center;
+      align-items: start;
       justify-content: space-between;
-      gap: 10px;
-      padding: 10px 12px;
+      gap: 6px 10px;
+      grid-template-columns: minmax(0, 1fr) auto;
+      padding: 6px 8px;
       border: 1px solid #d8c083;
       border-radius: 8px;
       background: #fff8df;
       color: #463819;
     }
     .pqx-loaded-agent[data-visible="true"] {
-      display: flex;
+      display: grid;
     }
     .pqx-fact {
       display: grid;
@@ -911,8 +953,8 @@
     }
     .pqx-command {
       display: grid;
-      gap: clamp(18px, 2.2vw, 28px);
-      padding: clamp(22px, 3vw, 40px);
+      gap: clamp(12px, 1.6vw, 18px);
+      padding: clamp(12px, 1.6vw, 18px);
     }
     .pqx-running .pqx-command {
       gap: 12px;
@@ -931,41 +973,55 @@
     }
     .pqx-workflow {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 8px;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 6px;
+      padding: 6px;
+      margin: 0;
+      border: 1px solid var(--pq-line);
+      border-radius: 10px;
+      background: rgba(255, 253, 248, 0.78);
+      min-width: 0;
+    }
+    .pqx-workflow legend {
+      padding: 0 6px;
+      color: var(--pq-muted);
+      font-size: 11px;
+      font-weight: 760;
+      text-transform: uppercase;
     }
     .pqx-workflow-step {
       display: grid;
-      gap: 2px;
-      min-height: 64px;
-      padding: 10px;
+      place-items: center;
+      min-height: 0;
+      padding: 6px 7px;
       border: 1px solid var(--pq-line);
       border-radius: 8px;
       background: var(--pq-panel);
       color: var(--pq-ink);
-      text-align: left;
+      text-align: center;
       cursor: pointer;
-    }
-    .pqx-workflow-step span {
-      color: inherit;
-      font-size: 11px;
-      opacity: 0.72;
-      text-transform: uppercase;
+      min-width: 0;
     }
     .pqx-workflow-step strong {
+      display: block;
+      width: 100%;
+      font-size: 12px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
     .pqx-form-body {
       display: grid;
-      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px 8px;
+      align-items: start;
     }
     .pqx-advanced-panel {
+      grid-column: 1 / -1;
       border: 1px dashed var(--pq-line-strong);
       border-radius: 12px;
       background: linear-gradient(180deg, rgba(247, 241, 229, 0.72), rgba(255, 253, 248, 0.9));
-      padding: 10px 12px 12px;
+      padding: 8px 10px 10px;
     }
     .pqx-advanced-panel summary {
       cursor: pointer;
@@ -979,28 +1035,38 @@
     }
     .pqx-advanced-panel-grid {
       display: grid;
-      gap: 12px;
-      margin-top: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 8px;
     }
     .pqx-field {
       display: grid;
-      gap: 7px;
+      gap: 5px;
+      min-width: 0;
+    }
+    .pqx-form-body > .pqx-field[data-property-field-name="property_type"],
+    .pqx-form-body > .pqx-field[data-property-field-name="location_query"],
+    .pqx-form-body > .pqx-field[data-property-field-name="selected_platforms"],
+    .pqx-form-body > .pqx-field[data-property-field-name="keywords"],
+    .pqx-form-body > .pqx-field[data-property-field-name="school_stage_preferences"],
+    .pqx-form-body > .pqx-field[data-property-field-name="preferred_reachability_modes"] {
+      grid-column: 1 / -1;
     }
     .pqx-field label,
     .pqx-field-title {
       color: var(--pq-muted);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 760;
     }
     .pqx-field input:not([type="checkbox"]),
     .pqx-field select {
       width: 100%;
-      min-height: 42px;
+      min-height: 38px;
       border: 1px solid var(--pq-line-strong);
       border-radius: 8px;
       background: #fffefa;
       color: var(--pq-ink);
-      padding: 0 11px;
+      padding: 0 10px;
     }
     .pqx-field select option {
       color: var(--pq-ink);
@@ -1008,8 +1074,8 @@
     }
     .pqx-range-label {
       display: grid;
-      gap: 9px;
-      padding: 10px;
+      gap: 7px;
+      padding: 8px 9px;
       border: 1px solid rgba(185, 173, 154, 0.72);
       border-radius: 8px;
       background: rgba(255, 253, 248, 0.74);
@@ -1033,7 +1099,9 @@
     .pqx-field-tools {
       display: flex;
       justify-content: flex-end;
-      margin-bottom: 8px;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 6px;
     }
     .pqx-field-tools .pqx-field-action {
       border: 0;
@@ -1052,7 +1120,7 @@
     }
     .pqx-check[data-school-stage-variant] {
       margin-left: 20px;
-      min-height: 76px;
+      min-height: 52px;
       border-style: dashed;
       background: rgba(250, 246, 238, 0.92);
     }
@@ -1150,19 +1218,19 @@
     }
     .pqx-check-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-      max-height: 252px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+      max-height: 164px;
       overflow: auto;
       padding-right: 2px;
     }
     .pqx-check {
-      min-height: 58px;
+      min-height: 42px;
       display: grid;
       grid-template-columns: auto 1fr;
-      gap: 9px;
+      gap: 7px;
       align-items: start;
-      padding: 10px;
+      padding: 7px 8px;
       border: 1px solid var(--pq-line);
       border-radius: 8px;
       background: var(--pq-panel);
@@ -1179,28 +1247,34 @@
     .pqx-check span span {
       display: block;
       color: var(--pq-ink);
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 730;
-      line-height: 1.35;
+      line-height: 1.28;
       overflow-wrap: anywhere;
     }
     .pqx-check small {
       display: block;
       color: var(--pq-muted);
-      font-size: 11px;
-      line-height: 1.35;
+      font-size: 10px;
+      line-height: 1.25;
       overflow-wrap: anywhere;
     }
     .pqx-form-footer {
       display: flex;
+      grid-column: 1 / -1;
       justify-content: space-between;
-      gap: 10px;
+      gap: 8px;
       align-items: center;
-      padding-top: 10px;
+      padding-top: 6px;
       border-top: 1px solid var(--pq-line);
     }
     .pqx-inline-status { color: var(--pq-green); font-size: 12px; }
     .pqx-inline-error { color: var(--pq-red); font-size: 12px; }
+    .pqx-inline-status,
+    .pqx-inline-error,
+    .pqx-evidence-catalog {
+      grid-column: 1 / -1;
+    }
     .pqx-pref-manager {
       display: grid;
       gap: 12px;
@@ -2043,9 +2117,9 @@
     .pqx-result {
       width: 100%;
       display: grid;
-      grid-template-columns: 54px minmax(0, 1.35fr) minmax(118px, 0.44fr) minmax(118px, 0.44fr);
-      gap: 14px;
-      align-items: center;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: start;
       padding: 14px;
       text-align: left;
       cursor: pointer;
@@ -2064,15 +2138,62 @@
       background: #fff8ea;
       box-shadow: 0 0 0 2px rgba(189, 139, 47, 0.18), var(--pq-shadow);
     }
-    .pqx-result > span:not(.pqx-rank) {
+    .pqx-result > span {
       min-width: 0;
       display: grid;
-      gap: 2px;
+      gap: 4px;
       align-content: start;
     }
     .pqx-result > span strong {
       display: block;
       line-height: 1.2;
+    }
+    .pqx-result-main {
+      display: grid;
+      gap: 8px;
+    }
+    .pqx-result-summary {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+    .pqx-result-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--pq-muted);
+      font-size: 11px;
+      font-weight: 760;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+    .pqx-result-kicker .pqx-rank {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      font-size: 12px;
+    }
+    .pqx-result-facts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-width: 0;
+    }
+    .pqx-result-fact {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: rgba(255, 253, 248, 0.88);
+      border: 1px solid var(--pq-line);
+      color: var(--pq-muted);
+      font-size: 11px;
+      font-weight: 720;
+      max-width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .pqx-result-action {
       width: fit-content;
@@ -2089,6 +2210,22 @@
       background: var(--pq-charcoal);
       color: #fff9ed;
       font-weight: 800;
+    }
+    .pqx-result-aside {
+      justify-items: end;
+      text-align: right;
+      min-width: 114px;
+    }
+    .pqx-result-price {
+      color: var(--pq-ink);
+      font-size: 1.1rem;
+      font-weight: 800;
+      line-height: 1.05;
+    }
+    .pqx-result-secondary {
+      color: var(--pq-muted);
+      font-size: 11px;
+      font-weight: 720;
     }
     .pqx-pill {
       display: inline-flex;
@@ -2274,6 +2411,8 @@
         line-height: 1.05;
       }
       .pqx-workflow,
+      .pqx-form-body,
+      .pqx-advanced-panel-grid,
       .pqx-check-grid,
       .pqx-fact-grid,
       .pqx-source-grid,
@@ -2292,11 +2431,13 @@
         flex-direction: column;
       }
       .pqx-result {
-        grid-template-columns: 42px minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr);
         align-items: start;
       }
-      .pqx-result > span:nth-child(n+3) {
-        grid-column: 2;
+      .pqx-result-aside {
+        justify-items: start;
+        text-align: left;
+        min-width: 0;
       }
       .pqx-range-head {
         align-items: stretch;
@@ -2346,7 +2487,7 @@
         <span class="pqx-mark">PQ</span>
         <span>
           <strong>PropertyQuarry</strong>
-          <span class="pqx-brand-copy">{{ workspace_label or 'Decision desk' }}</span>
+          <span class="pqx-brand-copy">Decision desk</span>
         </span>
       </a>
       <nav class="pqx-primary-nav" aria-label="PropertyQuarry sections">
@@ -2449,10 +2590,26 @@
           <div class="pqx-previous-search-list" data-pqx-previous-searches>
             {% for previous in previous_search_runs[:6] %}
             <article class="pqx-previous-search" data-pqx-previous-search-card>
+              {% set scope_preview = previous.get('scope_preview') or {} %}
+              <div class="pqx-previous-scope-preview">
+                {% if scope_preview.get('image_url') %}
+                <img
+                  class="pqx-previous-scope-image"
+                  data-pqx-scope-preview
+                  src="{{ scope_preview.get('image_url') }}"
+                  alt="{{ scope_preview.get('alt') or 'Search area preview' }}"
+                  loading="lazy"
+                >
+                {% endif %}
+                <div class="pqx-previous-scope-caption">
+                  <span class="pqx-note">{{ previous.get('scope_summary') or previous.get('scope_label') }}</span>
+                  {% if scope_preview.get('count_label') %}<span class="pqx-previous-scope-chip">{{ scope_preview.get('count_label') }}</span>{% endif %}
+                </div>
+              </div>
               <div class="pqx-previous-search-head">
                 <div>
                   <strong class="pqx-previous-title">{{ previous.get('title') or 'Search' }}</strong>
-                  <span class="pqx-note">{{ previous.get('mode_label') }} · {{ previous.get('scope_label') }}</span>
+                  <span class="pqx-note">{{ previous.get('mode_label') }} · {{ scope_preview.get('market_label') or previous.get('scope_label') }}</span>
                 </div>
                 <span class="pqx-pill{% if previous.get('is_finished') %} good{% else %} warn{% endif %}">{{ previous.get('status_label') }}</span>
               </div>
@@ -2465,7 +2622,7 @@
               </div>
               {% if previous.get('top_candidates') %}
               <div class="pqx-previous-candidates">
-                {% for candidate in previous.get('top_candidates') %}
+                {% for candidate in previous.get('top_candidates')[:1] %}
                 <div class="pqx-previous-candidate">
                   <div>
                     <strong class="pqx-previous-candidate-title">{{ candidate.get('title') }}</strong>
@@ -2511,14 +2668,14 @@
           <div class="pqx-section-head">
             <div>
               <h2>Search</h2>
-              <div class="pqx-note" data-property-step-summary>Choose the market, area, budget, and must-haves.</div>
+              <div class="pqx-note" data-property-step-summary>Market, area, budget, then launch.</div>
             </div>
-            <span class="pqx-pill" data-property-step-progress>Step 1</span>
+            <span class="pqx-pill" data-property-step-progress>Search</span>
           </div>
           {% if console_form and show_form_controls %}
           <div class="pqx-loaded-agent" data-search-agent-loaded-state>
             <strong data-search-agent-loaded-label>Saved search loaded</strong>
-            <span class="pqx-note" data-search-agent-dirty-label>Tweak filters, run now, save changes, or save as a new search.</span>
+            <span class="pqx-note" data-search-agent-dirty-label>Edit, run, save, or duplicate.</span>
             <div class="pqx-actions">
               <button class="pqx-button" type="button" data-search-agent-save-current>Save changes</button>
               <button class="pqx-button subtle" type="button" data-search-agent-save-new>Save as new</button>
@@ -2528,14 +2685,14 @@
           <form class="pqx-form" data-console-form-variant="{{ console_form.get('variant') }}" data-console-form-meta='{{ property_meta|tojson|safe }}'>
             {% set wizard_steps = property_meta.get('wizard_steps') or [] %}
             {% if wizard_steps %}
-            <div class="pqx-workflow" aria-label="Search setup steps">
+            <fieldset class="pqx-workflow" aria-label="Search setup">
+              <legend>Search flow</legend>
               {% for step in wizard_steps %}
               <button class="pqx-workflow-step{% if loop.first %} active{% endif %}" type="button" data-property-step-trigger="{{ step.get('key') }}">
-                <span>Step {{ loop.index }}</span>
                 <strong>{{ step.get('label') }}</strong>
               </button>
               {% endfor %}
-            </div>
+            </fieldset>
             {% endif %}
             <div class="pqx-form-body">
               {% set panel = namespace(open=false, current='') %}
@@ -2553,18 +2710,18 @@
               <details class="pqx-advanced-panel" data-property-advanced-panel="{{ advanced_panel }}">
                 <summary>
                   {% if advanced_panel == 'children' %}
-                  Erweiterte Kinder- und Familienfilter
+                  Family & schools
                   {% elif advanced_panel == 'commute' %}
-                  Pendelziele und Zeitlimits
+                  Commute
                   {% elif advanced_panel == 'provider_policies' %}
-                  Quellen
+                  Sources
                   {% else %}
-                  Erweiterte Lage- und Researchfilter
+                  More filters
                   {% endif %}
                 </summary>
                 <div class="pqx-advanced-panel-grid">
                   <div class="pqx-note" data-property-unavailable-toggle-wrap hidden>
-                    <label><input type="checkbox" data-property-show-unavailable> Show unavailable filters</label>
+                    <label><input type="checkbox" data-property-show-unavailable> Show locked filters</label>
                   </div>
               {% endif %}
               <div class="pqx-field" data-property-field-step="{{ field.get('step') or 'search' }}" data-property-field-name="{{ field.name }}"{% if field.get('availability_key') %} data-property-availability-key="{{ field.get('availability_key') }}"{% endif %}{% if field.get('disabled_reason') %} data-property-disabled-reason="{{ field.get('disabled_reason') }}"{% endif %}{% if field.get('hidden') %} hidden{% endif %}>
@@ -2586,7 +2743,7 @@
                 <div class="pqx-field-title">{{ field.label }}</div>
                 {% if field.name == 'selected_platforms' %}
                 <div class="pqx-field-tools">
-                  <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select all</button>
+                  <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}">All sources</button>
                 </div>
                 {% endif %}
                 {% if field.name == 'selected_platforms' and field.get('option_groups') %}
@@ -2598,8 +2755,8 @@
                     <div class="pqx-note">{{ group.get('detail') }}</div>
                   </summary>
                   <div class="pqx-field-tools" style="margin:8px 0 10px;">
-                    <button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Use this family</button>
-                    <button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear this family</button>
+                    <button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Add family</button>
+                    <button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear family</button>
                   </div>
                   <div class="pqx-check-grid" data-pqx-check-grid="{{ field.name }}">
                     {% for option in group.get('options') or [] %}
@@ -3467,11 +3624,27 @@
           <div class="pqx-results-list" data-workbench-results-table>
             {% for candidate in results %}
             <button class="pqx-result" type="button" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
-              <span class="pqx-rank">{{ candidate.get('rank') }}</span>
-              <span>
-                <span class="pqx-small">Match</span>
-                <span class="pqx-result-title">{{ candidate.get('title') }}</span>
-                <span class="pqx-meta">{{ candidate.get('source_label') }}{% if candidate.get('location_label') %} · {{ candidate.get('location_label') }}{% endif %}</span>
+              <span class="pqx-result-main">
+                <span class="pqx-result-media">
+                  <span class="pqx-thumb">
+                    {% if candidate.get('preview_image_url') %}
+                    <img src="{{ candidate.get('preview_image_url') }}" alt="">
+                    {% else %}
+                    <span>Home</span>
+                    {% endif %}
+                  </span>
+                  <span class="pqx-result-summary">
+                    <span class="pqx-result-kicker"><span class="pqx-rank">{{ candidate.get('rank') }}</span> Match</span>
+                    <span class="pqx-result-title">{{ candidate.get('title') }}</span>
+                    <span class="pqx-meta">{{ candidate.get('source_label') }}{% if candidate.get('location_label') %} · {{ candidate.get('location_label') }}{% endif %}</span>
+                  </span>
+                </span>
+                <span class="pqx-result-facts">
+                  {% if candidate.get('layout_display') %}<span class="pqx-result-fact">{{ candidate.get('layout_display') }}</span>{% endif %}
+                  {% if candidate.get('location_label') %}<span class="pqx-result-fact">{{ candidate.get('location_label') }}</span>{% endif %}
+                  <span class="pqx-result-fact">Fit {{ candidate.get('fit_score') or 0 }}/100</span>
+                  <span class="pqx-result-fact">{{ candidate.get('tour', {}).get('label') or '360 pending' }}</span>
+                </span>
                 {% if candidate.get('provider_quality_line') %}<span class="pqx-small">{{ candidate.get('provider_quality_line') }}</span>{% endif %}
                 <span class="pqx-result-trust">
                   <span class="pqx-trust-chip">Rank #{{ candidate.get('rank') or loop.index }}</span>
@@ -3481,8 +3654,12 @@
                 </span>
                 <span class="pqx-result-action">Review this home</span>
               </span>
-              <span><span class="pqx-pill{% if candidate.get('tour', {}).get('status') == 'ready' %} good{% else %} warn{% endif %}">{{ candidate.get('tour', {}).get('label') }}</span><span class="pqx-small">{{ candidate.get('tour', {}).get('eta_label') }}</span></span>
-              <span><span class="pqx-small">Price</span><strong>{{ candidate.get('price_display') or 'n/a' }}</strong><span class="pqx-small">Layout · {{ candidate.get('layout_display') or 'n/a' }}</span></span>
+              <span class="pqx-result-aside">
+                <span class="pqx-pill{% if candidate.get('tour', {}).get('status') == 'ready' %} good{% else %} warn{% endif %}">{{ candidate.get('tour', {}).get('label') }}</span>
+                <strong class="pqx-result-price">{{ candidate.get('price_display') or 'n/a' }}</strong>
+                <span class="pqx-result-secondary">{{ candidate.get('layout_display') or 'Layout pending' }}</span>
+                {% if candidate.get('tour', {}).get('eta_label') %}<span class="pqx-small">{{ candidate.get('tour', {}).get('eta_label') }}</span>{% endif %}
+              </span>
             </button>
             {% endfor %}
           </div>
@@ -4598,7 +4775,7 @@
           .sort((a, b) => familyOrder.indexOf(a[0]) - familyOrder.indexOf(b[0]))
           .map(([family, items]) => {
             const [title, detail] = familyHeadings[family] || [String(family).replaceAll('_', ' '), 'Grouped source.'];
-            return `<details class="pqx-advanced-panel" data-provider-group-panel style="margin-top:12px;"><summary><strong>${escapeHtml(title)}</strong><div class="pqx-note">${escapeHtml(detail)}</div></summary><div class="pqx-field-tools" style="margin:8px 0 10px;"><button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Use this family</button><button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear this family</button></div><div class="pqx-check-grid" data-pqx-check-grid="${escapeHtml(name)}-group">${items.map(renderOption).join('')}</div></details>`;
+            return `<details class="pqx-advanced-panel" data-provider-group-panel style="margin-top:12px;"><summary><strong>${escapeHtml(title)}</strong><div class="pqx-note">${escapeHtml(detail)}</div></summary><div class="pqx-field-tools" style="margin:8px 0 10px;"><button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Add family</button><button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear family</button></div><div class="pqx-check-grid" data-pqx-check-grid="${escapeHtml(name)}-group">${items.map(renderOption).join('')}</div></details>`;
           })
           .join('');
         return;
@@ -5527,7 +5704,7 @@
         form.dataset.propertyActiveStep = stepKey;
         fieldNodes.forEach((node) => { node.hidden = String(node.getAttribute('data-property-field-step') || '') !== stepKey; });
         triggers.forEach((node) => { node.classList.toggle('active', String(node.getAttribute('data-property-step-trigger') || '') === stepKey); });
-        if (progress) progress.textContent = `Step ${current + 1} of ${steps.length}`;
+        if (progress) progress.textContent = `${String(step.label || 'Search').trim()} ${current + 1}/${steps.length}`;
         if (summary) summary.textContent = String(step.detail || '').trim();
         if (back) back.hidden = current === 0;
         if (next) {

@@ -1132,12 +1132,12 @@
           <span class="brand-mark">{{ brand.mark }}</span>
           <span>{{ brand.name }}</span>
         </a>
-        <div class="pq-rail-brand-copy">Property decision desk. Search, market watch, decision packets, and review in one persistent shell.</div>
+        <div class="pq-rail-brand-copy">Search, review, packets, and account controls.</div>
       </div>
       <a class="pq-rail-workspace" href="/app/account{{ query_suffix }}">
         <div class="pq-rail-label">Account</div>
         <strong>{{ workspace_label }}</strong>
-        <div>{{ access_email or brand.workspace_label }}</div>
+        <div>{{ access_email or account_nav.label or brand.name }}</div>
       </a>
       <div class="pq-rail-pulse" data-property-pulse-strip>
         <a class="pq-rail-pulse-card" href="{{ request.url.path }}{{ query_suffix }}">
@@ -1171,7 +1171,6 @@
       <header class="pq-appbar">
         <div class="pq-appbar-breadcrumbs" aria-label="PropertyQuarry section context">
           <span>{{ brand.name }}</span>
-          <span>{{ workspace_label }}</span>
           <span>{{ current_nav|replace('_', ' ')|title }}</span>
         </div>
         <div class="pq-appbar-row">
@@ -1210,7 +1209,6 @@
         </div>
         <div class="pq-appbar-row pq-appbar-overview-row">
           <div class="pq-appbar-meta">
-            <span class="pq-meta-pill">Single account app</span>
             <span class="pq-meta-pill">Run-first results</span>
             <span class="pq-meta-pill">Packet + 360 review</span>
           </div>
@@ -1227,10 +1225,9 @@
         <div class="pq-stage-window-bar">
           <div class="pq-stage-window-title">
             <strong>{{ current_nav|replace('_', ' ')|title }}</strong>
-            <span>Persistent PropertyQuarry app surface</span>
+            <span>Focused view</span>
           </div>
           <div class="pq-appbar-meta">
-            <span class="pq-meta-pill">{{ workspace_label }}</span>
             {% if access_email %}<span class="pq-meta-pill">{{ access_email }}</span>{% endif %}
           </div>
         </div>
@@ -1245,7 +1242,7 @@
       <div class="workspace-card">
         <div class="label">Account</div>
         <strong>{{ workspace_label }}</strong>
-        <div>{{ brand.workspace_label }}</div>
+        <div>{{ access_email or account_nav.label or brand.name }}</div>
       </div>
       {% for group in nav_groups %}
       <div class="group-label">{{ group.label }}</div>

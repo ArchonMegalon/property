@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import hashlib
 import urllib.parse
 from typing import Any
@@ -82,6 +83,197 @@ def _split_known_and_custom_values(
         else:
             custom.append(normalized)
     return known, custom
+
+
+def _scope_preview_layout(country_code: str, region_code: str, options: list[dict[str, str]]) -> list[dict[str, object]]:
+    normalized_country = str(country_code or "").strip().upper()
+    normalized_region = str(region_code or "").strip().lower()
+    explicit_layouts: dict[tuple[str, str], dict[str, tuple[float, float, float, float]]] = {
+        (
+            "AT",
+            "vienna",
+        ): {
+            "1010 vienna": (45, 67, 10, 10),
+            "1020 vienna": (57, 58, 18, 22),
+            "1030 vienna": (52, 82, 17, 18),
+            "1040 vienna": (41, 80, 10, 12),
+            "1050 vienna": (34, 82, 11, 11),
+            "1060 vienna": (27, 75, 11, 12),
+            "1070 vienna": (24, 66, 11, 10),
+            "1080 vienna": (30, 60, 9, 9),
+            "1090 vienna": (38, 54, 12, 12),
+            "1100 vienna": (41, 96, 19, 20),
+            "1110 vienna": (61, 100, 16, 19),
+            "1120 vienna": (24, 92, 16, 15),
+            "1130 vienna": (8, 81, 19, 16),
+            "1140 vienna": (2, 63, 24, 18),
+            "1150 vienna": (19, 80, 8, 11),
+            "1160 vienna": (12, 57, 16, 18),
+            "1170 vienna": (18, 46, 15, 14),
+            "1180 vienna": (31, 40, 18, 15),
+            "1190 vienna": (41, 25, 24, 24),
+            "1200 vienna": (51, 47, 14, 12),
+            "1210 vienna": (60, 26, 28, 24),
+            "1220 vienna": (76, 48, 24, 34),
+            "1230 vienna": (5, 98, 31, 18),
+            "klosterneuburg": (58, 8, 18, 12),
+            "mödling": (31, 112, 18, 12),
+            "purkersdorf": (-4, 75, 18, 12),
+        },
+    }
+    explicit = explicit_layouts.get((normalized_country, normalized_region), {})
+    if explicit:
+        layout_rows: list[dict[str, object]] = []
+        for option in options:
+            value = str(option.get("value") or "").strip()
+            rect = explicit.get(value.lower())
+            if not rect:
+                continue
+            x, y, width, height = rect
+            layout_rows.append(
+                {
+                    "value": value,
+                    "label": str(option.get("label") or value).strip() or value,
+                    "detail": str(option.get("detail") or "").strip(),
+                    "x": x,
+                    "y": y,
+                    "width": width,
+                    "height": height,
+                }
+            )
+        if layout_rows:
+            return layout_rows
+
+    total = max(1, len(options))
+    columns = 3 if total > 6 else 2
+    rows = max(1, (total + columns - 1) // columns)
+    cell_width = 100 / columns
+    cell_height = 100 / rows
+    grid_rows: list[dict[str, object]] = []
+    for index, option in enumerate(options):
+        column = index % columns
+        row = index // columns
+        grid_rows.append(
+            {
+                "value": str(option.get("value") or "").strip(),
+                "label": str(option.get("label") or option.get("value") or "").strip(),
+                "detail": str(option.get("detail") or "").strip(),
+                "x": (column * cell_width) + 4,
+                "y": (row * cell_height) + 8,
+                "width": max(18.0, cell_width - 8),
+                "height": max(16.0, cell_height - 12),
+            }
+        )
+    return grid_rows
+
+
+def _property_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
+    normalized_country = str(country_code or "").strip().upper()
+    normalized_region = str(region_code or "").strip().lower()
+    normalized_query = str(location_query or "").strip()
+    option_rows = _property_location_options(normalized_country, normalized_region)
+    layout_rows = _scope_preview_layout(normalized_country, normalized_region, option_rows)
+    option_lookup = {
+        str(option.get("value") or "").strip().lower(): str(option.get("label") or option.get("value") or "").strip()
+        for option in option_rows
+        if str(option.get("value") or "").strip()
+    }
+    selected_values = _csv_values(normalized_query)
+    selected_lookup = {value.lower() for value in selected_values}
+    if normalized_country == "AT" and normalized_region == "vienna" and normalized_query.lower() in {"vienna", "wien"}:
+        selected_lookup = {
+            str(row.get("value") or "").strip().lower()
+            for row in layout_rows
+            if str(row.get("value") or "").strip()
+        }
+    elif not selected_lookup and normalized_query:
+        if normalized_query.lower() in option_lookup:
+            selected_lookup = {normalized_query.lower()}
+        elif normalized_region and normalized_query.lower() == normalized_region:
+            selected_lookup = {
+                str(row.get("value") or "").strip().lower()
+                for row in layout_rows
+                if str(row.get("value") or "").strip()
+            }
+    selected_labels = [
+        option_lookup.get(value.lower(), value)
+        for value in selected_values
+        if str(value or "").strip()
+    ]
+    if not selected_labels and selected_lookup:
+        selected_labels = [
+            str(row.get("label") or row.get("value") or "").strip()
+            for row in layout_rows
+            if str(row.get("value") or "").strip().lower() in selected_lookup
+        ]
+    market_label_parts = [part for part in (normalized_region.replace("_", " ").title(), normalized_country) if part]
+    market_label = " · ".join(market_label_parts) or "Search area"
+
+    shapes: list[str] = []
+    selected_count = 0
+    for row in layout_rows:
+        value = str(row.get("value") or "").strip().lower()
+        selected = bool(value and value in selected_lookup)
+        if selected:
+            selected_count += 1
+        x = float(row.get("x") or 0.0)
+        y = float(row.get("y") or 0.0)
+        width = float(row.get("width") or 16.0)
+        height = float(row.get("height") or 12.0)
+        radius = min(7.0, max(3.0, min(width, height) * 0.22))
+        fill = "#d44f4f" if selected else "#d8d3c8"
+        fill_opacity = "0.44" if selected else "0.62"
+        stroke = "#f2a3a3" if selected else "#b9b1a1"
+        stroke_width = "1.8" if selected else "1.1"
+        shapes.append(
+            f'<rect x="{x:.1f}" y="{y:.1f}" width="{width:.1f}" height="{height:.1f}" rx="{radius:.1f}" fill="{fill}" fill-opacity="{fill_opacity}" stroke="{stroke}" stroke-width="{stroke_width}" />'
+        )
+
+    custom_marker = ""
+    if normalized_query and not selected_count:
+        custom_marker = (
+            '<g transform="translate(94 24)">'
+            '<circle cx="0" cy="0" r="9" fill="#d44f4f" fill-opacity="0.24" stroke="#f2a3a3" stroke-width="1.6" />'
+            '<circle cx="0" cy="0" r="3.5" fill="#d44f4f" />'
+            "</g>"
+        )
+    context_chip = f"{selected_count} area{'s' if selected_count != 1 else ''}" if selected_count else "Custom area"
+    focus_chip = selected_labels[0] if len(selected_labels) == 1 else market_label.split(" · ")[0]
+    context_text = html.escape(context_chip)
+    focus_text = html.escape(focus_chip[:22])
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="184" viewBox="0 0 320 184" fill="none">'
+        '<defs>'
+        '<linearGradient id="bg" x1="18" y1="16" x2="280" y2="168" gradientUnits="userSpaceOnUse">'
+        '<stop stop-color="#F5F0E5"/>'
+        '<stop offset="1" stop-color="#E4DDD0"/>'
+        '</linearGradient>'
+        '<filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">'
+        '<feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#2D2418" flood-opacity="0.16"/>'
+        '</filter>'
+        '</defs>'
+        '<rect width="320" height="184" rx="18" fill="#1E1A15"/>'
+        '<g transform="translate(12 12)" filter="url(#shadow)">'
+        '<rect width="296" height="160" rx="14" fill="url(#bg)"/>'
+        '<path d="M12 126C48 92 76 98 114 72C142 53 182 54 214 38C239 25 264 28 284 18" stroke="#CFC6B7" stroke-width="5" stroke-linecap="round" opacity="0.38"/>'
+        '<path d="M18 46C48 62 72 58 96 70C127 86 154 96 186 96C225 96 249 86 278 74" stroke="#D8D0C2" stroke-width="3" stroke-linecap="round" opacity="0.55"/>'
+        '<path d="M238 18C258 36 274 48 286 82" stroke="#BED4DF" stroke-width="12" stroke-linecap="round" opacity="0.34"/>'
+        f'{"".join(shapes)}'
+        f"{custom_marker}"
+        '<rect x="14" y="14" width="108" height="28" rx="14" fill="#FFFBF2" fill-opacity="0.92"/>'
+        f'<text x="28" y="32" fill="#3F362A" font-size="13" font-family="Inter, Arial, sans-serif" font-weight="700">{context_text}</text>'
+        '<rect x="172" y="118" width="110" height="28" rx="14" fill="#261E18" fill-opacity="0.84"/>'
+        f'<text x="186" y="136" fill="#FFF8EC" font-size="13" font-family="Inter, Arial, sans-serif" font-weight="700">{focus_text}</text>'
+        "</g>"
+        "</svg>"
+    )
+    return {
+        "image_url": f"data:image/svg+xml;utf8,{urllib.parse.quote(svg, safe='/:;,+-=()%')}",
+        "alt": f"Search area preview for {normalized_query or market_label}",
+        "summary": ", ".join(selected_labels[:2]) if selected_labels else (normalized_query or market_label),
+        "count_label": context_chip,
+        "market_label": market_label,
+    }
 
 
 def _property_candidate_maps_url(candidate: dict[str, object]) -> str:
@@ -3416,32 +3608,32 @@ def app_section_payload(
                 {
                     "key": "search",
                     "label": "Search posture",
-                    "detail": "Choose the market, the buying posture, and the guardrails before the crawl fans out.",
+                    "detail": "Market, mode, and budget.",
                 },
                 {
                     "key": "areas",
                     "label": "Areas and priorities",
-                    "detail": "Select districts, fit signals, lifestyle filters, and university proximity that should actually drive the ranking.",
+                    "detail": "Areas, fit signals, and lifestyle priorities.",
                 },
                 {
                     "key": "children",
                     "label": "Children",
-                    "detail": "Capture playground, kindergarten, school type, and school-quality priorities as a separate family layer.",
+                    "detail": "Playgrounds, schools, and childcare.",
                 },
                 {
                     "key": "reachability",
                     "label": "Reachability",
-                    "detail": "Set adult destinations, transport modes, and hard travel-time constraints independently from the children layer.",
+                    "detail": "Destinations, travel modes, and time limits.",
                 },
                 {
                     "key": "research",
                     "label": "Research modes",
-                    "detail": "Decide which deeper research layers should run: investment, supply, risks, project-stage realism, uncertainty handling, and action-readiness.",
+                    "detail": "Risk, supply, investment, and evidence depth.",
                 },
                 {
                     "key": "providers",
                     "label": "Providers and launch",
-                    "detail": "Pick the sources, confirm the run cap, then save or launch the visible crawl.",
+                    "detail": "Choose sources, then save or launch.",
                 },
             ],
         },
@@ -3992,6 +4184,7 @@ def property_workspace_payload(
             raw_run.get("status") or summary.get("status"),
             raw_run.get("message") or summary.get("message"),
         )
+        scope_preview = _property_scope_preview(country, region, location)
         return {
             "run_id": run_id_value,
             "agent_id": str(raw_run.get("active_search_agent_id") or preferences_json.get("active_search_agent_id") or "").strip(),
@@ -4000,6 +4193,8 @@ def property_workspace_payload(
             "status_note": status_note,
             "title": location or region or country or "Saved search",
             "scope_label": " · ".join(scope_parts) or "No scope saved",
+            "scope_preview": scope_preview,
+            "scope_summary": str(scope_preview.get("summary") or location or region or country or "Search area").strip(),
             "mode_label": mode or "Search",
             "href": f"/app/properties?run_id={urllib.parse.quote(run_id_value, safe='')}" if run_id_value else "/app/properties",
             "updated_at": str(raw_run.get("updated_at") or raw_run.get("generated_at") or "").strip(),

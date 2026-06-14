@@ -369,16 +369,16 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants." in setup.text
     assert "Select Kindergarten to reveal public and private kindergarten options." in setup.text
     assert 'data-checkbox-group-select-all="selected_platforms"' in setup.text
-    assert "Use this family" in setup.text
-    assert "Clear this family" in setup.text
-    assert "Select all" in setup.text
+    assert "Add family" in setup.text
+    assert "Clear family" in setup.text
+    assert "All sources" in setup.text
     assert "Notverkauf und Justiz" in setup.text
     assert "Justiz Edikte" in setup.text
     assert 'data-property-advanced-panel="children"' in setup.text
     assert 'data-property-advanced-panel="commute"' in setup.text
     assert 'data-property-advanced-panel="location_research"' in setup.text
-    assert "Erweiterte Kinder- und Familienfilter" in setup.text
-    assert "Erweiterte Lage- und Researchfilter" in setup.text
+    assert "Family & schools" in setup.text
+    assert "More filters" in setup.text
     assert 'name="max_distance_to_library_m"' in setup.text
     assert 'name="max_distance_to_library_importance"' in setup.text
     assert 'name="max_distance_to_playground_importance"' in setup.text
@@ -740,10 +740,14 @@ def test_property_workbench_previous_search_cards_have_explicit_overflow_gate() 
     body = template_path.read_text(encoding="utf-8")
 
     assert 'data-pqx-previous-search-card' in body
+    assert 'data-pqx-scope-preview' in body
+    assert 'class="pqx-previous-scope-image"' in body
     assert 'class="pqx-previous-title"' in body
     assert 'class="pqx-previous-candidate-title"' in body
     assert ".pqx-previous-title" in body
     assert "-webkit-line-clamp: 2;" in body
+    assert ".pqx-previous-scope-preview" in body
+    assert "aspect-ratio: 16 / 9;" in body
     assert ".pqx-previous-search {" in body
     assert "max-width: 100%;" in body
     assert "overflow: hidden;" in body
@@ -1252,7 +1256,11 @@ def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     assert "Saved searches" in body
     assert "Next action" in body
     assert "Recent decisions and reviews" in body
+    assert "pqx-previous-scope-caption" in body
     assert "grid-template-columns: minmax(220px, 320px) minmax(640px, 1fr);" in body
+    assert "grid-template-columns: repeat(6, minmax(0, 1fr));" in body
+    assert "<legend>Search flow</legend>" in body
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in body
     assert "pqx-state-strip" not in body
     assert 'aria-label="Current search context"' not in body
     assert 'aria-label="Account navigation"' in body
@@ -1268,6 +1276,8 @@ def test_property_workspace_previous_search_delete_uses_real_api_endpoint() -> N
     assert "Delete this previous search from the dashboard?" in body
     assert "method: 'DELETE'" in body
     assert "delete_run_template" in view_model
+    assert "_property_scope_preview" in view_model
+    assert '"scope_preview": scope_preview' in view_model
 
 
 def test_property_finished_search_results_start_with_compact_compare_strip() -> None:
