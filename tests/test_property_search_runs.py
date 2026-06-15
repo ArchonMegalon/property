@@ -8,6 +8,7 @@ import urllib.parse
 import uuid
 from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -168,6 +169,48 @@ def test_investment_external_snapshot_falls_back_honestly_without_live_feeds(mon
     assert snapshot["financing"]["source_mode"] == "assumption"
     assert snapshot["net_yield_pct"] is not None
     assert snapshot["cap_rate_pct"] is not None
+
+
+def test_investment_external_feed_rejects_insecure_http_without_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_PROPERTY_RENT_ROLL_FEED_URL", "http://example.test/feed")
+
+    def _unexpected_urlopen(*args, **kwargs):
+        raise AssertionError("urlopen should not run for insecure feed URLs")
+
+    monkeypatch.setattr(property_investment_external_data.urllib.request, "urlopen", _unexpected_urlopen)
+    payload = property_investment_external_data._fetch_external_feed(
+        "EA_PROPERTY_RENT_ROLL_FEED",
+        {"country_code": "AT", "purchase_price_eur": 300000},
+    )
+
+    assert payload == {}
+
+
+def test_investment_external_feed_rejects_oversized_response(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_PROPERTY_RENT_ROLL_FEED_URL", "https://example.test/feed")
+    monkeypatch.setenv("EA_PROPERTY_INVESTMENT_EXTERNAL_MAX_RESPONSE_BYTES", "64")
+    monkeypatch.setenv("EA_PROPERTY_INVESTMENT_EXTERNAL_CACHE_PATH", str(tmp_path / "investment_cache.json"))
+
+    class _Response:
+        def __init__(self) -> None:
+            self.headers = {"Content-Type": "application/json", "Content-Length": "512"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, size: int = -1) -> bytes:
+            return b'{"annual_rent_eur": 18000}'
+
+    monkeypatch.setattr(property_investment_external_data.urllib.request, "urlopen", lambda *args, **kwargs: _Response())
+    payload = property_investment_external_data._fetch_external_feed(
+        "EA_PROPERTY_RENT_ROLL_FEED",
+        {"country_code": "AT", "purchase_price_eur": 300000},
+    )
+
+    assert payload == {}
 
 
 def test_findmyhome_entry_links_are_not_treated_as_supported_property_listings() -> None:

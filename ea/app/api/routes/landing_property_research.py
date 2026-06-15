@@ -727,7 +727,7 @@ def _property_packet_future_research_rows(facts: dict[str, object]) -> list[dict
     if school_quality:
         rows.append(_object_detail_row("School context", school_quality, school_evidence_type.title() or "Research", href=school_source_url))
     if school_progression:
-        rows.append(_object_detail_row("School transition context", school_progression, school_evidence_type.title() or "Research", href=school_source_url))
+        rows.append(_object_detail_row("Gymnasium progression", school_progression, school_evidence_type.title() or "Research", href=school_source_url))
     selected_school = dict(future.get("school_atlas_selected_school") or {}) if isinstance(future.get("school_atlas_selected_school"), dict) else {}
     if selected_school:
         selected_label = " | ".join(

@@ -34,7 +34,7 @@
   </div>
   <div class="pqx-suppression-grid">
     {% for row in actions[:4] if row.get('adjustments') %}
-    <button class="pqx-suppression-item" type="button" data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}'>
+    <button class="pqx-suppression-item" type="button" data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}' aria-label="Relax rule">
       {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true">{{ row.get('affected_total') }}</span>{% endif %}
       <strong>{{ row.get('title') }}</strong>
       <span class="pqx-note">{{ row.get('detail') }}</span>
@@ -42,11 +42,11 @@
     </button>
     {% else %}
     {% for row in rows[:4] %}
-    <button class="pqx-suppression-item" type="button" data-pqx-filtered-open>
+    <button class="pqx-suppression-item" type="button" data-pqx-filtered-open aria-label="Relax rule">
       {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true">{{ row.get('affected_total') }}</span>{% endif %}
       <strong>{{ row.get('title') }}</strong>
       <span class="pqx-note">{{ row.get('detail') }}</span>
-      <span class="pqx-suppression-action">{{ row.get('action_label') or 'Review filter' }}</span>
+      <span class="pqx-suppression-action">{{ row.get('action_label') or 'Relax rule' }}</span>
     </button>
     {% endfor %}
     {% endfor %}
@@ -1535,6 +1535,11 @@
     .pqx-surface-search .pqx-workflow-step strong {
       font-size: 12px;
     }
+    .pqx-brief-drawer-panel {
+      max-height: calc(100vh - 136px);
+      overflow: auto;
+      overscroll-behavior: contain;
+    }
     .pqx-form-body {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2048,6 +2053,9 @@
       }
       .pqx-surface-search .pqx-workflow-step strong {
         font-size: 12px;
+      }
+      .pqx-brief-drawer-panel {
+        max-height: calc(100vh - 112px);
       }
       .pqx-surface-search .pqx-form-body {
         gap: 4px 6px;
@@ -3976,7 +3984,7 @@
           {% endif %}
         </aside>
 
-        <section class="pqx-command active" data-pqx-mobile-panel="brief" data-workbench-brief-drawer>
+        <section class="pqx-command pqx-brief-drawer-panel active" data-pqx-mobile-panel="brief" data-workbench-brief-drawer>
           <div class="pqx-section-head">
             <div>
               <h2>
@@ -4393,7 +4401,7 @@
         <aside class="pqx-run-hero active" data-pqx-mobile-panel="results">
           <div class="pqx-title">
             <span>{% if run_status == 'failed' %}Run failed{% else %}Run complete{% endif %}</span>
-            <h1>{% if run_status == 'failed' %}The search failed before ranking finished.{% else %}No strong matches found yet.{% endif %}</h1>
+            <h1>{% if run_status == 'failed' %}The search could not finish.{% else %}No strong matches found yet.{% endif %}</h1>
           </div>
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
@@ -4414,7 +4422,52 @@
           </div>
         </aside>
         <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property">
-          {{ suppression_panel(workbench.get('suppression_rows') or []) }}
+          <div>
+          {% if not ranked_candidates %}
+          <div class="pqx-section-head" data-pqx-screenfit-target="run-progress">
+            <div>
+              <h2>Ways to get more matches</h2>
+              <div class="pqx-note" data-pqx-run-summary">Relax one rule at a time so the next shortlist stays easy to compare.</div>
+            </div>
+            <div style="display:grid;gap:6px;justify-items:end;">
+              <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
+              <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>{{ run_summary.get('sources_total') or run_sources|length or 0 }} sources · {{ run_summary.get('listing_total') or 0 }} homes checked</span>
+            </div>
+          </div>
+          {% endif %}
+          <div data-pqx-counterfactuals>
+          {% if (workbench.get('counterfactual_rows') or workbench.get('suppression_rows')) and not ranked_candidates %}
+          <div class="pqx-suppression-grid" style="margin-bottom:12px;">
+            {% for row in (workbench.get('counterfactual_rows') or [])[:3] if row.get('adjustments') %}
+            <button class="pqx-suppression-item" type="button" data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}' aria-label="Relax rule">
+              <strong>{{ row.get('title') }}</strong>
+              <span class="pqx-note">{{ row.get('detail') }}</span>
+              <span class="pqx-suppression-action">{{ row.get('action_label') or 'Relax rule' }}</span>
+            </button>
+            {% else %}
+            {% for row in (workbench.get('suppression_rows') or [])[:3] %}
+            <button class="pqx-suppression-item" type="button" data-pqx-filtered-open aria-label="Relax rule">
+              <strong>{{ row.get('title') }}</strong>
+              <span class="pqx-note">{{ row.get('detail') }}</span>
+              <span class="pqx-suppression-action">{{ row.get('action_label') or 'Relax rule' }}</span>
+            </button>
+            {% endfor %}
+            {% endfor %}
+          </div>
+          {% elif not ranked_candidates %}
+          <div class="pqx-suppression-grid" style="margin-bottom:12px;">
+            <button class="pqx-suppression-item" type="button" data-pqx-filtered-open aria-label="Relax area">
+              <strong>Relax area</strong>
+              <span class="pqx-note">Widen one location rule first so the next pass stays easy to explain.</span>
+              <span class="pqx-suppression-action">Relax rule</span>
+            </button>
+          </div>
+          {% endif %}
+          {{ suppression_panel(workbench.get('suppression_rows') or [], workbench.get('counterfactual_rows') or []) }}
+          </div>
+          {% if not ranked_candidates %}
+          </div>
+          {% endif %}
           {% if ranked_candidates %}
           <div data-pqx-screenfit-target="run-progress">
           <div class="pqx-section-head">
@@ -4498,13 +4551,32 @@
           <section class="pqx-card pqx-empty-results-note" data-pqx-ranked-candidates>
             <div class="pqx-section-head">
               <div>
-                <h2>{% if run_status == 'failed' %}Search outcome{% else %}No ranked homes yet{% endif %}</h2>
+                <h2>{% if run_status == 'failed' %}Best matches{% else %}No ranked homes yet{% endif %}</h2>
                 <div class="pqx-note" data-pqx-run-summary>{% if run_status == 'failed' %}The run failed before a stable shortlist was produced.{% else %}No homes cleared the current bar yet.{% endif %}</div>
               </div>
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
             </div>
             <div class="pqx-note">{% if run_status == 'failed' %}Refresh if the failure looks transient. Otherwise remove one strict rule before starting over.{% else %}Try one small relaxation first, then rerun only if the current brief is clearly too narrow.{% endif %}</div>
           </section>
+          <details class="pqx-card">
+            <summary><strong>How this search was filtered</strong><span class="pqx-note">Open only if you want to inspect the provider trail.</span></summary>
+            <div class="pqx-source-list" data-pqx-source-breakdown>
+              {% for source in run_sources[:8] %}
+              <article class="pqx-source-card">
+                <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
+                <span class="pqx-note">{{ source.get('source_status') or source.get('status') or 'Scanned' }}</span>
+                <div class="pqx-source-metrics">
+                  <span>Reviewed <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
+                  <span>High fit <b>{{ source.get('high_fit_total') or 0 }}</b></span>
+                  <span>Filtered <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
+                  <span>Awaiting floorplans <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
+                </div>
+                {% if source.get('message') or source.get('error') %}<span class="pqx-note">{{ source.get('message') or source.get('error') }}</span>{% endif %}
+              </article>
+              {% endfor %}
+            </div>
+          </details>
+          </div>
           {% endif %}
           {% if run.get('events') %}
           <details class="pqx-card">

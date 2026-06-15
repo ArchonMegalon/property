@@ -196,7 +196,7 @@
           },
         });
       }
-      appendActionControl(node, {
+      bindFlipLinkPacketButton(appendActionControl(node, {
         label: 'Share this home',
         attributes: {
           'data-fliplink-packet': '',
@@ -204,7 +204,7 @@
           'data-rybbit-event': 'property_share_home',
           'data-rybbit-prop-candidate': candidateRef,
         },
-      });
+      }));
       const details = document.createElement('details');
       details.className = 'pqx-decision-advanced';
       details.style.marginTop = '12px';
@@ -258,13 +258,13 @@
           },
         });
       }
-      appendActionControl(actions, {
+      bindShortlistShareButton(appendActionControl(actions, {
         label: 'Share results',
         attributes: {
           'data-fliplink-shortlist-share': '',
           'data-rybbit-event': 'property_share_results',
         },
-      });
+      }));
       details.appendChild(actions);
       const status = document.createElement('div');
       status.className = 'pqx-decision-status';

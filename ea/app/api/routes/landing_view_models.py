@@ -157,6 +157,30 @@ def _property_customer_run_summary(summary: dict[str, object]) -> dict[str, obje
     return clean
 
 
+def _sanitize_platform_catalog_for_client(platform_catalog: dict[str, object]) -> dict[str, list[dict[str, object]]]:
+    sanitized: dict[str, list[dict[str, object]]] = {}
+    for country_code, options in dict(platform_catalog or {}).items():
+        country_key = str(country_code or "").strip()
+        if not country_key:
+            continue
+        rows: list[dict[str, object]] = []
+        for option in list(options or []):
+            if not isinstance(option, dict):
+                continue
+            row: dict[str, object] = {
+                "value": str(option.get("value") or "").strip(),
+                "label": str(option.get("label") or option.get("value") or "").strip(),
+                "family": str(option.get("family") or "").strip(),
+            }
+            detail = str(option.get("detail") or option.get("description") or "").strip()
+            normalized_detail = detail.lower()
+            if detail and "floorplans " not in normalized_detail and "filters " not in normalized_detail:
+                row["detail"] = detail
+            rows.append(row)
+        sanitized[country_key] = rows
+    return sanitized
+
+
 def _property_result_title_display(title: object) -> str:
     text = " ".join(str(title or "").split()).strip()
     if not text:
@@ -3235,7 +3259,9 @@ def app_section_payload(
             "start_endpoint": str(property_state.get("start_endpoint") or ""),
             "run_id": str(property_run.get("run_id") or ""),
             "initial_run": property_run,
-            "platform_catalog_by_country": dict(property_state.get("platform_catalog_by_country") or {}),
+            "platform_catalog_by_country": _sanitize_platform_catalog_for_client(
+                dict(property_state.get("platform_catalog_by_country") or {})
+            ),
             "default_language_by_country": dict(property_state.get("default_language_by_country") or {}),
             "region_catalog_by_country": {
                 option.get("value"): _property_region_options(str(option.get("value") or ""))

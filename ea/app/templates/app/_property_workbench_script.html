@@ -109,6 +109,19 @@
     });
 
     const candidateByRef = new Map(candidates.map((candidate) => [String(candidate.candidate_ref || ''), candidate]));
+    const selectedCandidatePayload = data.selected && typeof data.selected === 'object' ? { ...data.selected } : null;
+    const resolveCandidate = (candidateRef = '') => {
+      const normalizedRef = String(candidateRef || '').trim();
+      if (normalizedRef && candidateByRef.has(normalizedRef)) return candidateByRef.get(normalizedRef);
+      const matchedCandidate = normalizedRef
+        ? candidates.find((row) => String(row?.candidate_ref || '').trim() === normalizedRef)
+        : null;
+      if (matchedCandidate) return matchedCandidate;
+      if (selectedCandidatePayload && (!normalizedRef || String(selectedCandidatePayload.candidate_ref || '').trim() === normalizedRef)) {
+        return selectedCandidatePayload;
+      }
+      return candidates[0] || selectedCandidatePayload || null;
+    };
     const briefPreferences = (data.brief_preferences && typeof data.brief_preferences === 'object') ? { ...data.brief_preferences } : {};
     const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
     const propertyDecisionSaveEndpoint = () => '/app/api/property/decisions';
@@ -443,6 +456,26 @@
           window.setTimeout(() => { button.textContent = original; }, 4200);
         }
       }
+    };
+    const bindFlipLinkPacketButton = (button) => {
+      if (!button || button.dataset.pqxPacketBound === '1') return button;
+      button.dataset.pqxPacketBound = '1';
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        const candidateRef = String(button.getAttribute('data-candidate-ref') || '').trim();
+        const candidate = resolveCandidate(candidateRef);
+        if (candidate) createFlipLinkPacket(candidate, button);
+      });
+      return button;
+    };
+    const bindShortlistShareButton = (button) => {
+      if (!button || button.dataset.pqxShortlistShareBound === '1') return button;
+      button.dataset.pqxShortlistShareBound = '1';
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        createShortlistSharePacket(button);
+      });
+      return button;
     };
     const requestVisualAsset = async (candidate, kind, button) => {
       if (!candidate) return;
@@ -1078,9 +1111,25 @@
       const fullRegionScopeField = form.querySelector('input[name="full_region_scope"]');
       const preferencePersonField = form.querySelector('[name="preference_person_id"]');
       const fullRegionScopeFieldWrap = form.querySelector('[data-property-field-name="full_region_scope"]');
+      const fullRegionScopeLabelNode = fullRegionScopeFieldWrap?.querySelector('label span span');
       const locationFieldWrap = form.querySelector('[data-property-field-name="location_query"]');
       const rawPlanPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
       const planPlatformCap = Number.isFinite(rawPlanPlatformCap) && rawPlanPlatformCap > 0 ? rawPlanPlatformCap : 0;
+      const effectiveListingMode = () => {
+        const isInvestment = String(searchGoalField?.value || 'home').trim().toLowerCase() === 'investment';
+        return isInvestment ? 'buy' : (String(listingModeField?.value || 'rent').trim().toLowerCase() === 'buy' ? 'buy' : 'rent');
+      };
+      const syncProviderOptionsForMarket = () => {
+        const selectedCountry = String(countryField?.value || 'AT').trim();
+        const catalog = meta.platform_catalog_by_country || {};
+        const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
+        const currentSelection = checkedValues(form, 'selected_platforms');
+        const availableValues = new Set(options.map((option) => String(option?.value || '').trim()).filter(Boolean));
+        const preservedSelection = currentSelection.filter((value) => availableValues.has(String(value || '').trim()));
+        const defaultSelection = defaultPlatformsForCountryMode(meta, selectedCountry, effectiveListingMode(), options);
+        renderCheckboxOptions(form, 'selected_platforms', options, preservedSelection.length ? preservedSelection : defaultSelection);
+        syncSelectAllButtons(form, planPlatformCap);
+      };
       const syncAdvancedPanels = () => {
         form.querySelectorAll('details[data-property-advanced-panel]').forEach((panel) => {
           const panelKey = String(panel.getAttribute('data-property-advanced-panel') || '').trim();
@@ -1107,6 +1156,7 @@
       };
       const syncSearchGoalControls = () => {
         const activeStep = String(form.dataset.propertyActiveStep || '').trim();
+        const previousEffectiveMode = String(form.dataset.propertyEffectiveListingMode || '').trim();
         const isInvestment = String(searchGoalField?.value || 'home').trim().toLowerCase() === 'investment';
         if (listingModeFieldWrap) {
           listingModeFieldWrap.hidden = isInvestment || activeStep !== 'search';
@@ -1143,6 +1193,9 @@
         } else {
           form.dataset.propertyExcludedSteps = '';
         }
+        const nextEffectiveMode = effectiveListingMode();
+        if (previousEffectiveMode !== nextEffectiveMode) syncProviderOptionsForMarket();
+        form.dataset.propertyEffectiveListingMode = nextEffectiveMode;
         syncListingModeControls();
         syncAreaScopeControls();
         form.dispatchEvent(new CustomEvent('propertyquarry:wizardrefresh'));
@@ -1230,6 +1283,7 @@
         const locationCatalog = meta.location_catalog_by_country_region || {};
         const selectedCountry = String(countryField?.value || '').trim();
         const currentRegion = String(regionField?.value || '').trim();
+        const currentLocations = checkedValues(form, 'location_query');
         const regionOptions = Array.isArray(regionCatalog[selectedCountry]) ? regionCatalog[selectedCountry] : [];
         if (regionField) {
           regionField.innerHTML = regionOptions.map((option, index) => {
@@ -1240,8 +1294,13 @@
           }).join('');
         }
         const effectiveRegion = String(regionField?.value || regionOptions[0]?.value || '').trim();
+        const effectiveRegionLabel = String(regionField?.selectedOptions?.[0]?.textContent || effectiveRegion || 'area').trim();
         const locationOptions = locationCatalog[selectedCountry]?.[effectiveRegion] || [];
-        renderCheckboxOptions(form, 'location_query', locationOptions, []);
+        const validLocations = currentLocations.filter((value) => locationOptions.some((option) => String(option?.value || '').trim() === String(value || '').trim()));
+        renderCheckboxOptions(form, 'location_query', locationOptions, validLocations);
+        if (fullRegionScopeLabelNode) {
+          fullRegionScopeLabelNode.textContent = effectiveRegionLabel ? `Use all ${effectiveRegionLabel}` : 'Use full area';
+        }
         syncAreaScopeControls();
       };
       const applyBrowserAndIpDefaults = async () => {
@@ -1249,11 +1308,7 @@
         const nextCountry = browserCountryCode();
         if (countryField && nextCountry && nextCountry !== String(countryField.value || '').trim()) {
           countryField.value = nextCountry;
-          const catalog = meta.platform_catalog_by_country || {};
-          const options = Array.isArray(catalog[nextCountry]) ? catalog[nextCountry] : [];
-          const defaultSelection = defaultPlatformsForCountryMode(meta, nextCountry, listingModeField?.value || 'rent', options);
-          renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
-          syncSelectAllButtons(form, planPlatformCap);
+          syncProviderOptionsForMarket();
           refreshRegionAndLocationChoices();
           syncMarketAwareFields(form, meta);
         }
@@ -1265,11 +1320,7 @@
           const normalizedIpCountry = ipCountry === 'GB' ? 'UK' : ipCountry;
           if (normalizedIpCountry !== String(countryField.value || '').trim()) {
             countryField.value = normalizedIpCountry;
-            const catalog = meta.platform_catalog_by_country || {};
-            const options = Array.isArray(catalog[normalizedIpCountry]) ? catalog[normalizedIpCountry] : [];
-            const defaultSelection = defaultPlatformsForCountryMode(meta, normalizedIpCountry, listingModeField?.value || 'rent', options);
-            renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
-            syncSelectAllButtons(form, planPlatformCap);
+            syncProviderOptionsForMarket();
             refreshRegionAndLocationChoices();
             syncMarketAwareFields(form, meta);
           }
@@ -1290,12 +1341,7 @@
         }
       };
       countryField?.addEventListener('change', () => {
-        const selectedCountry = String(countryField.value || '').trim();
-        const catalog = meta.platform_catalog_by_country || {};
-        const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
-        const defaultSelection = defaultPlatformsForCountryMode(meta, selectedCountry, listingModeField?.value || 'rent', options);
-        renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
-        syncSelectAllButtons(form, planPlatformCap);
+        syncProviderOptionsForMarket();
         const customLocationField = form.querySelector('[name="custom_location_query"]');
         if (customLocationField) customLocationField.value = '';
         refreshRegionAndLocationChoices();
@@ -1311,12 +1357,7 @@
       });
       fullRegionScopeField?.addEventListener('change', syncAreaScopeControls);
       listingModeField?.addEventListener('change', () => {
-        const selectedCountry = String(countryField?.value || 'AT').trim();
-        const catalog = meta.platform_catalog_by_country || {};
-        const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
-        const defaultSelection = defaultPlatformsForCountryMode(meta, selectedCountry, listingModeField?.value || 'rent', options);
-        renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
-        syncSelectAllButtons(form, planPlatformCap);
+        syncProviderOptionsForMarket();
         syncListingModeControls();
       });
       commuteResearchField?.addEventListener('change', syncCommuteControls);
@@ -1631,8 +1672,14 @@
       });
       if (source.keywords && !source.custom_keywords) setFieldValue('custom_keywords', source.keywords);
       bindRangeOutputs(form);
+      syncAreaScopeControls();
+      syncListingModeControls();
+      syncCommuteControls();
+      syncFamilyModeControls();
+      syncSearchGoalControls();
       syncMarketAwareFields(form, meta);
       syncSchoolStageVariantVisibility(form);
+      syncSelectAllButtons(form, planPlatformCap);
       setMode('brief');
     };
     const showLoadedSearchAgent = (row, payloadOverride = null) => {
@@ -1960,6 +2007,12 @@
         const statusUrl = String(data.run?.status_url || '').trim();
         if (statusUrl) pollRun(statusUrl);
       });
+    });
+    root.querySelectorAll('[data-fliplink-packet]').forEach((button) => {
+      bindFlipLinkPacketButton(button);
+    });
+    root.querySelectorAll('[data-fliplink-shortlist-share]').forEach((button) => {
+      bindShortlistShareButton(button);
     });
     root.querySelectorAll('[data-pw-decision-state]').forEach((button) => {
       button.addEventListener('click', async () => {

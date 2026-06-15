@@ -8,6 +8,7 @@ import math
 import os
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,8 @@ from typing import Any
 
 _CACHE_VERSION = 1
 _CACHE_TTL_SECONDS = 12 * 60 * 60
+_CACHE_MAX_ROWS = 512
+_FEED_MAX_RESPONSE_BYTES = 1024 * 1024
 
 
 def _float_or_none(value: object) -> float | None:
@@ -44,7 +47,7 @@ def _cache_path() -> Path:
     explicit = str(os.getenv("EA_PROPERTY_INVESTMENT_EXTERNAL_CACHE_PATH") or "").strip()
     if explicit:
         return Path(explicit).expanduser()
-    return Path("/docker/property/state/property_investment_external_cache.json")
+    return Path("/tmp/propertyquarry/state/property_investment_external_cache.json")
 
 
 def _cache_ttl_seconds() -> int:
@@ -57,6 +60,26 @@ def _cache_ttl_seconds() -> int:
         return _CACHE_TTL_SECONDS
 
 
+def _cache_max_rows() -> int:
+    raw = str(os.getenv("EA_PROPERTY_INVESTMENT_EXTERNAL_CACHE_MAX_ROWS") or "").strip()
+    if not raw:
+        return _CACHE_MAX_ROWS
+    try:
+        return max(32, min(int(raw), 5000))
+    except Exception:
+        return _CACHE_MAX_ROWS
+
+
+def _feed_max_response_bytes() -> int:
+    raw = str(os.getenv("EA_PROPERTY_INVESTMENT_EXTERNAL_MAX_RESPONSE_BYTES") or "").strip()
+    if not raw:
+        return _FEED_MAX_RESPONSE_BYTES
+    try:
+        return max(4096, min(int(raw), 5 * 1024 * 1024))
+    except Exception:
+        return _FEED_MAX_RESPONSE_BYTES
+
+
 @contextlib.contextmanager
 def _cache_lock(path: Path):
     lock_path = path.with_name(f"{path.name}.lock")
@@ -65,6 +88,8 @@ def _cache_lock(path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         handle = lock_path.open("a+", encoding="utf-8")
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
+    except OSError:
         yield
     finally:
         if handle is not None:
@@ -84,7 +109,7 @@ def _load_cache() -> dict[str, object]:
         return {"version": _CACHE_VERSION, "rows": {}}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, Exception):
         return {"version": _CACHE_VERSION, "rows": {}}
     if not isinstance(payload, dict):
         return {"version": _CACHE_VERSION, "rows": {}}
@@ -94,8 +119,11 @@ def _load_cache() -> dict[str, object]:
 
 def _store_cache(payload: dict[str, object]) -> None:
     path = _cache_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=True, sort_keys=True), encoding="utf-8")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=True, sort_keys=True), encoding="utf-8")
+    except OSError:
+        return
 
 
 def _cache_key(*, lane: str, request_payload: dict[str, object]) -> str:
@@ -106,35 +134,52 @@ def _cache_key(*, lane: str, request_payload: dict[str, object]) -> str:
 def _cached_feed_payload(*, lane: str, request_payload: dict[str, object]) -> dict[str, object] | None:
     key = _cache_key(lane=lane, request_payload=request_payload)
     path = _cache_path()
-    with _cache_lock(path):
-        payload = _load_cache()
-        rows = dict(payload.get("rows") or {})
-        row = dict(rows.get(key) or {}) if isinstance(rows.get(key), dict) else {}
-        if not row:
-            return None
-        try:
-            stored_at = float(row.get("stored_at_epoch") or 0.0)
-        except Exception:
-            stored_at = 0.0
-        if stored_at <= 0.0 or (time.time() - stored_at) > float(_cache_ttl_seconds()):
-            return None
-        data = dict(row.get("data") or {}) if isinstance(row.get("data"), dict) else {}
-        return data or None
+    try:
+        with _cache_lock(path):
+            payload = _load_cache()
+            rows = dict(payload.get("rows") or {})
+            row = dict(rows.get(key) or {}) if isinstance(rows.get(key), dict) else {}
+            if not row:
+                return None
+            try:
+                stored_at = float(row.get("stored_at_epoch") or 0.0)
+            except Exception:
+                stored_at = 0.0
+            if stored_at <= 0.0 or (time.time() - stored_at) > float(_cache_ttl_seconds()):
+                return None
+            data = dict(row.get("data") or {}) if isinstance(row.get("data"), dict) else {}
+            return data or None
+    except OSError:
+        return None
 
 
 def _put_cached_feed_payload(*, lane: str, request_payload: dict[str, object], data: dict[str, object]) -> None:
     key = _cache_key(lane=lane, request_payload=request_payload)
     path = _cache_path()
-    with _cache_lock(path):
-        payload = _load_cache()
-        rows = dict(payload.get("rows") or {})
-        rows[key] = {
-            "stored_at_epoch": time.time(),
-            "lane": lane,
-            "data": dict(data or {}),
-        }
-        payload["rows"] = rows
-        _store_cache(payload)
+    try:
+        with _cache_lock(path):
+            payload = _load_cache()
+            rows = dict(payload.get("rows") or {})
+            rows[key] = {
+                "stored_at_epoch": time.time(),
+                "lane": lane,
+                "data": dict(data or {}),
+            }
+            if len(rows) > _cache_max_rows():
+                ordered = sorted(
+                    (
+                        (str(cache_key), dict(cache_row or {}))
+                        for cache_key, cache_row in rows.items()
+                        if isinstance(cache_row, dict)
+                    ),
+                    key=lambda item: float(item[1].get("stored_at_epoch") or 0.0),
+                    reverse=True,
+                )[: _cache_max_rows()]
+                rows = {cache_key: cache_row for cache_key, cache_row in ordered}
+            payload["rows"] = rows
+            _store_cache(payload)
+    except OSError:
+        return
 
 
 def _feed_env(prefix: str, name: str) -> str:
@@ -186,6 +231,50 @@ def _feed_headers(prefix: str) -> dict[str, str]:
     return headers
 
 
+def _feed_content_type_allowed(content_type: str) -> bool:
+    normalized = str(content_type or "").strip().lower()
+    return (
+        not normalized
+        or "application/json" in normalized
+        or "application/problem+json" in normalized
+        or "text/json" in normalized
+    )
+
+
+def _feed_url_allowed(url: str) -> bool:
+    parsed = urllib.parse.urlparse(str(url or "").strip())
+    scheme = str(parsed.scheme or "").strip().lower()
+    host = str(parsed.hostname or "").strip().lower()
+    if scheme == "https":
+        return bool(host)
+    if scheme == "http" and _truthy(os.getenv("EA_PROPERTY_INVESTMENT_EXTERNAL_ALLOW_INSECURE_HTTP")):
+        return host in {"127.0.0.1", "localhost"}
+    return False
+
+
+def _read_limited_response(response) -> bytes:  # type: ignore[no-untyped-def]
+    try:
+        content_length = int(str(response.headers.get("Content-Length") or "0").strip() or "0")
+    except Exception:
+        content_length = 0
+    max_bytes = _feed_max_response_bytes()
+    if content_length > max_bytes:
+        raise ValueError("external_feed_response_too_large")
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = response.read(min(65536, max_bytes - total))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > max_bytes:
+            raise ValueError("external_feed_response_too_large")
+        if total >= max_bytes:
+            break
+    return b"".join(chunks)
+
+
 def _fetch_external_feed(prefix: str, request_payload: dict[str, object]) -> dict[str, object]:
     cached = _cached_feed_payload(lane=prefix, request_payload=request_payload)
     if cached:
@@ -194,6 +283,8 @@ def _fetch_external_feed(prefix: str, request_payload: dict[str, object]) -> dic
         return result
     url = _feed_url(prefix)
     if not url:
+        return {}
+    if not _feed_url_allowed(url):
         return {}
     method = _feed_method(prefix)
     headers = _feed_headers(prefix)
@@ -215,9 +306,17 @@ def _fetch_external_feed(prefix: str, request_payload: dict[str, object]) -> dic
         headers.setdefault("Content-Type", "application/json")
         data = body
     request = urllib.request.Request(request_url, headers=headers, data=data, method=method)
-    with urllib.request.urlopen(request, timeout=_feed_timeout(prefix)) as response:
-        raw = response.read().decode("utf-8", "ignore")
-    payload = json.loads(raw)
+    try:
+        with urllib.request.urlopen(request, timeout=_feed_timeout(prefix)) as response:
+            if not _feed_content_type_allowed(str(response.headers.get("Content-Type") or "").strip()):
+                return {}
+            raw = _read_limited_response(response).decode("utf-8", "ignore")
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return {}
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return {}
     if not isinstance(payload, dict):
         return {}
     result = dict(payload)

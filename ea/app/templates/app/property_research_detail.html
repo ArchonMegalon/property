@@ -860,7 +860,8 @@
 
     <section class="prd-headline">
       <section class="prd-panel prd-headline-panel">
-        <div class="prd-kicker">{{ research_source_label }}</div>
+        <div class="prd-kicker">Property details</div>
+        {% if research_source_label %}<div class="prd-copy">{{ research_source_label }}</div>{% endif %}
         <h1>{{ research_title }}</h1>
         <h2 class="prd-price">{{ research_price }}</h2>
         <div class="prd-facts">
@@ -1053,6 +1054,7 @@
         <section class="prd-band">
           <div class="prd-kicker">Money</div>
           <h2 class="prd-section-title">Price, rent, and running costs</h2>
+          <p class="prd-section-copy">Buy-side underwriting view for acquisition cost, rent, financing, taxes, and running-cost assumptions.</p>
           <div class="object-list">
             {% for row in research_cost_rows %}
             <div class="prd-row">
@@ -1096,7 +1098,7 @@
         </section>
         <section class="prd-band">
           <div class="prd-kicker">Energy</div>
-          <h2 class="prd-section-title">Heating and technical posture</h2>
+          <h2 class="prd-section-title">Energy posture and heating</h2>
           <div class="object-list">
             {% for row in research_energy_rows %}
             <div class="prd-row">
@@ -1172,7 +1174,8 @@
         <div class="prd-collapse-body">
           {% if research_official_evidence_rows or research_official_posture_rows or research_future_research_rows or research_provenance_rows %}
           <section class="prd-stack">
-            <h2 class="prd-section-title">Evidence added beyond the listing</h2>
+            <h2 class="prd-section-title">How the wider area reads today</h2>
+            <p class="prd-section-copy">Evidence added beyond the listing so the surrounding risk, demand, and future-change picture is visible before you commit.</p>
             <div class="object-list">
               {% for row in research_official_evidence_rows[:4] %}
               <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ row.get('tag') }}</span></div>
@@ -1280,7 +1283,7 @@
       <p class="object-copy" data-object-followup-status></p>
       <textarea data-object-feedback-note placeholder="What exactly worked, failed, or still needs proof?"></textarea>
       <div class="object-actions">
-        <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save decision</button>
+        <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save answer</button>
         <a class="console-action" href="{{ research_feedback.get('profile_href') or '/app/profile' }}">Manage preferences</a>
       </div>
       <p class="object-copy" data-object-feedback-status></p>

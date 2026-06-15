@@ -16,7 +16,7 @@ router = APIRouter(tags=["public-results"])
 
 
 def _result_dir() -> Path:
-    return Path(str(os.getenv("EA_PUBLIC_RESULT_DIR") or "/docker/fleet/state/public_browseract_results")).expanduser()
+    return Path(str(os.getenv("EA_PUBLIC_RESULT_DIR") or "/docker/property/state/public_browseract_results")).expanduser()
 
 
 def _result_base_dir(slug: str) -> Path:
