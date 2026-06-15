@@ -1823,7 +1823,7 @@ def test_propertyquarry_setup_intro_is_compact_and_allows_fact_text_to_wrap() ->
     assert "white-space: nowrap;" not in fact_strong.group("body")
 
 
-def test_propertyquarry_workspace_supports_full_region_scope_toggle() -> None:
+def test_propertyquarry_workspace_supports_area_select_all_actions() -> None:
     principal_id = "pq-vienna-scope"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Vienna Scope Office")
@@ -1860,6 +1860,8 @@ def test_propertyquarry_workspace_supports_full_region_scope_toggle() -> None:
     assert "<h2>Search profile</h2>" not in search.text
     assert 'href="/app/account#profile">Open preferences</a>' in search.text
     assert "Prefer Outdoor Space (Soft Preference)" not in search.text
+    assert 'data-checkbox-group-select-all="location_query"' in search.text
+    assert 'data-checkbox-group-clear-all="location_query"' in search.text
     assert 'name="full_region_scope" value="true" checked' in search.text
 
 

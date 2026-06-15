@@ -2441,6 +2441,7 @@
     .pqx-worker-lane.tone-active { border-color: color-mix(in srgb, var(--pq-blue) 32%, var(--pq-line)); }
     .pqx-worker-lane.tone-done { border-color: color-mix(in srgb, var(--pq-green) 32%, var(--pq-line)); }
     .pqx-worker-lane.tone-queued { border-color: color-mix(in srgb, var(--pq-gold) 22%, var(--pq-line)); }
+    .pqx-worker-lane.tone-warn { border-color: color-mix(in srgb, #c76b2f 32%, var(--pq-line)); }
     .pqx-worker-progress {
       position: relative;
       height: 6px;
@@ -2461,6 +2462,9 @@
     }
     .pqx-worker-lane.tone-queued .pqx-worker-progress i {
       background: linear-gradient(90deg, #c88a38, #e1bb7e);
+    }
+    .pqx-worker-lane.tone-warn .pqx-worker-progress i {
+      background: linear-gradient(90deg, #c76b2f, #e0a071);
     }
     .pqx-worker-popover {
       position: absolute;
@@ -4133,10 +4137,15 @@
                 {% elif field.type == 'checkbox_group' %}
                 <fieldset class="pqx-choice-groupbox">
                   <legend class="pqx-choice-groupbox-legend">{{ field.label }}</legend>
-                  {% if field.name == 'selected_platforms' %}
+                  {% if field.name in ['selected_platforms', 'location_query'] %}
                   <div class="pqx-choice-groupbox-head">
                     <div class="pqx-choice-groupbox-actions pqx-field-tools">
+                      {% if field.name == 'selected_platforms' %}
                       <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select sources</button>
+                      {% else %}
+                      <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select all areas</button>
+                      <button class="pqx-field-action" type="button" data-checkbox-group-clear-all="{{ field.name }}">Deselect all areas</button>
+                      {% endif %}
                     </div>
                   </div>
                   {% endif %}

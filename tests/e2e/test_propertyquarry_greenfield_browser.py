@@ -899,12 +899,16 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('[data-property-field-name="region_code"]').is_hidden()
         assert page.locator('[data-property-field-name="location_query"]').is_visible()
 
-        page.locator('input[name="full_region_scope"]').check()
-        assert page.locator('[data-property-field-name="location_query"]').is_hidden()
-        assert page.locator('[data-property-field-name="location_query"]').get_attribute("data-property-collapsed-by") == "full_region_scope"
+        page.get_by_role("button", name="Select all areas", exact=True).click()
+        total_areas = page.locator('input[name="location_query"]').count()
+        assert total_areas > 0
+        assert page.locator('input[name="location_query"]:checked').count() == total_areas
+        assert page.locator('input[name="full_region_scope"]').is_checked()
 
-        page.locator('input[name="full_region_scope"]').uncheck()
+        page.get_by_role("button", name="Deselect all areas", exact=True).click()
         assert page.locator('[data-property-field-name="location_query"]').is_visible()
+        assert page.locator('input[name="location_query"]:checked').count() == 0
+        assert page.locator('input[name="full_region_scope"]').is_checked() is False
 
         page.locator('[data-property-step-trigger="children"]').click()
         page.locator('[data-property-field-name="enable_family_mode"]').wait_for(state="visible")
@@ -1331,6 +1335,10 @@ def test_propertyquarry_start_failure_explains_backend_reason(
         )
         response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
         assert response is not None and response.ok
+        page.select_option('select[name="country_code"]', "AT")
+        page.locator('[data-property-step-trigger="areas"]').click()
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'areas'")
+        page.get_by_role("button", name="Select all areas", exact=True).click()
         page.locator('[data-property-step-trigger="providers"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
         page.locator("[data-property-start]").click()
@@ -1397,7 +1405,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.select_option('select[name="country_code"]', "AT")
         page.locator('[data-property-step-trigger="areas"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'areas'")
-        page.locator('input[name="full_region_scope"]').check()
+        page.get_by_role("button", name="Select all areas", exact=True).click()
         page.locator('details[data-property-advanced-panel="location_research"] summary').click()
         page.locator('input[name="prefer_good_air_quality"]').check()
         page.locator('input[name="prefer_low_crime_area"]').check()
@@ -1464,9 +1472,11 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
             page.locator("[data-property-start]").click()
         response = start_response.value
         assert response.ok
-        page.wait_for_url("**/app/properties?run_id=*", timeout=5000)
-        run_id = page.evaluate("new URL(window.location.href).searchParams.get('run_id')")
-        assert run_id
+        try:
+            page.wait_for_url("**/app/properties?run_id=*", timeout=5000)
+        except Exception:
+            page.wait_for_load_state("networkidle")
+        run_id = urllib.parse.parse_qs(urllib.parse.urlparse(page.url).query).get("run_id", [""])[0]
         page.wait_for_selector("[data-pqx-finished-compare], [data-pqx-empty-results], [data-pqx-screenfit-target=\"run-progress\"]", timeout=10000)
         assert "Could not start property search" not in page.locator("body").inner_text()
         deadline = time.time() + 5.0
@@ -1568,6 +1578,36 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
             or "refused" in message.lower()
             or "failed to load resource" in message.lower()
         ]
+    finally:
+        context.close()
+
+
+def test_propertyquarry_austria_region_selection_keeps_region_specific_area_choices(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties?autolocate=1", wait_until="networkidle")
+        assert response is not None and response.ok
+
+        page.select_option('select[name="country_code"]', "AT")
+        page.select_option('select[name="region_code"]', "salzburg")
+        page.wait_for_timeout(250)
+        assert page.locator('select[name="region_code"]').input_value() == "salzburg"
+        page.locator('[data-property-step-next]').click()
+        page.locator('[data-property-field-name="location_query"]').wait_for(state="visible")
+        assert page.locator('label.pqx-check', has_text='Hallein').count() >= 1
+
+        page.locator('[data-property-step-trigger="search"]').click()
+        page.select_option('select[name="region_code"]', "lower_austria")
+        page.wait_for_timeout(250)
+        assert page.locator('select[name="region_code"]').input_value() == "lower_austria"
+        page.locator('[data-property-step-next]').click()
+        page.locator('[data-property-field-name="location_query"]').wait_for(state="visible")
+        assert page.locator('label.pqx-check', has_text='Baden').count() >= 1
     finally:
         context.close()
 

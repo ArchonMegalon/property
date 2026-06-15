@@ -811,6 +811,31 @@ def test_austria_generated_source_defaults_use_broker_and_project_lanes_for_buy(
     assert "developer_projects_at" in platforms
 
 
+def test_germany_generated_source_defaults_use_live_buy_lanes_only() -> None:
+    specs = property_market_catalog.generated_source_specs(
+        preferences={
+            "country_code": "DE",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "location_query": "Berlin",
+        },
+        selected_platforms=(),
+        principal_id="exec-property-de-buy-defaults",
+        default_person_id="self",
+        max_results=4,
+    )
+
+    platforms = {str(row["platform"]) for row in specs}
+    urls = [str(row["url"]) for row in specs]
+
+    assert "core_portals_de" in platforms
+    assert "new_build_de" in platforms
+    assert "broker_direct_de" in platforms
+    assert "corporate_landlords_de" not in platforms
+    assert any("ohne-makler.net/immobilien/berlin/berlin/" in url for url in urls)
+    assert any("neubaukompass.com/new-build-real-estate/berlin/" in url for url in urls)
+
+
 def test_germany_auction_sources_require_buy_or_explicit_distressed_signal_mode() -> None:
     rent_specs = property_market_catalog.generated_source_specs(
         preferences={

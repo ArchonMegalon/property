@@ -16,6 +16,7 @@ from app.services.property_market_catalog import (
     property_type_label,
     property_type_options,
     provider_options,
+    property_provider_for_platform,
     provider_quality_labels,
     provider_listing_markers_for_host,
     normalize_listing_mode,
@@ -335,6 +336,25 @@ def test_austria_default_platforms_follow_listing_mode() -> None:
     assert "developer_projects_at" in buy_defaults
     assert "broker_direct_at" in buy_defaults
     assert "broker_direct_at" in land_defaults
+
+
+def test_germany_buy_defaults_drop_dead_corporate_landlord_lane() -> None:
+    buy_defaults = default_platforms_for_country_listing_mode("DE", "buy")
+
+    assert buy_defaults == ("core_portals_de", "new_build_de", "broker_direct_de")
+
+
+def test_germany_buy_provider_markers_only_accept_real_listing_routes() -> None:
+    ohne_makler = property_provider_for_platform("ohne_makler_de")
+    neubau = property_provider_for_platform("neubaukompass_de")
+    broker_direct = property_provider_for_platform("broker_direct_de")
+
+    assert ohne_makler is not None
+    assert neubau is not None
+    assert broker_direct is not None
+    assert ohne_makler.listing_path_markers == ("/immobilie/",)
+    assert neubau.listing_path_markers == ("/property/",)
+    assert "/immobilie/" in broker_direct.listing_path_markers
 
 
 def test_generated_source_specs_support_distressed_sale_platforms() -> None:

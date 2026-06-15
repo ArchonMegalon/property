@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import urllib.parse
+import unicodedata
 
 
 @dataclass(frozen=True)
@@ -870,10 +871,10 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         label="Kernportale Deutschland",
         country_code="DE",
         host_markers=("immobilienscout24.de", "immoscout24.de", "immowelt.de", "immonet.de", "kleinanzeigen.de", "meinestadt.de"),
-        listing_path_markers=("/expose/", "/immobilien/", "/s-anzeige/", "/mietwohnungen", "/wohnung-kaufen"),
+        listing_path_markers=("/expose/", "/angebot/", "/s-anzeige/"),
         search_urls={
-            "rent": "https://www.immowelt.de/suche/mietwohnungen",
-            "buy": "https://www.immowelt.de/suche/kaufen/wohnung",
+            "rent": "https://www.kleinanzeigen.de/s-wohnung-mieten/c203",
+            "buy": "https://www.kleinanzeigen.de/s-wohnung-kaufen/c196",
         },
         description="Germany grouped broad-market portals for residential rent and buy discovery across national and local-market search surfaces.",
         family="core_portal",
@@ -915,11 +916,11 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         listing_path_markers=("/mietwohnungen", "/immobilien/detail/", "/wohnung-finden"),
         search_urls={
             "rent": "https://www.vonovia.de/de-de/wohnungssuche",
-            "buy": "https://www.vonovia.de/de-de/wohnungssuche",
         },
         description="Germany grouped direct-landlord lane for large housing companies that often publish inventory earlier and with more reliable operating details.",
         family="corporate_landlord",
         trust_tier="trusted",
+        supported_listing_modes=("rent",),
         coverage="multi_region",
         floorplan_reliability="medium",
         duplicate_rate="low",
@@ -975,7 +976,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         label="Neubau Projekte Deutschland",
         country_code="DE",
         host_markers=("neubaukompass.com",),
-        listing_path_markers=("/new-build-real-estate/", "/project/"),
+        listing_path_markers=("/property/",),
         search_urls={
             "buy": "https://www.neubaukompass.com/new-build-real-estate/deutschland/",
         },
@@ -1017,10 +1018,10 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         label="Makler Direkt Deutschland",
         country_code="DE",
         host_markers=("von-poll.com", "ohne-makler.net"),
-        listing_path_markers=("/immobilien/", "/real-estate-agent/", "/immobilie-kaufen/"),
+        listing_path_markers=("/immobilie/", "/expose/"),
         search_urls={
-            "rent": "https://www.von-poll.com/de",
-            "buy": "https://www.von-poll.com/de",
+            "rent": "https://www.ohne-makler.net/immobilien/wohnung-mieten/",
+            "buy": "https://www.ohne-makler.net/immobilien/immobilie-kaufen/",
         },
         description="Germany grouped broker-direct and owner-direct lane for regional office networks and direct marketing inventory.",
         family="broker_direct",
@@ -1158,7 +1159,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         label="neubau kompass Germany",
         country_code="DE",
         host_markers=("neubaukompass.com",),
-        listing_path_markers=("/new-build-real-estate/", "/deutschland/", "/project/", "/to-the-project/"),
+        listing_path_markers=("/property/",),
         search_urls={
             "buy": "https://www.neubaukompass.com/new-build-real-estate/deutschland/",
         },
@@ -1203,11 +1204,11 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         listing_path_markers=("/de-de/wohnungssuche", "/wohnungen/"),
         search_urls={
             "rent": "https://www.vonovia.de/de-de/wohnungssuche",
-            "buy": "https://www.vonovia.de/de-de/wohnungssuche",
         },
         description="Germany direct-landlord national housing lane with strong structured rental search and equipment details.",
         family="corporate_landlord",
         trust_tier="trusted",
+        supported_listing_modes=("rent",),
         coverage="national",
         floorplan_reliability="medium",
         duplicate_rate="low",
@@ -1368,7 +1369,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         label="ohne-makler.net",
         country_code="DE",
         host_markers=("ohne-makler.net",),
-        listing_path_markers=("/immobilien/", "/immobilie-kaufen/", "/wohnung-mieten/", "/haus-kaufen/"),
+        listing_path_markers=("/immobilie/",),
         search_urls={
             "rent": "https://www.ohne-makler.net/immobilien/wohnung-mieten/",
             "buy": "https://www.ohne-makler.net/immobilien/immobilie-kaufen/",
@@ -2781,12 +2782,12 @@ GROUPED_PROVIDER_SOURCE_MAP: dict[str, tuple[dict[str, str], ...]] = {
         {
             "label": "Immowelt",
             "rent_url": "https://www.immowelt.de/suche/mietwohnungen",
-            "buy_url": "https://www.immowelt.de/suche/kaufen/wohnung",
+            "buy_url": "",
         },
         {
             "label": "ImmoScout24",
             "rent_url": "https://www.immobilienscout24.de/Suche/de/wohnung-mieten",
-            "buy_url": "https://www.immobilienscout24.de/Suche/de/wohnung-kaufen",
+            "buy_url": "",
         },
         {
             "label": "Kleinanzeigen Immobilien",
@@ -2796,12 +2797,12 @@ GROUPED_PROVIDER_SOURCE_MAP: dict[str, tuple[dict[str, str], ...]] = {
         {
             "label": "Immonet",
             "rent_url": "https://www.immonet.de/wohnung-mieten.html",
-            "buy_url": "https://www.immonet.de/wohnung-kaufen.html",
+            "buy_url": "",
         },
         {
             "label": "meinestadt.de",
             "rent_url": "https://www.meinestadt.de/deutschland/immobilien/wohnungen",
-            "buy_url": "https://www.meinestadt.de/deutschland/immobilien/haus-kaufen",
+            "buy_url": "",
         },
     ),
     "shared_housing_de": (
@@ -2820,17 +2821,17 @@ GROUPED_PROVIDER_SOURCE_MAP: dict[str, tuple[dict[str, str], ...]] = {
         {
             "label": "Vonovia",
             "rent_url": "https://www.vonovia.de/de-de/wohnungssuche",
-            "buy_url": "https://www.vonovia.de/de-de/wohnungssuche",
+            "buy_url": "",
         },
         {
             "label": "LEG Wohnen",
             "rent_url": "https://www.leg-wohnen.de/mietwohnungen/",
-            "buy_url": "https://www.leg-wohnen.de/mietwohnungen/",
+            "buy_url": "",
         },
         {
             "label": "TAG Wohnen",
             "rent_url": "https://tag-wohnen.de/",
-            "buy_url": "https://tag-wohnen.de/",
+            "buy_url": "",
         },
     ),
     "municipal_housing_de": (
@@ -2884,8 +2885,8 @@ GROUPED_PROVIDER_SOURCE_MAP: dict[str, tuple[dict[str, str], ...]] = {
     "broker_direct_de": (
         {
             "label": "VON POLL IMMOBILIEN",
-            "rent_url": "https://www.von-poll.com/de",
-            "buy_url": "https://www.von-poll.com/de",
+            "rent_url": "",
+            "buy_url": "",
         },
         {
             "label": "ohne-makler.net",
@@ -3159,9 +3160,23 @@ def default_platforms_for_country_listing_mode(
         if normalized_mode == "buy":
             if normalized_type == "land":
                 return ("core_portals_de", "broker_direct_de", "new_build_de")
-            return ("core_portals_de", "new_build_de", "broker_direct_de", "corporate_landlords_de")
+            return ("core_portals_de", "new_build_de", "broker_direct_de")
         return ("core_portals_de", "corporate_landlords_de", "municipal_housing_de", "broker_direct_de")
     return default_platforms_for_country(normalized_country)
+
+
+def _slugify_grouped_location_query(value: object) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    text = (
+        text.replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("ß", "ss")
+    )
+    normalized = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
 
 
 def default_language_for_country(country_code: object) -> str:
@@ -4328,6 +4343,7 @@ def _build_grouped_provider_source_url(
     *,
     base_url: str,
     min_area_m2: int | None,
+    location_query: str | None,
 ) -> tuple[str, set[str]]:
     normalized_url = str(base_url or "").strip()
     if not normalized_url:
@@ -4336,6 +4352,20 @@ def _build_grouped_provider_source_url(
     pushed: set[str] = set()
     parsed = urllib.parse.urlparse(normalized_url)
     host = str(parsed.netloc or "").strip().lower()
+    normalized_location = _slugify_grouped_location_query(location_query)
+    if normalized_location:
+        path = parsed.path.rstrip("/")
+        if "ohne-makler.net" in host and path in {
+            "/immobilien/immobilie-kaufen",
+            "/immobilien/wohnung-mieten",
+        }:
+            normalized_url = urllib.parse.urlunparse(parsed._replace(path=f"/immobilien/{normalized_location}/{normalized_location}/", query=""))
+            parsed = urllib.parse.urlparse(normalized_url)
+            host = str(parsed.netloc or "").strip().lower()
+        elif "neubaukompass.com" in host and path == "/new-build-real-estate/deutschland":
+            normalized_url = urllib.parse.urlunparse(parsed._replace(path=f"/new-build-real-estate/{normalized_location}/", query=""))
+            parsed = urllib.parse.urlparse(normalized_url)
+            host = str(parsed.netloc or "").strip().lower()
     if min_area_m2:
         if "gesiba.at" in host:
             query_items["size-from"] = str(min_area_m2)
@@ -4408,12 +4438,13 @@ def generated_source_specs(
                 if location_variant:
                     detail_parts.append(location_variant)
                 for source_index, grouped_source in enumerate(grouped_sources, start=1):
-                    base_group_url = str(grouped_source.get(f"{provider_mode}_url") or grouped_source.get("rent_url") or grouped_source.get("buy_url") or "").strip()
+                    base_group_url = str(grouped_source.get(f"{provider_mode}_url") or "").strip()
                     if not base_group_url:
                         continue
                     source_url, pushed_filters = _build_grouped_provider_source_url(
                         base_url=base_group_url,
                         min_area_m2=int(min_area_m2) if isinstance(min_area_m2, int) else None,
+                        location_query=location_variant,
                     )
                     source_pushdown = json.loads(json.dumps(pushdown))
                     if "min_area_m2" in pushed_filters and isinstance(source_pushdown.get("applied"), dict):

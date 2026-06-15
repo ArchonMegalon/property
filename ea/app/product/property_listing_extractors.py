@@ -317,6 +317,34 @@ def _property_scout_extract_findmyhome_listing_urls(*, source_url: str, html: st
             rows.append(candidate)
     return tuple(rows)
 
+
+def _property_scout_extract_ohne_makler_listing_urls(*, source_url: str, html: str) -> tuple[str, ...]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"""href=["']([^"']*/immobilie/\d+/?)["']""", str(html or ""), re.IGNORECASE):
+        candidate = _property_scout_clean_url(urllib.parse.urljoin(source_url, str(match.group(1) or "").strip()))
+        parsed = urllib.parse.urlparse(candidate)
+        if not re.fullmatch(r"/immobilie/\d+/?", parsed.path or "", re.IGNORECASE):
+            continue
+        if candidate and candidate not in seen and _property_scout_is_supported_listing_url(candidate):
+            seen.add(candidate)
+            rows.append(candidate)
+    return tuple(rows)
+
+
+def _property_scout_extract_neubaukompass_listing_urls(*, source_url: str, html: str) -> tuple[str, ...]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"""href=["']([^"']*/property/[^"'/?#]+/?(?:\?[^"']*)?)["']""", str(html or ""), re.IGNORECASE):
+        candidate = _property_scout_clean_url(urllib.parse.urljoin(source_url, str(match.group(1) or "").strip()))
+        parsed = urllib.parse.urlparse(candidate)
+        if not re.fullmatch(r"/property/[^/]+/?", parsed.path or "", re.IGNORECASE):
+            continue
+        if candidate and candidate not in seen and _property_scout_is_supported_listing_url(candidate):
+            seen.add(candidate)
+            rows.append(candidate)
+    return tuple(rows)
+
 def _property_scout_extract_listing_urls(*, source_url: str, html: str, source_spec: dict[str, object] | None = None) -> tuple[str, ...]:
     parsed_source = urllib.parse.urlparse(str(source_url or "").strip())
     source_query = urllib.parse.parse_qs(parsed_source.query)
@@ -333,6 +361,14 @@ def _property_scout_extract_listing_urls(*, source_url: str, html: str, source_s
             return rows
     if "frieden.at" in source_host:
         rows = _property_scout_extract_frieden_listing_urls(source_url=source_url, html=html, min_area_m2=requested_min_area_m2)
+        if rows:
+            return rows
+    if "ohne-makler.net" in source_host:
+        rows = _property_scout_extract_ohne_makler_listing_urls(source_url=source_url, html=html)
+        if rows:
+            return rows
+    if "neubaukompass.com" in source_host:
+        rows = _property_scout_extract_neubaukompass_listing_urls(source_url=source_url, html=html)
         if rows:
             return rows
     if "angebote.sozialbau.at" in parsed_source.netloc.lower() and sozialbau_scope in {"in_bau", "in_planung"}:

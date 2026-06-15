@@ -58,6 +58,7 @@ from app.services.property_media_factory import MediaRequirement, route_property
 from app.product import property_search_storage as _property_search_storage
 from app.product.property_listing_extractors import (
     _property_area_text_to_sqm,
+    _property_html_fragment_text,
     _property_public_preview_cache_key,
     _property_public_preview_cache_payload,
     _property_scout_clean_url,
@@ -27004,6 +27005,8 @@ class ProductService:
         listing_mode = str(request_preferences.get("listing_mode") or "rent").strip().lower() or "rent"
         search_goal = _property_search_goal(request_preferences)
         investment_research_mode = str(request_preferences.get("investment_research_mode") or "off").strip().lower() or "off"
+        if search_goal == "investment" and listing_mode == "buy" and investment_research_mode == "off":
+            investment_research_mode = "auto"
         if listing_mode != "buy":
             investment_research_mode = "off"
         min_match_score = _property_search_effective_min_match_score(request_preferences)

@@ -837,9 +837,15 @@
         }
         const statusLabel = !source ? 'Idle'
           : (['completed', 'processed', 'done', 'success'].includes(rawStatus) ? 'Done'
-          : ((['failed', 'error'].includes(rawStatus) || source?.error) ? 'Retrying'
+          : ((['failed', 'error'].includes(rawStatus) || source?.error) ? 'Fetch failed'
           : (['running', 'processing', 'in_progress', 'working', 'warming'].includes(rawStatus) ? 'Running' : 'Up next')));
-        const tone = !source ? 'idle' : (progressPct >= 100 && statusLabel === 'Done' ? 'done' : (statusLabel === 'Running' ? 'active' : 'queued'));
+        const tone = !source
+          ? 'idle'
+          : (progressPct >= 100 && statusLabel === 'Done'
+            ? 'done'
+            : (statusLabel === 'Running'
+              ? 'active'
+              : ((statusLabel === 'Fetch failed') ? 'warn' : 'queued')));
         const shardCount = source ? Math.max(0, rawWorkerQueue.filter((row) => sourceProviderGroup(row) === groupKey).length - 1) : 0;
         const provider = String(source?.source_label || source?.label || (sourceRows.length ? 'Waiting for a source' : 'Stand by'));
         return {
@@ -1111,7 +1117,6 @@
       const fullRegionScopeField = form.querySelector('input[name="full_region_scope"]');
       const preferencePersonField = form.querySelector('[name="preference_person_id"]');
       const fullRegionScopeFieldWrap = form.querySelector('[data-property-field-name="full_region_scope"]');
-      const fullRegionScopeLabelNode = fullRegionScopeFieldWrap?.querySelector('label span span');
       const locationFieldWrap = form.querySelector('[data-property-field-name="location_query"]');
       const rawPlanPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
       const planPlatformCap = Number.isFinite(rawPlanPlatformCap) && rawPlanPlatformCap > 0 ? rawPlanPlatformCap : 0;
@@ -1204,17 +1209,18 @@
         const activeStep = String(form.dataset.propertyActiveStep || '').trim();
         const isAreasStep = !activeStep || activeStep === 'areas';
         const hasAreaOptions = form.querySelectorAll('input[name="location_query"]').length > 0;
-        const fullRegionScopeChecked = Boolean(fullRegionScopeField?.checked);
+        const selectedLocations = checkedValues(form, 'location_query');
+        const allLocationsSelected = hasAreaOptions && selectedLocations.length > 0 && selectedLocations.length === form.querySelectorAll('input[name="location_query"]').length;
         if (fullRegionScopeFieldWrap) {
-          fullRegionScopeFieldWrap.hidden = !isAreasStep || !hasAreaOptions;
-          fullRegionScopeFieldWrap.toggleAttribute('aria-hidden', fullRegionScopeFieldWrap.hidden);
+          fullRegionScopeFieldWrap.hidden = true;
+          fullRegionScopeFieldWrap.setAttribute('aria-hidden', 'true');
         }
         if (!hasAreaOptions && fullRegionScopeField) fullRegionScopeField.checked = false;
+        if (fullRegionScopeField) fullRegionScopeField.checked = allLocationsSelected;
         if (locationFieldWrap) {
-          const shouldCollapseTargetAreas = isAreasStep && hasAreaOptions && fullRegionScopeChecked;
-          locationFieldWrap.hidden = !isAreasStep || shouldCollapseTargetAreas;
+          locationFieldWrap.hidden = !isAreasStep || !hasAreaOptions;
           locationFieldWrap.toggleAttribute('aria-hidden', locationFieldWrap.hidden);
-          locationFieldWrap.dataset.propertyCollapsedBy = shouldCollapseTargetAreas ? 'full_region_scope' : '';
+          locationFieldWrap.dataset.propertyCollapsedBy = '';
         }
         syncAdvancedPanels();
         syncMarketAwareFields(form, meta);
@@ -1277,7 +1283,13 @@
         syncAdvancedPanels();
         syncMarketAwareFields(form, meta);
       };
-      const applyPreferenceProfile = () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncAreaScopeControls).finally(syncFamilyModeControls);
+      const markManualGeographySelection = () => {
+        form.dataset.propertyManualGeography = '1';
+      };
+      const geographyLocked = () => String(form.dataset.propertyManualGeography || '').trim() === '1';
+      const applyPreferenceProfile = () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncAreaScopeControls, {
+        preserveGeography: geographyLocked(),
+      }).finally(syncFamilyModeControls);
       const refreshRegionAndLocationChoices = () => {
         const regionCatalog = meta.region_catalog_by_country || {};
         const locationCatalog = meta.location_catalog_by_country_region || {};
@@ -1294,17 +1306,20 @@
           }).join('');
         }
         const effectiveRegion = String(regionField?.value || regionOptions[0]?.value || '').trim();
-        const effectiveRegionLabel = String(regionField?.selectedOptions?.[0]?.textContent || effectiveRegion || 'area').trim();
         const locationOptions = locationCatalog[selectedCountry]?.[effectiveRegion] || [];
         const validLocations = currentLocations.filter((value) => locationOptions.some((option) => String(option?.value || '').trim() === String(value || '').trim()));
         renderCheckboxOptions(form, 'location_query', locationOptions, validLocations);
-        if (fullRegionScopeLabelNode) {
-          fullRegionScopeLabelNode.textContent = effectiveRegionLabel ? `Use all ${effectiveRegionLabel}` : 'Use full area';
-        }
         syncAreaScopeControls();
+      };
+      const resetAreaSelectionForGeographyChange = () => {
+        if (fullRegionScopeField) fullRegionScopeField.checked = false;
+        setCheckboxValues(form, 'location_query', []);
+        const customLocationField = form.querySelector('[name="custom_location_query"]');
+        if (customLocationField) customLocationField.value = '';
       };
       const applyBrowserAndIpDefaults = async () => {
         if (!shouldApplyBrowserDefaults(form)) return;
+        if (geographyLocked()) return;
         const nextCountry = browserCountryCode();
         if (countryField && nextCountry && nextCountry !== String(countryField.value || '').trim()) {
           countryField.value = nextCountry;
@@ -1313,6 +1328,7 @@
           syncMarketAwareFields(form, meta);
         }
         const ipLocation = await locationFromIpAddress();
+        if (geographyLocked()) return;
         const ipCountry = String(ipLocation?.country_code || '').trim().toUpperCase();
         const ipCity = String(ipLocation?.city || '').trim().toLowerCase();
         const ipPostal = String(ipLocation?.postal || '').trim();
@@ -1340,22 +1356,29 @@
           }
         }
       };
+      countryField?.addEventListener('input', markManualGeographySelection);
       countryField?.addEventListener('change', () => {
+        markManualGeographySelection();
+        resetAreaSelectionForGeographyChange();
         syncProviderOptionsForMarket();
-        const customLocationField = form.querySelector('[name="custom_location_query"]');
-        if (customLocationField) customLocationField.value = '';
         refreshRegionAndLocationChoices();
         syncMarketAwareFields(form, meta);
       });
       preferencePersonField?.addEventListener('change', applyPreferenceProfile);
       preferencePersonField?.addEventListener('blur', applyPreferenceProfile);
+      regionField?.addEventListener('input', markManualGeographySelection);
       regionField?.addEventListener('change', () => {
-        const customLocationField = form.querySelector('[name="custom_location_query"]');
-        if (customLocationField) customLocationField.value = '';
+        markManualGeographySelection();
+        resetAreaSelectionForGeographyChange();
         refreshRegionAndLocationChoices();
         syncMarketAwareFields(form, meta);
       });
-      fullRegionScopeField?.addEventListener('change', syncAreaScopeControls);
+      form.querySelector('[name="custom_location_query"]')?.addEventListener('input', markManualGeographySelection);
+      form.addEventListener('change', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        if (target.matches('input[name="location_query"]')) markManualGeographySelection();
+      });
       listingModeField?.addEventListener('change', () => {
         syncProviderOptionsForMarket();
         syncListingModeControls();
@@ -1367,8 +1390,18 @@
       form.querySelectorAll('[data-checkbox-group-select-all]').forEach((button) => {
         button.addEventListener('click', (event) => {
           event.preventDefault();
-          selectAllCheckboxValues(form, String(button.getAttribute('data-checkbox-group-select-all') || '').trim(), planPlatformCap);
+          const name = String(button.getAttribute('data-checkbox-group-select-all') || '').trim();
+          const maxCount = name === 'selected_platforms' ? planPlatformCap : Infinity;
+          selectAllCheckboxValues(form, name, maxCount);
           syncSelectAllButtons(form, planPlatformCap);
+          syncAreaScopeControls();
+        });
+      });
+      form.querySelectorAll('[data-checkbox-group-clear-all]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          clearAllCheckboxValues(form, String(button.getAttribute('data-checkbox-group-clear-all') || '').trim());
+          syncAreaScopeControls();
         });
       });
       form.addEventListener('click', (event) => {
@@ -1402,8 +1435,15 @@
         const button = event.target?.closest?.('[data-checkbox-group-select-all]');
         if (!button) return;
         event.preventDefault();
-        selectAllCheckboxValues(form, String(button.getAttribute('data-checkbox-group-select-all') || '').trim(), planPlatformCap);
+        const name = String(button.getAttribute('data-checkbox-group-select-all') || '').trim();
+        const maxCount = name === 'selected_platforms' ? planPlatformCap : Infinity;
+        selectAllCheckboxValues(form, name, maxCount);
         syncSelectAllButtons(form, planPlatformCap);
+        syncAreaScopeControls();
+      });
+      form.addEventListener('change', (event) => {
+        const target = event.target;
+        if (target instanceof HTMLInputElement && target.name === 'location_query') syncAreaScopeControls();
       });
       form.addEventListener('propertyquarry:stepchange', () => {
         syncAreaScopeControls();
@@ -1602,8 +1642,11 @@
           setFieldValue('region_code', source.region_code);
           refreshRegionAndLocationChoices();
         }
-        if (Object.prototype.hasOwnProperty.call(source, 'full_region_scope')) setFieldValue('full_region_scope', source.full_region_scope);
-        if (Object.prototype.hasOwnProperty.call(source, 'location_query')) setFieldValue('location_query', source.location_query);
+        if (Object.prototype.hasOwnProperty.call(source, 'full_region_scope') && source.full_region_scope) {
+          selectAllCheckboxValues(form, 'location_query', Infinity);
+        } else if (Object.prototype.hasOwnProperty.call(source, 'location_query')) {
+          setFieldValue('location_query', source.location_query);
+        }
         if (Object.prototype.hasOwnProperty.call(source, 'custom_location_query')) setFieldValue('custom_location_query', source.custom_location_query);
       };
       applyDependentSelections();

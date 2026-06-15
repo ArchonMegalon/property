@@ -2116,29 +2116,29 @@ def app_search(
     cards = [
         {
             "eyebrow": "Workspace search",
-            "title": f"Results for “{normalized_query}”" if normalized_query else "Search the account",
+            "title": f"Results for “{normalized_query}”" if normalized_query else "Search",
             "body": (
                 f"{len(items)} results across people, threads, commitments, decisions, deadlines, evidence, and rules."
                 if normalized_query
-                else "Search across people, threads, commitments, decisions, deadlines, evidence, rules, and handoffs from one browser surface."
+                else "Search people, threads, commitments, decisions, deadlines, evidence, rules, and handoffs."
             ),
             "items": primary_items if normalized_query else [
                 {
-                    "title": "Try a person, thread, or obligation",
-                    "detail": "Search for Sofia, board, investor, renewal, or a concrete commitment title.",
+                    "title": "Start with a name or topic",
+                    "detail": "Search Sofia, board, investor, renewal, or a commitment title.",
                     "tag": "Hint",
                 },
                 {
-                    "title": "Results stay actionable",
-                    "detail": "Search rows keep their native open/approve/close/claim actions when the underlying object supports them.",
+                    "title": "Open the next record directly",
+                    "detail": "Results keep their native actions when the underlying record supports them.",
                     "tag": "Action",
                 },
             ],
         },
         {
             "eyebrow": "How to use it",
-            "title": "Search collapses navigation instead of adding to it",
-            "body": "Use a concrete name, topic, or object label. The first lane gets you to the object, and the action button finishes the next step without another hunt.",
+            "title": "Jump to the record you need",
+            "body": "Use a concrete name, topic, or record label. Open the result and continue from there.",
             "items": (
                 [
                     {
@@ -2151,8 +2151,8 @@ def app_search(
                 if normalized_query
                 else [
                     {"title": "People", "detail": "Search names, roles, themes, or relationship signals.", "tag": "Kind"},
-                    {"title": "Decisions, deadlines, and commitments", "detail": "Search a board item, commitment, due obligation, or review object directly.", "tag": "Kind"},
-                    {"title": "Evidence and rules", "detail": "Search the explanation layer when you need to answer why something happened.", "tag": "Kind"},
+                    {"title": "Decisions and deadlines", "detail": "Search a board item, commitment, due task, or review object directly.", "tag": "Kind"},
+                    {"title": "Evidence and rules", "detail": "Search the explanation layer when you need to check why something happened.", "tag": "Kind"},
                 ]
             ),
         },
@@ -2175,11 +2175,11 @@ def app_search(
         "console_shell.html",
         **_console_shell_context(
             request=request,
-            page_title="PropertyQuarry property search",
+            page_title="PropertyQuarry account search",
             current_nav="settings",
             context=context,
             console_title="Search",
-            console_summary="Search is the fastest way to jump across the office object model and execute the next obvious action.",
+            console_summary="Search the workspace and open the next record directly.",
             nav_groups=app_nav_groups_for_brand(request_brand(request)["key"]),
             workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
             cards=cards,
@@ -2192,7 +2192,7 @@ def app_search(
                     {
                         "type": "text",
                         "name": "query",
-                        "label": "Search the account",
+                        "label": "Search",
                         "value": normalized_query,
                         "placeholder": "Sofia, board, investor, renewal",
                     },

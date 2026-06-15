@@ -25,7 +25,7 @@
       }
       return 'AT';
     };
-    const hasConfiguredLocations = (form) => checkedValues(form, 'location_query').length > 0 || Boolean(form.querySelector('input[name="full_region_scope"]')?.checked);
+    const hasConfiguredLocations = (form) => checkedValues(form, 'location_query').length > 0;
     const shouldApplyBrowserDefaults = (form) => {
       const url = new URL(window.location.href);
       return String(url.searchParams.get('autolocate') || '').trim() === '1'
@@ -146,7 +146,8 @@
       });
       return best && best.score > 0 ? best : null;
     };
-    const applyPreferenceProfileToForm = async (form, refreshRegionAndLocationChoices, syncAreaScopeControls) => {
+    const applyPreferenceProfileToForm = async (form, refreshRegionAndLocationChoices, syncAreaScopeControls, options = {}) => {
+      const preserveGeography = options && options.preserveGeography === true;
       const personId = fieldValue(form, 'preference_person_id') || 'self';
       if (!personId) return;
       let bundle = {};
@@ -170,7 +171,7 @@
       const areaValues = Array.isArray(nodeValues.get('preferred_areas'))
         ? nodeValues.get('preferred_areas')
         : [];
-      if (areaValues.length) {
+      if (areaValues.length && !preserveGeography) {
         const inferredScope = inferCountryRegionForLocations(meta, areaValues);
         if (countryField && inferredScope?.countryCode) countryField.value = inferredScope.countryCode;
         refreshRegionAndLocationChoices();
@@ -322,21 +323,33 @@
       if (!inputs.length) return;
       const rawMax = Number(maxCount);
       const normalizedMax = Number.isFinite(rawMax) && rawMax > 0 ? rawMax : inputs.length;
-        const selectedInputs = inputs.slice(0, normalizedMax);
+      const selectedInputs = inputs.slice(0, normalizedMax);
       applyCheckboxSelection(inputs, selectedInputs);
-      revealSelectedProviderGroups(form, selectedInputs);
+      if (name === 'selected_platforms') {
+        revealSelectedProviderGroups(form, selectedInputs);
+      }
       if (selectedInputs.length < inputs.length) {
-        setCheckboxGroupStatus(`Selected ${selectedInputs.length} of ${inputs.length} sources. Your current plan allows up to ${normalizedMax} at once.`);
+        if (name === 'selected_platforms') {
+          setCheckboxGroupStatus(`Selected ${selectedInputs.length} of ${inputs.length} sources. Your current plan allows up to ${normalizedMax} at once.`);
+        } else {
+          setCheckboxGroupStatus(`Selected ${selectedInputs.length} of ${inputs.length} areas.`);
+        }
         return;
       }
-      setCheckboxGroupStatus(`Selected all ${selectedInputs.length} sources.`);
+      setCheckboxGroupStatus(name === 'selected_platforms' ? `Selected all ${selectedInputs.length} sources.` : `Selected all ${selectedInputs.length} areas.`);
+    };
+    const clearAllCheckboxValues = (form, name) => {
+      const inputs = [...(form?.querySelectorAll(`input[name="${name}"]`) || [])];
+      if (!inputs.length) return;
+      applyCheckboxSelection(inputs, []);
     };
     const syncSelectAllButtons = (form, maxCount) => {
       const rawMax = Number(maxCount);
       const normalizedMax = Number.isFinite(rawMax) && rawMax > 0 ? rawMax : 0;
-        form.querySelectorAll('[data-checkbox-group-select-all]').forEach((button) => {
+      form.querySelectorAll('[data-checkbox-group-select-all]').forEach((button) => {
         const name = String(button.getAttribute('data-checkbox-group-select-all') || '').trim();
         if (!name) return;
+        if (name !== 'selected_platforms') return;
         const total = form.querySelectorAll(`input[name="${name}"]`).length;
         if (!total) {
           button.textContent = 'Select sources';
@@ -597,9 +610,14 @@
       const regionCode = fieldValue(form, 'region_code') || '';
       const searchGoal = fieldValue(form, 'search_goal') || 'home';
       const listingMode = searchGoal === 'investment' ? 'buy' : (fieldValue(form, 'listing_mode') || 'rent');
-      const fullRegionScope = Boolean(form.querySelector('input[name="full_region_scope"]')?.checked);
       const selectedLocations = checkedValues(form, 'location_query');
       const customLocationQuery = fieldValue(form, 'custom_location_query');
+      const fullRegionScopeField = form.querySelector('input[name="full_region_scope"]');
+      const fullRegionScope = Boolean(fullRegionScopeField?.checked) || (
+        selectedLocations.length > 0
+        && selectedLocations.length === form.querySelectorAll('input[name="location_query"]').length
+        && !customLocationQuery
+      );
       const adjacentAreaRadiusUnit = fieldValue(form, 'adjacent_area_radius_unit') || 'm';
       const adjacentAreaRadiusValue = integerValue(form, 'adjacent_area_radius_value');
       const adjacentAreaRadiusMeters = adjacentAreaRadiusValue !== null
