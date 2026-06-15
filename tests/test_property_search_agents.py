@@ -109,6 +109,44 @@ def test_property_search_agents_can_be_managed_independently() -> None:
     assert [agent["agent_id"] for agent in agents] == [duplicate_id]
 
 
+def test_property_search_agents_can_delete_the_last_saved_search() -> None:
+    client = build_property_client(principal_id="exec-property-search-agent-delete-last")
+    start_workspace(client, mode="personal", workspace_name="Property office")
+
+    created = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "wien",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben"],
+            "search_agent_enabled": True,
+            "search_agent_duration_days": 30,
+            "search_agent_notification_limit": 3,
+            "search_agent_notification_period": "day",
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+    )
+    assert created.status_code == 200, created.text
+    agent_id = created.json()["property_search_preferences"]["active_search_agent_id"]
+
+    deleted = client.post(
+        f"/v1/onboarding/property-search/agents/{agent_id}",
+        json={"action": "delete"},
+    )
+    assert deleted.status_code == 200, deleted.text
+    preferences = deleted.json()["property_search_preferences"]
+    assert preferences["search_agents"] == []
+    assert preferences["active_search_agent_id"] == ""
+
+
 def test_property_search_agent_loads_saved_filters_into_current_preferences() -> None:
     client = build_property_client(principal_id="exec-property-search-agent-load")
     start_workspace(client, mode="personal", workspace_name="Property office")

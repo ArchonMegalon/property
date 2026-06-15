@@ -599,6 +599,11 @@
       const fullRegionScope = Boolean(form.querySelector('input[name="full_region_scope"]')?.checked);
       const selectedLocations = checkedValues(form, 'location_query');
       const customLocationQuery = fieldValue(form, 'custom_location_query');
+      const adjacentAreaRadiusUnit = fieldValue(form, 'adjacent_area_radius_unit') || 'm';
+      const adjacentAreaRadiusValue = integerValue(form, 'adjacent_area_radius_value');
+      const adjacentAreaRadiusMeters = adjacentAreaRadiusValue !== null
+        ? Math.max(0, adjacentAreaRadiusValue * (adjacentAreaRadiusUnit === 'km' ? 1000 : 1))
+        : 0;
       const customKeywords = fieldValue(form, 'custom_keywords');
       const regionLabel = String(form.querySelector('select[name="region_code"] option:checked')?.textContent || regionCode || '').trim();
       return {
@@ -615,6 +620,9 @@
           full_region_scope: fullRegionScope,
           location_query: fullRegionScope && regionLabel ? regionLabel : uniqueValues(selectedLocations, csvValues(customLocationQuery)).join(', '),
           custom_location_query: customLocationQuery,
+          adjacent_area_radius_value: adjacentAreaRadiusValue,
+          adjacent_area_radius_unit: adjacentAreaRadiusUnit,
+          adjacent_area_radius_m: adjacentAreaRadiusMeters,
           keywords: uniqueValues(checkedValues(form, 'keywords'), csvValues(customKeywords)).join(', '),
           custom_keywords: customKeywords,
           preference_person_id: fieldValue(form, 'preference_person_id') || 'self',
@@ -710,11 +718,14 @@
         const emptyLabel = String(input.getAttribute('data-range-empty-label') || '').trim();
         if (value <= 0 && emptyLabel) return emptyLabel;
         const format = String(input.getAttribute('data-range-format') || '').trim();
+        const unitField = String(input.getAttribute('data-range-unit-field') || '').trim();
+        const unit = unitField ? String(form.querySelector(`[name="${unitField}"]`)?.value || 'm').trim().toLowerCase() : '';
         if (format === 'currency_eur') return `EUR ${numberFormatter.format(Math.round(value))}`;
         if (format === 'area_m2') return `${numberFormatter.format(Math.round(value))} m2+`;
         if (format === 'rooms') return value === 1 ? '1+ room' : `${numberFormatter.format(Math.round(value))}+ rooms`;
         if (format === 'count') return value === 1 ? '1 result' : `${numberFormatter.format(Math.round(value))} results`;
         if (format === 'days') return value === 1 ? 'Within 1 day' : `Within ${numberFormatter.format(Math.round(value))} days`;
+        if (format === 'distance_outside_area') return `${numberFormatter.format(Math.round(value))} ${unit === 'km' ? 'km' : 'm'}`;
         if (format === 'agent_duration_days') {
           if (value <= 7) return '1 week';
           if (value >= 365) return '1 year';
@@ -730,6 +741,7 @@
         const suffix = String(input.getAttribute('data-range-suffix') || '').trim();
         const presetKey = String(input.getAttribute('data-range-preset') || '').trim();
         const presetPayload = String(input.getAttribute('data-range-presets') || '').trim();
+        const unitField = String(input.getAttribute('data-range-unit-field') || '').trim();
         let presets = {};
         if (presetPayload) {
           try { presets = JSON.parse(presetPayload); } catch (_) { presets = {}; }
@@ -748,6 +760,13 @@
         };
         const sync = () => {
           const selectableMax = Number(input.getAttribute('data-range-selectable-max') || input.max || 0);
+          if (unitField) {
+            const unit = String(form.querySelector(`[name="${unitField}"]`)?.value || 'm').trim().toLowerCase();
+            const dynamicStep = Number(input.getAttribute(unit === 'km' ? 'data-range-km-step' : 'data-range-meter-step') || '');
+            if (dynamicStep > 0) input.step = String(dynamicStep);
+            const maxLabel = rangeShell?.querySelector('[data-range-scale-max]');
+            if (maxLabel) maxLabel.textContent = `1000 ${unit === 'km' ? 'km' : 'm'}`;
+          }
           const min = Number(input.min || 0);
           if (Number.isFinite(min) && Number(input.value) < min) input.value = String(min);
           if (selectableMax > 0 && Number(input.value) > selectableMax) input.value = String(selectableMax);
@@ -757,6 +776,7 @@
           applyPreset();
           sync();
         });
+        if (unitField) form.querySelector(`[name="${unitField}"]`)?.addEventListener('change', sync);
         applyPreset();
         input.addEventListener('input', sync);
         sync();

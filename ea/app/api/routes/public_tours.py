@@ -56,7 +56,10 @@ def _fact_value_is_weak(value: object) -> bool:
 
 
 def _tour_dir() -> Path:
-    return Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    raw_value = str(os.getenv("EA_PUBLIC_TOUR_DIR") or "").strip()
+    if raw_value:
+        return Path(raw_value).expanduser()
+    return Path("/docker/property/state/public_property_tours").expanduser()
 
 
 def _resolved_tour_root() -> Path:
@@ -112,6 +115,16 @@ def _load_tour(slug: str) -> dict[str, object]:
         raise HTTPException(status_code=500, detail="tour_payload_invalid") from exc
     if not isinstance(payload, dict):
         raise HTTPException(status_code=500, detail="tour_payload_invalid")
+    bundle_dir = _tour_bundle_dir(slug)
+    if bundle_dir is not None:
+        private_manifest_path = bundle_dir / "tour.private.json"
+        if private_manifest_path.exists():
+            try:
+                private_payload = json.loads(private_manifest_path.read_text())
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail="tour_payload_invalid") from exc
+            if isinstance(private_payload, dict):
+                payload = {**dict(payload), **dict(private_payload)}
     return payload
 
 

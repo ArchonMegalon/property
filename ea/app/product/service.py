@@ -140,7 +140,7 @@ from app.product.property_tour_hosting import (
 from app.product.property_search_storage import (
     _delete_property_search_run_record as _delete_property_search_run_record_storage,
     _list_property_search_run_records as _list_property_search_run_records_storage,
-    _load_property_search_run_record,
+    _load_property_search_run_record as _load_property_search_run_record_storage,
     _property_search_run_database_url,
     _property_source_listing_cache_get as _property_source_listing_cache_get_storage,
     _property_source_listing_cache_key,
@@ -2099,6 +2099,7 @@ def _list_property_search_run_records(
     *,
     limit: int = 20,
     statuses: tuple[str, ...] = (),
+    principal_id: str = "",
 ) -> tuple[dict[str, object], ...]:
     with _PROPERTY_SEARCH_RUN_LOCK:
         registry_snapshot = {
@@ -2109,14 +2110,20 @@ def _list_property_search_run_records(
     return _list_property_search_run_records_storage(
         limit=limit,
         statuses=statuses,
+        principal_id=principal_id,
         registry=registry_snapshot,
     )
 
 
-def _delete_property_search_run_record(*, run_id: str) -> bool:
+def _load_property_search_run_record(*, run_id: str, principal_id: str = "") -> dict[str, object] | None:
+    return _load_property_search_run_record_storage(run_id=run_id, principal_id=principal_id)
+
+
+def _delete_property_search_run_record(*, run_id: str, principal_id: str = "") -> bool:
     with _PROPERTY_SEARCH_RUN_LOCK:
         return _delete_property_search_run_record_storage(
             run_id=run_id,
+            principal_id=principal_id,
             registry=_PROPERTY_SEARCH_RUN_REGISTRY,
         )
 
@@ -5026,6 +5033,113 @@ def _property_candidate_matches_requested_location(
     return False
 
 
+def _property_search_adjacent_area_radius_m(preferences: dict[str, object] | None) -> int:
+    packet = dict(preferences or {})
+    direct_value = packet.get("adjacent_area_radius_m")
+    try:
+        direct_meters = int(float(direct_value))
+    except Exception:
+        direct_meters = 0
+    if direct_meters > 0:
+        return max(0, direct_meters)
+    raw_value = packet.get("adjacent_area_radius_value")
+    try:
+        unit_value = max(0.0, float(raw_value))
+    except Exception:
+        unit_value = 0.0
+    unit = str(packet.get("adjacent_area_radius_unit") or "m").strip().lower()
+    multiplier = 1000 if unit == "km" else 1
+    return max(0, int(round(unit_value * multiplier)))
+
+
+def _property_candidate_point(property_facts: dict[str, object] | None) -> tuple[float, float] | None:
+    facts = dict(property_facts or {})
+    try:
+        lat = float(
+            facts.get("map_lat")
+            or facts.get("lat")
+            or facts.get("latitude")
+            or 0.0
+        )
+        lng = float(
+            facts.get("map_lng")
+            or facts.get("lng")
+            or facts.get("lon")
+            or facts.get("longitude")
+            or 0.0
+        )
+    except Exception:
+        return None
+    if not lat or not lng:
+        return None
+    return lat, lng
+
+
+def _property_search_area_reference_points(
+    *,
+    location_hints: tuple[str, ...],
+    country_code: str = "",
+    region_code: str = "",
+) -> tuple[tuple[float, float], ...]:
+    references: list[tuple[float, float]] = []
+    region_hint = str(region_code or "").replace("_", " ").strip()
+    country_hint = str(country_code or "").strip()
+    for hint in location_hints:
+        normalized_hint = str(hint or "").strip()
+        if not normalized_hint:
+            continue
+        query_options = [normalized_hint]
+        if region_hint and region_hint.lower() not in normalized_hint.lower():
+            query_options.append(f"{normalized_hint}, {region_hint}")
+        if country_hint and country_hint.lower() not in normalized_hint.lower():
+            query_options.append(f"{normalized_hint}, {country_hint}")
+        if region_hint and country_hint:
+            query_options.append(f"{normalized_hint}, {region_hint}, {country_hint}")
+        point: tuple[float, float] | None = None
+        for query in query_options:
+            geocoded = _property_research_forward_geocode(query)
+            try:
+                point = (float(geocoded.get("lat") or 0.0), float(geocoded.get("lon") or 0.0))
+            except Exception:
+                point = None
+            if point and all(point):
+                break
+        if point and all(point):
+            references.append(point)
+    return tuple(references)
+
+
+def _property_candidate_within_adjacent_area_radius(
+    *,
+    location_hints: tuple[str, ...],
+    property_facts: dict[str, object] | None,
+    country_code: str = "",
+    region_code: str = "",
+    adjacent_area_radius_m: int = 0,
+) -> bool:
+    if adjacent_area_radius_m <= 0:
+        return False
+    candidate_point = _property_candidate_point(property_facts)
+    if candidate_point is None:
+        return False
+    reference_points = _property_search_area_reference_points(
+        location_hints=location_hints,
+        country_code=country_code,
+        region_code=region_code,
+    )
+    if not reference_points:
+        return False
+    candidate_lat, candidate_lon = candidate_point
+    for ref_lat, ref_lon in reference_points:
+        try:
+            distance_m = _property_research_distance_m(candidate_lat, candidate_lon, ref_lat, ref_lon)
+        except Exception:
+            continue
+        if distance_m <= adjacent_area_radius_m:
+            return True
+    return False
+
+
 def _property_candidate_matches_search_area(
     *,
     location_hints: tuple[str, ...],
@@ -5038,14 +5152,25 @@ def _property_candidate_matches_search_area(
 ) -> bool:
     preferences = dict(request_preferences or {})
     source = dict(source_spec or {})
-    return _property_candidate_matches_requested_location(
+    facts = dict(property_facts or {})
+    effective_country_code = str(preferences.get("country_code") or source.get("country_code") or "").strip()
+    effective_region_code = str(preferences.get("region_code") or "").strip()
+    if _property_candidate_matches_requested_location(
         location_hints=location_hints,
         property_url=property_url,
         title=title,
         summary=summary,
-        property_facts=dict(property_facts or {}),
-        country_code=str(preferences.get("country_code") or source.get("country_code") or "").strip(),
-        region_code=str(preferences.get("region_code") or "").strip(),
+        property_facts=facts,
+        country_code=effective_country_code,
+        region_code=effective_region_code,
+    ):
+        return True
+    return _property_candidate_within_adjacent_area_radius(
+        location_hints=location_hints,
+        property_facts=facts,
+        country_code=effective_country_code,
+        region_code=effective_region_code,
+        adjacent_area_radius_m=_property_search_adjacent_area_radius_m(preferences),
     )
 
 
@@ -15274,10 +15399,11 @@ class ProductService:
             if isinstance(snapshot, dict):
                 runs.append(dict(snapshot))
         elif normalized_principal:
-            records = _list_property_search_run_records(limit=max(int(limit or 0), 1))
+            records = _list_property_search_run_records(
+                limit=max(int(limit or 0), 1),
+                principal_id=normalized_principal,
+            )
             for record in records:
-                if str(record.get("principal_id") or "").strip() != normalized_principal:
-                    continue
                 run_record_id = str(record.get("run_id") or "").strip()
                 snapshot = self.get_property_search_run_status(
                     principal_id=normalized_principal,
@@ -24507,7 +24633,10 @@ class ProductService:
             state = _PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id)
         if not isinstance(state, dict):
             try:
-                persisted = _load_property_search_run_record(run_id=normalized_run_id)
+                persisted = _load_property_search_run_record(
+                    run_id=normalized_run_id,
+                    principal_id=normalized_principal,
+                )
             except Exception:
                 persisted = None
             if isinstance(persisted, dict):
@@ -25244,12 +25373,25 @@ class ProductService:
         refreshed["eligible_tour_total"] = eligible_total
         refreshed["hosted_tour_total"] = ready_total
         if not pending_total:
+            refreshed_receipts = mark_property_search_stage_receipt(
+                dict(refreshed.get("timing_receipts") or {}),
+                "results_delivery_ready_at",
+            )
+            refreshed_timing_ms = dict(refreshed.get("timing_ms") or {})
+            if not refreshed_timing_ms.get("results_delivery_ready"):
+                try:
+                    run_started_at = datetime.fromisoformat(str(refreshed_receipts.get("run_started_at") or "").strip())
+                    delivery_ready_at = datetime.fromisoformat(str(refreshed_receipts.get("results_delivery_ready_at") or "").strip())
+                    refreshed_timing_ms["results_delivery_ready"] = round(
+                        max(0.0, (delivery_ready_at - run_started_at).total_seconds() * 1000.0),
+                        2,
+                    )
+                except Exception:
+                    pass
+            refreshed["timing_ms"] = refreshed_timing_ms
             refreshed["timing_receipts"] = property_search_stage_receipt_summary(
-                mark_property_search_stage_receipt(
-                    dict(refreshed.get("timing_receipts") or {}),
-                    "results_delivery_ready_at",
-                ),
-                timing_ms=dict(refreshed.get("timing_ms") or {}),
+                refreshed_receipts,
+                timing_ms=refreshed_timing_ms,
             )
         return refreshed
 
@@ -25961,7 +26103,10 @@ class ProductService:
         normalized_principal = str(principal_id or "").strip()
         if not normalized_principal:
             return []
-        records = _list_property_search_run_records(limit=max(int(limit or 0) * 3, int(limit or 0), 1))
+        records = _list_property_search_run_records(
+            limit=max(int(limit or 0) * 3, int(limit or 0), 1),
+            principal_id=normalized_principal,
+        )
         runs: list[dict[str, object]] = []
         seen: set[str] = set()
         for record in records:
@@ -25995,7 +26140,10 @@ class ProductService:
             return False
         if str(snapshot.get("principal_id") or "").strip() != normalized_principal:
             return False
-        deleted = _delete_property_search_run_record(run_id=normalized_run_id)
+        deleted = _delete_property_search_run_record(
+            run_id=normalized_run_id,
+            principal_id=normalized_principal,
+        )
         with _PROPERTY_SEARCH_RUN_LOCK:
             _PROPERTY_SEARCH_RUN_REGISTRY.pop(normalized_run_id, None)
         return deleted
@@ -26042,7 +26190,10 @@ class ProductService:
         with _PROPERTY_SEARCH_RUN_LOCK:
             state = _PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id)
             if not isinstance(state, dict):
-                persisted = _load_property_search_run_record(run_id=normalized_run_id)
+                persisted = _load_property_search_run_record(
+                    run_id=normalized_run_id,
+                    principal_id=normalized_principal,
+                )
                 state = dict(persisted or {}) if isinstance(persisted, dict) else {}
                 if state:
                     _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = state
@@ -26085,7 +26236,11 @@ class ProductService:
         finalized = 0
         emailed = 0
         pending = 0
-        records = _list_property_search_run_records(limit=max(int(limit or 0), 1), statuses=("processed", "completed"))
+        records = _list_property_search_run_records(
+            limit=max(int(limit or 0), 1),
+            statuses=("processed", "completed"),
+            principal_id=normalized_principal,
+        )
         for state in records:
             state_principal = str(state.get("principal_id") or "").strip()
             run_id = str(state.get("run_id") or "").strip()
@@ -26446,6 +26601,10 @@ class ProductService:
             "provider_preview_total": 0.0,
             "floorplan_recovery_total": 0.0,
         }
+        timing_ms["sources_resolved"] = round((time.perf_counter() - run_started_at) * 1000.0, 2)
+
+        def _run_elapsed_ms() -> float:
+            return round((time.perf_counter() - run_started_at) * 1000.0, 2)
         policy = self.property_alert_policy(principal_id=principal_id)
         auto_visual_exception_enabled = paid_plan or bool(policy.get("auto_generate_tour_for_good_fit"))
         source_summaries: list[dict[str, object]] = []
@@ -28447,6 +28606,7 @@ class ProductService:
             if not partial_shortlist_reported and ranked_rows:
                 partial_shortlist_reported = True
                 stage_receipts = mark_property_search_stage_receipt(stage_receipts, "first_shortlist_ready_at")
+                timing_ms["first_shortlist_ready"] = _run_elapsed_ms()
                 _report(
                     step="shortlist_ready",
                     message=f"First ranked homes are ready from {source_label}.",
@@ -28457,8 +28617,8 @@ class ProductService:
                         "ranked_candidates": _property_search_ranked_candidates_from_sources(source_summaries),
                     },
                 )
-
         stage_receipts = mark_property_search_stage_receipt(stage_receipts, "deep_research_ready_at")
+        timing_ms["deep_research_ready"] = _run_elapsed_ms()
         def _source_summary_for_notification(item: dict[str, object]) -> dict[str, object] | None:
             item_source_url = str(item.get("source_url") or "").strip()
             item_source_label = str(item.get("source_label") or "").strip()
@@ -28612,6 +28772,7 @@ class ProductService:
                     ) + 1
 
         stage_receipts = mark_property_search_stage_receipt(stage_receipts, "results_compiled_at")
+        timing_ms["results_compiled"] = _run_elapsed_ms()
         payload = {
             "generated_at": _now_iso(),
             "status": "processed",
@@ -28686,6 +28847,7 @@ class ProductService:
         }
         if not self._property_search_results_delivery_pending(result=payload):
             stage_receipts = mark_property_search_stage_receipt(stage_receipts, "results_delivery_ready_at")
+            payload["timing_ms"]["results_delivery_ready"] = _run_elapsed_ms()
         payload["timing_receipts"] = property_search_stage_receipt_summary(
             mark_property_search_stage_receipt(stage_receipts, "completed_at"),
             timing_ms=dict(payload.get("timing_ms") or {}),

@@ -1282,6 +1282,8 @@
             </ul>
             {% if property_meta.get('billing_checkout_enabled') and plan.get('plan_key') != 'free' and not plan.get('is_current') and plan.get('plan_key') in (property_meta.get('billing_checkout_enabled_plans') or []) %}
             <button class="console-action" type="button" data-property-upgrade="{{ plan.get('plan_key') }}">{{ plan.get('display_name') }} checkout</button>
+            {% elif plan.get('plan_key') != 'free' and not plan.get('is_current') %}
+            <small>Recurring checkout is not live for this plan yet.</small>
             {% endif %}
           </section>
           {% endfor %}

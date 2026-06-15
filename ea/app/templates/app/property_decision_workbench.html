@@ -765,8 +765,8 @@
     }
     .pqx-previous-search {
       display: grid;
-      grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
-      gap: 12px;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 8px;
       align-items: start;
       padding: 10px 0;
       border: 0;
@@ -779,6 +779,10 @@
       position: relative;
       display: grid;
       gap: 4px;
+    }
+    .pqx-previous-scope-preview.is-empty {
+      min-height: 0;
+      padding-top: 36px;
     }
     .pqx-previous-delete {
       position: absolute;
@@ -827,9 +831,9 @@
       pointer-events: auto;
     }
     .pqx-previous-district-hotspots path.pqx-previous-district-hotspot {
-      fill: rgba(138, 30, 30, 0.12);
-      stroke: rgba(112, 79, 55, 0.56);
-      stroke-width: 1.05;
+      fill: rgba(138, 30, 30, 0.2);
+      stroke: rgba(92, 57, 35, 0.78);
+      stroke-width: 1.2;
       vector-effect: non-scaling-stroke;
     }
     .pqx-previous-district-hotspot.is-selected {
@@ -838,15 +842,15 @@
       box-shadow: inset 0 0 0 1px rgba(255, 242, 242, 0.35);
     }
     .pqx-previous-district-hotspots path.pqx-previous-district-hotspot.is-selected {
-      fill: rgba(177, 28, 28, 0.28);
-      stroke: rgba(123, 15, 15, 0.82);
-      stroke-width: 1.4;
+      fill: rgba(177, 28, 28, 0.38);
+      stroke: rgba(123, 15, 15, 0.96);
+      stroke-width: 1.55;
     }
     .pqx-previous-district-hotspots path.pqx-previous-district-hotspot:hover,
     .pqx-previous-district-hotspots path.pqx-previous-district-hotspot:focus-visible {
-      fill: rgba(177, 28, 28, 0.38);
-      stroke: rgba(123, 15, 15, 0.96);
-      stroke-width: 1.6;
+      fill: rgba(177, 28, 28, 0.46);
+      stroke: rgba(123, 15, 15, 1);
+      stroke-width: 1.75;
       outline: none;
     }
     .pqx-previous-scope-trigger {
@@ -870,6 +874,7 @@
       border: 1px solid var(--pq-line);
       background: var(--pq-panel);
       cursor: default;
+      filter: saturate(0.9) brightness(0.9);
     }
     .pqx-previous-scope-caption {
       display: flex;
@@ -883,6 +888,20 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    .pqx-previous-scope-empty {
+      display: grid;
+      gap: 4px;
+      min-height: 88px;
+      padding: 12px;
+      border: 1px dashed var(--pq-line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, 0.56);
+    }
+    .pqx-previous-scope-empty strong {
+      color: var(--pq-ink);
+      font-size: 13px;
+      line-height: 1.25;
     }
     .pqx-previous-scope-chip {
       display: inline-flex;
@@ -959,6 +978,22 @@
       display: grid;
       gap: 6px;
       min-width: 0;
+    }
+    .pqx-previous-price {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 6px;
+      color: var(--pq-ink);
+      font-size: 1rem;
+      font-weight: 780;
+      line-height: 1.1;
+    }
+    .pqx-previous-price span {
+      color: var(--pq-muted);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
     }
     .pqx-finished-compare {
       display: grid;
@@ -1609,11 +1644,18 @@
     }
     .pqx-form-body > .pqx-field[data-property-field-name="property_type"],
     .pqx-form-body > .pqx-field[data-property-field-name="location_query"],
+    .pqx-form-body > .pqx-field[data-property-field-name="custom_location_query"],
     .pqx-form-body > .pqx-field[data-property-field-name="selected_platforms"],
     .pqx-form-body > .pqx-field[data-property-field-name="keywords"],
     .pqx-form-body > .pqx-field[data-property-field-name="school_stage_preferences"],
     .pqx-form-body > .pqx-field[data-property-field-name="preferred_reachability_modes"] {
       grid-column: 1 / -1;
+    }
+    .pqx-form-body > .pqx-field[data-property-field-name="adjacent_area_radius_value"] {
+      grid-column: 1 / 2;
+    }
+    .pqx-form-body > .pqx-field[data-property-field-name="adjacent_area_radius_unit"] {
+      align-content: end;
     }
     .pqx-field label,
     .pqx-field-title {
@@ -1977,9 +2019,6 @@
       .pqx-surface-search .pqx-dashboard-row,
       .pqx-surface-search .pqx-previous-search {
         padding: 8px;
-      }
-      .pqx-surface-search .pqx-previous-search {
-        grid-template-columns: minmax(0, 1fr);
       }
       .pqx-surface-search .pqx-previous-scope-image {
         aspect-ratio: 16 / 7;
@@ -2915,8 +2954,15 @@
       gap: clamp(18px, 2.4vw, 34px);
       align-items: start;
     }
+    .pqx-results.pqx-results-single {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 14px;
+    }
     .pqx-results > .pqx-result-panel {
       order: -1;
+    }
+    .pqx-results.pqx-results-single > .pqx-review {
+      display: none;
     }
     .pqx-review {
       position: sticky;
@@ -3583,7 +3629,9 @@
     <main class="pqx-main">
       <div class="pqx-mobile-switch" aria-label="PropertyQuarry view mode" data-property-mobile-dock>
         <button class="pqx-mode-button active" type="button" data-pw-mode="results" data-workbench-mobile-mode="results">Results</button>
+        {% if surface_mode != 'shortlist' %}
         <button class="pqx-mode-button" type="button" data-pw-mode="property" data-workbench-mobile-mode="property">Property</button>
+        {% endif %}
         {% if setup_mode %}<button class="pqx-mode-button" type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">Search</button>{% endif %}
       </div>
 
@@ -3653,7 +3701,7 @@
             {% for previous in previous_search_runs[:previous_limit] %}
             <article class="pqx-previous-search" data-pqx-previous-search-card>
               {% set scope_preview = previous.get('scope_preview') or {} %}
-              <div class="pqx-previous-scope-preview">
+              <div class="pqx-previous-scope-preview{% if not scope_preview.get('image_url') %} is-empty{% endif %}">
                 <button
                   class="pqx-previous-delete"
                   type="button"
@@ -3689,6 +3737,11 @@
                   </svg>
                   {% endif %}
                 </button>
+                {% else %}
+                <div class="pqx-previous-scope-empty">
+                  <strong>No map preview saved</strong>
+                  <span class="pqx-note">This run kept the scope text, but not a reusable thumbnail.</span>
+                </div>
                 {% endif %}
                 <div class="pqx-previous-scope-caption">
                   <span class="pqx-note">{{ previous.get('scope_summary') or previous.get('scope_label') }}</span>
@@ -3701,6 +3754,9 @@
                     <span class="pqx-note">{{ previous.get('mode_label') }} · {{ scope_preview.get('market_label') or previous.get('scope_label') }} · {{ previous.get('status_label') }}</span>
                   </div>
                 </div>
+                {% if previous.get('top_price_display') %}
+                <div class="pqx-previous-price"><span>Top</span>{{ previous.get('top_price_display') }}</div>
+                {% endif %}
                 <div class="pqx-previous-metrics">
                   <a class="pqx-previous-open-link" href="{{ previous.get('href') }}"><b>{{ previous.get('ranked_total') or 0 }}</b> ranked</a>
                   {% if previous.get('sent_total') %}<span><b>{{ previous.get('sent_total') }}</b> sent</span>{% endif %}
@@ -4028,7 +4084,7 @@
                     <span>{{ field.label }}{% if field.tooltip %} <button type="button" class="pqx-tooltip" title="{{ field.tooltip }}" aria-label="{{ field.tooltip }}" aria-expanded="false" data-tooltip-trigger>?</button>{% endif %}</span>
                     <span class="pqx-range-value" data-range-value-for="{{ field.name }}">{{ range_display }}</span>
                   </span>
-                  <input type="range" name="{{ field.name }}" value="{{ range_value }}" {% if field.min is not none %}min="{{ field.min }}"{% endif %} {% if field.max %}max="{{ field.max }}"{% endif %} {% if field.range_step %}step="{{ field.range_step }}"{% endif %} {% if field.tooltip %}title="{{ field.tooltip }}" aria-label="{{ field.label }}"{% endif %} data-range-output="{{ field.name }}" data-range-suffix="{{ field.suffix or '' }}" data-range-selectable-max="{{ field.selectable_max or '' }}" data-range-visual-max="{{ field.visual_max or field.max or '' }}" data-range-format="{{ field.get('format') or '' }}" data-range-empty-label="{{ field.get('empty_label') or '' }}" data-range-preset="{{ field.get('range_preset') or '' }}" {% if field.get('range_presets') %}data-range-presets='{{ field.get("range_presets")|tojson|safe }}'{% endif %}>
+                  <input type="range" name="{{ field.name }}" value="{{ range_value }}" {% if field.min is not none %}min="{{ field.min }}"{% endif %} {% if field.max %}max="{{ field.max }}"{% endif %} {% if field.range_step %}step="{{ field.range_step }}"{% endif %} {% if field.tooltip %}title="{{ field.tooltip }}" aria-label="{{ field.label }}"{% endif %} data-range-output="{{ field.name }}" data-range-suffix="{{ field.suffix or '' }}" data-range-selectable-max="{{ field.selectable_max or '' }}" data-range-visual-max="{{ field.visual_max or field.max or '' }}" data-range-format="{{ field.get('format') or '' }}" data-range-empty-label="{{ field.get('empty_label') or '' }}" data-range-preset="{{ field.get('range_preset') or '' }}" data-range-unit-field="{{ field.get('unit_field') or '' }}" data-range-meter-step="{{ field.get('meter_step') or '' }}" data-range-km-step="{{ field.get('km_step') or '' }}" {% if field.get('range_presets') %}data-range-presets='{{ field.get("range_presets")|tojson|safe }}'{% endif %}>
                   {% if field.visual_max %}
                   <span class="pqx-range-scale" aria-label="Selectable up to {{ field.selectable_max or field.max }} of {{ field.visual_max }}">
                     <span data-range-scale-min>{{ field.get('scale_min_label') or field.min or '1' }}</span>
@@ -4224,7 +4280,7 @@
         <aside class="pqx-run-hero active" data-pqx-mobile-panel="results">
           <div class="pqx-title">
             <span>{% if run_status == 'failed' %}Run stopped{% else %}Run complete{% endif %}</span>
-            <h1>{% if run_status == 'failed' %}The search could not finish.{% else %}No strong matches found yet.{% endif %}</h1>
+            <h1>{% if run_status == 'failed' %}The search stopped early.{% else %}No strong matches found yet.{% endif %}</h1>
           </div>
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
@@ -4354,20 +4410,20 @@
       {% elif run_visible %}
       {% include "app/_property_running_panel.html" %}
       {% else %}
-      <section class="pqx-stage pqx-results">
+      <section class="pqx-stage pqx-results{% if surface_mode == 'shortlist' %} pqx-results-single{% endif %}">
         {% if results %}
         <section class="pqx-finished-compare" data-pqx-finished-compare>
           <div class="pqx-section-head">
             <div>
               <h2>Best homes first</h2>
-              <div class="pqx-note">{{ results|length }} ranked · select one home to review it on the right.</div>
+              <div class="pqx-note">{{ results|length }} ranked · open one home for the full property page.</div>
             </div>
             <div class="pqx-actions">
               <button class="pqx-button" type="button" data-fliplink-shortlist-share>Share results</button>
               <span class="pqx-pill good">{{ results|length }} ranked</span>
             </div>
           </div>
-          <div class="pqx-note">Price, layout, fit, and the next action stay in the main list. The right side is only for the currently selected home.</div>
+          <div class="pqx-note">Price, layout, fit, and the strongest reason stay in the main list. Open one home only when it is worth deeper review.</div>
           {{ suppression_panel(workbench.get('suppression_rows') or [], counterfactual_rows) }}
         </section>
         {% endif %}

@@ -907,7 +907,7 @@ def _packet_sections(
     school_progression = str(facts.get("school_atlas_progression_summary") or "").strip()
     school_route = _school_route_line(facts)
     if school_quality:
-        school_and_family.append(_clean_sentence("School quality read: " + school_quality))
+        school_and_family.append(_clean_sentence("School context: " + school_quality))
     if school_progression:
         school_and_family.append(_clean_sentence("School progression read: " + school_progression))
     if school_route:
@@ -1655,7 +1655,7 @@ def _visual_pdf(
     if school_route_line:
         family_lines.append(school_route_line)
     if packet_facts.get("school_atlas_quality_summary"):
-        family_lines.append(_clean_sentence("Schulprofil: " + str(packet_facts.get("school_atlas_quality_summary") or "").strip()))
+        family_lines.append(_clean_sentence("Schulumfeld: " + str(packet_facts.get("school_atlas_quality_summary") or "").strip()))
     if packet_facts.get("school_atlas_progression_summary"):
         family_lines.append(_clean_sentence("Übergangsprofil: " + str(packet_facts.get("school_atlas_progression_summary") or "").strip()))
     family_y = 664

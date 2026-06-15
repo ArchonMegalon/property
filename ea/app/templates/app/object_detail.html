@@ -506,7 +506,7 @@
     <p class="object-copy">{{ object_summary }}</p>
     {% if object_ooda_rows %}
     <section class="object-section" style="margin-top:14px;">
-      <div class="object-kicker">Quick read</div>
+      <div class="object-kicker">Current read</div>
       <h2>{{ object_ooda_title or 'Decision summary' }}</h2>
       {% if object_ooda_copy %}<p class="object-copy">{{ object_ooda_copy }}</p>{% endif %}
       <div class="object-list">
@@ -548,7 +548,7 @@
       {% endif %}
     {% endfor %}
     {% if sidebar_link_state.has_links %}
-    <div class="object-kicker">{{ object_sidebar_kicker or 'Useful links' }}</div>
+    <div class="object-kicker">{{ object_sidebar_kicker or 'Open this home' }}</div>
     <h2>{{ object_sidebar_title }}</h2>
     <p class="object-copy">{{ object_sidebar_copy }}</p>
     <div class="object-list">
@@ -626,7 +626,7 @@
     {% endif %}
     {% if object_sidebar_form %}
     <div class="object-kicker" style="margin-top: 18px;">{{ object_sidebar_form.get('eyebrow') or 'Update' }}</div>
-    <h2>{{ object_sidebar_form.get('title') or 'Update state' }}</h2>
+    <h2>{{ object_sidebar_form.get('title') or 'Update details' }}</h2>
     {% if object_sidebar_form.get('copy') %}<p class="object-copy">{{ object_sidebar_form.get('copy') }}</p>{% endif %}
     <form class="object-form" method="{{ object_sidebar_form.get('method') or 'post' }}" action="{{ object_sidebar_form.get('action') or '' }}">
       {% for field in object_sidebar_form.get('fields') or [] %}
@@ -730,41 +730,41 @@
 	      {% endif %}
 	      <textarea data-object-feedback-note placeholder="What exactly worked, failed, or still needs proof?"></textarea>
 	      <div class="object-actions">
-	        <button class="console-action" type="button" data-object-feedback-save>Save decision</button>
+	        <button class="console-action" type="button" data-object-feedback-save>Save answer</button>
 	        <a class="console-action" href="{{ object_feedback.get('profile_href') or '/app/profile' }}">Manage preferences</a>
 	      </div>
 	      <p class="object-copy" data-object-feedback-status></p>
 	      <div class="object-actions" style="margin-top: 12px;">
-	        <button class="console-action" type="button" data-object-clippy-toggle>Open Clippy</button>
+	        <button class="console-action" type="button" data-object-clippy-toggle>Open question helper</button>
 	      </div>
 	      <div class="object-list" data-object-clippy-panel hidden>
 	        <div class="object-row">
 	          <div>
-	            <strong>Clippy</strong>
-	            <small>Ask one grounded question about this property. Clippy only answers from packet facts, timeline, stakeholder feedback, and investment context already on this page.</small>
+	            <strong>Question helper</strong>
+	            <small>Ask one grounded question about this property. The helper only answers from packet facts, timeline, stakeholder feedback, and investment context already on this page.</small>
 	          </div>
 	          <div class="object-tag">Opt-in</div>
 	        </div>
 	        <div class="object-actions">
 	          <button class="console-action" type="button" data-object-clippy-prompt="Why is this only Maybe?">Why is this only Maybe?</button>
-	          <button class="console-action" type="button" data-object-clippy-prompt="What should I ask the agent next?">Ask agent next</button>
+	          <button class="console-action" type="button" data-object-clippy-prompt="What should I ask the agent next?">Next question</button>
 	          <button class="console-action" type="button" data-object-clippy-prompt="What changed since last time?">What changed?</button>
 	          <button class="console-action" type="button" data-object-clippy-prompt="What is the biggest investment risk here?">Investment risk</button>
 	        </div>
-	        <textarea data-object-clippy-question rows="3" placeholder="Ask Clippy about blockers, household disagreement, underwriting risk, or the next agent follow-up."></textarea>
+	        <textarea data-object-clippy-question rows="3" placeholder="Ask about blockers, household disagreement, underwriting risk, or the next agent follow-up."></textarea>
 	        <div class="object-actions">
-	          <button class="console-action" type="button" data-object-clippy-ask>Ask Clippy</button>
+	          <button class="console-action" type="button" data-object-clippy-ask>Ask question helper</button>
 	        </div>
 	        <div class="object-copy" data-object-clippy-status></div>
 	        <div class="object-list" data-object-clippy-answer></div>
 	      </div>
 	      <div class="object-actions" style="margin-top: 12px;">
-	        <button class="console-action" type="button" data-object-magicfit-toggle>Open Magic Fit</button>
+	        <button class="console-action" type="button" data-object-magicfit-toggle>Visualize furnished living</button>
 	      </div>
 	      <div class="object-magicfit-panel" data-object-magicfit-panel hidden>
 	        <div class="object-row">
 	          <div>
-	            <strong>Magic Fit lifestyle still</strong>
+	            <strong>Furnished living preview</strong>
 	            <small>Opt-in only. Choose Google Photos, direct upload, or manual image links. PropertyQuarry uses the selected references as soft likeness guidance and renders a furnished dossier scene that always stays marked as a visual simulation.</small>
 	          </div>
 	          <div class="object-tag">Opt-in</div>
@@ -844,18 +844,6 @@
 	</section>
 
 <section class="object-sections">
-  <section class="object-section">
-    <div class="object-kicker">Decision pipeline</div>
-    <h2>Brief set → Providers scanned → Ranked shortlist → Property page → 360 and research → Decide</h2>
-    <div class="object-list">
-      <div class="object-row"><div><strong>Brief set</strong><small>The search brief and personal rules are already loaded for this packet.</small></div><div class="object-tag">Completed</div></div>
-      <div class="object-row"><div><strong>Providers scanned</strong><small>The provider sweep already produced this candidate and the supporting evidence.</small></div><div class="object-tag">Completed</div></div>
-      <div class="object-row"><div><strong>Ranked shortlist</strong><small>This property survived the shortlist and moved into the deeper review lane.</small></div><div class="object-tag">Completed</div></div>
-      <div class="object-row"><div><strong>Property page</strong><small>You are here: details, timeline, household review, and next questions stay visible in one decision desk.</small></div><div class="object-tag">Active</div></div>
-      <div class="object-row"><div><strong>360 and research</strong><small>Use the hosted 360 and underwriting sections before making a final call.</small></div><div class="object-tag">Active</div></div>
-      <div class="object-row"><div><strong>Decide</strong><small>Record Yes, Maybe, No, or Hide so the next shortlist learns from the outcome.</small></div><div class="object-tag">Next</div></div>
-    </div>
-  </section>
   {% for section in object_sections %}
   <section class="object-section">
     <div class="object-kicker">{{ section["eyebrow"] }}</div>
@@ -1049,6 +1037,7 @@
   };
   const renderMagicFitReferenceList = () => {
     if (!magicFitReferenceList) return;
+    clearNode(magicFitReferenceList);
     const manualUrls = String(root.querySelector('[data-object-magicfit-reference-urls]')?.value || '')
       .split('\n')
       .map((value) => value.trim())
@@ -1058,49 +1047,54 @@
       ...manualUrls.map((url, index) => ({ title: `Manual reference ${index + 1}`, detail: url, tag: 'URL' })),
       ...(magicFitSessionId ? [{ title: 'Google Photos session', detail: magicFitSessionId, tag: 'Picker' }] : []),
     ];
-    magicFitReferenceList.innerHTML = rows.map((row) => `
-      <div class="object-row">
-        <div>
-          <strong>${String(row.title || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</strong>
-          <small>${String(row.detail || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</small>
-        </div>
-        <div class="object-tag">${String(row.tag || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</div>
-      </div>
-    `).join('') || '<div class="object-row"><div><strong>No references selected yet</strong><small>Upload 1 to 3 portraits, start Google Photos Picker, or paste image URLs.</small></div><div class="object-tag">Waiting</div></div>';
+    const rowsToRender = rows.length
+      ? rows
+      : [{ title: 'No references selected yet', detail: 'Upload 1 to 3 portraits, start Google Photos Picker, or paste image URLs.', tag: 'Waiting' }];
+    rowsToRender.forEach((row) => {
+      const container = document.createElement('div');
+      container.className = 'object-row';
+      const textWrap = document.createElement('div');
+      appendTextNode(textWrap, 'strong', row.title || '');
+      appendTextNode(textWrap, 'small', row.detail || '');
+      container.appendChild(textWrap);
+      appendTextNode(container, 'div', row.tag || '').className = 'object-tag';
+      magicFitReferenceList.appendChild(container);
+    });
   };
   renderMagicFitPreview(payload.magic_fit_scene || {});
   renderMagicFitReferenceList();
   const renderFollowups = (rows) => {
     if (!followupsNode) return;
+    clearNode(followupsNode);
     const safeRows = Array.isArray(rows) ? rows : [];
-    const escapeHtml = (value) => String(value || '')
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
-    followupsNode.innerHTML = safeRows.map((row) => {
+    const rowsToRender = safeRows.length
+      ? safeRows
+      : [{ title: 'No tracked question yet', detail: 'Use the question helper or the suggested next question to start a tracked follow-up.', tag: 'Waiting' }];
+    rowsToRender.forEach((row) => {
       const feedbackId = String(row?.feedback_id || '').trim();
-      const actions = feedbackId ? `
-        <div class="object-actions">
-          <button class="console-action" type="button" data-object-followup-action="answered" data-object-feedback-id="${escapeHtml(feedbackId)}">Answered</button>
-          <button class="console-action" type="button" data-object-followup-action="needs_follow_up" data-object-feedback-id="${escapeHtml(feedbackId)}">Needs follow-up</button>
-          <button class="console-action" type="button" data-object-followup-action="confirmed" data-object-feedback-id="${escapeHtml(feedbackId)}">Confirmed</button>
-          <button class="console-action" type="button" data-object-followup-action="contradicted" data-object-feedback-id="${escapeHtml(feedbackId)}">Contradicted</button>
-          <button class="console-action" type="button" data-object-followup-action="resolved" data-object-feedback-id="${escapeHtml(feedbackId)}">Resolved</button>
-        </div>
-      ` : '';
-      return `
-        <div class="object-row">
-          <div>
-            <strong>${escapeHtml(row?.title || 'Follow-up')}</strong>
-            <small>${escapeHtml(row?.detail || '')}</small>
-            ${actions}
-          </div>
-          <div class="object-tag">${escapeHtml(row?.tag || '')}</div>
-        </div>
-      `;
-    }).join('') || '<div class="object-row"><div><strong>No tracked question yet</strong><small>Use Clippy or Ask agent next to start a tracked follow-up.</small></div><div class="object-tag">Waiting</div></div>';
+      const container = document.createElement('div');
+      container.className = 'object-row';
+      const textWrap = document.createElement('div');
+      appendTextNode(textWrap, 'strong', row?.title || 'Follow-up');
+      appendTextNode(textWrap, 'small', row?.detail || '');
+      if (feedbackId) {
+        const actionsNode = document.createElement('div');
+        actionsNode.className = 'object-actions';
+        ['answered', 'needs_follow_up', 'confirmed', 'contradicted', 'resolved'].forEach((actionKey) => {
+          const actionButton = document.createElement('button');
+          actionButton.className = 'console-action';
+          actionButton.type = 'button';
+          actionButton.setAttribute('data-object-followup-action', actionKey);
+          actionButton.setAttribute('data-object-feedback-id', feedbackId);
+          actionButton.textContent = actionKey.replaceAll('_', ' ').replace(/\b\w/g, (match) => match.toUpperCase());
+          actionsNode.appendChild(actionButton);
+        });
+        textWrap.appendChild(actionsNode);
+      }
+      container.appendChild(textWrap);
+      appendTextNode(container, 'div', row?.tag || '').className = 'object-tag';
+      followupsNode.appendChild(container);
+    });
     followupsNode.querySelectorAll('[data-object-followup-action]').forEach((button) => {
       button.addEventListener('click', async () => {
         const feedbackId = String(button.getAttribute('data-object-feedback-id') || '').trim();
@@ -1162,33 +1156,41 @@
   });
   const renderClippy = (body) => {
     if (!clippyAnswer) return;
+    clearNode(clippyAnswer);
     const evidence = Array.isArray(body?.evidence) ? body.evidence : [];
     const actions = Array.isArray(body?.actions) ? body.actions : [];
-    const escapeHtml = (value) => String(value || '')
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
-    clippyAnswer.innerHTML = `
-      <div class="object-row">
-        <div>
-          <strong>${escapeHtml(body?.name || 'Clippy')}</strong>
-          <small>${escapeHtml(body?.answer || 'No answer returned.')}</small>
-        </div>
-        <div class="object-tag">Grounded</div>
-      </div>
-      ${evidence.map((row) => `
-        <div class="object-row">
-          <div>
-            <strong>${escapeHtml(row.title || 'Evidence')}</strong>
-            <small>${escapeHtml(row.detail || '')}</small>
-          </div>
-          <div class="object-tag">${escapeHtml(row.confidence || row.source || '')}</div>
-        </div>
-      `).join('')}
-      ${actions.length ? `<div class="object-actions">${actions.map((row, index) => `<button class="console-action" type="button" data-object-clippy-action="${escapeHtml(row.action || '')}" data-object-clippy-index="${index}">${escapeHtml(row.label || 'Action')}</button>`).join('')}</div>` : ''}
-    `;
+    const summaryRow = document.createElement('div');
+    summaryRow.className = 'object-row';
+    const summaryWrap = document.createElement('div');
+    appendTextNode(summaryWrap, 'strong', body?.name || 'Question helper');
+    appendTextNode(summaryWrap, 'small', body?.answer || 'No answer returned.');
+    summaryRow.appendChild(summaryWrap);
+    appendTextNode(summaryRow, 'div', 'Grounded').className = 'object-tag';
+    clippyAnswer.appendChild(summaryRow);
+    evidence.forEach((row) => {
+      const evidenceRow = document.createElement('div');
+      evidenceRow.className = 'object-row';
+      const evidenceWrap = document.createElement('div');
+      appendTextNode(evidenceWrap, 'strong', row?.title || 'Evidence');
+      appendTextNode(evidenceWrap, 'small', row?.detail || '');
+      evidenceRow.appendChild(evidenceWrap);
+      appendTextNode(evidenceRow, 'div', row?.confidence || row?.source || '').className = 'object-tag';
+      clippyAnswer.appendChild(evidenceRow);
+    });
+    if (actions.length) {
+      const actionsNode = document.createElement('div');
+      actionsNode.className = 'object-actions';
+      actions.forEach((row, index) => {
+        const actionButton = document.createElement('button');
+        actionButton.className = 'console-action';
+        actionButton.type = 'button';
+        actionButton.setAttribute('data-object-clippy-action', String(row?.action || '').trim());
+        actionButton.setAttribute('data-object-clippy-index', String(index));
+        actionButton.textContent = String(row?.label || 'Action');
+        actionsNode.appendChild(actionButton);
+      });
+      clippyAnswer.appendChild(actionsNode);
+    }
     clippyAnswer.querySelectorAll('[data-object-clippy-action]').forEach((button) => {
       button.addEventListener('click', async () => {
         const row = actions[Number.parseInt(String(button.getAttribute('data-object-clippy-index') || '-1'), 10)];
@@ -1208,7 +1210,7 @@
             selectedReasons.add(String(row.reason_key || ''));
             reasonButton.classList.add('active');
           }
-          if (status) status.textContent = `Clippy marked ${String(row.detail || 'a blocker').trim()} as the current blocker. Save decision when ready.`;
+          if (status) status.textContent = `Question helper marked ${String(row.detail || 'a blocker').trim()} as the current blocker. Save your answer when ready.`;
           return;
         }
         if (action === 'ask_agent' && row.question) {
@@ -1243,12 +1245,12 @@
   clippyToggle?.addEventListener('click', () => {
     const open = Boolean(clippyPanel?.hidden);
     if (clippyPanel) clippyPanel.hidden = !open;
-    clippyToggle.textContent = open ? 'Hide Clippy' : 'Open Clippy';
+    clippyToggle.textContent = open ? 'Hide question helper' : 'Open question helper';
   });
   magicFitToggle?.addEventListener('click', () => {
     const open = Boolean(magicFitPanel?.hidden);
     if (magicFitPanel) magicFitPanel.hidden = !open;
-    magicFitToggle.textContent = open ? 'Hide Magic Fit' : 'Open Magic Fit';
+    magicFitToggle.textContent = open ? 'Hide furnished preview' : 'Visualize furnished living';
   });
   root.querySelectorAll('[data-object-magicfit-scene]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -1408,10 +1410,10 @@
   root.querySelector('[data-object-clippy-ask]')?.addEventListener('click', async () => {
     const question = String(clippyQuestion?.value || '').trim();
     if (!question) {
-      if (clippyStatus) clippyStatus.textContent = 'Ask Clippy a specific property question first.';
+      if (clippyStatus) clippyStatus.textContent = 'Ask a specific property question first.';
       return;
     }
-    if (clippyStatus) clippyStatus.textContent = 'Clippy is reviewing the packet context...';
+    if (clippyStatus) clippyStatus.textContent = 'Question helper is reviewing the packet context...';
     try {
       const response = await fetch(String(payload.clippy_endpoint || '/app/api/property/decision-copilot'), {
         method: 'POST',
@@ -1428,11 +1430,11 @@
         }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(String(body.detail || 'Clippy could not answer right now.'));
+      if (!response.ok) throw new Error(String(body.detail || 'The question helper could not answer right now.'));
       renderClippy(body);
-      if (clippyStatus) clippyStatus.textContent = 'Clippy answered from the current property context.';
+      if (clippyStatus) clippyStatus.textContent = 'Question helper answered from the current property context.';
     } catch (error) {
-      if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'Clippy could not answer right now.';
+      if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'The question helper could not answer right now.';
     }
   });
   root.querySelectorAll('[data-object-feedback-reaction]').forEach((button) => {
@@ -1500,9 +1502,9 @@
   }
   if (shouldOpenClippy) {
     if (clippyPanel) clippyPanel.hidden = false;
-    if (clippyToggle) clippyToggle.textContent = 'Hide Clippy';
+    if (clippyToggle) clippyToggle.textContent = 'Hide question helper';
     if (clippyQuestion && presetPrompt) clippyQuestion.value = presetPrompt;
-    if (clippyStatus && presetPrompt) clippyStatus.textContent = 'Clippy prompt loaded from the email or shared link.';
+    if (clippyStatus && presetPrompt) clippyStatus.textContent = 'Question helper prompt loaded from the email or shared link.';
   }
 })();
 </script>

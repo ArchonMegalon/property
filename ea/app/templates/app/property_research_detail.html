@@ -1545,12 +1545,21 @@
         } catch (_error) {
           rows = [];
         }
-        lightboxOverlay.innerHTML = Array.isArray(rows)
-          ? rows
-              .filter((row) => row && typeof row === 'object' && String(row.path || '').trim())
-              .map((row) => `<path class="${row.selected ? 'is-selected' : ''}" d="${escapeHtml(String(row.path || ''))}" data-label="${escapeHtml(String(row.label || 'District'))}"><title>${escapeHtml(String(row.label || 'District'))}</title></path>`)
-              .join('')
-          : '';
+        while (lightboxOverlay.firstChild) lightboxOverlay.removeChild(lightboxOverlay.firstChild);
+        if (Array.isArray(rows)) {
+          rows
+            .filter((row) => row && typeof row === 'object' && String(row.path || '').trim())
+            .forEach((row) => {
+              const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+              if (row.selected) path.setAttribute('class', 'is-selected');
+              path.setAttribute('d', String(row.path || '').trim());
+              path.setAttribute('data-label', String(row.label || 'District'));
+              const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+              title.textContent = String(row.label || 'District');
+              path.appendChild(title);
+              lightboxOverlay.appendChild(path);
+            });
+        }
       }
       resetZoom();
       lightbox.showModal();

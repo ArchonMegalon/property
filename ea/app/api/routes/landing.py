@@ -88,7 +88,7 @@ from app.product.commercial import workspace_plan_for_mode
 from app.product.service import build_product_service
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import complete_google_oauth_callback
-from app.services.property_billing import payfunnels_configured, paypal_configured, property_commercial_snapshot
+from app.services.property_billing import payfunnels_configured, property_commercial_snapshot
 from app.services.property_market_catalog import (
     country_label as property_country_label,
     country_options as property_country_options,
@@ -370,8 +370,6 @@ def _principal_for_page(
 
 
 def _anonymous_onboarding_status() -> dict[str, object]:
-    payfunnels_plus = payfunnels_configured(plan_key="plus")
-    paypal_enabled = paypal_configured()
     return {
         "principal_id": "",
         "status": "anonymous",
@@ -772,8 +770,6 @@ def _property_console_context(
     preferences = normalize_property_search_preferences(dict(raw_property_preferences.get("raw_preferences") or raw_property_preferences))
     selected_country = normalize_country_code(preferences.get("country_code"))
     commercial = property_commercial_snapshot(preferences)
-    payfunnels_plus = payfunnels_configured(plan_key="plus")
-    paypal_enabled = paypal_configured()
     billing_order_endpoints_by_plan: dict[str, str] = {}
     billing_provider_labels_by_plan: dict[str, str] = {}
     billing_enabled_plans: list[str] = []
@@ -782,10 +778,6 @@ def _property_console_context(
             billing_enabled_plans.append(paid_plan)
             billing_order_endpoints_by_plan[paid_plan] = "/app/api/signals/property/billing/payfunnels/order"
             billing_provider_labels_by_plan[paid_plan] = "PayFunnels"
-        elif paypal_enabled:
-            billing_enabled_plans.append(paid_plan)
-            billing_order_endpoints_by_plan[paid_plan] = "/app/api/signals/property/billing/paypal/order"
-            billing_provider_labels_by_plan[paid_plan] = "PayPal"
     default_billing_plan = billing_enabled_plans[0] if billing_enabled_plans else ""
     selected_platforms = {
         str(value or "").strip().lower()
@@ -1178,7 +1170,6 @@ def pricing_page(
 ) -> HTMLResponse:
     principal_id, status = _load_status(container=container, access_identity=access_identity)
     commercial = property_commercial_snapshot(None)
-    paypal_enabled = paypal_configured()
     checkout_enabled_plans: list[str] = []
     checkout_provider_labels_by_plan: dict[str, str] = {}
     checkout_order_endpoints_by_plan: dict[str, str] = {}
@@ -1187,10 +1178,6 @@ def pricing_page(
             checkout_enabled_plans.append(paid_plan)
             checkout_provider_labels_by_plan[paid_plan] = "PayFunnels"
             checkout_order_endpoints_by_plan[paid_plan] = "/app/api/signals/property/billing/payfunnels/order"
-        elif paypal_enabled:
-            checkout_enabled_plans.append(paid_plan)
-            checkout_provider_labels_by_plan[paid_plan] = "PayPal"
-            checkout_order_endpoints_by_plan[paid_plan] = "/app/api/signals/property/billing/paypal/order"
     checkout_session_ready = access_identity is not None or _workspace_session_payload(request, container) is not None
     return _render_public_template(
         request,

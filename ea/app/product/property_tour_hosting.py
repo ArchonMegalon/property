@@ -17,6 +17,7 @@ from app.product.projections import compact_text
 _PROPERTY_SCOUT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0 Safari/537.36"
 _PROPERTY_SCOUT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
 _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS = (*_PROPERTY_SCOUT_IMAGE_EXTENSIONS, ".pdf")
+_PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST = "tour.private.json"
 
 
 def _now_iso() -> str:
@@ -29,6 +30,87 @@ def _first_non_empty_text(*values: object) -> str:
         if normalized:
             return normalized
     return ""
+
+
+def _public_tour_dir() -> Path:
+    raw_value = str(os.getenv("EA_PUBLIC_TOUR_DIR") or "").strip()
+    if raw_value:
+        return Path(raw_value).expanduser()
+    return Path("/docker/property/state/public_property_tours").expanduser()
+
+
+def _public_tour_private_manifest_path(bundle_dir: Path) -> Path:
+    return bundle_dir / _PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST
+
+
+def _public_tour_asset_max_bytes() -> int:
+    raw_value = str(os.getenv("PROPERTYQUARRY_TOUR_ASSET_MAX_BYTES") or "").strip()
+    if not raw_value:
+        return 25_000_000
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return 25_000_000
+    return max(1_000_000, min(parsed, 250_000_000))
+
+
+def _public_tour_asset_content_type_allowed(content_type: str) -> bool:
+    normalized = str(content_type or "").strip().lower()
+    if not normalized:
+        return True
+    return (
+        normalized.startswith("image/")
+        or normalized.startswith("video/")
+        or normalized in {"application/pdf", "application/octet-stream"}
+    )
+
+
+def _public_tour_public_payload(payload: dict[str, object]) -> dict[str, object]:
+    public_payload = dict(payload or {})
+    for key in ("principal_id", "source_ref", "external_id", "recipient_email"):
+        public_payload.pop(key, None)
+    return public_payload
+
+
+def _public_tour_private_receipt(payload: dict[str, object]) -> dict[str, object]:
+    return {
+        "principal_id": str(payload.get("principal_id") or "").strip(),
+        "listing_url": str(payload.get("listing_url") or "").strip(),
+        "property_url": str(payload.get("property_url") or "").strip(),
+        "source_ref": str(payload.get("source_ref") or "").strip(),
+        "external_id": str(payload.get("external_id") or "").strip(),
+        "recipient_email": str(payload.get("recipient_email") or "").strip().lower(),
+    }
+
+
+def _write_hosted_property_tour_payload(bundle_dir: Path, payload: dict[str, object]) -> None:
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    public_payload = _public_tour_public_payload(payload)
+    private_payload = _public_tour_private_receipt(payload)
+    (bundle_dir / "tour.json").write_text(json.dumps(public_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _public_tour_private_manifest_path(bundle_dir).write_text(
+        json.dumps(private_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _load_hosted_property_tour_payload(bundle_dir: Path) -> dict[str, object]:
+    manifest_path = bundle_dir / "tour.json"
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    private_manifest_path = _public_tour_private_manifest_path(bundle_dir)
+    if private_manifest_path.exists():
+        try:
+            private_payload = json.loads(private_manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            private_payload = {}
+        if isinstance(private_payload, dict):
+            payload = {**dict(payload), **dict(private_payload)}
+    return payload
 
 
 def _configured_public_tour_hosts() -> tuple[str, ...]:
@@ -140,16 +222,13 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
     if not slug:
         return ""
     base_url = _hosted_property_tour_public_base_url()
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = _public_tour_dir()
     bundle_dir = public_dir / slug
     bundle_manifest = public_dir / slug / "tour.json"
     if not bundle_manifest.exists():
         return ""
-    try:
-        payload = json.loads(bundle_manifest.read_text(encoding="utf-8"))
-    except Exception:
-        return ""
-    if not isinstance(payload, dict):
+    payload = _load_hosted_property_tour_payload(bundle_dir)
+    if not payload:
         return ""
     scenes = [dict(entry) for entry in (payload.get("scenes") or []) if isinstance(entry, dict)]
     if not scenes:
@@ -184,13 +263,10 @@ def _existing_hosted_property_tour_payload(slug: str) -> dict[str, object]:
     hosted_url = _existing_hosted_property_tour_url({"slug": normalized_slug})
     if not hosted_url:
         return {}
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = _public_tour_dir()
     manifest_path = public_dir / normalized_slug / "tour.json"
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    if not isinstance(payload, dict):
+    payload = _load_hosted_property_tour_payload(public_dir / normalized_slug)
+    if not payload:
         return {}
     payload = dict(payload)
     payload["slug"] = normalized_slug
@@ -240,25 +316,38 @@ def _hosted_property_tour_slug(*, title: str, listing_id: str, property_url: str
     digest = hashlib.sha256(f"{property_url}|{listing_id}|{variant}".encode("utf-8")).hexdigest()[:10]
     return f"{base[:96].strip('-') or 'property-tour'}-{variant}-{digest}"
 
-def _download_public_tour_asset(url: str, target: Path) -> None:
-    request = urllib.request.Request(str(url), headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        data = response.read()
-    if not data:
-        raise RuntimeError("tour_asset_empty")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
-
 def _download_public_tour_asset_with_type(url: str, target: Path) -> str:
     request = urllib.request.Request(str(url), headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT})
-    with urllib.request.urlopen(request, timeout=180) as response:
-        data = response.read()
-        content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
-    if not data:
-        raise RuntimeError("tour_asset_empty")
+    content_type = ""
+    total_bytes = 0
+    max_bytes = _public_tour_asset_max_bytes()
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
+    with urllib.request.urlopen(request, timeout=180) as response:
+        content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        if not _public_tour_asset_content_type_allowed(content_type):
+            raise RuntimeError("tour_asset_content_type_unsupported")
+        try:
+            content_length = int(str(response.headers.get("Content-Length") or "0").strip() or "0")
+        except Exception:
+            content_length = 0
+        if content_length > max_bytes:
+            raise RuntimeError("tour_asset_too_large")
+        with target.open("wb") as handle:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > max_bytes:
+                    raise RuntimeError("tour_asset_too_large")
+                handle.write(chunk)
+    if total_bytes <= 0 or not target.exists():
+        raise RuntimeError("tour_asset_empty")
     return content_type
+
+
+def _download_public_tour_asset(url: str, target: Path) -> None:
+    _download_public_tour_asset_with_type(url, target)
 
 def _hosted_property_tour_asset_suffix(*, url: str, content_type: str) -> str:
     suffix = Path(urllib.parse.urlparse(str(url or "")).path).suffix.lower()
@@ -292,7 +381,7 @@ def _write_hosted_floorplan_property_tour_bundle(
     if not normalized_urls:
         raise RuntimeError("floorplan_assets_missing")
     base_url = _hosted_property_tour_public_base_url()
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = _public_tour_dir()
     slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
     existing_payload = _existing_hosted_property_tour_payload(slug)
     if existing_payload:
@@ -379,7 +468,7 @@ def _write_hosted_floorplan_property_tour_bundle(
         if bundle_dir.exists():
             shutil.rmtree(bundle_dir)
         staging_dir.rename(bundle_dir)
-        (bundle_dir / "tour.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_hosted_property_tour_payload(bundle_dir, payload)
         return payload
     except Exception:
         shutil.rmtree(staging_dir, ignore_errors=True)
@@ -406,7 +495,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     live_provider = _property_tour_provider_host_kind(live_url)
     if live_provider:
         base_url = _hosted_property_tour_public_base_url()
-        public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+        public_dir = _public_tour_dir()
         slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
         existing_payload = _existing_hosted_property_tour_payload(slug)
         if existing_payload:
@@ -475,7 +564,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
             "generated_at": _now_iso(),
             "creation_mode": "embedded_live_360",
         }
-        (bundle_dir / "tour.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_hosted_property_tour_payload(bundle_dir, payload)
         return payload
     if "360.kalandra.at" not in live_host and "feelestate" not in live_host:
         raise RuntimeError("pure_360_source_unsupported")
@@ -501,14 +590,11 @@ def _hosted_property_tour_direct_360_url(tour_url: str) -> str:
     slug = str(path_parts[-1] or "").strip()
     if not slug:
         return ""
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = _public_tour_dir()
     manifest_path = public_dir / slug / "tour.json"
     if not manifest_path.exists():
         return ""
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        return ""
+    payload = _load_hosted_property_tour_payload(public_dir / slug)
     return _embedded_live_360_source_url(payload if isinstance(payload, dict) else {})
 
 def _matterport_thumb_url(source_virtual_tour_url: str) -> str:
@@ -565,16 +651,13 @@ def _hosted_property_tour_preview_image_url(tour_url: str) -> str:
     slug = str(path_parts[-1] or "").strip()
     if not slug:
         return ""
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = _public_tour_dir()
     bundle_dir = public_dir / slug
     manifest_path = bundle_dir / "tour.json"
     if not manifest_path.exists():
         return ""
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        return ""
-    if not isinstance(payload, dict):
+    payload = _load_hosted_property_tour_payload(bundle_dir)
+    if not payload:
         return ""
 
     role_priority = {
@@ -602,4 +685,3 @@ def _hosted_property_tour_preview_image_url(tour_url: str) -> str:
             if bundle_dir.resolve() in asset_path.parents and asset_path.exists() and asset_path.is_file():
                 return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=asset_relpath)
     return ""
-

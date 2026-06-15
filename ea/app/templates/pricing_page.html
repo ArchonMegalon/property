@@ -138,6 +138,8 @@
         >Start {{ plan.display_name }} checkout</button>
         {% elif plan.plan_key in (pricing_checkout_enabled_plans or []) %}
         <a class="btn ghost" href="/register" data-analytics-event="pricing_sign_in_{{ plan.plan_key }}" data-rybbit-event="pricing_sign_in_to_upgrade" data-rybbit-prop-plan="{{ plan.plan_key }}">Sign in to upgrade</a>
+        {% elif plan.plan_key != 'free' %}
+        <div class="tier-meta">Recurring checkout is not live yet for this plan.</div>
         {% else %}
         <a class="btn ghost" href="/register" data-analytics-event="pricing_open_{{ plan.plan_key }}" data-rybbit-event="pricing_open_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">Open {{ plan.display_name }}</a>
         {% endif %}

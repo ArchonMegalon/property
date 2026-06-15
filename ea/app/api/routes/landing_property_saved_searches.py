@@ -135,7 +135,8 @@ def build_property_search_agents(
     normalize_property_type_values: Callable[[object], list[str]],
     scope_preview_builder: Callable[[str, str, str], dict[str, object]],
 ) -> tuple[list[dict[str, object]], dict[str, object]]:
-    raw_property_search_agents = property_preferences.get("search_agents") if isinstance(property_preferences.get("search_agents"), list) else []
+    explicit_agent_list = isinstance(property_preferences.get("search_agents"), list)
+    raw_property_search_agents = property_preferences.get("search_agents") if explicit_agent_list else []
     property_search_agents = [
         format_property_search_agent(
             agent,
@@ -152,7 +153,7 @@ def build_property_search_agents(
         for agent in raw_property_search_agents
         if isinstance(agent, dict)
     ]
-    if not property_search_agents:
+    if not property_search_agents and not explicit_agent_list:
         property_search_agents = [
             format_property_search_agent(
                 {
@@ -178,7 +179,10 @@ def build_property_search_agents(
                 scope_preview_builder=scope_preview_builder,
             )
         ]
-    active_agent = next((agent for agent in property_search_agents if agent.get("is_active")), property_search_agents[0])
+    active_agent = next(
+        (agent for agent in property_search_agents if agent.get("is_active")),
+        property_search_agents[0] if property_search_agents else {},
+    )
     return property_search_agents, active_agent
 
 

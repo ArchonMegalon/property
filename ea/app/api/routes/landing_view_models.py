@@ -726,40 +726,13 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
     if preview:
         return preview
 
-    district_rows: list[dict[str, object]] = []
-    for row in layout_rows:
-        value = str(row.get("value") or "").strip().lower()
-        selected = bool(value and value in selected_lookup)
-        x = float(row.get("x") or 0.0)
-        y = float(row.get("y") or 0.0)
-        width = float(row.get("width") or 16.0)
-        height = float(row.get("height") or 12.0)
-        district_rows.append(
-            {
-                "label": str(row.get("label") or row.get("value") or "").strip(),
-                "selected": selected,
-                "left_pct": round((x / 296.0) * 100.0, 3),
-                "top_pct": round((y / 160.0) * 100.0, 3),
-                "width_pct": round((width / 296.0) * 100.0, 3),
-                "height_pct": round((height / 160.0) * 100.0, 3),
-            }
-        )
-    svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="184" viewBox="0 0 320 184" fill="none">'
-        '<rect width="320" height="184" rx="18" fill="#ddd3c1"/>'
-        '<rect x="12" y="12" width="296" height="160" rx="14" fill="#f4efe5" stroke="#c6baa7"/>'
-        '<path d="M16 128 C54 104, 86 110, 120 96 S188 70, 236 58 S276 34, 304 22" fill="none" stroke="#cfc4b3" stroke-width="10" stroke-linecap="round"/>'
-        '<path d="M26 42 C64 52, 98 42, 134 50 S210 66, 300 48" fill="none" stroke="#ddd5c6" stroke-width="6" stroke-linecap="round"/>'
-        '<path d="M32 156 C68 144, 98 148, 134 136 S210 114, 292 126" fill="none" stroke="#d6cbbb" stroke-width="7" stroke-linecap="round"/>'
-        '</svg>'
-    )
     return {
-        "image_url": f"data:image/svg+xml;utf8,{urllib.parse.quote(svg, safe='/:;,+-=()%')}",
+        "image_url": "",
         "alt": f"Search area preview for {normalized_query or market_label}",
         "summary": ", ".join(selected_labels[:2]) if selected_labels else (normalized_query or market_label),
         "count_label": "",
         "market_label": market_label,
-        "district_rows": district_rows,
+        "district_rows": [],
         "district_overlay_svg": "",
     }
 
@@ -1305,6 +1278,23 @@ def app_section_payload(
     selected_keyword_values, custom_keyword_values = _split_known_and_custom_values(keyword_options, selected_keyword_values)
     custom_location_query = str(property_preferences.get("custom_location_query") or ", ".join(custom_location_values)).strip()
     custom_keywords = str(property_preferences.get("custom_keywords") or ", ".join(custom_keyword_values)).strip()
+    adjacent_area_radius_unit = str(property_preferences.get("adjacent_area_radius_unit") or "m").strip().lower()
+    if adjacent_area_radius_unit not in {"m", "km"}:
+        adjacent_area_radius_unit = "m"
+    try:
+        adjacent_area_radius_value = float(property_preferences.get("adjacent_area_radius_value"))
+    except Exception:
+        try:
+            stored_adjacent_area_radius_m = float(property_preferences.get("adjacent_area_radius_m") or 0.0)
+        except Exception:
+            stored_adjacent_area_radius_m = 0.0
+        adjacent_area_radius_value = stored_adjacent_area_radius_m / 1000.0 if adjacent_area_radius_unit == "km" else stored_adjacent_area_radius_m
+    if adjacent_area_radius_unit == "km":
+        adjacent_area_radius_value = max(0.0, min(adjacent_area_radius_value, 1000.0))
+        adjacent_area_radius_step = 1
+    else:
+        adjacent_area_radius_value = max(0.0, min(adjacent_area_radius_value, 1000.0))
+        adjacent_area_radius_step = 25
     property_selected_platform_labels = [
         str(option.get("label") or option.get("value") or "").strip()
         for option in platform_options
@@ -1564,7 +1554,7 @@ def app_section_payload(
             rows.append(
                 {
                     "icon": "SCH",
-                    "label": "SchoolAtlas",
+                    "label": "School context",
                     "detail": school_quality,
                     "tag": school_evidence.title() if school_evidence else "Research",
                 }
@@ -1573,7 +1563,7 @@ def app_section_payload(
             rows.append(
                 {
                     "icon": "AHS",
-                    "label": "Gymnasium path",
+                    "label": "School transition",
                     "detail": school_progression,
                     "tag": school_evidence.title() if school_evidence else "Research",
                 }
@@ -1942,9 +1932,38 @@ def app_section_payload(
                 "step": "areas",
             },
             {
+                "type": "range",
+                "name": "adjacent_area_radius_value",
+                "label": "How far outside the selected areas",
+                "value": int(adjacent_area_radius_value) if float(adjacent_area_radius_value).is_integer() else round(adjacent_area_radius_value, 1),
+                "min": 0,
+                "max": 1000,
+                "range_step": adjacent_area_radius_step,
+                "format": "distance_outside_area",
+                "empty_label": "District only",
+                "scale_min_label": "0",
+                "scale_max_label": f"1000 {adjacent_area_radius_unit}",
+                "step": "areas",
+                "tooltip": "Allow homes just outside the selected districts or areas when they are still nearby.",
+                "unit_field": "adjacent_area_radius_unit",
+                "meter_step": 25,
+                "km_step": 1,
+            },
+            {
+                "type": "select",
+                "name": "adjacent_area_radius_unit",
+                "label": "Unit",
+                "value": adjacent_area_radius_unit,
+                "options": [
+                    {"value": "m", "label": "Meters"},
+                    {"value": "km", "label": "Kilometers"},
+                ],
+                "step": "areas",
+            },
+            {
                 "type": "text",
                 "name": "custom_location_query",
-                "label": "Custom areas",
+                "label": "Add areas manually",
                 "value": custom_location_query,
                 "placeholder": "Free text for areas not covered by the checklist",
                 "tooltip": "Use this only when the district or area is not already available as a visible checkbox.",
@@ -3505,7 +3524,7 @@ def property_workspace_payload(
         if status in {"processed", "completed"}:
             return ("Finished", "")
         if status == "failed":
-            return ("Needs attention", message or "The search stopped before ranking finished.")
+            return ("Stopped early", message or "The search stopped before ranking finished.")
         if status == "cancelled":
             return ("Stopped", message or "This search was stopped before it finished.")
         if status == "noop":
@@ -3544,6 +3563,31 @@ def property_workspace_payload(
         except Exception:
             return default
 
+    def _previous_run_price_text(candidate: dict[str, object]) -> str:
+        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        for raw_value in (
+            candidate.get("price_display"),
+            candidate.get("costs_display"),
+            facts.get("price_display"),
+            facts.get("rent_display"),
+            facts.get("price"),
+            facts.get("rent"),
+        ):
+            text = str(raw_value or "").strip()
+            if text:
+                return text
+        title_text = " ".join(str(candidate.get("title") or "").split()).strip()
+        if not title_text:
+            return ""
+        for pattern in (
+            r"(€\s?[0-9][0-9\.\s]*(?:,\d{1,2})?\s*,-?)",
+            r"((?:EUR|USD|CHF)\s?[0-9][0-9\.,\s]*)",
+        ):
+            match = re.search(pattern, title_text, flags=re.IGNORECASE)
+            if match:
+                return " ".join(str(match.group(1) or "").split()).strip(" ,")
+        return ""
+
     def _format_previous_search_run(raw_run: dict[str, object]) -> dict[str, object]:
         summary = dict(raw_run.get("summary") or {}) if isinstance(raw_run.get("summary"), dict) else {}
         preferences_json = dict(raw_run.get("property_search_preferences") or raw_run.get("preferences") or {}) if isinstance(raw_run.get("property_search_preferences") or raw_run.get("preferences"), dict) else {}
@@ -3578,6 +3622,7 @@ def property_workspace_payload(
                     ).strip(),
                     "review_url": str(candidate.get("packet_url") or candidate.get("review_url") or "").strip(),
                     "map_url": str(candidate.get("map_url") or _property_candidate_maps_url(candidate)).strip(),
+                    "price_display": _previous_run_price_text(candidate),
                 }
             )
         held_back_total = max(
@@ -3603,7 +3648,7 @@ def property_workspace_payload(
             "scope_preview": scope_preview,
             "scope_summary": str(scope_preview.get("summary") or location or region or country or "Search area").strip(),
             "mode_label": mode or "Search",
-            "href": f"/app/properties?run_id={urllib.parse.quote(run_id_value, safe='')}" if run_id_value else "/app/properties",
+            "href": f"/app/shortlist?run_id={urllib.parse.quote(run_id_value, safe='')}" if run_id_value else "/app/shortlist",
             "updated_at": str(raw_run.get("updated_at") or raw_run.get("generated_at") or "").strip(),
             "source_total": _previous_run_int(summary.get("sources_total")),
             "listing_total": _previous_run_int(summary.get("listing_total") or summary.get("raw_listing_total")),
@@ -3611,6 +3656,7 @@ def property_workspace_payload(
             "sent_total": _previous_run_int(summary.get("notified_total") or summary.get("watch_notified_total")),
             "held_back_total": held_back_total,
             "top_fit_score": _previous_run_int(summary.get("top_fit_score") or (top_candidates[0].get("fit_score") if top_candidates else 0)),
+            "top_price_display": str((top_candidates[0].get("price_display") if top_candidates else "") or "").strip(),
             "top_candidates": top_candidates,
             "is_finished": run_status in {"processed", "completed", "failed", "noop", "cancelled"},
         }

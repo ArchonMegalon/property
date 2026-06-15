@@ -1587,13 +1587,14 @@ class OnboardingService(AssistantOnboardingService):
     ) -> list[dict[str, object]]:
         payload = dict(preferences or {})
         raw_agents = payload.get("search_agents")
+        explicit_agents = isinstance(raw_agents, (list, tuple))
         agents: list[dict[str, object]] = []
         if isinstance(raw_agents, (list, tuple)):
             for raw_agent in raw_agents:
                 if not isinstance(raw_agent, dict):
                     continue
                 agents.append(OnboardingService._normalize_property_search_agent(raw_agent, fallback=payload))
-        if not agents:
+        if not agents and not explicit_agents:
             agents.append(OnboardingService._normalize_property_search_agent(payload, fallback=payload))
         agent_limit = OnboardingService._property_search_agent_limit(payload) if enforce_plan_limit else 0
         seen: set[str] = set()

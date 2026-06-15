@@ -265,6 +265,9 @@ def enforce_property_plan_limits(
 
 
 def paypal_configured() -> bool:
+    enabled = str(os.getenv("PROPERTYQUARRY_ENABLE_PAYPAL_CHECKOUT") or "").strip().lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        return False
     return bool(str(os.getenv("PAYPAL_CLIENT_ID") or "").strip() and str(os.getenv("PAYPAL_SECRET") or "").strip())
 
 

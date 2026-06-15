@@ -23,6 +23,37 @@
       parent.appendChild(card);
       return card;
     };
+    const appendResultFact = (parent, text, { strong = false } = {}) => {
+      if (!parent || !text) return null;
+      const fact = document.createElement('span');
+      fact.className = 'pqx-result-fact';
+      if (strong) {
+        const strongNode = document.createElement('strong');
+        strongNode.textContent = String(text || '');
+        fact.appendChild(strongNode);
+      } else {
+        fact.textContent = String(text || '');
+      }
+      parent.appendChild(fact);
+      return fact;
+    };
+    const renderEventCards = (node, rows, emptyTitle, emptyDetail = '') => {
+      if (!node) return;
+      clearNode(node);
+      const normalizedRows = Array.isArray(rows) ? rows : [];
+      if (!normalizedRows.length) {
+        if (emptyTitle) appendEventCard(node, emptyTitle, emptyDetail);
+        return;
+      }
+      normalizedRows.forEach((row) => {
+        appendEventCard(
+          node,
+          row?.title || emptyTitle || 'Update',
+          row?.detail || '',
+          row?.tag || '',
+        );
+      });
+    };
     const renderClippyAnswer = (body) => {
       if (!clippyAnswerNode) return;
       const evidence = Array.isArray(body?.evidence) ? body.evidence : [];
@@ -554,12 +585,11 @@
       if (title) title.textContent = candidate.title || 'Selected property';
       if (source) source.textContent = [candidate.source_label, candidate.location_label].filter(Boolean).join(' · ') || 'PropertyQuarry candidate';
       if (summaryFacts) {
-        summaryFacts.innerHTML = [
-          candidate.price_display ? `<span class="pqx-result-fact"><strong>${escapeHtml(candidate.price_display)}</strong></span>` : '',
-          candidate.costs_display ? `<span class="pqx-result-fact">${escapeHtml(candidate.costs_display)}</span>` : '',
-          candidate.layout_display ? `<span class="pqx-result-fact">${escapeHtml(candidate.layout_display)}</span>` : '',
-          candidate.location_label ? `<span class="pqx-result-fact">${escapeHtml(candidate.location_label)}</span>` : '',
-        ].filter(Boolean).join('');
+        clearNode(summaryFacts);
+        appendResultFact(summaryFacts, candidate.price_display, { strong: true });
+        appendResultFact(summaryFacts, candidate.costs_display);
+        appendResultFact(summaryFacts, candidate.layout_display);
+        appendResultFact(summaryFacts, candidate.location_label);
       }
       const tourNode = root.querySelector('[data-pw-tour]');
       const theaterShell = root.querySelector('[data-pq-theater]');
@@ -568,12 +598,18 @@
         if (theaterShell) theaterShell.classList.remove('no-media');
         tourNode.hidden = false;
         tourNode.classList.remove('is-unavailable', 'is-compact');
-        tourNode.innerHTML = `<iframe src="${escapeHtml(tour.embed_url)}" title="Property 360 tour" loading="lazy" allowfullscreen></iframe>`;
+        clearNode(tourNode);
+        const iframe = document.createElement('iframe');
+        iframe.src = String(tour.embed_url || '');
+        iframe.title = 'Property 360 tour';
+        iframe.loading = 'lazy';
+        iframe.allowFullscreen = true;
+        tourNode.appendChild(iframe);
       } else if (tourNode) {
         if (theaterShell) theaterShell.classList.add('no-media');
         tourNode.hidden = true;
         tourNode.classList.remove('is-unavailable', 'is-compact');
-        tourNode.innerHTML = '';
+        clearNode(tourNode);
       }
       const ooda = root.querySelector('[data-pw-ooda]');
       if (ooda) ooda.innerHTML = renderOoda(candidate.ooda?.rows);
@@ -594,20 +630,20 @@
       if (riskSignalsNode) riskSignalsNode.innerHTML = renderRiskSignals(candidate.risk_signal_rows);
       if (recentChangesNode) recentChangesNode.innerHTML = renderRecentChanges(candidate.recent_change_rows);
       if (officialPostureNode) {
-        const rows = Array.isArray(candidate.official_posture_rows) ? candidate.official_posture_rows : [];
-        officialPostureNode.innerHTML = rows.length
-          ? rows.map((row) => `
-            <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Official check')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
-          `).join('')
-          : '<div class="pqx-note">No authority posture has been attached yet for the selected property.</div>';
+        renderEventCards(
+          officialPostureNode,
+          candidate.official_posture_rows,
+          'Official check',
+          'No authority posture has been attached yet for the selected property.',
+        );
       }
       if (officialEvidenceNode) {
-        const rows = Array.isArray(candidate.official_evidence_rows) ? candidate.official_evidence_rows : [];
-        officialEvidenceNode.innerHTML = rows.length
-          ? rows.map((row) => `
-            <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Official evidence')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
-          `).join('')
-          : '<div class="pqx-note">No authoritative risk-evidence row is attached yet for the selected property.</div>';
+        renderEventCards(
+          officialEvidenceNode,
+          candidate.official_evidence_rows,
+          'Official evidence',
+          'No authoritative risk-evidence row is attached yet for the selected property.',
+        );
       }
       if (followupsNode) {
         followupsNode.innerHTML = renderFollowups(candidate.followup_rows);
@@ -639,7 +675,16 @@
       const timeline = root.querySelector('[data-pw-timeline]');
       if (timeline) timeline.innerHTML = renderTimeline(candidate.timeline_rows);
       const risk = root.querySelector('[data-pw-risk]');
-      if (risk) risk.innerHTML = `<strong>Risk</strong><span class="pqx-note">${escapeHtml(candidate.risk?.summary || 'No risk summary captured yet.')}</span>`;
+      if (risk) {
+        clearNode(risk);
+        const label = document.createElement('strong');
+        label.textContent = 'Risk';
+        const note = document.createElement('span');
+        note.className = 'pqx-note';
+        note.textContent = String(candidate.risk?.summary || 'No risk summary captured yet.');
+        risk.appendChild(label);
+        risk.appendChild(note);
+      }
       const riskLevel = root.querySelector('[data-pw-risk-level]');
       if (riskLevel) riskLevel.textContent = candidate.risk?.level || 'unknown';
       const investment = root.querySelector('[data-pw-investment]');

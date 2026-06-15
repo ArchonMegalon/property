@@ -54,10 +54,11 @@ def test_propertyquarry_app_templates_do_not_reintroduce_legacy_dark_theme_token
             assert token not in body, f"{token!r} leaked into {template_path.relative_to(repo_root)}"
 
 
-def test_propertyquarry_object_detail_template_exposes_opt_in_magic_fit_panel() -> None:
+def test_propertyquarry_object_detail_template_exposes_user_facing_optional_tools() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/object_detail.html"
     body = template_path.read_text(encoding="utf-8")
-    assert "Open Magic Fit" in body
+    assert "Open question helper" in body
+    assert "Visualize furnished living" in body
     assert "Upload reference photos" in body
     assert "Use Google Photos Picker" in body
     assert "Attach the generated still to the packet PDF dossier" in body
@@ -167,6 +168,13 @@ def test_property_scope_preview_uses_generic_boundary_projection(monkeypatch) ->
     assert preview["image_url"] == "data:image/png;base64,scopepreview"
     assert len(preview["district_rows"]) == 2
     assert all(str(row.get("path") or "").startswith("M") for row in preview["district_rows"])
+
+
+def test_property_scope_preview_without_boundary_data_skips_fake_thumbnail(monkeypatch) -> None:
+    monkeypatch.setattr(landing_view_models, "_nominatim_boundary_record", lambda query: {})
+    preview = landing_view_models._property_scope_preview("AT", "vienna", "1020 Vienna")
+    assert preview["image_url"] == ""
+    assert preview["district_rows"] == []
 
 
 def test_property_workbench_no_longer_embeds_vienna_district_mapping_js() -> None:
@@ -312,6 +320,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     principal_id = "pq-redesign-browser"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PAYPAL_CHECKOUT", "1")
     monkeypatch.setenv("PAYPAL_CLIENT_ID", "paypal-client")
     monkeypatch.setenv("PAYPAL_SECRET", "paypal-secret")
 
@@ -721,7 +730,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'class="pqx-route-evidence"' in search.text
     assert 'class="pqx-thumb"' in search.text
     assert "ranked homes" in search.text
-    assert "Price, layout, fit, and the next action stay in the main list." in search.text
+    assert "Price, layout, fit, and the strongest reason stay in the main list." in search.text
     assert 'class="pqx-result-reason"' in search.text
     assert 'class="pqx-status-line"' in search.text
     assert "Altbau near U6" in search.text
@@ -854,7 +863,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Luftmessnetz: aktuelle Messdaten Wien" in packet.text
     assert "How the wider area reads today" in packet.text
     assert "Energy posture and heating" in packet.text
-    assert "SchoolAtlas quality" in packet.text
+    assert "School context" in packet.text
     assert "Gymnasium progression" in packet.text
     assert "Buy-side underwriting view" in packet.text
     assert "Gross yield" in packet.text
@@ -956,6 +965,12 @@ def test_property_object_detail_feedback_script_avoids_magicfit_preview_innerhtm
     legacy_block = legacy_body.split("const renderMagicFitPreview = (scene) => {", 1)[1].split("const renderMagicFitReferenceList = () => {", 1)[0]
     assert "innerHTML" not in legacy_block
     assert "document.createElement('img')" in legacy_block
+    reference_block = legacy_body.split("const renderMagicFitReferenceList = () => {", 1)[1].split("renderMagicFitPreview(payload.magic_fit_scene || {});", 1)[0]
+    assert "innerHTML" not in reference_block
+    followup_block = legacy_body.split("const renderFollowups = (rows) => {", 1)[1].split("renderFollowups(payload.followup_rows || []);", 1)[0]
+    assert "innerHTML" not in followup_block
+    clippy_block = legacy_body.split("const renderClippy = (body) => {", 1)[1].split("clippyAskButton?.addEventListener", 1)[0]
+    assert "innerHTML" not in clippy_block
 
 
 def test_public_tour_allow_and_deny_extension_sets_do_not_overlap() -> None:
@@ -1015,7 +1030,7 @@ def test_property_workbench_previous_search_cards_have_explicit_overflow_gate() 
     assert ".pqx-previous-scope-preview" in body
     assert "aspect-ratio: 16 / 8;" in body
     assert ".pqx-previous-search {" in body
-    assert "grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);" in body
+    assert "grid-template-columns: minmax(0, 1fr);" in body
     assert "border-bottom: 1px solid var(--pq-line);" in body
 
 
@@ -1282,6 +1297,7 @@ def test_property_dashboard_renders_previous_searches_with_compact_finished_resu
                             "title": "Ruhige 2-Zimmer Wohnung mit Balkon",
                             "source_label": "Willhaben",
                             "fit_score": 68,
+                            "price_display": "EUR 1,150",
                             "compare_reason": "Strong district and layout fit.",
                             "packet_url": "/app/research/candidate-1?run_id=run-finished",
                         }
@@ -1296,8 +1312,10 @@ def test_property_dashboard_renders_previous_searches_with_compact_finished_resu
     assert page.status_code == 200
     assert "Continue where you left off." in page.text
     assert "1020 Vienna" in page.text
-    assert "Open" in page.text
-    assert "Delete" in page.text
+    assert "ranked" in page.text
+    assert "EUR 1,150" in page.text
+    assert "/app/shortlist?run_id=run-finished" in page.text
+    assert "aria-label=\"Delete previous search\"" in page.text
     assert "filtered" in page.text
 
 
@@ -1331,7 +1349,7 @@ def test_property_dashboard_failed_previous_search_uses_customer_facing_copy(mon
     page = client.get("/app/properties", headers={"host": "propertyquarry.com"})
 
     assert page.status_code == 200
-    assert "Needs attention" in page.text
+    assert "Stopped early" in page.text
     assert "Provider returned 403 while fetching Willhaben." in page.text
     assert ">Failed<" not in page.text
 
@@ -1513,17 +1531,15 @@ def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     assert ".pqx-disclosure-summary {" in body
     assert ".pqx-disclosure-icon {" in body
     assert ".pqx-workflow-step:hover," in body
-    assert ".pqx-field-tools .pqx-field-action {" in body
-    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in body
-    assert '"label": "Market"' in view_model
-    assert '"label": "Sources"' in view_model
-    assert '"label": "Family"' in view_model
-    assert '"label": "Commute"' in view_model
-    assert '"label": "Research"' in view_model
-    assert '"label": "State or metro area"' in view_model
-    assert "font-size: 8px" not in body
-    assert "font-size: 9px" not in body
-    assert 'grid-template-columns: repeat(6, minmax(0, 1fr));' not in body
+
+
+def test_property_shortlist_surface_is_single_column_and_results_first() -> None:
+    body = _read_workbench_bundle()
+
+    assert "pqx-results-single" in body
+    assert "open one home for the full property page" in body
+    assert "review it on the right" not in body
+    assert "No price published" in body
     assert "pqx-state-strip" not in body
     assert 'aria-label="Current search context"' not in body
     assert 'aria-label="Account navigation"' in body
@@ -1549,7 +1565,7 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert "data-pqx-finished-compare" in body
     assert "Best homes first" in body
     assert "Relax one filter" in body
-    assert "Price, layout, fit, and the next action stay in the main list." in body
+    assert "Price, layout, fit, and the strongest reason stay in the main list." in body
 
 
 def test_property_decision_save_uses_canonical_endpoint_and_renders_consequences() -> None:
@@ -1843,6 +1859,18 @@ def test_propertyquarry_workspace_supports_full_region_scope_toggle() -> None:
     assert 'href="/app/account#profile">Open preferences</a>' in search.text
     assert "Prefer Outdoor Space (Soft Preference)" not in search.text
     assert 'name="full_region_scope" value="true" checked' in search.text
+
+
+def test_propertyquarry_workspace_exposes_adjacent_area_radius_control() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    view_models = (repo_root / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
+    brief_script = (repo_root / "ea/app/templates/app/_property_workbench_brief_script.html").read_text(encoding="utf-8")
+    template = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+
+    assert '"name": "adjacent_area_radius_value"' in view_models
+    assert '"name": "adjacent_area_radius_unit"' in view_models
+    assert 'data-range-unit-field="{{ field.get(\'unit_field\') or \'\' }}"' in template
+    assert "adjacent_area_radius_m: adjacentAreaRadiusMeters" in brief_script
 
 
 def test_propertyquarry_saved_brief_reload_does_not_backfill_custom_location_from_checkbox_scope() -> None:

@@ -1756,12 +1756,21 @@
       if (scopeLightboxTitle) scopeLightboxTitle.textContent = title;
       if (scopeLightboxCaption) scopeLightboxCaption.textContent = caption;
       if (scopeLightboxOverlay) {
-        scopeLightboxOverlay.innerHTML = Array.isArray(overlayRows)
-          ? overlayRows
-              .filter((row) => row && typeof row === 'object' && String(row.path || '').trim())
-              .map((row) => `<path class="${row.selected ? 'is-selected' : ''}" d="${escapeHtml(String(row.path || ''))}" data-label="${escapeHtml(String(row.label || 'Area'))}"><title>${escapeHtml(String(row.label || 'Area'))}</title></path>`)
-              .join('')
-          : '';
+        while (scopeLightboxOverlay.firstChild) scopeLightboxOverlay.removeChild(scopeLightboxOverlay.firstChild);
+        if (Array.isArray(overlayRows)) {
+          overlayRows
+            .filter((row) => row && typeof row === 'object' && String(row.path || '').trim())
+            .forEach((row) => {
+              const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+              if (row.selected) path.setAttribute('class', 'is-selected');
+              path.setAttribute('d', String(row.path || '').trim());
+              path.setAttribute('data-label', String(row.label || 'Area'));
+              const titleNode = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+              titleNode.textContent = String(row.label || 'Area');
+              path.appendChild(titleNode);
+              scopeLightboxOverlay.appendChild(path);
+            });
+        }
       }
       resetScopeLightboxZoom();
       if (typeof scopeLightbox.showModal === 'function') scopeLightbox.showModal();

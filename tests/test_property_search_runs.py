@@ -1514,6 +1514,72 @@ def test_hosted_property_tour_bundle_reuses_existing_manifest(monkeypatch, tmp_p
         source_host="willhaben.at",
     )
 
+
+def test_hosted_property_tour_bundle_splits_public_manifest_from_private_receipt(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
+
+    def _fake_download(url: str, target) -> str:
+        target.write_bytes(b"%PDF-1.4\n")
+        return "application/pdf"
+
+    monkeypatch.setattr("app.product.property_tour_hosting._download_public_tour_asset_with_type", _fake_download)
+
+    payload = product_service._write_hosted_floorplan_property_tour_bundle(
+        principal_id="exec-private-tour",
+        title="Private floorplan tour",
+        listing_id="private-floorplan-1",
+        property_url="https://www.willhaben.at/iad/object?adId=private-floorplan-1",
+        variant_key="layout_first",
+        floorplan_urls=("https://cdn.example.com/floorplan.pdf",),
+        property_facts_json={},
+        source_host="willhaben.at",
+        source_ref="property-scout:private-floorplan-1",
+        external_id="ext-private-floorplan-1",
+        recipient_email="anna@example.com",
+    )
+
+    bundle_dir = tmp_path / str(payload["slug"])
+    public_manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    private_manifest = json.loads((bundle_dir / "tour.private.json").read_text(encoding="utf-8"))
+
+    assert public_manifest["hosted_url"] == f"https://propertyquarry.com/tours/{payload['slug']}"
+    assert "principal_id" not in public_manifest
+    assert "recipient_email" not in public_manifest
+    assert "source_ref" not in public_manifest
+    assert "external_id" not in public_manifest
+    assert private_manifest["principal_id"] == "exec-private-tour"
+    assert private_manifest["recipient_email"] == "anna@example.com"
+    assert private_manifest["source_ref"] == "property-scout:private-floorplan-1"
+    assert private_manifest["external_id"] == "ext-private-floorplan-1"
+
+
+def test_public_tour_asset_download_enforces_max_bytes(monkeypatch, tmp_path) -> None:
+    class _FakeResponse:
+        def __init__(self) -> None:
+            self.headers = {"Content-Type": "application/pdf", "Content-Length": "8"}
+            self._chunks = [b"1234", b"5678"]
+
+        def read(self, size: int = -1) -> bytes:
+            if not self._chunks:
+                return b""
+            return self._chunks.pop(0)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    monkeypatch.setenv("PROPERTYQUARRY_TOUR_ASSET_MAX_BYTES", "4")
+    monkeypatch.setattr("app.product.property_tour_hosting.urllib.request.urlopen", lambda *args, **kwargs: _FakeResponse())
+
+    with pytest.raises(RuntimeError, match="tour_asset_too_large"):
+        product_service._download_public_tour_asset_with_type(
+            "https://cdn.example.com/floorplan.pdf",
+            tmp_path / "floorplan.pdf",
+        )
+
     assert payload["tour_cache_status"] == "existing"
     assert str(payload["hosted_url"]).endswith(f"/{slug}")
 
@@ -2558,8 +2624,10 @@ def test_property_search_run_status_survives_registry_loss_via_persisted_record(
     def _fake_store(record: dict[str, object]) -> None:
         persisted[str(record.get("run_id") or "")] = dict(record)
 
-    def _fake_load(*, run_id: str) -> dict[str, object] | None:
+    def _fake_load(*, run_id: str, principal_id: str = "") -> dict[str, object] | None:
         row = persisted.get(run_id)
+        if principal_id and str(dict(row or {}).get("principal_id") or "").strip() != str(principal_id or "").strip():
+            return None
         return dict(row) if isinstance(row, dict) else None
 
     monkeypatch.setattr(product_service, "_store_property_search_run_record", _fake_store)
