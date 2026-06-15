@@ -678,6 +678,23 @@ def test_property_search_location_matching_rejects_unselected_vienna_districts()
     ) is True
 
 
+def test_property_search_location_matching_rejects_explicit_non_vienna_marker() -> None:
+    hints = _property_search_location_hints({"location_query": "Vienna"})
+
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://example.test/listing/waidhofen",
+        title="Altbau apartment in Waidhofen an der Ybbs",
+        summary="Austria buy opportunity.",
+        property_facts={"postal_name": "Waidhofen an der Ybbs"},
+    ) is False
+
+
+def test_property_investment_price_eur_parses_localized_thousand_separators() -> None:
+    assert product_service._property_investment_price_eur({"price_display": "EUR 669.000,-"}) == 669000.0
+    assert product_service._property_investment_price_eur({"price_display": "€ 1.250.000"}) == 1250000.0
+
+
 def test_property_search_location_matching_accepts_source_scope_location() -> None:
     hints = _property_search_location_hints({"location_query": "1200 Vienna, 1020 Vienna, 1090"})
     facts = product_service._property_facts_with_source_scope(

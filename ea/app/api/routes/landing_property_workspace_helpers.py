@@ -42,6 +42,8 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
     configured_workers = max(1, int(provider_workers.get("worker_concurrency") or slot_cap or 1))
     visible_workers = max(1, min(slot_cap, configured_workers))
     source_rows = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
+    run_progress = max(0, min(100, int(run_summary.get("progress") or 0)))
+    run_status = str(run_summary.get("status") or "").strip().lower()
 
     def _source_provider_group(source_row: dict[str, object]) -> str:
         provider_family = str(source_row.get("provider_family") or "").strip().lower()
@@ -120,16 +122,16 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         compact_label = _compact_provider_label(source_label)
         provider_group = _source_provider_group(source_row) if source_row else ""
         shard_count = max(0, int(duplicate_counts.get(provider_group, 0)) - 1) if provider_group else 0
-        status_label = _source_status_label(source_row) if source_row else "Idle"
-        progress = _source_progress(source_row) if source_row else 0
+        status_label = _source_status_label(source_row) if source_row else ("Starting" if (run_progress > 0 or run_status in {"queued", "in_progress", "running", "processing", "starting"}) else "Idle")
+        progress = _source_progress(source_row) if source_row else (max(8, min(run_progress, 24)) if status_label == "Starting" else 0)
         worker_rows.append(
             {
-                "label": compact_label if source_row else ("Waiting" if active_sources or source_rows else "Stand by"),
-                "provider": source_label or ("Waiting for a source" if active_sources or source_rows else "Stand by"),
+                "label": compact_label if source_row else ("Preparing sources" if status_label == "Starting" else ("Waiting" if active_sources or source_rows else "Ready")),
+                "provider": source_label or ("Preparing source lanes" if status_label == "Starting" else ("Waiting for a source" if active_sources or source_rows else "Ready when you start")),
                 "shard_count": shard_count,
                 "status_label": status_label,
                 "progress_pct": progress,
-                "tone": "done" if progress >= 100 and source_row and status_label == "Done" else ("active" if status_label == "Running" else ("queued" if status_label in {"Up next", "Retrying"} else "idle")),
+                "tone": "done" if progress >= 100 and source_row and status_label == "Done" else ("active" if status_label in {"Running", "Starting"} else ("queued" if status_label in {"Up next", "Retrying"} else "idle")),
             }
         )
 

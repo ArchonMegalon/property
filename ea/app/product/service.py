@@ -4118,8 +4118,39 @@ def _property_scout_candidate_payload_from_preview(*, property_url: str, preview
 
 
 def _property_investment_price_eur(facts: dict[str, object]) -> float | None:
+    def _parse_money_like(value: object) -> float | None:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        match = re.search(r"([0-9][0-9\.\,\s]*)(?:\s*,-)?", text)
+        if not match:
+            return None
+        number_text = str(match.group(1) or "").replace(" ", "").strip(".,")
+        if not number_text:
+            return None
+        if "." in number_text and "," in number_text:
+            number_text = number_text.replace(".", "").replace(",", ".")
+        elif "," in number_text:
+            integer_part, decimal_part = number_text.rsplit(",", 1)
+            number_text = integer_part + decimal_part if len(decimal_part) == 3 else integer_part + "." + decimal_part
+        elif number_text.count(".") > 1:
+            number_text = number_text.replace(".", "")
+        elif "." in number_text:
+            integer_part, decimal_part = number_text.rsplit(".", 1)
+            if len(decimal_part) == 3 and integer_part.isdigit():
+                number_text = integer_part + decimal_part
+        try:
+            amount = float(number_text)
+        except Exception:
+            return None
+        return amount if amount > 0.0 else None
+
     for key in ("price_eur", "valuation_eur", "reserve_price_eur"):
         value = _float_or_none(facts.get(key))
+        if isinstance(value, float) and value > 0.0:
+            return value
+    for key in ("price_display", "price", "valuation_display", "asking_price", "purchase_price_display"):
+        value = _parse_money_like(facts.get(key))
         if isinstance(value, float) and value > 0.0:
             return value
     return None
@@ -5312,6 +5343,8 @@ _PROPERTY_AT_NON_VIENNA_LOCATION_MARKERS = frozenset(
         "villach",
         "wels",
         "steyr",
+        "waidhofen",
+        "waidhofen an der ybbs",
     }
 )
 
@@ -28695,6 +28728,16 @@ class ProductService:
                     )
 
             if not ranked_rows and preliminary_rows:
+                fallback_reason = (
+                    "Kept as a review candidate while stronger investment screens were unavailable."
+                    if search_goal == "investment"
+                    else "Kept as a review candidate because no stronger match cleared the shortlist yet."
+                )
+                fallback_unknown = (
+                    "Sparse listing data: verify yield, tenant status, legal clarity, and operating costs before treating this as an investment fit."
+                    if search_goal == "investment"
+                    else "Sparse listing data: verify location, availability, layout, and operating costs before treating this as a fit."
+                )
                 for fallback_row in preliminary_rows[:max_results]:
                     property_url = str(fallback_row.get("property_url") or "").strip()
                     if not property_url:
@@ -28709,9 +28752,9 @@ class ProductService:
                         "confidence": 0.25,
                         "predicted_reaction": "needs_review",
                         "recommendation": "review",
-                        "match_reasons_json": ["Kept as a review candidate because no stronger match cleared the shortlist yet."],
+                        "match_reasons_json": [fallback_reason],
                         "mismatch_reasons_json": [],
-                        "unknowns_json": ["Sparse listing data: verify location, availability, layout, and operating costs before treating this as a fit."],
+                        "unknowns_json": [fallback_unknown],
                         "blocking_constraints_json": [],
                     }
                     ranked_rows.append(
@@ -28743,6 +28786,7 @@ class ProductService:
             preliminary_location_miss_count += detailed_location_miss_count
             duplicate_for_source = 0
             unique_ranked_rows: list[dict[str, object]] = []
+            seen_listing_fingerprints: set[str] = set()
             for row in ranked_rows:
                 normalized_property_url = urllib.parse.urldefrag(str(row.get("property_url") or "").strip())[0]
                 if not normalized_property_url:
@@ -28751,7 +28795,35 @@ class ProductService:
                     duplicate_for_source += 1
                     duplicate_listing_total += 1
                     continue
+                row_facts = dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {}
+                fingerprint_title = re.sub(r"[^a-z0-9]+", " ", str(row.get("title") or "").strip().lower()).strip()
+                fingerprint_location = re.sub(
+                    r"[^a-z0-9]+",
+                    " ",
+                    " ".join(
+                        part for part in (
+                            str(row_facts.get("postal_name") or "").strip(),
+                            str(row_facts.get("district") or "").strip(),
+                            str(row_facts.get("address") or "").strip(),
+                        ) if part
+                    ).lower(),
+                ).strip()
+                fingerprint_price = _property_investment_price_eur(row_facts) if search_goal == "investment" else None
+                rounded_price = int(round(fingerprint_price / 1000.0) * 1000) if isinstance(fingerprint_price, float) and fingerprint_price > 0.0 else 0
+                listing_fingerprint = "|".join(
+                    (
+                        fingerprint_title[:96],
+                        fingerprint_location[:96],
+                        str(rounded_price),
+                    )
+                ).strip("|")
+                if listing_fingerprint and listing_fingerprint in seen_listing_fingerprints:
+                    duplicate_for_source += 1
+                    duplicate_listing_total += 1
+                    continue
                 seen_listing_urls.add(normalized_property_url)
+                if listing_fingerprint:
+                    seen_listing_fingerprints.add(listing_fingerprint)
                 unique_ranked_rows.append(row)
             ranked_rows = unique_ranked_rows
             _report(

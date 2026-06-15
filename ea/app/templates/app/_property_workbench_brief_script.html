@@ -605,7 +605,10 @@
       return readableErrorDetail(body.detail || body.error || body.message || body, fallback);
     };
     const collectPayload = (form) => {
+      const rawPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
       const selectedPlatforms = checkedValues(form, 'selected_platforms');
+      const platformCap = Number.isFinite(rawPlatformCap) && rawPlatformCap > 0 ? rawPlatformCap : selectedPlatforms.length;
+      const effectiveSelectedPlatforms = selectedPlatforms.slice(0, platformCap);
       const countryCode = fieldValue(form, 'country_code') || 'AT';
       const regionCode = fieldValue(form, 'region_code') || '';
       const searchGoal = fieldValue(form, 'search_goal') || 'home';
@@ -627,9 +630,9 @@
       const customKeywords = fieldValue(form, 'custom_keywords');
       const regionLabel = String(form.querySelector('select[name="region_code"] option:checked')?.textContent || regionCode || '').trim();
       return {
-        selected_platforms: selectedPlatforms,
+        selected_platforms: effectiveSelectedPlatforms,
         property_preferences: {
-          selected_platforms: selectedPlatforms,
+          selected_platforms: effectiveSelectedPlatforms,
           country_code: countryCode,
           region_code: regionCode,
           language_code: browserLanguageCode(),

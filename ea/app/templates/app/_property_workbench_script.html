@@ -787,6 +787,7 @@
       }).join('');
       const sourceMeta = `${reviewed} homes reviewed${layout > 0 ? ` · ${layout} still waiting on floorplans` : ''}`;
       const sourceRows = Array.isArray(summary.sources) ? summary.sources : [];
+      const runState = String(runPayload?.status || '').trim().toLowerCase();
       const compactProviderLabel = (value) => {
         let text = String(value || '').replace(/\s+/g, ' ').trim();
         if (!text) return 'Provider';
@@ -835,25 +836,25 @@
           else if (['queued', 'pending', 'starting'].includes(rawStatus)) progressPct = 18;
           else progressPct = 0;
         }
-        const statusLabel = !source ? 'Idle'
+        const statusLabel = !source ? ((progress > 0 || ['queued', 'in_progress', 'running', 'processing', 'starting'].includes(runState)) ? 'Starting' : 'Idle')
           : (['completed', 'processed', 'done', 'success'].includes(rawStatus) ? 'Done'
           : ((['failed', 'error'].includes(rawStatus) || source?.error) ? 'Fetch failed'
           : (['running', 'processing', 'in_progress', 'working', 'warming'].includes(rawStatus) ? 'Running' : 'Up next')));
         const tone = !source
-          ? 'idle'
+          ? (statusLabel === 'Starting' ? 'active' : 'idle')
           : (progressPct >= 100 && statusLabel === 'Done'
             ? 'done'
-            : (statusLabel === 'Running'
+            : ((statusLabel === 'Running' || statusLabel === 'Starting')
               ? 'active'
               : ((statusLabel === 'Fetch failed') ? 'warn' : 'queued')));
         const shardCount = source ? Math.max(0, rawWorkerQueue.filter((row) => sourceProviderGroup(row) === groupKey).length - 1) : 0;
-        const provider = String(source?.source_label || source?.label || (sourceRows.length ? 'Waiting for a source' : 'Stand by'));
+        const provider = String(source?.source_label || source?.label || (statusLabel === 'Starting' ? 'Preparing source lanes' : (sourceRows.length ? 'Waiting for a source' : 'Ready when you start')));
         return {
-          label: source ? compactProviderLabel(provider) : (sourceRows.length ? 'Waiting' : 'Stand by'),
+          label: source ? compactProviderLabel(provider) : (statusLabel === 'Starting' ? 'Preparing sources' : (sourceRows.length ? 'Waiting' : 'Ready')),
           provider,
           shardCount,
           statusLabel,
-          progressPct,
+          progressPct: source ? progressPct : (statusLabel === 'Starting' ? Math.max(8, Math.min(progress || 12, 24)) : progressPct),
           tone,
         };
       });
@@ -1810,7 +1811,6 @@
     };
     root.querySelectorAll('[data-search-agent-action]').forEach((button) => {
       button.addEventListener('click', async () => {
-        if (!form) return;
         const action = String(button.getAttribute('data-search-agent-action') || '').trim();
         const status = root.querySelector('[data-search-agent-status]');
         const row = button.closest('[data-property-search-agent-row]');
@@ -1826,11 +1826,24 @@
                 : 'Updating saved search...';
           }
           if (action === 'load') {
+            if (!form) {
+              window.location.href = `/app/properties?load_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
+              return;
+            }
             await loadSearchAgentRow(row, false);
             return;
           }
           if (action === 'run') {
+            if (!form) {
+              await updateSearchAgent(agentId, 'resume', {});
+              window.location.href = `/app/properties?load_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
+              return;
+            }
             await loadSearchAgentRow(row, true);
+            return;
+          }
+          if (action === 'save' && !form) {
+            window.location.href = `/app/properties?load_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
             return;
           }
           await updateSearchAgent(agentId, action, action === 'save' ? currentSearchAgentPatch() : {});

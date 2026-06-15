@@ -4411,6 +4411,10 @@ def property_workspace_payload(
             number_text = integer_part + decimal_part if len(decimal_part) == 3 else integer_part + "." + decimal_part
         elif number_text.count(".") > 1:
             number_text = number_text.replace(".", "")
+        elif "." in number_text:
+            integer_part, decimal_part = number_text.rsplit(".", 1)
+            if len(decimal_part) == 3 and integer_part.isdigit():
+                number_text = integer_part + decimal_part
         try:
             amount = float(number_text)
         except Exception:
@@ -4441,6 +4445,23 @@ def property_workspace_payload(
             if amount:
                 return f"EUR {amount:.0f}"
         return ""
+
+    def _money_numeric_value(value: object) -> float | None:
+        if value in (None, "", []):
+            return None
+        if isinstance(value, (int, float)):
+            amount = float(value)
+            return amount if amount > 0.0 else None
+        text = str(value or "").strip()
+        if not text:
+            return None
+        normalized = _normalized_money_text(text) if ("eur" in text.lower() or "€" in text) else text
+        cleaned = normalized.replace("EUR", "").replace(",", "").strip()
+        try:
+            amount = float(cleaned)
+        except Exception:
+            return None
+        return amount if amount > 0.0 else None
 
     def _candidate_costs_line(facts: dict[str, object], *, listing_mode: str, price_line: str) -> str:
         normalized_mode = str(listing_mode or "").strip().lower()
@@ -4507,6 +4528,15 @@ def property_workspace_payload(
             or facts.get("price_eur")
             or ""
         ).strip()
+        parsed_buy_price = _money_numeric_value(facts.get("price_eur"))
+        if str(property_preferences.get("listing_mode") or "").strip().lower() == "buy":
+            suspicious_display = _money_numeric_value(price_line) if price_line else None
+            if isinstance(parsed_buy_price, float) and parsed_buy_price >= 1000.0 and (
+                not price_line
+                or not isinstance(suspicious_display, float)
+                or suspicious_display < 1000.0
+            ):
+                price_line = _money_display(parsed_buy_price)
         if not price_line or price_line.lower() == "n/a":
             price_line = _title_price_fallback(candidate.get("title") or "")
         if not price_line:
