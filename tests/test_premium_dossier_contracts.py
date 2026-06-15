@@ -540,7 +540,7 @@ def test_premium_dossier_quality_gate_rejects_missing_cover_or_footer_when_requi
     assert report.ok is False
 
 
-def test_premium_pipeline_fails_closed_when_rendered_pdf_fails_quality_gate(monkeypatch, tmp_path: Path) -> None:
+def test_premium_pipeline_falls_back_to_legacy_when_rendered_pdf_fails_quality_gate(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
     monkeypatch.delenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", raising=False)
@@ -558,21 +558,22 @@ def test_premium_pipeline_fails_closed_when_rendered_pdf_fails_quality_gate(monk
         return {"status": "legacy_rendered", "receipt": {"renderer_provider": "legacy"}}
 
     monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_playwright", _bad_playwright)
+    rendered = render_property_packet_pdf_via_premium_pipeline(
+        artifact_root=tmp_path,
+        publication_id="pub_quality_fallback",
+        principal_id="cf-email:tibor@example.com",
+        source=_sample_source(),
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        include_exact_address=False,
+        include_floorplan=True,
+        include_photos=True,
+        legacy_renderer=_legacy_renderer,
+    )
 
-    with pytest.raises(RuntimeError, match="premium_dossier_render_failed:premium_pdf_quality_gate_failed"):
-        render_property_packet_pdf_via_premium_pipeline(
-            artifact_root=tmp_path,
-            publication_id="pub_quality_fallback",
-            principal_id="cf-email:tibor@example.com",
-            source=_sample_source(),
-            packet_kind=PropertyPacketKind.FAMILY_REVIEW,
-            privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
-            fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
-            include_exact_address=False,
-            include_floorplan=True,
-            include_photos=True,
-            legacy_renderer=_legacy_renderer,
-        )
+    assert rendered["status"] == "legacy_rendered"
+    assert rendered["receipt"]["premium_render_failures"][0]["error_code"] == "premium_pdf_quality_gate_failed"
 
 
 def test_premium_pipeline_writes_visual_preview_receipt_fields(monkeypatch, tmp_path: Path) -> None:
@@ -773,10 +774,10 @@ def test_playwright_renderer_blocks_remote_network_requests(monkeypatch, tmp_pat
     assert observed["blocked"] == ["https://cdn.example.test/hero.jpg"]
 
 
-def test_premium_pipeline_legacy_fallback_requires_emergency_flag(monkeypatch, tmp_path: Path) -> None:
+def test_premium_pipeline_records_quality_failure_when_legacy_fallback_runs(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
-    monkeypatch.setenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", "1")
+    monkeypatch.delenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", raising=False)
 
     def _bad_playwright(_request):
         return PremiumDossierRenderResult(
@@ -809,7 +810,7 @@ def test_premium_pipeline_legacy_fallback_requires_emergency_flag(monkeypatch, t
     assert rendered["receipt"]["premium_render_failures"][0]["error_code"] == "premium_pdf_quality_gate_failed"
 
 
-def test_telegram_appendix_uses_premium_pipeline_before_legacy(monkeypatch, tmp_path: Path) -> None:
+def test_telegram_appendix_uses_compact_legacy_renderer_directly(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
     monkeypatch.delenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", raising=False)
@@ -874,9 +875,8 @@ def test_telegram_appendix_uses_premium_pipeline_before_legacy(monkeypatch, tmp_
         legacy_renderer=_legacy_renderer,
     )
 
-    assert rendered["pdf_path"].endswith(".pdf")
-    assert rendered["receipt"]["renderer_provider"] == "playwright"
-    assert legacy_called["value"] is False
+    assert rendered["status"] == "legacy_rendered"
+    assert legacy_called["value"] is True
 
 
 def test_pdf_flythrough_url_does_not_fallback_to_tour_pane_without_real_clip() -> None:

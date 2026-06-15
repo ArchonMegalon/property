@@ -146,7 +146,15 @@
   {% if worker_state.get('workers') %}
   <div class="pqx-worker-strip" data-pqx-worker-strip>
     <div class="pqx-worker-strip-head">
-      <strong>{{ worker_state.get('visible_workers') or (worker_state.get('workers')|length) }} search worker{% if (worker_state.get('visible_workers') or (worker_state.get('workers')|length)) != 1 %}s{% endif %}</strong>
+      {% set visible_worker_count = (worker_state.get('visible_workers') or (worker_state.get('workers')|length) or 0)|int %}
+      {% set available_worker_count = (worker_state.get('slot_cap') or visible_worker_count or 0)|int %}
+      <strong>
+        {% if available_worker_count > visible_worker_count %}
+          {{ visible_worker_count }} of {{ available_worker_count }} search workers active
+        {% else %}
+          {{ visible_worker_count }} search worker{% if visible_worker_count != 1 %}s{% endif %}
+        {% endif %}
+      </strong>
       <button type="button" class="pqx-tooltip" title="{{ worker_state.get('tooltip') }}" aria-label="{{ worker_state.get('tooltip') }}" aria-expanded="false" data-tooltip-trigger>?</button>
       {% if worker_state.get('upgrade_copy') %}<span class="pqx-note">{{ worker_state.get('upgrade_copy') }}</span>{% endif %}
     </div>
@@ -2313,7 +2321,7 @@
       gap: 10px;
       min-width: 0;
       max-width: 100%;
-      overflow: hidden;
+      overflow: visible;
       margin-top: 14px;
       padding: 12px;
       border: 1px solid color-mix(in srgb, var(--pq-blue) 18%, var(--pq-line));
@@ -2420,6 +2428,7 @@
       border: 1px solid color-mix(in srgb, var(--pq-blue) 14%, var(--pq-line));
       border-radius: 8px;
       background: rgba(255, 255, 255, 0.6);
+      overflow: visible;
     }
     .pqx-worker-strip-head {
       display: flex;
@@ -2431,6 +2440,7 @@
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
       gap: 8px;
+      overflow: visible;
     }
     .pqx-worker-lane {
       position: relative;

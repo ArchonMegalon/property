@@ -35,7 +35,7 @@ def _parse_iso(value: object) -> datetime | None:
 
 def property_worker_cap(plan_key: object) -> int:
     normalized = str(plan_key or "").strip().lower() or "free"
-    return {"free": 1, "plus": 3, "agent": 6}.get(normalized, 1)
+    return {"free": 1, "plus": 2, "agent": 4}.get(normalized, 1)
 
 
 @dataclass(frozen=True)

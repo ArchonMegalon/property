@@ -1906,11 +1906,11 @@ def _property_search_provider_fetch_concurrency() -> int:
 def _property_search_browser_provider_concurrency() -> int:
     raw_value = str(os.getenv("PROPERTYQUARRY_SEARCH_BROWSER_CONCURRENCY") or "").strip()
     if not raw_value:
-        return 1
+        return 4
     try:
         parsed = int(raw_value)
     except Exception:
-        return 1
+        return 4
     return max(1, min(parsed, 4))
 
 

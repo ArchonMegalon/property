@@ -776,7 +776,7 @@
       const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
       const progressFill = status === 'processed' || status === 'completed' ? 100 : (progress > 0 ? progress : 4);
       const planKey = String(meta?.commercial?.current_plan_key || runPayload?.brief?.plan_key || data?.brief?.plan_key || 'free').toLowerCase();
-      const planCap = planKey === 'agent' ? 6 : (planKey === 'plus' ? 3 : 1);
+      const planCap = planKey === 'agent' ? 4 : (planKey === 'plus' ? 2 : 1);
       const configuredWorkers = Math.max(1, Number(summary?.provider_workers?.worker_concurrency || planCap));
       const workerTooltip = 'Search workers are the parallel source lanes running this search right now. They are separate from recurring saved searches.';
       const sourceChips = (Array.isArray(summary.sources) ? summary.sources.slice(0, 8) : []).map((source) => {
@@ -862,8 +862,8 @@
         };
       });
       const upgradeCopy = planKey === 'free'
-        ? 'Upgrade to Plus for 3 search workers or Agent for 6. Saved searches are a separate limit.'
-        : (planKey === 'plus' ? 'Upgrade to Agent for 6 search workers. Saved searches are a separate limit.' : '');
+        ? 'Upgrade to Plus for 2 search workers or Agent for 4. Saved searches are a separate limit.'
+        : (planKey === 'plus' ? 'Upgrade to Agent for 4 search workers. Saved searches are a separate limit.' : '');
       const workerHtml = workers.map((worker) => `
         <div class="pqx-worker-lane tone-${escapeHtml(worker.tone)}">
           <div class="pqx-worker-lane-head">
@@ -898,7 +898,7 @@
         </div>
         <div class="pqx-worker-strip" data-pqx-worker-strip>
           <div class="pqx-worker-strip-head">
-            <strong>${escapeHtml(workerCount)} search worker${workerCount === 1 ? '' : 's'}</strong>
+            <strong>${escapeHtml(planCap > workerCount ? `${workerCount} of ${planCap} search workers active` : `${workerCount} search worker${workerCount === 1 ? '' : 's'}`)}</strong>
             <button type="button" class="pqx-tooltip" title="${escapeHtml(workerTooltip)}" aria-label="${escapeHtml(workerTooltip)}" aria-expanded="false" data-tooltip-trigger>?</button>
             ${upgradeCopy ? `<span class="pqx-note">${escapeHtml(upgradeCopy)}</span>` : ''}
           </div>

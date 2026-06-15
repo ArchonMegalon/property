@@ -70,8 +70,8 @@ def test_property_plan_investment_research_levels_follow_tier() -> None:
 
 def test_property_worker_caps_follow_plan() -> None:
     assert property_worker_cap("free") == 1
-    assert property_worker_cap("plus") == 3
-    assert property_worker_cap("agent") == 6
+    assert property_worker_cap("plus") == 2
+    assert property_worker_cap("agent") == 4
 
 
 def test_ranked_candidates_prefer_explicit_ranking_score_when_present() -> None:

@@ -1232,7 +1232,7 @@
             {% if account_nav %}
             <details class="account-menu">
               <summary aria-label="Account navigation">
-                <span>Account</span>
+                <span>{{ account_nav.menu_label or account_nav.label or 'Account' }}</span>
               </summary>
               <div class="account-menu-panel">
                 <div class="account-menu-label">

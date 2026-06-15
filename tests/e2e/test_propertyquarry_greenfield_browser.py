@@ -543,6 +543,38 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         context.close()
 
 
+def test_propertyquarry_search_goal_toggle_reveals_investment_controls_in_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
+        assert response is not None and response.ok
+        investment_mode = page.locator('[data-property-field-name="investment_research_mode"]').first
+        investment_strategy = page.locator('[data-property-field-name="investment_strategy"]').first
+        assert investment_mode.evaluate("(node) => node.hidden") is True
+        assert investment_strategy.evaluate("(node) => node.hidden") is True
+
+        page.locator('select[name="search_goal"]').select_option("investment")
+
+        page.wait_for_function(
+            """
+            () => {
+              const mode = document.querySelector('[data-property-field-name="investment_research_mode"]');
+              const strategy = document.querySelector('[data-property-field-name="investment_strategy"]');
+              return Boolean(mode && strategy && !mode.hidden && !strategy.hidden);
+            }
+            """
+        )
+        assert investment_mode.evaluate("(node) => node.hidden") is False
+        assert investment_strategy.evaluate("(node) => node.hidden") is False
+    finally:
+        context.close()
+
+
 def test_propertyquarry_workbench_tracks_household_and_followup_state_in_browser(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],

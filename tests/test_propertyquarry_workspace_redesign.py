@@ -326,7 +326,7 @@ def test_property_customer_run_summary_strips_operator_only_fields() -> None:
 def test_property_search_worker_slots_prioritize_distinct_providers() -> None:
     worker_state = landing_view_models._property_search_worker_slots(
         {
-            "provider_workers": {"worker_concurrency": 3},
+            "provider_workers": {"worker_concurrency": 2},
             "sources": [
                 {"source_label": "DER STANDARD Immobilien | Austria | Rent | 1010 Vienna", "platform": "derstandard_at", "status": "in_progress"},
                 {"source_label": "DER STANDARD Immobilien | Austria | Rent | 1020 Vienna", "platform": "derstandard_at", "status": "in_progress"},
@@ -338,20 +338,19 @@ def test_property_search_worker_slots_prioritize_distinct_providers() -> None:
     )
 
     providers = [row.get("provider") for row in worker_state.get("workers") or []]
-    assert providers[:3] == [
+    assert providers[:2] == [
         "DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
         "immmo | Austria | Rent | 1010 Vienna",
-        "FindMyHome.at | Austria | Rent | 1010 Vienna",
     ]
     labels = [row.get("label") for row in worker_state.get("workers") or []]
-    assert labels[:3] == ["DER STANDARD", "immmo", "FindMyHome.at"]
+    assert labels[:2] == ["DER STANDARD", "immmo"]
     assert worker_state["workers"][0]["shard_count"] == 1
 
 
 def test_property_search_worker_slots_only_show_real_lanes_instead_of_plan_fillers() -> None:
     worker_state = landing_view_models._property_search_worker_slots(
         {
-            "provider_workers": {"worker_concurrency": 6},
+            "provider_workers": {"worker_concurrency": 4},
             "progress": 12,
             "status": "running",
             "sources": [
@@ -1820,6 +1819,65 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert "Test a wider budget ceiling" not in live.text
 
 
+def test_propertyquarry_properties_auto_opens_latest_active_run_when_run_id_missing(monkeypatch) -> None:
+    principal_id = "pq-live-run-auto-open"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Auto Open")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fake_list_runs(self, *, principal_id: str, limit: int = 8):
+        assert principal_id == "pq-live-run-auto-open"
+        return [
+            {"run_id": "run-active-42", "status": "in_progress", "summary": {"status": "in_progress"}},
+            {"run_id": "run-finished-1", "status": "processed", "summary": {"status": "processed"}},
+        ]
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-live-run-auto-open"
+        assert run_id == "run-active-42"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "in_progress",
+            "progress": 18,
+            "message": "Checking fresh rental listings for Vienna.",
+            "summary": {
+                "status": "in_progress",
+                "sources_total": 3,
+                "listing_total": 7,
+                "eta_label": "about 4 min",
+                "sources": [],
+            },
+            "events": [
+                {"step": "source_fetch", "message": "Checking fresh rental listings for Vienna.", "status": "in_progress"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_list_runs)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    live = client.get("/app/properties", headers=headers)
+    assert live.status_code == 200
+    assert "Search in progress" in live.text
+    assert "Checking fresh rental listings for Vienna." in live.text
+    assert "Open a saved search or launch a new brief" not in live.text
+    assert "run-active-42" in live.text
+
+
 def test_property_search_analysis_cap_defaults_to_top_k_slice(monkeypatch) -> None:
     monkeypatch.delenv("PROPERTYQUARRY_SEARCH_ANALYSIS_CAP_PER_SOURCE", raising=False)
     assert _property_search_analysis_cap_per_source(max_results=2, candidate_total=31) == 6
@@ -1995,7 +2053,7 @@ def test_propertyquarry_workspace_hides_investment_research_for_rent() -> None:
 
     search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert search.status_code == 200
-    assert 'name="investment_research_mode"' not in search.text
+    assert 'data-property-field-name="investment_research_mode" hidden' in search.text
 
 
 def test_propertyquarry_workspace_hides_investment_research_for_home_buy() -> None:
@@ -2020,8 +2078,8 @@ def test_propertyquarry_workspace_hides_investment_research_for_home_buy() -> No
 
     search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert search.status_code == 200
-    assert 'name="investment_research_mode"' not in search.text
-    assert '<select name="investment_strategy">' not in search.text
+    assert 'data-property-field-name="investment_research_mode" hidden' in search.text
+    assert 'data-property-field-name="investment_strategy" hidden' in search.text
 
 
 def test_propertyquarry_workspace_setup_stays_user_facing() -> None:

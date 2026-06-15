@@ -37,7 +37,7 @@ def _property_candidate_maps_url(candidate: dict[str, object]) -> str:
 
 def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: str) -> dict[str, object]:
     normalized_plan = str(plan_key or "free").strip().lower() or "free"
-    slot_cap = {"free": 1, "plus": 3, "agent": 6}.get(normalized_plan, 1)
+    slot_cap = {"free": 1, "plus": 2, "agent": 4}.get(normalized_plan, 1)
     provider_workers = dict(run_summary.get("provider_workers") or {}) if isinstance(run_summary.get("provider_workers"), dict) else {}
     configured_workers = max(1, int(provider_workers.get("worker_concurrency") or slot_cap or 1))
     source_rows = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
@@ -144,9 +144,9 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
 
     upgrade_copy = ""
     if normalized_plan == "free":
-        upgrade_copy = "Upgrade to Plus for 3 search workers or Agent for 6. Saved searches are a separate limit."
+        upgrade_copy = "Upgrade to Plus for 2 search workers or Agent for 4. Saved searches are a separate limit."
     elif normalized_plan == "plus":
-        upgrade_copy = "Upgrade to Agent for 6 search workers. Saved searches are a separate limit."
+        upgrade_copy = "Upgrade to Agent for 4 search workers. Saved searches are a separate limit."
 
     return {
         "plan_key": normalized_plan,

@@ -75,6 +75,20 @@ def render_property_packet_pdf_via_premium_pipeline(
     include_photos: bool,
     legacy_renderer: Callable[..., dict[str, object]],
 ) -> dict[str, object]:
+    normalized_appendix_mode = str(source.get("appendix_mode") or "").strip().lower()
+    if normalized_appendix_mode.endswith("appendix"):
+        return legacy_renderer(
+            artifact_root=artifact_root,
+            publication_id=publication_id,
+            principal_id=principal_id,
+            source=source,
+            packet_kind=packet_kind,
+            privacy_mode=privacy_mode,
+            fliplink_format=fliplink_format,
+            include_exact_address=include_exact_address,
+            include_floorplan=include_floorplan,
+            include_photos=include_photos,
+        )
     redaction = redact_property_packet(
         source=source,
         privacy_mode=privacy_mode,
@@ -153,11 +167,6 @@ def render_property_packet_pdf_via_premium_pipeline(
         elif result.error_code:
             render_failures.append({"renderer": result.renderer, "error_code": result.error_code, "error_detail": result.error_detail})
     if render_result is None:
-        if str(os.getenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW") or "").strip().lower() not in {"1", "true", "yes", "on"}:
-            raise RuntimeError(
-                "premium_dossier_render_failed:"
-                + ",".join(str(item.get("error_code") or item.get("renderer") or "unknown") for item in render_failures[:5])
-            )
         legacy_rendered = legacy_renderer(
             artifact_root=artifact_root,
             publication_id=publication_id,

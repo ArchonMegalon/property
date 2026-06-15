@@ -620,8 +620,12 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
     account_label = str(context.access_email or "").strip().lower()
     if not account_label:
         account_label = str(context.operator_id or "").strip() or "Account"
+    menu_label = str(context.access_email or "").strip()
+    if not menu_label:
+        menu_label = str(context.operator_id or "").strip() or "Account"
     return {
         "label": account_label,
+        "menu_label": menu_label,
         "profile_href": "/app/account#profile",
         "billing_href": "/app/account#plans",
         "settings_href": "/app/account#settings",
@@ -799,6 +803,24 @@ def _property_console_context(
     country_provider_options = [dict(option) for option in property_provider_options(country_code=selected_country)]
     run_payload: dict[str, object] = {}
     normalized_run_id = str(run_id or "").strip()
+    recent_search_runs: list[dict[str, object]] = []
+    try:
+        recent_search_runs = product.list_property_search_runs(principal_id=principal_id, limit=8)
+    except Exception:
+        recent_search_runs = []
+    if not normalized_run_id:
+        terminal_statuses = {"processed", "completed", "failed", "noop", "cancelled", "not started"}
+        for recent_run in recent_search_runs:
+            if not isinstance(recent_run, dict):
+                continue
+            candidate_run_id = str(recent_run.get("run_id") or "").strip()
+            if not candidate_run_id:
+                continue
+            recent_summary = dict(recent_run.get("summary") or {}) if isinstance(recent_run.get("summary"), dict) else {}
+            candidate_status = str(recent_run.get("status") or recent_summary.get("status") or "").strip().lower()
+            if candidate_status and candidate_status not in terminal_statuses:
+                normalized_run_id = candidate_run_id
+                break
     if normalized_run_id:
         try:
             run_payload = dict(
@@ -870,12 +892,6 @@ def _property_console_context(
             source["top_candidates"] = enriched_candidates
         summary["sources"] = sources
         run_payload["summary"] = summary
-
-    recent_search_runs: list[dict[str, object]] = []
-    try:
-        recent_search_runs = product.list_property_search_runs(principal_id=principal_id, limit=8)
-    except Exception:
-        recent_search_runs = []
 
     recent_matches: list[dict[str, object]] = []
     learning_summary: dict[str, object] = {}
