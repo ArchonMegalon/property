@@ -811,6 +811,30 @@ def _property_console_context(
         except Exception:
             run_payload = {}
     if run_payload:
+        run_preferences_payload = (
+            dict(run_payload.get("property_search_preferences") or run_payload.get("preferences") or {})
+            if isinstance(run_payload.get("property_search_preferences") or run_payload.get("preferences"), dict)
+            else {}
+        )
+        if run_preferences_payload:
+            preferences = normalize_property_search_preferences({**preferences, **run_preferences_payload})
+            selected_country = normalize_country_code(preferences.get("country_code"))
+            commercial = property_commercial_snapshot(preferences)
+            selected_platforms = {
+                str(value or "").strip().lower()
+                for value in (preferences.get("selected_platforms") or [])
+                if str(value or "").strip()
+            }
+            if not selected_platforms:
+                selected_platforms = set(
+                    default_platforms_for_country_listing_mode(
+                        selected_country,
+                        preferences.get("listing_mode"),
+                        property_type=preferences.get("property_type"),
+                    )
+                )
+            country_provider_options = [dict(option) for option in property_provider_options(country_code=selected_country)]
+    if run_payload:
         packet_service = build_fliplink_packet_service(container)
         summary = dict(run_payload.get("summary") or {}) if isinstance(run_payload.get("summary"), dict) else {}
         sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]

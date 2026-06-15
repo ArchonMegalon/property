@@ -25,7 +25,7 @@
 {% macro suppression_panel(rows, actions=[]) -%}
 {% if rows %}
 <details class="pqx-suppression-panel" data-pqx-suppression-summary>
-  <summary><strong>See more matching homes</strong><span class="pqx-note">Widen one rule and blend the newly eligible homes into the same ranking.</span></summary>
+  <summary><strong>{% if brief.get('search_goal') == 'investment' %}See more matching opportunities{% else %}See more matching homes{% endif %}</strong><span class="pqx-note">Widen one rule and blend the newly eligible {% if brief.get('search_goal') == 'investment' %}opportunities{% else %}homes{% endif %} into the same ranking.</span></summary>
   <div class="pqx-section-head" style="margin-top:18px;">
     <div>
       <h2>Try one small relaxation first</h2>
@@ -3930,7 +3930,7 @@
               <div class="pqx-filtered-dialog-head">
                 <div>
                   <strong>Relax one filter</strong>
-                  <div class="pqx-note">Apply one controlled change, rerun from cached source data where possible, and mix the recovered homes back into Best homes first.</div>
+                  <div class="pqx-note">Apply one controlled change, rerun from cached source data where possible, and mix the recovered {% if brief.get('search_goal') == 'investment' %}opportunities{% else %}homes{% endif %} back into {% if brief.get('search_goal') == 'investment' %}Best opportunities first{% else %}Best homes first{% endif %}.</div>
                 </div>
                 <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close filtered rules">×</button>
               </div>
@@ -4620,15 +4620,15 @@
         <section class="pqx-finished-compare" data-pqx-finished-compare>
           <div class="pqx-section-head">
             <div>
-              <h2>Best homes first</h2>
-              <div class="pqx-note">{{ results|length }} ranked · open one home for the full property page.</div>
+              <h2>{% if brief.get('search_goal') == 'investment' %}Best opportunities first{% else %}Best homes first{% endif %}</h2>
+              <div class="pqx-note">{{ results|length }} ranked · open one {% if brief.get('search_goal') == 'investment' %}property{% else %}home{% endif %} for the full property page.</div>
             </div>
             <div class="pqx-actions">
               <button class="pqx-button" type="button" data-fliplink-shortlist-share>Share results</button>
               <span class="pqx-pill good">{{ results|length }} ranked</span>
             </div>
           </div>
-          <div class="pqx-note">Price, layout, fit, and the strongest reason stay in the main list. Open one home only when it is worth deeper review.</div>
+          <div class="pqx-note">{% if brief.get('search_goal') == 'investment' %}Price, risk, and the strongest underwriting reason stay in the main list. Open one property only when it is worth deeper review.{% else %}Price, layout, fit, and the strongest reason stay in the main list. Open one home only when it is worth deeper review.{% endif %}</div>
           {{ suppression_panel(workbench.get('suppression_rows') or [], counterfactual_rows) }}
         </section>
         {% endif %}

@@ -4566,10 +4566,15 @@ def property_workspace_payload(
         mismatch_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("mismatch_reasons") or []) if _clean_property_candidate_copy(item)]
         detail_sections = _candidate_detail_sections(facts)
         candidate_investment = dict(candidate.get("investment") or {}) if isinstance(candidate.get("investment"), dict) else {}
+        investment_headline_fallback = (
+            "Underwriting is still building from the current listing evidence."
+            if str(property_preferences.get("listing_mode") or "").strip().lower() == "buy"
+            else ""
+        )
         investment_payload = {
             "enabled": str(property_preferences.get("listing_mode") or "").strip().lower() == "buy",
             "price_per_sqm": _money_per_sqm_line(facts),
-            "headline": str(candidate_investment.get("headline") or ("Open the property page for full underwriting" if str(property_preferences.get("listing_mode") or "").strip().lower() == "buy" else "")).strip(),
+            "headline": str(candidate_investment.get("headline") or investment_headline_fallback).strip(),
             "gross_yield_display": str(candidate_investment.get("gross_yield_display") or "").strip(),
             "net_yield_display": str(candidate_investment.get("net_yield_display") or "").strip(),
             "cap_rate_display": str(candidate_investment.get("cap_rate_display") or "").strip(),

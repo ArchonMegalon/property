@@ -413,7 +413,7 @@
                 title: investmentSearch ? 'Return' : 'Cost check',
                 detail: String(
                   investmentSearch
-                    ? (candidate.investment?.net_yield_display || candidate.investment?.cap_rate_display || candidate.investment?.gross_yield_display || candidate.investment?.market_delta_display || candidate.investment?.headline || 'Open the property page for full underwriting.')
+                    ? (candidate.investment?.net_yield_display || candidate.investment?.cap_rate_display || candidate.investment?.gross_yield_display || candidate.investment?.market_delta_display || candidate.investment?.headline || 'Underwriting is still building from the current listing evidence.')
                     : (candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the review details for cost checks when buy mode is active.')
                 ),
                 tag: investmentSearch ? 'return' : 'cost',
@@ -946,7 +946,7 @@
       if (investment) {
         const investmentSearch = String(briefPreferences.search_goal || '').trim().toLowerCase() === 'investment';
         investment.textContent = investmentSearch
-          ? (candidate.investment?.net_yield_display || candidate.investment?.cap_rate_display || candidate.investment?.gross_yield_display || candidate.investment?.market_delta_display || candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the property page for full underwriting.')
+          ? (candidate.investment?.net_yield_display || candidate.investment?.cap_rate_display || candidate.investment?.gross_yield_display || candidate.investment?.market_delta_display || candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Underwriting is still building from the current listing evidence.')
           : (candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the review details for cost checks when buy mode is active.');
       }
       const underwritingSummary = root.querySelector('[data-pw-underwriting-summary]');
@@ -955,7 +955,7 @@
         if (candidate.investment?.score_display) summaryParts.push(String(candidate.investment.score_display));
         if (candidate.investment?.confidence_label) summaryParts.push(String(candidate.investment.confidence_label));
         if (candidate.investment?.underwriting_summary) summaryParts.push(String(candidate.investment.underwriting_summary));
-        underwritingSummary.textContent = summaryParts.join(' · ') || 'Institutional score pending.';
+        underwritingSummary.textContent = summaryParts.join(' · ') || 'Scoring will appear once rent, cost, and market evidence are firm enough.';
       }
       const underwritingFacts = root.querySelector('[data-pw-underwriting-facts]');
       if (underwritingFacts) {
@@ -968,7 +968,7 @@
         if (candidate.investment?.feed_status_label) summaryParts.push(String(candidate.investment.feed_status_label));
         if (candidate.investment?.feed_status_detail) summaryParts.push(String(candidate.investment.feed_status_detail));
         if (candidate.investment?.dscr_display) summaryParts.push(String(candidate.investment.dscr_display));
-        feedStatus.textContent = summaryParts.join(' · ') || 'Feed status pending.';
+        feedStatus.textContent = summaryParts.join(' · ') || 'Using listing and shortlist evidence until external rent, cost, and financing reads arrive.';
       }
       root.querySelectorAll('[data-pw-actions]').forEach((node) => {
         if (node.matches('[data-pw-actions]')) renderPropertyActions(node, candidate);
