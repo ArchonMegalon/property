@@ -342,7 +342,8 @@ def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     assert "hero_cover" in rendered["receipt"]["visual_elements"]
 
 
-def test_fliplink_pdf_appendix_mode_renders_compact_telegram_appendix(tmp_path: Path) -> None:
+def test_fliplink_pdf_appendix_mode_renders_compact_telegram_appendix(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", "1")
     source = {
         **_source_payload(),
         "appendix_mode": "telegram_pdf_appendix",
@@ -399,16 +400,18 @@ def test_fliplink_pdf_appendix_mode_renders_compact_telegram_appendix(tmp_path: 
     )
 
     pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
-    assert b"Viewing Appendix" in pdf_bytes
-    assert b"Appendix to uploaded PDF: wohnung-expose.pdf" in pdf_bytes
-    assert b"Deep research results" in pdf_bytes
-    assert b"Operating-cost history is not yet available" in pdf_bytes
-    assert b"Open 3D control" in pdf_bytes
-    assert b"Play fly-through" in pdf_bytes
-    assert b"Artifact status" not in pdf_bytes
-    assert b"RISK REGISTER" not in pdf_bytes
-    assert b"Comparison snapshot" not in pdf_bytes
-    assert b"COMPARISON SNAPSHOT" not in pdf_bytes
+    extracted_text = _extract_pdf_text(pdf_bytes)
+    appendix_text = extracted_text if str(extracted_text or "").strip() else pdf_bytes.decode("latin-1", errors="ignore")
+    assert "Viewing Appendix" in appendix_text
+    assert "Appendix to uploaded PDF: wohnung-expose.pdf" in appendix_text
+    assert "Deep research results" in appendix_text
+    assert "Operating-cost history is not yet available" in appendix_text
+    assert "Open 3D control" in appendix_text
+    assert "Play fly-through" in appendix_text
+    assert "Artifact status" not in appendix_text
+    assert "RISK REGISTER" not in appendix_text
+    assert "Comparison snapshot" not in appendix_text
+    assert "COMPARISON SNAPSHOT" not in appendix_text
 
 
 def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:

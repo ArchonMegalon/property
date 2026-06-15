@@ -19,6 +19,7 @@ from PIL import Image, ImageDraw
 from app.product.property_location_research import (
     _property_research_boundary_record,
     _property_research_geojson_outer_rings,
+    property_school_context_summary,
 )
 from app.api.routes.landing_property_saved_searches import (
     build_agent_management_rows,
@@ -1492,7 +1493,7 @@ def app_section_payload(
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
         future = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
         rows: list[dict[str, str]] = []
-        school_quality = str(future.get("school_atlas_quality_summary") or "").strip()
+        school_quality = property_school_context_summary(future)
         school_progression = str(future.get("school_atlas_progression_summary") or "").strip()
         school_evidence = str(future.get("school_atlas_evidence_type") or "").strip().replace("_", " ")
         if school_quality:

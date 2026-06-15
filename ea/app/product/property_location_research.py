@@ -307,6 +307,15 @@ def _property_schoolatlas_distance_m(lat_a: float, lon_a: float, lat_b: float, l
     c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
     return radius_m * c
 
+
+def property_school_context_summary(facts: dict[str, object] | None) -> str:
+    payload = dict(facts or {})
+    return str(
+        payload.get("school_atlas_context_summary")
+        or payload.get("school_atlas_quality_summary")
+        or ""
+    ).strip()
+
 def _property_schoolatlas_snapshot(lat: float, lon: float) -> dict[str, object]:
     schools_payload = _property_schoolatlas_wfs_json("ATLAS_SCHULE")
     features = list(schools_payload.get("features") or []) if isinstance(schools_payload, dict) else []
@@ -432,6 +441,7 @@ def _property_schoolatlas_snapshot(lat: float, lon: float) -> dict[str, object]:
     if suppressed_destinations > 0:
         progression_summary += f" {suppressed_destinations} destination row(s) were only disclosed as ≤6."
     return {
+        "school_atlas_context_summary": quality_summary,
         "school_atlas_quality_summary": quality_summary,
         "school_atlas_progression_summary": progression_summary,
         "school_atlas_gymnasium_progression_pct": gymnasium_progression_pct,
@@ -633,7 +643,7 @@ def _property_official_risk_evidence(
             "coverage_scope": "school_types_and_locations",
             "refresh_cadence": "periodic_public_updates",
             "confidence": "medium",
-            "verification_state": "verified" if bool(payload.get("school_atlas_quality_summary")) else "needs_review",
+            "verification_state": "verified" if bool(property_school_context_summary(payload)) else "needs_review",
             "summary": "Austrian school-fit checks should be anchored in official school-location and school-type evidence, not generic portal claims.",
             "required_next_step": "Attach the nearest school-type evidence and catchment context before clearing family fit.",
         },

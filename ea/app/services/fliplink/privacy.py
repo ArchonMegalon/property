@@ -120,6 +120,7 @@ BASE_PUBLIC_FACT_KEYS = {
     "official_risk_evidence",
     "future_change_research",
     "school_atlas_quality_summary",
+    "school_atlas_context_summary",
     "school_atlas_progression_summary",
     "school_atlas_gymnasium_progression_pct",
     "school_atlas_top_secondary_destinations",

@@ -46,7 +46,7 @@ required_persistence_assertions:
 required_ui_affordances:
   - Stakeholder timeline
   - Property timeline
-  - More context section
+  - Optional context section
   - Follow-up owner assignment
   - Follow-up resolution state
 fail_closed_conditions:

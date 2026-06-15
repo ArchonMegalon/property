@@ -105,6 +105,7 @@ from app.product.property_location_research import (
     _property_schoolatlas_wfs_base_url,
     _property_schoolatlas_wfs_json,
     _PROPERTY_SCHOOLATLAS_SOURCE_URL,
+    property_school_context_summary,
 )
 from app.product.property_search_stage_receipts import (
     mark_property_search_stage_receipt,
@@ -1770,6 +1771,7 @@ def _property_candidate_unknowns_penalty(*, assessment: dict[str, object] | None
             "planned_infrastructure_projects",
             "future_value_drivers",
             "future_value_risks",
+            "school_atlas_context_summary",
             "school_atlas_quality_summary",
             "school_atlas_progression_summary",
         )
@@ -4613,7 +4615,7 @@ def _property_austria_preference_score_adjustment(
             notes.append("application window unknown")
 
     if school_requested:
-        has_school_evidence = bool(facts.get("school_atlas_quality_summary")) or "school_evidence" in official_risk_keys
+        has_school_evidence = bool(property_school_context_summary(facts)) or "school_evidence" in official_risk_keys
         if has_school_evidence:
             adjustment += 3.0
             notes.append("school evidence attached")
@@ -5960,6 +5962,7 @@ def _property_enrich_future_change_research(
     existing.setdefault("planning_confidence", "unknown")
     existing.setdefault("investment_impact", "unknown")
     existing.setdefault("time_horizon_options", ["1y", "3y", "5y", "10y"])
+    existing.setdefault("school_atlas_context_summary", "")
     existing.setdefault("school_atlas_quality_summary", "")
     existing.setdefault("school_atlas_progression_summary", "")
     existing.setdefault("school_atlas_gymnasium_progression_pct", "")
@@ -5981,12 +5984,13 @@ def _property_enrich_future_change_research(
     )
     if available_within_years > 0:
         existing["requested_move_in_horizon_years"] = int(available_within_years)
-    if not existing.get("school_atlas_quality_summary") or not existing.get("school_atlas_progression_summary"):
+    if not property_school_context_summary(existing) or not existing.get("school_atlas_progression_summary"):
         lat_value, lon_value = _property_schoolatlas_coords_from_facts(enriched)
         if lat_value is not None and lon_value is not None:
             schoolatlas_snapshot = _property_schoolatlas_snapshot(lat_value, lon_value)
             if isinstance(schoolatlas_snapshot, dict) and schoolatlas_snapshot:
                 for key in (
+                    "school_atlas_context_summary",
                     "school_atlas_quality_summary",
                     "school_atlas_progression_summary",
                     "school_atlas_gymnasium_progression_pct",

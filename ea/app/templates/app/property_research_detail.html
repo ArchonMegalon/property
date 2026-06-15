@@ -1210,7 +1210,7 @@
       </section>
 
       <section class="prd-panel object-feedback" data-object-feedback data-object-feedback-payload='{{ research_feedback|tojson|safe }}'>
-      <div class="prd-kicker">Your answer</div>
+      <div class="prd-kicker">Record the outcome</div>
       <h2>Save your decision</h2>
       <p class="object-copy">Pick the answer that matches your real-world next step so later shortlists and follow-ups stay aligned.</p>
       <div class="object-feedback-row" aria-label="Property feedback reaction">
@@ -1257,7 +1257,7 @@
       <p class="object-copy" data-object-followup-status></p>
       <textarea data-object-feedback-note placeholder="What exactly worked, failed, or still needs proof?"></textarea>
       <div class="object-actions">
-        <button class="console-action" type="button" data-object-feedback-save>Save answer</button>
+        <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save decision</button>
         <a class="console-action" href="{{ research_feedback.get('profile_href') or '/app/profile' }}">Manage preferences</a>
       </div>
       <p class="object-copy" data-object-feedback-status></p>

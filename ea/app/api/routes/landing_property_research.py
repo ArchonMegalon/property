@@ -11,6 +11,7 @@ from app.api.routes.landing_property_workspace_helpers import (
     _property_candidate_orientation_preview,
     _property_candidate_preview_image,
 )
+from app.product.property_location_research import property_school_context_summary
 from app.product.projections.common import compact_text
 from app.product.service import (
     _property_enrich_missing_fact_research,
@@ -718,7 +719,7 @@ def _property_packet_official_posture_rows(facts: dict[str, object]) -> list[dic
 def _property_packet_future_research_rows(facts: dict[str, object]) -> list[dict[str, str]]:
     future = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
     rows: list[dict[str, str]] = []
-    school_quality = str(future.get("school_atlas_quality_summary") or "").strip()
+    school_quality = property_school_context_summary(future)
     school_progression = str(future.get("school_atlas_progression_summary") or "").strip()
     school_evidence_type = str(future.get("school_atlas_evidence_type") or "").strip().replace("_", " ")
     school_source_url = str(future.get("school_atlas_source_url") or "").strip()

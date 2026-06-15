@@ -662,7 +662,7 @@
 	    {% endif %}
 	    {% if object_feedback %}
 	    <section class="object-feedback" data-object-feedback data-object-feedback-payload='{{ object_feedback|tojson|safe }}'>
-	      <div class="object-kicker">Current read</div>
+	      <div class="object-kicker">Record the outcome</div>
 	      <h2>Save your decision</h2>
 	      <p class="object-copy">Record the decision here so the next shortlist learns from it and the next real-world step stays explicit.</p>
 	      <div class="object-feedback-row" aria-label="Property feedback reaction">
@@ -730,7 +730,7 @@
 	      {% endif %}
 	      <textarea data-object-feedback-note placeholder="What exactly worked, failed, or still needs proof?"></textarea>
 	      <div class="object-actions">
-	        <button class="console-action" type="button" data-object-feedback-save>Save answer</button>
+	        <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save decision</button>
 	        <a class="console-action" href="{{ object_feedback.get('profile_href') or '/app/profile' }}">Manage preferences</a>
 	      </div>
 	      <p class="object-copy" data-object-feedback-status></p>

@@ -37,6 +37,209 @@
       parent.appendChild(fact);
       return fact;
     };
+    const appendActionControl = (parent, { label, href = '', attributes = {}, primary = false, link = false }) => {
+      if (!parent || !label) return null;
+      const node = document.createElement(link ? 'a' : 'button');
+      node.className = link
+        ? `pqx-link-button${primary ? ' primary' : ''}`
+        : `pqx-button${primary ? ' primary' : ''}`;
+      if (link) {
+        node.href = String(href || '');
+      } else {
+        node.type = 'button';
+      }
+      Object.entries(attributes || {}).forEach(([key, value]) => {
+        if (value === null || value === undefined || value === '') return;
+        node.setAttribute(key, String(value));
+      });
+      node.textContent = String(label);
+      parent.appendChild(node);
+      return node;
+    };
+    const renderOodaRows = (node, rows) => {
+      if (!node) return;
+      clearNode(node);
+      const normalizedRows = Array.isArray(rows) ? rows : [];
+      if (!normalizedRows.length) {
+        const empty = document.createElement('div');
+        empty.className = 'pqx-note';
+        empty.textContent = 'No quick-read detail captured yet.';
+        node.appendChild(empty);
+        return;
+      }
+      normalizedRows.forEach((row) => {
+        const item = document.createElement('div');
+        item.className = 'pqx-ooda-item';
+        const label = document.createElement('span');
+        label.textContent = String(row?.label || '');
+        const value = document.createElement('strong');
+        value.textContent = String(row?.value || '');
+        const detail = document.createElement('small');
+        detail.textContent = String(row?.detail || '');
+        item.append(label, value, detail);
+        node.appendChild(item);
+      });
+    };
+    const renderReasonCards = (node, rows, { emptyTitle, emptyDetail = '', defaultTitle = 'Update' } = {}) => {
+      if (!node) return;
+      clearNode(node);
+      const normalizedRows = Array.isArray(rows) ? rows : [];
+      if (!normalizedRows.length) {
+        if (emptyTitle) appendEventCard(node, emptyTitle, emptyDetail);
+        return;
+      }
+      normalizedRows.forEach((row) => {
+        if (typeof row === 'string') {
+          appendEventCard(node, defaultTitle, row);
+          return;
+        }
+        appendEventCard(node, row?.title || defaultTitle, row?.detail || '', row?.tag || '');
+      });
+    };
+    const renderFollowupCards = (node, rows) => {
+      if (!node) return;
+      clearNode(node);
+      const normalizedRows = Array.isArray(rows) ? rows : [];
+      if (!normalizedRows.length) {
+        const empty = document.createElement('div');
+        empty.className = 'pqx-note';
+        empty.textContent = 'No tracked follow-up yet.';
+        node.appendChild(empty);
+        return;
+      }
+      normalizedRows.forEach((row) => {
+        const card = appendEventCard(node, row?.title || 'Follow-up', row?.detail || '', row?.tag || '');
+        const feedbackId = String(row?.feedback_id || '').trim();
+        if (!card || !feedbackId) return;
+        const actions = document.createElement('div');
+        actions.className = 'pqx-actions';
+        [
+          ['answered', 'Answered'],
+          ['needs_follow_up', 'Needs follow-up'],
+          ['confirmed', 'Confirmed'],
+          ['contradicted', 'Contradicted'],
+          ['resolved', 'Resolved'],
+        ].forEach(([action, label]) => {
+          appendActionControl(actions, {
+            label,
+            attributes: {
+              'data-pw-followup-action': action,
+              'data-pw-feedback-id': feedbackId,
+            },
+          });
+        });
+        card.appendChild(actions);
+      });
+    };
+    const renderPropertyActions = (node, candidate) => {
+      if (!node || !candidate) return;
+      clearNode(node);
+      const tour = candidate.tour || {};
+      const candidateRef = String(candidate.candidate_ref || '').trim();
+      const runId = String(data.run?.run_id || meta.run_id || '').trim();
+      if (tour.url) {
+        appendActionControl(node, {
+          label: 'Open 360',
+          href: String(tour.url || ''),
+          link: true,
+          primary: true,
+          attributes: {
+            'data-rybbit-event': 'property_open_360',
+            'data-rybbit-prop-candidate': candidateRef,
+          },
+        });
+      }
+      if (candidate.packet_url) {
+        appendActionControl(node, {
+          label: 'Open property page',
+          href: String(candidate.packet_url || ''),
+          link: true,
+          primary: !tour.url,
+          attributes: {
+            'data-rybbit-event': 'property_open_page',
+            'data-rybbit-prop-candidate': candidateRef,
+          },
+        });
+      }
+      appendActionControl(node, {
+        label: 'Share this home',
+        attributes: {
+          'data-fliplink-packet': '',
+          'data-candidate-ref': candidateRef,
+          'data-rybbit-event': 'property_share_home',
+          'data-rybbit-prop-candidate': candidateRef,
+        },
+      });
+      const details = document.createElement('details');
+      details.className = 'pqx-decision-advanced';
+      details.style.marginTop = '12px';
+      const summary = document.createElement('summary');
+      const summaryTitle = document.createElement('strong');
+      summaryTitle.textContent = 'More actions';
+      const summaryNote = document.createElement('span');
+      summaryNote.className = 'pqx-note';
+      summaryNote.textContent = 'Open the source, share the shortlist, or request remote visuals only when you need them.';
+      summary.append(summaryTitle, summaryNote);
+      details.appendChild(summary);
+      const actions = document.createElement('div');
+      actions.className = 'pqx-actions';
+      actions.style.marginTop = '14px';
+      if (candidate.source_url) {
+        appendActionControl(actions, {
+          label: 'Open listing',
+          href: String(candidate.source_url || ''),
+          link: true,
+          attributes: {
+            target: '_blank',
+            rel: 'noreferrer',
+            'data-rybbit-event': 'property_open_listing',
+            'data-rybbit-prop-candidate': candidateRef,
+          },
+        });
+      }
+      if (!tour.url && candidate.property_url) {
+        appendActionControl(actions, {
+          label: 'Request 3D tour',
+          attributes: {
+            'data-pw-visual-request': 'tour',
+            'data-property-url': String(candidate.property_url || ''),
+            'data-source-ref': String(candidate.source_ref || ''),
+            'data-candidate-ref': candidateRef,
+            'data-run-id': runId,
+            'data-rybbit-event': 'property_request_tour',
+            'data-rybbit-prop-candidate': candidateRef,
+          },
+        });
+        appendActionControl(actions, {
+          label: 'Request flythrough',
+          attributes: {
+            'data-pw-visual-request': 'flythrough',
+            'data-property-url': String(candidate.property_url || ''),
+            'data-source-ref': String(candidate.source_ref || ''),
+            'data-candidate-ref': candidateRef,
+            'data-run-id': runId,
+            'data-rybbit-event': 'property_request_flythrough',
+            'data-rybbit-prop-candidate': candidateRef,
+          },
+        });
+      }
+      appendActionControl(actions, {
+        label: 'Share results',
+        attributes: {
+          'data-fliplink-shortlist-share': '',
+          'data-rybbit-event': 'property_share_results',
+        },
+      });
+      details.appendChild(actions);
+      const status = document.createElement('div');
+      status.className = 'pqx-decision-status';
+      status.setAttribute('data-pw-visual-request-status', '');
+      status.textContent = !tour.url
+        ? 'Need a remote view? Request a 3D tour or flythrough from the available source material.'
+        : '';
+      details.appendChild(status);
+      node.appendChild(details);
+    };
     const renderEventCards = (node, rows, emptyTitle, emptyDetail = '') => {
       if (!node) return;
       clearNode(node);
@@ -612,7 +815,7 @@
         clearNode(tourNode);
       }
       const ooda = root.querySelector('[data-pw-ooda]');
-      if (ooda) ooda.innerHTML = renderOoda(candidate.ooda?.rows);
+      renderOodaRows(ooda, candidate.ooda?.rows);
       const oodaSummary = root.querySelector('[data-pw-ooda-summary]');
       if (oodaSummary) {
         const hasTour = Boolean(tour.url || tour.embed_url);
@@ -621,14 +824,14 @@
           : 'No 360 is available here. Use the review details and the facts below before deciding.');
       }
       const match = root.querySelector('[data-pw-match]');
-      if (match) match.innerHTML = renderMatch(candidate.match_reasons);
+      renderReasonCards(match, candidate.match_reasons, { emptyTitle: 'No explicit match reason captured yet.', defaultTitle: 'For' });
       const objections = root.querySelector('[data-pw-objections]');
-      if (objections) objections.innerHTML = renderObjections(candidate.objection_rows);
-      if (householdNode) householdNode.innerHTML = renderHousehold(candidate.household_rows);
+      renderReasonCards(objections, candidate.objection_rows, { emptyTitle: 'No objection captured yet.', defaultTitle: 'Objection' });
+      renderReasonCards(householdNode, candidate.household_rows, { emptyTitle: 'No household vote captured yet.', defaultTitle: 'Stakeholder' });
       if (householdScoreNode) householdScoreNode.textContent = `Alignment score ${Number(candidate.household_alignment_score || 0)}/100`;
       if (householdLabelNode) householdLabelNode.textContent = String(candidate.household_alignment_label || 'waiting');
-      if (riskSignalsNode) riskSignalsNode.innerHTML = renderRiskSignals(candidate.risk_signal_rows);
-      if (recentChangesNode) recentChangesNode.innerHTML = renderRecentChanges(candidate.recent_change_rows);
+      renderReasonCards(riskSignalsNode, candidate.risk_signal_rows, { emptyTitle: 'No market-risk candidate captured yet.', defaultTitle: 'Risk signal' });
+      renderReasonCards(recentChangesNode, candidate.recent_change_rows, { emptyTitle: 'No new deltas yet.', defaultTitle: 'Change' });
       if (officialPostureNode) {
         renderEventCards(
           officialPostureNode,
@@ -646,7 +849,7 @@
         );
       }
       if (followupsNode) {
-        followupsNode.innerHTML = renderFollowups(candidate.followup_rows);
+        renderFollowupCards(followupsNode, candidate.followup_rows);
         followupsNode.querySelectorAll('[data-pw-followup-action]').forEach((button) => {
           button.addEventListener('click', async () => {
             const feedbackId = String(button.getAttribute('data-pw-feedback-id') || '').trim();
@@ -664,7 +867,7 @@
               if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not update follow-up state.'));
               const target = (Array.isArray(candidate.followup_rows) ? candidate.followup_rows : []).find((row) => String(row.feedback_id || '') === feedbackId);
               if (target) target.tag = status.replaceAll('_', ' ').replace(/\b\w/g, (match) => match.toUpperCase());
-              followupsNode.innerHTML = renderFollowups(candidate.followup_rows);
+              renderFollowupCards(followupsNode, candidate.followup_rows);
               if (followupStatusNode) followupStatusNode.textContent = `Follow-up marked ${status.replaceAll('_', ' ')}.`;
             } catch (error) {
               if (followupStatusNode) followupStatusNode.textContent = error instanceof Error ? error.message : 'Could not update follow-up state.';
@@ -673,7 +876,7 @@
         });
       }
       const timeline = root.querySelector('[data-pw-timeline]');
-      if (timeline) timeline.innerHTML = renderTimeline(candidate.timeline_rows);
+      renderReasonCards(timeline, candidate.timeline_rows, { emptyTitle: 'No decision timeline yet.', defaultTitle: 'Update' });
       const risk = root.querySelector('[data-pw-risk]');
       if (risk) {
         clearNode(risk);
@@ -690,16 +893,14 @@
       const investment = root.querySelector('[data-pw-investment]');
       if (investment) investment.textContent = candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the review details for cost checks when buy mode is active.';
       root.querySelectorAll('[data-pw-actions]').forEach((node) => {
-        if (node.matches('[data-pw-actions]')) node.innerHTML = actionMarkup(candidate);
+        if (node.matches('[data-pw-actions]')) renderPropertyActions(node, candidate);
       });
       if (visualRequestStatusNode) {
         visualRequestStatusNode.textContent = candidate?.tour?.url
           ? ''
           : 'Request a visual from the available source material when this home matters enough to inspect further.';
       }
-      if (topPropertyActionsNode && candidates.length) {
-        topPropertyActionsNode.innerHTML = actionMarkup(candidate);
-      }
+      if (topPropertyActionsNode && candidates.length) renderPropertyActions(topPropertyActionsNode, candidate);
       loadCandidateFeedbackSuggestions(candidate);
       loadPersistedDecisionState(candidate);
       if (updateUrl) {

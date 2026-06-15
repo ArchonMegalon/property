@@ -18,6 +18,7 @@ except Exception:  # pragma: no cover - optional image appendix support
 
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.fliplink.privacy import REDACTION_POLICY_VERSION, redact_property_packet
+from app.product.property_location_research import property_school_context_summary
 
 
 PDF_RENDERER_VERSION = "v7_agency_comparison_dossier_pdf"
@@ -903,7 +904,7 @@ def _packet_sections(
         row("Run or green space", facts.get("nearest_running_m") or facts.get("nearest_running_name")),
     ]
     school_and_family = []
-    school_quality = str(facts.get("school_atlas_quality_summary") or "").strip()
+    school_quality = property_school_context_summary(facts)
     school_progression = str(facts.get("school_atlas_progression_summary") or "").strip()
     school_route = _school_route_line(facts)
     if school_quality:
@@ -1066,7 +1067,7 @@ def _property_narrative(payload: dict[str, object]) -> list[str]:
         if fallback:
             fit = _clean_sentence("Positiv fällt auf: " + "; ".join(fallback[:3]))
     neighborhood = _clean_sentence("Im Alltag spricht dafür, dass " + ", und ".join(daily_life)) if daily_life else ""
-    school_quality = str(facts.get("school_atlas_quality_summary") or "").strip()
+    school_quality = property_school_context_summary(facts)
     school_progression = str(facts.get("school_atlas_progression_summary") or "").strip()
     school_items = [item for item in [school_route, school_quality, school_progression] if item]
     school = _clean_sentence("Für die Familienperspektive ist entscheidend: " + "; ".join(school_items)) if school_items else ""
@@ -1654,8 +1655,9 @@ def _visual_pdf(
     family_lines = []
     if school_route_line:
         family_lines.append(school_route_line)
-    if packet_facts.get("school_atlas_quality_summary"):
-        family_lines.append(_clean_sentence("Schulumfeld: " + str(packet_facts.get("school_atlas_quality_summary") or "").strip()))
+    school_context = property_school_context_summary(packet_facts)
+    if school_context:
+        family_lines.append(_clean_sentence("Schulumfeld: " + school_context))
     if packet_facts.get("school_atlas_progression_summary"):
         family_lines.append(_clean_sentence("Übergangsprofil: " + str(packet_facts.get("school_atlas_progression_summary") or "").strip()))
     family_y = 664

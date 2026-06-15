@@ -49,7 +49,7 @@ required_ui_affordances:
   - Feedback table
   - Feedback category labels
   - Dealbreaker visual state
-  - Before you decide section
+  - Current read section
   - Open questions count or section
 fail_closed_conditions:
   - structured feedback exists only in API but not in UI
