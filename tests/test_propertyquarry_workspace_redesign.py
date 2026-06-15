@@ -61,6 +61,7 @@ def test_propertyquarry_results_prefer_real_media_over_generated_diorama_preview
 
 
 def test_property_candidate_orientation_preview_uses_openstreetmap_backdrop_for_generic_locations(monkeypatch) -> None:
+    monkeypatch.setattr(landing_view_models, "_build_scope_boundary_preview", lambda **kwargs: {})
     monkeypatch.setattr(
         landing_view_models,
         "_openstreetmap_static_preview_data_url",
@@ -77,6 +78,30 @@ def test_property_candidate_orientation_preview_uses_openstreetmap_backdrop_for_
     )
     assert preview["image_url"] == "data:image/png;base64,preview"
     assert preview["alt"] == "Wider area around Graz"
+
+
+def test_property_candidate_orientation_preview_reuses_boundary_projection_when_available(monkeypatch) -> None:
+    monkeypatch.setattr(
+        landing_view_models,
+        "_build_scope_boundary_preview",
+        lambda **kwargs: {
+            "image_url": "data:image/png;base64,boundarypreview",
+            "summary": "Leopoldstadt",
+            "district_rows": [{"label": "Leopoldstadt", "selected": True, "path": "M1 1 L2 1 L2 2 Z"}],
+        },
+    )
+    preview = landing_view_models._property_candidate_orientation_preview(
+        {
+            "property_facts": {
+                "district": "Leopoldstadt",
+                "postal_name": "Vienna",
+                "country_code": "AT",
+            }
+        }
+    )
+    assert preview["image_url"] == "data:image/png;base64,boundarypreview"
+    assert preview["caption"] == "Leopoldstadt"
+    assert preview["district_rows"][0]["label"] == "Leopoldstadt"
 
 
 def test_property_research_title_display_strips_provider_price_and_fact_noise() -> None:
@@ -133,6 +158,84 @@ def test_property_workbench_no_longer_embeds_vienna_district_mapping_js() -> Non
     body = template_path.read_text(encoding="utf-8")
     assert "const districtMap = {" not in body
     assert "syncViennaScopeControls" not in body
+
+
+def test_property_research_detail_uses_user_facing_visual_and_decision_copy() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
+    body = template_path.read_text(encoding="utf-8")
+    assert "Current recommendation" not in body
+    assert "Decision call" not in body
+    assert "Open Magic Fit" not in body
+    assert "Request missing documents" in body
+    assert "Open question helper" in body
+    assert "data-prd-map-overlay" in body
+    assert "Questions worth asking next" in body
+
+
+def test_base_public_template_exposes_public_seo_contract() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/base_public.html"
+    body = template_path.read_text(encoding="utf-8")
+    assert '<meta name="description"' in body
+    assert '<link rel="canonical"' in body
+    assert '<meta property="og:title"' in body
+    assert 'application/ld+json' in body
+
+
+def test_public_pages_are_indexable_but_sign_in_is_not(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-public-seo")
+    home = client.get("/")
+    assert home.status_code == 200, home.text
+    assert home.headers.get("X-Robots-Tag") == "index, follow, max-image-preview:large"
+
+    pricing = client.get("/pricing")
+    assert pricing.status_code == 200, pricing.text
+    assert pricing.headers.get("X-Robots-Tag") == "index, follow, max-image-preview:large"
+
+    sign_in = client.get("/sign-in")
+    assert sign_in.status_code == 200, sign_in.text
+    assert sign_in.headers.get("X-Robots-Tag") == "noindex, nofollow, noarchive, nosnippet"
+
+    robots = client.get("/robots.txt")
+    assert robots.status_code == 200, robots.text
+    assert "Allow: /" in robots.text
+    assert "Disallow: /app/" in robots.text
+    assert "Sitemap: https://propertyquarry.com/sitemap.xml" in robots.text
+
+    sitemap = client.get("/sitemap.xml")
+    assert sitemap.status_code == 200, sitemap.text
+    assert "<loc>https://propertyquarry.com/</loc>" in sitemap.text
+    assert "<loc>https://propertyquarry.com/pricing</loc>" in sitemap.text
+    assert "<loc>https://propertyquarry.com/guides/wohnung-kaufen-wien-checkliste</loc>" in sitemap.text
+    assert "<loc>https://propertyquarry.com/markets/vienna</loc>" in sitemap.text
+
+
+def test_public_guide_and_market_pages_render_editorial_seo_surface() -> None:
+    client = build_property_client(principal_id="pq-public-editorial")
+
+    guide = client.get("/guides/wohnung-kaufen-wien-checkliste")
+    assert guide.status_code == 200, guide.text
+    assert "Wohnung kaufen in Wien" in guide.text
+    assert 'data-rybbit-event="guide_open_propertyquarry"' in guide.text
+    assert "FAQPage" in guide.text
+
+    market = client.get("/markets/vienna")
+    assert market.status_code == 200, market.text
+    assert "Vienna apartment search" in market.text
+    assert 'data-rybbit-event="market_start_search"' in market.text
+    assert "FAQPage" in market.text
+
+
+def test_public_ctas_and_selected_review_panel_expose_rybbit_events() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    home = (repo_root / "ea/app/templates/propertyquarry_home.html").read_text(encoding="utf-8")
+    pricing = (repo_root / "ea/app/templates/pricing_page.html").read_text(encoding="utf-8")
+    selected_review = (repo_root / "ea/app/templates/app/_property_selected_review_panel.html").read_text(encoding="utf-8")
+    workbench_script = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+    assert 'data-rybbit-event="home_create_account"' in home
+    assert 'data-rybbit-event="pricing_checkout_start"' in pricing
+    assert 'data-rybbit-event="property_open_page"' in selected_review
+    assert 'data-rybbit-event="property_open_page"' in workbench_script
+    assert 'data-rybbit-event="property_request_tour"' in workbench_script
 
 
 def test_property_search_worker_slots_prioritize_distinct_providers() -> None:
@@ -584,7 +687,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "about 12 min" in search.text
     assert 'data-tour-status="queued"' in search.text
     assert 'data-tour-eta="about 12 min"' in search.text
-    assert "held back for layout proof" in search.text
+    assert "still waiting on floorplans" in search.text
     assert "not scheduled yet" not in search.text
     assert "360 not ready" not in search.text
     assert "360" in search.text
@@ -601,18 +704,18 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Gymnasium path" in search.text
     assert "Property details" in search.text
     assert "Costs" in search.text
-    assert "Why it surfaced" in search.text
-    assert "Before you decide" in search.text
-    assert "More context" in search.text
+    assert "Why it made the shortlist" in search.text
+    assert "Current read" in search.text
+    assert "Optional context" in search.text
     assert "Artifact receipts" not in search.text
     assert "Share checklist" not in search.text
-    assert "Would you pursue this property?" in search.text
-    assert 'class="pqx-decision-stepper" aria-label="Decision steps"' in search.text
+    assert "Would you pursue this property?" not in search.text
+    assert "Save your decision" in search.text
     assert "Viewing requested" in search.text
     assert "Documents requested" in search.text
     assert "Offer candidate" in search.text
-    assert "Save decision" in search.text
-    assert "Ask a question" in search.text
+    assert "Save answer" in search.text
+    assert "Next question to send" in search.text
     assert "Contradicted" in search.text
     assert "Resolved" in search.text
     assert "Delivery proof" not in search.text
@@ -621,9 +724,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Generated asset receipts" not in search.text
     assert "repair check queued" not in search.text
     assert "Repair: ea_one_manager" not in search.text
-    assert "held back for layout proof" in search.text
+    assert "still waiting on floorplans" in search.text
     assert "Pending layout proof" not in search.text
-    assert "These are not invalid" in search.text
+    assert "These homes are still being checked for a floorplan" in search.text
     assert "Repair provider extraction" not in search.text
     assert "Missing facts" not in search.text
     assert "Facts still being completed from floorplans" not in search.text
@@ -656,18 +759,18 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Provider filters needed cleanup" not in search.text
     assert "Missing floorplan evidence" in search.text
     assert "Floorplan gate" not in search.text
-    assert "Filtered by rules" in search.text
-    assert "held back for layout proof" in search.text
-    assert "These are not invalid" in search.text
+    assert "See more matching homes" in search.text
+    assert "still waiting on floorplans" in search.text
+    assert "These homes are still being checked for a floorplan" in search.text
     assert "Layout not verified" not in search.text
     assert "Missing floorplan evidence" in search.text
     assert 'data-pqx-filtered-dialog' in search.text
-    assert "Below fit threshold" in search.text
-    assert "Outside selected area" in search.text
-    assert "Alert budget" in search.text
-    assert "Floorplans medium" in search.text
-    assert "Filters partial" in search.text
-    assert "Verified 2026-06-13" in search.text
+    assert "Lower the match bar" in search.text
+    assert "Include nearby districts" in search.text
+    assert "Raise the alert limit" in search.text
+    assert "Floorplans medium" not in search.text
+    assert "Filters partial" not in search.text
+    assert "Verified 2026-06-13" not in search.text
     assert "Launch search" not in search.text
     assert "Morning Memo" not in search.text
     assert "Office signals ingested" not in search.text
@@ -714,15 +817,15 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Live 360 ready" in packet.text
     assert 'data-property-research-detail' in packet.text
     assert "At a glance" in packet.text
-    assert "Current recommendation" in packet.text
-    assert "Why this was selected" in packet.text
+    assert "Current recommendation" not in packet.text
+    assert "Why this was selected" not in packet.text
     assert "Supermarket" in packet.text
     assert "https://www.google.com/maps/dir/" not in packet.text
     assert "Open navigation" not in packet.text
     assert "Library" in packet.text
     assert "Underground" in packet.text
-    assert "Decision call" in packet.text
-    assert "Before you decide" in packet.text
+    assert "Current read" in packet.text
+    assert "What to do next" in packet.text
     assert "Evidence added" in packet.text
     assert "Manual clearance required" in packet.text
     assert "Luftmessnetz: aktuelle Messdaten Wien" in packet.text
@@ -741,12 +844,14 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Review page" not in packet.text
     assert "Useful links" not in packet.text
     assert "Open listing" in packet.text
-    assert "Would you pursue this home?" in packet.text
+    assert "Would you pursue this home?" not in packet.text
+    assert "Save your decision" in packet.text
     assert "Viewing requested" in packet.text
-    assert "Documents requested" in packet.text
+    assert "Request missing documents" in packet.text
     assert "Offer candidate" in packet.text
-    assert "Open Clippy" in packet.text
-    assert "Ask agent next" in packet.text
+    assert "Extra tools" in packet.text
+    assert "Open question helper" in packet.text
+    assert "Ask agent next" not in packet.text
     assert "Tracked follow-up" in packet.text
     assert "What changed" in packet.text
     assert "What others flagged" in packet.text
@@ -756,7 +861,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Resolved" in packet.text
     assert 'data-object-feedback-reaction="like"' in packet.text
     assert 'data-object-feedback-save' in packet.text
-    assert "Save decision" in packet.text
+    assert "Save answer" in packet.text
     assert "Manage preferences" in packet.text
     assert "rgba(18, 23, 34" not in packet.text
     assert "rgba(15, 19, 26" not in packet.text
@@ -942,36 +1047,48 @@ def test_property_search_property_type_uses_checkbox_multi_select() -> None:
 
 
 def test_property_search_agents_can_load_saved_filters_into_form() -> None:
-    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
+    repo_root = Path(__file__).resolve().parents[1]
+    template_path = repo_root / "ea/app/templates/app/property_decision_workbench.html"
+    agents_partial = repo_root / "ea/app/templates/app/_property_search_agents_panel.html"
+    script_partial = repo_root / "ea/app/templates/app/_property_workbench_script.html"
+    brief_script_partial = repo_root / "ea/app/templates/app/_property_workbench_brief_script.html"
+    feedback_script_partial = repo_root / "ea/app/templates/app/_property_workbench_feedback_script.html"
     body = template_path.read_text(encoding="utf-8")
+    agents_body = agents_partial.read_text(encoding="utf-8")
+    script_body = script_partial.read_text(encoding="utf-8")
+    brief_script_body = brief_script_partial.read_text(encoding="utf-8")
+    feedback_script_body = feedback_script_partial.read_text(encoding="utf-8")
 
-    assert "data-search-agent-payload" in body
-    assert 'data-search-agent-action="load"' in body
-    assert ">Edit</button>" in body
+    assert '{% include "app/_property_search_agents_panel.html" %}' in body
+    assert "data-search-agent-payload" in agents_body
+    assert 'data-search-agent-action="load"' in agents_body
+    assert ">Edit</button>" in agents_body
     assert "Load filters" not in body
-    assert "applySearchAgentPayloadToForm" in body
-    assert "resetSearchBriefForm" in body
-    assert "resetSearchBriefForm();" in body
-    assert "Saved search ready to edit. Tweak the filters or run it again." in body
+    assert "applySearchAgentPayloadToForm" in script_body
+    assert "resetSearchBriefForm" in script_body
+    assert "resetSearchBriefForm();" in script_body
+    assert "Saved search ready to edit. Tweak the filters or run it again." in script_body
     assert "data-search-agent-loaded-state" in body
-    assert "Loaded: ${label}" in body
+    assert "Loaded: ${label}" in script_body
     assert "data-search-agent-dirty-label" in body
-    assert "Unsaved changes in ${dirtyFields} field" in body
+    assert "Unsaved changes in ${dirtyFields} field" in script_body
     assert "data-search-agent-save-current" in body
     assert "data-search-agent-save-new" in body
     assert "data-search-agent-reset" in body
-    assert "'search_mode'" in body
-    assert "search_mode: fieldValue(form, 'search_mode') || 'strict'" in body
-    assert "Object.entries(source).forEach" in body
+    assert '{% include "app/_property_workbench_brief_script.html" %}' in script_body
+    assert "'search_mode'" in brief_script_body
+    assert "search_mode: fieldValue(form, 'search_mode') || 'strict'" in brief_script_body
+    assert "Object.entries(source).forEach" in script_body or "Object.entries(source).forEach" in brief_script_body
     assert "Save as new" in body
-    assert "credentials: 'same-origin'" in body
-    assert "authHeaders()" not in body
-    assert "load_agent" in body
-    assert "propertyDecisionStateEndpoint" in body
-    assert "No saved decision yet. Choose Yes, Maybe, No, or Hide to start the decision trail." in body
-    assert "Current state" in body
-    assert "data-pw-agent-question-id" in body
-    assert "data-pw-document-id" in body
+    assert "credentials: 'same-origin'" in script_body
+    assert "authHeaders()" not in script_body
+    assert "load_agent" in script_body
+    assert "propertyDecisionStateEndpoint" in script_body
+    assert '{% include "app/_property_workbench_feedback_script.html" %}' in script_body
+    assert "No saved decision yet. Choose Yes, Maybe, No, or Hide to start the decision trail." in feedback_script_body
+    assert "Current state" in feedback_script_body
+    assert "data-pw-agent-question-id" in feedback_script_body
+    assert "data-pw-document-id" in feedback_script_body
 
 
 def test_property_workspace_search_form_exposes_austria_evidence_and_eligibility_controls() -> None:
@@ -1029,7 +1146,7 @@ def test_property_workspace_hero_actions_use_visible_propertyquarry_surfaces() -
 
     assert '{"href": f"/app/search{run_suffix}", "label": "Open search"}' in body
     assert '{"href": f"/app/properties{run_suffix}", "label": "Back to Home"}' in body
-    assert '{"href": f"/app/agents{run_suffix}", "label": "Search agents"}' in body
+    assert '{"href": f"/app/agents{run_suffix}", "label": "Saved searches"}' in body
     assert '{"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target areas.", "href": "/app/account#profile"}' in body
 
 
@@ -1257,11 +1374,11 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
 
     page = client.get("/app/agents", headers={"host": "propertyquarry.com"})
     assert page.status_code == 200
-    assert "Search agents" in page.text
+    assert "Saved searches" in page.text
     assert "Vienna apartments" in page.text
     assert "Monteverde land" in page.text
-    assert "Selected agent" in page.text
-    assert "Strongest matches leave first" in page.text
+    assert "Selected search" in page.text
+    assert "Saved searches and workers are different limits" in page.text
     assert "Free" in page.text
     assert "Plus" in page.text
     assert "Agent" in page.text
@@ -1429,17 +1546,24 @@ def test_property_decision_save_uses_canonical_endpoint_and_renders_consequences
 
 
 def test_property_workspace_running_state_explains_slow_provider_checks() -> None:
-    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
+    repo_root = Path(__file__).resolve().parents[1]
+    template_path = repo_root / "ea/app/templates/app/property_decision_workbench.html"
+    running_partial = repo_root / "ea/app/templates/app/_property_running_panel.html"
+    script_partial = repo_root / "ea/app/templates/app/_property_workbench_script.html"
     body = template_path.read_text(encoding="utf-8")
+    running_body = running_partial.read_text(encoding="utf-8")
+    script_body = script_partial.read_text(encoding="utf-8")
 
-    assert "estimateRunEtaLabel" in body
+    assert "estimateRunEtaLabel" in script_body
+    assert "formatEta" in script_body
     assert "data-pqx-progress-eta" in body
-    assert "formatEta" in body
     assert "data-pqx-running-provider-state" not in body
     run_visible_branch = body.split("{% elif run_visible %}", 1)[1].split("{% elif run_terminal_no_results %}", 1)[0]
-    assert run_visible_branch.count("{{ progress_board(run, run_sources, research_task_counts) }}") == 1
-    assert 'data-pqx-running-details' in run_visible_branch
-    assert "Source-by-source progress." in run_visible_branch
+    assert '{% include "app/_property_running_panel.html" %}' in run_visible_branch
+    assert '{% include "app/_property_workbench_script.html" %}' in body
+    assert running_body.count("{{ progress_board(run, run_sources, research_task_counts) }}") == 1
+    assert 'data-pqx-running-details' in running_body
+    assert "Open only if you want the detailed search trail, worker lanes, and unresolved checks." in running_body
     assert "Provider checks" not in body
     assert "0 lanes in progress" not in body
     assert "lanes in progress" not in body
@@ -1591,7 +1715,7 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert 'data-property-decision-workbench' in live.text
     assert 'data-pq-greenfield-shell' in live.text
     assert 'data-pqx-state="running"' in live.text
-    assert "Search in progress" in live.text
+    assert "Looking for strong matches" in live.text
     assert 'class="pqx-run-head"' not in live.text
     assert live.text.count('class="pqx-progress-board"') == 1
     assert 'data-pqx-run-summary' in live.text
@@ -2135,7 +2259,7 @@ def test_propertyquarry_shell_uses_the_new_surface_navigation() -> None:
     assert response.status_code == 200
     assert ">Home<" in response.text
     assert ">Search<" in response.text
-    assert ">Search agents<" in response.text
+    assert ">Saved searches<" in response.text
     assert ">Account<" in response.text
     assert ">Shortlist<" not in response.text
     assert 'href="/app/research"' not in response.text

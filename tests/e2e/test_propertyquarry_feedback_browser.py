@@ -43,5 +43,5 @@ def test_packet_dashboard_and_workbench_show_feedback_language(monkeypatch, tmp_
     install_property_run(monkeypatch, property_url="https://example.com/listing-phase2")
     workbench = client.get("/app/properties", params={"run_id": "run-phase2"})
     assert workbench.status_code == 200
-    assert "Before you decide" in workbench.text
+    assert "Current read" in workbench.text
     assert "Timeline" in workbench.text

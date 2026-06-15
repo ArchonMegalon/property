@@ -19,4 +19,4 @@ def test_workbench_surface_timeline_language(monkeypatch, tmp_path: Path) -> Non
     workbench = client.get("/app/properties", params={"run_id": "run-phase5"})
     assert workbench.status_code == 200
     assert "Timeline" in workbench.text
-    assert "More context" in workbench.text
+    assert "Optional context" in workbench.text

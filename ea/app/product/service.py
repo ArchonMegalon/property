@@ -4,7 +4,6 @@ import base64
 import concurrent.futures
 import contextlib
 import csv
-import fcntl
 import hashlib
 import hmac
 import html
@@ -53,9 +52,97 @@ except Exception:  # pragma: no cover - optional OCR fallback
 
 from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, IntentSpecV3, Stakeholder, TaskExecutionRequest, ToolInvocationRequest
 from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
-from app.services.property_billing import enforce_property_plan_limits, property_commercial_snapshot
+from app.services.property_billing import enforce_property_plan_limits, property_commercial_snapshot, property_worker_cap
 from app.services.property_decision_loop import PropertyDecisionLoopSnapshot, build_property_decision_loop_snapshot
 from app.services.property_media_factory import MediaRequirement, route_property_media_task
+from app.product import property_search_storage as _property_search_storage
+from app.product.property_listing_extractors import (
+    _property_area_text_to_sqm,
+    _property_public_preview_cache_key,
+    _property_public_preview_cache_payload,
+    _property_scout_clean_url,
+    _property_scout_download_bytes,
+    _property_scout_extract_context_links,
+    _property_scout_extract_detail_media_urls,
+    _property_scout_extract_findmyhome_listing_urls,
+    _property_scout_extract_floorplan_urls,
+    _property_scout_extract_floorplan_urls_from_archive,
+    _property_scout_extract_frieden_listing_urls,
+    _property_scout_extract_gallery_floorplan_urls,
+    _property_scout_extract_html_attr_urls,
+    _property_scout_extract_listing_urls,
+    _property_scout_extract_meta_content,
+    _property_scout_extract_meta_contents,
+    _property_scout_extract_siedlungsunion_attachment_links,
+    _property_scout_extract_source_virtual_tour_url,
+    _property_scout_extract_wbv_gpa_listing_urls,
+    _property_scout_floorplan_recovery_diagnostics,
+    _property_scout_is_archive_url,
+    _property_scout_is_asset_url,
+    _property_scout_is_floorplan_archive_candidate_url,
+    _property_scout_is_supported_listing_url,
+    _property_scout_platform_from_url,
+    _property_scout_public_asset_filename,
+    _property_scout_public_asset_slug,
+    _property_scout_source_requested_min_area_m2,
+    _property_scout_zip_member_is_floorplan_candidate,
+)
+from app.product.property_location_research import (
+    _property_official_risk_evidence,
+    _property_point_looks_like_austria,
+    _property_research_distance_m,
+    _property_research_forward_geocode,
+    _property_research_nearby_pois,
+    _property_research_reverse_geocode,
+    _property_schoolatlas_coords_from_facts,
+    _property_schoolatlas_distance_m,
+    _property_schoolatlas_is_gymnasium_destination,
+    _property_schoolatlas_snapshot,
+    _property_schoolatlas_transition_capable_school_type,
+    _property_schoolatlas_wfs_base_url,
+    _property_schoolatlas_wfs_json,
+    _PROPERTY_SCHOOLATLAS_SOURCE_URL,
+)
+from app.product.property_tour_hosting import (
+    _configured_public_tour_hosts,
+    _download_public_tour_asset,
+    _download_public_tour_asset_with_type,
+    _embedded_live_360_source_url,
+    _existing_hosted_property_tour_payload,
+    _existing_hosted_property_tour_url,
+    _hosted_property_tour_asset_suffix,
+    _hosted_property_tour_direct_360_url,
+    _hosted_property_tour_preview_image_url,
+    _hosted_property_tour_public_base_url,
+    _hosted_property_tour_slug,
+    _hosted_public_tour_asset_url,
+    _is_branded_public_tour_url,
+    _is_crezlo_tour_host,
+    _matterport_thumb_url,
+    _prefer_hosted_live_360_embed,
+    _property_public_app_base_url,
+    _property_public_tour_base_url,
+    _property_tour_generated_preview_url,
+    _property_tour_payload_is_disabled_fallback,
+    _property_tour_provider_host_kind,
+    _public_app_base_url,
+    _resolve_property_tour_urls,
+    _safe_live_property_tour_url,
+    _workspace_access_public_base_url,
+    _write_hosted_feelestate_pure_360_property_tour_bundle,
+    _write_hosted_floorplan_property_tour_bundle,
+)
+from app.product.property_search_storage import (
+    _delete_property_search_run_record as _delete_property_search_run_record_storage,
+    _list_property_search_run_records as _list_property_search_run_records_storage,
+    _load_property_search_run_record,
+    _property_search_run_database_url,
+    _property_source_listing_cache_get as _property_source_listing_cache_get_storage,
+    _property_source_listing_cache_key,
+    _property_source_listing_cache_put as _property_source_listing_cache_put_storage,
+    _prune_property_search_run_records,
+    _store_property_search_run_record,
+)
 from app.product.extractors import extract_commitment_candidates
 from app.product.models import (
     BriefItem,
@@ -401,17 +488,10 @@ _PROPERTY_SEARCH_RUN_STALE_DEFAULT_SECONDS = 20 * 60
 _PROPERTY_SEARCH_RUN_STAGES = 8
 _PROPERTY_SEARCH_RUN_REGISTRY: dict[str, dict[str, object]] = {}
 _PROPERTY_SEARCH_RUN_LOCK = threading.Lock()
-_PROPERTY_SEARCH_RUN_SCHEMA_LOCK = threading.Lock()
-_PROPERTY_SEARCH_RUN_SCHEMA_READY = False
-_PROPERTY_SOURCE_LISTING_CACHE_LOCK = threading.Lock()
-_PROPERTY_SOURCE_LISTING_CACHE: dict[str, dict[str, object]] = {}
-_PROPERTY_SOURCE_LISTING_CACHE_VERSION = "property_source_listing_cache_v1"
-_PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_VERSION = 1
-_PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES = 256
-_PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
-_PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
-_PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_LOCK = threading.Lock()
-_PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY = False
+_PROPERTY_SOURCE_LISTING_CACHE_LOCK = _property_search_storage._PROPERTY_SOURCE_LISTING_CACHE_LOCK
+_PROPERTY_SOURCE_LISTING_CACHE = _property_search_storage._PROPERTY_SOURCE_LISTING_CACHE
+_PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = _property_search_storage._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH
+_PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = _property_search_storage._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME
 _PROPERTY_TOUR_PREBUILD_LIMIT = 5
 _PROPERTY_SCOUT_AUTO_TOUR_MIN_SCORE = 50.0
 _PROPERTY_SCOUT_MAGICFIT_FLYTHROUGH_MIN_SCORE = 60.0
@@ -1764,17 +1844,16 @@ def _property_search_official_evidence_concurrency() -> int:
 def _property_search_provider_worker_concurrency() -> int:
     raw_value = str(os.getenv("PROPERTYQUARRY_SEARCH_PROVIDER_WORKER_CONCURRENCY") or "").strip()
     if not raw_value:
-        return 3
+        return 6
     try:
         parsed = int(raw_value)
     except Exception:
-        return 3
+        return 6
     return max(1, min(parsed, 8))
 
 
 def _property_search_provider_worker_concurrency_for_plan(plan_key: object) -> int:
-    normalized_plan = str(plan_key or "free").strip().lower() or "free"
-    desired = {"free": 1, "plus": 3, "agent": 6}.get(normalized_plan, 1)
+    desired = property_worker_cap(plan_key)
     configured = _property_search_provider_worker_concurrency()
     return max(1, min(desired, configured if configured > 0 else desired))
 
@@ -1953,158 +2032,6 @@ def _property_tour_status_is_terminal(value: object) -> bool:
     return normalized in {"created", "existing", "ready", "blocked", "failed", "skipped", "not_applicable"}
 
 
-def _property_search_run_database_url() -> str:
-    return str(os.environ.get("DATABASE_URL") or "").strip()
-
-
-def _property_search_run_connect():  # type: ignore[no-untyped-def]
-    database_url = _property_search_run_database_url()
-    if not database_url:
-        raise RuntimeError("database_url_missing")
-    import psycopg
-
-    return psycopg.connect(database_url, autocommit=True)
-
-
-def _ensure_property_search_run_schema() -> None:
-    global _PROPERTY_SEARCH_RUN_SCHEMA_READY
-    if _PROPERTY_SEARCH_RUN_SCHEMA_READY or not _property_search_run_database_url():
-        return
-    with _PROPERTY_SEARCH_RUN_SCHEMA_LOCK:
-        if _PROPERTY_SEARCH_RUN_SCHEMA_READY:
-            return
-        with _property_search_run_connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS property_search_runs (
-                        run_id TEXT PRIMARY KEY,
-                        principal_id TEXT NOT NULL,
-                        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-                        created_at TIMESTAMPTZ NOT NULL,
-                        updated_at TIMESTAMPTZ NOT NULL
-                    )
-                    """
-                )
-                cur.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_property_search_runs_updated
-                    ON property_search_runs(updated_at DESC)
-                    """
-                )
-        _PROPERTY_SEARCH_RUN_SCHEMA_READY = True
-
-
-def _store_property_search_run_record(record: dict[str, object]) -> None:
-    if not _property_search_run_database_url():
-        return
-    _ensure_property_search_run_schema()
-    run_id = str(record.get("run_id") or "").strip()
-    principal_id = str(record.get("principal_id") or "").strip()
-    if not run_id or not principal_id:
-        return
-    from psycopg.types.json import Json
-
-    with _property_search_run_connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO property_search_runs (run_id, principal_id, payload_json, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (run_id) DO UPDATE
-                SET principal_id = EXCLUDED.principal_id,
-                    payload_json = EXCLUDED.payload_json,
-                    updated_at = EXCLUDED.updated_at
-                """,
-                (
-                    run_id,
-                    principal_id,
-                    Json(record),
-                    str(record.get("created_at") or _now_iso()).strip() or _now_iso(),
-                    str(record.get("updated_at") or _now_iso()).strip() or _now_iso(),
-                ),
-            )
-
-
-def _load_property_search_run_record(*, run_id: str) -> dict[str, object] | None:
-    if not _property_search_run_database_url():
-        return None
-    _ensure_property_search_run_schema()
-    normalized_run_id = str(run_id or "").strip()
-    if not normalized_run_id:
-        return None
-    with _property_search_run_connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT payload_json FROM property_search_runs WHERE run_id = %s", (normalized_run_id,))
-            row = cur.fetchone()
-    if not row:
-        return None
-    return dict(row[0] or {}) if isinstance(row[0], dict) else None
-
-
-def _list_property_search_run_records(
-    *,
-    limit: int = 20,
-    statuses: tuple[str, ...] = (),
-) -> tuple[dict[str, object], ...]:
-    normalized_limit = max(int(limit or 0), 1)
-    normalized_statuses = tuple(
-        sorted({str(value or "").strip().lower() for value in statuses if str(value or "").strip()})
-    )
-    if not _property_search_run_database_url():
-        with _PROPERTY_SEARCH_RUN_LOCK:
-            rows = [dict(value) for value in _PROPERTY_SEARCH_RUN_REGISTRY.values() if isinstance(value, dict)]
-        if normalized_statuses:
-            rows = [row for row in rows if str(row.get("status") or "").strip().lower() in normalized_statuses]
-        rows.sort(key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""), reverse=True)
-        return tuple(rows[:normalized_limit])
-    _ensure_property_search_run_schema()
-    query = "SELECT payload_json FROM property_search_runs"
-    params: list[object] = []
-    if normalized_statuses:
-        query += " WHERE (payload_json->>'status') = ANY(%s)"
-        params.append(list(normalized_statuses))
-    query += " ORDER BY updated_at DESC LIMIT %s"
-    params.append(normalized_limit)
-    with _property_search_run_connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(query, params)
-            rows = cur.fetchall()
-    results: list[dict[str, object]] = []
-    for row in rows:
-        payload = row[0] if row else None
-        if isinstance(payload, dict):
-            results.append(dict(payload))
-    return tuple(results)
-
-
-def _prune_property_search_run_records() -> None:
-    if not _property_search_run_database_url():
-        return
-    _ensure_property_search_run_schema()
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=_PROPERTY_SEARCH_RUN_TTL_SECONDS)).isoformat()
-    with _property_search_run_connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM property_search_runs WHERE updated_at < %s", (cutoff,))
-
-
-def _delete_property_search_run_record(*, run_id: str) -> bool:
-    normalized_run_id = str(run_id or "").strip()
-    if not normalized_run_id:
-        return False
-    deleted = False
-    if not _property_search_run_database_url():
-        with _PROPERTY_SEARCH_RUN_LOCK:
-            deleted = _PROPERTY_SEARCH_RUN_REGISTRY.pop(normalized_run_id, None) is not None
-        return deleted
-    _ensure_property_search_run_schema()
-    with _property_search_run_connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM property_search_runs WHERE run_id = %s", (normalized_run_id,))
-            deleted = bool(cur.rowcount)
-    return deleted
-
-
 def _new_property_search_run_record(
     *,
     run_id: str,
@@ -2163,6 +2090,78 @@ def _prune_property_search_runs() -> None:
         pass
 
 
+def _list_property_search_run_records(
+    *,
+    limit: int = 20,
+    statuses: tuple[str, ...] = (),
+) -> tuple[dict[str, object], ...]:
+    with _PROPERTY_SEARCH_RUN_LOCK:
+        registry_snapshot = {
+            key: dict(value)
+            for key, value in _PROPERTY_SEARCH_RUN_REGISTRY.items()
+            if isinstance(value, dict)
+        }
+    return _list_property_search_run_records_storage(
+        limit=limit,
+        statuses=statuses,
+        registry=registry_snapshot,
+    )
+
+
+def _delete_property_search_run_record(*, run_id: str) -> bool:
+    with _PROPERTY_SEARCH_RUN_LOCK:
+        return _delete_property_search_run_record_storage(
+            run_id=run_id,
+            registry=_PROPERTY_SEARCH_RUN_REGISTRY,
+        )
+
+
+def _sync_property_source_listing_cache_compat_to_storage() -> None:
+    _property_search_storage._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = str(
+        globals().get("_PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH") or ""
+    )
+    try:
+        _property_search_storage._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = float(
+            globals().get("_PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME") or 0.0
+        )
+    except Exception:
+        _property_search_storage._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+
+
+def _sync_property_source_listing_cache_compat_from_storage() -> None:
+    globals()["_PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH"] = (
+        _property_search_storage._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH
+    )
+    globals()["_PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME"] = (
+        _property_search_storage._PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME
+    )
+
+
+def _property_source_listing_cache_get(cache_key: str, *, allow_stale: bool = False) -> tuple[tuple[str, ...], dict[str, object]]:
+    _sync_property_source_listing_cache_compat_to_storage()
+    urls, state = _property_source_listing_cache_get_storage(cache_key, allow_stale=allow_stale)
+    _sync_property_source_listing_cache_compat_from_storage()
+    return urls, state
+
+
+def _property_source_listing_cache_put(
+    cache_key: str,
+    *,
+    source_url: str,
+    listing_urls: tuple[str, ...],
+    source_spec: dict[str, object] | None = None,
+) -> dict[str, object]:
+    _sync_property_source_listing_cache_compat_to_storage()
+    state = _property_source_listing_cache_put_storage(
+        cache_key,
+        source_url=source_url,
+        listing_urls=listing_urls,
+        source_spec=source_spec,
+    )
+    _sync_property_source_listing_cache_compat_from_storage()
+    return state
+
+
 def _property_alert_gmail_query() -> str:
     configured = str(os.getenv("EA_PROPERTY_ALERT_GMAIL_QUERY") or "").strip()
     return configured or _PROPERTY_ALERT_GMAIL_QUERY
@@ -2171,15 +2170,6 @@ def _property_alert_gmail_query() -> str:
 def _normalize_property_search_platform(value: str) -> str:
     return normalize_property_platform(value)
 
-
-def _property_scout_platform_from_url(url: str) -> str:
-    parsed = urllib.parse.urlparse(urllib.parse.urldefrag(str(url or "").strip())[0])
-    host = str(parsed.netloc or "").lower()
-    for platform in property_platform_keys():
-        provider = property_provider_for_platform(platform)
-        if provider is not None and any(marker in host for marker in provider.host_markers):
-            return platform
-    return ""
 
 
 def _property_scout_source_specs() -> tuple[dict[str, object], ...]:
@@ -2284,594 +2274,6 @@ def _property_alert_preference_person_id(payload: dict[str, object] | None = Non
         ).strip()
         or "self"
     )
-
-
-def _property_source_listing_cache_ttl_seconds() -> int:
-    raw_value = str(os.getenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS") or "").strip()
-    if not raw_value:
-        return 15 * 60
-    try:
-        parsed = int(raw_value)
-    except Exception:
-        return 15 * 60
-    return max(0, min(parsed, 24 * 60 * 60))
-
-
-def _property_source_listing_cache_stale_max_seconds() -> int:
-    raw_value = str(os.getenv("EA_PROPERTY_SOURCE_LISTING_CACHE_STALE_MAX_SECONDS") or "").strip()
-    if not raw_value:
-        return 6 * 60 * 60
-    try:
-        parsed = int(raw_value)
-    except Exception:
-        return 6 * 60 * 60
-    return max(0, min(parsed, 7 * 24 * 60 * 60))
-
-
-def _property_source_listing_cache_path() -> Path | None:
-    raw_value = str(os.getenv("EA_PROPERTY_SOURCE_LISTING_CACHE_PATH") or "").strip()
-    if not raw_value or raw_value.lower() in {"0", "false", "no", "off", "disabled"}:
-        return None
-    return Path(raw_value).expanduser()
-
-
-def _property_source_listing_cache_backend() -> str:
-    raw_value = os.getenv("EA_PROPERTY_SOURCE_LISTING_CACHE_BACKEND")
-    storage_backend = str(os.getenv("EA_STORAGE_BACKEND") or "").strip().lower()
-    configured = str(raw_value or "").strip().lower()
-    if configured not in {"", "auto", "memory", "file", "postgres"}:
-        configured = "auto"
-    if configured in {"memory", "file", "postgres"}:
-        return configured
-    if raw_value is None and storage_backend == "postgres" and _property_search_run_database_url():
-        return "postgres"
-    if configured == "auto" and _property_search_run_database_url():
-        return "postgres"
-    if raw_value is None and _property_source_listing_cache_path() is not None:
-        return "file"
-    if _property_source_listing_cache_path() is not None:
-        return "file"
-    return "memory"
-
-
-def _property_source_listing_cache_key(*, source_url: str, source_spec: dict[str, object] | None = None) -> str:
-    spec = dict(source_spec or {})
-    configured = str(spec.get("provider_cache_key") or "").strip()
-    if configured:
-        return configured[:240]
-    pushdown = dict(spec.get("provider_filter_pushdown") or {}) if isinstance(spec.get("provider_filter_pushdown"), dict) else {}
-    pushdown_key = str(pushdown.get("cache_key") or "").strip()
-    if pushdown_key:
-        return pushdown_key[:240]
-    return ""
-
-
-def _property_source_listing_cache_normalize_row(raw_key: object, raw_row: object, *, now: float | None = None) -> dict[str, object]:
-    cache_key = str(raw_key or "").strip()[:240]
-    if not cache_key or not isinstance(raw_row, dict):
-        return {}
-    try:
-        stored_at = float(raw_row.get("stored_at_epoch") or 0.0)
-    except Exception:
-        stored_at = 0.0
-    effective_now = float(now or time.time())
-    urls = [str(value or "").strip() for value in list(raw_row.get("listing_urls") or []) if str(value or "").strip()]
-    if not urls:
-        return {}
-    return {
-        "cache_key": cache_key,
-        "source_url": urllib.parse.urldefrag(str(raw_row.get("source_url") or "").strip())[0],
-        "listing_urls": urls[:250],
-        "stored_at_epoch": stored_at or effective_now,
-        "provider_filter_pushdown": dict(raw_row.get("provider_filter_pushdown") or {})
-        if isinstance(raw_row.get("provider_filter_pushdown"), dict)
-        else {},
-    }
-
-
-def _property_source_listing_cache_row_state(
-    *,
-    cache_key: str,
-    row: dict[str, object],
-    allow_stale: bool,
-    persistence: str,
-) -> tuple[tuple[str, ...], dict[str, object]]:
-    now = time.time()
-    ttl = _property_source_listing_cache_ttl_seconds()
-    stale_max = _property_source_listing_cache_stale_max_seconds()
-    try:
-        stored_at = float(row.get("stored_at_epoch") or 0.0)
-    except Exception:
-        stored_at = 0.0
-    age_seconds = max(0.0, now - stored_at)
-    if not allow_stale and (ttl <= 0 or age_seconds > float(ttl)):
-        return (), {}
-    if allow_stale and (
-        ttl <= 0
-        or (age_seconds > float(ttl) and stale_max <= 0)
-        or (stale_max > 0 and age_seconds > float(stale_max))
-    ):
-        return (), {}
-    urls = tuple(str(value or "").strip() for value in list(row.get("listing_urls") or []) if str(value or "").strip())
-    if not urls:
-        return (), {}
-    state = {
-        "status": "stale_fallback" if ttl > 0 and age_seconds > float(ttl) else "hit",
-        "cache_key": cache_key,
-        "age_seconds": round(age_seconds, 2),
-        "listing_total": len(urls),
-        "persistence": persistence,
-        "revalidation": "candidate_preview",
-    }
-    return urls, state
-
-
-def _property_source_listing_cache_prune_locked() -> None:
-    while len(_PROPERTY_SOURCE_LISTING_CACHE) > _PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES:
-        oldest_key = min(
-            _PROPERTY_SOURCE_LISTING_CACHE,
-            key=lambda key: float(_PROPERTY_SOURCE_LISTING_CACHE.get(key, {}).get("stored_at_epoch") or 0.0),
-        )
-        _PROPERTY_SOURCE_LISTING_CACHE.pop(oldest_key, None)
-
-
-def _property_source_listing_cache_snapshot_locked() -> dict[str, dict[str, object]]:
-    now = time.time()
-    retention_seconds = max(
-        _property_source_listing_cache_ttl_seconds(),
-        _property_source_listing_cache_stale_max_seconds(),
-    )
-    snapshot: dict[str, dict[str, object]] = {}
-    for key, row in _PROPERTY_SOURCE_LISTING_CACHE.items():
-        normalized_key = str(key or "").strip()
-        if not normalized_key:
-            continue
-        try:
-            stored_at = float(row.get("stored_at_epoch") or 0.0)
-        except Exception:
-            stored_at = 0.0
-        if retention_seconds > 0 and stored_at > 0.0 and now - stored_at > float(retention_seconds):
-            continue
-        urls = [str(value or "").strip() for value in list(row.get("listing_urls") or []) if str(value or "").strip()]
-        if not urls:
-            continue
-        snapshot[normalized_key] = {
-            "cache_key": normalized_key,
-            "source_url": urllib.parse.urldefrag(str(row.get("source_url") or "").strip())[0],
-            "listing_urls": urls[:250],
-            "stored_at_epoch": stored_at or now,
-            "provider_filter_pushdown": dict(row.get("provider_filter_pushdown") or {})
-            if isinstance(row.get("provider_filter_pushdown"), dict)
-            else {},
-        }
-    return dict(
-        sorted(
-            snapshot.items(),
-            key=lambda item: float(item[1].get("stored_at_epoch") or 0.0),
-            reverse=True,
-        )[:_PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES]
-    )
-
-
-@contextlib.contextmanager
-def _property_source_listing_cache_file_lock(path: Path):
-    lock_path = path.with_name(f"{path.name}.lock")
-    handle = None
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        handle = lock_path.open("a+", encoding="utf-8")
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        yield
-    finally:
-        if handle is not None:
-            try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-            except Exception:
-                pass
-            try:
-                handle.close()
-            except Exception:
-                pass
-
-
-def _property_source_listing_cache_quarantine_corrupt_file(path: Path, *, reason: str) -> str:
-    if not path.exists():
-        return ""
-    suffix = f"corrupt-{int(time.time())}-{uuid4().hex[:12]}"
-    quarantine_path = path.with_name(f"{path.name}.{suffix}.json")
-    try:
-        path.replace(quarantine_path)
-    except Exception:
-        return ""
-    return f"{quarantine_path}:{reason}"
-
-
-def _ensure_property_source_listing_cache_schema() -> bool:
-    global _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY
-    if _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY:
-        return True
-    if not _property_search_run_database_url():
-        return False
-    with _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_LOCK:
-        if _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY:
-            return True
-        try:
-            with _property_search_run_connect() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        CREATE TABLE IF NOT EXISTS property_source_listing_cache (
-                            cache_key TEXT PRIMARY KEY,
-                            source_url TEXT NOT NULL DEFAULT '',
-                            listing_urls JSONB NOT NULL DEFAULT '[]'::jsonb,
-                            provider_filter_pushdown JSONB NOT NULL DEFAULT '{}'::jsonb,
-                            stored_at_epoch DOUBLE PRECISION NOT NULL,
-                            stored_at TIMESTAMPTZ NOT NULL,
-                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                        )
-                        """
-                    )
-                    cur.execute(
-                        """
-                        CREATE INDEX IF NOT EXISTS idx_property_source_listing_cache_stored_at
-                        ON property_source_listing_cache(stored_at_epoch DESC)
-                        """
-                    )
-        except Exception:
-            return False
-        _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY = True
-        return True
-
-
-def _property_source_listing_cache_prune_postgres() -> None:
-    if not _ensure_property_source_listing_cache_schema():
-        return
-    retention_seconds = max(
-        _property_source_listing_cache_ttl_seconds(),
-        _property_source_listing_cache_stale_max_seconds(),
-    )
-    try:
-        with _property_search_run_connect() as conn:
-            with conn.cursor() as cur:
-                if retention_seconds > 0:
-                    cur.execute(
-                        "DELETE FROM property_source_listing_cache WHERE stored_at_epoch < %s",
-                        (time.time() - float(retention_seconds),),
-                    )
-                cur.execute(
-                    """
-                    DELETE FROM property_source_listing_cache
-                    WHERE cache_key IN (
-                        SELECT cache_key
-                        FROM property_source_listing_cache
-                        ORDER BY stored_at_epoch DESC
-                        OFFSET %s
-                    )
-                    """,
-                    (_PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES,),
-                )
-    except Exception:
-        return
-
-
-def _property_source_listing_cache_get_postgres(cache_key: str) -> dict[str, object]:
-    normalized_key = str(cache_key or "").strip()[:240]
-    if not normalized_key or not _ensure_property_source_listing_cache_schema():
-        return {}
-    try:
-        with _property_search_run_connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT cache_key, source_url, listing_urls, provider_filter_pushdown, stored_at_epoch
-                    FROM property_source_listing_cache
-                    WHERE cache_key = %s
-                    """,
-                    (normalized_key,),
-                )
-                row = cur.fetchone()
-    except Exception:
-        return {}
-    if not row:
-        return {}
-    return _property_source_listing_cache_normalize_row(
-        row[0],
-        {
-            "source_url": row[1],
-            "listing_urls": row[2],
-            "provider_filter_pushdown": row[3],
-            "stored_at_epoch": row[4],
-        },
-    )
-
-
-def _property_source_listing_cache_put_postgres(row: dict[str, object]) -> bool:
-    normalized = _property_source_listing_cache_normalize_row(row.get("cache_key"), row)
-    if not normalized or not _ensure_property_source_listing_cache_schema():
-        return False
-    from psycopg.types.json import Json
-
-    try:
-        with _property_search_run_connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO property_source_listing_cache (
-                        cache_key,
-                        source_url,
-                        listing_urls,
-                        provider_filter_pushdown,
-                        stored_at_epoch,
-                        stored_at,
-                        updated_at
-                    )
-                    VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
-                    ON CONFLICT (cache_key) DO UPDATE
-                    SET source_url = EXCLUDED.source_url,
-                        listing_urls = EXCLUDED.listing_urls,
-                        provider_filter_pushdown = EXCLUDED.provider_filter_pushdown,
-                        stored_at_epoch = EXCLUDED.stored_at_epoch,
-                        stored_at = EXCLUDED.stored_at,
-                        updated_at = EXCLUDED.updated_at
-                    """,
-                    (
-                        normalized["cache_key"],
-                        normalized["source_url"],
-                        Json(list(normalized.get("listing_urls") or [])),
-                        Json(dict(normalized.get("provider_filter_pushdown") or {})),
-                        float(normalized.get("stored_at_epoch") or time.time()),
-                    ),
-                )
-        _property_source_listing_cache_prune_postgres()
-        return True
-    except Exception:
-        return False
-
-
-def _property_source_listing_cache_persist_snapshot(snapshot: dict[str, dict[str, object]]) -> None:
-    global _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME, _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH
-    path = _property_source_listing_cache_path()
-    if path is None:
-        return
-    now = time.time()
-    retention_seconds = max(
-        _property_source_listing_cache_ttl_seconds(),
-        _property_source_listing_cache_stale_max_seconds(),
-    )
-    try:
-        with _property_source_listing_cache_file_lock(path):
-            merged_snapshot = dict(snapshot)
-            try:
-                existing_payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-            except Exception:
-                _property_source_listing_cache_quarantine_corrupt_file(path, reason="persist_existing_json_invalid")
-                existing_payload = {}
-            existing_entries = existing_payload.get("entries") if isinstance(existing_payload, dict) else {}
-            if isinstance(existing_entries, dict):
-                for raw_key, raw_row in existing_entries.items():
-                    cache_key = str(raw_key or "").strip()[:240]
-                    if not cache_key or not isinstance(raw_row, dict):
-                        continue
-                    try:
-                        stored_at = float(raw_row.get("stored_at_epoch") or 0.0)
-                    except Exception:
-                        stored_at = 0.0
-                    if retention_seconds > 0 and stored_at > 0.0 and now - stored_at > float(retention_seconds):
-                        continue
-                    urls = [str(value or "").strip() for value in list(raw_row.get("listing_urls") or []) if str(value or "").strip()]
-                    if not urls:
-                        continue
-                    existing_row = dict(merged_snapshot.get(cache_key) or {})
-                    try:
-                        existing_stored_at = float(existing_row.get("stored_at_epoch") or 0.0)
-                    except Exception:
-                        existing_stored_at = 0.0
-                    if existing_row and existing_stored_at >= stored_at:
-                        continue
-                    merged_snapshot[cache_key] = {
-                        "cache_key": cache_key,
-                        "source_url": urllib.parse.urldefrag(str(raw_row.get("source_url") or "").strip())[0],
-                        "listing_urls": urls[:250],
-                        "stored_at_epoch": stored_at or now,
-                        "provider_filter_pushdown": dict(raw_row.get("provider_filter_pushdown") or {})
-                        if isinstance(raw_row.get("provider_filter_pushdown"), dict)
-                        else {},
-                    }
-            merged_snapshot = dict(
-                sorted(
-                    merged_snapshot.items(),
-                    key=lambda item: float(item[1].get("stored_at_epoch") or 0.0),
-                    reverse=True,
-                )[:_PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES]
-            )
-            payload = {
-                "version": _PROPERTY_SOURCE_LISTING_CACHE_VERSION,
-                "schema_version": _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_VERSION,
-                "stored_at": _now_iso(),
-                "stored_at_epoch": now,
-                "entry_count": len(merged_snapshot),
-                "max_entries": _PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES,
-                "lock_strategy": "fcntl",
-                "entries": merged_snapshot,
-            }
-            temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
-            try:
-                temp_path.write_text(json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n", encoding="utf-8")
-                temp_path.replace(path)
-                with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
-                    _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = str(path)
-                    try:
-                        _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = float(path.stat().st_mtime)
-                    except Exception:
-                        _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
-            finally:
-                try:
-                    temp_path.unlink(missing_ok=True)
-                except Exception:
-                    pass
-    except Exception:
-        return
-
-
-def _property_source_listing_cache_load() -> None:
-    global _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME, _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH
-    path = _property_source_listing_cache_path()
-    path_text = str(path) if path is not None else ""
-    try:
-        path_mtime = float(path.stat().st_mtime) if path is not None and path.exists() else 0.0
-    except Exception:
-        path_mtime = 0.0
-    with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
-        if (
-            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH == path_text
-            and _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME == path_mtime
-        ):
-            return
-    if path is None or path_mtime <= 0.0:
-        with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
-            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
-            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = path_mtime
-        return
-    try:
-        with _property_source_listing_cache_file_lock(path):
-            parsed = json.loads(path.read_text(encoding="utf-8"))
-            try:
-                loaded_mtime = float(path.stat().st_mtime)
-            except Exception:
-                loaded_mtime = path_mtime
-    except Exception:
-        try:
-            with _property_source_listing_cache_file_lock(path):
-                _property_source_listing_cache_quarantine_corrupt_file(path, reason="load_json_invalid")
-        except Exception:
-            pass
-        with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
-            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
-            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
-        return
-    entries = parsed.get("entries") if isinstance(parsed, dict) else {}
-    if not isinstance(entries, dict):
-        with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
-            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
-            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = loaded_mtime
-        return
-    loaded_rows: dict[str, dict[str, object]] = {}
-    now = time.time()
-    retention_seconds = max(
-        _property_source_listing_cache_ttl_seconds(),
-        _property_source_listing_cache_stale_max_seconds(),
-    )
-    for raw_key, raw_row in entries.items():
-        cache_key = str(raw_key or "").strip()[:240]
-        if not cache_key or not isinstance(raw_row, dict):
-            continue
-        try:
-            stored_at = float(raw_row.get("stored_at_epoch") or 0.0)
-        except Exception:
-            stored_at = 0.0
-        if retention_seconds > 0 and stored_at > 0.0 and now - stored_at > float(retention_seconds):
-            continue
-        urls = [str(value or "").strip() for value in list(raw_row.get("listing_urls") or []) if str(value or "").strip()]
-        if not urls:
-            continue
-        loaded_rows[cache_key] = {
-            "cache_key": cache_key,
-            "source_url": urllib.parse.urldefrag(str(raw_row.get("source_url") or "").strip())[0],
-            "listing_urls": urls[:250],
-            "stored_at_epoch": stored_at or now,
-            "provider_filter_pushdown": dict(raw_row.get("provider_filter_pushdown") or {})
-            if isinstance(raw_row.get("provider_filter_pushdown"), dict)
-            else {},
-        }
-    if not loaded_rows:
-        with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
-            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
-            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = loaded_mtime
-        return
-    with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
-        for key, row in loaded_rows.items():
-            existing = dict(_PROPERTY_SOURCE_LISTING_CACHE.get(key) or {})
-            try:
-                existing_stored_at = float(existing.get("stored_at_epoch") or 0.0)
-            except Exception:
-                existing_stored_at = 0.0
-            if existing and existing_stored_at >= float(row.get("stored_at_epoch") or 0.0):
-                continue
-            _PROPERTY_SOURCE_LISTING_CACHE[key] = row
-        _property_source_listing_cache_prune_locked()
-        _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
-        _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = loaded_mtime
-
-
-def _property_source_listing_cache_get(cache_key: str, *, allow_stale: bool = False) -> tuple[tuple[str, ...], dict[str, object]]:
-    normalized_key = str(cache_key or "").strip()
-    if not normalized_key:
-        return (), {}
-    backend = _property_source_listing_cache_backend()
-    if backend == "postgres":
-        postgres_row = _property_source_listing_cache_get_postgres(normalized_key)
-        if postgres_row:
-            with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
-                _PROPERTY_SOURCE_LISTING_CACHE[normalized_key] = postgres_row
-            return _property_source_listing_cache_row_state(
-                cache_key=normalized_key,
-                row=postgres_row,
-                allow_stale=allow_stale,
-                persistence="postgres",
-            )
-    if backend == "file":
-        _property_source_listing_cache_load()
-    with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
-        row = dict(_PROPERTY_SOURCE_LISTING_CACHE.get(normalized_key) or {})
-    if not row:
-        return (), {}
-    return _property_source_listing_cache_row_state(
-        cache_key=normalized_key,
-        row=row,
-        allow_stale=allow_stale,
-        persistence=backend if backend in {"file", "memory"} else "memory",
-    )
-
-
-def _property_source_listing_cache_put(
-    cache_key: str,
-    *,
-    source_url: str,
-    listing_urls: tuple[str, ...],
-    source_spec: dict[str, object] | None = None,
-) -> dict[str, object]:
-    normalized_key = str(cache_key or "").strip()
-    if not normalized_key:
-        return {"status": "disabled", "cache_key": "", "listing_total": len(listing_urls)}
-    urls = tuple(str(value or "").strip() for value in listing_urls if str(value or "").strip())
-    spec = dict(source_spec or {})
-    row = {
-        "cache_key": normalized_key,
-        "source_url": urllib.parse.urldefrag(str(source_url or "").strip())[0],
-        "listing_urls": list(urls[:250]),
-        "stored_at_epoch": time.time(),
-        "provider_filter_pushdown": dict(spec.get("provider_filter_pushdown") or {})
-        if isinstance(spec.get("provider_filter_pushdown"), dict)
-        else {},
-    }
-    snapshot: dict[str, dict[str, object]] = {}
-    with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
-        _PROPERTY_SOURCE_LISTING_CACHE[normalized_key] = row
-        _property_source_listing_cache_prune_locked()
-        snapshot = _property_source_listing_cache_snapshot_locked()
-    backend = _property_source_listing_cache_backend()
-    persisted_backend = backend
-    if backend == "file":
-        _property_source_listing_cache_persist_snapshot(snapshot)
-    elif backend == "postgres":
-        persisted_backend = "postgres" if _property_source_listing_cache_put_postgres(row) else "memory"
-    return {
-        "status": "stored",
-        "cache_key": normalized_key,
-        "listing_total": len(urls),
-        "persistence": persisted_backend,
-        "ttl_seconds": _property_source_listing_cache_ttl_seconds(),
-    }
 
 
 def _property_scout_listing_urls_for_source(
@@ -2996,52 +2398,6 @@ def _property_scout_fetch_html_compat(url: str, *, timeout_seconds: float = 60.0
         return _property_scout_fetch_html(url)
 
 
-def _property_scout_clean_url(url: str) -> str:
-    normalized = urllib.parse.urldefrag(str(url or "").strip().strip("\"'"))[0]
-    if not normalized:
-        return ""
-    parsed = urllib.parse.urlparse(normalized)
-    if not str(parsed.query or "").strip():
-        return normalized
-    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
-    cleaned_query = [(key, str(value or "").strip("\"'")) for key, value in query]
-    return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(cleaned_query, doseq=True)))
-
-
-def _property_scout_is_supported_listing_url(url: str) -> bool:
-    normalized = _property_scout_clean_url(url)
-    if not normalized:
-        return False
-    parsed = urllib.parse.urlparse(normalized)
-    host = parsed.netloc.lower()
-    path = parsed.path.lower()
-    combined = f"{path}?{parsed.query.lower()}" if str(parsed.query or "").strip() else path
-    if any(path.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg", ".css", ".js", ".json")):
-        return False
-    if _is_willhaben_property_url(normalized):
-        query = urllib.parse.parse_qs(parsed.query)
-        return "/iad/immobilien/d/" in path or (path == "/iad/object" and bool(query.get("adId") or query.get("adid")))
-    if "edikte.justiz.gv.at" in host or "edikte2.justiz.gv.at" in host:
-        return "/alldoc/" in path or "/0/" in path or path.endswith("!opendocument")
-    if "gesiba.at" in host:
-        query = urllib.parse.parse_qs(parsed.query)
-        return path.startswith("/immobilien/wohnungen/objekt") and bool(query.get("objektnummer"))
-    if "findmyhome.at" in host:
-        return bool(re.fullmatch(r"/\d+", path)) and str(parsed.query or "").strip().lower().startswith("tl=")
-    if not any(domain in host for domain in _PROPERTY_SCOUT_LISTING_HOSTS):
-        return False
-    for marker in provider_listing_markers_for_host(host):
-        normalized_marker = str(marker or "").lower()
-        if not normalized_marker or normalized_marker not in combined:
-            continue
-        marker_path = urllib.parse.urlparse(normalized_marker).path or normalized_marker.split("?", 1)[0]
-        marker_path = marker_path.strip()
-        if marker_path.endswith("/"):
-            path_remainder = path[len(marker_path) :].strip("/") if path.startswith(marker_path) else ""
-            if not path_remainder or path_remainder.lower() in {"view", "map", "search", "results"}:
-                continue
-        return True
-    return False
 
 
 def _property_scout_derived_listing_id(property_url: object) -> str:
@@ -3070,535 +2426,22 @@ def _property_scout_listing_ref(listing_id: object, property_url: object) -> str
     return raw_listing_id or str(property_url or "").strip()
 
 
-def _property_scout_source_requested_min_area_m2(source_spec: dict[str, object] | None) -> float:
-    payload = dict(source_spec or {})
-    pushdown = dict(payload.get("provider_filter_pushdown") or {}) if isinstance(payload.get("provider_filter_pushdown"), dict) else {}
-    requested = dict(pushdown.get("requested") or {}) if isinstance(pushdown.get("requested"), dict) else {}
-    applied = dict(pushdown.get("applied") or {}) if isinstance(pushdown.get("applied"), dict) else {}
-    return _float_or_none(requested.get("min_area_m2")) or _float_or_none(applied.get("min_area_m2")) or 0.0
 
 
-def _property_area_text_to_sqm(value: object) -> float | None:
-    text = compact_text(str(value or "").strip(), fallback="", limit=80)
-    if not text:
-        return None
-    match = re.search(r"(\d+(?:[.,]\d+)?)", text)
-    if not match:
-        return None
-    try:
-        return float(str(match.group(1) or "").replace(".", "").replace(",", "."))
-    except Exception:
-        return None
 
 
-def _property_scout_extract_wbv_gpa_listing_urls(*, source_url: str, html: str, min_area_m2: float = 0.0) -> tuple[str, ...]:
-    rows: list[str] = []
-    seen: set[str] = set()
-    pattern = re.compile(
-        r'<div[^>]*class="[^"]*objects__list__rows__item[^"]*"[^>]*data-space="([^"]+)"[^>]*>.*?<a[^>]*href="([^"]+/wohnung/[^"]+)"',
-        re.IGNORECASE | re.DOTALL,
-    )
-    for match in pattern.finditer(str(html or "")):
-        area_sqm = _property_area_text_to_sqm(match.group(1))
-        if min_area_m2 > 0.0 and (not isinstance(area_sqm, float) or area_sqm < min_area_m2):
-            continue
-        candidate = urllib.parse.urldefrag(urllib.parse.urljoin(source_url, str(match.group(2) or "").strip()))[0]
-        if candidate and candidate not in seen and _property_scout_is_supported_listing_url(candidate):
-            seen.add(candidate)
-            rows.append(candidate)
-    return tuple(rows)
 
 
-def _property_scout_extract_frieden_listing_urls(*, source_url: str, html: str, min_area_m2: float = 0.0) -> tuple[str, ...]:
-    rows: list[str] = []
-    seen: set[str] = set()
-    route_match = re.search(r"window\.__ROUTE_DATA__\s*=\s*(\{.*?\})\s*(?:</script>|$)", str(html or ""), flags=re.IGNORECASE | re.DOTALL)
-    if route_match:
-        try:
-            route_data = json.loads(str(route_match.group(1) or ""))
-        except Exception:
-            route_data = {}
-        model = dict(route_data.get("model") or {}) if isinstance(route_data, dict) else {}
-        units = list(dict(model.get("units") or {}).get("items") or []) if isinstance(model.get("units"), dict) else []
-        for unit in units:
-            if not isinstance(unit, dict):
-                continue
-            area_sqm = _float_or_none(unit.get("usableArea")) or 0.0
-            if min_area_m2 > 0.0 and area_sqm < min_area_m2:
-                continue
-            unit_id = str(unit.get("id") or "").strip()
-            if not unit_id:
-                continue
-            candidate = urllib.parse.urldefrag(
-                urllib.parse.urljoin(source_url, f"/immobiliensuche/{unit_id}?returnUrl=%2Fimmobiliensuche")
-            )[0]
-            if candidate and candidate not in seen and _property_scout_is_supported_listing_url(candidate):
-                seen.add(candidate)
-                rows.append(candidate)
-    return tuple(rows)
 
 
-def _property_scout_extract_findmyhome_listing_urls(*, source_url: str, html: str) -> tuple[str, ...]:
-    rows: list[str] = []
-    seen: set[str] = set()
-    pattern = re.compile(
-        r"""<h3[^>]*class=["'][^"']*obj_list[^"']*["'][^>]*>.*?<a[^>]*href=['"]([^'"]+/\d+\?tl=\d+)['"]""",
-        re.IGNORECASE | re.DOTALL,
-    )
-    for match in pattern.finditer(str(html or "")):
-        candidate = _property_scout_clean_url(urllib.parse.urljoin(source_url, str(match.group(1) or "").strip()))
-        if candidate and candidate not in seen and _property_scout_is_supported_listing_url(candidate):
-            seen.add(candidate)
-            rows.append(candidate)
-    return tuple(rows)
 
 
-def _property_scout_extract_listing_urls(*, source_url: str, html: str, source_spec: dict[str, object] | None = None) -> tuple[str, ...]:
-    parsed_source = urllib.parse.urlparse(str(source_url or "").strip())
-    source_query = urllib.parse.parse_qs(parsed_source.query)
-    sozialbau_scope = str((source_query.get("pq_scope") or [""])[0]).strip().lower()
-    requested_min_area_m2 = _property_scout_source_requested_min_area_m2(source_spec)
-    source_host = parsed_source.netloc.lower()
-    if "findmyhome.at" in source_host:
-        rows = _property_scout_extract_findmyhome_listing_urls(source_url=source_url, html=html)
-        if rows:
-            return rows
-    if "wbv-gpa.at" in source_host:
-        rows = _property_scout_extract_wbv_gpa_listing_urls(source_url=source_url, html=html, min_area_m2=requested_min_area_m2)
-        if rows:
-            return rows
-    if "frieden.at" in source_host:
-        rows = _property_scout_extract_frieden_listing_urls(source_url=source_url, html=html, min_area_m2=requested_min_area_m2)
-        if rows:
-            return rows
-    if "angebote.sozialbau.at" in parsed_source.netloc.lower() and sozialbau_scope in {"in_bau", "in_planung"}:
-        rows: list[str] = []
-        seen_rows: set[str] = set()
-        for match in re.finditer(r"<tr[^>]*data-ri=\"\d+\"[^>]*>(.*?)</tr>", str(html or ""), re.IGNORECASE | re.DOTALL):
-            row_html = str(match.group(1) or "")
-            cells = re.findall(r"<td[^>]*>(.*?)</td>", row_html, re.IGNORECASE | re.DOTALL)
-            if len(cells) < 6:
-                continue
-            offer_type = compact_text(_property_html_fragment_text(cells[0]), fallback="", limit=24)
-            anchor_match = re.search(r"<a[^>]*>(.*?)</a>", cells[1], re.IGNORECASE | re.DOTALL)
-            address_fragment = str(anchor_match.group(1) or "") if anchor_match else str(cells[1] or "")
-            address_lines = [
-                compact_text(_property_html_fragment_text(part), fallback="", limit=160)
-                for part in re.split(r"<br\s*/?>", address_fragment, flags=re.IGNORECASE)
-                if compact_text(_property_html_fragment_text(part), fallback="", limit=160)
-            ]
-            if not address_lines:
-                continue
-            postal_name = compact_text(address_lines[0], fallback="", limit=80)
-            street_address = compact_text(address_lines[-1], fallback="", limit=160)
-            unit_count = re.sub(r"[^\d]", "", _property_html_fragment_text(cells[2]))
-            move_in = compact_text(_property_html_fragment_text(cells[3]), fallback="", limit=80)
-            registration_count = re.sub(r"[^\d]", "", _property_html_fragment_text(cells[4]))
-            map_href_match = re.search(r'href="https://www\.google\.com/maps/place/([0-9\.\-]+),([0-9\.\-]+)', row_html, re.IGNORECASE)
-            params = {
-                "pq_listing": "1",
-                "offer_type": offer_type,
-                "postal_name": postal_name,
-                "street_address": street_address,
-                "unit_count": unit_count,
-                "move_in": move_in,
-                "registration_count": registration_count,
-                "pq_scope": sozialbau_scope,
-            }
-            if map_href_match:
-                params["map_lat"] = str(map_href_match.group(1) or "")
-                params["map_lng"] = str(map_href_match.group(2) or "")
-            listing_url = urllib.parse.urlunparse(
-                parsed_source._replace(
-                    query=urllib.parse.urlencode({key: value for key, value in params.items() if str(value or "").strip()})
-                )
-            )
-            if listing_url and listing_url not in seen_rows:
-                seen_rows.add(listing_url)
-                rows.append(listing_url)
-        return tuple(rows)
-    candidates: list[str] = []
-    seen: set[str] = set()
-    normalized_html = (
-        str(html or "")
-        .replace("\\u002F", "/")
-        .replace("\\/", "/")
-        .replace("&amp;", "&")
-    )
-    raw_urls = list(_extract_urls_from_text(normalized_html))
-    for match in re.finditer(r"""href=["']([^"']+)["']""", normalized_html, re.IGNORECASE):
-        try:
-            raw_urls.append(urllib.parse.urljoin(source_url, match.group(1).strip()))
-        except ValueError:
-            continue
-    raw_urls.extend(_property_scout_extract_html_attr_urls(source_url=source_url, html=normalized_html, attr_name="data-href"))
-    raw_urls.extend(_property_scout_extract_html_attr_urls(source_url=source_url, html=normalized_html, attr_name="data-url"))
-    for match in re.finditer(r"""location(?:\.href)?\s*=\s*["']([^"']+)["']""", normalized_html, re.IGNORECASE):
-        try:
-            raw_urls.append(urllib.parse.urljoin(source_url, match.group(1).strip()))
-        except ValueError:
-            continue
-    path_markers = provider_listing_markers_for_host(parsed_source.netloc.lower())
-    required_upstream_platform = normalize_property_platform(str((source_query.get("pq_upstream") or [""])[0]).strip())
-    if path_markers:
-        escaped_markers = sorted((re.escape(marker) for marker in path_markers if str(marker or "").strip()), key=len, reverse=True)
-        if escaped_markers:
-            path_pattern = re.compile(
-                r'((?:https?:)?//[^"\']+|(?:'
-                + "|".join(escaped_markers)
-                + r')[^"\'\s<>{}]*)',
-                re.IGNORECASE,
-            )
-            for match in path_pattern.finditer(normalized_html):
-                try:
-                    raw_urls.append(urllib.parse.urljoin(source_url, str(match.group(1) or "").strip()))
-                except ValueError:
-                    continue
-    for raw_url in raw_urls:
-        normalized = _property_scout_clean_url(raw_url)
-        if not normalized or normalized in seen:
-            continue
-        if not _property_scout_is_supported_listing_url(normalized):
-            continue
-        if required_upstream_platform:
-            upstream_platform = _property_scout_platform_from_url(normalized)
-            if upstream_platform != required_upstream_platform:
-                continue
-        seen.add(normalized)
-        candidates.append(normalized)
-    return tuple(candidates)
 
 
-def _property_scout_extract_meta_content(html: str, property_name: str) -> str:
-    values = _property_scout_extract_meta_contents(html, property_name)
-    return compact_text(values[0], fallback="", limit=400) if values else ""
 
 
-def _property_scout_extract_meta_contents(html: str, property_name: str) -> tuple[str, ...]:
-    pattern = re.compile(
-        r'<meta[^>]+(?:property|name)=["\']'
-        + re.escape(property_name)
-        + r'["\'][^>]+content=["\']([^"\']+)["\']',
-        re.IGNORECASE,
-    )
-    values: list[str] = []
-    seen: set[str] = set()
-    for match in pattern.finditer(str(html or "")):
-        value = str(match.group(1) or "").strip()
-        if value and value not in seen:
-            seen.add(value)
-            values.append(value)
-    return tuple(values)
 
 
-def _property_scout_extract_html_attr_urls(*, source_url: str, html: str, attr_name: str) -> tuple[str, ...]:
-    values: list[str] = []
-    seen: set[str] = set()
-    pattern = re.compile(
-        rf"""{re.escape(attr_name)}=["']([^"']+)["']""",
-        re.IGNORECASE,
-    )
-    for match in pattern.finditer(str(html or "").replace("&amp;", "&")):
-        raw = str(match.group(1) or "").strip()
-        if not raw:
-            continue
-        try:
-            normalized = urllib.parse.urljoin(source_url, raw)
-        except ValueError:
-            continue
-        parsed = urllib.parse.urlparse(normalized)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            continue
-        if normalized not in seen:
-            seen.add(normalized)
-            values.append(normalized)
-    return tuple(values)
-
-
-def _property_scout_is_asset_url(url: str, *, extensions: tuple[str, ...]) -> bool:
-    parsed = urllib.parse.urlparse(str(url or "").strip())
-    path = urllib.parse.unquote(parsed.path or "").lower()
-    return bool(path.endswith(extensions))
-
-
-def _property_scout_is_archive_url(url: str) -> bool:
-    parsed = urllib.parse.urlparse(str(url or "").strip())
-    path = urllib.parse.unquote(parsed.path or "").lower()
-    return bool(path.endswith(_PROPERTY_SCOUT_ARCHIVE_EXTENSIONS))
-
-
-def _property_scout_is_floorplan_archive_candidate_url(*, url: str, context: str) -> bool:
-    normalized = urllib.parse.urldefrag(str(url or "").strip())[0]
-    if not normalized:
-        return False
-    if _property_scout_is_archive_url(normalized):
-        return True
-    parsed = urllib.parse.urlparse(normalized)
-    host = parsed.netloc.lower()
-    combined = urllib.parse.unquote(f"{host}{parsed.path}?{parsed.query}").lower()
-    lowered_context = str(context or "").lower()
-    provider_host = any(marker in host for marker in _PROPERTY_SCOUT_LISTING_HOSTS)
-    direct_provider_floorplan_pdf = (
-        urllib.parse.unquote(parsed.path or "").lower().endswith(".pdf")
-        and provider_host
-        and any(marker in f"{combined} {lowered_context}" for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS)
-    )
-    if direct_provider_floorplan_pdf:
-        return True
-    if urllib.parse.unquote(parsed.path or "").lower().endswith(".pdf") and any(
-        marker in f"{combined} {lowered_context}" for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS
-    ):
-        return True
-    if not any(marker in host for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS):
-        return False
-    if any(marker in combined for marker in ("zip", "alldoc", "download", "dokument", "beilage", "anlage", "unterlag", "gutachten")):
-        return True
-    return any(marker in lowered_context for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_CONTEXT_MARKERS)
-
-
-def _property_scout_download_bytes(
-    url: str,
-    *,
-    timeout_seconds: float = 12.0,
-    max_bytes: int = _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MAX_BYTES,
-) -> tuple[bytes, str]:
-    request = urllib.request.Request(
-        str(url or "").strip(),
-        headers={
-            "User-Agent": _PROPERTY_SCOUT_USER_AGENT,
-            "Accept": "application/zip,application/octet-stream,*/*;q=0.8",
-        },
-    )
-    with urllib.request.urlopen(request, timeout=float(timeout_seconds)) as response:
-        try:
-            content_length = int(str(response.headers.get("Content-Length") or "0").strip() or "0")
-        except Exception:
-            content_length = 0
-        if content_length and content_length > max_bytes:
-            raise ValueError("property_floorplan_archive_too_large")
-        payload = response.read(max_bytes + 1)
-        if len(payload) > max_bytes:
-            raise ValueError("property_floorplan_archive_too_large")
-        return payload, str(response.headers.get("Content-Type") or "").strip()
-
-
-def _property_scout_public_asset_slug(*, source_url: str, archive_url: str) -> str:
-    digest = hashlib.sha256(f"{source_url}|{archive_url}".encode("utf-8")).hexdigest()[:16]
-    return f"property-assets-{digest}"
-
-
-def _property_scout_public_asset_filename(*, member_name: str, ordinal: int) -> str:
-    decoded_member_name = urllib.parse.unquote(str(member_name or "floorplan.pdf"))
-    suffix = Path(decoded_member_name).suffix.lower()
-    if suffix not in _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS:
-        suffix = ".pdf"
-    stem = Path(decoded_member_name or "floorplan").stem
-    safe_stem = re.sub(r"[^a-zA-Z0-9._-]+", "-", stem).strip(".-").lower()[:72] or "floorplan"
-    return f"floorplan-{ordinal:02d}-{safe_stem}{suffix}"
-
-
-def _property_scout_zip_member_is_floorplan_candidate(member_name: str) -> bool:
-    normalized = urllib.parse.unquote(str(member_name or "")).replace("_", " ").replace("-", " ").lower()
-    suffix = Path(normalized).suffix.lower()
-    if suffix not in _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS:
-        return False
-    return any(marker in normalized for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MEMBER_MARKERS)
-
-
-def _property_scout_extract_floorplan_urls_from_archive(
-    *,
-    source_url: str,
-    archive_url: str,
-    context: str,
-) -> tuple[str, ...]:
-    try:
-        payload, content_type = _property_scout_download_bytes(archive_url)
-    except Exception:
-        return ()
-    archive_path = urllib.parse.unquote(urllib.parse.urlparse(str(archive_url or "")).path or "").lower()
-    if payload.startswith(b"%PDF") or "application/pdf" in str(content_type or "").lower() or archive_path.endswith(".pdf"):
-        if not payload or len(payload) > _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MEMBER_MAX_BYTES:
-            return ()
-        lowered_context = str(context or "").lower()
-        parsed_host = urllib.parse.urlparse(str(archive_url or "")).netloc.lower()
-        archive_combined = urllib.parse.unquote(f"{parsed_host}{archive_path} {lowered_context}").lower()
-        direct_provider_floorplan_pdf = (
-            archive_path.endswith(".pdf")
-            and any(marker in parsed_host for marker in _PROPERTY_SCOUT_LISTING_HOSTS)
-            and any(marker in archive_combined for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS)
-        )
-        trusted_floorplan_document_context = any(marker in lowered_context for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_CONTEXT_MARKERS) or any(
-            marker in parsed_host for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS
-        ) or direct_provider_floorplan_pdf or (
-            archive_path.endswith(".pdf")
-            and any(marker in f"{archive_combined} {lowered_context}" for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS)
-        )
-        if not trusted_floorplan_document_context:
-            return ()
-        slug = _property_scout_public_asset_slug(source_url=source_url, archive_url=archive_url)
-        public_root = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
-        target_dir = public_root / slug
-        target_dir.mkdir(parents=True, exist_ok=True)
-        filename = _property_scout_public_asset_filename(
-            member_name=Path(urllib.parse.urlparse(str(archive_url or "")).path or "floorplan.pdf").name or "floorplan.pdf",
-            ordinal=1,
-        )
-        target = target_dir / filename
-        target.write_bytes(payload)
-        public_base = _property_public_app_base_url().rstrip("/")
-        return (
-            f"{public_base}/tours/files/"
-            f"{urllib.parse.quote(slug, safe='')}/"
-            f"{urllib.parse.quote(filename, safe='-._~')}",
-        )
-    try:
-        archive = zipfile.ZipFile(io.BytesIO(payload))
-    except (zipfile.BadZipFile, ValueError):
-        return ()
-    strong_context = any(marker in str(context or "").lower() for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_CONTEXT_MARKERS)
-    selected_members: list[zipfile.ZipInfo] = []
-    fallback_members: list[zipfile.ZipInfo] = []
-    try:
-        for info in archive.infolist()[:120]:
-            if info.is_dir() or info.file_size <= 0 or info.file_size > _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MEMBER_MAX_BYTES:
-                continue
-            suffix = Path(str(info.filename or "")).suffix.lower()
-            if suffix not in _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS:
-                continue
-            if _property_scout_zip_member_is_floorplan_candidate(info.filename):
-                selected_members.append(info)
-            elif strong_context:
-                fallback_members.append(info)
-        if not selected_members:
-            selected_members = fallback_members[:3]
-        selected_members = selected_members[:6]
-        if not selected_members:
-            return ()
-        slug = _property_scout_public_asset_slug(source_url=source_url, archive_url=archive_url)
-        public_root = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
-        target_dir = public_root / slug
-        target_dir.mkdir(parents=True, exist_ok=True)
-        public_base = _property_public_app_base_url().rstrip("/")
-        urls: list[str] = []
-        seen: set[str] = set()
-        for ordinal, info in enumerate(selected_members, start=1):
-            try:
-                content = archive.read(info)
-            except Exception:
-                continue
-            if not content or len(content) > _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MEMBER_MAX_BYTES:
-                continue
-            filename = _property_scout_public_asset_filename(member_name=info.filename, ordinal=ordinal)
-            target = target_dir / filename
-            target.write_bytes(content)
-            public_url = (
-                f"{public_base}/tours/files/"
-                f"{urllib.parse.quote(slug, safe='')}/"
-                f"{urllib.parse.quote(filename, safe='-._~')}"
-            )
-            if public_url not in seen:
-                seen.add(public_url)
-                urls.append(public_url)
-        return tuple(urls)
-    finally:
-        archive.close()
-
-
-def _property_scout_extract_detail_media_urls(*, source_url: str, html: str) -> tuple[str, ...]:
-    normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
-    raw_urls: list[str] = []
-    raw_urls.extend(_extract_urls_from_text(normalized_html))
-    raw_urls.extend(_property_scout_extract_meta_contents(normalized_html, "og:image"))
-    for attr_name in ("src", "href", "data-src", "data-original", "data-lazy-src", "data-background-image"):
-        raw_urls.extend(_property_scout_extract_html_attr_urls(source_url=source_url, html=normalized_html, attr_name=attr_name))
-    media_urls: list[str] = []
-    seen: set[str] = set()
-    for raw_url in raw_urls:
-        try:
-            normalized = urllib.parse.urljoin(source_url, str(raw_url or "").strip())
-        except ValueError:
-            continue
-        normalized = urllib.parse.urldefrag(normalized)[0]
-        if not normalized or normalized in seen:
-            continue
-        if not _property_scout_is_asset_url(normalized, extensions=_PROPERTY_SCOUT_IMAGE_EXTENSIONS):
-            continue
-        seen.add(normalized)
-        media_urls.append(normalized)
-    return tuple(media_urls)
-
-
-def _property_scout_image_looks_like_floorplan(payload: bytes) -> tuple[bool, dict[str, object]]:
-    if Image is None or ImageFilter is None or ImageStat is None:
-        return False, {"status": "image_library_unavailable"}
-    if not payload or len(payload) > 3 * 1024 * 1024:
-        return False, {"status": "image_too_large_or_empty", "size_bytes": len(payload or b"")}
-    try:
-        image = Image.open(io.BytesIO(payload))
-        image.load()
-    except Exception:
-        return False, {"status": "image_decode_failed"}
-    width, height = image.size
-    if width < 180 or height < 120:
-        return False, {"status": "image_too_small", "width": width, "height": height}
-    image.thumbnail((720, 720))
-    gray = image.convert("L")
-    edges = gray.filter(ImageFilter.FIND_EDGES)
-    edge_mean = float(ImageStat.Stat(edges).mean[0])
-    rgb = image.convert("RGB")
-    sample = rgb.resize((96, 96))
-    sample_pixels = sample.get_flattened_data() if hasattr(sample, "get_flattened_data") else sample.getdata()
-    pixels = list(sample_pixels)
-    if not pixels:
-        return False, {"status": "image_empty_sample"}
-    dark_ratio = sum(1 for r, g, b in pixels if (r + g + b) / 3 < 96) / len(pixels)
-    light_ratio = sum(1 for r, g, b in pixels if (r + g + b) / 3 > 206) / len(pixels)
-    saturation_values = [(max(r, g, b) - min(r, g, b)) for r, g, b in pixels]
-    avg_saturation = sum(saturation_values) / len(saturation_values)
-    ocr_text = ""
-    if pytesseract is not None and shutil.which("tesseract"):
-        try:
-            ocr_text = pytesseract.image_to_string(gray, config="--psm 11")[:800]
-        except Exception:
-            ocr_text = ""
-    normalized_ocr = re.sub(r"[^a-z0-9äöüß]+", " ", ocr_text.lower()).strip()
-    room_word_hits = sum(
-        1
-        for marker in (
-            "zimmer",
-            "kueche",
-            "küche",
-            "bad",
-            "wc",
-            "flur",
-            "gang",
-            "balkon",
-            "terrasse",
-            "bedroom",
-            "bath",
-            "kitchen",
-            "living",
-            "room",
-            "floor plan",
-            "floorplan",
-            "grundriss",
-        )
-        if marker in normalized_ocr
-    )
-    plan_like_geometry = edge_mean >= 10.0 and light_ratio >= 0.42 and 0.01 <= dark_ratio <= 0.42 and avg_saturation <= 62.0
-    ocr_like_plan = room_word_hits >= 2 and light_ratio >= 0.30 and avg_saturation <= 95.0
-    return bool(plan_like_geometry or ocr_like_plan), {
-        "status": "classified",
-        "width": width,
-        "height": height,
-        "edge_mean": round(edge_mean, 2),
-        "dark_ratio": round(dark_ratio, 3),
-        "light_ratio": round(light_ratio, 3),
-        "avg_saturation": round(avg_saturation, 2),
-        "room_word_hits": room_word_hits,
-        "ocr_used": bool(ocr_text),
-        "classifier": "geometry_or_ocr_floorplan_v1",
-    }
 
 
 def _property_floorplan_quiet_signal_diagnostics(payload: bytes) -> dict[str, object]:
@@ -3756,409 +2599,12 @@ def _property_quiet_signal_from_floorplan(
     }
 
 
-def _property_public_preview_cache_key(
-    *,
-    property_url: str,
-    listing_id: str = "",
-    property_facts: dict[str, object] | None = None,
-) -> str:
-    normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
-    facts = dict(property_facts or {})
-    coarse_parts = [
-        normalized_url,
-        str(listing_id or "").strip(),
-        str(facts.get("provider_channel") or facts.get("source_platform") or "").strip().lower(),
-        str(facts.get("property_type") or "").strip().lower(),
-        str(facts.get("postal_name") or facts.get("location") or "").strip().lower(),
-        str(facts.get("rooms") or facts.get("rooms_label") or "").strip(),
-        str(facts.get("area_sqm") or facts.get("area_label") or "").strip(),
-        str(facts.get("total_rent_eur") or facts.get("purchase_price_eur") or "").strip(),
-    ]
-    return hashlib.sha256("|".join(coarse_parts).encode("utf-8", errors="ignore")).hexdigest()
 
 
-def _property_public_preview_cache_payload(preview: dict[str, object] | None) -> dict[str, object]:
-    payload = dict(preview or {})
-    facts = _safe_teable_facts(dict(payload.get("property_facts_json") or {}))
-    return {
-        "property_url": urllib.parse.urldefrag(str(payload.get("property_url") or payload.get("listing_id") or "").strip())[0],
-        "listing_id": str(payload.get("listing_id") or "").strip(),
-        "title": compact_text(str(payload.get("title") or "").strip(), fallback="", limit=160),
-        "summary": compact_text(str(payload.get("summary") or "").strip(), fallback="", limit=400),
-        "property_facts_json": facts,
-        "media_urls_json": [
-            str(item or "").strip()
-            for item in list(payload.get("media_urls_json") or [])
-            if str(item or "").strip()
-        ][:12],
-        "floorplan_urls_json": [
-            str(item or "").strip()
-            for item in list(payload.get("floorplan_urls_json") or [])
-            if str(item or "").strip()
-        ][:6],
-        "source_virtual_tour_url": str(payload.get("source_virtual_tour_url") or "").strip(),
-        "panorama_source": str(payload.get("panorama_source") or "").strip(),
-    }
 
 
-def _property_scout_extract_gallery_floorplan_urls(
-    *,
-    source_url: str,
-    html: str,
-    media_urls: tuple[str, ...],
-    resolve_images: bool = False,
-) -> tuple[tuple[str, ...], dict[str, object]]:
-    normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
-    context_by_url: dict[str, str] = {}
-    attr_pattern = re.compile(
-        r"""(src|href|data-src|data-original|data-lazy-src|data-background-image|data-flickity-lazyload|data-flickity-bg-lazyload)=["']([^"']+)["']""",
-        re.IGNORECASE,
-    )
-    for match in attr_pattern.finditer(normalized_html):
-        raw_url = str(match.group(2) or "").strip()
-        try:
-            normalized = urllib.parse.urldefrag(urllib.parse.urljoin(source_url, raw_url))[0]
-        except ValueError:
-            continue
-        if not normalized:
-            continue
-        tag_start = normalized_html.rfind("<", 0, match.start())
-        tag_end = normalized_html.find(">", match.end())
-        if tag_start < 0:
-            tag_start = max(0, match.start() - 160)
-        if tag_end < 0:
-            tag_end = min(len(normalized_html), match.end() + 160)
-        context = normalized_html[tag_start : min(len(normalized_html), tag_end + 1)].lower()
-        context_by_url[normalized] = f"{context_by_url.get(normalized, '')} {context}"[:2500]
-    urls: list[str] = []
-    seen: set[str] = set()
-    visual_checks: list[dict[str, object]] = []
-    normalized_media_urls = [urllib.parse.urldefrag(str(url or "").strip())[0] for url in media_urls if str(url or "").strip()]
-    for url in normalized_media_urls:
-        if url in seen:
-            continue
-        lowered_url = urllib.parse.unquote(url).lower()
-        context = context_by_url.get(url, "")
-        marker_hit = any(marker in lowered_url or marker in context for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS)
-        if marker_hit:
-            seen.add(url)
-            urls.append(url)
-    if resolve_images:
-        visual_candidates = [
-            url
-            for url in normalized_media_urls
-            if url not in seen and _property_scout_is_asset_url(url, extensions=_PROPERTY_SCOUT_IMAGE_EXTENSIONS)
-        ]
-        if len(visual_candidates) > 8:
-            visual_candidates = [*visual_candidates[:4], *visual_candidates[-4:]]
-        for url in visual_candidates:
-            try:
-                payload, content_type = _property_scout_download_bytes(url, timeout_seconds=5.0, max_bytes=3 * 1024 * 1024)
-            except Exception as exc:
-                visual_checks.append({"url": url, "status": "download_failed", "error": compact_text(str(exc), fallback="", limit=120)})
-                continue
-            if "image" not in str(content_type or "").lower() and not _property_scout_is_asset_url(url, extensions=_PROPERTY_SCOUT_IMAGE_EXTENSIONS):
-                continue
-            looks_like, diagnostics = _property_scout_image_looks_like_floorplan(payload)
-            diagnostics["url"] = url
-            visual_checks.append(diagnostics)
-            if looks_like and url not in seen:
-                seen.add(url)
-                urls.append(url)
-    return tuple(urls), {
-        "status": "gallery_floorplan_scan_completed",
-        "media_url_count": len(normalized_media_urls),
-        "marker_detected_total": len(urls),
-        "visual_check_total": len(visual_checks),
-        "visual_checks": visual_checks[:8],
-    }
 
 
-def _property_scout_extract_context_links(
-    *,
-    source_url: str,
-    html: str,
-    markers: tuple[str, ...],
-    limit: int = 4,
-) -> tuple[str, ...]:
-    normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
-    normalized_markers = tuple(str(marker or "").strip().lower() for marker in markers if str(marker or "").strip())
-    if not normalized_markers:
-        return ()
-    urls: list[str] = []
-    seen: set[str] = set()
-    attr_pattern = re.compile(r"""href=["']([^"']+)["']""", re.IGNORECASE)
-    for match in attr_pattern.finditer(normalized_html):
-        raw_url = str(match.group(1) or "").strip()
-        tag_start = normalized_html.rfind("<", 0, match.start())
-        tag_end = normalized_html.find(">", match.end())
-        if tag_start < 0:
-            tag_start = max(0, match.start() - 120)
-        if tag_end < 0:
-            tag_end = min(len(normalized_html), match.end() + 120)
-        context = normalized_html[tag_start : tag_end + 1].lower()
-        close = normalized_html.find("</a>", tag_end)
-        if close >= 0 and close - tag_end < 420:
-            context += normalized_html[tag_end + 1 : close + 4].lower()
-        if not any(marker in context for marker in normalized_markers):
-            continue
-        try:
-            normalized = urllib.parse.urljoin(source_url, raw_url)
-        except ValueError:
-            continue
-        normalized = urllib.parse.urldefrag(normalized)[0]
-        if not normalized or normalized in seen:
-            continue
-        seen.add(normalized)
-        urls.append(normalized)
-        if len(urls) >= max(1, int(limit)):
-            break
-    return tuple(urls)
-
-
-def _property_scout_extract_siedlungsunion_attachment_links(*, source_url: str, html: str) -> tuple[tuple[str, str, str], ...]:
-    if "siedlungsunion.at" not in urllib.parse.urlparse(str(source_url or "")).netloc.lower():
-        return ()
-    match = re.search(r"app\.attachments\s*=\s*(\[.*?\])\s*;", str(html or ""), re.IGNORECASE | re.DOTALL)
-    if not match:
-        return ()
-    try:
-        attachments = json.loads(match.group(1))
-    except Exception:
-        return ()
-    if not isinstance(attachments, list):
-        return ()
-    links: list[tuple[str, str, str]] = []
-    seen: set[str] = set()
-    for attachment in attachments:
-        if not isinstance(attachment, dict):
-            continue
-        attachment_type = dict(attachment.get("attachmentType") or {}) if isinstance(attachment.get("attachmentType"), dict) else {}
-        if str(attachment_type.get("name") or "").strip().lower() != "file":
-            continue
-        file_key = str(attachment.get("file") or "").strip()
-        name = str(attachment.get("name") or "").strip()
-        if not file_key or not name:
-            continue
-        lowered_name = name.lower()
-        if any(marker in lowered_name for marker in ("energieausweis", "energy", "ausweis")):
-            continue
-        if not any(marker in lowered_name for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MEMBER_MARKERS):
-            continue
-        raw_url = f"/rest/file/{urllib.parse.quote(file_key, safe='')}/{urllib.parse.quote(name, safe='-._~')}"
-        normalized = urllib.parse.urljoin(source_url, raw_url)
-        if normalized in seen:
-            continue
-        seen.add(normalized)
-        links.append(("siedlungsunion_attachment", normalized, name.lower()))
-    return tuple(links)
-
-
-def _property_scout_floorplan_recovery_diagnostics(*, source_url: str, html: str) -> dict[str, object]:
-    normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
-    host = urllib.parse.urlparse(str(source_url or "")).netloc.lower()
-    lowered = normalized_html.lower()
-    marker_hits = [
-        marker
-        for marker in (*_PROPERTY_SCOUT_FLOORPLAN_MARKERS, "pdf", "download", "dokument", "unterlagen")
-        if marker in lowered
-    ][:20]
-    attr_names = (
-        "href",
-        "src",
-        "data-src",
-        "data-original",
-        "data-lazy-src",
-        "data-background-image",
-        "data-flickity-lazyload",
-        "data-flickity-bg-lazyload",
-    )
-    candidate_urls: list[str] = []
-    for attr_name in attr_names:
-        for raw_url in _property_scout_extract_html_attr_urls(source_url=source_url, html=normalized_html, attr_name=attr_name):
-            normalized = urllib.parse.urljoin(source_url, str(raw_url or "").strip())
-            lowered_url = urllib.parse.unquote(normalized).lower()
-            if any(marker in lowered_url for marker in ("pdf", "download", "file", "plan", "grundriss", "mmo/", "storage.justimmo.at")):
-                candidate_urls.append(normalized)
-            if len(candidate_urls) >= 12:
-                break
-        if len(candidate_urls) >= 12:
-            break
-    attachment_links = _property_scout_extract_siedlungsunion_attachment_links(source_url=source_url, html=normalized_html)
-    return {
-        "status": "floorplan_not_found_after_deep_scan",
-        "provider_host": host,
-        "html_size_bytes": len(normalized_html.encode("utf-8", errors="ignore")),
-        "floorplan_marker_hits": marker_hits,
-        "candidate_document_or_media_url_count": len(candidate_urls),
-        "candidate_document_or_media_urls": candidate_urls[:8],
-        "siedlungsunion_attachment_candidate_count": len(attachment_links),
-        "siedlungsunion_attachment_candidate_urls": [item[1] for item in attachment_links[:4]],
-        "recommended_ooda": [
-            "Re-fetch the detail page.",
-            "Inspect media/gallery/document/link attributes around marker hits.",
-            "Patch provider extractor with a regression fixture.",
-            "Rerun property_release_gates.sh before deploy.",
-        ],
-    }
-
-
-def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolve_archives: bool = False) -> tuple[str, ...]:
-    normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
-    floorplan_urls: list[str] = []
-    seen: set[str] = set()
-    seen_archives: set[str] = set()
-    candidate_links: list[tuple[str, str, str]] = []
-    attr_pattern = re.compile(
-        r"""(href|src|action|data-href|data-url|data-src|data-original|data-lazy-src|data-background-image|data-flickity-lazyload|data-flickity-bg-lazyload)=["']([^"']+)["']""",
-        re.IGNORECASE,
-    )
-    for match in attr_pattern.finditer(normalized_html):
-        attr_name = str(match.group(1) or "").strip().lower()
-        raw_url = str(match.group(2) or "").strip()
-        tag_start = normalized_html.rfind("<", 0, match.start())
-        tag_end = normalized_html.find(">", match.end())
-        if tag_start < 0:
-            tag_start = max(0, match.start() - 80)
-        if tag_end < 0:
-            tag_end = min(len(normalized_html), match.end() + 80)
-        context = normalized_html[tag_start : tag_end + 1].lower()
-        if attr_name == "href":
-            close = normalized_html.find("</a>", tag_end)
-            if close >= 0 and close - tag_end < 320:
-                context += normalized_html[tag_end + 1 : close + 4].lower()
-        elif attr_name == "action":
-            close = normalized_html.find("</form>", tag_end)
-            if close >= 0 and close - tag_end < 520:
-                context += normalized_html[tag_end + 1 : close + 7].lower()
-        candidate_links.append((attr_name, raw_url, context))
-    js_url_pattern = re.compile(
-        r"""(?:window\.open|location(?:\.href)?|document\.location)\s*(?:=|\()\s*["']([^"']+)["']""",
-        re.IGNORECASE,
-    )
-    for match in js_url_pattern.finditer(normalized_html):
-        raw_url = str(match.group(1) or "").strip()
-        context = normalized_html[max(0, match.start() - 180) : min(len(normalized_html), match.end() + 360)].lower()
-        candidate_links.append(("script", raw_url, context))
-    embedded_download_pattern = re.compile(
-        r"""["']((?:https?://[^"']+|/(?:[^"'<>{}\s]+)|(?:alldoc/[^"']+|download[^"']*|downloads/[^"']+)))["']""",
-        re.IGNORECASE,
-    )
-    for match in embedded_download_pattern.finditer(normalized_html):
-        raw_url = str(match.group(1) or "").strip()
-        if re.search(r"\s", raw_url):
-            continue
-        context = normalized_html[max(0, match.start() - 180) : min(len(normalized_html), match.end() + 360)].lower()
-        combined = f"{raw_url} {context}".lower()
-        if not any(marker in combined for marker in ("zip", "alldoc", "download", "dokument", "beilage", "anlage", "unterlag", "gutachten", "grundriss", "floorplan", "plan")):
-            continue
-        try:
-            embedded_normalized = urllib.parse.urljoin(source_url, raw_url)
-        except ValueError:
-            continue
-        lowered_raw_url = urllib.parse.unquote(raw_url).lower()
-        if _property_scout_is_asset_url(embedded_normalized, extensions=_PROPERTY_SCOUT_IMAGE_EXTENSIONS) and not any(
-            marker in lowered_raw_url for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS
-        ):
-            continue
-        candidate_links.append(("embedded", raw_url, context))
-    candidate_links.extend(_property_scout_extract_siedlungsunion_attachment_links(source_url=source_url, html=normalized_html))
-    for attr_name, raw_url, context in candidate_links:
-        try:
-            normalized = urllib.parse.urljoin(source_url, raw_url)
-        except ValueError:
-            continue
-        normalized = urllib.parse.urldefrag(normalized)[0]
-        if not normalized or normalized in seen:
-            continue
-        lowered_url = urllib.parse.unquote(normalized).lower()
-        is_direct_floorplan_asset = _property_scout_is_asset_url(normalized, extensions=_PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS)
-        if (
-            resolve_archives
-            and lowered_url.endswith(".pdf")
-            and _property_scout_is_floorplan_archive_candidate_url(url=normalized, context=context)
-        ):
-            if normalized not in seen_archives:
-                seen_archives.add(normalized)
-                archived_urls = _property_scout_extract_floorplan_urls_from_archive(
-                    source_url=source_url,
-                    archive_url=normalized,
-                    context=context,
-                )
-                for archived_floorplan_url in archived_urls:
-                    if archived_floorplan_url not in seen:
-                        seen.add(archived_floorplan_url)
-                        floorplan_urls.append(archived_floorplan_url)
-                if archived_urls:
-                    seen.add(normalized)
-                    continue
-        if resolve_archives and not is_direct_floorplan_asset and _property_scout_is_floorplan_archive_candidate_url(url=normalized, context=context):
-            if normalized not in seen_archives:
-                seen_archives.add(normalized)
-                for archived_floorplan_url in _property_scout_extract_floorplan_urls_from_archive(
-                    source_url=source_url,
-                    archive_url=normalized,
-                    context=context,
-                ):
-                    if archived_floorplan_url not in seen:
-                        seen.add(archived_floorplan_url)
-                        floorplan_urls.append(archived_floorplan_url)
-                seen.add(normalized)
-            continue
-        if not is_direct_floorplan_asset:
-            continue
-        is_image_floorplan_asset = _property_scout_is_asset_url(normalized, extensions=_PROPERTY_SCOUT_IMAGE_EXTENSIONS)
-        if is_image_floorplan_asset and not any((marker in lowered_url) or (marker in context) for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
-            continue
-        if attr_name in {"src", "data-src", "data-original", "data-lazy-src", "data-background-image"} and not any(
-            (marker in lowered_url) or (marker in context) for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS
-        ):
-            continue
-        is_edikte_valuation_pdf = (
-            lowered_url.endswith(".pdf")
-            and any(marker in urllib.parse.urlparse(normalized).netloc.lower() for marker in ("edikte.justiz.gv.at", "edikte2.justiz.gv.at"))
-            and any(
-                marker in context
-                for marker in (
-                    "langgutachten",
-                    "kurzgutachten",
-                    "schätzungsgutachten",
-                    "schaetzungsgutachten",
-                    "gutachten",
-                )
-            )
-        )
-        if not is_edikte_valuation_pdf and not any((marker in lowered_url) or (marker in context) for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
-            continue
-        seen.add(normalized)
-        floorplan_urls.append(normalized)
-    return tuple(floorplan_urls)
-
-
-def _property_scout_extract_source_virtual_tour_url(*, source_url: str, html: str) -> str:
-    candidates: list[str] = []
-    normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
-    candidates.extend(_extract_urls_from_text(normalized_html))
-    candidates.extend(_property_scout_extract_html_attr_urls(source_url=source_url, html=normalized_html, attr_name="href"))
-    candidates.extend(_property_scout_extract_html_attr_urls(source_url=source_url, html=normalized_html, attr_name="src"))
-    for raw in candidates:
-        normalized = urllib.parse.urldefrag(str(raw or "").strip())[0]
-        if not normalized:
-            continue
-        parsed = urllib.parse.urlparse(normalized)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            continue
-        host = parsed.netloc.lower()
-        path = parsed.path.lower()
-        combined = f"{host}{path}"
-        if any(marker in combined for marker in _PROPERTY_SCOUT_360_HOST_MARKERS):
-            return normalized
-    return ""
-
-
-def _property_html_fragment_text(fragment: object) -> str:
-    value = html.unescape(re.sub(r"<[^>]+>", " ", str(fragment or ""), flags=re.IGNORECASE | re.DOTALL))
-    return " ".join(value.split())
 
 
 def _property_extract_label_value_map(source_html: str) -> dict[str, str]:
@@ -5437,57 +3883,6 @@ def _property_floorplan_candidate_stage(candidate: dict[str, object]) -> str:
     return str(candidate.get("candidate_stage") or "").strip().lower()
 
 
-def _property_research_distance_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> int:
-    from math import atan2, cos, radians, sin, sqrt
-
-    earth_radius_m = 6_371_000.0
-    phi_a = radians(lat_a)
-    phi_b = radians(lat_b)
-    delta_phi = radians(lat_b - lat_a)
-    delta_lambda = radians(lon_b - lon_a)
-    arc = sin(delta_phi / 2.0) ** 2 + cos(phi_a) * cos(phi_b) * sin(delta_lambda / 2.0) ** 2
-    return int(round(2.0 * earth_radius_m * atan2(sqrt(arc), sqrt(max(1.0 - arc, 0.0)))))
-
-
-@lru_cache(maxsize=128)
-def _property_research_reverse_geocode(lat: float, lon: float) -> dict[str, object]:
-    request = urllib.request.Request(
-        (
-            "https://nominatim.openstreetmap.org/reverse?"
-            f"format=jsonv2&lat={lat:.8f}&lon={lon:.8f}&zoom=18&addressdetails=1"
-        ),
-        headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=8.0) as response:
-            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
-    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-@lru_cache(maxsize=128)
-def _property_research_forward_geocode(query: str) -> dict[str, object]:
-    normalized = str(query or "").strip()
-    if not normalized:
-        return {}
-    request = urllib.request.Request(
-        (
-            "https://nominatim.openstreetmap.org/search?"
-            f"format=jsonv2&limit=1&q={urllib.parse.quote(normalized)}"
-        ),
-        headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=8.0) as response:
-            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
-    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
-        return {}
-    if not isinstance(payload, list) or not payload:
-        return {}
-    row = payload[0]
-    return row if isinstance(row, dict) else {}
-
 
 def _property_fact_value_is_weak(value: object) -> bool:
     if value is None:
@@ -5600,741 +3995,12 @@ def _property_image_ocr_address_hint(image_urls: tuple[str, ...], *, source_text
     return {}
 
 
-def _property_schoolatlas_wfs_base_url() -> str:
-    raw = str(
-        os.getenv("EA_PROPERTY_SCHOOLATLAS_WFS_BASE_URL")
-        or os.getenv("EA_PROPERTY_STATISTIK_AT_SCHOOLATLAS_WFS_BASE_URL")
-        or "https://www.statistik.at/gs-open"
-    ).strip()
-    return raw.rstrip("/")
 
 
-@lru_cache(maxsize=64)
-def _property_schoolatlas_wfs_json(
-    layer_name: str,
-    *,
-    viewparams: str = "",
-    max_features: int = 25000,
-    srsname: str = "EPSG:4326",
-) -> dict[str, object]:
-    base_url = _property_schoolatlas_wfs_base_url()
-    if not base_url:
-        return {}
-    params = {
-        "service": "WFS",
-        "version": "1.0.0",
-        "request": "GetFeature",
-        "typeName": f"ATLAS_SCHULE_WFS:{str(layer_name or '').strip()}",
-        "maxFeatures": str(max(1, int(max_features or 1))),
-        "outputFormat": "application/json",
-        "srsname": srsname,
-    }
-    if str(viewparams or "").strip():
-        params["viewparams"] = str(viewparams).strip()
-    try:
-        response = requests.get(
-            f"{base_url}/ATLAS_SCHULE_WFS/ows",
-            params=params,
-            headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT},
-            timeout=12.0,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except Exception:
-        return {}
-    return payload if isinstance(payload, dict) else {}
 
 
-def _property_schoolatlas_coords_from_facts(facts: dict[str, object] | None) -> tuple[float | None, float | None]:
-    payload = dict(facts or {})
-    snapshot = (
-        dict(payload.get("listing_research_snapshot") or {})
-        if isinstance(payload.get("listing_research_snapshot"), dict)
-        else {}
-    )
-
-    def _pair(source: dict[str, object], lat_key: str, lon_key: str) -> tuple[float | None, float | None]:
-        lat_value = _float_or_none(source.get(lat_key))
-        lon_value = _float_or_none(source.get(lon_key))
-        if lat_value is None or lon_value is None:
-            return None, None
-        return lat_value, lon_value
-
-    for source, lat_key, lon_key in (
-        (payload, "map_lat", "map_lng"),
-        (payload, "latitude", "longitude"),
-        (payload, "location_latitude", "location_longitude"),
-        (snapshot, "map_lat", "map_lng"),
-        (snapshot, "latitude", "longitude"),
-        (snapshot, "location_latitude", "location_longitude"),
-    ):
-        lat_value, lon_value = _pair(source, lat_key, lon_key)
-        if lat_value is not None and lon_value is not None:
-            return lat_value, lon_value
-    return None, None
 
 
-def _property_schoolatlas_transition_capable_school_type(value: object) -> bool:
-    normalized = str(value or "").strip().upper()
-    return normalized in {"VS", "NMSH", "HS", "AHS", "SS", "ASTAT", "NMSA"}
-
-
-def _property_schoolatlas_is_gymnasium_destination(properties: dict[str, object]) -> bool:
-    haystack = " ".join(
-        str(properties.get(key) or "").strip().lower()
-        for key in ("KARTO_TYP", "TYP_LAUFEND", "IPUB2_TYP_LAUFEND", "BEZEICHNUNG", "IPUB2_BEZEICHNUNG")
-    )
-    return any(marker in haystack for marker in ("ahs", "gymnasium", "allgemein bildende höhere", "allgemeinbildende höhere"))
-
-
-def _property_schoolatlas_distance_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> float:
-    radius_m = 6371000.0
-    lat1 = math.radians(lat_a)
-    lat2 = math.radians(lat_b)
-    dlat = math.radians(lat_b - lat_a)
-    dlon = math.radians(lon_b - lon_a)
-    a = (math.sin(dlat / 2.0) ** 2) + math.cos(lat1) * math.cos(lat2) * (math.sin(dlon / 2.0) ** 2)
-    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
-    return radius_m * c
-
-
-def _property_schoolatlas_snapshot(lat: float, lon: float) -> dict[str, object]:
-    schools_payload = _property_schoolatlas_wfs_json("ATLAS_SCHULE")
-    features = list(schools_payload.get("features") or []) if isinstance(schools_payload, dict) else []
-    if not features:
-        return {}
-
-    ranked_schools: list[dict[str, object]] = []
-    for feature in features:
-        if not isinstance(feature, dict):
-            continue
-        geometry = dict(feature.get("geometry") or {}) if isinstance(feature.get("geometry"), dict) else {}
-        coordinates = list(geometry.get("coordinates") or []) if isinstance(geometry.get("coordinates"), (list, tuple)) else []
-        if len(coordinates) < 2:
-            continue
-        lon_value = _float_or_none(coordinates[0])
-        lat_value = _float_or_none(coordinates[1])
-        if lat_value is None or lon_value is None:
-            continue
-        properties = dict(feature.get("properties") or {}) if isinstance(feature.get("properties"), dict) else {}
-        distance_m = _property_schoolatlas_distance_m(lat, lon, lat_value, lon_value)
-        ranked_schools.append(
-            {
-                "distance_m": round(distance_m, 1),
-                "lat": lat_value,
-                "lon": lon_value,
-                "properties": properties,
-            }
-        )
-    if not ranked_schools:
-        return {}
-    ranked_schools.sort(key=lambda item: float(item.get("distance_m") or 0.0))
-    nearby_schools = []
-    for item in ranked_schools[:3]:
-        properties = dict(item.get("properties") or {})
-        nearby_schools.append(
-            {
-                "name": compact_text(str(properties.get("BEZEICHNUNG") or "").strip(), fallback="School", limit=140),
-                "type": str(properties.get("KARTO_TYP") or "").strip(),
-                "distance_m": round(float(item.get("distance_m") or 0.0), 1),
-                "student_total": int(properties.get("SCHUELER_INSG") or 0),
-                "class_total": int(properties.get("KLASSEN") or 0),
-                "postcode": str(properties.get("PLZ") or "").strip(),
-                "city": str(properties.get("ORT") or "").strip(),
-                "street": str(properties.get("STR") or "").strip(),
-                "skz": str(properties.get("SKZ") or properties.get("SKZ_LAUFEND") or "").strip(),
-            }
-        )
-    selected = next(
-        (
-            item
-            for item in ranked_schools
-            if _property_schoolatlas_transition_capable_school_type(dict(item.get("properties") or {}).get("KARTO_TYP"))
-        ),
-        ranked_schools[0],
-    )
-    selected_properties = dict(selected.get("properties") or {})
-    selected_skz = str(selected_properties.get("SKZ") or selected_properties.get("SKZ_LAUFEND") or "").strip()
-    transition_features: list[dict[str, object]] = []
-    if selected_skz:
-        transition_payload = _property_schoolatlas_wfs_json(
-            "ATLAS_SCHULE_UEBERTRITT_OUT_WFS",
-            viewparams=f"SKZ:{selected_skz}",
-            max_features=500,
-        )
-        transition_features = (
-            list(transition_payload.get("features") or [])
-            if isinstance(transition_payload, dict)
-            else []
-        )
-    known_total = 0
-    gym_total = 0
-    top_destinations: list[dict[str, object]] = []
-    suppressed_destinations = 0
-    for feature in transition_features:
-        if not isinstance(feature, dict):
-            continue
-        properties = dict(feature.get("properties") or {}) if isinstance(feature.get("properties"), dict) else {}
-        count = int(properties.get("ANZAHL") or 0)
-        if count <= 0:
-            suppressed_destinations += 1
-        else:
-            known_total += count
-            if _property_schoolatlas_is_gymnasium_destination(properties):
-                gym_total += count
-        top_destinations.append(
-            {
-                "name": compact_text(str(properties.get("BEZEICHNUNG") or "").strip(), fallback="School", limit=140),
-                "type": str(properties.get("IPUB2_BEZEICHNUNG") or properties.get("TYP_LAUFEND") or properties.get("KARTO_TYP") or "").strip(),
-                "count": count,
-                "count_label": "≤6" if count <= 0 else str(count),
-                "postcode": str(properties.get("PLZ") or "").strip(),
-                "city": str(properties.get("ORT") or "").strip(),
-                "street": str(properties.get("STR") or "").strip(),
-            }
-        )
-    top_destinations.sort(key=lambda item: int(item.get("count") or 0), reverse=True)
-    gymnasium_progression_pct = round((gym_total * 100.0) / known_total, 1) if known_total > 0 else ""
-    selected_name = compact_text(str(selected_properties.get("BEZEICHNUNG") or "").strip(), fallback="School", limit=140)
-    selected_type = str(selected_properties.get("KARTO_TYP") or "").strip()
-    selected_distance_m = round(float(selected.get("distance_m") or 0.0), 1)
-    quality_summary = (
-        f"Nearby SchoolAtlas schools: "
-        + "; ".join(
-            f"{row['name']} ({row['type'] or 'school'}, {int(float(row['distance_m']))} m, {int(row['student_total'] or 0)} students)"
-            for row in nearby_schools
-        )
-    )
-    if known_total > 0:
-        progression_summary = (
-            f"Nearest transition-capable school {selected_name} ({selected_type or 'school'}, {int(selected_distance_m)} m) "
-            f"shows {known_total} disclosed outgoing transitions; about {gymnasium_progression_pct}% lead to Gymnasium/AHS."
-        )
-    elif transition_features:
-        progression_summary = (
-            f"Nearest transition-capable school {selected_name} ({selected_type or 'school'}, {int(selected_distance_m)} m) "
-            f"has SchoolAtlas transition rows, but counts are suppressed or undisclosed."
-        )
-    else:
-        progression_summary = (
-            f"No outgoing SchoolAtlas transition table was available for the nearest transition-capable school "
-            f"{selected_name} ({selected_type or 'school'}, {int(selected_distance_m)} m)."
-        )
-    if suppressed_destinations > 0:
-        progression_summary += f" {suppressed_destinations} destination row(s) were only disclosed as ≤6."
-    return {
-        "school_atlas_quality_summary": quality_summary,
-        "school_atlas_progression_summary": progression_summary,
-        "school_atlas_gymnasium_progression_pct": gymnasium_progression_pct,
-        "school_atlas_top_secondary_destinations": top_destinations[:5],
-        "school_atlas_nearby_schools": nearby_schools,
-        "school_atlas_selected_school": {
-            "name": selected_name,
-            "type": selected_type,
-            "distance_m": selected_distance_m,
-            "skz": selected_skz,
-        },
-        "school_atlas_evidence_type": "hard_public_data",
-        "school_atlas_source_url": _PROPERTY_SCHOOLATLAS_SOURCE_URL,
-    }
-
-
-@lru_cache(maxsize=128)
-def _property_research_nearby_pois(lat: float, lon: float) -> dict[str, object]:
-    query = f"""
-[out:json][timeout:20];
-(
-  node["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
-  way["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
-  node["shop"="convenience"](around:5000,{lat:.8f},{lon:.8f});
-  way["shop"="convenience"](around:5000,{lat:.8f},{lon:.8f});
-  node["shop"="greengrocer"](around:5000,{lat:.8f},{lon:.8f});
-  way["shop"="greengrocer"](around:5000,{lat:.8f},{lon:.8f});
-  node["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
-  way["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
-  node["amenity"="library"](around:5000,{lat:.8f},{lon:.8f});
-  way["amenity"="library"](around:5000,{lat:.8f},{lon:.8f});
-  node["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
-  way["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
-  node["tourism"="zoo"](around:7000,{lat:.8f},{lon:.8f});
-  way["tourism"="zoo"](around:7000,{lat:.8f},{lon:.8f});
-  node["shop"="doityourself"](around:7000,{lat:.8f},{lon:.8f});
-  way["shop"="doityourself"](around:7000,{lat:.8f},{lon:.8f});
-  node["shop"="hardware"](around:7000,{lat:.8f},{lon:.8f});
-  way["shop"="hardware"](around:7000,{lat:.8f},{lon:.8f});
-  node["amenity"="marketplace"](around:7000,{lat:.8f},{lon:.8f});
-  way["amenity"="marketplace"](around:7000,{lat:.8f},{lon:.8f});
-  node["shop"="mall"](around:7000,{lat:.8f},{lon:.8f});
-  way["shop"="mall"](around:7000,{lat:.8f},{lon:.8f});
-  node["highway"="pedestrian"](around:7000,{lat:.8f},{lon:.8f});
-  way["highway"="pedestrian"](around:7000,{lat:.8f},{lon:.8f});
-  node["amenity"="theatre"](around:7000,{lat:.8f},{lon:.8f});
-  way["amenity"="theatre"](around:7000,{lat:.8f},{lon:.8f});
-  node["leisure"="swimming_pool"](around:7000,{lat:.8f},{lon:.8f});
-  way["leisure"="swimming_pool"](around:7000,{lat:.8f},{lon:.8f});
-  node["amenity"="doctors"](around:7000,{lat:.8f},{lon:.8f});
-  way["amenity"="doctors"](around:7000,{lat:.8f},{lon:.8f});
-  node["amenity"="clinic"](around:7000,{lat:.8f},{lon:.8f});
-  way["amenity"="clinic"](around:7000,{lat:.8f},{lon:.8f});
-  node["amenity"="hospital"](around:7000,{lat:.8f},{lon:.8f});
-  way["amenity"="hospital"](around:7000,{lat:.8f},{lon:.8f});
-  node["railway"="tram_stop"](around:7000,{lat:.8f},{lon:.8f});
-  way["railway"="tram_stop"](around:7000,{lat:.8f},{lon:.8f});
-  node["highway"="bus_stop"](around:7000,{lat:.8f},{lon:.8f});
-  way["highway"="bus_stop"](around:7000,{lat:.8f},{lon:.8f});
-  node["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
-  way["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
-);
-out center tags;
-"""
-    request = urllib.request.Request(
-        "https://overpass-api.de/api/interpreter",
-        data=query.encode("utf-8"),
-        headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=20.0) as response:
-            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
-    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
-        return {}
-    elements = list(payload.get("elements") or []) if isinstance(payload, dict) else []
-    closest: dict[str, tuple[int, str, float, float]] = {}
-    for row in elements:
-        if not isinstance(row, dict):
-            continue
-        tags = dict(row.get("tags") or {})
-        point_lat = row.get("lat")
-        point_lon = row.get("lon")
-        if point_lat is None or point_lon is None:
-            center = dict(row.get("center") or {})
-            point_lat = center.get("lat")
-            point_lon = center.get("lon")
-        if not isinstance(point_lat, (int, float)) or not isinstance(point_lon, (int, float)):
-            continue
-        distance_m = _property_research_distance_m(lat, lon, float(point_lat), float(point_lon))
-        if tags.get("shop") in {"supermarket", "convenience", "greengrocer"}:
-            metric_key, name_key = "nearest_supermarket_m", "nearest_supermarket_name"
-        elif tags.get("amenity") == "pharmacy":
-            metric_key, name_key = "nearest_pharmacy_m", "nearest_pharmacy_name"
-        elif tags.get("amenity") == "library":
-            metric_key, name_key = "nearest_library_m", "nearest_library_name"
-        elif tags.get("leisure") == "playground":
-            metric_key, name_key = "nearest_playground_m", "nearest_playground_name"
-        elif tags.get("tourism") == "zoo":
-            metric_key, name_key = "nearest_zoo_m", "nearest_zoo_name"
-        elif tags.get("shop") in {"doityourself", "hardware"}:
-            metric_key, name_key = "nearest_hardware_store_m", "nearest_hardware_store_name"
-        elif tags.get("amenity") == "marketplace":
-            metric_key, name_key = "nearest_market_m", "nearest_market_name"
-        elif tags.get("shop") == "mall":
-            metric_key, name_key = "nearest_shopping_center_m", "nearest_shopping_center_name"
-        elif tags.get("highway") == "pedestrian":
-            metric_key, name_key = "nearest_shopping_street_m", "nearest_shopping_street_name"
-        elif tags.get("amenity") == "theatre":
-            metric_key, name_key = "nearest_theatre_m", "nearest_theatre_name"
-        elif tags.get("leisure") == "swimming_pool":
-            metric_key, name_key = "nearest_public_pool_m", "nearest_public_pool_name"
-        elif tags.get("amenity") in {"doctors", "clinic", "hospital"}:
-            metric_key, name_key = "nearest_medical_care_m", "nearest_medical_care_name"
-        elif str(tags.get("brand") or "").strip().lower() == "starbucks" or "starbucks" in str(tags.get("name") or "").strip().lower():
-            metric_key, name_key = "nearest_starbucks_m", "nearest_starbucks_name"
-        elif tags.get("leisure") == "fitness_centre" or tags.get("amenity") == "gym" or tags.get("sport") == "fitness":
-            metric_key, name_key = "nearest_fitness_center_m", "nearest_fitness_center_name"
-        elif tags.get("amenity") == "cinema":
-            metric_key, name_key = "nearest_cinema_m", "nearest_cinema_name"
-        elif tags.get("sport") in {"climbing", "bouldering"} or "boulder" in str(tags.get("name") or "").strip().lower():
-            metric_key, name_key = "nearest_bouldering_m", "nearest_bouldering_name"
-        elif tags.get("leisure") == "dog_park" or tags.get("amenity") == "dog_park":
-            metric_key, name_key = "nearest_dog_park_m", "nearest_dog_park_name"
-        elif tags.get("amenity") == "cafe":
-            metric_key, name_key = "nearest_good_cafe_m", "nearest_good_cafe_name"
-        elif tags.get("railway") == "tram_stop" or tags.get("highway") == "bus_stop":
-            metric_key, name_key = "nearest_tram_bus_m", "nearest_tram_bus_name"
-        elif tags.get("railway") == "subway_entrance":
-            metric_key, name_key = "nearest_subway_m", "nearest_subway_name"
-        else:
-            continue
-        current = closest.get(metric_key)
-        if current is None or distance_m < current[0]:
-            closest[metric_key] = (distance_m, str(tags.get("name") or "").strip(), float(point_lat), float(point_lon))
-    result: dict[str, object] = {}
-    for key, value in closest.items():
-        result[key] = value[0]
-        prefix = key[:-2] if key.endswith("_m") else key
-        result[f"{prefix}_name"] = value[1]
-        result[f"{prefix}_lat"] = value[2]
-        result[f"{prefix}_lng"] = value[3]
-    return result
-
-
-def _property_point_looks_like_austria(lat: float, lon: float) -> bool:
-    return 46.0 <= float(lat) <= 49.5 and 9.0 <= float(lon) <= 17.5
-
-
-def _property_official_risk_evidence(
-    *,
-    lat: float,
-    lon: float,
-    facts: dict[str, object] | None = None,
-) -> dict[str, object]:
-    if not _property_point_looks_like_austria(lat, lon):
-        return {}
-    payload = dict(facts or {})
-    postal_name = str(payload.get("postal_name") or "").strip().lower()
-    is_vienna = "wien" in postal_name or "vienna" in postal_name
-    sources = [
-        {
-            "risk_key": "air_quality_risk",
-            "label": "Air quality",
-            "authority_label": "Umweltbundesamt / Stadt Wien",
-            "provider": "data.gv.at / Umweltbundesamt" if not is_vienna else "data.gv.at / Stadt Wien",
-            "source_label": "Luftgütemessungen u. meteorologische Messungen" if not is_vienna else "Luftmessnetz: aktuelle Messdaten Wien",
-            "source_url": "https://www.data.gv.at/datasets/f2be2752-14cb-47c6-913e-d6fdf26771e0?locale=de" if not is_vienna else "https://www.data.gv.at/datasets/d9ae1245-158e-4d79-86a4-2d9b3defbedc?locale=de",
-            "availability": "official_dataset",
-            "source_type": "official_dataset",
-            "coverage_scope": "station_and_municipal_measurements",
-            "refresh_cadence": "recurring_public_updates",
-            "confidence": "medium",
-            "verification_state": "flagged" if bool(payload.get("air_quality_risk")) else "needs_review",
-            "summary": "Official Austrian air-quality measurements should anchor the pollution read for this micro-location.",
-            "required_next_step": "Cross-check the nearest station or city network before treating air burden as resolved.",
-        },
-        {
-            "risk_key": "crime_risk",
-            "label": "Crime burden",
-            "authority_label": "Amtliche Statistik",
-            "provider": "data.gv.at / amtliche Statistik",
-            "source_label": "Amtliche Statistiken - Kriminalität",
-            "source_url": "https://www.data.gv.at/datasets/76d09d69-4258-49e3-88ea-d87668fc30d2?locale=de",
-            "availability": "official_dataset",
-            "source_type": "official_dataset",
-            "coverage_scope": "quarter_or_municipal_statistics",
-            "refresh_cadence": "periodic_public_updates",
-            "confidence": "medium",
-            "verification_state": "flagged" if bool(payload.get("crime_risk")) else "needs_review",
-            "summary": "Official crime statistics should be checked before treating quarter-level safety as solved.",
-            "required_next_step": "Verify the latest district-level or municipal read before using safety as a final pass/fail reason.",
-        },
-        {
-            "risk_key": "school_evidence",
-            "label": "School evidence",
-            "authority_label": "Statistik Austria / municipal school datasets",
-            "provider": "STATatlas / data.gv.at",
-            "source_label": "SchoolAtlas and municipal school-location evidence",
-            "source_url": "https://www.statistik.at/atlas/",
-            "availability": "official_dataset",
-            "source_type": "official_dataset",
-            "coverage_scope": "school_types_and_locations",
-            "refresh_cadence": "periodic_public_updates",
-            "confidence": "medium",
-            "verification_state": "verified" if bool(payload.get("school_atlas_quality_summary")) else "needs_review",
-            "summary": "Austrian school-fit checks should be anchored in official school-location and school-type evidence, not generic portal claims.",
-            "required_next_step": "Attach the nearest school-type evidence and catchment context before clearing family fit.",
-        },
-        {
-            "risk_key": "drinking_water_risk",
-            "label": "Water source and groundwater burden",
-            "authority_label": "BMLUK",
-            "provider": "data.gv.at / BMLUK",
-            "source_label": "Grundwasser Aktuell Österreich",
-            "source_url": "https://www.data.gv.at/datasets/36b90f02-0f6b-4e94-8d22-d5ba9ac8530b?locale=de",
-            "availability": "official_dataset",
-            "source_type": "official_dataset",
-            "coverage_scope": "national_groundwater_monitoring",
-            "refresh_cadence": "recurring_public_updates",
-            "confidence": "medium",
-            "verification_state": "flagged" if bool(payload.get("drinking_water_risk")) else "needs_review",
-            "summary": "Groundwater and water-source evidence should come from the federal monitoring datasets, not only listing copy.",
-            "required_next_step": "Check the local water-source and groundwater-monitoring record before assuming the water posture is safe.",
-        },
-        {
-            "risk_key": "flood_risk",
-            "label": "Flood exposure",
-            "authority_label": "Hochwasserrichtlinie",
-            "provider": "data.gv.at / Hochwasserrichtlinie",
-            "source_label": "Überflutungsflächen HQ30, HWRL",
-            "source_url": "https://www.data.gv.at/datasets/84372374-996a-4d7c-a7ee-9b063d9a7282?locale=de",
-            "availability": "official_dataset",
-            "source_type": "official_dataset",
-            "coverage_scope": "national_flood_zone_mapping",
-            "refresh_cadence": "periodic_public_updates",
-            "confidence": "high",
-            "verification_state": "flagged" if bool(payload.get("flood_risk")) else "needs_review",
-            "summary": "Historic flood and runoff checks should use the official HQ30/HWRL flood-zone datasets.",
-            "required_next_step": "Overlay the parcel or street block with the official flood-zone evidence before clearing this risk.",
-        },
-        {
-            "risk_key": "noise_risk",
-            "label": "Noise exposure",
-            "authority_label": "Lärminfo / Umweltbundesamt",
-            "provider": "laerminfo.at / Umweltbundesamt",
-            "source_label": "Strategic noise mapping",
-            "source_url": "https://www.umweltbundesamt.at/mobilitaet/laerm/dashboard",
-            "availability": "official_dataset",
-            "source_type": "official_dataset",
-            "coverage_scope": "road_rail_airport_noise",
-            "refresh_cadence": "periodic_public_updates",
-            "confidence": "high",
-            "verification_state": "flagged" if bool(payload.get("noise_risk")) else "needs_review",
-            "summary": "Noise posture should come from Austrian strategic noise maps and corridor exposure checks before it becomes a hard rejection reason.",
-            "required_next_step": "Cross-check the street block against the official noise map before clearing this risk.",
-        },
-        {
-            "risk_key": "broadband_availability",
-            "label": "Broadband availability",
-            "authority_label": "Breitbandatlas / RTR",
-            "provider": "breitbandatlas.gv.at / RTR",
-            "source_label": "Broadband and mobile coverage evidence",
-            "source_url": "https://www.breitbandatlas.gv.at/",
-            "availability": "official_dataset",
-            "source_type": "official_dataset",
-            "coverage_scope": "100m_grid_availability",
-            "refresh_cadence": "quarterly_public_updates",
-            "confidence": "medium",
-            "verification_state": "needs_review",
-            "summary": "Home-office viability should be backed by the Austrian broadband and mobile-coverage datasets, not listing adjectives alone.",
-            "required_next_step": "Check fixed and mobile availability at the parcel block before clearing internet readiness.",
-        },
-        {
-            "risk_key": "parking_pressure_risk",
-            "label": "Parking pressure",
-            "authority_label": "Municipal street-parking authority",
-            "provider": "municipal parking data",
-            "source_label": "Municipal parking-regulation evidence required",
-            "source_url": "",
-            "availability": "municipal_gap",
-            "source_type": "municipal_gap",
-            "coverage_scope": "street_and_district_specific",
-            "refresh_cadence": "city_specific",
-            "confidence": "low",
-            "verification_state": "flagged" if bool(payload.get("parking_pressure_risk")) else "source_gap",
-            "summary": "There is no shared national parking-pressure dataset here yet; this still needs a municipality-specific street-parking source.",
-            "required_next_step": "Attach a municipality-specific parking-zone or resident-parking source before clearing this risk.",
-        },
-        {
-            "risk_key": "winter_access_risk",
-            "label": "Winter access",
-            "authority_label": "Geosphere / municipal winter service",
-            "provider": "official weather / municipal winter-service",
-            "source_label": "Geosphere or municipal winter-service evidence required",
-            "source_url": "https://www.geosphere.at/",
-            "availability": "partial_official",
-            "source_type": "partial_official",
-            "coverage_scope": "weather_and_local_access_policy",
-            "refresh_cadence": "seasonal_and_municipal",
-            "confidence": "low",
-            "verification_state": "flagged" if bool(payload.get("winter_access_risk")) else "source_gap",
-            "summary": "Winter driveability still needs an official weather and municipality-specific access source, not only terrain heuristics.",
-            "required_next_step": "Combine Geosphere weather exposure with the municipality winter-service regime before clearing this access risk.",
-        },
-    ]
-    return {
-        "country_code": "AT",
-        "source_count": len(sources),
-        "updated_at": _now_iso(),
-        "sources": sources,
-    }
-
-
-@lru_cache(maxsize=128)
-def _property_source_research_snapshot(property_url: str, image_urls: tuple[str, ...] = ()) -> dict[str, object]:
-    normalized = urllib.parse.urldefrag(str(property_url or "").strip())[0]
-    normalized_host = urllib.parse.urlparse(normalized).netloc.lower()
-    supported_research_host = any(
-        marker in normalized_host
-        for marker in (
-            "gesiba.at",
-            "siedlungsunion.at",
-            "wbv-gpa.at",
-            "frieden.at",
-            "sozialbau.at",
-        )
-    )
-    if not normalized or (not supported_research_host and not _property_scout_is_supported_listing_url(normalized)):
-        return {}
-    try:
-        source_html = _property_scout_fetch_html(normalized)
-    except Exception:
-        return {}
-    cooperative_findings = _property_cooperative_housing_facts(normalized, source_html, _property_html_fragment_text(source_html))
-    if cooperative_findings:
-        findings = dict(cooperative_findings)
-    else:
-        findings = {}
-    plain = re.sub(r"<[^>]+>", " ", source_html)
-    plain = html.unescape(plain)
-    plain_text = " ".join(plain.split())
-    lowered = plain_text.lower()
-
-    if any(marker in lowered for marker in ("energieausweis", "energy certificate", "energiepass", "epc")):
-        findings["energy_certificate_present"] = True
-    if any(marker in lowered for marker in ("betriebskosten", "operating costs", "service charge", "service-charge")):
-        findings["operating_costs_present"] = True
-    if any(marker in lowered for marker in ("kaufoption", "miete mit kaufoption", "mietkauf")):
-        findings["miete_mit_kaufoption_available"] = True
-    if any(marker in lowered for marker in ("ganztag", "ganztags", "after-school", "after school")):
-        findings["ganztag_signal"] = True
-    if any(marker in lowered for marker in ("fernwärme", "fernwaerme", "district heating")):
-        findings.setdefault("heating_type", "District heating")
-    elif any(marker in lowered for marker in ("gasheizung", "gas heating", "gas-etagenheizung")):
-        findings.setdefault("heating_type", "Gas")
-    if "lärm" in lowered or "laerm" in lowered or "noise" in lowered:
-        findings["noise_risk"] = True
-    financing_match = re.search(
-        r"(?:eigenmittel|finanzierungsbeitrag)[^0-9]{0,24}([\d\.\,]{3,})",
-        plain_text,
-        flags=re.IGNORECASE,
-    )
-    if financing_match:
-        try:
-            findings["finanzierungsbeitrag_eur"] = int(float(financing_match.group(1).replace(".", "").replace(",", ".")))
-        except Exception:
-            pass
-    deadline_match = re.search(
-        r"(?:anmeldung\s+bis|bewerbung\s+bis|einreichung\s+bis)[^0-9]{0,16}(\d{1,2}\.\d{1,2}\.\d{4})",
-        plain_text,
-        flags=re.IGNORECASE,
-    )
-    if deadline_match:
-        try:
-            deadline = datetime.strptime(deadline_match.group(1), "%d.%m.%Y").replace(tzinfo=timezone.utc)
-            days_until = max((deadline.date() - datetime.now(timezone.utc).date()).days, 0)
-            findings["application_deadline"] = deadline.date().isoformat()
-            findings["application_window_days"] = days_until
-        except Exception:
-            pass
-
-    lat_match = re.search(r'data-map-lat="([0-9.]+)"', source_html)
-    lon_match = re.search(r'data-map-lng="([0-9.]+)"', source_html)
-    if lat_match and lon_match:
-        try:
-            lat = float(lat_match.group(1))
-            lon = float(lon_match.group(1))
-            findings["map_lat"] = lat
-            findings["map_lng"] = lon
-            reverse = _property_research_reverse_geocode(lat, lon)
-            address = dict(reverse.get("address") or {}) if isinstance(reverse.get("address"), dict) else {}
-            road = str(address.get("road") or "").strip()
-            house_number = str(address.get("house_number") or "").strip()
-            postcode = str(address.get("postcode") or "").strip()
-            city = str(address.get("city") or address.get("town") or address.get("village") or "").strip()
-            if road and house_number:
-                findings["street_address"] = f"{road} {house_number}"
-                address_line_2 = " ".join(part for part in (postcode, city) if part).strip()
-                findings["address_lines"] = [findings["street_address"], address_line_2] if address_line_2 else [findings["street_address"]]
-            display_name = str(reverse.get("display_name") or "").strip()
-            if display_name:
-                findings["exact_address"] = display_name
-            findings.update(_property_research_nearby_pois(lat, lon))
-            official_evidence = _property_official_risk_evidence(lat=lat, lon=lon, facts=findings)
-            if official_evidence:
-                findings["official_risk_evidence"] = official_evidence
-        except ValueError:
-            pass
-
-    if "personenaufzug" in lowered or "aufzug" in lowered or "lift" in lowered:
-        findings["lift"] = True
-    if any(token in lowered for token in ("plan_top", "plan top", "raumskizze", "grundriss", "floor plan")):
-        findings["has_floorplan"] = True
-    if "beziehbar sofort" in lowered:
-        findings["availability"] = "Sofort"
-    if "hauszentralheizung (gas)" in lowered or "house central heating (by gas)" in lowered:
-        findings["heating_type"] = "Hauszentralheizung (Gas)"
-    elif "gasheizung" in lowered:
-        findings["heating_type"] = "Gasheizung"
-    if "8 wohneinheiten" in lowered or "8 residential units" in lowered:
-        findings["building_units"] = 8
-    if "tiefgaragenstellplatz" in lowered or "underground parking space" in lowered:
-        findings["garage"] = True
-    if any(marker in lowered for marker in ("senkgrube", "septic", "kleinkläranlage")):
-        findings["cesspit_risk"] = True
-    if any(marker in lowered for marker in ("grundwasser", "groundwater contamination", "nitratbelastung")):
-        findings["drinking_water_risk"] = True
-    if any(marker in lowered for marker in ("hochwasser", "flood zone", "überschwemmung", "ueberschwemmung")):
-        findings["flood_risk"] = True
-    if any(marker in lowered for marker in ("steile zufahrt", "schneeketten", "winterdienst", "steep access road")):
-        findings["winter_access_risk"] = True
-    if "5 jahre befristetes mietverhältnis" in lowered or "up to 5 years duration" in lowered:
-        findings["lease_term_years_max"] = 5
-    if "neuwertig" in lowered:
-        findings["state"] = "neuwertig"
-
-    rooms_match = re.search(r"zimmer\s+(\d+(?:[.,]\d+)?)", plain_text, flags=re.IGNORECASE)
-    if rooms_match:
-        try:
-            findings["rooms"] = float(rooms_match.group(1).replace(",", "."))
-        except ValueError:
-            pass
-    area_match = re.search(r"Wohnfl[aä]che\s+ca\.\s*(\d+(?:[.,]\d+)?)\s*m", plain_text, flags=re.IGNORECASE)
-    if area_match:
-        try:
-            findings["area_sqm"] = float(area_match.group(1).replace(",", "."))
-        except ValueError:
-            pass
-    terrace_match = re.search(r"Terrassenfl[aä]che\s+ca\.\s*(\d+(?:[.,]\d+)?)\s*m", plain_text, flags=re.IGNORECASE)
-    if terrace_match:
-        try:
-            findings["terrace_area_sqm"] = float(terrace_match.group(1).replace(",", "."))
-        except ValueError:
-            pass
-    price_match = re.search(r"Gesamtmiete:\s*(\d[\d\.,]*)\s*€", plain_text, flags=re.IGNORECASE)
-    if price_match:
-        normalized_price = price_match.group(1).replace(".", "").replace(",", ".")
-        try:
-            findings["total_rent_eur"] = float(normalized_price)
-        except ValueError:
-            pass
-    buy_price_match = re.search(
-        r"(?:kaufpreis|asking price|purchase price|price|prix|prezzo|vraagprijs|koopprijs)\D{0,20}(\d[\d\.\s]*\d(?:,\d{1,2})?)\s*(?:€|eur|euro)\b",
-        plain_text,
-        flags=re.IGNORECASE,
-    )
-    if buy_price_match:
-        normalized_price = buy_price_match.group(1).replace(" ", "").replace(".", "").replace(",", ".")
-        try:
-            findings["price_eur"] = float(normalized_price)
-            findings["price_display"] = compact_text(buy_price_match.group(0), fallback=f"{findings['price_eur']:.0f} EUR", limit=120)
-        except ValueError:
-            pass
-    if re.search(r"Euro\s*120,00", plain_text, flags=re.IGNORECASE):
-        findings["parking_monthly_eur"] = 120.0
-    district_match = re.search(r"\b(1\d{3}\s+Wien)\b", plain_text, flags=re.IGNORECASE)
-    if district_match:
-        findings["postal_name"] = district_match.group(1)
-    if "salmannsdorf" in lowered:
-        findings["district"] = "Salmannsdorf"
-    area_value = _float_or_none(findings.get("area_sqm"))
-    if isinstance(area_value, float) and area_value > 0.0:
-        rent_value = _float_or_none(findings.get("total_rent_eur"))
-        if isinstance(rent_value, float) and rent_value > 0.0:
-            findings["rent_per_sqm_eur"] = round(rent_value / area_value, 2)
-        price_value = _float_or_none(findings.get("price_eur"))
-        if isinstance(price_value, float) and price_value > 0.0:
-            findings["price_per_sqm_eur"] = round(price_value / area_value, 2)
-
-    poi_patterns = {
-        "nearest_transit_m": r"Bus</span>\s*<span[^>]*>\s*(\d+)\s*m",
-        "nearest_tram_bus_m": r"Straßenbahn / Bus</span>\s*<span[^>]*>\s*(\d+)\s*m",
-        "nearest_subway_m": r"U-Bahn</span>\s*<span[^>]*>\s*(\d+)\s*m",
-        "nearest_pharmacy_m": r"Apotheke</span>\s*<span[^>]*>\s*(\d+)\s*m",
-        "nearest_clinic_m": r"Klinik</span>\s*<span[^>]*>\s*(\d+)\s*m",
-        "nearest_hospital_m": r"Krankenhaus</span>\s*<span[^>]*>\s*(\d+)\s*m",
-        "nearest_fitness_center_m": r"Fitness(?:center| centre|studio)?</span>\s*<span[^>]*>\s*(\d+)\s*m",
-        "nearest_starbucks_m": r"Starbucks</span>\s*<span[^>]*>\s*(\d+)\s*m",
-    }
-    for key, pattern in poi_patterns.items():
-        match = re.search(pattern, source_html, flags=re.IGNORECASE)
-        if match:
-            findings[key] = int(match.group(1))
-    if "street_address" not in findings:
-        findings.update(
-            _property_image_ocr_address_hint(
-                tuple(str(value or "").strip() for value in image_urls if str(value or "").strip()),
-                source_text=plain_text,
-                property_url=normalized,
-            )
-        )
-    return findings
 
 
 def _merge_property_facts_with_source_research(
@@ -7228,6 +4894,16 @@ def _property_review_page_neuronwriter_payload(
         "query_url": str(dump.get("query_url") or "").strip(),
         "share_url": str(dump.get("share_url") or "").strip(),
         "readonly_url": str(dump.get("readonly_url") or "").strip(),
+        "headings": [
+            str(item or "").strip()
+            for item in list(dump.get("headings") or [])
+            if str(item or "").strip()
+        ][:4],
+        "questions": [
+            str(item or "").strip()
+            for item in list(dump.get("questions") or [])
+            if str(item or "").strip()
+        ][:4],
         "safe_topic": safe_topic,
         "generated_by": "propertyquarry_review_page.neuronwriter_public_safe.v1",
     }
@@ -12709,120 +10385,6 @@ def _willhaben_packet_panorama_source(packet: dict[str, object]) -> str:
     )
 
 
-def _configured_public_tour_hosts() -> tuple[str, ...]:
-    hosts: list[str] = []
-    for raw in (
-        str(os.getenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL") or "").strip(),
-        str(os.getenv("PROPERTYQUARRY_PUBLIC_BASE_URL") or "").strip(),
-        str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "").strip(),
-        str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip(),
-    ):
-        if not raw:
-            continue
-        parsed = urllib.parse.urlparse(raw if "://" in raw else f"https://{raw}")
-        host = str(parsed.netloc or parsed.path or "").strip().lower()
-        if host and host not in hosts:
-            hosts.append(host)
-    return tuple(hosts)
-
-
-def _public_app_base_url() -> str:
-    return str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "https://myexternalbrain.com").strip().rstrip("/")
-
-
-def _property_public_app_base_url() -> str:
-    explicit = str(os.getenv("PROPERTYQUARRY_PUBLIC_BASE_URL") or "").strip().rstrip("/")
-    if explicit:
-        return explicit
-    return "https://propertyquarry.com"
-
-
-def _property_public_tour_base_url() -> str:
-    explicit = str(os.getenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL") or "").strip().rstrip("/")
-    if explicit:
-        return explicit
-    return f"{_property_public_app_base_url()}/tours"
-
-
-def _hosted_property_tour_public_base_url() -> str:
-    explicit = str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "").strip().rstrip("/")
-    if explicit:
-        return explicit
-    public_app = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
-    if public_app:
-        return f"{public_app}/tours"
-    return _property_public_tour_base_url()
-
-
-def _workspace_access_public_base_url() -> str:
-    explicit = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
-    if explicit:
-        return explicit
-    redirect_uri = str(os.getenv("EA_GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
-    if redirect_uri:
-        parsed = urllib.parse.urlparse(redirect_uri)
-        if parsed.scheme and parsed.netloc:
-            return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
-    return _public_app_base_url()
-
-
-def _is_crezlo_tour_host(value: object) -> bool:
-    normalized = str(value or "").strip()
-    if not normalized:
-        return False
-    parsed = urllib.parse.urlparse(normalized if "://" in normalized else f"https://{normalized}")
-    host = str(parsed.netloc or parsed.path or "").strip().lower()
-    return "crezlo" in host
-
-
-def _is_branded_public_tour_url(value: object) -> bool:
-    normalized = str(value or "").strip()
-    if not normalized:
-        return False
-    parsed = urllib.parse.urlparse(normalized if "://" in normalized else f"https://{normalized}")
-    host = str(parsed.netloc or parsed.path or "").strip().lower()
-    if not host:
-        return False
-    configured_hosts = _configured_public_tour_hosts()
-    if configured_hosts:
-        return host in configured_hosts
-    if (host.endswith("myexternalbrain.com") or host.endswith("propertyquarry.com")) and "/tours/" in normalized:
-        return not _is_crezlo_tour_host(normalized)
-    return False
-
-
-def _resolve_property_tour_urls(structured_output: dict[str, object]) -> tuple[str, str]:
-    hosted_url = _first_non_empty_text(structured_output.get("hosted_url"))
-    public_url = _first_non_empty_text(structured_output.get("public_url"))
-    share_url = _first_non_empty_text(structured_output.get("share_url"))
-    crezlo_public_url = _first_non_empty_text(structured_output.get("crezlo_public_url"))
-
-    branded_tour_url = _first_non_empty_text(
-        hosted_url if _is_branded_public_tour_url(hosted_url) else "",
-        public_url if _is_branded_public_tour_url(public_url) else "",
-        crezlo_public_url if _is_branded_public_tour_url(crezlo_public_url) else "",
-        share_url if _is_branded_public_tour_url(share_url) else "",
-    )
-    vendor_tour_url = _first_non_empty_text(
-        public_url if public_url != branded_tour_url else "",
-        share_url if share_url != branded_tour_url else "",
-        crezlo_public_url if crezlo_public_url != branded_tour_url else "",
-    )
-    return branded_tour_url, vendor_tour_url
-
-
-def _property_tour_payload_is_disabled_fallback(structured_output: dict[str, object]) -> bool:
-    normalized = dict(structured_output or {})
-    if str(normalized.get("scene_strategy") or "").strip() == "generated_listing_summary":
-        return True
-    if str(normalized.get("creation_mode") or "").strip() == "hosted_listing_fallback":
-        return True
-    scenes = [dict(entry) for entry in (normalized.get("scenes") or []) if isinstance(entry, dict)]
-    if any(str(scene.get("role") or "").strip() == "generated_overview" for scene in scenes):
-        return True
-    return False
-
-
 def _ensure_hosted_property_tour_url(structured_output: dict[str, object]) -> dict[str, object]:
     normalized = dict(structured_output or {})
     if _first_non_empty_text(normalized.get("hosted_url")):
@@ -12864,117 +10426,6 @@ def _ensure_hosted_property_tour_url(structured_output: dict[str, object]) -> di
     return normalized
 
 
-def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> str:
-    slug = str(structured_output.get("slug") or "").strip()
-    if not slug:
-        return ""
-    base_url = _hosted_property_tour_public_base_url()
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
-    bundle_dir = public_dir / slug
-    bundle_manifest = public_dir / slug / "tour.json"
-    if not bundle_manifest.exists():
-        return ""
-    try:
-        payload = json.loads(bundle_manifest.read_text(encoding="utf-8"))
-    except Exception:
-        return ""
-    if not isinstance(payload, dict):
-        return ""
-    scenes = [dict(entry) for entry in (payload.get("scenes") or []) if isinstance(entry, dict)]
-    if not scenes:
-        return ""
-    has_asset = False
-    for scene in scenes:
-        asset_relpath = str(scene.get("asset_relpath") or "").strip()
-        if not asset_relpath:
-            continue
-        candidate = (bundle_dir / asset_relpath).resolve()
-        if bundle_dir.resolve() not in candidate.parents:
-            continue
-        if candidate.exists() and candidate.is_file():
-            has_asset = True
-            break
-    if not has_asset:
-        source_virtual_tour_url = str(payload.get("source_virtual_tour_url") or "").strip()
-        if source_virtual_tour_url:
-            hosted_url = f"{base_url}/{slug}"
-            return f"{hosted_url}#live-360"
-        return ""
-    hosted_url = f"{base_url}/{slug}"
-    source_virtual_tour_url = str(payload.get("source_virtual_tour_url") or "").strip()
-    if source_virtual_tour_url:
-        return f"{hosted_url}#live-360"
-    return hosted_url
-
-
-def _existing_hosted_property_tour_payload(slug: str) -> dict[str, object]:
-    normalized_slug = str(slug or "").strip()
-    if not normalized_slug:
-        return {}
-    hosted_url = _existing_hosted_property_tour_url({"slug": normalized_slug})
-    if not hosted_url:
-        return {}
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
-    manifest_path = public_dir / normalized_slug / "tour.json"
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    payload = dict(payload)
-    payload["slug"] = normalized_slug
-    payload["hosted_url"] = hosted_url
-    payload["public_url"] = hosted_url
-    payload["tour_cache_status"] = "existing"
-    payload.setdefault("creation_mode", "hosted_property_tour")
-    return payload
-
-
-def _safe_live_property_tour_url(value: object) -> str:
-    normalized = str(value or "").strip()
-    if not normalized:
-        return ""
-    parsed = urllib.parse.urlparse(normalized)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        return ""
-    return normalized
-
-
-def _property_tour_provider_host_kind(value: object) -> str:
-    normalized = str(value or "").strip()
-    if not normalized:
-        return ""
-    try:
-        parsed = urllib.parse.urlparse(normalized)
-    except Exception:
-        return ""
-    if parsed.scheme.lower() not in {"http", "https"}:
-        return ""
-    host = str(parsed.hostname or "").strip().lower().rstrip(".")
-    if host == "matterport.com" or host.endswith(".matterport.com"):
-        return "matterport"
-    if host == "3dvista.com" or host.endswith(".3dvista.com"):
-        return "3dvista"
-    return ""
-
-
-def _prefer_hosted_live_360_embed(source_virtual_tour_url: object) -> bool:
-    normalized = _safe_live_property_tour_url(source_virtual_tour_url)
-    if not normalized:
-        return False
-    return bool(_property_tour_provider_host_kind(normalized))
-
-
-def _hosted_property_tour_slug(*, title: str, listing_id: str, property_url: str, variant_key: str) -> str:
-    seed = _first_non_empty_text(title, listing_id, property_url, "property tour")
-    normalized = seed.encode("ascii", "ignore").decode("ascii").lower()
-    base = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-") or "property-tour"
-    variant = re.sub(r"[^a-z0-9]+", "-", str(variant_key or "layout_first").lower()).strip("-") or "layout-first"
-    digest = hashlib.sha256(f"{property_url}|{listing_id}|{variant}".encode("utf-8")).hexdigest()[:10]
-    return f"{base[:96].strip('-') or 'property-tour'}-{variant}-{digest}"
-
-
 def _feelestate_json_rpc(method: str, params: list[object]) -> dict[str, object]:
     request = urllib.request.Request(
         "https://cms.feelestate.com/json",
@@ -12987,252 +10438,6 @@ def _feelestate_json_rpc(method: str, params: list[object]) -> dict[str, object]
     if not isinstance(payload, dict) or not isinstance(payload.get("result"), dict):
         raise RuntimeError("feelestate_json_rpc_failed")
     return dict(payload["result"])
-
-
-def _download_public_tour_asset(url: str, target: Path) -> None:
-    request = urllib.request.Request(str(url), headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        data = response.read()
-    if not data:
-        raise RuntimeError("tour_asset_empty")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
-
-
-def _download_public_tour_asset_with_type(url: str, target: Path) -> str:
-    request = urllib.request.Request(str(url), headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT})
-    with urllib.request.urlopen(request, timeout=180) as response:
-        data = response.read()
-        content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
-    if not data:
-        raise RuntimeError("tour_asset_empty")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
-    return content_type
-
-
-def _hosted_property_tour_asset_suffix(*, url: str, content_type: str) -> str:
-    suffix = Path(urllib.parse.urlparse(str(url or "")).path).suffix.lower()
-    normalized_type = str(content_type or "").split(";", 1)[0].strip().lower()
-    if normalized_type in {"application/octet-stream", "binary/octet-stream"} and suffix:
-        return suffix
-    guessed = mimetypes.guess_extension(normalized_type)
-    if guessed:
-        return guessed
-    return suffix or ".bin"
-
-
-def _write_hosted_floorplan_property_tour_bundle(
-    *,
-    principal_id: str,
-    title: str,
-    listing_id: str,
-    property_url: str,
-    variant_key: str,
-    floorplan_urls: list[str] | tuple[str, ...],
-    property_facts_json: dict[str, object],
-    source_host: str,
-    source_ref: str = "",
-    external_id: str = "",
-    recipient_email: str = "",
-) -> dict[str, object]:
-    normalized_urls = [
-        _safe_live_property_tour_url(value)
-        for value in list(floorplan_urls or [])
-        if _safe_live_property_tour_url(value)
-    ]
-    if not normalized_urls:
-        raise RuntimeError("floorplan_assets_missing")
-    base_url = _hosted_property_tour_public_base_url()
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
-    slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
-    existing_payload = _existing_hosted_property_tour_payload(slug)
-    if existing_payload:
-        return existing_payload
-    bundle_dir = public_dir / slug
-    staging_dir = public_dir / f".{slug}.tmp-{uuid4().hex}"
-    staging_dir.mkdir(parents=True, exist_ok=True)
-    scenes: list[dict[str, object]] = []
-    try:
-        for ordinal, asset_url in enumerate(normalized_urls[:12], start=1):
-            try:
-                suffix = _hosted_property_tour_asset_suffix(url=asset_url, content_type="")
-                if suffix.lower() not in _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS:
-                    suffix = ".pdf"
-                relpath = f"floorplan-{ordinal:02d}{suffix}"
-                content_type = _download_public_tour_asset_with_type(asset_url, staging_dir / relpath)
-                suffix = _hosted_property_tour_asset_suffix(url=asset_url, content_type=content_type)
-                if suffix and not relpath.endswith(suffix):
-                    corrected_relpath = f"floorplan-{ordinal:02d}{suffix}"
-                    (staging_dir / relpath).rename(staging_dir / corrected_relpath)
-                    relpath = corrected_relpath
-                scenes.append(
-                    {
-                        "ordinal": ordinal,
-                        "name": f"Floorplan {ordinal}",
-                        "role": "floorplan",
-                        "privacy_class": "floorplan_pdf_public" if relpath.lower().endswith(".pdf") else "public",
-                        "asset_relpath": relpath,
-                        "source_url": asset_url,
-                        "property_url": property_url,
-                        "mime_type": content_type or mimetypes.guess_type(relpath)[0] or "application/octet-stream",
-                    }
-                )
-            except Exception:
-                continue
-        if not scenes:
-            raise RuntimeError("floorplan_assets_unavailable")
-        facts = dict(property_facts_json or {})
-        existing_address_lines = [str(value or "").strip() for value in list(facts.get("address_lines") or []) if str(value or "").strip()]
-        existing_teasers = [str(value or "").strip() for value in list(facts.get("teaser_attributes") or []) if str(value or "").strip()]
-        facts.update(
-            {
-                "has_floorplan": True,
-                "floorplan_count": max(int(facts.get("floorplan_count") or 0), len(scenes)),
-                "floorplan_urls_json": normalized_urls,
-                "tour_media_mode": "floorplan_hosted",
-                "address_lines": existing_address_lines or ([source_host] if source_host else []),
-                "teaser_attributes": existing_teasers or ["Hosted floorplan review", f"{len(scenes)} floorplan document(s)"],
-            }
-        )
-        display_title = compact_text(title, fallback="Property Floorplan Tour", limit=180)
-        payload = {
-            "slug": slug,
-            "hosted_url": f"{base_url}/{slug}",
-            "public_url": f"{base_url}/{slug}",
-            "principal_id": str(principal_id or "").strip(),
-            "listing_url": property_url,
-            "property_url": property_url,
-            "source_ref": str(source_ref or "").strip(),
-            "external_id": str(external_id or "").strip(),
-            "recipient_email": str(recipient_email or "").strip().lower(),
-            "title": f"{display_title} - floorplan tour",
-            "display_title": display_title,
-            "tour_title": f"{display_title} - floorplan tour",
-            "tour_id": None,
-            "variant_key": variant_key,
-            "variant_label": "floorplan",
-            "scene_strategy": "floorplan_hosted",
-            "scene_count": len(scenes),
-            "facts": facts,
-            "brief": {
-                "theme_name": "clean_light",
-                "tour_style": "hosted_floorplan_review",
-                "audience": "property_screening",
-                "creative_brief": "Render source floorplan documents directly inside the PropertyQuarry hosted tour page.",
-                "call_to_action": "Review the floorplan.",
-            },
-            "editor_url": "",
-            "crezlo_public_url": "",
-            "scenes": scenes,
-            "generated_at": _now_iso(),
-            "creation_mode": "hosted_floorplan_tour",
-        }
-        if bundle_dir.exists():
-            shutil.rmtree(bundle_dir)
-        staging_dir.rename(bundle_dir)
-        (bundle_dir / "tour.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        return payload
-    except Exception:
-        shutil.rmtree(staging_dir, ignore_errors=True)
-        raise
-
-
-def _write_hosted_feelestate_pure_360_property_tour_bundle(
-    *,
-    principal_id: str,
-    title: str,
-    listing_id: str,
-    property_url: str,
-    variant_key: str,
-    source_virtual_tour_url: str,
-    floorplan_urls: list[str] | tuple[str, ...] = (),
-    property_facts_json: dict[str, object],
-    source_host: str,
-    source_ref: str = "",
-    external_id: str = "",
-    recipient_email: str = "",
-) -> dict[str, object]:
-    live_url = _safe_live_property_tour_url(source_virtual_tour_url)
-    parsed_live = urllib.parse.urlparse(live_url)
-    live_host = str(parsed_live.hostname or "").strip().lower()
-    live_provider = _property_tour_provider_host_kind(live_url)
-    if live_provider:
-        base_url = _hosted_property_tour_public_base_url()
-        public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
-        slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
-        existing_payload = _existing_hosted_property_tour_payload(slug)
-        if existing_payload:
-            return existing_payload
-        bundle_dir = public_dir / slug
-        bundle_dir.mkdir(parents=True, exist_ok=True)
-        facts = dict(property_facts_json or {})
-        existing_address_lines = [str(value or "").strip() for value in list(facts.get("address_lines") or []) if str(value or "").strip()]
-        existing_teasers = [str(value or "").strip() for value in list(facts.get("teaser_attributes") or []) if str(value or "").strip()]
-        facts.update(
-            {
-                "has_360": True,
-                "tour_media_mode": "panorama_360",
-                "source_virtual_tour_url": live_url,
-                "panorama_source": live_host,
-                "address_lines": existing_address_lines or ([source_host] if source_host else []),
-                "teaser_attributes": existing_teasers or ["Live 360 tour", "Embedded external panorama"],
-            }
-        )
-        is_3dvista = live_provider == "3dvista"
-        display_title = compact_text(title, fallback="Live 360 Property Tour", limit=180)
-        payload = {
-            "slug": slug,
-            "hosted_url": f"{base_url}/{slug}",
-            "public_url": f"{base_url}/{slug}",
-            "principal_id": str(principal_id or "").strip(),
-            "listing_url": property_url,
-            "property_url": property_url,
-            "source_ref": str(source_ref or "").strip(),
-            "external_id": str(external_id or "").strip(),
-            "recipient_email": str(recipient_email or "").strip().lower(),
-            "source_virtual_tour_url": live_url,
-            "source_virtual_tour_origin": live_url,
-            "title": f"{display_title} - live 360",
-            "display_title": display_title,
-            "tour_title": f"{display_title} - live 360",
-            "tour_id": None,
-            "variant_key": variant_key,
-            "variant_label": "3DVista" if is_3dvista else "live 360",
-            "scene_strategy": "live_360_embed",
-            "control_mode": "3dvista" if is_3dvista else "external_live_360",
-            "scene_count": 1,
-            "facts": facts,
-            "brief": {
-                "theme_name": "3DVista" if is_3dvista else "clean_light",
-                "tour_style": "embedded_3dvista" if is_3dvista else "embedded_live_360",
-                "audience": "tenant_screening",
-                "creative_brief": "Render the 3DVista viewer directly inside the PropertyQuarry hosted tour page." if is_3dvista else "Render the live 360 viewer directly inside the PropertyQuarry hosted tour page.",
-                "call_to_action": "Open 3DVista tour." if is_3dvista else "Open live 360 tour.",
-            },
-            "editor_url": "",
-            "crezlo_public_url": live_url,
-            "three_d_vista_url": live_url if is_3dvista else "",
-            "scenes": [
-                {
-                    "ordinal": 1,
-                    "name": "3DVista Tour" if is_3dvista else "Live 360",
-                    "role": "live_360",
-                    "image_url": _matterport_thumb_url(live_url)
-                    or "",
-                    "source_url": live_url,
-                    "property_url": property_url,
-                    "mime_type": "image/jpeg",
-                }
-            ],
-            "generated_at": _now_iso(),
-            "creation_mode": "embedded_live_360",
-        }
-        (bundle_dir / "tour.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        return payload
-    if "360.kalandra.at" not in live_host and "feelestate" not in live_host:
-        raise RuntimeError("pure_360_source_unsupported")
-    raise RuntimeError("property_tour_cube_fallback_disabled")
 
 
 def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, object]:
@@ -14700,51 +11905,6 @@ def _render_property_flythrough_into_hosted_tour(
     return {"status": "failed", "reason": "selected_flythrough_provider_not_implemented", **route_payload}
 
 
-def _embedded_live_360_source_url(payload: dict[str, object]) -> str:
-    if not isinstance(payload, dict):
-        return ""
-    for key in ("source_virtual_tour_url", "source_virtual_tour_origin"):
-        normalized = _safe_live_property_tour_url(str(payload.get(key) or "").strip())
-        if normalized:
-            return normalized
-    return ""
-
-
-def _hosted_property_tour_direct_360_url(tour_url: str) -> str:
-    normalized_url = str(tour_url or "").strip()
-    if not normalized_url:
-        return ""
-    parsed = urllib.parse.urlparse(normalized_url)
-    path_parts = [part for part in str(parsed.path or "").split("/") if part]
-    if len(path_parts) < 2 or path_parts[-2] != "tours":
-        return ""
-    slug = str(path_parts[-1] or "").strip()
-    if not slug:
-        return ""
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
-    manifest_path = public_dir / slug / "tour.json"
-    if not manifest_path.exists():
-        return ""
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        return ""
-    return _embedded_live_360_source_url(payload if isinstance(payload, dict) else {})
-
-
-def _matterport_thumb_url(source_virtual_tour_url: str) -> str:
-    normalized = str(source_virtual_tour_url or "").strip()
-    if not normalized:
-        return ""
-    parsed = urllib.parse.urlparse(normalized)
-    if _property_tour_provider_host_kind(normalized) != "matterport":
-        return ""
-    model_id = str(urllib.parse.parse_qs(parsed.query).get("m", [""])[0] or "").strip()
-    if not model_id:
-        return ""
-    return f"https://my.matterport.com/api/v2/player/models/{model_id}/thumb/"
-
-
 def _property_link_bundle_preview_image_url(
     *,
     media_urls: list[str] | tuple[str, ...],
@@ -14768,18 +11928,6 @@ def _property_link_bundle_preview_image_url(
     return _matterport_thumb_url(source_virtual_tour_url)
 
 
-def _property_tour_generated_preview_url(value: object) -> bool:
-    normalized = str(value or "").strip()
-    if not normalized:
-        return False
-    path = urllib.parse.urlparse(normalized).path.lower()
-    filename = Path(path).name
-    return (
-        filename.startswith("telegram-preview")
-        or filename.startswith("diorama-preview")
-    )
-
-
 def _hosted_property_tour_telegram_preview_image_url_for_style(tour_url: str, *, diorama_style_hint: str = "") -> str:
     try:
         return _hosted_property_tour_telegram_preview_image_url(
@@ -14790,77 +11938,6 @@ def _hosted_property_tour_telegram_preview_image_url_for_style(tour_url: str, *,
         if "diorama_style_hint" not in str(exc):
             raise
         return _hosted_property_tour_telegram_preview_image_url(tour_url)
-
-
-def _hosted_public_tour_asset_url(tour_url: str, *, slug: str, asset_relpath: str) -> str:
-    normalized_url = str(tour_url or "").strip()
-    safe_slug = str(slug or "").strip()
-    safe_relpath = str(asset_relpath or "").strip().lstrip("/")
-    if not normalized_url or not safe_slug or not safe_relpath:
-        return ""
-    parsed = urllib.parse.urlparse(normalized_url)
-    if not parsed.scheme or not parsed.netloc:
-        return ""
-    return urllib.parse.urlunparse(
-        (
-            parsed.scheme,
-            parsed.netloc,
-            f"/tours/files/{safe_slug}/{safe_relpath}",
-            "",
-            "",
-            "",
-        )
-    )
-
-
-def _hosted_property_tour_preview_image_url(tour_url: str) -> str:
-    normalized_url = str(tour_url or "").strip()
-    if not normalized_url:
-        return ""
-    parsed = urllib.parse.urlparse(normalized_url)
-    path_parts = [part for part in str(parsed.path or "").split("/") if part]
-    if len(path_parts) < 2 or path_parts[-2] != "tours":
-        return ""
-    slug = str(path_parts[-1] or "").strip()
-    if not slug:
-        return ""
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
-    bundle_dir = public_dir / slug
-    manifest_path = bundle_dir / "tour.json"
-    if not manifest_path.exists():
-        return ""
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        return ""
-    if not isinstance(payload, dict):
-        return ""
-
-    role_priority = {
-        "diorama": 0,
-        "generated_overview": 1,
-        "overview": 2,
-        "floorplan": 3,
-        "panorama_360": 4,
-    }
-    scenes = list(payload.get("scenes") or []) if isinstance(payload.get("scenes"), list) else []
-    ranked_scenes = sorted(
-        (scene for scene in scenes if isinstance(scene, dict)),
-        key=lambda scene: (
-            role_priority.get(str(scene.get("role") or "").strip().lower(), 10),
-            int(scene.get("ordinal") or 9999),
-        ),
-    )
-    for scene in ranked_scenes:
-        image_url = _safe_live_property_tour_url(str(scene.get("image_url") or "").strip())
-        if image_url and image_url.lower().split("?", 1)[0].endswith((".jpg", ".jpeg", ".png", ".webp")):
-            return image_url
-        asset_relpath = str(scene.get("asset_relpath") or "").strip()
-        if asset_relpath and asset_relpath.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
-            asset_path = (bundle_dir / asset_relpath).resolve()
-            if bundle_dir.resolve() in asset_path.parents and asset_path.exists() and asset_path.is_file():
-                return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=asset_relpath)
-    return ""
 
 
 def _compact_diorama_style_hint(value: str, *, max_length: int = 120) -> str:
@@ -28164,6 +25241,210 @@ class ProductService:
         refreshed["eligible_tour_total"] = eligible_total
         refreshed["hosted_tour_total"] = ready_total
         return refreshed
+
+    def _persist_property_search_visual_state(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        candidate_ref: str,
+        source_ref: str,
+        property_url: str,
+        visual_state: dict[str, object],
+    ) -> None:
+        normalized_run_id = str(run_id or "").strip()
+        normalized_principal = str(principal_id or "").strip()
+        normalized_candidate_ref = str(candidate_ref or "").strip()
+        normalized_source_ref = str(source_ref or "").strip()
+        normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        if not normalized_run_id or not normalized_principal:
+            return
+        snapshot = self._snapshot_property_search_run(
+            run_id=normalized_run_id,
+            principal_id=normalized_principal,
+        )
+        if not isinstance(snapshot, dict):
+            return
+        summary = dict(snapshot.get("summary") or {})
+        sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+        mutated = False
+        for source in sources:
+            source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
+            for key in ("top_candidates", "research_candidates"):
+                candidates = [dict(row) for row in list(source.get(key) or []) if isinstance(row, dict)]
+                updated_candidates: list[dict[str, object]] = []
+                for candidate in candidates:
+                    candidate_row = dict(candidate)
+                    candidate_row.setdefault("source_label", source_label)
+                    candidate_source_ref = str(candidate_row.get("source_ref") or "").strip()
+                    candidate_property_url = urllib.parse.urldefrag(str(candidate_row.get("property_url") or "").strip())[0]
+                    candidate_identity = hashlib.sha1(
+                        "|".join(
+                            (
+                                str(candidate_row.get("title") or "").strip(),
+                                candidate_property_url,
+                                str(candidate_row.get("review_url") or "").strip(),
+                                candidate_source_ref,
+                                source_label,
+                            )
+                        ).encode("utf-8")
+                    ).hexdigest()[:16]
+                    matches_candidate = bool(
+                        (normalized_candidate_ref and candidate_identity == normalized_candidate_ref)
+                        or (normalized_source_ref and candidate_source_ref == normalized_source_ref)
+                        or (normalized_property_url and candidate_property_url == normalized_property_url)
+                    )
+                    if matches_candidate:
+                        if str(visual_state.get("tour_url") or "").strip():
+                            candidate_row["tour_url"] = str(visual_state.get("tour_url") or "").strip()
+                            vendor_tour_url = str(visual_state.get("vendor_tour_url") or "").strip()
+                            if vendor_tour_url:
+                                candidate_row["vendor_tour_url"] = vendor_tour_url
+                        if str(visual_state.get("tour_status") or "").strip():
+                            candidate_row["tour_status"] = str(visual_state.get("tour_status") or "").strip()
+                        if str(visual_state.get("blocked_reason") or "").strip():
+                            candidate_row["blocked_reason"] = str(visual_state.get("blocked_reason") or "").strip()
+                        if str(visual_state.get("flythrough_url") or "").strip():
+                            candidate_row["flythrough_url"] = str(visual_state.get("flythrough_url") or "").strip()
+                        if str(visual_state.get("flythrough_status") or "").strip():
+                            candidate_row["flythrough_status"] = str(visual_state.get("flythrough_status") or "").strip()
+                        mutated = True
+                    updated_candidates.append(candidate_row)
+                source[key] = updated_candidates
+        if not mutated:
+            return
+        summary["sources"] = sources
+        summary["ranked_candidates"] = _property_search_ranked_candidates_from_sources(sources)
+        snapshot["summary"] = summary
+        snapshot["updated_at"] = _now_iso()
+        with _PROPERTY_SEARCH_RUN_LOCK:
+            _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = dict(snapshot)
+            persisted_state = dict(_PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id])
+        try:
+            _store_property_search_run_record(persisted_state)
+        except Exception:
+            pass
+
+    def request_property_visual_asset(
+        self,
+        *,
+        principal_id: str,
+        property_url: str,
+        request_kind: str = "tour",
+        recipient_email: str = "",
+        variant_key: str = "layout_first",
+        binding_id: str = "",
+        source_ref: str = "",
+        external_id: str = "",
+        run_id: str = "",
+        candidate_ref: str = "",
+        auto_deliver: bool = True,
+        allow_floorplan_only: bool = False,
+        actor: str = "",
+    ) -> dict[str, object]:
+        normalized_kind = str(request_kind or "tour").strip().lower() or "tour"
+        normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        normalized_source_ref = str(source_ref or normalized_property_url).strip()
+        base_result = self.create_willhaben_property_tour(
+            principal_id=principal_id,
+            property_url=normalized_property_url,
+            recipient_email=recipient_email,
+            variant_key=variant_key,
+            binding_id=binding_id,
+            source_ref=normalized_source_ref,
+            external_id=external_id,
+            auto_deliver=auto_deliver,
+            allow_floorplan_only=allow_floorplan_only,
+            actor=actor,
+        )
+        payload = dict(base_result or {})
+        payload["request_kind"] = normalized_kind
+        payload["run_id"] = str(run_id or "").strip()
+        payload["candidate_ref"] = str(candidate_ref or "").strip()
+        payload["source_ref"] = normalized_source_ref
+        title = str(payload.get("title") or normalized_property_url or "Property").strip()
+        tour_status = str(payload.get("status") or "").strip().lower()
+        flythrough_status = ""
+        flythrough_url = ""
+        status_label = ""
+        status_detail = ""
+        if normalized_kind == "flythrough":
+            if str(payload.get("tour_url") or payload.get("vendor_tour_url") or "").strip():
+                flythrough_result = self._maybe_render_property_scout_flythrough(
+                    principal_id=principal_id,
+                    actor=actor,
+                    title=title,
+                    property_url=normalized_property_url,
+                    source_ref=normalized_source_ref,
+                    tour_result=payload,
+                    property_facts={},
+                    fit_score=100.0,
+                    allow_below_threshold=True,
+                )
+                flythrough_url = str(flythrough_result.get("video_url") or "").strip()
+                flythrough_status = str(flythrough_result.get("status") or "").strip().lower()
+                payload["flythrough_url"] = flythrough_url
+                payload["flythrough_status"] = flythrough_status
+                if flythrough_url:
+                    status_label = "Flythrough ready"
+                    status_detail = "Flythrough is ready on this page."
+                elif flythrough_status in {"rendered", "existing"}:
+                    status_label = "Flythrough ready"
+                    status_detail = "Flythrough is ready on this page."
+                elif flythrough_status in {"queued", "pending"}:
+                    status_label = "Flythrough queued"
+                    status_detail = "Flythrough is queued and will appear here as soon as rendering starts."
+                elif flythrough_status in {"processing", "running", "in_progress", "started"}:
+                    status_label = "Flythrough rendering"
+                    status_detail = "Flythrough is rendering now and will appear here when it is ready."
+                else:
+                    payload["flythrough_status"] = "pending"
+                    status_label = "Flythrough queued"
+                    status_detail = "Flythrough request recorded. It will appear here after the 3D tour assets are ready."
+            elif tour_status in {"blocked", "failed", "skipped"}:
+                payload["flythrough_status"] = "blocked"
+                status_label = "Flythrough blocked"
+                status_detail = "More source material is still needed before this flythrough can be built."
+            else:
+                payload["flythrough_status"] = "pending"
+                status_label = "Flythrough queued"
+                status_detail = "Flythrough request recorded. It will appear here after the 3D tour assets are ready."
+        else:
+            payload["tour_status"] = tour_status or str(payload.get("tour_status") or "").strip().lower()
+            if str(payload.get("tour_url") or "").strip():
+                status_label = "3D tour ready"
+                status_detail = "3D tour is ready. Open it here."
+            elif payload["tour_status"] in {"queued", "pending"}:
+                status_label = "3D tour queued"
+                status_detail = "3D tour is queued and will appear here when it is ready."
+            elif payload["tour_status"] in {"processing", "running", "in_progress", "started"}:
+                status_label = "3D tour rendering"
+                status_detail = "3D tour is rendering now and will appear here when it is ready."
+            elif payload["tour_status"] in {"blocked", "failed", "skipped"}:
+                status_label = "3D tour blocked"
+                status_detail = "More source material is still needed before this 3D tour can be built."
+            else:
+                payload["tour_status"] = "pending"
+                status_label = "3D tour queued"
+                status_detail = "3D tour request recorded."
+        payload["status_label"] = status_label
+        payload["status_detail"] = status_detail
+        self._persist_property_search_visual_state(
+            principal_id=principal_id,
+            run_id=str(run_id or "").strip(),
+            candidate_ref=str(candidate_ref or "").strip(),
+            source_ref=normalized_source_ref,
+            property_url=normalized_property_url,
+            visual_state={
+                "tour_url": str(payload.get("tour_url") or "").strip(),
+                "vendor_tour_url": str(payload.get("vendor_tour_url") or "").strip(),
+                "tour_status": str(payload.get("tour_status") or payload.get("status") or "").strip().lower(),
+                "flythrough_url": str(payload.get("flythrough_url") or "").strip(),
+                "flythrough_status": str(payload.get("flythrough_status") or "").strip().lower(),
+                "blocked_reason": str(payload.get("blocked_reason") or "").strip(),
+            },
+        )
+        return payload
 
     def _maybe_advance_property_search_run_finalization(
         self,

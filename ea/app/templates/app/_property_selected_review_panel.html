@@ -1,0 +1,171 @@
+<section class="pqx-review" data-pqx-mobile-panel="property" data-workbench-dossier>
+  <div class="pqx-theater{% if not selected.get('tour', {}).get('embed_url') %} no-media{% endif %}" data-pq-theater>
+    <div class="pqx-theater-frame" data-pw-tour{% if not selected.get('tour', {}).get('embed_url') %} hidden{% endif %}>
+      {% if selected.get('tour', {}).get('embed_url') %}
+      <iframe src="{{ selected.get('tour', {}).get('embed_url') }}" title="Property 360 tour" loading="lazy" allowfullscreen></iframe>
+      {% endif %}
+    </div>
+    <div class="pqx-dossier">
+      <div class="pqx-dossier-head">
+        <div class="pqx-dossier-title">
+          <h1 data-pw-title>{{ selected.get('title') or 'Select a property' }}</h1>
+          <span data-pw-source>{{ selected.get('source_label') or 'No candidate selected' }}{% if selected.get('location_label') %} · {{ selected.get('location_label') }}{% endif %}</span>
+        </div>
+        <div class="pqx-dossier-summary" data-pw-summary-facts>
+          {% if selected.get('price_display') %}<span class="pqx-result-fact"><strong>{{ selected.get('price_display') }}</strong></span>{% endif %}
+          {% if selected.get('costs_display') %}<span class="pqx-result-fact">{{ selected.get('costs_display') }}</span>{% endif %}
+          {% if selected.get('layout_display') %}<span class="pqx-result-fact">{{ selected.get('layout_display') }}</span>{% endif %}
+          {% if selected.get('location_label') %}<span class="pqx-result-fact">{{ selected.get('location_label') }}</span>{% endif %}
+        </div>
+      </div>
+      <div class="pqx-context-actions" data-pw-actions>
+        {% if selected.get('tour', {}).get('url') %}<a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open 360</a>{% endif %}
+        {% if selected.get('packet_url') %}<a class="pqx-link-button{% if not selected.get('tour', {}).get('url') %} primary{% endif %}" href="{{ selected.get('packet_url') }}" data-rybbit-event="property_open_page" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open property page</a>{% endif %}
+        <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}" data-rybbit-event="property_share_home" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Share this home</button>
+      </div>
+      <details class="pqx-decision-advanced" style="margin-top:12px;">
+        <summary><strong>More actions</strong><span class="pqx-note">Open the source, share the shortlist, or request remote visuals only when you need them.</span></summary>
+        <div class="pqx-actions" style="margin-top:14px;">
+          {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}" target="_blank" rel="noreferrer" data-rybbit-event="property_open_listing" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open listing</a>{% endif %}
+          {% if not selected.get('tour', {}).get('url') and selected.get('property_url') %}
+          <button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="{{ selected.get('property_url') }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') or '' }}">Request 3D tour</button>
+          <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="{{ selected.get('property_url') }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') or '' }}">Request flythrough</button>
+          {% endif %}
+          <button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="property_share_results">Share results</button>
+        </div>
+        <div class="pqx-decision-status" data-pw-visual-request-status>{% if not selected.get('tour', {}).get('url') %}Need a remote view? Request a 3D tour or flythrough from the available source material.{% endif %}</div>
+      </details>
+    </div>
+  </div>
+  <div class="pqx-evidence">
+    <section class="pqx-card">
+      <div class="pqx-section-head"><h2>Current read</h2><span class="pqx-pill warn" data-pw-risk-level>{{ selected.get('risk', {}).get('level') or 'unknown' }}</span></div>
+      <div class="pqx-note">Use this as the short decision read before you contact the agent, request documents, or move on.</div>
+      <div class="pqx-event-list">
+        <div class="pqx-event-card"><strong>Why now</strong><span class="pqx-note" data-pw-ooda-summary>{{ selected.get('ooda', {}).get('summary') or selected.get('fit_summary') or 'This home stayed on the shortlist after the current fit pass.' }}</span></div>
+        <div class="pqx-event-card" data-pw-risk><strong>Risk</strong><span class="pqx-note">{{ selected.get('risk', {}).get('summary') or 'No risk summary captured yet.' }}</span></div>
+        <div class="pqx-event-card"><strong>Money</strong><span class="pqx-note" data-pw-investment>{{ selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Open the review details for cost checks when buy mode is active.' }}</span></div>
+        {% if selected.get('review_page_neuronwriter', {}).get('questions') %}
+        <div class="pqx-event-card"><strong>Ask next</strong><span class="pqx-note">{{ (selected.get('review_page_neuronwriter', {}).get('questions') or [])[:2]|join(' · ') }}</span></div>
+        {% endif %}
+      </div>
+    </section>
+    <section class="pqx-card pqx-decision-wizard">
+      <div class="pqx-section-head"><h2>Save your decision</h2><span class="pqx-pill">Decision</span></div>
+      <div class="pqx-decision-copy">Pick the answer that matches your real-world next step. Add only the reasons that matter.</div>
+      <div class="pqx-decision-row" aria-label="Property decision reaction">
+        <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="like">Yes</button>
+        <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="maybe">Maybe</button>
+        <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="dislike">No</button>
+        <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="hide">Hide</button>
+      </div>
+      <div class="pqx-decision-status" data-pw-feedback-status>Pick Yes, Maybe, No, or Hide.</div>
+      <div class="pqx-decision-detail" data-pw-decision-detail hidden>
+        <div class="pqx-decision-copy"><strong>What drove that?</strong> Pick the strongest reasons first. If the answer is No, these reduce similar matches next time.</div>
+        <div class="pqx-decision-reasons" data-pw-feedback-reasons></div>
+        <div class="pqx-decision-copy"><strong>Next question to send</strong></div>
+        <div class="pqx-event-list" data-pw-feedback-questions>
+          <div class="pqx-note">Loading the next suggested questions.</div>
+        </div>
+        <div class="pqx-decision-copy"><strong>This will</strong></div>
+        <div class="pqx-event-list" data-pw-feedback-consequences>
+          <div class="pqx-note">Update your future ranking and keep the next action visible.</div>
+        </div>
+        <textarea class="pqx-decision-note" rows="3" placeholder="What exactly worked, failed, or still needs proof?" data-pw-feedback-note></textarea>
+        <div class="pqx-actions">
+          <button class="pqx-button primary" type="button" data-pw-feedback-save>Save answer</button>
+          <a class="pqx-link-button subtle" href="/app/profile">Manage preferences</a>
+        </div>
+      </div>
+      <details class="pqx-decision-advanced">
+        <summary><strong>Next real-world step</strong><span class="pqx-note">Use this once the next move is clearer than another vote.</span></summary>
+        <div class="pqx-decision-copy"><strong>Decision state</strong> Move the property forward when the next real-world action is clearer than another like/dislike vote.</div>
+        <div class="pqx-actions">
+          <button class="pqx-button" type="button" data-pw-decision-state="viewing_requested">Viewing requested</button>
+          <button class="pqx-button" type="button" data-pw-decision-state="documents_requested">Documents requested</button>
+          <button class="pqx-button" type="button" data-pw-decision-state="offer_candidate">Offer candidate</button>
+          <button class="pqx-button" type="button" data-pw-decision-state="archived">Archived</button>
+        </div>
+        <div class="pqx-decision-status" data-pw-decision-state-status></div>
+      </details>
+    </section>
+    <details class="pqx-card">
+      <summary><strong>Optional context</strong><span class="pqx-note">Open only when you need deeper evidence or history.</span></summary>
+      {% if selected.get('object_rows') %}
+      <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
+        <div class="pqx-section-head"><h2>Property details</h2></div>
+        <div class="pqx-fact-grid">
+          {% for row in selected.get('object_rows') or [] %}
+          <div class="pqx-fact"><span>{{ row.get('label') }}</span><strong>{{ row.get('value') }}</strong></div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+      {% if selected.get('cost_rows') %}
+      <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
+        <div class="pqx-section-head"><h2>Costs</h2></div>
+        <div class="pqx-fact-grid">
+          {% for row in selected.get('cost_rows') or [] %}
+          <div class="pqx-fact"><span>{{ row.get('label') }}</span><strong>{{ row.get('value') }}</strong></div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+      {% if selected.get('feature_values') %}
+      <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
+        <div class="pqx-section-head"><h2>Features</h2></div>
+        <div class="pqx-result-facts">
+          {% for value in selected.get('feature_values') or [] %}
+          <span class="pqx-result-fact">{{ value }}</span>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+      <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
+        <div class="pqx-section-head"><h2>Why it made the shortlist</h2><span class="pqx-pill">{{ selected.get('fit_label') or 'Candidate' }}</span></div>
+        <div class="pqx-event-list" data-pw-match>
+          {% for reason in selected.get('match_reasons') or [] %}
+          <div class="pqx-event-card"><strong>For</strong><span class="pqx-note">{{ reason }}</span></div>
+          {% endfor %}
+          {% if not selected.get('match_reasons') %}<div class="pqx-note">No explicit match reason captured yet.</div>{% endif %}
+        </div>
+      </section>
+      {% if selected.get('location_text') %}
+      <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
+        <div class="pqx-section-head"><h2>Location & area</h2></div>
+        <div class="pqx-note">{{ selected.get('location_text') }}</div>
+      </section>
+      {% endif %}
+      {% if selected.get('description_text') %}
+      <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
+        <div class="pqx-section-head"><h2>Description</h2></div>
+        <div class="pqx-note">{{ selected.get('description_text') }}</div>
+      </section>
+      {% endif %}
+      {% if selected.get('energy_rows') %}
+      <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
+        <div class="pqx-section-head"><h2>Energy & heating</h2></div>
+        <div class="pqx-fact-grid">
+          {% for row in selected.get('energy_rows') or [] %}
+          <div class="pqx-fact"><span>{{ row.get('label') }}</span><strong>{{ row.get('value') }}</strong></div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+      <div class="pqx-event-list" data-pw-official-posture>
+        {% for row in selected.get('official_posture_rows') or [] %}
+        <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
+        {% endfor %}
+        {% for row in selected.get('official_evidence_rows') or [] %}
+        <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
+        {% endfor %}
+        {% for row in selected.get('followup_rows') or [] %}
+        <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ row.get('tag') }}</span></div>
+        {% endfor %}
+        {% for row in selected.get('timeline_rows') or [] %}
+        <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span></div>
+        {% endfor %}
+      </div>
+    </details>
+  </div>
+</section>

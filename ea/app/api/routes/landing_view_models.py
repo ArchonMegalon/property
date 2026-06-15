@@ -16,8 +16,31 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw
-
-from app.services.property_artifact_contracts import required_artifact_receipt_rows
+from app.api.routes.landing_property_saved_searches import (
+    build_agent_management_rows,
+    build_property_search_agents,
+    select_property_search_agent,
+)
+from app.api.routes.landing_property_workspace_helpers import (
+    _artifact_receipt_rows,
+    _compact_provider_label,
+    _delivery_proof_rows,
+    _group_property_provider_options,
+    _official_risk_posture_rows,
+    _property_candidate_directions_url,
+    _property_candidate_maps_url,
+    _property_candidate_orientation_preview,
+    _property_candidate_preview_image,
+    _property_candidate_route_evidence,
+    _property_counterfactual_rows,
+    _property_family_filters_active,
+    _property_market_filter_capabilities,
+    _property_progress_route_preview_rows,
+    _property_route_preview_path,
+    _property_search_guard_rows,
+    _property_search_worker_slots,
+    _property_suppression_rows,
+)
 
 
 def _csv_values(value: object) -> list[str]:
@@ -687,1225 +710,6 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
         "district_rows": district_rows,
         "district_overlay_svg": "",
     }
-
-
-def _property_candidate_maps_url(candidate: dict[str, object]) -> str:
-    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-    if isinstance(candidate.get("property_facts_json"), dict):
-        facts = {**facts, **dict(candidate.get("property_facts_json") or {})}
-    if isinstance(facts.get("listing_research_snapshot"), dict):
-        facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
-
-    def _text(*values: object) -> str:
-        return next((str(value or "").strip() for value in values if str(value or "").strip()), "")
-
-    lat = _text(facts.get("map_lat"), facts.get("lat"), facts.get("latitude"))
-    lng = _text(facts.get("map_lng"), facts.get("lng"), facts.get("lon"), facts.get("longitude"))
-    if lat and lng:
-        return f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(f'{lat},{lng}', safe=',')}"
-    address_lines = " ".join(str(item or "").strip() for item in list(facts.get("address_lines") or []) if str(item or "").strip())
-    query = _text(
-        facts.get("exact_address"),
-        facts.get("street_address"),
-        facts.get("address"),
-        address_lines,
-        facts.get("postal_name"),
-        facts.get("location"),
-        candidate.get("title"),
-    )
-    if not query:
-        return ""
-    return f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(query)}"
-
-
-def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: str) -> dict[str, object]:
-    normalized_plan = str(plan_key or "free").strip().lower() or "free"
-    slot_cap = {"free": 1, "plus": 3, "agent": 6}.get(normalized_plan, 1)
-    provider_workers = dict(run_summary.get("provider_workers") or {}) if isinstance(run_summary.get("provider_workers"), dict) else {}
-    configured_workers = max(1, int(provider_workers.get("worker_concurrency") or slot_cap or 1))
-    visible_workers = max(1, min(slot_cap, configured_workers))
-    source_rows = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
-
-    def _source_provider_group(source_row: dict[str, object]) -> str:
-        provider_family = str(source_row.get("provider_family") or "").strip().lower()
-        if provider_family:
-            return provider_family
-        platform = str(source_row.get("platform") or "").strip().lower()
-        if platform:
-            return platform
-        label = str(source_row.get("source_label") or source_row.get("label") or "").strip()
-        if "|" in label:
-            label = label.split("|", 1)[0].strip()
-        return label.casefold() or "provider"
-
-    def _source_progress(source_row: dict[str, object]) -> int:
-        raw_status = str(source_row.get("status") or source_row.get("state") or "").strip().lower()
-        if raw_status in {"completed", "processed", "done", "success"}:
-            return 100
-        if raw_status in {"failed", "error", "skipped"} or source_row.get("error"):
-            return 100
-        try:
-            explicit = int(float(str(source_row.get("progress") or "").strip()))
-        except Exception:
-            explicit = 0
-        if explicit > 0:
-            return max(0, min(explicit, 100))
-        if raw_status in {"running", "processing", "in_progress", "working", "warming"}:
-            return 58
-        if raw_status in {"queued", "pending", "starting"}:
-            return 18
-        return 10
-
-    def _source_status_label(source_row: dict[str, object]) -> str:
-        raw_status = str(source_row.get("status") or source_row.get("state") or "").strip().lower()
-        if raw_status in {"completed", "processed", "done", "success"}:
-            return "Done"
-        if raw_status in {"failed", "error"} or source_row.get("error"):
-            return "Needs retry"
-        if raw_status in {"running", "processing", "in_progress", "working", "warming"}:
-            return "Running"
-        if raw_status in {"queued", "pending", "starting"}:
-            return "Queued"
-        return "Queued"
-
-    active_sources = [
-        row for row in source_rows
-        if str(row.get("status") or row.get("state") or "").strip().lower() not in {"completed", "processed", "done", "success", "failed", "error", "skipped"}
-    ]
-    completed_sources = [
-        row for row in source_rows
-        if str(row.get("status") or row.get("state") or "").strip().lower() in {"completed", "processed", "done", "success"}
-    ]
-    queue = active_sources + completed_sources
-
-    diversified_queue: list[dict[str, object]] = []
-    seen_groups: set[str] = set()
-    duplicate_counts: dict[str, int] = {}
-    for source_row in queue:
-        group_key = _source_provider_group(source_row)
-        duplicate_counts[group_key] = duplicate_counts.get(group_key, 0) + 1
-        if group_key in seen_groups:
-            continue
-        seen_groups.add(group_key)
-        diversified_queue.append(source_row)
-    for source_row in queue:
-        group_key = _source_provider_group(source_row)
-        if any(_source_provider_group(existing) == group_key for existing in diversified_queue):
-            if source_row in diversified_queue:
-                continue
-        diversified_queue.append(source_row)
-    queue = diversified_queue
-
-    worker_rows: list[dict[str, object]] = []
-    for index in range(visible_workers):
-        source_row = queue[index] if index < len(queue) else {}
-        source_label = str(source_row.get("source_label") or source_row.get("label") or "").strip()
-        provider_group = _source_provider_group(source_row) if source_row else ""
-        shard_count = max(0, int(duplicate_counts.get(provider_group, 0)) - 1) if provider_group else 0
-        status_label = _source_status_label(source_row) if source_row else "Idle"
-        progress = _source_progress(source_row) if source_row else 0
-        worker_rows.append(
-            {
-                "label": f"W{index + 1}",
-                "provider": source_label or ("Waiting for a source" if active_sources or source_rows else "Stand by"),
-                "shard_count": shard_count,
-                "status_label": status_label,
-                "progress_pct": progress,
-                "tone": "done" if progress >= 100 and source_row else ("active" if status_label == "Running" else ("queued" if status_label == "Queued" else "idle")),
-            }
-        )
-
-    upgrade_copy = ""
-    if normalized_plan == "free":
-        upgrade_copy = "Upgrade to Plus for 3 search workers or Agent for 6."
-    elif normalized_plan == "plus":
-        upgrade_copy = "Upgrade to Agent for 6 search workers."
-
-    return {
-        "plan_key": normalized_plan,
-        "visible_workers": visible_workers,
-        "slot_cap": slot_cap,
-        "workers": worker_rows,
-        "upgrade_copy": upgrade_copy,
-        "tooltip": "Search workers handle source lanes in parallel. Faster tiers unlock more concurrent workers.",
-    }
-
-
-def _compact_provider_label(value: object) -> str:
-    text = " ".join(str(value or "").split()).strip()
-    if not text:
-        return "Provider"
-    if "|" in text:
-        text = text.split("|", 1)[0].strip()
-    return text or "Provider"
-
-
-def _property_candidate_directions_url(
-    candidate: dict[str, object],
-    *,
-    target_lat: object = "",
-    target_lng: object = "",
-    target_query: object = "",
-    mode: str = "walking",
-) -> str:
-    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-    if isinstance(candidate.get("property_facts_json"), dict):
-        facts = {**facts, **dict(candidate.get("property_facts_json") or {})}
-    if isinstance(facts.get("listing_research_snapshot"), dict):
-        facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
-
-    def _text(*values: object) -> str:
-        return next((str(value or "").strip() for value in values if str(value or "").strip()), "")
-
-    origin_lat = _text(facts.get("map_lat"), facts.get("lat"), facts.get("latitude"))
-    origin_lng = _text(facts.get("map_lng"), facts.get("lng"), facts.get("lon"), facts.get("longitude"))
-    address_lines = " ".join(str(item or "").strip() for item in list(facts.get("address_lines") or []) if str(item or "").strip())
-    origin = (
-        f"{origin_lat},{origin_lng}"
-        if origin_lat and origin_lng
-        else _text(facts.get("exact_address"), facts.get("street_address"), address_lines, facts.get("postal_name"), candidate.get("title"))
-    )
-    destination = f"{target_lat},{target_lng}" if _text(target_lat) and _text(target_lng) else _text(target_query)
-    if not origin or not destination:
-        return ""
-    travel_mode = mode if mode in {"walking", "transit", "driving", "bicycling"} else "walking"
-    return (
-        "https://www.google.com/maps/dir/?api=1"
-        f"&origin={urllib.parse.quote(origin, safe=',')}"
-        f"&destination={urllib.parse.quote(destination, safe=',')}"
-        f"&travelmode={urllib.parse.quote(travel_mode)}"
-    )
-
-
-def _property_family_filters_active(preferences: dict[str, object]) -> bool:
-    if bool(preferences.get("enable_family_mode")):
-        return True
-    school_stage_preferences = preferences.get("school_stage_preferences")
-    if isinstance(school_stage_preferences, (list, tuple, set)) and any(str(item).strip() for item in school_stage_preferences):
-        return True
-    keywords = {
-        str(value).strip().lower()
-        for value in str(preferences.get("keywords") or "").split(",")
-        if str(value).strip()
-    }
-    return bool(
-        {"family", "playground nearby", "library nearby", "public pool nearby", "medical care nearby"} & keywords
-    )
-
-
-def _property_candidate_route_evidence(
-    candidate: dict[str, object],
-    property_preferences: dict[str, object] | None = None,
-) -> list[dict[str, str]]:
-    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-    if isinstance(candidate.get("property_facts_json"), dict):
-        facts = {**facts, **dict(candidate.get("property_facts_json") or {})}
-    if isinstance(facts.get("listing_research_snapshot"), dict):
-        facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
-
-    family_filters_active = _property_family_filters_active(property_preferences or {})
-    specs = (
-        ("BOOK", "School", "nearest_school_m", "nearest_school_name", "nearest_school_lat", "nearest_school_lng", "transit", True),
-        ("CART", "Supermarket", "nearest_supermarket_m", "nearest_supermarket_name", "nearest_supermarket_lat", "nearest_supermarket_lng", "walking", False),
-        ("PLAY", "Playground", "nearest_playground_m", "nearest_playground_name", "nearest_playground_lat", "nearest_playground_lng", "walking", True),
-        ("RX", "Pharmacy", "nearest_pharmacy_m", "nearest_pharmacy_name", "nearest_pharmacy_lat", "nearest_pharmacy_lng", "walking", False),
-        ("U", "Transit", "nearest_subway_m", "nearest_subway_name", "nearest_subway_lat", "nearest_subway_lng", "transit", False),
-    )
-    rows: list[dict[str, str]] = []
-    for icon, label, distance_key, name_key, lat_key, lng_key, mode, family_only in specs:
-        if family_only and not family_filters_active:
-            continue
-        raw_distance = facts.get(distance_key)
-        if raw_distance in (None, "", []):
-            continue
-        try:
-            meters = int(float(raw_distance))
-        except Exception:
-            continue
-        place_name = str(facts.get(name_key) or label).strip() or label
-        row = {
-            "icon": icon,
-            "label": label,
-            "distance": f"{meters} m",
-            "detail": place_name,
-            "mode": mode,
-            "map_url": _property_candidate_directions_url(
-                candidate,
-                target_lat=facts.get(lat_key),
-                target_lng=facts.get(lng_key),
-                target_query=place_name,
-                mode=mode,
-            ),
-        }
-        rows.append(row)
-    return rows[:4]
-
-
-def _property_route_preview_path(
-    *,
-    origin_lat: object = "",
-    origin_lng: object = "",
-    target_lat: object = "",
-    target_lng: object = "",
-) -> str:
-    def _float(value: object) -> float | None:
-        try:
-            return float(str(value or "").strip())
-        except Exception:
-            return None
-
-    start_x = 12.0
-    start_y = 56.0
-    end_x = 132.0
-    end_y = 18.0
-    o_lat = _float(origin_lat)
-    o_lng = _float(origin_lng)
-    t_lat = _float(target_lat)
-    t_lng = _float(target_lng)
-    if all(value is not None for value in (o_lat, o_lng, t_lat, t_lng)):
-        lat_delta = max(-1.0, min(1.0, (t_lat or 0.0) - (o_lat or 0.0)))
-        lng_delta = max(-1.0, min(1.0, (t_lng or 0.0) - (o_lng or 0.0)))
-        end_y = max(12.0, min(60.0, 38.0 - lat_delta * 18.0))
-        control_1_y = max(10.0, min(60.0, 52.0 - lat_delta * 10.0))
-        control_2_y = max(10.0, min(60.0, 24.0 - lat_delta * 8.0))
-        control_1_x = max(30.0, min(58.0, 42.0 + lng_delta * 12.0))
-        control_2_x = max(82.0, min(110.0, 96.0 + lng_delta * 12.0))
-    else:
-        control_1_x = 42.0
-        control_1_y = 48.0
-        control_2_x = 96.0
-        control_2_y = 24.0
-    return (
-        f"M {start_x:.1f} {start_y:.1f} "
-        f"C {control_1_x:.1f} {control_1_y:.1f}, {control_2_x:.1f} {control_2_y:.1f}, {end_x:.1f} {end_y:.1f}"
-    )
-
-
-def _property_progress_route_preview_rows(
-    *,
-    run_summary: dict[str, object],
-    property_preferences: dict[str, object],
-) -> list[dict[str, str]]:
-    ranked_candidates = [
-        dict(row)
-        for row in list(run_summary.get("ranked_candidates") or [])
-        if isinstance(row, dict)
-    ]
-    if not ranked_candidates:
-        return []
-    candidate = ranked_candidates[0]
-    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-    if isinstance(candidate.get("property_facts_json"), dict):
-        facts = {**facts, **dict(candidate.get("property_facts_json") or {})}
-    if isinstance(facts.get("listing_research_snapshot"), dict):
-        facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
-
-    origin_lat = facts.get("map_lat") or facts.get("lat") or facts.get("latitude")
-    origin_lng = facts.get("map_lng") or facts.get("lng") or facts.get("lon") or facts.get("longitude")
-    rows: list[dict[str, str]] = []
-    family_filters_active = _property_family_filters_active(property_preferences)
-
-    commute_destination = str(property_preferences.get("commute_destination") or "").strip()
-    if bool(property_preferences.get("enable_commute_research")) and commute_destination:
-        commute_specs = (
-            ("transit", "Transit", int(property_preferences.get("max_commute_minutes_transit") or 0)),
-            ("driving", "Car", int(property_preferences.get("max_commute_minutes_drive") or 0)),
-            ("bicycling", "Bike", int(property_preferences.get("max_commute_minutes_bike") or 0)),
-            ("walking", "Foot", int(property_preferences.get("max_commute_minutes_walk") or 0)),
-        )
-        selected_mode, mode_label, mode_minutes = next(
-            ((mode, label, minutes) for mode, label, minutes in commute_specs if minutes > 0),
-            ("transit", "Transit", 0),
-        )
-        detail = (
-            f"{mode_label} <= {mode_minutes} min"
-            if mode_minutes > 0
-            else f"{mode_label} route from the property"
-        )
-        rows.append(
-            {
-                "title": commute_destination,
-                "label": "Your route",
-                "detail": detail,
-                "mode_label": mode_label,
-                "map_url": _property_candidate_directions_url(
-                    candidate,
-                    target_query=commute_destination,
-                    mode=selected_mode,
-                ),
-                "preview_path": _property_route_preview_path(
-                    origin_lat=origin_lat,
-                    origin_lng=origin_lng,
-                ),
-            }
-        )
-
-    route_specs = (
-        ("School", "nearest_school_m", "nearest_school_name", "nearest_school_lat", "nearest_school_lng", "transit", True),
-        ("Supermarket", "nearest_supermarket_m", "nearest_supermarket_name", "nearest_supermarket_lat", "nearest_supermarket_lng", "walking", False),
-        ("Playground", "nearest_playground_m", "nearest_playground_name", "nearest_playground_lat", "nearest_playground_lng", "walking", True),
-        ("Pharmacy", "nearest_pharmacy_m", "nearest_pharmacy_name", "nearest_pharmacy_lat", "nearest_pharmacy_lng", "walking", False),
-        ("Underground", "nearest_subway_m", "nearest_subway_name", "nearest_subway_lat", "nearest_subway_lng", "transit", False),
-    )
-    for label, distance_key, name_key, lat_key, lng_key, mode, family_only in route_specs:
-        if family_only and not family_filters_active:
-            continue
-        raw_distance = facts.get(distance_key)
-        if raw_distance in (None, "", []):
-            continue
-        try:
-            meters = int(float(raw_distance))
-        except Exception:
-            continue
-        place_name = str(facts.get(name_key) or label).strip() or label
-        rows.append(
-            {
-                "title": place_name,
-                "label": label,
-                "detail": f"{meters} m from the property",
-                "mode_label": "Transit" if mode == "transit" else "Walk",
-                "map_url": _property_candidate_directions_url(
-                    candidate,
-                    target_lat=facts.get(lat_key),
-                    target_lng=facts.get(lng_key),
-                    target_query=place_name,
-                    mode=mode,
-                ),
-                "preview_path": _property_route_preview_path(
-                    origin_lat=origin_lat,
-                    origin_lng=origin_lng,
-                    target_lat=facts.get(lat_key),
-                    target_lng=facts.get(lng_key),
-                ),
-            }
-        )
-        if len(rows) >= 3:
-            break
-    return rows[:3]
-
-
-def _property_candidate_preview_image(candidate: dict[str, object]) -> str:
-    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-    for key in (
-        "preview_image_url",
-        "thumbnail_url",
-        "image_url",
-        "hero_image_url",
-    ):
-        value = str(candidate.get(key) or facts.get(key) or "").strip()
-        if value.startswith(("https://", "/")) and "diorama-preview" not in value and "telegram-preview" not in value:
-            return value
-    for key in ("media_urls_json", "photo_urls_json", "image_urls_json"):
-        values = facts.get(key) or candidate.get(key)
-        if isinstance(values, (list, tuple)):
-            for value in values:
-                normalized = str(value or "").strip()
-                if normalized.startswith(("https://", "/")):
-                    return normalized
-    return ""
-
-
-def _property_candidate_orientation_preview(candidate: dict[str, object]) -> dict[str, str]:
-    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-    label = str(facts.get("postal_name") or facts.get("city") or facts.get("address") or "Wider area").strip() or "Wider area"
-    try:
-        lat = float(facts.get("map_lat") or facts.get("lat") or 0.0)
-    except Exception:
-        lat = 0.0
-    try:
-        lng = float(facts.get("map_lng") or facts.get("lng") or 0.0)
-    except Exception:
-        lng = 0.0
-    map_url = str(candidate.get("map_url") or "").strip() or _property_candidate_maps_url(candidate)
-    if not (lat or lng):
-        geocoded = _forward_geocode_preview_point(label)
-        if geocoded:
-            lat, lng = geocoded
-    if lat or lng:
-        image_url = _openstreetmap_static_preview_data_url(int(round(lat * 10000.0)), int(round(lng * 10000.0)))
-    else:
-        svg = (
-            '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="368" viewBox="0 0 320 184" role="img" aria-label="Area map preview">'
-            '<rect width="320" height="184" rx="18" fill="#ddd3c1"/>'
-            '<rect x="12" y="12" width="296" height="160" rx="14" fill="#f4efe5" stroke="#c6baa7"/>'
-            '<path d="M16 128 C54 104, 86 110, 120 96 S188 70, 236 58 S276 34, 304 22" fill="none" stroke="#cfc4b3" stroke-width="10" stroke-linecap="round"/>'
-            '<path d="M26 42 C64 52, 98 42, 134 50 S210 66, 300 48" fill="none" stroke="#ddd5c6" stroke-width="6" stroke-linecap="round"/>'
-            '<path d="M32 156 C68 144, 98 148, 134 136 S210 114, 292 126" fill="none" stroke="#d6cbbb" stroke-width="7" stroke-linecap="round"/>'
-            '</svg>'
-        )
-        image_url = f"data:image/svg+xml;utf8,{urllib.parse.quote(svg, safe='/:;,+-=()%')}"
-    alt = f"Wider area around {label}"
-    caption = "Open a larger area map"
-    return {
-        "image_url": image_url,
-        "alt": alt,
-        "title": label,
-        "caption": caption,
-        "map_url": map_url,
-    }
-
-
-def _first_fact_text(facts: dict[str, object], *keys: str) -> str:
-    for key in keys:
-        value = facts.get(key)
-        if value in (None, "", []):
-            continue
-        text = str(value).strip()
-        if text:
-            return text
-    return ""
-
-
-def _bool_fact_text(facts: dict[str, object], *keys: str, label: str) -> str:
-    for key in keys:
-        value = facts.get(key)
-        if isinstance(value, bool):
-            return label if value else ""
-        text = str(value).strip().lower()
-        if text in {"1", "true", "yes", "ja", "available", "present"}:
-            return label
-    return ""
-
-
-def _candidate_detail_sections(facts: dict[str, object]) -> dict[str, object]:
-    object_rows = [
-        ("Type", _first_fact_text(facts, "object_type", "property_type", "asset_type")),
-        ("Building", _first_fact_text(facts, "building_type", "bautyp")),
-        ("Condition", _first_fact_text(facts, "condition", "zustand")),
-        ("Living area", _first_fact_text(facts, "area_display", "area_label") or (f"{facts.get('area_m2') or facts.get('area_sqm')} m2" if (facts.get("area_m2") or facts.get("area_sqm")) else "")),
-        ("Rooms", _first_fact_text(facts, "rooms_display") or str(facts.get("rooms") or "").strip()),
-        ("Floor", _first_fact_text(facts, "floor", "floor_label", "stockwerk")),
-        ("Available", _first_fact_text(facts, "available_from", "available", "verfuegbar", "verfügbar")),
-        ("Term", _first_fact_text(facts, "lease_term", "befristung")),
-        ("Heating", _first_fact_text(facts, "heating", "heating_type")),
-    ]
-    cost_rows = [
-        ("Rent / price", _first_fact_text(facts, "price_display", "rent_display")),
-        ("Operating costs", _first_fact_text(facts, "operating_costs_display", "operating_costs_monthly_display")),
-        ("Additional costs", _first_fact_text(facts, "additional_costs_display", "side_costs_display", "service_charges_display")),
-        ("Deposit", _first_fact_text(facts, "deposit_display", "kaution_display")),
-        ("Commission", _first_fact_text(facts, "commission_display", "maklerprovision_display")),
-    ]
-    feature_values = [
-        _bool_fact_text(facts, "has_fitted_kitchen", "kitchen", label="Kitchen"),
-        _bool_fact_text(facts, "has_cellar", "cellar", "keller", label="Cellar"),
-        _bool_fact_text(facts, "has_garage", "garage", label="Garage"),
-        _bool_fact_text(facts, "barrier_free", "accessible", label="Barrier-free"),
-        _bool_fact_text(facts, "furnished", "has_furniture", label="Furnished"),
-        _bool_fact_text(facts, "has_lift", "lift", "elevator", label="Lift"),
-        _bool_fact_text(facts, "has_parking", "parking", label="Parking"),
-        _bool_fact_text(facts, "has_storage_room", "storage_room", "abstellraum", label="Storage room"),
-        _bool_fact_text(facts, "has_balcony", "balcony", label="Balcony"),
-        _bool_fact_text(facts, "has_terrace", "terrace", label="Terrace"),
-        _bool_fact_text(facts, "has_garden", "garden", label="Garden"),
-        _bool_fact_text(facts, "has_loggia", "loggia", label="Loggia"),
-    ]
-    description_text = _first_fact_text(facts, "description", "object_description", "listing_description", "summary")
-    location_text = _first_fact_text(facts, "location_description", "lage", "neighborhood_description", "micro_location_summary")
-    energy_rows = [
-        ("HWB", _first_fact_text(facts, "hwb", "hwb_kwh_m2_year")),
-        ("HWB class", _first_fact_text(facts, "hwb_class", "hwb_energieklasse")),
-        ("fGEE", _first_fact_text(facts, "f_gee", "fgee")),
-        ("fGEE class", _first_fact_text(facts, "f_gee_class", "fgee_energieklasse")),
-        ("Heating", _first_fact_text(facts, "heating", "heating_type")),
-    ]
-    return {
-        "object_rows": [{"label": label, "value": value} for label, value in object_rows if str(value or "").strip()],
-        "cost_rows": [{"label": label, "value": value} for label, value in cost_rows if str(value or "").strip()],
-        "feature_values": [value for value in feature_values if value],
-        "description_text": description_text,
-        "location_text": location_text,
-        "energy_rows": [{"label": label, "value": value} for label, value in energy_rows if str(value or "").strip()],
-    }
-
-
-def _group_property_provider_options(options: list[dict[str, object]]) -> list[dict[str, object]]:
-    family_order = {
-        "marketplace": 0,
-        "core_portal": 0,
-        "classified": 0,
-        "shared_housing": 1,
-        "corporate_landlord": 2,
-        "municipal_housing": 3,
-        "broker_direct": 1,
-        "cooperative": 2,
-        "public_housing": 3,
-        "developer_projects": 4,
-        "distressed_sales": 5,
-        "community_signals": 6,
-        "community_meta": 7,
-    }
-    family_headings = {
-        "marketplace": ("Core marketplaces", "Primary broad-market search lanes for this country."),
-        "core_portal": ("Core portals", "Primary broad-market search lanes for this country."),
-        "classified": ("Classifieds", "Private and long-tail inventory with weaker structure and more duplicate risk."),
-        "shared_housing": ("Shared housing", "Rooms, WG, sublet, and student-friendly sources that should not pollute standard family-home search."),
-        "corporate_landlord": ("Direct landlords", "Large landlord-direct inventory that often carries better availability and operating details."),
-        "municipal_housing": ("Municipal housing", "City-owned or public-sector housing supply with eligibility and application rules."),
-        "broker_direct": ("Broker direct", "Broker-owned inventory and direct source lanes."),
-        "cooperative": ("Cooperatives", "Genossenschaften and cooperative housing sources."),
-        "public_housing": ("Public housing", "Municipal and public-housing-adjacent sources."),
-        "developer_projects": ("Developer projects", "New-build and launch pipeline sources."),
-        "distressed_sales": ("Court and auction", "Court-published and auction-style listings that need extra legal review."),
-        "community_signals": ("Community signals", "Facebook, Telegram, and other weakly verified off-market hints."),
-        "community_meta": ("Watch-tier meta", "Long-tail meta or watch-tier sources with lower trust."),
-    }
-    grouped: dict[str, list[dict[str, object]]] = {}
-    for option in options:
-        family = str(option.get("family") or "marketplace").strip() or "marketplace"
-        grouped.setdefault(family, []).append(option)
-    rows: list[dict[str, object]] = []
-    for family, items in sorted(grouped.items(), key=lambda pair: (family_order.get(pair[0], 99), pair[0])):
-        title, detail = family_headings.get(
-            family,
-            (str(family).replace("_", " ").title(), "Grouped by source family for a cleaner market setup."),
-        )
-        rows.append(
-            {
-                "key": family,
-                "title": title,
-                "detail": detail,
-                "options": sorted(
-                    items,
-                    key=lambda item: (
-                        str(item.get("trust_tier") or "").strip() != "trusted",
-                        str(item.get("trust_tier") or "").strip() == "watch",
-                        str(item.get("label") or "").strip().lower(),
-                    ),
-                ),
-            }
-        )
-    return rows
-
-
-def _property_market_filter_capabilities(country_code: str, region_code: str) -> dict[str, bool]:
-    country = str(country_code or "").strip().upper() or "AT"
-    region = str(region_code or "").strip().lower()
-    defaults: dict[str, bool] = {"family_zoo": True}
-    if country == "AT":
-        regional = {
-            "vienna": {"family_zoo": True},
-            "salzburg": {"family_zoo": True},
-            "styria": {"family_zoo": True},
-            "upper_austria": {"family_zoo": False},
-            "lower_austria": {"family_zoo": False},
-            "burgenland": {"family_zoo": False},
-            "carinthia": {"family_zoo": False},
-            "tyrol": {"family_zoo": False},
-            "vorarlberg": {"family_zoo": False},
-        }
-        return {**defaults, **regional.get(region, {"family_zoo": False})}
-    if country == "DE":
-        regional = {
-            "berlin": {"family_zoo": True},
-            "hamburg": {"family_zoo": True},
-            "munich": {"family_zoo": True},
-            "cologne": {"family_zoo": True},
-            "frankfurt": {"family_zoo": True},
-        }
-        return {**defaults, **regional.get(region, defaults)}
-    if country in {"UK", "FR", "ES", "IT", "NL", "BE", "CH"}:
-        return defaults
-    return defaults
-
-
-def _provider_quality_rows(
-    source_rows: list[dict[str, object]],
-    provider_options: list[dict[str, object]],
-) -> list[dict[str, str]]:
-    option_map = {
-        str(option.get("value") or "").strip().lower(): dict(option)
-        for option in provider_options
-        if str(option.get("value") or "").strip()
-    }
-    best_use_labels = {
-        "marketplace": "broad market coverage",
-        "core_portal": "broad market coverage",
-        "classified": "private and weak-signal discovery",
-        "shared_housing": "rooms, student, and sublet search",
-        "corporate_landlord": "structured landlord-direct inventory",
-        "municipal_housing": "public and eligibility-gated housing",
-        "broker_direct": "high-signal direct inventory",
-        "cooperative": "cooperative and family housing",
-        "public_housing": "municipal and public lanes",
-        "developer_projects": "new-build pipeline",
-        "distressed_sales": "court and auction scans",
-        "community_signals": "weak-signal off-market leads",
-        "community_meta": "watch-tier long tail",
-    }
-    rows: list[dict[str, str]] = []
-    for raw in source_rows[:8]:
-        if not isinstance(raw, dict):
-            continue
-        platform = str(raw.get("platform") or "").strip().lower()
-        option = option_map.get(platform, {})
-        label = str(option.get("label") or raw.get("source_label") or platform or "Provider").strip() or "Provider"
-        family = str(raw.get("provider_family") or option.get("family") or "marketplace").strip().lower() or "marketplace"
-        trust = str(raw.get("provider_trust_tier") or option.get("trust_tier") or "standard").strip().lower() or "standard"
-        scanned_total = 0
-        shortlist_total = 0
-        floorplan_filtered_total = 0
-        review_total = 0
-        tour_total = 0
-        repair_opened_total = 0
-        repair_existing_total = 0
-        repair_task_total = 0
-        try:
-            scanned_total = max(int(float(raw.get("scanned_listing_total") or raw.get("listing_total") or 0)), 0)
-            shortlist_total = max(int(float(raw.get("high_fit_total") or 0)), 0)
-            floorplan_filtered_total = max(int(float(raw.get("filtered_floorplan_total") or 0)), 0)
-            review_total = max(int(float(raw.get("review_created_total") or 0)) + int(float(raw.get("review_existing_total") or 0)), 0)
-            tour_total = max(int(float(raw.get("tour_created_total") or 0)) + int(float(raw.get("tour_existing_total") or 0)), 0)
-            repair_opened_total = max(int(float(raw.get("provider_repair_task_opened_total") or 0)), 0)
-            repair_existing_total = max(int(float(raw.get("provider_repair_task_existing_total") or 0)), 0)
-            repair_task_total = repair_opened_total + repair_existing_total
-        except Exception:
-            pass
-        high_fit_rate = f"{round((shortlist_total / scanned_total) * 100)}%" if scanned_total else "n/a"
-        floorplan_completeness = f"{round(max(0.0, 1.0 - (floorplan_filtered_total / scanned_total)) * 100)}%" if scanned_total else "n/a"
-        tour_success = f"{round((tour_total / review_total) * 100)}%" if review_total else ("0%" if shortlist_total else "n/a")
-        detail_parts = [
-            f"{shortlist_total} shortlisted",
-            f"{high_fit_rate} high-fit rate",
-            f"{floorplan_completeness} floorplan completeness",
-            f"{tour_success} tour readiness",
-            f"best for {best_use_labels.get(family, family.replace('_', ' '))}",
-        ]
-        if floorplan_filtered_total:
-            detail_parts.append(f"{floorplan_filtered_total} layout check{'s' if floorplan_filtered_total != 1 else ''} still unverified")
-        rows.append(
-            {
-                "title": label,
-                "detail": " | ".join(detail_parts),
-                "tag": f"{trust.title()} · {family.replace('_', ' ').title()}",
-            }
-        )
-    if not rows:
-        rows.append(
-            {
-                "title": "Provider quality will appear after the first run",
-                "detail": "Search at least one source before PropertyQuarry can compare shortlist yield, layout proof, and tour readiness.",
-                "tag": "Waiting",
-            }
-        )
-    return rows
-
-
-def _property_search_guard_rows(
-    *,
-    preferences: dict[str, object],
-    run_summary: dict[str, object],
-    source_rows: list[dict[str, object]],
-) -> list[dict[str, str]]:
-    target_parts = [
-        str(preferences.get("location_query") or "").strip(),
-        str(preferences.get("region_code") or "").strip().replace("_", " ").title(),
-        str(preferences.get("country_code") or "").strip().upper(),
-    ]
-    target_label = " · ".join(dict.fromkeys(part for part in target_parts if part))
-    rows: list[dict[str, str]] = [
-        {
-            "title": "Target area guard",
-            "detail": (
-                f"Target: {target_label}. Outside-area candidates are suppressed before any filter-relaxation prompt."
-                if target_label
-                else "No narrow target area is set. Country-wide or broad-region results may appear."
-            ),
-            "tag": "Location",
-        }
-    ]
-    outside_total = 0
-    weak_filter_sources: list[str] = []
-    no_plan_total = 0
-    for source in source_rows:
-        try:
-            outside_total += max(int(float(source.get("location_mismatch_candidate_total") or 0)), 0)
-        except Exception:
-            pass
-        try:
-            no_plan_total += max(int(float(source.get("filtered_floorplan_total") or 0)), 0)
-        except Exception:
-            pass
-        pushdown = dict(source.get("provider_filter_pushdown") or {}) if isinstance(source.get("provider_filter_pushdown"), dict) else {}
-        if str(pushdown.get("filter_strength") or "").strip() == "weak_search_then_post_filter":
-            weak_filter_sources.append(str(source.get("source_label") or source.get("platform") or "Provider").strip())
-    if outside_total:
-        rows.append(
-            {
-                "title": "Outside-area results suppressed",
-                "detail": f"{outside_total} candidate{' was' if outside_total == 1 else 's were'} rejected before ranking because the provider returned locations outside the selected area.",
-                "tag": "Suppressed",
-            }
-        )
-    held_back = 0
-    try:
-        held_back = max(int(float(run_summary.get("notification_budget_suppressed_total") or 0)), 0)
-    except Exception:
-        held_back = 0
-    if held_back:
-        rows.append(
-            {
-                "title": "Alert budget applied",
-                "detail": f"{held_back} lower-ranked candidate{' was' if held_back == 1 else 's were'} kept in the table instead of sent as messages.",
-                "tag": "Messages",
-            }
-        )
-    if weak_filter_sources:
-        rows.append(
-            {
-                "title": "Source filters are limited",
-                "detail": f"{', '.join(weak_filter_sources[:3])} could not apply every filter directly, so PropertyQuarry checked the listings after reading them.",
-                "tag": "Source",
-            }
-        )
-    if no_plan_total:
-        rows.append(
-            {
-                "title": "Layout proof rule",
-                "detail": f"{no_plan_total} candidate{' still needs' if no_plan_total == 1 else 's still need'} verified layout evidence.",
-                "tag": "Evidence",
-            }
-        )
-    return rows[:5]
-
-
-def _property_suppression_rows(
-    *,
-    run_summary: dict[str, object],
-    source_rows: list[dict[str, object]],
-) -> list[dict[str, object]]:
-    counters = {
-        "Outside selected area": 0,
-        "Missing floorplan evidence": 0,
-        "Below fit threshold": 0,
-        "Outside area/size rule": 0,
-        "Availability mismatch": 0,
-        "Alert budget": 0,
-    }
-    source_labels: dict[str, set[str]] = {key: set() for key in counters}
-    field_map = (
-        ("Outside selected area", "location_mismatch_candidate_total"),
-        ("Missing floorplan evidence", "filtered_floorplan_total"),
-        ("Below fit threshold", "filtered_low_fit_total"),
-        ("Outside area/size rule", "filtered_area_total"),
-        ("Availability mismatch", "filtered_availability_total"),
-        ("Alert budget", "notification_budget_suppressed_total"),
-    )
-    for source in source_rows:
-        source_label = str(source.get("source_label") or source.get("platform") or "Provider").strip() or "Provider"
-        for label, field_name in field_map:
-            try:
-                value = max(int(float(source.get(field_name) or 0)), 0)
-            except Exception:
-                value = 0
-            if value:
-                counters[label] += value
-                source_labels[label].add(source_label)
-    try:
-        summary_budget = max(int(float(run_summary.get("notification_budget_suppressed_total") or 0)), 0)
-    except Exception:
-        summary_budget = 0
-    if summary_budget > counters["Alert budget"]:
-        counters["Alert budget"] = summary_budget
-    action_map = {
-        "Outside selected area": "Add nearby homes with a controlled radius instead of opening the whole city.",
-        "Missing floorplan evidence": "These are not invalid. PropertyQuarry is still looking for floorplans in photos, PDFs, downloads, and 360 media.",
-        "Below fit threshold": "Lower the fit threshold only for a broader discovery run.",
-        "Outside area/size rule": "Relax area limits only after reviewing the near-miss table.",
-        "Availability mismatch": "Adjust timing if move-in date is flexible.",
-        "Alert budget": "Increase daily/weekly message limits or review the held-back table.",
-    }
-    rows: list[dict[str, str]] = []
-    for label, total in counters.items():
-        if total <= 0:
-            continue
-        display_title = "Add adjacent-district homes" if label == "Outside selected area" else label
-        providers = ", ".join(sorted(source_labels[label])[:3])
-        rows.append(
-            {
-                "title": display_title,
-                "rule_key": label,
-                "detail": f"{total} candidate{' was' if total == 1 else 's were'} filtered out. {action_map[label]}",
-                "tag": providers or "Search rule",
-                "affected_total": total,
-                "action_label": {
-                    "Outside selected area": "Tune nearby radius",
-                    "Missing floorplan evidence": "Recover floorplans",
-                    "Below fit threshold": "Show near misses",
-                    "Outside area/size rule": "Relax size",
-                    "Availability mismatch": "Edit timing",
-                    "Alert budget": "Edit alert budget",
-                }.get(label, "Review rule"),
-            }
-        )
-    return rows[:8]
-
-
-def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]:
-    neuronwriter_statuses: list[str] = []
-    for key in (
-        "dossier_writer_neuronwriter_status",
-        "notification_neuronwriter_status",
-        "review_page_neuronwriter_status",
-    ):
-        value = str(run_summary.get(key) or "").strip()
-        if value:
-            neuronwriter_statuses.append(value)
-    for source in list(run_summary.get("sources") or []):
-        if not isinstance(source, dict):
-            continue
-        for key in (
-            "dossier_writer_neuronwriter_status",
-            "notification_neuronwriter_status",
-            "review_page_neuronwriter_status",
-        ):
-            value = str(source.get(key) or "").strip()
-            if value:
-                neuronwriter_statuses.append(value)
-    normalized_neuronwriter_statuses = sorted(set(neuronwriter_statuses))
-    if normalized_neuronwriter_statuses:
-        neuronwriter_detail = "Editorial pass status: " + ", ".join(normalized_neuronwriter_statuses)
-        neuronwriter_tag = "Checked"
-    else:
-        neuronwriter_detail = "Dossiers, review pages, email, and Telegram notifications use the redacted NeuronWriter editorial lane when the integration is configured; private facts remain claim-bound."
-        neuronwriter_tag = "Required"
-    try:
-        telegram_sent = max(int(float(run_summary.get("telegram_sent_total") or run_summary.get("notified_total") or 0)), 0)
-    except Exception:
-        telegram_sent = 0
-    try:
-        tour_total = max(int(float(run_summary.get("tour_created_total") or 0)) + int(float(run_summary.get("tour_existing_total") or 0)), 0)
-    except Exception:
-        tour_total = 0
-    try:
-        packet_total = max(int(float(run_summary.get("packet_created_total") or run_summary.get("review_created_total") or 0)), 0)
-    except Exception:
-        packet_total = 0
-    return [
-        {
-            "title": "Writing quality check",
-            "detail": neuronwriter_detail,
-            "tag": neuronwriter_tag,
-        },
-        {
-            "title": "Message links",
-            "detail": "Messages render links as titled buttons or titled HTML links, so raw full URLs are not visible in chat copy.",
-            "tag": "Hard gate",
-        },
-        {
-            "title": "Generated files",
-            "detail": f"{packet_total} packet receipts, {tour_total} tour receipts, {telegram_sent} Telegram notification receipts summarized for this run.",
-            "tag": "Visible proof",
-        },
-    ]
-
-
-def _artifact_receipt_rows(run_summary: dict[str, object]) -> list[dict[str, str]]:
-    rows = [dict(row) for row in required_artifact_receipt_rows()]
-    try:
-        telegram_sent = max(int(float(run_summary.get("telegram_sent_total") or run_summary.get("notified_total") or 0)), 0)
-    except Exception:
-        telegram_sent = 0
-    try:
-        tour_total = max(int(float(run_summary.get("tour_created_total") or 0)) + int(float(run_summary.get("tour_existing_total") or 0)), 0)
-    except Exception:
-        tour_total = 0
-    try:
-        flythrough_total = max(int(float(run_summary.get("flythrough_rendered_total") or 0)) + int(float(run_summary.get("flythrough_existing_total") or 0)), 0)
-    except Exception:
-        flythrough_total = 0
-    rows.append(
-        {
-            "title": "Current run receipts",
-            "detail": f"{tour_total} 3D tour receipts, {flythrough_total} fly-through receipts, {telegram_sent} Telegram sends recorded in this run summary.",
-            "tag": "Run proof",
-        }
-    )
-    return rows
-
-
-def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, str]]:
-    rows = [dict(row) for row in list(official.get("sources") or []) if isinstance(row, dict)]
-    if not rows:
-        return []
-    total = len(rows)
-    official_total = 0
-    partial_total = 0
-    gap_total = 0
-    flagged_total = 0
-    review_total = 0
-    verified_total = 0
-    low_conf_total = 0
-    for row in rows:
-        availability = str(row.get("availability") or "").strip().lower()
-        verification_state = str(row.get("verification_state") or "").strip().lower()
-        confidence = str(row.get("confidence") or "").strip().lower()
-        if availability == "official_dataset":
-            official_total += 1
-        elif availability == "partial_official":
-            partial_total += 1
-        if availability in {"municipal_gap", "source_gap"} or verification_state == "source_gap":
-            gap_total += 1
-        if verification_state == "flagged":
-            flagged_total += 1
-        if verification_state in {"flagged", "needs_review", "source_gap", "stale"}:
-            review_total += 1
-        if verification_state in {"verified", "confirmed", "cleared"}:
-            verified_total += 1
-        if confidence == "low":
-            low_conf_total += 1
-    if gap_total:
-        headline = "Manual clearance required"
-        headline_detail = f"{gap_total} risk lane(s) still depend on municipality-specific or missing official evidence."
-        headline_tag = "Source gap"
-    elif flagged_total:
-        headline = "Official sources attached, risks still flagged"
-        headline_detail = f"{flagged_total} lane(s) remain flagged and still need manual clearance before this read is trustworthy."
-        headline_tag = "Flagged"
-    elif review_total:
-        headline = "Authority coverage attached, review still open"
-        headline_detail = f"{review_total} lane(s) still need a manual confirmation pass even though official sources are already attached."
-        headline_tag = "Review"
-    else:
-        headline = "Authority coverage in place"
-        headline_detail = "All active risk lanes already have attached authority coverage and no unresolved source-gap blockers."
-        headline_tag = "Ready"
-    next_steps: list[str] = []
-    for row in rows:
-        verification_state = str(row.get("verification_state") or "").strip().lower()
-        availability = str(row.get("availability") or "").strip().lower()
-        required_next_step = str(row.get("required_next_step") or "").strip()
-        if verification_state not in {"flagged", "needs_review", "source_gap", "stale"} and availability not in {"municipal_gap", "source_gap"}:
-            continue
-        if required_next_step and required_next_step not in next_steps:
-            next_steps.append(required_next_step)
-    coverage_parts = [f"{total} lanes attached", f"{official_total} official", f"{partial_total} partial", f"{gap_total} gaps"]
-    verification_parts = [f"{verified_total} verified", f"{flagged_total} flagged", f"{review_total} still open"]
-    response = [
-        {"title": headline, "detail": headline_detail, "tag": headline_tag},
-        {"title": "Coverage", "detail": " | ".join(coverage_parts), "tag": str(official.get("country_code") or "").strip() or "Market"},
-        {"title": "Verification", "detail": " | ".join(verification_parts), "tag": f"{low_conf_total} low confidence" if low_conf_total else "Confidence ok"},
-    ]
-    if next_steps:
-        response.append(
-            {
-                "title": "Next authority step",
-                "detail": " | ".join(next_steps[:2]),
-                "tag": "Manual proof",
-            }
-        )
-    updated_at = str(official.get("updated_at") or "").strip()
-    if updated_at:
-        response.append(
-            {
-                "title": "Evidence snapshot",
-                "detail": updated_at.replace("T", " ").replace("+00:00", " UTC"),
-                "tag": "Attached",
-            }
-        )
-    return response
-
-
-def _property_counterfactual_rows(
-    *,
-    preferences: dict[str, object],
-    raw_preferences: dict[str, object] | None,
-    run_summary: dict[str, object],
-    provider_options: list[dict[str, object]],
-    current_platform_cap: int,
-) -> list[dict[str, object]]:
-    def _sanitize_counterfactual_row(row: dict[str, object]) -> dict[str, object]:
-        item = dict(row)
-        title = str(item.get("title") or "").strip()
-        detail = str(item.get("detail") or "").strip()
-        action_label = str(item.get("action_label") or "").strip()
-        lowered_title = title.lower()
-        if "duplicate listing" in lowered_title or "wrong property type" in lowered_title:
-            return {}
-        if title.lower() == "pending layout proof":
-            item["title"] = "Missing floorplan evidence"
-            if detail:
-                item["detail"] = detail.replace("layout proof", "floorplan evidence")
-            if action_label.lower() == "run layout recovery":
-                item["action_label"] = "Recover floorplans"
-        return item
-
-    rows: list[dict[str, object]] = [
-        _sanitize_counterfactual_row(dict(row))
-        for row in list(run_summary.get("search_broaden_suggestions") or [])
-        if isinstance(row, dict) and str(row.get("title") or "").strip()
-    ]
-
-    def _positive_int(value: object, default: int = 0) -> int:
-        try:
-            return max(0, int(float(str(value or "").strip())))
-        except Exception:
-            return default
-
-    def _has_explicit_numeric_filter(source: dict[str, object] | None, key: str) -> bool:
-        raw_source = dict(source or {})
-        nested = raw_source.get("raw_preferences")
-        if isinstance(nested, dict):
-            raw_source = dict(nested)
-        if key not in raw_source:
-            return False
-        value = raw_source.get(key)
-        if value is None:
-            return False
-        if isinstance(value, str) and not value.strip():
-            return False
-        try:
-            return int(float(str(value).strip())) > 0
-        except Exception:
-            return False
-
-    def _sum_source_total(field_name: str) -> int:
-        total = 0
-        for source in list(run_summary.get("sources") or []):
-            if not isinstance(source, dict):
-                continue
-            try:
-                total += max(0, int(float(source.get(field_name) or 0)))
-            except Exception:
-                continue
-        return total
-
-    current_score = _positive_int(preferences.get("min_match_score"), 0)
-    low_fit_total = _sum_source_total("filtered_low_fit_total")
-    outside_area_or_size_total = _sum_source_total("filtered_area_total")
-    outside_selected_area_total = _sum_source_total("location_mismatch_candidate_total")
-    if current_score > 35:
-        next_score = 35 if current_score <= 45 else max(35, current_score - 10)
-        rows.append(
-            {
-                "title": f"Lower the match threshold to {next_score}",
-                "detail": "Keep more watch-tier candidates in the next sweep instead of filtering them out at the current score gate.",
-                "tag": "Threshold",
-                "action_label": f"Apply {next_score}/80",
-                "adjustments": {"min_match_score": next_score},
-                "affected_total": low_fit_total,
-            }
-        )
-
-    filtered_floorplan_total = _positive_int(run_summary.get("filtered_floorplan_total"), 0)
-    if bool(preferences.get("require_floorplan")) and filtered_floorplan_total > 0:
-        rows.append(
-            {
-                "title": "Try a discovery run without requiring layout proof",
-                "detail": f"{filtered_floorplan_total} listing(s) were filtered out because layout proof was not verified yet. Use this only to inspect the wider market, then restore the requirement.",
-                "tag": "Research",
-                "action_label": "Run discovery pass",
-                "adjustments": {"require_floorplan": False},
-                "affected_total": filtered_floorplan_total,
-            }
-        )
-
-    country_code = str(preferences.get("country_code") or "").strip().upper()
-    region_code = str(preferences.get("region_code") or "").strip().lower()
-    full_region_scope = bool(preferences.get("full_region_scope"))
-    if country_code and region_code and not full_region_scope:
-        try:
-            from app.services.property_market_catalog import region_label_for_country_region
-            region_label = region_label_for_country_region(country_code, region_code)
-        except Exception:
-            region_label = region_code.replace("_", " ").title()
-        rows.append(
-            {
-                "title": "Add homes near the selected districts",
-                "detail": f"Include homes within a small radius of the selected districts when they sit in adjacent parts of {region_label}.",
-                "tag": "Area",
-                "action_label": "Add nearby homes",
-                "adjustments": {"full_region_scope": True, "location_query": region_label, "custom_location_query": "", "adjacent_area_radius_m": 750},
-                "affected_total": outside_selected_area_total,
-            }
-        )
-
-    selected_platforms = [
-        str(value).strip()
-        for value in list(preferences.get("selected_platforms") or [])
-        if str(value).strip()
-    ]
-    cap = max(0, int(current_platform_cap or 0))
-    available_platforms = [
-        str(option.get("value") or "").strip()
-        for option in provider_options
-        if str(option.get("value") or "").strip()
-    ]
-    widened_platforms = list(dict.fromkeys([*selected_platforms, *available_platforms]))
-    if cap > 0:
-        widened_platforms = widened_platforms[:cap]
-    if len(widened_platforms) > len(selected_platforms):
-        rows.append(
-            {
-                "title": f"Widen the provider batch to {len(widened_platforms)} sources",
-                "detail": "Use the full provider allowance on the current plan before changing the rest of the brief.",
-                "tag": "Providers",
-                "action_label": "Use full provider cap",
-                "adjustments": {"selected_platforms": widened_platforms},
-                "affected_total": 0,
-            }
-        )
-
-    current_budget = _positive_int(preferences.get("max_price_eur"), 0)
-    explicit_budget = _has_explicit_numeric_filter(raw_preferences, "max_price_eur")
-    if current_budget > 0 and explicit_budget:
-        next_budget = current_budget + max(25000, int(round(current_budget * 0.1)))
-        rows.append(
-            {
-                "title": "Test a wider budget ceiling",
-                "detail": "Run one broader sweep before discarding the market entirely if price pressure may be the real bottleneck.",
-                "tag": "Budget",
-                "action_label": f"Raise to EUR {next_budget:,}".replace(",", ","),
-                "adjustments": {"max_price_eur": next_budget},
-                "affected_total": outside_area_or_size_total,
-            }
-        )
-
-    strict_distance_keys = [
-        "max_distance_to_market_m",
-        "max_distance_to_hardware_store_m",
-        "max_distance_to_medical_care_m",
-        "max_distance_to_library_m",
-        "max_distance_to_public_pool_m",
-        "max_distance_to_theatre_m",
-    ]
-    strict_distance_count = sum(1 for key in strict_distance_keys if _positive_int(preferences.get(key), 0) > 0)
-    if strict_distance_count >= 2:
-        relaxed_adjustments: dict[str, object] = {}
-        for key in strict_distance_keys:
-            current_value = _positive_int(preferences.get(key), 0)
-            if current_value > 0:
-                relaxed_adjustments[key] = int(round(current_value * 1.35))
-        rows.append(
-            {
-                "title": "Relax the stricter everyday-distance caps",
-                "detail": "Keep the same lifestyle intent but widen the walk radius enough to recover borderline candidates.",
-                "tag": "Alltag",
-                "action_label": "Relax distance caps",
-                "adjustments": relaxed_adjustments,
-                "affected_total": outside_area_or_size_total,
-            }
-        )
-
-    deduped: list[dict[str, object]] = []
-    seen_titles: set[str] = set()
-    for row in rows:
-        title = str(row.get("title") or "").strip().lower()
-        if not title or title in seen_titles:
-            continue
-        seen_titles.add(title)
-        deduped.append(row)
-    if not deduped:
-        deduped.append(
-            {
-                "title": "Reopen the brief with broader constraints",
-                "detail": "Keep the same market, but reopen the brief so you can lower the score gate, widen providers, or relax one hard filter before the next sweep.",
-                "tag": "Reset",
-                "action_label": "Reopen brief",
-                "adjustments": {},
-            }
-        )
-    return deduped[:5]
 
 
 def _property_preference_schema() -> dict[str, object]:
@@ -2608,17 +1412,6 @@ def app_section_payload(
             candidate_row = dict(candidate)
             candidate_row.setdefault("source_label", source_label)
             candidate_row.setdefault("source_short_label", _compact_provider_label(source_label))
-            if isinstance(source_row.get("provider_quality"), dict):
-                candidate_row.setdefault("provider_quality", dict(source_row.get("provider_quality") or {}))
-            else:
-                candidate_row.setdefault(
-                    "provider_quality",
-                    {
-                        "floorplan_reliability": str(source_row.get("floorplan_reliability") or "").strip(),
-                        "filter_pushdown_strength": str(source_row.get("filter_pushdown_strength") or "").strip(),
-                        "last_verified": str(source_row.get("last_verified") or "").strip(),
-                    },
-                )
             if not str(candidate_row.get("packet_url") or "").strip():
                 candidate_row["packet_url"] = _packet_url_for_candidate(candidate_row, source_label=source_label)
             enriched_candidates.append(candidate_row)
@@ -2646,8 +1439,6 @@ def app_section_payload(
                         seen_candidates.add(candidate_key)
                     candidate_row.setdefault("source_label", source_label)
                     candidate_row.setdefault("source_short_label", _compact_provider_label(source_label))
-                    if isinstance(source_row.get("provider_quality"), dict):
-                        candidate_row.setdefault("provider_quality", dict(source_row.get("provider_quality") or {}))
                     ranked_candidates.append(candidate_row)
         ranked_candidates.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
         for index, candidate_row in enumerate(ranked_candidates, start=1):
@@ -2671,7 +1462,7 @@ def app_section_payload(
                 for part in (
                     f"{int(source.get('listing_total') or 0)} listings",
                     f"{int(source.get('high_fit_total') or 0)} high-fit",
-                    f"{int(source.get('filtered_floorplan_total') or 0)} pending layout proof"
+                    f"{int(source.get('filtered_floorplan_total') or 0)} still waiting on floorplans"
                     if int(source.get('filtered_floorplan_total') or 0)
                     else "",
                     f"{int(source.get('tour_created_total') or 0)} hosted tours",
@@ -2770,7 +1561,6 @@ def app_section_payload(
                 "detail": " | ".join(part for part in detail_parts if part) or source_label,
                 "tag": str(candidate.get("recommendation") or "candidate").replace("_", " ").title(),
             }
-            provider_quality = dict(candidate.get("provider_quality") or {}) if isinstance(candidate.get("provider_quality"), dict) else {}
             review_url = str(candidate.get("review_url") or "").strip()
             tour_url = str(candidate.get("tour_url") or "").strip()
             property_url = str(candidate.get("property_url") or "").strip()
@@ -2847,7 +1637,6 @@ def app_section_payload(
                     "mismatch_reasons": mismatch_reasons,
                     "lifestyle_highlights": _candidate_lifestyle_highlights(candidate),
                     "research_highlights": _candidate_research_highlights(candidate),
-                    "provider_quality": provider_quality,
                     "property_facts": dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {},
                     "assessment": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
                     "feedback_summary": dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {},
@@ -2983,115 +1772,18 @@ def app_section_payload(
     property_search_mode_requested = str(property_preferences.get("search_mode") or "strict").strip().lower()
     if property_search_mode_requested not in {"strict", "discovery"}:
         property_search_mode_requested = "strict"
-    def _format_property_search_agent(raw_agent: dict[str, object]) -> dict[str, object]:
-        def _safe_agent_load_payload(value: dict[str, object]) -> dict[str, object]:
-            return {
-                key: item
-                for key, item in dict(value or {}).items()
-                if key not in {"search_agents", "active_search_agent_id", "raw_preferences", "property_commercial"}
-            }
-
-        agent_duration_days = _positive_int(raw_agent.get("duration_days"), default=property_search_agent_duration_days)
-        agent_duration_days = max(7, min(365, agent_duration_days or property_search_agent_duration_days))
-        agent_notification_limit = _positive_int(raw_agent.get("notification_limit"), default=property_search_agent_notification_limit)
-        agent_notification_limit = max(1, min(50, agent_notification_limit or property_search_agent_notification_limit))
-        agent_notification_period = str(raw_agent.get("notification_period") or property_search_agent_notification_period).strip().lower()
-        if agent_notification_period not in {"day", "week"}:
-            agent_notification_period = property_search_agent_notification_period
-        agent_selected_platforms = raw_agent.get("selected_platforms") if isinstance(raw_agent.get("selected_platforms"), list) else selected_platforms
-        agent_enabled = bool(raw_agent.get("enabled"))
-        agent_listing_mode = str(raw_agent.get("listing_mode") or selected_listing_mode).strip().lower() or selected_listing_mode
-        agent_country_code = str(raw_agent.get("country_code") or property_preferences.get("country_code") or "AT").strip().upper()
-        agent_location_query = str(raw_agent.get("location_query") or property_preferences.get("location_query") or "").strip()
-        agent_property_types = _normalize_property_type_values(raw_agent.get("property_type") or property_preferences.get("property_type"))
-        agent_name = str(raw_agent.get("name") or "").strip()
-        if not agent_name:
-            agent_name = f"{agent_listing_mode.title()} search · {agent_location_query or agent_country_code}"
-        last_run_at = str(raw_agent.get("last_run_at") or "").strip()
-        next_run_at = str(raw_agent.get("next_run_at") or "").strip()
-        try:
-            sent_in_current_window = max(int(float(raw_agent.get("sent_in_current_window") or 0)), 0)
-        except Exception:
-            sent_in_current_window = 0
-        remaining_notifications = max(agent_notification_limit - sent_in_current_window, 0)
-        area_label = agent_location_query or agent_country_code or "No area saved"
-        notification_label = f"{agent_notification_limit} per {('week' if agent_notification_period == 'week' else 'day')}"
-        return {
-            "agent_id": str(raw_agent.get("agent_id") or "current").strip() or "current",
-            "name": agent_name,
-            "enabled": agent_enabled,
-            "is_active": bool(raw_agent.get("is_active")),
-            "status_label": "Active" if agent_enabled else "Paused",
-            "duration_days": agent_duration_days,
-            "duration_label": (
-                "1 week"
-                if agent_duration_days == 7
-                else "1 year"
-                if agent_duration_days == 365
-                else f"{agent_duration_days} days"
-            ),
-            "notification_limit": agent_notification_limit,
-            "notification_period": agent_notification_period,
-            "notification_period_label": "week" if agent_notification_period == "week" else "day",
-            "location_query": agent_location_query,
-            "listing_mode": agent_listing_mode,
-            "country_code": agent_country_code,
-            "region_code": str(raw_agent.get("region_code") or property_preferences.get("region_code") or "").strip().lower(),
-            "property_type": ", ".join(agent_property_types),
-            "provider_count": len(agent_selected_platforms),
-            "last_run_label": last_run_at or "not run yet",
-            "next_run_label": next_run_at or ("waiting for scheduler" if agent_enabled else "paused"),
-            "sent_in_current_window": sent_in_current_window,
-            "remaining_notifications": remaining_notifications,
-            "area_label": area_label,
-            "scope_label": f"{agent_listing_mode.title()} · {area_label} · {agent_country_code}",
-            "notification_label": notification_label,
-            "run_label": f"Last: {last_run_at or 'not run yet'} · Next: {next_run_at or ('waiting for scheduler' if agent_enabled else 'paused')}",
-            "delivery_label": f"Sent {sent_in_current_window}/{agent_notification_limit} this {('week' if agent_notification_period == 'week' else 'day')}",
-            "load_payload": (
-                _safe_agent_load_payload(dict(raw_agent.get("preferences_json") or {}))
-                if isinstance(raw_agent.get("preferences_json"), dict)
-                else {
-                    "country_code": agent_country_code,
-                    "region_code": str(raw_agent.get("region_code") or property_preferences.get("region_code") or "").strip().lower(),
-                    "location_query": agent_location_query,
-                    "listing_mode": agent_listing_mode,
-                    "property_type": agent_property_types,
-                    "search_mode": str(raw_agent.get("search_mode") or property_search_mode_requested or "strict").strip().lower() or "strict",
-                    "selected_platforms": list(agent_selected_platforms or []),
-                    "search_agent_enabled": agent_enabled,
-                    "search_agent_duration_days": agent_duration_days,
-                    "search_agent_notification_limit": agent_notification_limit,
-                    "search_agent_notification_period": agent_notification_period,
-                }
-            ),
-        }
-
-    raw_property_search_agents = property_preferences.get("search_agents") if isinstance(property_preferences.get("search_agents"), list) else []
     selected_property_type_values = _normalize_property_type_values(property_preferences.get("property_type"))
-    property_search_agents = [
-        _format_property_search_agent(agent)
-        for agent in raw_property_search_agents
-        if isinstance(agent, dict)
-    ]
-    if not property_search_agents:
-        property_search_agents = [
-            _format_property_search_agent(
-                {
-                    "agent_id": str(property_preferences.get("active_search_agent_id") or "current").strip() or "current",
-                    "enabled": property_search_agent_enabled,
-                    "duration_days": property_search_agent_duration_days,
-                    "notification_limit": property_search_agent_notification_limit,
-                    "notification_period": property_search_agent_notification_period,
-                    "location_query": str(property_preferences.get("location_query") or "").strip(),
-                    "listing_mode": selected_listing_mode,
-                    "country_code": str(property_preferences.get("country_code") or "AT").strip().upper(),
-                    "selected_platforms": selected_platforms,
-                    "is_active": True,
-                }
-            )
-        ]
-    property_search_agent = next((agent for agent in property_search_agents if agent.get("is_active")), property_search_agents[0])
+    property_search_agents, property_search_agent = build_property_search_agents(
+        property_preferences,
+        selected_platforms=selected_platforms,
+        selected_listing_mode=selected_listing_mode,
+        search_mode_requested=property_search_mode_requested,
+        default_duration_days=property_search_agent_duration_days,
+        default_notification_limit=property_search_agent_notification_limit,
+        default_notification_period=property_search_agent_notification_period,
+        normalize_property_type_values=_normalize_property_type_values,
+        scope_preview_builder=_property_scope_preview,
+    )
     property_search_mode = property_search_mode_requested
     property_run_for_defaults = dict(property_state.get("run") or {})
     property_run_summary_for_defaults = dict(property_run_for_defaults.get("summary") or {})
@@ -4226,16 +2918,16 @@ def app_section_payload(
             {
                 "type": "checkbox",
                 "name": "search_agent_enabled",
-                "label": "Create permanent search agent",
+                "label": "Save as recurring search",
                 "value": "true",
                 "checked": property_search_agent_enabled,
-                "tooltip": "Save these settings as an ongoing search agent. Disable this checkbox to keep the settings as a one-off search brief only.",
+                "tooltip": "Save these settings as a recurring search that keeps watching the market. Disable this checkbox to keep the settings as a one-off brief only.",
                 "step": "providers",
             },
             {
                 "type": "range",
                 "name": "search_agent_duration_days",
-                "label": "Search agent duration",
+                "label": "Recurring search duration",
                 "value": str(property_search_agent_duration_days),
                 "min": "7",
                 "max": "365",
@@ -4245,7 +2937,7 @@ def app_section_payload(
                 "scale_min_label": "1 week",
                 "scale_mid_label": "6 months",
                 "scale_max_label": "1 year",
-                "tooltip": "How long this saved search agent should stay active before it expires or needs review.",
+                "tooltip": "How long this recurring search should stay active before it expires or needs review.",
                 "step": "providers",
             },
             {
@@ -4332,6 +3024,8 @@ def app_section_payload(
             "billing_checkout_provider": str(property_state.get("billing_checkout_provider") or ""),
             "billing_checkout_provider_label": str(property_state.get("billing_checkout_provider_label") or ""),
             "billing_order_endpoint": str(property_state.get("billing_order_endpoint") or ""),
+            "billing_order_endpoints_by_plan": dict(property_state.get("billing_order_endpoints_by_plan") or {}),
+            "billing_provider_labels_by_plan": dict(property_state.get("billing_provider_labels_by_plan") or {}),
             "feedback_person_id": str(property_preferences.get("preference_person_id") or "self"),
             "search_agent": property_search_agent,
             "search_agents": property_search_agents,
@@ -4732,41 +3426,10 @@ def property_workspace_payload(
     run_events = list(run_payload.get("events") or [])
     run_summary = dict(run_payload.get("summary") or {})
     run_sources = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
-    provider_quality_by_key: dict[str, dict[str, object]] = {}
-    for candidate_row in list(run_summary.get("ranked_candidates") or []):
-        if not isinstance(candidate_row, dict):
-            continue
-        candidate_quality = candidate_row.get("provider_quality")
-        if not isinstance(candidate_quality, dict) or not candidate_quality:
-            continue
-        for key_value in (
-            candidate_row.get("source_ref"),
-            candidate_row.get("property_url"),
-            candidate_row.get("listing_id"),
-            candidate_row.get("title"),
-        ):
-            key = str(key_value or "").strip().lower()
-            if key:
-                provider_quality_by_key.setdefault(key, dict(candidate_quality))
-    if provider_quality_by_key:
-        for candidate_row in shortlist_candidates:
-            if not isinstance(candidate_row, dict) or isinstance(candidate_row.get("provider_quality"), dict):
-                continue
-            for key_value in (
-                candidate_row.get("source_ref"),
-                candidate_row.get("property_url"),
-                candidate_row.get("listing_id"),
-                candidate_row.get("title"),
-            ):
-                key = str(key_value or "").strip().lower()
-                if key and key in provider_quality_by_key:
-                    candidate_row["provider_quality"] = dict(provider_quality_by_key[key])
-                    break
     raw_research_tasks = list(run_payload.get("research_tasks") or run_summary.get("research_tasks") or [])
     selected_locations = _csv_values(property_preferences.get("location_query"))
     selected_keywords = _csv_values(property_preferences.get("keywords"))
     selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
-    provider_quality_rows = _provider_quality_rows(run_sources, provider_options)
     suppression_rows = _property_suppression_rows(
         run_summary=run_summary,
         source_rows=run_sources,
@@ -4944,33 +3607,18 @@ def property_workspace_payload(
         for row in list(property_state.get("recent_search_runs") or [])
         if isinstance(row, dict) and str(row.get("run_id") or "").strip()
     ]
-    requested_agent_id = str(property_state.get("selected_agent_id") or "").strip()
-    selected_agent = next((agent for agent in property_search_agents if str(agent.get("agent_id") or "").strip() == requested_agent_id), None)
-    if selected_agent is None:
-        selected_agent = next((agent for agent in property_search_agents if agent.get("is_active")), property_search_agents[0] if property_search_agents else None)
-    selected_agent_id = str((selected_agent or {}).get("agent_id") or "").strip()
-    selected_agent_runs = [
-        dict(row)
-        for row in previous_search_runs
-        if isinstance(row, dict)
-        and (
-            (selected_agent_id and str(row.get("agent_id") or "").strip() == selected_agent_id)
-            or (
-                selected_agent
-                and not str(row.get("agent_id") or "").strip()
-                and str(row.get("title") or "").strip() == str(selected_agent.get("location_query") or "").strip()
-            )
-        )
-    ]
-    selected_agent_latest_run = selected_agent_runs[0] if selected_agent_runs else {}
-    selected_agent_open_href = ""
-    selected_agent_edit_href = ""
-    if selected_agent_id:
-        selected_agent_open_href = f"/app/agents?agent_id={urllib.parse.quote(selected_agent_id, safe='')}"
-        selected_agent_edit_href = f"/app/properties?load_agent={urllib.parse.quote(selected_agent_id, safe='')}"
-        if run_id:
-            selected_agent_open_href = f"{selected_agent_open_href}&run_id={urllib.parse.quote(run_id, safe='')}"
-            selected_agent_edit_href = f"{selected_agent_edit_href}&run_id={urllib.parse.quote(run_id, safe='')}"
+    selected_agent_context = select_property_search_agent(
+        property_search_agents,
+        requested_agent_id=str(property_state.get("selected_agent_id") or "").strip(),
+        previous_runs=previous_search_runs,
+        run_id=run_id,
+    )
+    selected_agent = selected_agent_context["selected_agent"]
+    selected_agent_id = selected_agent_context["selected_agent_id"]
+    selected_agent_runs = selected_agent_context["selected_agent_runs"]
+    selected_agent_latest_run = selected_agent_context["selected_agent_latest_run"]
+    selected_agent_open_href = selected_agent_context["selected_agent_open_href"]
+    selected_agent_edit_href = selected_agent_context["selected_agent_edit_href"]
 
     def _preference_value_label(value: object) -> str:
         if isinstance(value, list):
@@ -5612,17 +4260,7 @@ def property_workspace_payload(
         risk_payload = _risk_summary(candidate, facts)
         match_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("match_reasons") or []) if _clean_property_candidate_copy(item)]
         mismatch_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("mismatch_reasons") or []) if _clean_property_candidate_copy(item)]
-        provider_quality = dict(candidate.get("provider_quality") or {}) if isinstance(candidate.get("provider_quality"), dict) else {}
         detail_sections = _candidate_detail_sections(facts)
-        provider_quality_line = " · ".join(
-            part
-            for part in (
-                f"Floorplans {provider_quality.get('floorplan_reliability')}" if str(provider_quality.get("floorplan_reliability") or "").strip() else "",
-                f"Filters {provider_quality.get('filter_pushdown_strength')}" if str(provider_quality.get("filter_pushdown_strength") or "").strip() else "",
-                f"Verified {provider_quality.get('last_verified')}" if str(provider_quality.get("last_verified") or "").strip() else "",
-            )
-            if str(part or "").strip()
-        )
         investment_payload = {
             "enabled": str(property_preferences.get("listing_mode") or "").strip().lower() == "buy",
             "price_per_sqm": _money_per_sqm_line(facts),
@@ -5651,8 +4289,6 @@ def property_workspace_payload(
                 "fit_score": fit_score,
                 "fit_label": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(),
                 "fit_summary": _clean_property_candidate_copy(candidate.get("fit_summary") or ""),
-                "provider_quality": provider_quality,
-                "provider_quality_line": provider_quality_line,
                 "tour": tour_payload,
                 "orientation_preview": orientation_preview,
                 "ooda": {
@@ -5663,6 +4299,7 @@ def property_workspace_payload(
                 "investment": investment_payload,
                 "match_reasons": match_reasons,
                 "mismatch_reasons": mismatch_reasons,
+                "review_page_neuronwriter": dict(candidate.get("review_page_neuronwriter") or {}) if isinstance(candidate.get("review_page_neuronwriter"), dict) else {},
                 "packet_url": packet_url,
                 "review_url": str(candidate.get("review_url") or "").strip(),
                 "property_url": str(candidate.get("property_url") or "").strip(),
@@ -5758,7 +4395,7 @@ def property_workspace_payload(
         ],
         "alerts": [
             {"href": f"/app/properties{run_suffix}", "label": "Open search desk", "tone": "primary"},
-            {"href": f"/app/agents{run_suffix}", "label": "Search agents"},
+            {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
             {"href": f"/app/settings{run_suffix}", "label": "Notifications"},
         ],
         "agents": [
@@ -5814,7 +4451,7 @@ def property_workspace_payload(
             {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest saved-search sweep.", "href": f"/app/properties{run_suffix}"},
         ],
         "agents": [
-            {"label": "Saved agents", "value": str(len(property_search_agents)), "detail": "Reusable searches available for editing and rerunning.", "href": f"/app/agents{run_suffix}"},
+            {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring briefs available for editing and rerunning.", "href": f"/app/agents{run_suffix}"},
             {"label": "Active", "value": str(sum(1 for agent in property_search_agents if agent.get("enabled"))), "detail": "Agents allowed to send matching updates.", "href": f"/app/agents{run_suffix}"},
             {"label": "Notification window", "value": str(property_search_agent.get("notification_label") or "Set per agent"), "detail": "Each agent ranks down to the allowed message budget.", "href": f"/app/agents{run_suffix}"},
             {"label": "Next run", "value": str(property_search_agent.get("next_run_label") or "waiting"), "detail": str(property_search_agent.get("area_label") or "Saved search area"), "href": f"/app/agents{run_suffix}"},
@@ -6060,42 +4697,13 @@ def property_workspace_payload(
             "action_label": "Review settings",
         },
     ]
-    agent_management_rows = []
-    for agent in property_search_agents:
-        if not isinstance(agent, dict):
-            continue
-        agent_id = urllib.parse.quote(str(agent.get("agent_id") or "current").strip() or "current", safe="")
-        edit_href = f"/app/properties?load_agent={agent_id}"
-        open_href = f"/app/agents?agent_id={agent_id}"
-        if run_id:
-            edit_href = f"{edit_href}&run_id={urllib.parse.quote(run_id, safe='')}"
-            open_href = f"{open_href}&run_id={urllib.parse.quote(run_id, safe='')}"
-        label = str(agent.get("name") or agent.get("area_label") or "Saved search").strip() or "Saved search"
-        status_label = "Active" if bool(agent.get("enabled")) else "Paused"
-        detail_parts = [
-            str(agent.get("scope_label") or "").strip(),
-            str(agent.get("notification_label") or "").strip(),
-            str(agent.get("run_label") or "").strip(),
-        ]
-        agent_management_rows.append(
-            {
-                "title": label,
-                "detail": " | ".join(part for part in detail_parts if part) or "Saved search settings can be edited from the search desk.",
-                "tag": status_label,
-                "action_href": open_href,
-                "action_method": "get",
-                "action_label": "Open",
-                "secondary_action_href": edit_href,
-                "secondary_action_method": "get",
-                "secondary_action_label": "Edit",
-            }
-        )
+    agent_management_rows = build_agent_management_rows(property_search_agents, run_id=run_id)
     if not agent_management_rows:
         agent_management_rows = [
             row_item(
-                "No saved search agent yet",
+                "No saved search yet",
                 "Create one from the search desk, then return here to edit, pause, or review its notification budget.",
-                "First agent",
+                "First search",
             )
         ]
 
@@ -6129,7 +4737,7 @@ def property_workspace_payload(
             "hero_actions": [{"href": f"/app/search{run_suffix}", "label": "Open search"}, {"href": f"/app/properties{run_suffix}", "label": "Back to Home"}] if run_in_progress else (hero_actions["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
                 {"href": f"/app/search{run_suffix}", "label": "Refine search", "tone": "primary"},
                 {"href": f"/app/properties{run_suffix}", "label": "Back to Home"},
-                {"href": f"/app/agents{run_suffix}", "label": "Search agents"},
+                {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
             ]),
             "hero_highlights": [
                 {"label": "Run state", "value": run_status_label, "detail": run_message or "The current live run status."},
@@ -6250,25 +4858,25 @@ def property_workspace_payload(
             "show_shortlist_cards": False,
         },
         "agents": {
-            "title": "Search agents",
-            "summary": "Manage reusable searches, notification budgets, and the saved filters behind each recurring run.",
-            "hero_kicker": "Search agents",
+            "title": "Saved searches",
+            "summary": "Manage recurring searches, notification budgets, and the saved filters behind each ongoing run.",
+            "hero_kicker": "Saved searches",
             "hero_title": str((selected_agent or {}).get("name") or "Edit the searches that keep watching the market."),
             "hero_summary": (
-                f"{str((selected_agent or {}).get('scope_label') or '').strip()} | {str((selected_agent or {}).get('delivery_label') or '').strip()} | {str((selected_agent_latest_run or {}).get('held_back_total') or 0)} filtered on the latest finished run."
+                f"{str((selected_agent or {}).get('scope_label') or '').strip()} | {str((selected_agent or {}).get('delivery_label') or '').strip()} | {str((selected_agent_latest_run or {}).get('held_back_total') or 0)} filtered on the latest finished run. Saved searches are recurring briefs; search workers are the parallel lanes used during one live run."
                 if selected_agent
-                else "Each agent owns one saved brief, its allowed message volume, and whether it is active. When more listings fit than the budget allows, PropertyQuarry ranks them and sends only the strongest matches."
+                else "Each saved search owns one recurring brief, its message budget, and whether it is active. Search workers are separate: they are the parallel lanes used during one live run."
             ),
             "hero_actions": hero_actions["agents"],
             "hero_highlights": hero_highlights["agents"],
             "primary_cards": [
                 {
-                    "eyebrow": "Selected agent",
-                    "title": str((selected_agent or {}).get("name") or "Open a saved agent"),
+                    "eyebrow": "Selected search",
+                    "title": str((selected_agent or {}).get("name") or "Open a saved search"),
                     "body": (
-                        "This market watch owns one saved brief, a notification budget, and the shortlist that leaves first."
+                        "This recurring search owns one saved brief, a notification budget, and the shortlist that leaves first."
                         if selected_agent
-                        else "Choose a saved agent to inspect its watch, recent runs, and edit path."
+                        else "Choose a saved search to inspect its watch, recent runs, and edit path."
                     ),
                     "items": (
                         [
@@ -6298,27 +4906,27 @@ def property_workspace_payload(
                     ),
                 },
                 {
-                    "eyebrow": "Saved agents",
-                    "title": "Reusable searches",
-                    "body": "Use Edit to load an agent back into the search desk, adjust the filters, and run or save it again.",
+                    "eyebrow": "Saved searches",
+                    "title": "Recurring briefs",
+                    "body": "Use Edit to load a saved search back into the search desk, adjust the filters, and run or save it again.",
                     "items": agent_management_rows,
                 }
             ],
             "secondary_cards": [
                 {
-                    "eyebrow": "Notification budget",
-                    "title": "Strongest matches leave first",
-                    "body": "If an agent finds more candidates than its daily or weekly limit, the shortlist is ranked and only the best-fit matches are sent.",
+                    "eyebrow": "Limits",
+                    "title": "Saved searches and workers are different limits",
+                    "body": "Saved searches control how many recurring briefs you keep active. Search workers control how many source lanes can run in parallel during one live search.",
                     "items": [
-                        row_item("Free", "1 active search agent.", "Plan"),
-                        row_item("Plus", "3 active search agents.", "Plan"),
-                        row_item("Agent", "Unlimited active search agents.", "Plan"),
+                        row_item("Free", "1 active saved search · 1 live search worker.", "Plan"),
+                        row_item("Plus", "3 active saved searches · 3 live search workers.", "Plan"),
+                        row_item("Agent", "Unlimited saved searches · 6 live search workers.", "Plan"),
                     ],
                 },
                 {
                     "eyebrow": "Recent runs",
                     "title": "What changed on the latest sweeps",
-                    "body": "Use finished runs to inspect what was ranked, what left the budget, and what stayed filtered behind the active rules.",
+                    "body": "Use finished runs to inspect what was ranked, what left the budget, and what stayed outside the current rules.",
                     "items": (
                         [
                             {
@@ -6383,13 +4991,13 @@ def property_workspace_payload(
             "hero_summary": "Account keeps identity, plan limits, saved defaults, and sign-out in one place. It should feel like product control, not inherited office tooling.",
             "hero_actions": [
                 {"href": f"/app/properties{run_suffix}", "label": "Back to Home", "tone": "primary"},
-                {"href": f"/app/agents{run_suffix}", "label": "Search agents"},
+                {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
                 {"href": "/pricing", "label": "Open pricing"},
             ],
             "hero_highlights": [
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account#settings"},
                 {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": "/app/account#plans"},
-                {"label": "Saved agents", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
+                {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
                 {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": "/app/account#profile"},
             ],
             "primary_cards": [
@@ -6459,13 +5067,13 @@ def property_workspace_payload(
             "hero_summary": "Account keeps identity, plan limits, saved defaults, and sign-out in one place. It should feel like product control, not inherited office tooling.",
             "hero_actions": [
                 {"href": f"/app/properties{run_suffix}", "label": "Back to Home", "tone": "primary"},
-                {"href": f"/app/agents{run_suffix}", "label": "Search agents"},
+                {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
                 {"href": "/pricing", "label": "Open pricing"},
             ],
             "hero_highlights": [
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account#settings"},
                 {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": "/app/account#plans"},
-                {"label": "Saved agents", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
+                {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
                 {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": "/app/account#profile"},
             ],
             "primary_cards": [
@@ -6600,10 +5208,9 @@ def property_workspace_payload(
         "results": workbench_results,
         "search_guard_rows": [],
         "suppression_rows": suppression_rows,
-        "provider_quality_rows": provider_quality_rows,
         "delivery_proof_rows": delivery_proof_rows,
         "artifact_receipt_rows": artifact_receipt_rows,
-        "research_tasks": research_tasks[:50],
+        "research_tasks": [],
         "research_task_counts": {
             "total": research_task_total,
             "open": open_research_task_total,

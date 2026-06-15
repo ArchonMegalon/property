@@ -13,7 +13,7 @@ import pytest
 import app.product.service as product_service
 from app.product.service import ProductService
 from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_matches_requested_location, _property_search_location_hints
-from app.services.property_billing import property_commercial_snapshot
+from app.services.property_billing import property_commercial_snapshot, property_worker_cap
 from app.services import property_market_catalog
 from tests.product_test_helpers import build_product_client, build_property_client, seed_product_state, start_workspace
 
@@ -61,6 +61,12 @@ def test_property_plan_investment_research_levels_follow_tier() -> None:
     assert agent["max_match_score"] == 80
     assert agent["magic_fit_scene_period"] == "none"
     assert agent["magic_fit_video_period"] == "none"
+
+
+def test_property_worker_caps_follow_plan() -> None:
+    assert property_worker_cap("free") == 1
+    assert property_worker_cap("plus") == 3
+    assert property_worker_cap("agent") == 6
 
 
 def test_findmyhome_entry_links_are_not_treated_as_supported_property_listings() -> None:

@@ -1,0 +1,876 @@
+    const checkedValues = (form, name) => [...form.querySelectorAll(`input[name="${name}"]:checked`)].map((node) => String(node.value || '').trim()).filter(Boolean);
+    const fieldValue = (form, name) => String(form.querySelector(`[name="${name}"]`)?.value || '').trim();
+    const integerValue = (form, name) => {
+      const parsed = Number.parseInt(fieldValue(form, name), 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    };
+    const browserLanguageCode = () => {
+      const raw = String(navigator.language || navigator.languages?.[0] || document.documentElement.lang || 'en').trim().toLowerCase();
+      return (raw.split('-')[0] || 'en').trim() || 'en';
+    };
+    const browserCountryCode = () => {
+      const localeRows = []
+        .concat(Array.isArray(navigator.languages) ? navigator.languages : [])
+        .concat([navigator.language, document.documentElement.lang]);
+      const regionMap = { at: 'AT', au: 'AU', be: 'BE', ca: 'CA', ch: 'CH', de: 'DE', es: 'ES', fr: 'FR', gb: 'UK', ie: 'IE', it: 'IT', nl: 'NL', pl: 'PL', pt: 'PT', se: 'SE', uk: 'UK', us: 'US' };
+      const languageMap = { de: 'AT', en: 'US', es: 'ES', fr: 'FR', it: 'IT', nl: 'NL', pl: 'PL', pt: 'PT', sv: 'SE' };
+      for (const row of localeRows) {
+        const locale = String(row || '').trim().toLowerCase();
+        if (!locale) continue;
+        const parts = locale.split('-').filter(Boolean);
+        const region = parts[1] || '';
+        if (regionMap[region]) return regionMap[region];
+        const language = parts[0] || '';
+        if (languageMap[language]) return languageMap[language];
+      }
+      return 'AT';
+    };
+    const hasConfiguredLocations = (form) => checkedValues(form, 'location_query').length > 0 || Boolean(form.querySelector('input[name="full_region_scope"]')?.checked);
+    const shouldApplyBrowserDefaults = (form) => {
+      const url = new URL(window.location.href);
+      return String(url.searchParams.get('autolocate') || '').trim() === '1'
+        && !hasConfiguredLocations(form)
+        && !String(url.searchParams.get('run_id') || '').trim();
+    };
+    const locationFromIpAddress = async () => {
+      if (!window.fetch) return null;
+      try {
+        const response = await fetch('https://ipapi.co/json/', { headers: { accept: 'application/json' } });
+        if (!response.ok) return null;
+        return await response.json();
+      } catch (_error) {
+        return null;
+      }
+    };
+    const csvValues = (value) => String(value || '').split(',').map((item) => String(item || '').trim()).filter(Boolean);
+    const uniqueValues = (...groups) => {
+      const seen = new Set();
+      const values = [];
+      groups.flat().forEach((value) => {
+        const normalized = String(value || '').trim();
+        if (!normalized) return;
+        const lowered = normalized.toLowerCase();
+        if (seen.has(lowered)) return;
+        seen.add(lowered);
+        values.push(normalized);
+      });
+      return values;
+    };
+    const normalizeLocationText = (value) => String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[()]/g, '')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const setCheckboxValues = (form, name, values) => {
+      const selected = new Set((values || []).map((item) => String(item || '').trim().toLowerCase()).filter(Boolean));
+      form?.querySelectorAll(`input[name="${name}"]`).forEach((node) => {
+        node.checked = selected.has(String(node.value || '').trim().toLowerCase());
+      });
+    };
+    const preferenceProfileEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile`;
+    const locationOptionRows = (form) => [...(form?.querySelectorAll('input[name="location_query"]') || [])].map((node) => {
+      const labelNode = node.closest('label');
+      const title = String(labelNode?.querySelector('.pqx-check-label')?.textContent || node.value || '').trim();
+      const detail = String(labelNode?.querySelector('small')?.textContent || '').trim();
+      return {
+        value: String(node.value || '').trim(),
+        normalizedValue: normalizeLocationText(node.value),
+        normalizedTitle: normalizeLocationText(title),
+        normalizedDetail: normalizeLocationText(detail),
+      };
+    });
+    const matchLocationValue = (form, value) => {
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      const normalized = normalizeLocationText(raw);
+      const postalDigits = normalized.match(/\b\d{4,5}\b/);
+      const rows = locationOptionRows(form);
+      const exact = rows.find((row) => row.normalizedValue === normalized || row.normalizedTitle === normalized);
+      if (exact) return exact.value;
+      if (postalDigits) {
+        const byPostal = rows.find((row) => row.normalizedValue.includes(postalDigits[0]) || row.normalizedTitle.includes(postalDigits[0]));
+        if (byPostal) return byPostal.value;
+      }
+      const byDetail = rows.find((row) => row.normalizedDetail && (row.normalizedDetail === normalized || normalized.includes(row.normalizedDetail) || row.normalizedDetail.includes(normalized)));
+      if (byDetail) return byDetail.value;
+      const fuzzy = rows.find((row) => normalized && (row.normalizedTitle.includes(normalized) || normalized.includes(row.normalizedTitle)));
+      return fuzzy?.value || raw;
+    };
+    const matchRegionValue = (form, cityValue) => {
+      const regionField = form?.querySelector('select[name="region_code"]');
+      const normalizedCity = normalizeLocationText(cityValue);
+      if (!regionField || !normalizedCity) return '';
+      const options = [...regionField.options];
+      const exact = options.find((option) => normalizeLocationText(option.textContent || option.value) === normalizedCity);
+      if (exact) return exact.value;
+      const fuzzy = options.find((option) => {
+        const normalizedOption = normalizeLocationText(option.textContent || option.value);
+        return normalizedOption && (normalizedCity.includes(normalizedOption) || normalizedOption.includes(normalizedCity));
+      });
+      return fuzzy?.value || '';
+    };
+    const inferCountryRegionForLocations = (meta, values) => {
+      const normalizedValues = (values || []).map((value) => normalizeLocationText(value)).filter(Boolean);
+      if (!normalizedValues.length) return null;
+      const catalog = meta?.location_catalog_by_country_region || {};
+      let best = null;
+      Object.entries(catalog).forEach(([countryCode, regions]) => {
+        Object.entries(regions || {}).forEach(([regionCode, options]) => {
+          const optionRows = (Array.isArray(options) ? options : []).map((option) => ({
+            value: String(option?.value || '').trim(),
+            normalizedValue: normalizeLocationText(option?.value),
+            normalizedLabel: normalizeLocationText(option?.label || option?.value),
+            normalizedDetail: normalizeLocationText(option?.detail),
+          }));
+          let score = 0;
+          normalizedValues.forEach((needle) => {
+            const matched = optionRows.some((row) => (
+              row.normalizedValue === needle
+              || row.normalizedLabel === needle
+              || (row.normalizedDetail && row.normalizedDetail === needle)
+              || row.normalizedValue.includes(needle)
+              || row.normalizedLabel.includes(needle)
+              || (row.normalizedDetail && row.normalizedDetail.includes(needle))
+              || needle.includes(row.normalizedValue)
+              || needle.includes(row.normalizedLabel)
+            ));
+            if (matched) score += 1;
+          });
+          if (!best || score > best.score) {
+            best = { countryCode, regionCode, score };
+          }
+        });
+      });
+      return best && best.score > 0 ? best : null;
+    };
+    const applyPreferenceProfileToForm = async (form, refreshRegionAndLocationChoices, syncAreaScopeControls) => {
+      const personId = fieldValue(form, 'preference_person_id') || 'self';
+      if (!personId) return;
+      let bundle = {};
+      try {
+        const response = await fetch(preferenceProfileEndpoint(personId), { credentials: 'same-origin', headers: { accept: 'application/json' } });
+        bundle = await response.json().catch(() => ({}));
+        if (!response.ok) return;
+      } catch (_error) {
+        return;
+      }
+      const activeNodes = (Array.isArray(bundle.preference_nodes) ? bundle.preference_nodes : []).filter((row) => row && String(row.status || 'active').trim().toLowerCase() !== 'archived');
+      const nodeValues = new Map();
+      activeNodes.forEach((row) => {
+        const key = String(row.key || '').trim();
+        if (!key || nodeValues.has(key)) return;
+        nodeValues.set(key, row.value_json);
+      });
+      const countryField = form.querySelector('select[name="country_code"]');
+      const regionField = form.querySelector('select[name="region_code"]');
+      const fullRegionScopeField = form.querySelector('input[name="full_region_scope"]');
+      const areaValues = Array.isArray(nodeValues.get('preferred_areas'))
+        ? nodeValues.get('preferred_areas')
+        : [];
+      if (areaValues.length) {
+        const inferredScope = inferCountryRegionForLocations(meta, areaValues);
+        if (countryField && inferredScope?.countryCode) countryField.value = inferredScope.countryCode;
+        refreshRegionAndLocationChoices();
+        if (regionField && inferredScope?.regionCode) {
+          regionField.value = inferredScope.regionCode;
+          refreshRegionAndLocationChoices();
+        }
+        const mappedAreas = uniqueValues(areaValues.map((value) => matchLocationValue(form, value)));
+        const availableAreas = new Set([...(form.querySelectorAll('input[name="location_query"]') || [])].map((node) => String(node.value || '').trim().toLowerCase()));
+        const visibleAreas = mappedAreas.filter((value) => availableAreas.has(String(value || '').trim().toLowerCase()));
+        const customAreas = mappedAreas.filter((value) => !availableAreas.has(String(value || '').trim().toLowerCase()));
+        if (fullRegionScopeField) fullRegionScopeField.checked = false;
+        setCheckboxValues(form, 'location_query', visibleAreas);
+        const customLocationField = form.querySelector('[name="custom_location_query"]');
+        if (customLocationField) customLocationField.value = customAreas.join(', ');
+        syncAreaScopeControls();
+      }
+      const maxRent = Number(nodeValues.get('max_total_rent_eur') || nodeValues.get('prefer_lower_total_rent_eur') || 0);
+      const minRooms = Number(nodeValues.get('min_rooms') || 0);
+      const minArea = Number(nodeValues.get('min_area_sqm_preference') || 0);
+      if (maxRent > 0) {
+        const field = form.querySelector('[name="max_price_eur"]');
+        if (field) field.value = String(Math.round(maxRent));
+      }
+      if (minRooms > 0) {
+        const field = form.querySelector('[name="min_rooms"]');
+        if (field) field.value = String(Math.round(minRooms));
+      }
+      if (minArea > 0) {
+        const field = form.querySelector('[name="min_area_m2"]');
+        if (field) field.value = String(Math.round(minArea));
+      }
+      const familyField = form.querySelector('input[name="enable_family_mode"]');
+      if (nodeValues.get('prefer_playgrounds_nearby') === true && familyField) familyField.checked = true;
+      const keywordValues = [];
+      if (nodeValues.get('prefer_playgrounds_nearby') === true) keywordValues.push('playground nearby');
+      if (nodeValues.get('prefer_libraries_nearby') === true) keywordValues.push('library nearby');
+      if (nodeValues.get('prefer_subway_nearby') === true) keywordValues.push('underground nearby');
+      if (nodeValues.get('prefer_supermarket_nearby') === true) keywordValues.push('supermarket nearby');
+      if (nodeValues.get('prefer_pharmacy_nearby') === true) keywordValues.push('pharmacy nearby');
+      if (nodeValues.get('prefer_markets_nearby') === true) keywordValues.push('market nearby');
+      if (nodeValues.get('prefer_hardware_store_nearby') === true) keywordValues.push('hardware store nearby');
+      if (nodeValues.get('prefer_shopping_street_nearby') === true) keywordValues.push('shopping street nearby');
+      if (nodeValues.get('prefer_shopping_center_nearby') === true) keywordValues.push('shopping center nearby');
+      if (nodeValues.get('prefer_public_pool_nearby') === true) keywordValues.push('public pool nearby');
+      if (nodeValues.get('prefer_theatre_nearby') === true) keywordValues.push('theatre nearby');
+      if (nodeValues.get('prefer_medical_care_nearby') === true) keywordValues.push('medical care nearby');
+      if (nodeValues.get('prefer_good_air_quality') === true) keywordValues.push('good air quality');
+      if (nodeValues.get('prefer_low_crime_area') === true) keywordValues.push('low crime area');
+      if (nodeValues.get('prefer_low_parking_pressure') === true) keywordValues.push('easy parking');
+      if (nodeValues.get('prefer_high_quality_drinking_water') === true) keywordValues.push('high quality drinking water');
+      if (nodeValues.get('prefer_balcony') === true || nodeValues.get('prefer_outdoor_space') === true) keywordValues.push('balcony');
+      if (nodeValues.get('prefer_lift') === true || nodeValues.get('require_lift') === true) keywordValues.push('lift');
+      setCheckboxValues(form, 'keywords', keywordValues);
+      if (nodeValues.get('prefer_bike_infrastructure') === true) {
+        setCheckboxValues(form, 'preferred_reachability_modes', uniqueValues(checkedValues(form, 'preferred_reachability_modes'), ['bike']));
+      }
+      const customKeywordField = form.querySelector('[name="custom_keywords"]');
+      const derivedCustomKeywords = [];
+      if (nodeValues.get('prefer_running_green_space') === true) derivedCustomKeywords.push('running green space');
+      if (nodeValues.get('prefer_bike_infrastructure') === true) derivedCustomKeywords.push('bike infrastructure');
+      if (customKeywordField) customKeywordField.value = uniqueValues(csvValues(customKeywordField.value), derivedCustomKeywords).join(', ');
+      const playgroundDistance = Number(nodeValues.get('max_distance_to_playground_m') || 0);
+      if (playgroundDistance > 0) {
+        const field = form.querySelector('[name="max_distance_to_playground_m"]');
+        if (field) {
+          field.value = String(Math.round(playgroundDistance));
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
+      const libraryDistance = Number(nodeValues.get('max_distance_to_library_m') || 0);
+      if (libraryDistance > 0) {
+        const field = form.querySelector('[name="max_distance_to_library_m"]');
+        if (field) {
+          field.value = String(Math.round(libraryDistance));
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
+    };
+    const renderCheckboxOptions = (form, name, options, selectedValues = []) => {
+      const grid = form?.querySelector(`[data-pqx-check-grid="${name}"]`);
+      if (!grid) return;
+      const selected = new Set(selectedValues.map((item) => String(item || '').trim()).filter(Boolean));
+      const familyHeadings = {
+        marketplace: ['Marketplaces', 'Primary broad-market search sources for this country.'],
+        core_portal: ['Core portals', 'National or national-scale search portals for this country.'],
+        classified: ['Classifieds', 'Private-owner and classifieds-heavy sources with broader noise and duplicate risk.'],
+        shared_housing: ['Shared housing', 'Rooms, WGs, student, and short-term living sources.'],
+        corporate_landlord: ['Direct landlords', 'Corporate or institutional landlords publishing inventory directly.'],
+        municipal_housing: ['Municipal housing', 'City-owned, public, or municipally-backed housing providers.'],
+        broker_direct: ['Broker direct', 'Broker-owned inventory and direct sources.'],
+        cooperative: ['Cooperatives', 'Genossenschaften and cooperative housing sources.'],
+        public_housing: ['Public housing', 'Municipal and public-housing-adjacent sources.'],
+        developer_projects: ['Developer projects', 'New-build and launch pipeline sources.'],
+        distressed_sales: ['Court and auction', 'Court-published and auction-style listings that need extra legal review.'],
+        community_signals: ['Community signals', 'Facebook, Telegram, and other weakly verified off-market hints.'],
+        community_meta: ['Watch-tier meta', 'Long-tail meta or watch-tier sources with lower trust.'],
+      };
+      const renderOption = (option) => {
+        const optionValue = String(option.value || '').trim();
+        const label = String(option.label || optionValue || 'Provider').trim();
+        const detail = String(option.detail || option.description || '').trim();
+        return `<label class="pqx-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${selected.has(optionValue) ? 'checked' : ''}><span><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</span></label>`;
+      };
+      const optionRows = Array.isArray(options) ? options : [];
+      if (name === 'selected_platforms' && optionRows.some((option) => String(option?.family || '').trim())) {
+        const grouped = new Map();
+        optionRows.forEach((option) => {
+          const family = String(option.family || 'marketplace').trim() || 'marketplace';
+          if (!grouped.has(family)) grouped.set(family, []);
+          grouped.get(family).push(option);
+        });
+        const familyOrder = ['marketplace', 'core_portal', 'classified', 'shared_housing', 'corporate_landlord', 'municipal_housing', 'broker_direct', 'cooperative', 'public_housing', 'developer_projects', 'distressed_sales', 'community_signals', 'community_meta'];
+        grid.innerHTML = [...grouped.entries()]
+          .sort((a, b) => familyOrder.indexOf(a[0]) - familyOrder.indexOf(b[0]))
+          .map(([family, items]) => {
+            const [title, detail] = familyHeadings[family] || [String(family).replaceAll('_', ' '), 'Grouped source.'];
+            return `<details class="pqx-advanced-panel" data-provider-group-panel style="margin-top:12px;"><summary class="pqx-disclosure-summary pqx-disclosure-summary-secondary"><span class="pqx-disclosure-copy"><strong>${escapeHtml(title)}</strong><div class="pqx-note">${escapeHtml(detail)}</div></span><span class="pqx-disclosure-icon" aria-hidden="true">+</span></summary><div class="pqx-field-tools" style="margin:8px 0 10px;"><button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Add family</button><button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear family</button></div><div class="pqx-check-grid" data-pqx-check-grid="${escapeHtml(name)}-group">${items.map(renderOption).join('')}</div></details>`;
+          })
+          .join('');
+        return;
+      }
+      grid.innerHTML = optionRows.map(renderOption).join('');
+    };
+    const setCheckboxGroupStatus = (message) => {
+      const status = root.querySelector('[data-property-inline-status]');
+      const error = root.querySelector('[data-property-inline-error]');
+      if (status) status.textContent = String(message || '').trim();
+      if (error && message) error.textContent = '';
+    };
+    const applyCheckboxSelection = (inputs, selectedInputs) => {
+      const selectedSet = new Set(selectedInputs);
+      inputs.forEach((node) => {
+        const nextChecked = selectedSet.has(node);
+        if (node.checked === nextChecked) return;
+        node.checked = nextChecked;
+        node.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    };
+    const revealSelectedProviderGroups = (form, selectedInputs) => {
+      const selectedSet = new Set(selectedInputs);
+      form.querySelectorAll('[data-provider-group-panel]').forEach((panel) => {
+        const panelInputs = [...panel.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')];
+        panel.open = panelInputs.some((node) => selectedSet.has(node));
+      });
+    };
+    const selectAllCheckboxValues = (form, name, maxCount) => {
+      const inputs = [...(form?.querySelectorAll(`input[name="${name}"]`) || [])];
+      if (!inputs.length) return;
+      const rawMax = Number(maxCount);
+      const normalizedMax = Number.isFinite(rawMax) && rawMax > 0 ? rawMax : inputs.length;
+        const selectedInputs = inputs.slice(0, normalizedMax);
+      applyCheckboxSelection(inputs, selectedInputs);
+      revealSelectedProviderGroups(form, selectedInputs);
+      if (selectedInputs.length < inputs.length) {
+        setCheckboxGroupStatus(`Selected ${selectedInputs.length} of ${inputs.length} sources. Your current plan allows up to ${normalizedMax} at once.`);
+        return;
+      }
+      setCheckboxGroupStatus(`Selected all ${selectedInputs.length} sources.`);
+    };
+    const syncSelectAllButtons = (form, maxCount) => {
+      const rawMax = Number(maxCount);
+      const normalizedMax = Number.isFinite(rawMax) && rawMax > 0 ? rawMax : 0;
+        form.querySelectorAll('[data-checkbox-group-select-all]').forEach((button) => {
+        const name = String(button.getAttribute('data-checkbox-group-select-all') || '').trim();
+        if (!name) return;
+        const total = form.querySelectorAll(`input[name="${name}"]`).length;
+        if (!total) {
+          button.textContent = 'Select sources';
+          button.removeAttribute('title');
+          button.removeAttribute('aria-label');
+          return;
+        }
+        if (!normalizedMax || total <= normalizedMax) {
+          button.textContent = 'All sources';
+          const title = `Select all ${total} available sources.`;
+          button.setAttribute('title', title);
+          button.setAttribute('aria-label', title);
+          return;
+        }
+        button.textContent = `Select ${normalizedMax} of ${total}`;
+        const title = `Your current plan allows up to ${normalizedMax} of ${total} available sources at once.`;
+        button.setAttribute('title', title);
+        button.setAttribute('aria-label', title);
+      });
+    };
+    const readableErrorDetail = (detail, fallback) => {
+      if (Array.isArray(detail)) {
+        return detail.map((item) => readableErrorDetail(item, '')).filter(Boolean).join(' ');
+      }
+      if (detail && typeof detail === 'object') {
+        const direct = detail.message || detail.msg || detail.code || detail.type || detail.error || '';
+        if (direct) return readableErrorDetail(direct, fallback);
+        try { return JSON.stringify(detail); } catch (_) { return fallback; }
+      }
+      const raw = String(detail || '').trim();
+      if (!raw) return fallback;
+      if (raw.startsWith('property_plan_upgrade_required:')) {
+        const plan = raw.split(':').pop() || 'paid';
+        return `Upgrade required for this run. Reduce the selected providers or max results, or switch to the ${plan} plan.`;
+      }
+      if (raw === 'invalid_property_search_platform') return 'One selected provider is not available for this country. Refresh the provider step and choose again.';
+      if (raw === 'principal_id_required') return 'You are not signed in cleanly. Sign in again before starting a search.';
+      return raw.replaceAll('_', ' ');
+    };
+    const titleCase = (value) => String(value || '')
+      .replaceAll('_', ' ')
+      .trim()
+      .replace(/\b\w/g, (match) => match.toUpperCase());
+    const preferenceLabel = (key, category) => {
+      const readableKey = titleCase(key || 'Preference');
+      const readableCategory = titleCase(category || '');
+      return readableCategory ? `${readableKey} (${readableCategory})` : readableKey;
+    };
+    const preferenceValueLabel = (value) => {
+      if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean).join(', ') || 'empty list';
+      if (value && typeof value === 'object') return Object.entries(value).map(([key, item]) => `${key}: ${item}`).join(', ') || 'empty object';
+      if (typeof value === 'boolean') return value ? 'yes' : 'no';
+      return String(value ?? '').trim() || 'empty';
+    };
+    const parsePreferenceValue = (rawValue, key, valueKind = '') => {
+      const raw = String(rawValue || '').trim();
+      const normalizedKey = String(key || '').trim().toLowerCase();
+      if (valueKind === 'bool') {
+        if (!raw) return true;
+        const lowered = raw.toLowerCase();
+        if (['true', 'yes', 'ja', '1', 'on'].includes(lowered)) return true;
+        if (['false', 'no', 'nein', '0', 'off'].includes(lowered)) return false;
+      }
+      if (valueKind === 'positive_number') {
+        const numeric = Number(raw.replace(',', '.'));
+        if (Number.isFinite(numeric)) return numeric;
+        return raw;
+      }
+      if (valueKind === 'text_list') {
+        return raw.split(',').map((item) => item.trim()).filter(Boolean);
+      }
+      if (!raw && /^(prefer_|require_|requires_)/.test(normalizedKey)) return true;
+      if (!raw) return '';
+      const lowered = raw.toLowerCase();
+      if (['true', 'yes', 'ja', '1'].includes(lowered)) return true;
+      if (['false', 'no', 'nein', '0'].includes(lowered)) return false;
+      if (raw.includes(',')) return raw.split(',').map((item) => item.trim()).filter(Boolean);
+      const numeric = Number(raw.replace(',', '.'));
+      if (Number.isFinite(numeric) && /^-?\d+(?:[,.]\d+)?$/.test(raw)) return numeric;
+      return raw;
+    };
+    const renderPreferenceNodeRow = (node) => {
+      const nodeId = String(node?.node_id || '').trim();
+      const category = String(node?.category || 'soft_preference').trim();
+      const key = String(node?.key || '').trim();
+      const value = node?.value_json;
+      const strength = String(node?.strength || 'medium').trim();
+      const sourceMode = String(node?.source_mode || 'manual').trim();
+      return `
+        <div class="pqx-pref-row" data-preference-node data-node-id="${escapeHtml(nodeId)}" data-node-domain="${escapeHtml(node?.domain || 'willhaben')}" data-node-category="${escapeHtml(category)}" data-node-key="${escapeHtml(key)}" data-node-value="${escapeHtml(JSON.stringify(value))}" data-node-strength="${escapeHtml(strength)}">
+          <div>
+            <strong>${escapeHtml(preferenceLabel(key, category))}</strong>
+            <small>${escapeHtml(preferenceValueLabel(value))} · ${escapeHtml(strength)} strength · ${escapeHtml(sourceMode || 'manual')}</small>
+          </div>
+          <button class="pqx-button subtle" type="button" data-preference-remove>Remove</button>
+        </div>`;
+    };
+    const initPreferenceManager = () => {
+      const manager = root.querySelector('[data-property-preference-manager]');
+      if (!manager) return;
+      const listNode = manager.querySelector('[data-preference-node-list]');
+      const formNode = manager.querySelector('[data-preference-add-form]');
+      const statusNode = manager.querySelector('[data-preference-status]');
+      const errorNode = manager.querySelector('[data-preference-error]');
+      const countNode = manager.querySelector('.pqx-pill');
+      const nodeEndpoint = String(manager.getAttribute('data-preference-node-endpoint') || '').trim();
+      const archiveEndpointTemplate = String(manager.getAttribute('data-preference-archive-endpoint-template') || '').trim();
+      const preferenceSchema = (() => {
+        try { return JSON.parse(manager.getAttribute('data-preference-schema') || '{}'); } catch (_error) { return {}; }
+      })();
+      const categoryField = formNode?.querySelector('[name="category"]');
+      const keyField = formNode?.querySelector('[name="key"]');
+      const valueField = formNode?.querySelector('[name="value"]');
+      const keyOptions = keyField?.list;
+      const categories = preferenceSchema?.categories && typeof preferenceSchema.categories === 'object' ? preferenceSchema.categories : {};
+      const setStatus = (message, isError = false) => {
+        if (statusNode) statusNode.textContent = isError ? '' : message;
+        if (errorNode) errorNode.textContent = isError ? message : '';
+      };
+      const findPreferenceKeySpec = (key) => {
+        const normalized = String(key || '').trim().toLowerCase();
+        if (!normalized) return null;
+        for (const [category, bucket] of Object.entries(categories)) {
+          const keys = Array.isArray(bucket?.keys) ? bucket.keys : [];
+          const found = keys.find((item) => String(item?.key || '').trim().toLowerCase() === normalized);
+          if (found) return { ...found, category };
+        }
+        return null;
+      };
+      const syncPreferenceKeyOptions = () => {
+        if (!categoryField || !keyField || !keyOptions) return;
+        const category = String(categoryField.value || 'soft_preference').trim();
+        const keys = Array.isArray(categories?.[category]?.keys) ? categories[category].keys : [];
+        keyOptions.innerHTML = keys.map((item) => `<option value="${escapeHtml(String(item.key || ''))}" label="${escapeHtml(String(item.label || item.key || ''))}"></option>`).join('');
+        const typedKey = String(keyField.value || '').trim().toLowerCase();
+        const typedSpec = findPreferenceKeySpec(typedKey);
+        if (typedSpec && typedSpec.category !== category) {
+          categoryField.value = typedSpec.category;
+          syncPreferenceKeyOptions();
+          return;
+        }
+        const currentSpec = typedSpec || keys[0] || null;
+        if (valueField && currentSpec?.hint) valueField.placeholder = String(currentSpec.hint || '');
+      };
+      categoryField?.addEventListener('change', syncPreferenceKeyOptions);
+      keyField?.addEventListener('input', syncPreferenceKeyOptions);
+      syncPreferenceKeyOptions();
+      const syncCount = () => {
+        if (!countNode || !listNode) return;
+        const activeCount = listNode.querySelectorAll('[data-preference-node]').length;
+        countNode.textContent = `${activeCount} active`;
+      };
+      const ensureEmptyState = () => {
+        if (!listNode) return;
+        if (listNode.querySelector('[data-preference-node]')) {
+          listNode.querySelector('[data-preference-empty]')?.remove();
+          syncCount();
+          return;
+        }
+        listNode.innerHTML = '<div class="pqx-empty" data-preference-empty><strong>No active learned preferences yet</strong><span class="pqx-note">Add explicit profile rules here or save feedback on property reviews.</span></div>';
+        syncCount();
+      };
+      const bindRemoveButtons = () => {
+        manager.querySelectorAll('[data-preference-remove]').forEach((button) => {
+          if (button.getAttribute('data-bound') === 'true') return;
+          button.setAttribute('data-bound', 'true');
+          button.addEventListener('click', async () => {
+            const row = button.closest('[data-preference-node]');
+            const nodeId = String(row?.getAttribute('data-node-id') || '').trim();
+            if (!row || !nodeId || !archiveEndpointTemplate) return;
+            row.classList.add('is-removing');
+            button.disabled = true;
+            setStatus('Removing preference...');
+            try {
+              const response = await fetch(archiveEndpointTemplate.replace('__NODE_ID__', encodeURIComponent(nodeId)), {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ reason: 'Removed from the PropertyQuarry search profile manager.' }),
+              });
+              const responseBody = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(readableErrorDetail(responseBody.detail || responseBody.error || responseBody, 'Could not remove preference.'));
+              row.remove();
+              ensureEmptyState();
+              setStatus('Preference removed from active ranking.');
+            } catch (error) {
+              row.classList.remove('is-removing');
+              button.disabled = false;
+              setStatus(error instanceof Error ? error.message : 'Could not remove preference.', true);
+            }
+          });
+        });
+      };
+      formNode?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!nodeEndpoint || !listNode) return;
+        let category = String(formNode.querySelector('[name="category"]')?.value || 'soft_preference').trim();
+        const key = String(formNode.querySelector('[name="key"]')?.value || '').trim().toLowerCase();
+        const valueInput = formNode.querySelector('[name="value"]');
+        const strength = String(formNode.querySelector('[name="strength"]')?.value || 'medium').trim();
+        if (!key) {
+          setStatus('Add a preference key first.', true);
+          return;
+        }
+        const keySpec = findPreferenceKeySpec(key);
+        if (!keySpec) {
+          setStatus('Choose a supported preference key.', true);
+          return;
+        }
+        if (keySpec.category !== category) {
+          category = keySpec.category;
+          if (categoryField) categoryField.value = category;
+        }
+        setStatus('Adding preference...');
+        try {
+          const response = await fetch(nodeEndpoint, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              domain: 'willhaben',
+              category,
+              key,
+              value_json: parsePreferenceValue(valueInput?.value || '', key, String(keySpec.value_kind || '')),
+              strength,
+              confidence: 1,
+              source_mode: 'explicit',
+              status: 'active',
+              decay_policy: 'manual_only',
+            }),
+          });
+          const responseBody = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(readableErrorDetail(responseBody.detail || responseBody.error || responseBody, 'Could not add preference.'));
+          listNode.querySelector('[data-preference-empty]')?.remove();
+          const responseNodeId = String(responseBody?.node_id || '').trim();
+          if (responseNodeId && window.CSS?.escape) {
+            listNode.querySelector(`[data-node-id="${CSS.escape(responseNodeId)}"]`)?.remove();
+          }
+          listNode.insertAdjacentHTML('afterbegin', renderPreferenceNodeRow(responseBody));
+          bindRemoveButtons();
+          syncCount();
+          formNode.reset();
+          setStatus('Preference added to active ranking.');
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : 'Could not add preference.', true);
+        }
+      });
+      bindRemoveButtons();
+      ensureEmptyState();
+    };
+    const responseErrorMessage = async (response, fallback) => {
+      const body = await response.json().catch(() => ({}));
+      return readableErrorDetail(body.detail || body.error || body.message || body, fallback);
+    };
+    const collectPayload = (form) => {
+      const selectedPlatforms = checkedValues(form, 'selected_platforms');
+      const countryCode = fieldValue(form, 'country_code') || 'AT';
+      const regionCode = fieldValue(form, 'region_code') || '';
+      const listingMode = fieldValue(form, 'listing_mode') || 'rent';
+      const fullRegionScope = Boolean(form.querySelector('input[name="full_region_scope"]')?.checked);
+      const selectedLocations = checkedValues(form, 'location_query');
+      const customLocationQuery = fieldValue(form, 'custom_location_query');
+      const customKeywords = fieldValue(form, 'custom_keywords');
+      const regionLabel = String(form.querySelector('select[name="region_code"] option:checked')?.textContent || regionCode || '').trim();
+      return {
+        selected_platforms: selectedPlatforms,
+        property_preferences: {
+          selected_platforms: selectedPlatforms,
+          country_code: countryCode,
+          region_code: regionCode,
+          language_code: browserLanguageCode(),
+          listing_mode: listingMode,
+          property_type: checkedValues(form, 'property_type').length ? checkedValues(form, 'property_type') : ['any'],
+          search_mode: fieldValue(form, 'search_mode') || 'strict',
+          investment_research_mode: listingMode === 'buy' ? (fieldValue(form, 'investment_research_mode') || 'off') : 'off',
+          full_region_scope: fullRegionScope,
+          location_query: fullRegionScope && regionLabel ? regionLabel : uniqueValues(selectedLocations, csvValues(customLocationQuery)).join(', '),
+          custom_location_query: customLocationQuery,
+          keywords: uniqueValues(checkedValues(form, 'keywords'), csvValues(customKeywords)).join(', '),
+          custom_keywords: customKeywords,
+          preference_person_id: fieldValue(form, 'preference_person_id') || 'self',
+          use_stored_feedback_preferences: Boolean(form.querySelector('input[name="use_stored_feedback_preferences"]')?.checked),
+          include_broker_direct_sources: Boolean(form.querySelector('input[name="include_broker_direct_sources"]')?.checked),
+          include_community_signals: Boolean(form.querySelector('input[name="include_community_signals"]')?.checked),
+          require_manual_validation_for_community: Boolean(form.querySelector('input[name="require_manual_validation_for_community"]')?.checked),
+          include_developer_project_signals: Boolean(form.querySelector('input[name="include_developer_project_signals"]')?.checked),
+          include_public_housing_signals: Boolean(form.querySelector('input[name="include_public_housing_signals"]')?.checked),
+          include_distressed_sale_signals: Boolean(form.querySelector('input[name="include_distressed_sale_signals"]')?.checked),
+          enable_building_risk_research: Boolean(form.querySelector('input[name="enable_building_risk_research"]')?.checked),
+          enable_market_supply_research: Boolean(form.querySelector('input[name="enable_market_supply_research"]')?.checked),
+          enable_location_risk_research: Boolean(form.querySelector('input[name="enable_location_risk_research"]')?.checked),
+          enable_trust_risk_scoring: Boolean(form.querySelector('input[name="enable_trust_risk_scoring"]')?.checked),
+          enable_family_mode: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked),
+          ganztag_required: Boolean(form.querySelector('input[name="ganztag_required"]')?.checked),
+          enable_commute_research: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked),
+          commute_destination: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? (fieldValue(form, 'commute_destination') || '') : '',
+          additional_reachability_targets: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? (fieldValue(form, 'additional_reachability_targets') || '') : '',
+          preferred_reachability_modes: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? checkedValues(form, 'preferred_reachability_modes') : [],
+          school_stage_preferences: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? checkedValues(form, 'school_stage_preferences') : [],
+          school_quality_priority: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) && checkedValues(form, 'school_stage_preferences').length > 0 ? (fieldValue(form, 'school_quality_priority') || 'any') : 'any',
+          require_school_evidence: Boolean(form.querySelector('input[name="require_school_evidence"]')?.checked),
+          university_name: fieldValue(form, 'university_name') || '',
+          desired_project_stages: checkedValues(form, 'desired_project_stages'),
+          apply_unknowns_penalty: Boolean(form.querySelector('input[name="apply_unknowns_penalty"]')?.checked),
+          enable_action_readiness_research: Boolean(form.querySelector('input[name="enable_action_readiness_research"]')?.checked),
+          enable_lifestyle_research: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked),
+          max_price_eur: integerValue(form, 'max_price_eur'),
+          min_rooms: integerValue(form, 'min_rooms'),
+          min_area_m2: integerValue(form, 'min_area_m2'),
+          available_within_years: integerValue(form, 'available_within_years'),
+          max_commute_minutes_transit: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? integerValue(form, 'max_commute_minutes_transit') : null,
+          max_commute_minutes_drive: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? integerValue(form, 'max_commute_minutes_drive') : null,
+          max_commute_minutes_bike: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? integerValue(form, 'max_commute_minutes_bike') : null,
+          max_commute_minutes_walk: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? integerValue(form, 'max_commute_minutes_walk') : null,
+          max_distance_to_playground_m: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? integerValue(form, 'max_distance_to_playground_m') : null,
+          max_distance_to_playground_importance: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? (fieldValue(form, 'max_distance_to_playground_importance') || 'important') : 'nice_to_have',
+          max_distance_to_library_m: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? integerValue(form, 'max_distance_to_library_m') : null,
+          max_distance_to_library_importance: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? (fieldValue(form, 'max_distance_to_library_importance') || 'nice_to_have') : 'nice_to_have',
+          max_distance_to_zoo_m: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? integerValue(form, 'max_distance_to_zoo_m') : null,
+          max_distance_to_university_m: integerValue(form, 'max_distance_to_university_m'),
+          max_distance_to_starbucks_m: integerValue(form, 'max_distance_to_starbucks_m'),
+          max_distance_to_fitness_center_m: integerValue(form, 'max_distance_to_fitness_center_m'),
+          max_distance_to_cinema_m: integerValue(form, 'max_distance_to_cinema_m'),
+          max_distance_to_bouldering_m: integerValue(form, 'max_distance_to_bouldering_m'),
+          max_distance_to_dog_park_m: integerValue(form, 'max_distance_to_dog_park_m'),
+          max_distance_to_good_cafe_m: integerValue(form, 'max_distance_to_good_cafe_m'),
+          max_distance_to_supermarket_m: integerValue(form, 'max_distance_to_supermarket_m'),
+          max_distance_to_supermarket_importance: fieldValue(form, 'max_distance_to_supermarket_importance') || 'important',
+          max_distance_to_market_m: integerValue(form, 'max_distance_to_market_m'),
+          max_distance_to_hardware_store_m: integerValue(form, 'max_distance_to_hardware_store_m'),
+          max_distance_to_shopping_center_m: integerValue(form, 'max_distance_to_shopping_center_m'),
+          max_distance_to_shopping_street_m: integerValue(form, 'max_distance_to_shopping_street_m'),
+          max_distance_to_theatre_m: integerValue(form, 'max_distance_to_theatre_m'),
+          max_distance_to_public_pool_m: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? integerValue(form, 'max_distance_to_public_pool_m') : null,
+          max_distance_to_medical_care_m: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? integerValue(form, 'max_distance_to_medical_care_m') : null,
+          prefer_good_air_quality: Boolean(form.querySelector('input[name="prefer_good_air_quality"]')?.checked),
+          avoid_noise_risk_area: Boolean(form.querySelector('input[name="avoid_noise_risk_area"]')?.checked),
+          require_high_speed_internet: Boolean(form.querySelector('input[name="require_high_speed_internet"]')?.checked),
+          prefer_low_crime_area: Boolean(form.querySelector('input[name="prefer_low_crime_area"]')?.checked),
+          require_drinking_water_quality_research: Boolean(form.querySelector('input[name="require_drinking_water_quality_research"]')?.checked),
+          require_parking_pressure_check: Boolean(form.querySelector('input[name="require_parking_pressure_check"]')?.checked),
+          avoid_cesspit_or_septic_risk: Boolean(form.querySelector('input[name="avoid_cesspit_or_septic_risk"]')?.checked),
+          require_winter_access_research: Boolean(form.querySelector('input[name="require_winter_access_research"]')?.checked),
+          avoid_flood_risk_area: Boolean(form.querySelector('input[name="avoid_flood_risk_area"]')?.checked),
+          wiener_wohnticket_available: Boolean(form.querySelector('input[name="wiener_wohnticket_available"]')?.checked),
+          subsidized_required: Boolean(form.querySelector('input[name="subsidized_required"]')?.checked),
+          miete_mit_kaufoption: Boolean(form.querySelector('input[name="miete_mit_kaufoption"]')?.checked),
+          eigenmittel_max_eur: integerValue(form, 'eigenmittel_max_eur'),
+          application_window_days: integerValue(form, 'application_window_days'),
+          max_results_per_source: integerValue(form, 'max_results_per_source'),
+          min_match_score: integerValue(form, 'min_match_score'),
+          search_agent_enabled: Boolean(form.querySelector('input[name="search_agent_enabled"]')?.checked),
+          search_agent_duration_days: integerValue(form, 'search_agent_duration_days'),
+          search_agent_notification_limit: integerValue(form, 'search_agent_notification_limit'),
+          search_agent_notification_period: fieldValue(form, 'search_agent_notification_period') || 'day',
+          require_floorplan: Boolean(form.querySelector('input[name="require_floorplan"]')?.checked),
+          require_energy_certificate: Boolean(form.querySelector('input[name="require_energy_certificate"]')?.checked),
+          require_operating_cost_statement: Boolean(form.querySelector('input[name="require_operating_cost_statement"]')?.checked),
+          enable_auction_legal_review: Boolean(form.querySelector('input[name="enable_auction_legal_review"]')?.checked),
+          use_flatbee_reputation_penalty: Boolean(form.querySelector('input[name="use_flatbee_reputation_penalty"]')?.checked),
+        },
+        force_refresh: Boolean(form.querySelector('input[name="force_refresh"]')?.checked),
+        max_results_per_source: integerValue(form, 'max_results_per_source'),
+      };
+    };
+    const bindRangeOutputs = (form) => {
+      const numberFormatter = new Intl.NumberFormat(document.documentElement.lang || 'en', { maximumFractionDigits: 0 });
+      const formattedRangeValue = (input, suffix) => {
+        const parsed = Number(input.value || 0);
+        const value = Number.isFinite(parsed) ? parsed : 0;
+        const emptyLabel = String(input.getAttribute('data-range-empty-label') || '').trim();
+        if (value <= 0 && emptyLabel) return emptyLabel;
+        const format = String(input.getAttribute('data-range-format') || '').trim();
+        if (format === 'currency_eur') return `EUR ${numberFormatter.format(Math.round(value))}`;
+        if (format === 'area_m2') return `${numberFormatter.format(Math.round(value))} m2+`;
+        if (format === 'rooms') return value === 1 ? '1+ room' : `${numberFormatter.format(Math.round(value))}+ rooms`;
+        if (format === 'count') return value === 1 ? '1 result' : `${numberFormatter.format(Math.round(value))} results`;
+        if (format === 'days') return value === 1 ? 'Within 1 day' : `Within ${numberFormatter.format(Math.round(value))} days`;
+        if (format === 'agent_duration_days') {
+          if (value <= 7) return '1 week';
+          if (value >= 365) return '1 year';
+          return `${numberFormatter.format(Math.round(value))} days`;
+        }
+        if (format === 'notification_count') return value === 1 ? '1 alert' : `${numberFormatter.format(Math.round(value))} alerts`;
+        return `${numberFormatter.format(Math.round(value))}${suffix}`;
+      };
+      form?.querySelectorAll('input[type="range"][data-range-output]').forEach((input) => {
+        const name = String(input.getAttribute('data-range-output') || input.name || '').trim();
+        const output = form.querySelector(`[data-range-value-for="${name}"]`);
+        const rangeShell = input.closest('[data-range-control]');
+        const suffix = String(input.getAttribute('data-range-suffix') || '').trim();
+        const presetKey = String(input.getAttribute('data-range-preset') || '').trim();
+        const presetPayload = String(input.getAttribute('data-range-presets') || '').trim();
+        let presets = {};
+        if (presetPayload) {
+          try { presets = JSON.parse(presetPayload); } catch (_) { presets = {}; }
+        }
+        const applyPreset = () => {
+          if (presetKey !== 'listing_mode_price') return;
+          const mode = String(form.querySelector('select[name="listing_mode"]')?.value || 'rent').trim().toLowerCase();
+          const preset = presets[mode] || presets.rent || {};
+          if (preset.max) {
+            input.max = String(preset.max);
+            input.setAttribute('data-range-visual-max', String(preset.max));
+          }
+          if (preset.step) input.step = String(preset.step);
+          const maxLabel = rangeShell?.querySelector('[data-range-scale-max]');
+          if (maxLabel && preset.scaleMaxLabel) maxLabel.textContent = String(preset.scaleMaxLabel);
+        };
+        const sync = () => {
+          const selectableMax = Number(input.getAttribute('data-range-selectable-max') || input.max || 0);
+          const min = Number(input.min || 0);
+          if (Number.isFinite(min) && Number(input.value) < min) input.value = String(min);
+          if (selectableMax > 0 && Number(input.value) > selectableMax) input.value = String(selectableMax);
+          if (output) output.textContent = formattedRangeValue(input, suffix);
+        };
+        form.querySelector('select[name="listing_mode"]')?.addEventListener('change', () => {
+          applyPreset();
+          sync();
+        });
+        applyPreset();
+        input.addEventListener('input', sync);
+        sync();
+      });
+    };
+    const bindTooltips = (root) => {
+      const tips = [...(root?.querySelectorAll('.pqx-tooltip[data-tooltip-trigger][aria-label]') || [])];
+      if (!tips.length) return;
+      const closeAll = (exceptNode) => {
+        tips.forEach((tip) => {
+          if (exceptNode && tip === exceptNode) return;
+          tip.setAttribute('data-tooltip-open', 'false');
+          tip.setAttribute('aria-expanded', 'false');
+        });
+      };
+      tips.forEach((tip) => {
+        tip.setAttribute('data-tooltip-open', 'false');
+        tip.setAttribute('aria-expanded', 'false');
+        tip.addEventListener('pointerdown', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        });
+        tip.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const isOpen = tip.getAttribute('data-tooltip-open') === 'true';
+          closeAll(tip);
+          tip.setAttribute('data-tooltip-open', isOpen ? 'false' : 'true');
+          tip.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+        });
+        tip.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            tip.setAttribute('data-tooltip-open', 'false');
+            tip.setAttribute('aria-expanded', 'false');
+          }
+        });
+        tip.addEventListener('blur', () => {
+          tip.setAttribute('data-tooltip-open', 'false');
+          tip.setAttribute('aria-expanded', 'false');
+        });
+      });
+      document.addEventListener('click', () => closeAll(null), { passive: true });
+    };
+    const syncSchoolStageVariantVisibility = (form) => {
+      const schoolParent = form?.querySelector('input[name="school_stage_preferences"][value="volksschule"]');
+      const schoolVariants = [...(form?.querySelectorAll('[data-school-stage-variant]') || [])];
+      const kindergartenParent = form?.querySelector('input[name="school_stage_preferences"][value="kindergarten"]');
+      const kindergartenVariants = [...(form?.querySelectorAll('[data-kindergarten-variant]') || [])];
+      const note = form?.querySelector('[data-school-stage-note]');
+      const schoolEnabled = Boolean(schoolParent?.checked);
+      const kindergartenEnabled = Boolean(kindergartenParent?.checked);
+      schoolVariants.forEach((row) => {
+        row.hidden = !schoolEnabled;
+        row.toggleAttribute('aria-hidden', !schoolEnabled);
+        if (!schoolEnabled) {
+          const input = row.querySelector('input[name="school_stage_preferences"]');
+          if (input) input.checked = false;
+        }
+      });
+      kindergartenVariants.forEach((row) => {
+        row.hidden = !kindergartenEnabled;
+        row.toggleAttribute('aria-hidden', !kindergartenEnabled);
+        if (!kindergartenEnabled) {
+          const input = row.querySelector('input[name="school_stage_preferences"]');
+          if (input) input.checked = false;
+        }
+      });
+      if (note) {
+        note.textContent = 'Checked school types are treated as OR matches.'
+          + (schoolEnabled ? ' If both Volksschule variants are checked, listings matching either variant stay in.' : ' Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants.')
+          + (kindergartenEnabled ? ' Public and private kindergarten refine the Kindergarten choice.' : ' Select Kindergarten to reveal public and private kindergarten options.');
+      }
+    };
+    const currentMarketFilterCapabilities = (meta, countryCode, regionCode) => {
+      const country = String(countryCode || 'AT').trim();
+      const region = String(regionCode || '').trim();
+      const byCountry = meta?.market_filter_capabilities_by_country_region || {};
+      return byCountry?.[country]?.[region] || meta?.market_filter_capabilities || {};
+    };
+    const syncMarketAwareFields = (form, meta) => {
+      const countryCode = form?.querySelector('select[name="country_code"]')?.value || 'AT';
+      const regionCode = form?.querySelector('select[name="region_code"]')?.value || '';
+      const capabilities = currentMarketFilterCapabilities(meta || {}, countryCode, regionCode);
+      renderEvidenceSourceCatalog(form, meta);
+      form?.querySelectorAll('details[data-property-advanced-panel]').forEach((panel) => {
+        const unavailableFields = [...panel.querySelectorAll('[data-property-availability-key]')].filter((wrap) => {
+          const key = String(wrap.getAttribute('data-property-availability-key') || '').trim();
+          return key && capabilities[key] === false;
+        });
+        const toggleWrap = panel.querySelector('[data-property-unavailable-toggle-wrap]');
+        if (toggleWrap) toggleWrap.hidden = unavailableFields.length === 0;
+        const showUnavailable = Boolean(panel.querySelector('[data-property-show-unavailable]')?.checked);
+        unavailableFields.forEach((wrap) => {
+          const reasonNode = wrap.querySelector('[data-property-unavailable-note]');
+          wrap.dataset.propertyUnavailable = 'true';
+          wrap.querySelectorAll('input, select, textarea, button').forEach((node) => { node.disabled = !showUnavailable; });
+          if (reasonNode) reasonNode.hidden = !showUnavailable;
+          if (!showUnavailable) {
+            wrap.hidden = true;
+            if (!String(wrap.dataset.propertyCollapsedBy || '').trim()) wrap.dataset.propertyCollapsedBy = 'market_availability';
+          } else if (String(wrap.dataset.propertyCollapsedBy || '').trim() === 'market_availability') {
+            wrap.hidden = false;
+            wrap.dataset.propertyCollapsedBy = '';
+          }
+        });
+        [...panel.querySelectorAll('[data-property-availability-key]')].filter((wrap) => {
+          const key = String(wrap.getAttribute('data-property-availability-key') || '').trim();
+          return key && capabilities[key] !== false;
+        }).forEach((wrap) => {
+          const reasonNode = wrap.querySelector('[data-property-unavailable-note]');
+          delete wrap.dataset.propertyUnavailable;
+          if (String(wrap.dataset.propertyCollapsedBy || '').trim() === 'market_availability') wrap.dataset.propertyCollapsedBy = '';
+          wrap.querySelectorAll('input, select, textarea, button').forEach((node) => { node.disabled = false; });
+          if (reasonNode) reasonNode.hidden = true;
+        });
+      });
+    };

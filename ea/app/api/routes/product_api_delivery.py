@@ -313,14 +313,17 @@ def create_willhaben_property_tour(
     service = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
     try:
-        payload = service.create_willhaben_property_tour(
+        payload = service.request_property_visual_asset(
             principal_id=context.principal_id,
             property_url=body.property_url,
+            request_kind=body.request_kind,
             recipient_email=body.recipient_email,
             variant_key=body.variant_key,
             binding_id=body.binding_id,
             source_ref=body.source_ref,
             external_id=body.external_id,
+            run_id=body.run_id,
+            candidate_ref=body.candidate_ref,
             auto_deliver=body.auto_deliver,
             allow_floorplan_only=body.allow_floorplan_only,
             actor=actor,

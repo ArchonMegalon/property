@@ -1,0 +1,96 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  .editorial-shell {
+    display: grid;
+    gap: 24px;
+  }
+  .editorial-hero,
+  .editorial-band,
+  .editorial-section,
+  .editorial-faq {
+    padding: 22px;
+  }
+  .editorial-grid,
+  .editorial-faq-grid {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .editorial-hero,
+  .editorial-band,
+  .editorial-section,
+  .editorial-faq {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.02);
+  }
+  .editorial-list {
+    margin: 12px 0 0;
+    padding-left: 18px;
+    color: var(--text-soft);
+  }
+  .editorial-list li + li {
+    margin-top: 8px;
+  }
+  @media (max-width: 920px) {
+    .editorial-grid,
+    .editorial-faq-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<main class="editorial-shell">
+  <section class="editorial-hero panel">
+    <div class="kicker">{{ editorial_kicker }}</div>
+    <h1>{{ editorial_title }}</h1>
+    <p class="lead">{{ editorial_summary }}</p>
+    {% if editorial_cta_href and editorial_cta_label %}
+    <div class="cta-row">
+      <a class="btn primary" href="{{ editorial_cta_href }}"{% if editorial_cta_event %} data-rybbit-event="{{ editorial_cta_event }}"{% endif %}>{{ editorial_cta_label }}</a>
+    </div>
+    {% endif %}
+  </section>
+
+  {% if editorial_band %}
+  <section class="editorial-grid">
+    {% for row in editorial_band %}
+    <section class="editorial-band">
+      <strong>{{ row["title"] }}</strong>
+      <p class="copy">{{ row["body"] }}</p>
+    </section>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {% for section in editorial_sections %}
+  <section class="editorial-section">
+    <div class="kicker">{{ section["eyebrow"] }}</div>
+    <h2>{{ section["title"] }}</h2>
+    {% if section.get("body") %}<p class="copy">{{ section["body"] }}</p>{% endif %}
+    {% if section.get("items") %}
+    <ul class="editorial-list">
+      {% for item in section["items"] %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+  {% endfor %}
+
+  {% if editorial_faqs %}
+  <section class="editorial-faq">
+    <div class="kicker">FAQ</div>
+    <div class="editorial-faq-grid">
+      {% for row in editorial_faqs %}
+      <div>
+        <strong>{{ row["question"] }}</strong>
+        <p class="copy">{{ row["answer"] }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+</main>
+{% endblock %}

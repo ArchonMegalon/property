@@ -11,11 +11,10 @@ from app.api.routes.landing import (
     _console_shell_context,
     _form_value,
     _normalize_browser_return_to,
-    _object_detail_row,
-    _render_console_object_detail,
     _render_public_template,
 )
 from app.api.routes.landing_content import app_nav_groups_for_brand
+from app.api.routes.landing_property_research import _object_detail_row, _render_console_object_detail
 from app.container import AppContainer
 from app.product.service import build_product_service
 from app.services import google_oauth as google_oauth_service

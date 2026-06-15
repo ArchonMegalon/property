@@ -16,23 +16,23 @@
     gap: 18px;
   }
   .prd-shell {
-    width: min(1360px, calc(100vw - 32px));
+    width: min(1240px, calc(100vw - 32px));
     margin: 0 auto;
-    padding-bottom: 44px;
-    gap: 28px;
+    padding-bottom: 40px;
+    gap: 24px;
   }
   .prd-hero {
-    gap: 16px;
+    gap: 14px;
   }
   .prd-body {
-    grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
-    align-items: start;
-    gap: 22px;
-  }
-  .prd-headline {
-    grid-template-columns: minmax(0, 1.12fr) minmax(300px, 0.88fr);
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
     align-items: start;
     gap: 18px;
+  }
+  .prd-headline {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 332px);
+    align-items: start;
+    gap: 14px;
   }
   .prd-summary-stack,
   .prd-side-stack {
@@ -47,12 +47,12 @@
     border-radius: 14px;
     background: var(--panel);
     box-shadow: none;
-    padding: 18px;
+    padding: 16px;
     box-sizing: border-box;
     min-width: 0;
   }
   .prd-band {
-    background: linear-gradient(180deg, rgba(255,255,255,0.58), rgba(255,255,255,0.2));
+    background: var(--panel);
   }
   .prd-panel h1,
   .prd-panel h2,
@@ -78,12 +78,12 @@
   }
   .prd-headline-panel h1 {
     margin: 0;
-    font-size: 1.45rem;
-    line-height: 1.18;
+    font-size: 1.22rem;
+    line-height: 1.22;
     letter-spacing: 0;
   }
   .prd-price {
-    font-size: 1.22rem;
+    font-size: 1.08rem;
     line-height: 1.18;
     margin: 8px 0 0;
     color: var(--text);
@@ -213,7 +213,7 @@
     font-size: 13px;
   }
   .prd-gallery {
-    grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
     gap: 10px;
   }
   .prd-gallery-item {
@@ -236,6 +236,10 @@
     height: 100%;
     display: block;
     object-fit: cover;
+  }
+  .prd-gallery-thumb.is-active {
+    border-color: rgba(189, 139, 47, 0.72);
+    box-shadow: inset 0 0 0 1px rgba(189, 139, 47, 0.34);
   }
   .prd-gallery-label {
     color: var(--text-soft);
@@ -262,7 +266,29 @@
   .prd-map-card {
     gap: 14px;
   }
+  .prd-map-embed {
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--panel-2);
+  }
+  .prd-map-embed iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+    background: var(--panel-2);
+  }
+  .prd-map-inline {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+  }
   .prd-map-thumb {
+    position: relative;
     display: block;
     width: 100%;
     aspect-ratio: 640 / 368;
@@ -273,16 +299,199 @@
     background: var(--panel-2);
     cursor: zoom-in;
   }
+  .prd-map-thumb.is-inline {
+    width: 112px;
+    min-width: 112px;
+    aspect-ratio: 1 / 1;
+    border-radius: 12px;
+  }
   .prd-map-thumb img {
     width: 100%;
     height: 100%;
     display: block;
     object-fit: cover;
   }
+  .prd-map-overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  .prd-map-overlay path {
+    fill: rgba(177, 28, 28, 0.24);
+    stroke: rgba(123, 15, 15, 0.88);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    pointer-events: auto;
+  }
+  .prd-map-overlay path.is-selected {
+    fill: rgba(177, 28, 28, 0.34);
+  }
+  .prd-map-overlay path:hover,
+  .prd-map-overlay path:focus-visible {
+    fill: rgba(177, 28, 28, 0.42);
+    outline: none;
+  }
   .prd-sections {
     grid-template-columns: 1fr;
     align-items: start;
     gap: 16px;
+  }
+  .prd-stack {
+    display: grid;
+    gap: 16px;
+  }
+  .prd-split {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .prd-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .prd-summary-box {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel-2);
+    padding: 14px;
+  }
+  .prd-summary-box span {
+    display: block;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .prd-summary-box strong {
+    display: block;
+    color: var(--text);
+    font-size: 1rem;
+    line-height: 1.3;
+  }
+  .prd-summary-box p {
+    margin: 8px 0 0;
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .prd-key-points {
+    display: grid;
+    gap: 8px;
+  }
+  .prd-key-point {
+    border-left: 3px solid rgba(189, 139, 47, 0.55);
+    padding-left: 12px;
+  }
+  .prd-key-point strong {
+    display: block;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .prd-key-point span {
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .prd-bullets {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-soft);
+    display: grid;
+    gap: 8px;
+  }
+  .prd-bullets li {
+    padding-left: 2px;
+  }
+  .prd-section-title {
+    margin: 0 0 10px;
+    font-size: 1rem;
+    line-height: 1.3;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
+  }
+  .prd-section-copy {
+    margin: 0 0 12px;
+    color: var(--text-soft);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .prd-gate-list {
+    display: grid;
+    gap: 10px;
+  }
+  .prd-gate-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: start;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .prd-gate-item:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+  .prd-gate-item strong {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--text);
+  }
+  .prd-gate-item span {
+    display: block;
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .prd-compare-list {
+    display: grid;
+    gap: 10px;
+  }
+  .prd-compare-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+  }
+  .prd-compare-card strong {
+    display: block;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .prd-compare-card span {
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .prd-compare-card .prd-tag {
+    align-self: start;
+  }
+  .prd-collapse {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel);
+    padding: 0;
+    overflow: hidden;
+  }
+  .prd-collapse summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 18px;
+  }
+  .prd-collapse summary::-webkit-details-marker {
+    display: none;
+  }
+  .prd-collapse-body {
+    padding: 0 18px 18px;
+    display: grid;
+    gap: 14px;
   }
   .prd-section-grid {
     display: grid;
@@ -378,22 +587,31 @@
     border-radius: 14px;
     border: 1px solid var(--line);
     background: var(--panel-2);
+    width: 100%;
+    aspect-ratio: 640 / 368;
     max-height: min(calc(100vh - 170px), 78vh);
     cursor: zoom-in;
   }
   .prd-lightbox-zoomable {
+    position: relative;
+    width: 100%;
+    height: 100%;
     transform-origin: center center;
   }
   .prd-lightbox-stage img {
     width: 100%;
-    max-height: min(calc(100vh - 170px), 78vh);
-    object-fit: contain;
+    height: 100%;
+    object-fit: fill;
     display: block;
     background: var(--panel);
   }
   .prd-side-stack {
     position: sticky;
     top: 24px;
+  }
+  .prd-minor-stack {
+    display: grid;
+    gap: 12px;
   }
   .object-feedback {
     margin-top: 0;
@@ -523,11 +741,35 @@
   .object-check input {
     margin-top: 3px;
   }
+  .prd-map-tooltip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform: translate(-50%, calc(-100% - 12px));
+    padding: 7px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(83, 34, 21, 0.16);
+    background: rgba(29, 20, 16, 0.88);
+    color: #fffaf2;
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 120ms ease;
+    z-index: 4;
+  }
+  .prd-map-tooltip.is-visible {
+    opacity: 1;
+  }
   @media (max-width: 1080px) {
     .prd-headline,
     .prd-body,
     .prd-section-grid,
-    .object-magicfit-grid {
+    .object-magicfit-grid,
+    .prd-split,
+    .prd-summary-grid,
+    .prd-map-inline {
       grid-template-columns: 1fr;
     }
     .prd-side-stack {
@@ -580,16 +822,16 @@
       {% if research_media.get('embed_href') %}
       <iframe src="{{ research_media.get('embed_href') }}" title="Property 360 review" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
       {% elif research_preview_image %}
-      <img src="{{ research_preview_image }}" alt="{{ research_title }}" loading="lazy">
+      <img src="{{ research_preview_image }}" alt="{{ research_title }}" loading="lazy" data-prd-hero-image>
       {% elif research_location_preview.get('image_url') %}
-      <img src="{{ research_location_preview.get('image_url') }}" alt="{{ research_location_preview.get('alt') or research_title }}" loading="lazy">
+      <img src="{{ research_location_preview.get('image_url') }}" alt="{{ research_location_preview.get('alt') or research_title }}" loading="lazy" data-prd-hero-image>
       {% else %}
       <div class="prd-media-empty">{{ research_media.get('status_detail') or 'No media attached yet.' }}</div>
       {% endif %}
       <div class="prd-media-gradient" aria-hidden="true"></div>
       <div class="prd-media-caption">
-        <strong>{{ research_title }}</strong>
-        <span>{{ research_summary }}</span>
+        <strong data-prd-hero-title>{{ research_title }}</strong>
+        <span data-prd-hero-summary>{{ research_summary }}</span>
       </div>
     </section>
 
@@ -616,11 +858,20 @@
             {% elif action.get('href') %}
             <a class="console-action" href="{{ action.get('href') }}"{% if action.get('external') %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ action.get('label') }}</a>
             {% elif action.get('kind') %}
-            <button class="console-action" type="button" data-pw-visual-request="{{ action.get('kind') }}" data-property-url="{{ action.get('property_url') }}">{{ action.get('label') }}</button>
+            <button
+              class="console-action"
+              type="button"
+              data-pw-visual-request="{{ action.get('kind') }}"
+              data-pw-visual-state="{{ action.get('state') or 'idle' }}"
+              data-property-url="{{ action.get('property_url') }}"
+              data-source-ref="{{ research_source_ref or '' }}"
+              data-run-id="{{ research_run_id or '' }}"
+              data-candidate-ref="{{ research_candidate_ref or '' }}"
+            >{{ action.get('label') }}</button>
             {% endif %}
           {% endfor %}
         </div>
-        <p class="prd-visual-status" data-prd-visual-status></p>
+        <p class="prd-visual-status" data-prd-visual-status>{{ research_visual_status_line or '' }}</p>
       </section>
 
       <aside class="prd-summary-stack">
@@ -637,17 +888,52 @@
         </section>
         {% if research_location_preview.get('image_url') %}
         <section class="prd-map-card prd-panel">
-          <div>
-            <div class="prd-kicker">Wider area</div>
-            <h2 style="margin:0 0 8px;">{{ research_location_preview.get('title') }}</h2>
-            <p class="prd-copy">Open the area map for a closer orientation view.</p>
-            {% if research_location_preview.get('map_url') %}
-            <div class="prd-actions" style="margin-top:12px;"><a class="console-action" href="{{ research_location_preview.get('map_url') }}" target="_blank" rel="noopener noreferrer">Open map</a></div>
-            {% endif %}
+          <div class="prd-map-inline">
+            <button
+              class="prd-map-thumb is-inline"
+              type="button"
+              data-prd-map-open
+              data-prd-map-src="{{ research_location_preview.get('image_url') }}"
+              data-prd-map-title="{{ research_location_preview.get('title') }}"
+              data-prd-map-overlay='{{ (research_location_preview.get("district_rows") or [])|tojson }}'
+            >
+              <img src="{{ research_location_preview.get('image_url') }}" alt="{{ research_location_preview.get('alt') }}">
+              {% if research_location_preview.get('district_rows') %}
+              <svg class="prd-map-overlay" viewBox="0 0 640 368" preserveAspectRatio="none" aria-hidden="true">
+                {% for row in research_location_preview.get('district_rows') or [] %}
+                {% if row.get('path') %}
+                <path class="{% if row.get('selected') %}is-selected{% endif %}" d="{{ row.get('path') }}"></path>
+                {% endif %}
+                {% endfor %}
+              </svg>
+              {% endif %}
+            </button>
+            <div>
+              <div class="prd-kicker">Local area map</div>
+              {% if research_location_preview.get('map_url') %}
+              <h2 style="margin:0 0 8px;"><a href="{{ research_location_preview.get('map_url') }}" target="_blank" rel="noopener noreferrer">{{ research_location_preview.get('title') }}</a></h2>
+              {% else %}
+              <h2 style="margin:0 0 8px;">{{ research_location_preview.get('title') }}</h2>
+              {% endif %}
+              <p class="prd-copy">Click the thumbnail for a larger local view, or open the title in Google Maps for the exact pin.</p>
+              {% if research_location_preview.get('embed_url') %}
+              <details class="prd-collapse" style="margin-top:12px;">
+                <summary>
+                  <span>
+                    <span class="prd-kicker">Live map</span>
+                    <strong>Open the exact pin in Google Maps here</strong>
+                  </span>
+                  <span class="prd-tag">Optional</span>
+                </summary>
+                <div class="prd-collapse-body">
+                  <div class="prd-map-embed">
+                    <iframe src="{{ research_location_preview.get('embed_url') }}" title="{{ research_location_preview.get('title') }}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
+                  </div>
+                </div>
+              </details>
+              {% endif %}
+            </div>
           </div>
-          <button class="prd-map-thumb" type="button" data-prd-map-open data-prd-map-src="{{ research_location_preview.get('image_url') }}" data-prd-map-title="{{ research_location_preview.get('title') }}">
-            <img src="{{ research_location_preview.get('image_url') }}" alt="{{ research_location_preview.get('alt') }}">
-          </button>
         </section>
         {% endif %}
       </aside>
@@ -659,11 +945,13 @@
         {% for item in research_gallery_items %}
         <div class="prd-gallery-item">
           <button
-            class="prd-gallery-thumb"
+            class="prd-gallery-thumb{% if loop.first and not research_media.get('embed_href') %} is-active{% endif %}"
             type="button"
-            data-prd-map-open
-            data-prd-map-src="{{ item.get('url') }}"
-            data-prd-map-title="{{ item.get('label') }}"
+            data-prd-media-select
+            data-prd-media-src="{{ item.get('url') }}"
+            data-prd-media-title="{{ research_title }}"
+            data-prd-media-summary="{{ item.get('label') }}"
+            data-prd-media-badge="{{ item.get('kind')|title }}"
           >
             <img src="{{ item.get('url') }}" alt="{{ item.get('label') }}" loading="lazy">
           </button>
@@ -677,92 +965,254 @@
 
   <section class="prd-body">
     <section class="prd-sections">
-      <div class="prd-section-grid">
-        {% for section in research_sections %}
+      <section class="prd-band">
+        <div class="prd-kicker">At a glance</div>
+        <h2 class="prd-section-title">Why this home is still worth your attention</h2>
+        <p class="prd-section-copy">Start with the few facts that justify another minute of attention. Everything else should support or block that decision.</p>
+        <div class="prd-summary-grid">
+          {% for row in research_overview_rows[:4] %}
+          <div class="prd-summary-box">
+            <span>{{ row.label }}</span>
+            <strong>{{ row.value }}</strong>
+          </div>
+          {% endfor %}
+          <div class="prd-summary-box">
+            <span>Best reason to act</span>
+            <strong>{{ (research_match_reasons or [research_summary])|first }}</strong>
+            <p>{{ research_decision_rows[0].detail if research_decision_rows else 'No explicit recommendation recorded yet.' }}</p>
+          </div>
+          <div class="prd-summary-box">
+            <span>Main concern</span>
+            <strong>{{ (research_mismatch_reasons or ['Some evidence is still missing before the file is clean.'])|first }}</strong>
+            <p>{{ research_missing_rows[0].detail if research_missing_rows else 'Normal due diligence still applies.' }}</p>
+          </div>
+        </div>
+      </section>
+
+      {% if research_missing_rows or research_investment_risk_rows %}
+      <section class="prd-band">
+        <div class="prd-kicker">Hard gates</div>
+        <h2 class="prd-section-title">Do not spend more time until these points are clear enough</h2>
+        <div class="prd-gate-list">
+          {% for item in (research_missing_rows + research_investment_risk_rows)[:6] %}
+          <div class="prd-gate-item">
+            <div>
+              <strong>{{ item.get('title') }}</strong>
+              <span>{{ item.get('detail') }}</span>
+            </div>
+            <span class="prd-tag">{{ item.get('tag') }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      <section class="prd-split">
         <section class="prd-band">
-          <div class="prd-kicker">{{ section.get('eyebrow') }}</div>
-          <h2>{{ section.get('title') }}</h2>
-          {% if section.get('copy') %}<p class="prd-copy">{{ section.get('copy') }}</p>{% endif %}
-          {% if section.get('table_headers') and section.get('table_rows') %}
-          <div class="prd-table-wrap">
-            <table class="prd-table">
-              <thead>
-                <tr>{% for header in section.get('table_headers') or [] %}<th>{{ header }}</th>{% endfor %}</tr>
-              </thead>
-              <tbody>
-                {% for row in section.get('table_rows') or [] %}
-                <tr>
-                  {% for cell in row %}
-                  <td>
-                    {% if cell is mapping %}
-                      {% if cell.get('href') %}<strong><a href="{{ cell.get('href') }}">{{ cell.get('title') }}</a></strong>{% else %}<strong>{{ cell.get('title') }}</strong>{% endif %}
-                      {% if cell.get('detail') %}<small>{{ cell.get('detail') }}</small>{% endif %}
-                    {% else %}
-                      {{ cell }}
-                    {% endif %}
-                  </td>
-                  {% endfor %}
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
+          <div class="prd-kicker">Home</div>
+          <h2 class="prd-section-title">What the listing clearly says</h2>
+          <div class="object-list">
+            {% for row in research_listing_rows %}
+            <div class="prd-row">
+              <div><strong>{{ row.get('label') }}</strong><small>{{ row.get('value') }}</small></div>
+              <span class="prd-tag">Listing</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% if research_feature_values %}
+          <div class="prd-facts" style="margin-top:14px;">
+            {% for value in research_feature_values %}
+            <span class="prd-chip">{{ value }}</span>
+            {% endfor %}
           </div>
           {% endif %}
-          {% if section.get('items') %}
+        </section>
+        <section class="prd-band">
+          <div class="prd-kicker">Money</div>
+          <h2 class="prd-section-title">Price, rent, and running costs</h2>
           <div class="object-list">
-            {% for item in section.get('items') or [] %}
+            {% for row in research_cost_rows %}
             <div class="prd-row">
-              <div>
-                <strong>{% if item.get('href') %}<a href="{{ item.get('href') }}">{{ item.get('title') }}</a>{% else %}{{ item.get('title') }}{% endif %}</strong>
-                <small>{{ item.get('detail') }}</small>
-              </div>
-              <span class="prd-tag">{{ item.get('tag') }}</span>
+              <div><strong>{{ row.get('label') }}</strong><small>{{ row.get('value') }}</small></div>
+              <span class="prd-tag">Cost</span>
+            </div>
+            {% endfor %}
+            {% if not research_cost_rows %}
+            <div class="prd-row">
+              <div><strong>No full cost sheet yet</strong><small>The current source does not expose enough cost detail for a cleaner underwriting read.</small></div>
+              <span class="prd-tag">Open</span>
+            </div>
+            {% endif %}
+          </div>
+        </section>
+      </section>
+
+      {% if research_description_text %}
+      <section class="prd-band">
+        <div class="prd-kicker">Description</div>
+        <h2 class="prd-section-title">How the provider is selling the home</h2>
+        <p class="prd-copy">{{ research_description_text }}</p>
+      </section>
+      {% endif %}
+
+      <section class="prd-split">
+        <section class="prd-band">
+          <div class="prd-kicker">Area</div>
+          <h2 class="prd-section-title">Location and daily fit</h2>
+          {% if research_location_text %}<p class="prd-copy">{{ research_location_text }}</p>{% endif %}
+          {% if research_everyday_fit_rows %}
+          <div class="prd-key-points" style="margin-top:14px;">
+            {% for row in research_everyday_fit_rows[:6] %}
+            <div class="prd-key-point">
+              <strong>{{ row.get('title') }}</strong>
+              <span>{{ row.get('detail') }}</span>
             </div>
             {% endfor %}
           </div>
           {% endif %}
         </section>
-        {% endfor %}
-      </div>
+        <section class="prd-band">
+          <div class="prd-kicker">Energy</div>
+          <h2 class="prd-section-title">Heating and technical posture</h2>
+          <div class="object-list">
+            {% for row in research_energy_rows %}
+            <div class="prd-row">
+              <div><strong>{{ row.get('label') }}</strong><small>{{ row.get('value') }}</small></div>
+              <span class="prd-tag">Listing</span>
+            </div>
+            {% endfor %}
+            {% if not research_energy_rows %}
+            <div class="prd-row">
+              <div><strong>No energy facts attached yet</strong><small>The source page does not expose a reliable energy or heating read.</small></div>
+              <span class="prd-tag">Open</span>
+            </div>
+            {% endif %}
+          </div>
+        </section>
+      </section>
+
+      {% if research_compare_table_rows %}
+      <section class="prd-band">
+        <div class="prd-kicker">Compare next</div>
+        <h2 class="prd-section-title">The next-best homes from this run</h2>
+        <p class="prd-section-copy">If this home slips, these are the closest alternatives worth opening next.</p>
+        <div class="prd-table-wrap">
+          <table class="prd-table">
+            <thead>
+              <tr>{% for header in research_compare_headers %}<th>{{ header }}</th>{% endfor %}</tr>
+            </thead>
+            <tbody>
+              {% for row in research_compare_table_rows %}
+              <tr>
+                {% for cell in row %}
+                <td>
+                  {% if cell is mapping %}
+                    {% if cell.get('href') %}<strong><a href="{{ cell.get('href') }}">{{ cell.get('title') }}</a></strong>{% else %}<strong>{{ cell.get('title') }}</strong>{% endif %}
+                    {% if cell.get('detail') %}<small>{{ cell.get('detail') }}</small>{% endif %}
+                  {% else %}
+                    {{ cell }}
+                  {% endif %}
+                </td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {% elif research_compare_rows %}
+      <section class="prd-band">
+        <div class="prd-kicker">Compare next</div>
+        <h2 class="prd-section-title">Other homes worth checking after this one</h2>
+        <div class="prd-compare-list">
+          {% for item in research_compare_rows %}
+          <div class="prd-compare-card">
+            <div>
+              <strong>{% if item.get('href') %}<a href="{{ item.get('href') }}">{{ item.get('title') }}</a>{% else %}{{ item.get('title') }}{% endif %}</strong>
+              <span>{{ item.get('detail') }}</span>
+            </div>
+            <span class="prd-tag">{{ item.get('tag') }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      <details class="prd-collapse">
+        <summary>
+          <span>
+            <span class="prd-kicker">Deeper evidence</span>
+            <strong>Research, provenance, and follow-up history</strong>
+          </span>
+          <span class="prd-tag">Optional</span>
+        </summary>
+        <div class="prd-collapse-body">
+          {% if research_official_evidence_rows or research_official_posture_rows or research_future_research_rows or research_provenance_rows %}
+          <section class="prd-stack">
+            <h2 class="prd-section-title">Evidence added beyond the listing</h2>
+            <div class="object-list">
+              {% for row in research_official_evidence_rows[:4] %}
+              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ row.get('tag') }}</span></div>
+              {% endfor %}
+              {% for row in research_official_posture_rows[:3] %}
+              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ row.get('tag') }}</span></div>
+              {% endfor %}
+              {% for row in research_future_research_rows[:3] %}
+              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ row.get('tag') }}</span></div>
+              {% endfor %}
+              {% for row in research_provenance_rows[:3] %}
+              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ row.get('tag') }}</span></div>
+              {% endfor %}
+            </div>
+          </section>
+          {% endif %}
+          {% if research_timeline_rows %}
+          <section class="prd-stack">
+            <h2 class="prd-section-title">Timeline and follow-up</h2>
+            <div class="object-list">
+              {% for item in research_timeline_rows[:6] %}
+              <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ item.get('tag') }}</span></div>
+              {% endfor %}
+            </div>
+          </section>
+          {% endif %}
+        </div>
+      </details>
     </section>
 
     <aside class="prd-side-stack">
-      <div class="prd-kicker">{{ research_source_label }}</div>
       <section class="prd-panel">
-      <div class="prd-kicker">Household view</div>
-      <h2>What others flagged</h2>
-      <div class="object-list">
-        {% for item in research_objection_rows %}
-        <div class="prd-row">
-          <div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div>
-          <span class="prd-tag">{{ item.get('tag') }}</span>
+        <div class="prd-kicker">Current read</div>
+        <h2>What to do next</h2>
+        <p class="prd-section-copy">Use this as the short decision brief before you open the listing, contact the agent, or move on.</p>
+        <div class="prd-key-points">
+          {% for row in research_decision_rows[:4] %}
+          <div class="prd-key-point">
+            <strong>{{ row.get('title') }}</strong>
+            <span>{{ row.get('detail') }}</span>
+          </div>
+          {% endfor %}
         </div>
-        {% endfor %}
-      </div>
-      <div class="prd-kicker" style="margin-top:18px;">Household alignment</div>
-      <div class="object-list">
-        {% for item in research_household_rows %}
-        <div class="prd-row">
-          <div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div>
-          <span class="prd-tag">{{ item.get('tag') }}</span>
+        {% if research_neuronwriter and (research_neuronwriter.get('questions') or research_neuronwriter.get('headings')) %}
+        <div class="prd-key-points" style="margin-top:14px;">
+          <div class="prd-key-point">
+            <strong>Questions worth asking next</strong>
+            <span>
+              {% if research_neuronwriter.get('questions') %}
+              {{ (research_neuronwriter.get('questions') or [])[:3]|join(' · ') }}
+              {% else %}
+              {{ (research_neuronwriter.get('headings') or [])[:3]|join(' · ') }}
+              {% endif %}
+            </span>
+          </div>
         </div>
-        {% endfor %}
-      </div>
-      <div class="prd-kicker" style="margin-top:18px;">Risk signals</div>
-      <div class="object-list">
-      {% for item in research_risk_signal_rows %}
-        <div class="prd-row">
-          <div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div>
-          <span class="prd-tag">{{ item.get('tag') }}</span>
-        </div>
-      {% endfor %}
-      </div>
+        {% endif %}
       </section>
 
       <section class="prd-panel object-feedback" data-object-feedback data-object-feedback-payload='{{ research_feedback|tojson|safe }}'>
-      <div class="prd-kicker">Decision</div>
-      <h2>Would you pursue this home?</h2>
-      <p class="object-copy">Record the outcome here so the next shortlist learns from it and the follow-up stays explicit.</p>
+      <div class="prd-kicker">Your answer</div>
+      <h2>Save your decision</h2>
+      <p class="object-copy">Pick the answer that matches your real-world next step so later shortlists and follow-ups stay aligned.</p>
       <div class="object-feedback-row" aria-label="Property feedback reaction">
         <button class="object-feedback-button" type="button" data-object-feedback-reaction="like">Yes</button>
         <button class="object-feedback-button" type="button" data-object-feedback-reaction="maybe">Maybe</button>
@@ -772,7 +1222,7 @@
       <p class="object-copy"><strong>Decision state</strong> Move the property forward when the next action matters more than another shortlist vote.</p>
       <div class="object-actions">
         <button class="console-action" type="button" data-object-decision-state="viewing_requested">Viewing requested</button>
-        <button class="console-action" type="button" data-object-decision-state="documents_requested">Documents requested</button>
+        <button class="console-action" type="button" data-object-decision-state="documents_requested">Request missing documents</button>
         <button class="console-action" type="button" data-object-decision-state="offer_candidate">Offer candidate</button>
         <button class="console-action" type="button" data-object-decision-state="archived">Archived</button>
       </div>
@@ -786,7 +1236,7 @@
         <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}">{{ row.get('label') }}</button>
         {% endfor %}
       </div>
-      <div class="object-copy"><strong>Ask agent next</strong></div>
+      <div class="object-copy"><strong>Next question to send</strong></div>
       <div class="object-list">
         {% for row in (research_feedback.get('suggestions') or {}).get('agent_questions') or [] %}
         <div class="object-row">
@@ -807,66 +1257,119 @@
       <p class="object-copy" data-object-followup-status></p>
       <textarea data-object-feedback-note placeholder="What exactly worked, failed, or still needs proof?"></textarea>
       <div class="object-actions">
-        <button class="console-action" type="button" data-object-feedback-save>Save decision</button>
+        <button class="console-action" type="button" data-object-feedback-save>Save answer</button>
         <a class="console-action" href="{{ research_feedback.get('profile_href') or '/app/profile' }}">Manage preferences</a>
       </div>
       <p class="object-copy" data-object-feedback-status></p>
-      <div class="object-actions" style="margin-top: 12px;">
-        <button class="console-action" type="button" data-object-clippy-toggle>Open Clippy</button>
-        <button class="console-action" type="button" data-object-magicfit-toggle>Open Magic Fit</button>
-      </div>
-      <div class="object-list" data-object-clippy-panel hidden>
-        <div class="object-row">
-          <div><strong>Clippy</strong><small>Ask one grounded question about this home. Clippy only answers from what is already on this page.</small></div>
-          <div class="object-tag">Opt-in</div>
+      <details class="prd-collapse" style="margin-top:12px;">
+        <summary>
+          <span>
+            <span class="prd-kicker">Extra tools</span>
+            <strong>Question helper and furnished preview</strong>
+          </span>
+          <span class="prd-tag">Opt-in</span>
+        </summary>
+        <div class="prd-collapse-body">
+          <div class="object-actions">
+            <button class="console-action" type="button" data-object-clippy-toggle>Open question helper</button>
+            <button class="console-action" type="button" data-object-magicfit-toggle>Visualize furnished living</button>
+          </div>
+          <div class="object-list" data-object-clippy-panel hidden>
+            <div class="object-row">
+              <div><strong>Question helper</strong><small>Ask one grounded question about this home. It only answers from what is already on this page.</small></div>
+              <div class="object-tag">Opt-in</div>
+            </div>
+            <div class="object-actions">
+              <button class="console-action" type="button" data-object-clippy-prompt="Why is this only Maybe?">Why is this only Maybe?</button>
+              <button class="console-action" type="button" data-object-clippy-prompt="What should I ask the agent next?">Next question to send</button>
+              <button class="console-action" type="button" data-object-clippy-prompt="What changed since last time?">What changed?</button>
+              <button class="console-action" type="button" data-object-clippy-prompt="What is the biggest investment risk here?">Investment risk</button>
+            </div>
+            <textarea data-object-clippy-question rows="3" placeholder="Ask about blockers, disagreements, or the next follow-up."></textarea>
+            <div class="object-actions"><button class="console-action" type="button" data-object-clippy-ask>Ask question helper</button></div>
+            <div class="object-copy" data-object-clippy-status></div>
+            <div class="object-list" data-object-clippy-answer></div>
+          </div>
+          <div class="object-magicfit-panel" data-object-magicfit-panel hidden>
+            <div class="object-row">
+              <div><strong>Furnished living preview</strong><small>Opt in to create a clearly marked lifestyle simulation for the dossier.</small></div>
+              <div class="object-tag">Opt-in</div>
+            </div>
+            <div class="object-actions">
+              <button class="console-action" type="button" data-object-magicfit-scene="breakfast">Breakfast</button>
+              <button class="console-action" type="button" data-object-magicfit-scene="kids_play">Family time</button>
+              <button class="console-action" type="button" data-object-magicfit-scene="balcony_evening">Evening mood</button>
+              <button class="console-action" type="button" data-object-magicfit-scene="homeoffice">Home office</button>
+            </div>
+            <div class="object-magicfit-grid">
+              <label class="object-field"><span>Scene</span><input type="text" data-object-magicfit-scene-type value="breakfast"></label>
+              <label class="object-field"><span>Room</span><input type="text" data-object-magicfit-room-hint value="living and dining area"></label>
+              <label class="object-field"><span>Style</span><input type="text" data-object-magicfit-styling-hint value="warm, realistic, tasteful family-home staging"></label>
+              <label class="object-field"><span>People in view</span><input type="text" data-object-magicfit-household-roles placeholder="e.g. adults, child"></label>
+            </div>
+            <div class="object-actions">
+              <button class="console-action" type="button" data-object-magicfit-upload-start>Upload reference photos</button>
+              <button class="console-action" type="button" data-object-magicfit-google-start>Use Google Photos</button>
+              <button class="console-action" type="button" data-object-magicfit-google-check>Check Google selection</button>
+            </div>
+            <input type="file" accept="image/*" multiple hidden data-object-magicfit-upload-input>
+            <div class="object-copy" data-object-magicfit-upload-status></div>
+            <div class="object-list" data-object-magicfit-reference-list></div>
+            <label class="object-field"><span>Reference image URLs</span><textarea data-object-magicfit-reference-urls placeholder="Optional: paste 1 to 3 reference image URLs, one per line."></textarea></label>
+            <div class="object-copy" data-object-magicfit-google-status></div>
+            <label class="object-check"><input type="checkbox" data-object-magicfit-consent><span>I confirm these personal photos were explicitly selected for this lifestyle simulation.</span></label>
+            <label class="object-check"><input type="checkbox" data-object-magicfit-include-child><span>Include a child reference in the family scene.</span></label>
+            <label class="object-check"><input type="checkbox" data-object-magicfit-child-consent><span>I confirm guardian approval exists for any child likeness used here.</span></label>
+            <label class="object-check"><input type="checkbox" data-object-magicfit-share checked><span>Attach the generated preview to the dossier PDF.</span></label>
+            <div class="object-actions"><button class="console-action" type="button" data-object-magicfit-generate>Create preview</button></div>
+            <div class="object-copy" data-object-magicfit-status></div>
+            <div class="object-magicfit-preview" data-object-magicfit-preview></div>
+          </div>
         </div>
-        <div class="object-actions">
-          <button class="console-action" type="button" data-object-clippy-prompt="Why is this only Maybe?">Why is this only Maybe?</button>
-          <button class="console-action" type="button" data-object-clippy-prompt="What should I ask the agent next?">Ask agent next</button>
-          <button class="console-action" type="button" data-object-clippy-prompt="What changed since last time?">What changed?</button>
-          <button class="console-action" type="button" data-object-clippy-prompt="What is the biggest investment risk here?">Investment risk</button>
-        </div>
-        <textarea data-object-clippy-question rows="3" placeholder="Ask Clippy about blockers, disagreements, or the next agent follow-up."></textarea>
-        <div class="object-actions"><button class="console-action" type="button" data-object-clippy-ask>Ask Clippy</button></div>
-        <div class="object-copy" data-object-clippy-status></div>
-        <div class="object-list" data-object-clippy-answer></div>
-      </div>
-      <div class="object-magicfit-panel" data-object-magicfit-panel hidden>
-        <div class="object-row">
-          <div><strong>Magic Fit lifestyle still</strong><small>Opt in to create a clearly marked visual simulation for the dossier.</small></div>
-          <div class="object-tag">Opt-in</div>
-        </div>
-        <div class="object-actions">
-          <button class="console-action" type="button" data-object-magicfit-scene="breakfast">Breakfast</button>
-          <button class="console-action" type="button" data-object-magicfit-scene="kids_play">Kids play</button>
-          <button class="console-action" type="button" data-object-magicfit-scene="balcony_evening">Balcony evening</button>
-          <button class="console-action" type="button" data-object-magicfit-scene="homeoffice">Homeoffice</button>
-        </div>
-        <div class="object-magicfit-grid">
-          <label class="object-field"><span>Scene type</span><input type="text" data-object-magicfit-scene-type value="breakfast"></label>
-          <label class="object-field"><span>Room hint</span><input type="text" data-object-magicfit-room-hint value="living and dining area"></label>
-          <label class="object-field"><span>Styling hint</span><input type="text" data-object-magicfit-styling-hint value="warm, realistic, tasteful family-home staging"></label>
-          <label class="object-field"><span>Household roles</span><input type="text" data-object-magicfit-household-roles placeholder="e.g. mother, father, child"></label>
-        </div>
-        <div class="object-actions">
-          <button class="console-action" type="button" data-object-magicfit-upload-start>Upload reference photos</button>
-          <button class="console-action" type="button" data-object-magicfit-google-start>Use Google Photos Picker</button>
-          <button class="console-action" type="button" data-object-magicfit-google-check>Check Google selection</button>
-        </div>
-        <input type="file" accept="image/*" multiple hidden data-object-magicfit-upload-input>
-        <div class="object-copy" data-object-magicfit-upload-status></div>
-        <div class="object-list" data-object-magicfit-reference-list></div>
-        <label class="object-field"><span>Manual reference image URLs</span><textarea data-object-magicfit-reference-urls placeholder="Optional fallback: paste 1 to 3 reference image URLs, one per line."></textarea></label>
-        <div class="object-copy" data-object-magicfit-google-status></div>
-        <label class="object-check"><input type="checkbox" data-object-magicfit-consent><span>I confirm these personal photos were explicitly selected for this visual simulation.</span></label>
-        <label class="object-check"><input type="checkbox" data-object-magicfit-include-child><span>Include a child reference in the family scene.</span></label>
-        <label class="object-check"><input type="checkbox" data-object-magicfit-child-consent><span>I confirm guardian approval exists for any child likeness used here.</span></label>
-        <label class="object-check"><input type="checkbox" data-object-magicfit-share checked><span>Attach the generated still to the dossier PDF.</span></label>
-        <div class="object-actions"><button class="console-action" type="button" data-object-magicfit-generate>Generate still</button></div>
-        <div class="object-copy" data-object-magicfit-status></div>
-        <div class="object-magicfit-preview" data-object-magicfit-preview></div>
-      </div>
+      </details>
       </section>
+
+      <details class="prd-collapse">
+        <summary>
+          <span>
+            <span class="prd-kicker">Optional context</span>
+            <strong>Household reactions, risk signals, and evidence log</strong>
+          </span>
+          <span class="prd-tag">Collapsed</span>
+        </summary>
+        <div class="prd-collapse-body prd-minor-stack">
+          {% if research_objection_rows %}
+          <section class="prd-stack">
+            <h2 class="prd-section-title">What others flagged</h2>
+            <div class="object-list">
+              {% for item in research_objection_rows %}
+              <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ item.get('tag') }}</span></div>
+              {% endfor %}
+            </div>
+          </section>
+          {% endif %}
+          {% if research_household_rows %}
+          <section class="prd-stack">
+            <h2 class="prd-section-title">Household alignment</h2>
+            <div class="object-list">
+              {% for item in research_household_rows %}
+              <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ item.get('tag') }}</span></div>
+              {% endfor %}
+            </div>
+          </section>
+          {% endif %}
+          {% if research_risk_signal_rows %}
+          <section class="prd-stack">
+            <h2 class="prd-section-title">Risk signals</h2>
+            <div class="object-list">
+              {% for item in research_risk_signal_rows %}
+              <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ item.get('tag') }}</span></div>
+              {% endfor %}
+            </div>
+          </section>
+          {% endif %}
+        </div>
+      </details>
     </aside>
   </section>
 </section>
@@ -883,6 +1386,8 @@
     <div class="prd-lightbox-stage" data-prd-map-stage>
       <div class="prd-lightbox-zoomable" data-prd-map-zoomable>
         <img src="{{ research_location_preview.get('image_url') or '' }}" alt="{{ research_location_preview.get('alt') or research_title }}" data-prd-map-lightbox-image>
+        <svg class="prd-map-overlay" data-prd-map-lightbox-overlay viewBox="0 0 640 368" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div class="prd-map-tooltip" data-prd-map-tooltip></div>
       </div>
     </div>
   </div>
@@ -891,10 +1396,64 @@
 <script>
 (() => {
   const visualRequestStatusNode = document.querySelector('[data-prd-visual-status]');
+  const visualRequestButtons = Array.from(document.querySelectorAll('[data-pw-visual-request]'));
+  const applyVisualButtonState = (button, state) => {
+    if (!(button instanceof HTMLButtonElement)) return;
+    const normalized = state && typeof state === 'object' ? state : {};
+    const nextState = String(normalized.state || button.getAttribute('data-pw-visual-state') || 'idle').trim().toLowerCase() || 'idle';
+    const href = String(normalized.href || '').trim();
+    const label = String(normalized.label || button.textContent || '').trim();
+    button.setAttribute('data-pw-visual-state', nextState);
+    button.textContent = label;
+    if (href) {
+      button.setAttribute('data-pw-visual-href', href);
+    } else {
+      button.removeAttribute('data-pw-visual-href');
+    }
+  };
+  const syncVisualButtons = (requestKind, payload) => {
+    const kind = String(requestKind || '').trim().toLowerCase();
+    const statusText = String(payload?.status_detail || '').trim();
+    if (visualRequestStatusNode && statusText) {
+      visualRequestStatusNode.textContent = statusText;
+    }
+    visualRequestButtons.forEach((button) => {
+      if (String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase() !== kind) return;
+      const nextState = kind === 'flythrough'
+        ? {
+            state: String(payload?.flythrough_url ? 'ready' : payload?.flythrough_status || 'pending').trim().toLowerCase(),
+            label: String(payload?.flythrough_url ? 'Open flythrough' : payload?.status_label || button.textContent || '').trim(),
+            href: String(payload?.flythrough_url || '').trim(),
+          }
+        : {
+            state: String(payload?.tour_url ? 'ready' : payload?.tour_status || payload?.status || 'pending').trim().toLowerCase(),
+            label: String(payload?.tour_url ? 'Open 3D tour' : payload?.status_label || button.textContent || '').trim(),
+            href: String(payload?.tour_url || '').trim(),
+          };
+      applyVisualButtonState(button, nextState);
+    });
+  };
   document.querySelectorAll('[data-pw-visual-request]').forEach((button) => {
     button.addEventListener('click', async () => {
       const propertyUrl = String(button.getAttribute('data-property-url') || '').trim();
       const requestKind = String(button.getAttribute('data-pw-visual-request') || 'tour').trim().toLowerCase();
+      const sourceRef = String(button.getAttribute('data-source-ref') || '').trim();
+      const runId = String(button.getAttribute('data-run-id') || '').trim();
+      const candidateRef = String(button.getAttribute('data-candidate-ref') || '').trim();
+      const currentState = String(button.getAttribute('data-pw-visual-state') || '').trim().toLowerCase();
+      const readyHref = String(button.getAttribute('data-pw-visual-href') || '').trim();
+      if (readyHref) {
+        window.location.href = readyHref;
+        return;
+      }
+      if (requestKind === 'tour' && ['pending', 'queued', 'rendering'].includes(currentState)) {
+        if (visualRequestStatusNode) visualRequestStatusNode.textContent = '3D tour request is already in progress for this home.';
+        return;
+      }
+      if (requestKind === 'flythrough' && ['pending', 'queued', 'rendering'].includes(currentState)) {
+        if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'Flythrough request is already in progress for this home.';
+        return;
+      }
       if (!propertyUrl) {
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'No listing URL is available for this home.';
         return;
@@ -914,26 +1473,25 @@
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             property_url: propertyUrl,
+            request_kind: requestKind,
             variant_key: 'layout_first',
+            source_ref: sourceRef,
+            run_id: runId,
+            candidate_ref: candidateRef,
             auto_deliver: false,
             allow_floorplan_only: true,
           }),
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(String(payload.detail || payload.error || 'Could not request the visual.'));
-        const status = String(payload.status || '').trim().toLowerCase();
-        if (status === 'created' && payload.tour_url) {
-          if (visualRequestStatusNode) visualRequestStatusNode.textContent = requestKind === 'flythrough' ? 'Flythrough is ready. Open 3D tour to inspect it.' : '3D tour is ready. Open 3D tour to inspect it.';
-        } else if (status === 'blocked') {
-          if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'Request recorded. More source material is still needed before the visual can be built.';
-        } else {
-          if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'Visual request recorded.';
-        }
+        syncVisualButtons(requestKind, payload);
       } catch (error) {
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = error instanceof Error ? error.message : 'Could not request the visual.';
       } finally {
         button.disabled = false;
-        button.textContent = original;
+        if (!String(button.getAttribute('data-pw-visual-href') || '').trim()) {
+          button.textContent = original;
+        }
       }
     });
   });
@@ -954,11 +1512,23 @@
   });
 
   const lightbox = document.querySelector('[data-prd-map-lightbox]');
+  const heroImage = document.querySelector('[data-prd-hero-image]');
+  const heroTitle = document.querySelector('[data-prd-hero-title]');
+  const heroSummary = document.querySelector('[data-prd-hero-summary]');
+  const heroBadge = document.querySelector('.prd-media-badge');
   const lightboxTitle = document.querySelector('[data-prd-map-lightbox-title]');
   const lightboxImage = document.querySelector('[data-prd-map-lightbox-image]');
   const lightboxStage = document.querySelector('[data-prd-map-stage]');
   const lightboxZoomable = document.querySelector('[data-prd-map-zoomable]');
+  const lightboxOverlay = document.querySelector('[data-prd-map-lightbox-overlay]');
+  const lightboxTooltip = document.querySelector('[data-prd-map-tooltip]');
   let scale = 1;
+  const escapeHtml = (value) => String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
   const resetZoom = () => {
     scale = 1;
     if (lightboxZoomable) lightboxZoomable.style.transform = 'scale(1)';
@@ -968,8 +1538,36 @@
       if (!lightbox || !(lightbox instanceof HTMLDialogElement)) return;
       if (lightboxTitle) lightboxTitle.textContent = String(button.getAttribute('data-prd-map-title') || 'Area map');
       if (lightboxImage) lightboxImage.setAttribute('src', String(button.getAttribute('data-prd-map-src') || ''));
+      if (lightboxOverlay) {
+        let rows = [];
+        try {
+          rows = JSON.parse(String(button.getAttribute('data-prd-map-overlay') || '[]'));
+        } catch (_error) {
+          rows = [];
+        }
+        lightboxOverlay.innerHTML = Array.isArray(rows)
+          ? rows
+              .filter((row) => row && typeof row === 'object' && String(row.path || '').trim())
+              .map((row) => `<path class="${row.selected ? 'is-selected' : ''}" d="${escapeHtml(String(row.path || ''))}" data-label="${escapeHtml(String(row.label || 'District'))}"><title>${escapeHtml(String(row.label || 'District'))}</title></path>`)
+              .join('')
+          : '';
+      }
       resetZoom();
       lightbox.showModal();
+    });
+  });
+  document.querySelectorAll('[data-prd-media-select]').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (!(heroImage instanceof HTMLImageElement)) return;
+      const src = String(button.getAttribute('data-prd-media-src') || '').trim();
+      if (!src) return;
+      heroImage.setAttribute('src', src);
+      heroImage.setAttribute('alt', String(button.getAttribute('data-prd-media-title') || '').trim() || heroImage.getAttribute('alt') || '');
+      if (heroTitle) heroTitle.textContent = String(button.getAttribute('data-prd-media-title') || '').trim() || heroTitle.textContent || '';
+      if (heroSummary) heroSummary.textContent = String(button.getAttribute('data-prd-media-summary') || '').trim() || heroSummary.textContent || '';
+      if (heroBadge) heroBadge.textContent = String(button.getAttribute('data-prd-media-badge') || '').trim() || heroBadge.textContent || '';
+      document.querySelectorAll('[data-prd-media-select]').forEach((node) => node.classList.remove('is-active'));
+      button.classList.add('is-active');
     });
   });
   document.querySelector('[data-prd-map-close]')?.addEventListener('click', () => {
@@ -987,6 +1585,26 @@
     scale = Math.max(1, Math.min(4, scale + (event.deltaY < 0 ? 0.18 : -0.18)));
     if (lightboxZoomable) lightboxZoomable.style.transform = `scale(${scale})`;
   }, { passive: false });
+  lightboxOverlay?.addEventListener('mousemove', (event) => {
+    const target = event.target instanceof SVGPathElement ? event.target : event.target?.closest?.('path[data-label]');
+    if (!target || !(target instanceof SVGPathElement) || !lightboxTooltip || !lightboxStage) {
+      if (lightboxTooltip) lightboxTooltip.classList.remove('is-visible');
+      return;
+    }
+    const label = String(target.getAttribute('data-label') || '').trim();
+    if (!label) {
+      lightboxTooltip.classList.remove('is-visible');
+      return;
+    }
+    const stageRect = lightboxStage.getBoundingClientRect();
+    lightboxTooltip.textContent = label;
+    lightboxTooltip.style.left = `${event.clientX - stageRect.left}px`;
+    lightboxTooltip.style.top = `${event.clientY - stageRect.top}px`;
+    lightboxTooltip.classList.add('is-visible');
+  });
+  lightboxOverlay?.addEventListener('mouseleave', () => {
+    lightboxTooltip?.classList.remove('is-visible');
+  });
 })();
 </script>
 {% include "app/object_detail_feedback_script.html" ignore missing %}

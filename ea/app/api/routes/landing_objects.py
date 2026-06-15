@@ -8,13 +8,15 @@ from fastapi.responses import HTMLResponse
 from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.api.routes.landing import (
     _console_shell_context,
+    _render_public_template,
+    app_shell,
+)
+from app.api.routes.landing_property_research import (
     _evidence_detail_rows,
     _object_detail_row,
     _property_distance_ooda_rows,
     _property_tour_media_payload,
     _render_console_object_detail,
-    _render_public_template,
-    app_shell,
 )
 from app.api.routes.landing_content import app_nav_groups_for_brand
 from app.container import AppContainer
@@ -300,7 +302,7 @@ def decision_detail(
         object_sections=[
             {
                 "eyebrow": "Decision summary",
-                "title": "Current recommendation",
+                "title": "Next step",
                 "items": [
                     _object_detail_row(
                         decision.title,
@@ -610,7 +612,7 @@ def handoff_detail(
                 "Risk",
             ),
             _object_detail_row(
-                "Current recommendation",
+                "Next step",
                 str(assessment.get("recommendation") or primary_candidate.get("recommendation") or "Candidate").replace("_", " "),
                 "Decision",
             ),

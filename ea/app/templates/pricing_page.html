@@ -122,9 +122,25 @@
         {% endfor %}
       </ul>
       <div class="cta-row">
-        <a class="btn {% if plan.plan_key == 'free' %}primary{% else %}ghost{% endif %}" href="/register">
-          {% if plan.plan_key == "free" %}Start with Free{% elif plan.plan_key == "plus" %}Move to Plus later{% else %}Use Agent when needed{% endif %}
-        </a>
+        {% if plan.plan_key == 'free' %}
+        <a class="btn primary" href="/register" data-analytics-event="pricing_start_free" data-rybbit-event="pricing_start_free" data-rybbit-prop-plan="free">Start with Free</a>
+        {% elif plan.plan_key in (pricing_checkout_enabled_plans or []) and pricing_checkout_session_ready %}
+        <button
+          class="btn ghost"
+          type="button"
+          data-pricing-upgrade="{{ plan.plan_key }}"
+          data-pricing-endpoint="{{ (pricing_order_endpoints_by_plan or {}).get(plan.plan_key) or '' }}"
+          data-pricing-provider="{{ (pricing_checkout_provider_labels_by_plan or {}).get(plan.plan_key) or 'Checkout' }}"
+          data-analytics-event="pricing_checkout_{{ plan.plan_key }}"
+          data-rybbit-event="pricing_checkout_start"
+          data-rybbit-prop-plan="{{ plan.plan_key }}"
+          data-rybbit-prop-provider="{{ (pricing_checkout_provider_labels_by_plan or {}).get(plan.plan_key) or 'checkout' }}"
+        >Start {{ plan.display_name }} checkout</button>
+        {% elif plan.plan_key in (pricing_checkout_enabled_plans or []) %}
+        <a class="btn ghost" href="/register" data-analytics-event="pricing_sign_in_{{ plan.plan_key }}" data-rybbit-event="pricing_sign_in_to_upgrade" data-rybbit-prop-plan="{{ plan.plan_key }}">Sign in to upgrade</a>
+        {% else %}
+        <a class="btn ghost" href="/register" data-analytics-event="pricing_open_{{ plan.plan_key }}" data-rybbit-event="pricing_open_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">Open {{ plan.display_name }}</a>
+        {% endif %}
       </div>
     </section>
     {% endfor %}
@@ -145,6 +161,41 @@
     The value is not just the crawl. It is the hosted property page, the visible reasoning, and the feedback loop that sharpens the next search run.
   </section>
 </section>
+
+<script>
+(() => {
+  const checkoutButtons = Array.from(document.querySelectorAll('[data-pricing-upgrade]'));
+  checkoutButtons.forEach((button) => {
+    button.addEventListener('click', async () => {
+      const planKey = String(button.getAttribute('data-pricing-upgrade') || '').trim();
+      const endpoint = String(button.getAttribute('data-pricing-endpoint') || '').trim();
+      const provider = String(button.getAttribute('data-pricing-provider') || 'checkout').trim();
+      if (!planKey || !endpoint) return;
+      const original = button.textContent || `Start ${planKey} checkout`;
+      button.disabled = true;
+      button.textContent = `Opening ${provider}...`;
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ plan_key: planKey }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(String(body.detail || `Could not start ${provider} checkout.`));
+        const approveUrl = String(body.approve_url || '').trim();
+        if (!approveUrl) throw new Error(`${provider} approval URL missing.`);
+        window.location.href = approveUrl;
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = error instanceof Error ? error.message : original;
+        window.setTimeout(() => {
+          button.textContent = original;
+        }, 3200);
+      }
+    });
+  });
+})();
+</script>
 
 <section class="section pricing-table">
   <section class="pricing-row">

@@ -33,6 +33,11 @@ def _parse_iso(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def property_worker_cap(plan_key: object) -> int:
+    normalized = str(plan_key or "").strip().lower() or "free"
+    return {"free": 1, "plus": 3, "agent": 6}.get(normalized, 1)
+
+
 @dataclass(frozen=True)
 class PropertyPlanSpec:
     plan_key: str

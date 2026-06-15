@@ -1,0 +1,1876 @@
+  (() => {
+    const root = document.querySelector('[data-property-decision-workbench]');
+    if (!root) return;
+    const payloadNode = root.querySelector('[data-property-workbench-json]');
+    const metaNode = root.querySelector('[data-property-workspace-meta]');
+    const data = JSON.parse(payloadNode?.textContent || '{}');
+    const meta = JSON.parse(metaNode?.getAttribute('data-property-workspace-meta') || '{}');
+    const candidates = Array.isArray(data.results) ? data.results : [];
+    const terminalStates = new Set(['processed', 'failed', 'noop', 'cancelled', 'completed']);
+    const notificationStorageKey = 'propertyquarry.browserNotifications.enabled';
+    const notificationRunPrefix = 'propertyquarry.browserNotifications.run.';
+    const escapeHtml = (value) => String(value || '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+    const trackRybbitEvent = (name, properties = {}) => {
+      const eventName = String(name || '').trim();
+      if (!eventName) return;
+      const rybbit = window.rybbit;
+      if (!rybbit || typeof rybbit.event !== 'function') return;
+      try {
+        rybbit.event(eventName, properties && typeof properties === 'object' ? properties : {});
+      } catch (_error) {
+        // Analytics should never break the product flow.
+      }
+    };
+
+    const browserNotificationsSupported = () => (
+      'Notification' in window &&
+      (window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    );
+    const browserNotificationButton = root.querySelector('[data-pqx-browser-alerts]');
+    const updateBrowserNotificationButton = () => {
+      if (!browserNotificationButton) return;
+      if (!browserNotificationsSupported()) {
+        browserNotificationButton.hidden = true;
+        return;
+      }
+      browserNotificationButton.hidden = false;
+      const permission = String(window.Notification?.permission || 'default');
+      const enabled = window.localStorage.getItem(notificationStorageKey) === '1' && permission === 'granted';
+      browserNotificationButton.textContent = enabled ? 'Browser alerts on' : (permission === 'denied' ? 'Browser alerts blocked' : 'Enable browser alerts');
+      browserNotificationButton.disabled = permission === 'denied';
+    };
+    const requestBrowserNotifications = async () => {
+      if (!browserNotificationsSupported()) return;
+      let permission = String(window.Notification.permission || 'default');
+      if (permission === 'default') {
+        permission = await window.Notification.requestPermission();
+      }
+      if (permission === 'granted') {
+        window.localStorage.setItem(notificationStorageKey, '1');
+      }
+      updateBrowserNotificationButton();
+    };
+    const notifyRunComplete = (runPayload) => {
+      if (!browserNotificationsSupported()) return;
+      if (window.localStorage.getItem(notificationStorageKey) !== '1') return;
+      if (String(window.Notification.permission || '') !== 'granted') return;
+      const status = String(runPayload?.status || '').trim().toLowerCase();
+      if (!terminalStates.has(status)) return;
+      const runId = String(runPayload?.run_id || '').trim();
+      if (!runId) return;
+      const dedupeKey = `${notificationRunPrefix}${runId}.${status}`;
+      if (window.localStorage.getItem(dedupeKey) === '1') return;
+      window.localStorage.setItem(dedupeKey, '1');
+      const summary = runPayload?.summary || {};
+      const count = Number(summary.high_fit_total || (Array.isArray(data.results) ? data.results.length : 0) || 0);
+      const title = status === 'failed' ? 'PropertyQuarry search stopped' : 'PropertyQuarry results are ready';
+      const body = status === 'failed'
+        ? String(runPayload?.message || 'The search needs attention.')
+        : `${count} high-fit match${count === 1 ? '' : 'es'} ready to review.`;
+      try {
+        const notification = new window.Notification(title, {
+          body,
+          tag: `propertyquarry-run-${runId}`,
+          renotify: false,
+        });
+        notification.onclick = () => {
+          window.focus();
+          window.location.href = `/app/properties?run_id=${encodeURIComponent(runId)}`;
+          notification.close();
+        };
+      } catch (_err) {
+        window.localStorage.removeItem(dedupeKey);
+      }
+    };
+    browserNotificationButton?.addEventListener('click', requestBrowserNotifications);
+    updateBrowserNotificationButton();
+
+    const setMode = (mode) => {
+      const panel = mode === 'brief' ? 'brief' : (mode === 'property' ? 'property' : 'results');
+      root.querySelectorAll('[data-pqx-mobile-panel]').forEach((node) => {
+        node.classList.toggle('active', node.getAttribute('data-pqx-mobile-panel') === panel);
+      });
+      root.querySelectorAll('[data-pw-mode]').forEach((button) => {
+        button.classList.toggle('active', button.getAttribute('data-pw-mode') === mode);
+      });
+    };
+    root.querySelectorAll('[data-pw-mode]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        const href = button.getAttribute('href');
+        if (href) return;
+        event.preventDefault();
+        setMode(button.getAttribute('data-pw-mode') || 'results');
+      });
+    });
+
+    const candidateByRef = new Map(candidates.map((candidate) => [String(candidate.candidate_ref || ''), candidate]));
+    const briefPreferences = (data.brief_preferences && typeof data.brief_preferences === 'object') ? { ...data.brief_preferences } : {};
+    const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
+    const propertyDecisionSaveEndpoint = () => '/app/api/property/decisions';
+    const propertyDecisionStateEndpoint = (propertyRef) => `/app/api/property/decisions?property_ref=${encodeURIComponent(String(propertyRef || '').trim())}`;
+    const renderOoda = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
+      <div class="pqx-ooda-item"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value)}</strong><small>${escapeHtml(row.detail)}</small></div>
+    `).join('') || '<div class="pqx-note">No quick-read detail captured yet.</div>';
+    const renderMatch = (rows) => (Array.isArray(rows) ? rows : []).map((reason) => `
+      <div class="pqx-event-card"><strong>For</strong><span class="pqx-note">${escapeHtml(reason)}</span></div>
+    `).join('') || '<div class="pqx-note">No explicit match reason captured yet.</div>';
+    const renderTimeline = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
+      <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Update')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span></div>
+    `).join('') || '<div class="pqx-note">No decision timeline yet.</div>';
+    const renderObjections = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
+      <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Objection')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span></div>
+    `).join('') || '<div class="pqx-note">No objection captured yet.</div>';
+    const renderHousehold = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
+      <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Stakeholder')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
+    `).join('') || '<div class="pqx-note">No household vote captured yet.</div>';
+    const renderRiskSignals = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
+      <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Risk signal')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
+    `).join('') || '<div class="pqx-note">No market-risk candidate captured yet.</div>';
+    const renderRecentChanges = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
+      <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Change')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
+    `).join('') || '<div class="pqx-note">No new deltas yet.</div>';
+    const renderFollowups = (rows) => (Array.isArray(rows) ? rows : []).map((row) => {
+      const feedbackId = escapeHtml(row.feedback_id || '');
+      const actionButtons = feedbackId ? `
+        <div class="pqx-actions">
+          <button class="pqx-button" type="button" data-pw-followup-action="answered" data-pw-feedback-id="${feedbackId}">Answered</button>
+          <button class="pqx-button" type="button" data-pw-followup-action="needs_follow_up" data-pw-feedback-id="${feedbackId}">Needs follow-up</button>
+          <button class="pqx-button" type="button" data-pw-followup-action="confirmed" data-pw-feedback-id="${feedbackId}">Confirmed</button>
+          <button class="pqx-button" type="button" data-pw-followup-action="contradicted" data-pw-feedback-id="${feedbackId}">Contradicted</button>
+          <button class="pqx-button" type="button" data-pw-followup-action="resolved" data-pw-feedback-id="${feedbackId}">Resolved</button>
+        </div>
+      ` : '';
+      return `
+        <div class="pqx-event-card">
+          <strong>${escapeHtml(row.title || 'Follow-up')}</strong>
+          <span class="pqx-note">${escapeHtml(row.detail || '')}</span>
+          <span class="pqx-small">${escapeHtml(row.tag || '')}</span>
+          ${actionButtons}
+        </div>
+      `;
+    }).join('') || '<div class="pqx-note">No tracked follow-up yet.</div>';
+    const actionMarkup = (candidate) => {
+      const tour = candidate.tour || {};
+      const candidateRef = escapeHtml(candidate.candidate_ref || '');
+      const runId = escapeHtml(String(data.run?.run_id || meta.run_id || ''));
+      return [
+        tour.url ? `<a class="pqx-link-button primary" href="${escapeHtml(tour.url)}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="${candidateRef}">Open 360</a>` : '',
+        candidate.packet_url ? `<a class="pqx-link-button${tour.url ? '' : ' primary'}" href="${escapeHtml(candidate.packet_url)}" data-rybbit-event="property_open_page" data-rybbit-prop-candidate="${candidateRef}">Open property page</a>` : '',
+        `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${candidateRef}" data-rybbit-event="property_share_home" data-rybbit-prop-candidate="${candidateRef}">Share this home</button>`,
+        `<details class="pqx-decision-advanced" style="margin-top:12px;"><summary><strong>More actions</strong><span class="pqx-note">Open the source, share the shortlist, or request remote visuals only when you need them.</span></summary><div class="pqx-actions" style="margin-top:14px;">${[
+          candidate.source_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.source_url)}" target="_blank" rel="noreferrer" data-rybbit-event="property_open_listing" data-rybbit-prop-candidate="${candidateRef}">Open listing</a>` : '',
+          !tour.url && candidate.property_url ? `<button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(candidate.property_url)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="${candidateRef}">Request 3D tour</button>` : '',
+          !tour.url && candidate.property_url ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(candidate.property_url)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="${candidateRef}">Request flythrough</button>` : '',
+          `<button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="property_share_results">Share results</button>`,
+        ].filter(Boolean).join('')}</div><div class="pqx-decision-status" data-pw-visual-request-status>${!tour.url ? 'Need a remote view? Request a 3D tour or flythrough from the available source material.' : ''}</div></details>`,
+      ].filter(Boolean).join('');
+    };
+    const feedbackPersonId = String(meta.feedback_person_id || 'self').trim() || 'self';
+    const feedbackStatusNode = root.querySelector('[data-pw-feedback-status]');
+    const decisionDetailNode = root.querySelector('[data-pw-decision-detail]');
+    const decisionStepLabelNode = root.querySelector('[data-pw-decision-step-label]');
+    const decisionStateStatusNode = root.querySelector('[data-pw-decision-state-status]');
+    const feedbackReasonsNode = root.querySelector('[data-pw-feedback-reasons]');
+    const feedbackQuestionsNode = root.querySelector('[data-pw-feedback-questions]');
+    const feedbackConsequencesNode = root.querySelector('[data-pw-feedback-consequences]');
+    const feedbackNoteNode = root.querySelector('[data-pw-feedback-note]');
+    const followupsNode = root.querySelector('[data-pw-followups]');
+    const followupStatusNode = root.querySelector('[data-pw-followup-status]');
+    const visualRequestStatusNode = root.querySelector('[data-pw-visual-request-status]');
+    const householdNode = root.querySelector('[data-pw-household]');
+    const householdScoreNode = root.querySelector('[data-pw-household-score]');
+    const householdLabelNode = root.querySelector('[data-pw-household-label]');
+    const riskSignalsNode = root.querySelector('[data-pw-risk-signals]');
+    const recentChangesNode = root.querySelector('[data-pw-recent-changes]');
+    const officialPostureNode = root.querySelector('[data-pw-official-posture]');
+    const officialEvidenceNode = root.querySelector('[data-pw-official-evidence]');
+    const clippyToggle = root.querySelector('[data-pw-clippy-toggle]');
+    const clippyPanel = root.querySelector('[data-pw-clippy-panel]');
+    const clippyQuestionNode = root.querySelector('[data-pw-clippy-question]');
+    const clippyStatusNode = root.querySelector('[data-pw-clippy-status]');
+    const clippyAnswerNode = root.querySelector('[data-pw-clippy-answer]');
+    const feedbackReactionButtons = [...root.querySelectorAll('[data-pw-feedback-reaction]')];
+    const feedbackSaveButton = root.querySelector('[data-pw-feedback-save]');
+    const topPropertyActionsNode = root.querySelector('[data-pw-top-actions]');
+    const counterfactualStatusNode = root.querySelector('[data-pqx-counterfactual-status]');
+    const loadedAgentState = root.querySelector('[data-search-agent-loaded-state]');
+    const loadedAgentLabel = root.querySelector('[data-search-agent-loaded-label]');
+    const loadedAgentDirtyLabel = root.querySelector('[data-search-agent-dirty-label]');
+    const loadedAgentResetButton = root.querySelector('[data-search-agent-reset]');
+    let loadedSearchAgentId = '';
+    let loadedSearchAgentSnapshot = '';
+    let loadedSearchAgentPayload = {};
+    let latestDecisionStateRequestKey = '';
+    const feedbackSuggestionCache = new Map();
+    let selectedFeedbackReaction = '';
+    let selectedFeedbackCandidateRef = '';
+    let selectedFeedbackReasonKeys = new Set();
+    const candidatePropertyRef = (candidate) => String(
+      candidate?.property_ref ||
+      candidate?.candidate_ref ||
+      candidate?.property_url ||
+      candidate?.review_url ||
+      candidate?.source_url ||
+      candidate?.title ||
+      'property'
+    ).trim() || 'property';
+    const absoluteUrl = (value) => {
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      try {
+        return new URL(raw, window.location.origin).toString();
+      } catch (_error) {
+        return raw;
+      }
+    };
+    const packetCandidatePayload = (candidate) => {
+      const facts = candidate?.property_facts && typeof candidate.property_facts === 'object'
+        ? { ...candidate.property_facts }
+        : {};
+      delete facts.map_image_url;
+      delete facts.orientation_preview;
+      return {
+        title: String(candidate?.title || 'Property candidate').trim(),
+        property_title: String(candidate?.title || 'Property candidate').trim(),
+        property_url: absoluteUrl(candidate?.property_url || candidate?.source_url || ''),
+        source_url: absoluteUrl(candidate?.source_url || candidate?.property_url || ''),
+        source_label: String(candidate?.source_label || '').trim(),
+        price_display: String(candidate?.price_display || '').trim(),
+        costs_display: String(candidate?.costs_display || '').trim(),
+        layout_display: String(candidate?.layout_display || '').trim(),
+        location_label: String(candidate?.location_label || '').trim(),
+        description_text: String(candidate?.description_text || '').trim(),
+        fit_summary: String(candidate?.fit_summary || '').trim(),
+        recommendation: String(candidate?.recommendation || '').trim(),
+        match_reasons: Array.isArray(candidate?.match_reasons) ? candidate.match_reasons.slice(0, 8) : [],
+        mismatch_reasons: Array.isArray(candidate?.mismatch_reasons) ? candidate.mismatch_reasons.slice(0, 6) : [],
+        object_rows: Array.isArray(candidate?.object_rows) ? candidate.object_rows.slice(0, 12) : [],
+        cost_rows: Array.isArray(candidate?.cost_rows) ? candidate.cost_rows.slice(0, 8) : [],
+        energy_rows: Array.isArray(candidate?.energy_rows) ? candidate.energy_rows.slice(0, 8) : [],
+        household_rows: Array.isArray(candidate?.household_rows) ? candidate.household_rows.slice(0, 6) : [],
+        risk_signal_rows: Array.isArray(candidate?.risk_signal_rows) ? candidate.risk_signal_rows.slice(0, 6) : [],
+        followup_rows: Array.isArray(candidate?.followup_rows) ? candidate.followup_rows.slice(0, 6) : [],
+        recent_change_rows: Array.isArray(candidate?.recent_change_rows) ? candidate.recent_change_rows.slice(0, 6) : [],
+        official_posture_rows: Array.isArray(candidate?.official_posture_rows) ? candidate.official_posture_rows.slice(0, 6) : [],
+        official_evidence_rows: Array.isArray(candidate?.official_evidence_rows) ? candidate.official_evidence_rows.slice(0, 8) : [],
+        property_facts: facts,
+        risk: candidate?.risk && typeof candidate.risk === 'object' ? { ...candidate.risk } : {},
+        investment: candidate?.investment && typeof candidate.investment === 'object' ? { ...candidate.investment } : {},
+        tour: candidate?.tour && typeof candidate.tour === 'object'
+          ? {
+              label: String(candidate.tour.label || '').trim(),
+              status: String(candidate.tour.status || '').trim(),
+              url: absoluteUrl(candidate.tour.url || ''),
+              embed_url: absoluteUrl(candidate.tour.embed_url || ''),
+            }
+          : {},
+      };
+    };
+    const shortlistSharePayload = () => {
+      const selectedCandidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+      if (!selectedCandidate) return null;
+      const shareRows = candidates.slice(0, 10).map((candidate, index) => ({
+        title: String(candidate.title || `Match ${index + 1}`).trim(),
+        property_title: String(candidate.title || `Match ${index + 1}`).trim(),
+        price: candidate.price_value || candidate.price_display || '',
+        rooms: candidate.rooms_value || '',
+        area_sqm: candidate.area_value || '',
+        recommendation: String(candidate.recommendation || '').trim(),
+        compare_reason: String(candidate.compare_reason || candidate.fit_summary || '').trim(),
+        fit_summary: String(candidate.fit_summary || '').trim(),
+        property_url: absoluteUrl(candidate.source_url || candidate.property_url || ''),
+        source_url: absoluteUrl(candidate.source_url || candidate.property_url || ''),
+        review_url: absoluteUrl(candidate.packet_url || candidate.review_url || ''),
+        tour_url: absoluteUrl((candidate.tour && candidate.tour.url) || candidate.tour_url || ''),
+        map_url: absoluteUrl(candidate.map_url || ''),
+        source_label: String(candidate.source_label || '').trim(),
+      }));
+      const regionLabel = String(data?.brief?.region || data?.brief?.country || 'Search').trim();
+      const modeLabel = String(data?.brief?.mode || '').trim();
+      const title = [regionLabel, modeLabel, 'shortlist'].filter(Boolean).join(' ');
+      return {
+        ...selectedCandidate,
+        title,
+        property_title: title,
+        summary: `Shareable shortlist from PropertyQuarry with ${shareRows.length} ranked homes.`,
+        fit_summary: String(selectedCandidate.fit_summary || `${shareRows.length} ranked homes ready to review.`).trim(),
+        comparison_candidates: shareRows,
+        comparison_rows: shareRows,
+        review_url: absoluteUrl(window.location.href),
+        map_url: absoluteUrl(selectedCandidate.map_url || ''),
+        next_action: 'Open the shared shortlist and review the top homes first.',
+      };
+    };
+    const saveCounterfactualBrief = async (adjustments) => {
+      const endpoint = String(meta.preferences_endpoint || data.endpoints?.preferences || '').trim();
+      if (!endpoint) throw new Error('Brief endpoint missing.');
+      const basePreferences = (data.brief_preferences && typeof data.brief_preferences === 'object') ? { ...data.brief_preferences } : {};
+      const nextPreferences = { ...basePreferences, ...(adjustments && typeof adjustments === 'object' ? adjustments : {}) };
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(nextPreferences),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not apply the broader search.'));
+      return nextPreferences;
+    };
+    const startSearchWithPreferences = async (nextPreferences, statusNode) => {
+      const startEndpoint = String(meta.start_endpoint || data.endpoints?.start || '').trim();
+      if (!startEndpoint) throw new Error('Search endpoint missing.');
+      const selectedPlatforms = Array.isArray(nextPreferences?.selected_platforms) && nextPreferences.selected_platforms.length
+        ? nextPreferences.selected_platforms
+        : (Array.isArray(data?.selected_platforms) ? data.selected_platforms : []);
+      const payload = {
+        selected_platforms: selectedPlatforms,
+        property_preferences: nextPreferences || {},
+        force_refresh: false,
+        max_results_per_source: Number(nextPreferences?.max_results_per_source || 0) || null,
+      };
+      const runResponse = await fetch(startEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const runBody = await runResponse.json().catch(() => ({}));
+      if (!runResponse.ok) {
+        throw new Error(readableErrorDetail(runBody.detail || runBody.error || runBody.message || runBody, 'Could not restart property search.'));
+      }
+      if (statusNode) statusNode.textContent = 'Restarting search...';
+      if (runBody.run_id) {
+        window.location.href = `/app/properties?run_id=${encodeURIComponent(runBody.run_id)}`;
+        return;
+      }
+      if (runBody.status_url) {
+        await pollRun(String(runBody.status_url || ''));
+      }
+    };
+    const recordDecisionState = async (candidate, decisionState, statusNode) => {
+      if (!candidate) return;
+      if (statusNode) statusNode.textContent = 'Recording decision state...';
+      try {
+        const response = await fetch('/app/api/property-feedback', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            stakeholder_id: `profile:${feedbackPersonId}`,
+            stakeholder_label: feedbackPersonId,
+            property_ref: candidatePropertyRef(candidate),
+            category: 'priority',
+            sentiment: 'neutral',
+            importance: 4,
+            text: `Decision state moved to ${String(decisionState || '').replaceAll('_', ' ')}.`,
+            source: 'decision_lifecycle',
+            decision_state: String(decisionState || ''),
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not record the decision state.'));
+        trackRybbitEvent('shortlist_decision_state_saved', {
+          decision_state: String(decisionState || '').trim(),
+          candidate_ref: String(candidate.candidate_ref || '').trim(),
+        });
+        if (statusNode) statusNode.textContent = `Decision state saved as ${String(decisionState || '').replaceAll('_', ' ')}.`;
+      } catch (error) {
+        if (statusNode) statusNode.textContent = error instanceof Error ? error.message : 'Could not record the decision state.';
+      }
+    };
+    const createFlipLinkPacket = async (candidate, button) => {
+      if (!candidate) return;
+      const original = button?.textContent || 'Create share review';
+      if (button) {
+        button.disabled = true;
+        button.textContent = 'Creating share review...';
+      }
+      try {
+        const response = await fetch(`/app/api/properties/${encodeURIComponent(candidatePropertyRef(candidate))}/packets/render`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            packet_kind: 'family_review',
+            privacy_mode: 'family_review',
+            fliplink_format: 'flipbook_3d',
+            search_run_id: String(data.run?.run_id || meta.run_id || ''),
+            property_payload: packetCandidatePayload(candidate),
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error, 'Could not create the share review.'));
+        window.location.href = '/app/properties/packets';
+      } catch (error) {
+        if (button) {
+          button.disabled = false;
+          button.textContent = String(error?.message || original);
+          window.setTimeout(() => { button.textContent = original; }, 4200);
+        }
+      }
+    };
+    const createShortlistSharePacket = async (button) => {
+      const payload = shortlistSharePayload();
+      if (!payload) return;
+      const original = button?.textContent || 'Share results';
+      if (button) {
+        button.disabled = true;
+        button.textContent = 'Creating shortlist...';
+      }
+      try {
+        const response = await fetch(`/app/api/properties/${encodeURIComponent(candidatePropertyRef(payload))}/packets/render`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            packet_kind: 'shortlist_brochure',
+            privacy_mode: 'family_review',
+            fliplink_format: 'flipbook_3d',
+            search_run_id: String(data.run?.run_id || meta.run_id || ''),
+            property_payload: payload,
+          }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(body.detail || body.error, 'Could not create the shortlist packet.'));
+        window.location.href = '/app/properties/packets';
+      } catch (error) {
+        if (button) {
+          button.disabled = false;
+          button.textContent = String(error?.message || original);
+          window.setTimeout(() => { button.textContent = original; }, 4200);
+        }
+      }
+    };
+    const requestVisualAsset = async (candidate, kind, button) => {
+      if (!candidate) return;
+      const propertyUrl = String(candidate.property_url || candidate.source_url || '').trim();
+      if (!propertyUrl) {
+        if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'No listing URL is available for this home.';
+        return;
+      }
+      const requestKind = String(kind || 'tour').trim().toLowerCase();
+      const original = button?.textContent || (requestKind === 'flythrough' ? 'Request flythrough' : 'Request 3D tour');
+      if (button) {
+        button.disabled = true;
+        button.textContent = requestKind === 'flythrough' ? 'Requesting flythrough...' : 'Requesting 3D tour...';
+      }
+      if (visualRequestStatusNode) {
+        visualRequestStatusNode.textContent = requestKind === 'flythrough'
+          ? 'Requesting a flythrough from the available source material...'
+          : 'Requesting a 3D tour from the available source material...';
+      }
+      try {
+        const response = await fetch('/app/api/signals/willhaben/property-tour', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            property_url: propertyUrl,
+            request_kind: requestKind,
+            variant_key: 'layout_first',
+            source_ref: String(candidate.source_ref || '').trim(),
+            run_id: String(data.run?.run_id || meta.run_id || '').trim(),
+            candidate_ref: String(candidate.candidate_ref || '').trim(),
+            auto_deliver: false,
+            allow_floorplan_only: true,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not request the visual.'));
+        const nextTourUrl = String(payload.tour_url || candidate.tour?.url || '').trim();
+        const nextFlythroughUrl = String(payload.flythrough_url || candidate.flythrough_url || '').trim();
+        const nextTourStatus = String(payload.tour_status || payload.status || candidate.tour?.status || '').trim().toLowerCase();
+        const nextFlythroughStatus = String(payload.flythrough_status || candidate.flythrough_status || '').trim().toLowerCase();
+        if (!candidate.tour || typeof candidate.tour !== 'object') candidate.tour = {};
+        candidate.tour.url = nextTourUrl;
+        candidate.tour.status = nextTourStatus;
+        candidate.tour.label = nextTourUrl ? '3D tour ready' : (payload.status_label || candidate.tour.label || '');
+        candidate.tour.eta_label = '';
+        candidate.tour.embed_url = nextTourUrl;
+        candidate.tour.deep_link = nextTourUrl;
+        candidate.tour.provider_url = String(payload.vendor_tour_url || candidate.tour.provider_url || '').trim();
+        candidate.tour_url = nextTourUrl;
+        candidate.tour_status = nextTourStatus;
+        candidate.flythrough_url = nextFlythroughUrl;
+        candidate.flythrough_status = nextFlythroughStatus;
+        if (visualRequestStatusNode) {
+          visualRequestStatusNode.textContent = String(payload.status_detail || 'Visual request recorded.').trim();
+        }
+        if (selectedFeedbackCandidateRef === String(candidate.candidate_ref || '').trim()) {
+          const selectedNode = root.querySelector(`[data-candidate-ref="${CSS.escape(String(candidate.candidate_ref || '').trim())}"]`);
+          if (selectedNode) selectCandidate(String(candidate.candidate_ref || '').trim());
+        }
+      } catch (error) {
+        if (visualRequestStatusNode) visualRequestStatusNode.textContent = error instanceof Error ? error.message : 'Could not request the visual.';
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.textContent = original;
+        }
+      }
+    };
+{% include "app/_property_workbench_feedback_script.html" %}
+
+{% include "app/_property_workbench_brief_script.html" %}
+
+    const runSummaryText = (runPayload) => {
+      const summary = runPayload?.summary || {};
+      const sources = Number(summary.sources_total || 0);
+      const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
+      const noPlan = Number(summary.filtered_floorplan_total || 0);
+      return `${sources} sources · ${reviewed} homes reviewed${noPlan > 0 ? ` · ${noPlan} still waiting on floorplans` : ''}`;
+    };
+    const renderRunEvents = (events) => {
+      const rows = Array.isArray(events) ? [...events].reverse().slice(0, 12) : [];
+      return rows.map((event) => {
+        const step = String(event?.step || 'Update').replaceAll('_', ' ');
+        const label = step ? step.charAt(0).toUpperCase() + step.slice(1) : 'Update';
+        return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(event?.message || 'No detail yet.')}</span></div>`;
+      }).join('') || '<div class="pqx-empty">Waiting for the first search update.</div>';
+    };
+    const renderSourceBreakdown = (sources) => {
+      const rows = Array.isArray(sources) ? sources.slice(0, 8) : [];
+      if (!rows.length) return '';
+      return rows.map((source) => {
+        const label = source?.source_label || source?.platform || 'Provider';
+        const pushdown = source?.provider_filter_pushdown && typeof source.provider_filter_pushdown === 'object' ? source.provider_filter_pushdown : {};
+        const weakFilters = pushdown.filter_strength === 'weak_search_then_post_filter'
+          ? `<span class="pqx-note">Some filters had to be checked after the provider returned results.</span>`
+          : '';
+        const areaMiss = source?.location_mismatch_reason
+          ? `<span class="pqx-note">No selected-area matches: provider returned ${escapeHtml(source?.location_mismatch_candidate_total || 0)} outside the chosen target area.</span>`
+          : '';
+        const message = source?.message || source?.error ? `<span class="pqx-note">${escapeHtml(source.message || source.error)}</span>` : '';
+        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Scanned')}</span><div class="pqx-source-metrics"><span>Reviewed <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>High fit <b>${escapeHtml(source?.high_fit_total || 0)}</b></span><span>Filtered <b>${escapeHtml(source?.filtered_low_fit_total || 0)}</b></span><span>Awaiting floorplans <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
+      }).join('');
+    };
+    const renderRouteEvidence = (routes) => {
+      const rows = Array.isArray(routes) ? routes.slice(0, 4) : [];
+      if (!rows.length) return '<span class="pqx-small">Routes not verified yet</span>';
+      return `<div class="pqx-route-evidence">${rows.map((route) => {
+        const label = `${route?.label || 'Route'} · ${route?.distance || 'checking'}`;
+        const inner = `<i>${escapeHtml(route?.icon || 'MAP')}</i>${escapeHtml(label)}`;
+        return route?.map_url ? `<a href="${escapeHtml(route.map_url)}" target="_blank" rel="noreferrer">${inner}</a>` : `<span>${inner}</span>`;
+      }).join('')}</div>`;
+    };
+    const renderEvidenceSourceCatalog = (form, meta) => {
+      const countryCode = String(form?.querySelector('select[name="country_code"]')?.value || 'AT').trim();
+      const wrap = root.querySelector('[data-pqx-evidence-catalog]');
+      const list = root.querySelector('[data-pqx-evidence-source-list]');
+      if (!wrap || !list) return;
+      const rows = Array.isArray(meta?.evidence_source_catalog_by_country?.[countryCode])
+        ? meta.evidence_source_catalog_by_country[countryCode]
+        : [];
+      if (!rows.length) {
+        wrap.hidden = true;
+        list.innerHTML = '';
+        return;
+      }
+      wrap.hidden = false;
+      list.innerHTML = rows.slice(0, 8).map((row) => `
+        <article class="pqx-source-card">
+          <strong>${escapeHtml(row?.label || 'Official evidence')}</strong>
+          <span class="pqx-note">${escapeHtml(row?.description || 'Public evidence layer')}</span>
+          <div class="pqx-source-metrics">
+            <span>Lane <b>${escapeHtml(String(row?.evidence_family || '').replaceAll('_', ' ') || 'evidence')}</b></span>
+            <span>Confidence <b>${escapeHtml(String(row?.confidence || 'medium').replaceAll('_', ' '))}</b></span>
+          </div>
+        </article>
+      `).join('');
+    };
+    const parseUtcish = (value) => {
+      const raw = String(value || '').trim();
+      if (!raw) return null;
+      const parsed = Date.parse(raw);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    const formatEta = (minutes) => {
+      const rounded = Math.max(1, Math.round(Number(minutes) || 0));
+      if (rounded >= 60) {
+        const hours = Math.floor(rounded / 60);
+        const rest = rounded % 60;
+        return rest ? `about ${hours}h ${rest}m` : `about ${hours}h`;
+      }
+      return `about ${rounded} min`;
+    };
+    const routePreviewPath = (originLat, originLng, targetLat, targetLng) => {
+      const parse = (value) => {
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+      };
+      const oLat = parse(originLat);
+      const oLng = parse(originLng);
+      const tLat = parse(targetLat);
+      const tLng = parse(targetLng);
+      let endY = 18;
+      let control1X = 42;
+      let control1Y = 48;
+      let control2X = 96;
+      let control2Y = 24;
+      if (oLat !== null && oLng !== null && tLat !== null && tLng !== null) {
+        const latDelta = Math.max(-1, Math.min(1, tLat - oLat));
+        const lngDelta = Math.max(-1, Math.min(1, tLng - oLng));
+        endY = Math.max(12, Math.min(60, 38 - latDelta * 18));
+        control1X = Math.max(30, Math.min(58, 42 + lngDelta * 12));
+        control1Y = Math.max(10, Math.min(60, 52 - latDelta * 10));
+        control2X = Math.max(82, Math.min(110, 96 + lngDelta * 12));
+        control2Y = Math.max(10, Math.min(60, 24 - latDelta * 8));
+      }
+      return `M 12 56 C ${control1X.toFixed(1)} ${control1Y.toFixed(1)}, ${control2X.toFixed(1)} ${control2Y.toFixed(1)}, 132 ${endY.toFixed(1)}`;
+    };
+    const propertyRoutePreviews = (runPayload) => {
+      const direct = Array.isArray(runPayload?.route_previews)
+        ? runPayload.route_previews
+        : (Array.isArray(runPayload?.summary?.route_previews) ? runPayload.summary.route_previews : []);
+      if (direct.length) return direct;
+      const ranked = Array.isArray(runPayload?.summary?.ranked_candidates) ? runPayload.summary.ranked_candidates : [];
+      const candidate = ranked[0];
+      if (!candidate || typeof candidate !== 'object') return [];
+      const facts = {
+        ...(candidate.property_facts && typeof candidate.property_facts === 'object' ? candidate.property_facts : {}),
+        ...(candidate.property_facts_json && typeof candidate.property_facts_json === 'object' ? candidate.property_facts_json : {}),
+      };
+      if (facts.listing_research_snapshot && typeof facts.listing_research_snapshot === 'object') {
+        Object.assign(facts, facts.listing_research_snapshot);
+      }
+      const originLat = facts.map_lat ?? facts.lat ?? facts.latitude;
+      const originLng = facts.map_lng ?? facts.lng ?? facts.lon ?? facts.longitude;
+      const originQuery = [facts.exact_address, facts.street_address || facts.address, facts.postal_name].filter(Boolean).join(', ');
+      const previews = [];
+      if (briefPreferences.enable_commute_research && String(briefPreferences.commute_destination || '').trim()) {
+        const commuteDestination = String(briefPreferences.commute_destination || '').trim();
+        const commuteModes = [
+          ['transit', 'Transit', Number(briefPreferences.max_commute_minutes_transit || 0)],
+          ['driving', 'Car', Number(briefPreferences.max_commute_minutes_drive || 0)],
+          ['bicycling', 'Bike', Number(briefPreferences.max_commute_minutes_bike || 0)],
+          ['walking', 'Foot', Number(briefPreferences.max_commute_minutes_walk || 0)],
+        ];
+        const selectedMode = commuteModes.find((entry) => entry[2] > 0) || commuteModes[0];
+        const [modeKey, modeLabel, minutes] = selectedMode;
+        const origin = (originLat !== undefined && originLng !== undefined && originLat !== null && originLng !== null)
+          ? `${originLat},${originLng}`
+          : originQuery;
+        previews.push({
+          label: 'Your route',
+          title: commuteDestination,
+          detail: minutes > 0 ? `${modeLabel} <= ${minutes} min` : `${modeLabel} route from the property`,
+          mode_label: modeLabel,
+          map_url: origin
+            ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(commuteDestination)}&travelmode=${encodeURIComponent(modeKey)}`
+            : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(commuteDestination)}&travelmode=${encodeURIComponent(modeKey)}`,
+          preview_path: routePreviewPath(originLat, originLng),
+        });
+      }
+      const specs = [
+        ['School', 'nearest_school_m', 'nearest_school_name', 'nearest_school_lat', 'nearest_school_lng', 'Transit', Boolean(briefPreferences.enable_family_mode)],
+        ['Supermarket', 'nearest_supermarket_m', 'nearest_supermarket_name', 'nearest_supermarket_lat', 'nearest_supermarket_lng', 'Walk', true],
+        ['Playground', 'nearest_playground_m', 'nearest_playground_name', 'nearest_playground_lat', 'nearest_playground_lng', 'Walk', Boolean(briefPreferences.enable_family_mode)],
+        ['Pharmacy', 'nearest_pharmacy_m', 'nearest_pharmacy_name', 'nearest_pharmacy_lat', 'nearest_pharmacy_lng', 'Walk', true],
+        ['Underground', 'nearest_subway_m', 'nearest_subway_name', 'nearest_subway_lat', 'nearest_subway_lng', 'Transit', true],
+      ];
+      specs.forEach(([label, distanceKey, nameKey, latKey, lngKey, modeLabel, enabled]) => {
+        if (previews.length >= 3) return;
+        if (!enabled) return;
+        const distance = Number(facts[distanceKey] || 0);
+        if (!Number.isFinite(distance) || distance <= 0) return;
+        previews.push({
+          label,
+          title: String(facts[nameKey] || label),
+          detail: `${Math.round(distance)} m from the property`,
+          mode_label: modeLabel,
+          map_url: String(((Array.isArray(candidate.route_evidence) ? candidate.route_evidence : []).find((row) => String(row?.label || '') === label)?.map_url) || candidate.map_url || '').trim(),
+          preview_path: routePreviewPath(originLat, originLng, facts[latKey], facts[lngKey]),
+        });
+      });
+      return previews.slice(0, 3);
+    };
+    const renderRoutePreviewStrip = (runPayload) => {
+      const previews = propertyRoutePreviews(runPayload);
+      if (!Array.isArray(previews) || !previews.length) return '';
+      const cards = previews.slice(0, 3).map((route) => {
+        const inner = `
+          <div class="pqx-route-preview-head">
+            <span class="pqx-small">${escapeHtml(route?.label || 'Route')}</span>
+            <strong>${escapeHtml(route?.title || 'Route preview')}</strong>
+          </div>
+          <svg class="pqx-route-preview-svg" viewBox="0 0 144 68" aria-hidden="true">
+            <circle cx="12" cy="56" r="5"></circle>
+            <path d="${escapeHtml(route?.preview_path || 'M 12 56 C 42 48, 96 24, 132 18')}"></path>
+            <circle cx="132" cy="18" r="5"></circle>
+          </svg>
+          <div class="pqx-route-preview-meta">
+            <span>${escapeHtml(route?.detail || '')}</span>
+            <b>${escapeHtml(route?.mode_label || 'Route')}</b>
+          </div>
+        `;
+        return `<article class="pqx-route-preview-card">${route?.map_url ? `<a class="pqx-route-preview-link" href="${escapeHtml(route.map_url)}" target="_blank" rel="noreferrer">${inner}</a>` : `<div class="pqx-route-preview-link">${inner}</div>`}</article>`;
+      }).join('');
+      return `<div class="pqx-route-preview-strip" data-pqx-route-preview-strip>${cards}</div>`;
+    };
+    const estimateRunEtaLabel = (runPayload, summary, layout) => {
+      const status = String(runPayload?.status || summary?.status || 'queued');
+      if (status === 'processed' || status === 'completed') return '100% · complete';
+      if (status === 'failed' || status === 'cancelled') return 'stopped';
+      const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
+      const startedAt = parseUtcish(runPayload?.started_at || runPayload?.created_at);
+      const updatedAt = parseUtcish(runPayload?.updated_at || runPayload?.generated_at) || Date.now();
+      const sources = Math.max(0, Number(summary?.sources_total || 0));
+      if (progress >= 100) return '100% · complete';
+      if (progress >= 5 && startedAt && updatedAt > startedAt) {
+        const elapsedMinutes = (updatedAt - startedAt) / 60000;
+        const remainingMinutes = elapsedMinutes * ((100 - progress) / Math.max(progress, 1));
+        return `${Math.round(progress)}% · ${formatEta(Math.min(Math.max(remainingMinutes, 1), 180))}`;
+      }
+      if (progress > 0 && layout > 0) return `${Math.round(progress)}% · ${formatEta(Math.max(2, layout * 2))}`;
+      if (progress > 0 && sources > 0) return `${Math.round(progress)}% · ${formatEta(Math.max(3, Math.ceil(sources * 1.5)))}`;
+      if (layout > 0) return `estimating · ${formatEta(Math.max(2, layout * 2))}`;
+      if (sources > 0) return `starting · ${formatEta(Math.max(3, Math.ceil(sources * 1.5)))}`;
+      return progress > 0 ? `${Math.round(progress)}% · estimating` : 'estimating';
+    };
+    const progressBoardHtml = (runPayload) => {
+      const summary = runPayload?.summary || {};
+      const status = String(runPayload?.status || summary.status || 'queued');
+      const sources = Number(summary.sources_total || 0);
+      const completedSources = Array.isArray(summary.sources) ? summary.sources.length : 0;
+      const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || summary.raw_listing_total || 0);
+      const layout = Number(summary.filtered_floorplan_total || 0);
+      const title = status === 'processed' || status === 'completed' ? 'Results are ready' : (status === 'failed' ? 'Search stopped' : 'Search in progress');
+      const etaLabel = estimateRunEtaLabel(runPayload, summary, layout);
+      const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
+      const progressFill = status === 'processed' || status === 'completed' ? 100 : (progress > 0 ? progress : 4);
+      const planKey = String(meta?.commercial?.current_plan_key || runPayload?.brief?.plan_key || data?.brief?.plan_key || 'free').toLowerCase();
+      const planCap = planKey === 'agent' ? 6 : (planKey === 'plus' ? 3 : 1);
+      const configuredWorkers = Math.max(1, Number(summary?.provider_workers?.worker_concurrency || planCap));
+      const workerCount = Math.max(1, Math.min(planCap, configuredWorkers));
+      const workerTooltip = 'Search workers are the parallel source lanes running this search right now. They are separate from recurring saved searches.';
+      const sourceChips = (Array.isArray(summary.sources) ? summary.sources.slice(0, 8) : []).map((source) => {
+        const label = source?.source_label || source?.label || 'Source';
+        const state = source?.error ? 'warn' : 'good';
+        return `<span class="pqx-source-chip ${state}">${escapeHtml(label)}</span>`;
+      }).join('');
+      const sourceMeta = `${reviewed} homes reviewed${layout > 0 ? ` · ${layout} still waiting on floorplans` : ''}`;
+      const sourceRows = Array.isArray(summary.sources) ? summary.sources : [];
+      const sourceProviderGroup = (source) => {
+        const family = String(source?.provider_family || '').trim().toLowerCase();
+        if (family) return family;
+        const platform = String(source?.platform || '').trim().toLowerCase();
+        if (platform) return platform;
+        const label = String(source?.source_label || source?.label || '').trim();
+        return (label.split('|')[0] || label).trim().toLowerCase() || 'provider';
+      };
+      const activeSources = sourceRows.filter((source) => !['completed', 'processed', 'done', 'success', 'failed', 'error', 'skipped'].includes(String(source?.status || source?.state || '').toLowerCase()));
+      const completedPool = sourceRows.filter((source) => ['completed', 'processed', 'done', 'success'].includes(String(source?.status || source?.state || '').toLowerCase()));
+      const rawWorkerQueue = [...activeSources, ...completedPool];
+      const seenWorkerGroups = new Set();
+      const workerQueue = [];
+      rawWorkerQueue.forEach((source) => {
+        const key = sourceProviderGroup(source);
+        if (seenWorkerGroups.has(key)) return;
+        seenWorkerGroups.add(key);
+        workerQueue.push(source);
+      });
+      rawWorkerQueue.forEach((source) => {
+        if (workerQueue.includes(source)) return;
+        workerQueue.push(source);
+      });
+      const workers = Array.from({ length: workerCount }, (_, index) => {
+        const source = workerQueue[index] || null;
+        const groupKey = sourceProviderGroup(source);
+        const rawStatus = String(source?.status || source?.state || '').toLowerCase();
+        let progressPct = Number(source?.progress || 0);
+        if (!(progressPct > 0)) {
+          if (['completed', 'processed', 'done', 'success', 'failed', 'error', 'skipped'].includes(rawStatus)) progressPct = 100;
+          else if (['running', 'processing', 'in_progress', 'working', 'warming'].includes(rawStatus)) progressPct = 58;
+          else if (['queued', 'pending', 'starting'].includes(rawStatus)) progressPct = 18;
+          else progressPct = 0;
+        }
+        const statusLabel = !source ? 'Idle'
+          : (['completed', 'processed', 'done', 'success'].includes(rawStatus) ? 'Done'
+          : ((['failed', 'error'].includes(rawStatus) || source?.error) ? 'Needs retry'
+          : (['running', 'processing', 'in_progress', 'working', 'warming'].includes(rawStatus) ? 'Running' : 'Up next')));
+        const tone = !source ? 'idle' : (progressPct >= 100 ? 'done' : (statusLabel === 'Running' ? 'active' : 'queued'));
+        const shardCount = source ? Math.max(0, rawWorkerQueue.filter((row) => sourceProviderGroup(row) === groupKey).length - 1) : 0;
+        return {
+          label: `W${index + 1}`,
+          provider: String(source?.source_label || source?.label || (sourceRows.length ? 'Waiting for a source' : 'Stand by')),
+          shardCount,
+          statusLabel,
+          progressPct,
+          tone,
+        };
+      });
+      const upgradeCopy = planKey === 'free'
+        ? 'Upgrade to Plus for 3 search workers or Agent for 6. Saved searches are a separate limit.'
+        : (planKey === 'plus' ? 'Upgrade to Agent for 6 search workers. Saved searches are a separate limit.' : '');
+      const workerHtml = workers.map((worker) => `
+        <div class="pqx-worker-lane tone-${escapeHtml(worker.tone)}">
+          <div class="pqx-worker-lane-head">
+            <strong>${escapeHtml(worker.label)}</strong>
+            <span class="pqx-small">${escapeHtml(worker.statusLabel)}</span>
+          </div>
+          <div class="pqx-worker-progress" aria-hidden="true"><i style="--progress: ${escapeHtml(worker.progressPct)}"></i></div>
+          ${planKey === 'free' ? '' : `
+            <div class="pqx-worker-popover">
+              <strong>${escapeHtml(worker.provider)}${worker.shardCount ? ` · +${escapeHtml(worker.shardCount)} more shard${worker.shardCount === 1 ? '' : 's'}` : ''}</strong>
+              <span class="pqx-note">${escapeHtml(worker.statusLabel)}</span>
+              <div class="pqx-worker-progress detailed" aria-hidden="true"><i style="--progress: ${escapeHtml(worker.progressPct)}"></i></div>
+            </div>
+          `}
+        </div>
+      `).join('');
+      return `
+        <div class="pqx-concierge-pulse">
+          <div class="pqx-progress-headline">
+            <strong data-pqx-progress-board-title>${escapeHtml(title)}</strong>
+            <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>${escapeHtml(etaLabel)}</span>
+          </div>
+          <div class="pqx-pulse-line" aria-hidden="true"></div>
+          <div class="pqx-progress-meter" aria-hidden="true"><i class="pqx-progress-meter-fill" style="--progress: ${escapeHtml(progressFill)}"></i></div>
+        </div>
+        <div class="pqx-source-progress" data-pqx-source-progress>
+          <div class="pqx-source-progress-head">
+            <strong data-pqx-radar-count>${escapeHtml(completedSources)}/${escapeHtml(sources)} sources checked</strong>
+            <span class="pqx-small">${escapeHtml(sourceMeta)}</span>
+          </div>
+          <span class="pqx-note">${escapeHtml(String(runPayload?.message || 'Waiting for the first source update.'))}</span>
+        </div>
+        <div class="pqx-worker-strip" data-pqx-worker-strip>
+          <div class="pqx-worker-strip-head">
+            <strong>${escapeHtml(workerCount)} search worker${workerCount === 1 ? '' : 's'}</strong>
+            <button type="button" class="pqx-tooltip" title="${escapeHtml(workerTooltip)}" aria-label="${escapeHtml(workerTooltip)}" aria-expanded="false" data-tooltip-trigger>?</button>
+            ${upgradeCopy ? `<span class="pqx-note">${escapeHtml(upgradeCopy)}</span>` : ''}
+          </div>
+          <div class="pqx-worker-lanes">${workerHtml}</div>
+        </div>
+        <div class="pqx-source-list" data-pqx-source-list>${sourceChips}</div>
+        ${renderRoutePreviewStrip(runPayload)}
+      `;
+    };
+    const updateProgressBoards = (runPayload) => {
+      root.querySelectorAll('[data-pqx-progress-board]').forEach((board) => {
+        board.dataset.progressState = String(runPayload?.status || runPayload?.summary?.status || 'queued');
+        board.innerHTML = progressBoardHtml(runPayload);
+        bindTooltips(board);
+      });
+    };
+    const renderRankedCandidates = (candidates) => {
+      const rows = Array.isArray(candidates) ? candidates.slice(0, 20) : [];
+      if (!rows.length) return '<div class="pqx-empty" data-pqx-ranked-candidates>No matches are ready yet. Open search diagnostics if the results look wrong or too narrow.</div>';
+      const body = rows.map((candidate, index) => {
+        const title = candidate?.title || 'Property candidate';
+        const source = candidate?.source_label || candidate?.source_platform || 'Source';
+        const reason = candidate?.compare_reason || candidate?.fit_summary || (Array.isArray(candidate?.match_reasons) ? candidate.match_reasons[0] : '') || 'Open the property page for more context';
+        const image = candidate?.preview_image_url
+          ? `<img src="${escapeHtml(candidate.preview_image_url)}" alt="">`
+          : 'HOME';
+        const media = `<div class="pqx-result-media"><span class="pqx-thumb">${image}</span><span>${escapeHtml(title)}<br><span class="pqx-small">${escapeHtml(source)}</span></span></div>`;
+        const links = [
+          candidate?.packet_url ? `<a href="${escapeHtml(candidate.packet_url)}">Review</a>` : '',
+          candidate?.map_url ? `<a href="${escapeHtml(candidate.map_url)}" target="_blank" rel="noreferrer">Map</a>` : '',
+          candidate?.property_url ? `<a href="${escapeHtml(candidate.property_url)}">Listing</a>` : '',
+        ].filter(Boolean).join('');
+        return `<tr><td>${escapeHtml(candidate?.rank || index + 1)}</td><td>${media}</td><td>${renderRouteEvidence(candidate?.route_evidence)}</td><td>${escapeHtml(candidate?.fit_score || 0)}</td><td>${escapeHtml(reason)}</td><td>${links}</td></tr>`;
+      }).join('');
+      return `<div class="pqx-table-wrap" data-pqx-ranked-candidates><table class="pqx-table"><thead><tr><th>#</th><th>Property</th><th>Evidence</th><th>Fit</th><th>Why it matched</th><th>Open</th></tr></thead><tbody>${body}</tbody></table></div>`;
+    };
+    const renderRun = (runPayload) => {
+      if (!runPayload || typeof runPayload !== 'object') return;
+      const status = String(runPayload.status || 'queued');
+      const progress = Math.max(0, Math.min(100, Number(runPayload.progress || 0)));
+      const statusNode = root.querySelector('[data-pqx-run-status]');
+      const messageNode = root.querySelector('[data-pqx-run-message]');
+      const ring = root.querySelector('[data-pqx-progress-ring]');
+      const progressLabel = root.querySelector('[data-pw-run-progress-label]');
+      const summaryNode = root.querySelector('[data-pqx-run-summary]');
+      const eventsNode = root.querySelector('[data-pqx-run-events]');
+      const updatedNode = root.querySelector('[data-pqx-run-updated]');
+      const rankedNode = root.querySelector('[data-pqx-ranked-candidates]');
+      const sourceNode = root.querySelector('[data-pqx-source-breakdown]');
+      if (statusNode) statusNode.textContent = status.replaceAll('_', ' ');
+      if (messageNode) messageNode.textContent = String(runPayload.message || 'Up next.');
+      if (ring) ring.style.setProperty('--progress', String(terminalStates.has(status) ? progress : Math.min(progress, 95)));
+      if (progressLabel) progressLabel.textContent = `${terminalStates.has(status) ? progress : Math.min(progress, 95)}%`;
+      if (summaryNode && runPayload.summary) summaryNode.textContent = runSummaryText(runPayload);
+      if (rankedNode && runPayload.summary) rankedNode.outerHTML = renderRankedCandidates(runPayload.summary.ranked_candidates);
+      if (sourceNode && runPayload.summary) sourceNode.innerHTML = renderSourceBreakdown(runPayload.summary.sources);
+      if (eventsNode) eventsNode.innerHTML = renderRunEvents(runPayload.events);
+      if (updatedNode) updatedNode.textContent = `Last update ${runPayload.updated_at || runPayload.generated_at || new Date().toLocaleTimeString()}`;
+      updateProgressBoards(runPayload);
+      applyResearchTaskSnapshot(runPayload);
+      notifyRunComplete(runPayload);
+    };
+  const defaultPlatformsForCountryMode = (meta, countryCode, listingMode, fallbackOptions = []) => {
+    const rawPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
+    const platformCap = Number.isFinite(rawPlatformCap) && rawPlatformCap > 0 ? rawPlatformCap : Infinity;
+    const normalizedCountry = String(countryCode || 'AT').trim();
+    const normalizedMode = String(listingMode || 'rent').trim().toLowerCase() === 'buy' ? 'buy' : 'rent';
+    const countryDefaults = meta?.platform_defaults_by_country_mode?.[normalizedCountry];
+    const defaults = Array.isArray(countryDefaults?.[normalizedMode]) ? countryDefaults[normalizedMode] : [];
+    if (defaults.length) return Number.isFinite(platformCap) ? defaults.slice(0, platformCap) : defaults.slice();
+    return (Array.isArray(fallbackOptions) ? fallbackOptions : [])
+      .map((option) => String(option?.value || '').trim())
+      .filter(Boolean)
+      .slice(0, Number.isFinite(platformCap) ? platformCap : undefined);
+  };
+    let runPollActive = false;
+    const pollRun = async (statusUrl) => {
+      if (!statusUrl || runPollActive) return;
+      runPollActive = true;
+      let failedPolls = 0;
+      try {
+        while (true) {
+          let response;
+          let body = {};
+          try {
+            response = await fetch(statusUrl, { credentials: 'same-origin', headers: { accept: 'application/json' } });
+            body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(String(body.detail || 'Could not load property search status.'));
+            failedPolls = 0;
+          } catch (err) {
+            failedPolls += 1;
+            const message = err?.message || 'Could not load property search status.';
+            renderRun({
+              status: 'in_progress',
+              progress: Number(root.querySelector('[data-pw-run-progress-label]')?.textContent?.replace('%', '') || 0),
+              message: failedPolls >= 3 ? message : 'Refreshing run status...',
+              events: [{ step: 'status_refresh', message, status: 'retrying' }],
+            });
+            await new Promise((resolve) => window.setTimeout(resolve, failedPolls >= 3 ? 5000 : 1800));
+            continue;
+          }
+          renderRun(body);
+          if (terminalStates.has(String(body.status || ''))) {
+            window.location.href = `/app/properties?run_id=${encodeURIComponent(body.run_id || '')}`;
+            return;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 1400));
+        }
+      } finally {
+        runPollActive = false;
+      }
+    };
+    const form = root.querySelector('[data-console-form-variant="property_search"]');
+    const initWizard = (form) => {
+      const steps = Array.isArray(meta.wizard_steps) ? meta.wizard_steps.filter((step) => step && step.key) : [];
+      const fieldNodes = [...form.querySelectorAll('[data-property-field-step]')];
+      const triggers = [...form.querySelectorAll('[data-property-step-trigger]')];
+      const progress = root.querySelector('[data-property-step-progress]');
+      const summary = root.querySelector('[data-property-step-summary]');
+      const back = root.querySelector('[data-property-step-back]');
+      const next = root.querySelector('[data-property-step-next]');
+      const actions = root.querySelector('[data-property-actions]');
+      let current = 0;
+      const applyStep = (index) => {
+        if (!steps.length) return;
+        current = Math.max(0, Math.min(steps.length - 1, index));
+        const step = steps[current] || {};
+        const stepKey = String(step.key || '').trim();
+        form.dataset.propertyActiveStep = stepKey;
+        fieldNodes.forEach((node) => { node.hidden = String(node.getAttribute('data-property-field-step') || '') !== stepKey; });
+        triggers.forEach((node) => { node.classList.toggle('active', String(node.getAttribute('data-property-step-trigger') || '') === stepKey); });
+        if (progress) progress.textContent = `${String(step.label || 'Search').trim()} ${current + 1}/${steps.length}`;
+        if (summary) summary.textContent = String(step.detail || '').trim();
+        if (back) back.hidden = current === 0;
+        if (next) {
+          next.hidden = current >= steps.length - 1;
+          next.textContent = current === steps.length - 2 ? 'Review launch' : 'Next';
+        }
+        if (actions) actions.hidden = current !== steps.length - 1;
+        form.dispatchEvent(new CustomEvent('propertyquarry:stepchange', { detail: { step: stepKey } }));
+      };
+      triggers.forEach((node, index) => node.addEventListener('click', () => applyStep(index)));
+      back?.addEventListener('click', () => applyStep(current - 1));
+      next?.addEventListener('click', () => applyStep(current + 1));
+      applyStep(0);
+    };
+    bindTooltips(root);
+    if (form) {
+      bindRangeOutputs(form);
+      initWizard(form);
+      const countryField = form.querySelector('select[name="country_code"]');
+      const regionField = form.querySelector('select[name="region_code"]');
+      const listingModeField = form.querySelector('select[name="listing_mode"]');
+      const investmentField = form.querySelector('[data-property-field-name=investment_research_mode] select');
+      const investmentFieldWrap = form.querySelector('[data-property-field-name=investment_research_mode]');
+      const familyModeField = form.querySelector('input[name="enable_family_mode"]');
+      const commuteResearchField = form.querySelector('input[name="enable_commute_research"]');
+      const schoolStageWrap = form.querySelector('[data-property-field-name="school_stage_preferences"]');
+      const schoolQualityWrap = form.querySelector('[data-property-field-name="school_quality_priority"]');
+      const playgroundDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_playground_m"]');
+      const libraryDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_library_m"]');
+      const zooDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_zoo_m"]');
+      const publicPoolDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_public_pool_m"]');
+      const medicalCareDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_medical_care_m"]');
+      const commuteDetailWraps = [
+        form.querySelector('[data-property-field-name="commute_destination"]'),
+        form.querySelector('[data-property-field-name="additional_reachability_targets"]'),
+        form.querySelector('[data-property-field-name="preferred_reachability_modes"]'),
+        form.querySelector('[data-property-field-name="max_commute_minutes_transit"]'),
+        form.querySelector('[data-property-field-name="max_commute_minutes_drive"]'),
+        form.querySelector('[data-property-field-name="max_commute_minutes_bike"]'),
+        form.querySelector('[data-property-field-name="max_commute_minutes_walk"]'),
+      ].filter(Boolean);
+      const fullRegionScopeField = form.querySelector('input[name="full_region_scope"]');
+      const preferencePersonField = form.querySelector('[name="preference_person_id"]');
+      const fullRegionScopeFieldWrap = form.querySelector('[data-property-field-name="full_region_scope"]');
+      const locationFieldWrap = form.querySelector('[data-property-field-name="location_query"]');
+      const rawPlanPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
+      const planPlatformCap = Number.isFinite(rawPlanPlatformCap) && rawPlanPlatformCap > 0 ? rawPlanPlatformCap : 0;
+      const syncAdvancedPanels = () => {
+        form.querySelectorAll('details[data-property-advanced-panel]').forEach((panel) => {
+          const panelKey = String(panel.getAttribute('data-property-advanced-panel') || '').trim();
+          const visibleFields = [...panel.querySelectorAll('.pqx-field')].filter((node) => !node.hidden && String(node.getAttribute('aria-hidden') || '').trim() !== 'true');
+          const shouldShow = panelKey === 'children' || panelKey === 'children_distances' || panelKey === 'children_wellbeing'
+            ? Boolean(familyModeField?.checked) && visibleFields.length > 0
+            : panelKey === 'commute'
+              ? Boolean(commuteResearchField?.checked) && visibleFields.length > 0
+              : visibleFields.length > 0;
+          panel.hidden = !shouldShow;
+          panel.toggleAttribute('aria-hidden', !shouldShow);
+          if (!shouldShow) panel.removeAttribute('open');
+        });
+      };
+      const syncListingModeControls = () => {
+        const isBuy = String(listingModeField?.value || 'rent').trim().toLowerCase() === 'buy';
+        if (investmentFieldWrap) {
+          investmentFieldWrap.hidden = !isBuy || String(form.dataset.propertyActiveStep || '').trim() !== 'search';
+          investmentFieldWrap.toggleAttribute('aria-hidden', investmentFieldWrap.hidden);
+        }
+        if (!isBuy && investmentField) investmentField.value = 'off';
+        syncAdvancedPanels();
+        syncMarketAwareFields(form, meta);
+      };
+      const syncAreaScopeControls = () => {
+        const activeStep = String(form.dataset.propertyActiveStep || '').trim();
+        const isAreasStep = !activeStep || activeStep === 'areas';
+        const hasAreaOptions = form.querySelectorAll('input[name="location_query"]').length > 0;
+        const fullRegionScopeChecked = Boolean(fullRegionScopeField?.checked);
+        if (fullRegionScopeFieldWrap) {
+          fullRegionScopeFieldWrap.hidden = !isAreasStep || !hasAreaOptions;
+          fullRegionScopeFieldWrap.toggleAttribute('aria-hidden', fullRegionScopeFieldWrap.hidden);
+        }
+        if (!hasAreaOptions && fullRegionScopeField) fullRegionScopeField.checked = false;
+        if (locationFieldWrap) {
+          const shouldCollapseTargetAreas = isAreasStep && hasAreaOptions && fullRegionScopeChecked;
+          locationFieldWrap.hidden = !isAreasStep || shouldCollapseTargetAreas;
+          locationFieldWrap.toggleAttribute('aria-hidden', locationFieldWrap.hidden);
+          locationFieldWrap.dataset.propertyCollapsedBy = shouldCollapseTargetAreas ? 'full_region_scope' : '';
+        }
+        syncAdvancedPanels();
+        syncMarketAwareFields(form, meta);
+      };
+      const syncCommuteControls = () => {
+        const activeStep = String(form.dataset.propertyActiveStep || '').trim();
+        const commuteEnabled = Boolean(commuteResearchField?.checked);
+        const showCommuteDetails = (!activeStep || activeStep === 'reachability') && commuteEnabled;
+        commuteDetailWraps.forEach((wrap) => {
+          wrap.hidden = !showCommuteDetails;
+          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+          wrap.dataset.propertyCollapsedBy = showCommuteDetails ? '' : 'enable_commute_research';
+        });
+        syncAdvancedPanels();
+        syncMarketAwareFields(form, meta);
+      };
+      const syncFamilyModeControls = () => {
+        const activeStep = String(form.dataset.propertyActiveStep || '').trim();
+        const isChildrenStep = !activeStep || activeStep === 'children';
+        const familyModeEnabled = Boolean(familyModeField?.checked);
+        const selectedSchoolStages = checkedValues(form, 'school_stage_preferences');
+        const showSchoolDetails = isChildrenStep && familyModeEnabled;
+        const showSchoolPriority = showSchoolDetails && selectedSchoolStages.length > 0;
+        syncSchoolStageVariantVisibility(form);
+        if (schoolStageWrap) {
+          schoolStageWrap.hidden = !showSchoolDetails;
+          schoolStageWrap.toggleAttribute('aria-hidden', schoolStageWrap.hidden);
+          schoolStageWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+        }
+        if (playgroundDistanceWrap) {
+          playgroundDistanceWrap.hidden = !showSchoolDetails;
+          playgroundDistanceWrap.toggleAttribute('aria-hidden', playgroundDistanceWrap.hidden);
+          playgroundDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+        }
+        if (libraryDistanceWrap) {
+          libraryDistanceWrap.hidden = !showSchoolDetails;
+          libraryDistanceWrap.toggleAttribute('aria-hidden', libraryDistanceWrap.hidden);
+          libraryDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+        }
+        if (zooDistanceWrap) {
+          zooDistanceWrap.hidden = !showSchoolDetails;
+          zooDistanceWrap.toggleAttribute('aria-hidden', zooDistanceWrap.hidden);
+          zooDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+        }
+        if (publicPoolDistanceWrap) {
+          publicPoolDistanceWrap.hidden = !showSchoolDetails;
+          publicPoolDistanceWrap.toggleAttribute('aria-hidden', publicPoolDistanceWrap.hidden);
+          publicPoolDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+        }
+        if (medicalCareDistanceWrap) {
+          medicalCareDistanceWrap.hidden = !showSchoolDetails;
+          medicalCareDistanceWrap.toggleAttribute('aria-hidden', medicalCareDistanceWrap.hidden);
+          medicalCareDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+        }
+        if (schoolQualityWrap) {
+          schoolQualityWrap.hidden = !showSchoolPriority;
+          schoolQualityWrap.toggleAttribute('aria-hidden', schoolQualityWrap.hidden);
+          schoolQualityWrap.dataset.propertyCollapsedBy = showSchoolPriority ? '' : (familyModeEnabled ? 'school_stage_preferences' : 'enable_family_mode');
+        }
+        syncAdvancedPanels();
+        syncMarketAwareFields(form, meta);
+      };
+      const applyPreferenceProfile = () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncAreaScopeControls).finally(syncFamilyModeControls);
+      const refreshRegionAndLocationChoices = () => {
+        const regionCatalog = meta.region_catalog_by_country || {};
+        const locationCatalog = meta.location_catalog_by_country_region || {};
+        const selectedCountry = String(countryField?.value || '').trim();
+        const currentRegion = String(regionField?.value || '').trim();
+        const regionOptions = Array.isArray(regionCatalog[selectedCountry]) ? regionCatalog[selectedCountry] : [];
+        if (regionField) {
+          regionField.innerHTML = regionOptions.map((option, index) => {
+            const optionValue = String(option.value || '').trim();
+            const label = String(option.label || optionValue || 'Region').trim();
+            const selected = optionValue === currentRegion || (!currentRegion && index === 0);
+            return `<option value="${escapeHtml(optionValue)}" ${selected ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+          }).join('');
+        }
+        const effectiveRegion = String(regionField?.value || regionOptions[0]?.value || '').trim();
+        const locationOptions = locationCatalog[selectedCountry]?.[effectiveRegion] || [];
+        renderCheckboxOptions(form, 'location_query', locationOptions, []);
+        syncAreaScopeControls();
+      };
+      const applyBrowserAndIpDefaults = async () => {
+        if (!shouldApplyBrowserDefaults(form)) return;
+        const nextCountry = browserCountryCode();
+        if (countryField && nextCountry && nextCountry !== String(countryField.value || '').trim()) {
+          countryField.value = nextCountry;
+          const catalog = meta.platform_catalog_by_country || {};
+          const options = Array.isArray(catalog[nextCountry]) ? catalog[nextCountry] : [];
+          const defaultSelection = defaultPlatformsForCountryMode(meta, nextCountry, listingModeField?.value || 'rent', options);
+          renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
+          syncSelectAllButtons(form, planPlatformCap);
+          refreshRegionAndLocationChoices();
+          syncMarketAwareFields(form, meta);
+        }
+        const ipLocation = await locationFromIpAddress();
+        const ipCountry = String(ipLocation?.country_code || '').trim().toUpperCase();
+        const ipCity = String(ipLocation?.city || '').trim().toLowerCase();
+        const ipPostal = String(ipLocation?.postal || '').trim();
+        if (countryField && ipCountry) {
+          const normalizedIpCountry = ipCountry === 'GB' ? 'UK' : ipCountry;
+          if (normalizedIpCountry !== String(countryField.value || '').trim()) {
+            countryField.value = normalizedIpCountry;
+            const catalog = meta.platform_catalog_by_country || {};
+            const options = Array.isArray(catalog[normalizedIpCountry]) ? catalog[normalizedIpCountry] : [];
+            const defaultSelection = defaultPlatformsForCountryMode(meta, normalizedIpCountry, listingModeField?.value || 'rent', options);
+            renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
+            syncSelectAllButtons(form, planPlatformCap);
+            refreshRegionAndLocationChoices();
+            syncMarketAwareFields(form, meta);
+          }
+        }
+        const inferredRegion = matchRegionValue(form, ipCity);
+        if (inferredRegion && regionField) {
+          regionField.value = inferredRegion;
+          refreshRegionAndLocationChoices();
+          if (ipPostal) {
+            const districtValue = matchLocationValue(form, ipPostal);
+            const locationInput = form.querySelector(`input[name="location_query"][value="${districtValue}"]`);
+            if (locationInput) {
+              if (fullRegionScopeField) fullRegionScopeField.checked = false;
+              locationInput.checked = true;
+              syncAreaScopeControls();
+            }
+          }
+        }
+      };
+      countryField?.addEventListener('change', () => {
+        const selectedCountry = String(countryField.value || '').trim();
+        const catalog = meta.platform_catalog_by_country || {};
+        const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
+        const defaultSelection = defaultPlatformsForCountryMode(meta, selectedCountry, listingModeField?.value || 'rent', options);
+        renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
+        syncSelectAllButtons(form, planPlatformCap);
+        const customLocationField = form.querySelector('[name="custom_location_query"]');
+        if (customLocationField) customLocationField.value = '';
+        refreshRegionAndLocationChoices();
+        syncMarketAwareFields(form, meta);
+      });
+      preferencePersonField?.addEventListener('change', applyPreferenceProfile);
+      preferencePersonField?.addEventListener('blur', applyPreferenceProfile);
+      regionField?.addEventListener('change', () => {
+        const customLocationField = form.querySelector('[name="custom_location_query"]');
+        if (customLocationField) customLocationField.value = '';
+        refreshRegionAndLocationChoices();
+        syncMarketAwareFields(form, meta);
+      });
+      fullRegionScopeField?.addEventListener('change', syncAreaScopeControls);
+      listingModeField?.addEventListener('change', () => {
+        const selectedCountry = String(countryField?.value || 'AT').trim();
+        const catalog = meta.platform_catalog_by_country || {};
+        const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
+        const defaultSelection = defaultPlatformsForCountryMode(meta, selectedCountry, listingModeField?.value || 'rent', options);
+        renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
+        syncSelectAllButtons(form, planPlatformCap);
+        syncListingModeControls();
+      });
+      commuteResearchField?.addEventListener('change', syncCommuteControls);
+      familyModeField?.addEventListener('change', syncFamilyModeControls);
+      form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));
+      form.querySelectorAll('[data-property-show-unavailable]').forEach((node) => node.addEventListener('change', () => syncMarketAwareFields(form, meta)));
+      form.querySelectorAll('[data-checkbox-group-select-all]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          selectAllCheckboxValues(form, String(button.getAttribute('data-checkbox-group-select-all') || '').trim(), planPlatformCap);
+          syncSelectAllButtons(form, planPlatformCap);
+        });
+      });
+      form.addEventListener('click', (event) => {
+        if (event.defaultPrevented) return;
+        const groupSelect = event.target?.closest?.('[data-checkbox-group-select-scope]');
+        const groupClear = event.target?.closest?.('[data-checkbox-group-clear-scope]');
+        if (groupSelect || groupClear) {
+          event.preventDefault();
+          const section = (groupSelect || groupClear).closest('[data-provider-group-panel]') || form;
+          const allInputs = [...form.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')];
+          const sectionInputs = [...section.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')];
+          const rawPlanPlatformCap = Number(planPlatformCap);
+          const normalizedMax = Number.isFinite(rawPlanPlatformCap) && rawPlanPlatformCap > 0 ? rawPlanPlatformCap : allInputs.length;
+          if (groupSelect) {
+            const selectedInputs = sectionInputs.slice(0, normalizedMax);
+            applyCheckboxSelection(allInputs, selectedInputs);
+            revealSelectedProviderGroups(form, selectedInputs);
+            if (selectedInputs.length < sectionInputs.length) {
+              setCheckboxGroupStatus(`Selected ${selectedInputs.length} of ${sectionInputs.length} sources from this family. Your current plan allows up to ${normalizedMax} at once.`);
+            } else {
+              setCheckboxGroupStatus(`Selected all ${selectedInputs.length} sources from this family.`);
+            }
+          } else {
+            const selectedInputs = allInputs.filter((node) => !sectionInputs.includes(node) && node.checked);
+            applyCheckboxSelection(allInputs, selectedInputs);
+            revealSelectedProviderGroups(form, selectedInputs);
+            setCheckboxGroupStatus('Cleared this source family.');
+          }
+          return;
+        }
+        const button = event.target?.closest?.('[data-checkbox-group-select-all]');
+        if (!button) return;
+        event.preventDefault();
+        selectAllCheckboxValues(form, String(button.getAttribute('data-checkbox-group-select-all') || '').trim(), planPlatformCap);
+        syncSelectAllButtons(form, planPlatformCap);
+      });
+      form.addEventListener('propertyquarry:stepchange', () => {
+        syncAreaScopeControls();
+        syncListingModeControls();
+        syncCommuteControls();
+        syncFamilyModeControls();
+      });
+      syncAreaScopeControls();
+      syncListingModeControls();
+      syncCommuteControls();
+      syncFamilyModeControls();
+      syncMarketAwareFields(form, meta);
+      syncSelectAllButtons(form, planPlatformCap);
+      applyBrowserAndIpDefaults().finally(applyPreferenceProfile);
+    }
+    const savePreferences = async () => {
+      if (!form) return;
+      const status = root.querySelector('[data-property-inline-status]');
+      const error = root.querySelector('[data-property-inline-error]');
+      status.textContent = 'Saving...';
+      error.textContent = '';
+      const body = collectPayload(form);
+      const response = await fetch(String(meta.preferences_endpoint || data.endpoints?.preferences || ''), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body.property_preferences),
+      });
+      if (!response.ok) throw new Error(await responseErrorMessage(response, 'Could not save the search.'));
+      status.textContent = 'Saved.';
+      return body;
+    };
+    const startSearch = async () => {
+      if (!form) return;
+      const status = root.querySelector('[data-property-inline-status]');
+      const error = root.querySelector('[data-property-inline-error]');
+      try {
+        status.textContent = 'Starting search...';
+        error.textContent = '';
+        const body = await savePreferences();
+        const runResponse = await fetch(String(meta.start_endpoint || data.endpoints?.start || ''), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const runBody = await runResponse.json().catch(() => ({}));
+        if (!runResponse.ok) throw new Error(readableErrorDetail(runBody.detail || runBody.error || runBody.message || runBody, 'Could not start property search.'));
+        trackRybbitEvent('property_search_start', {
+          country: String(body?.property_preferences?.country_code || '').trim(),
+          listing_mode: String(body?.property_preferences?.listing_mode || '').trim(),
+          property_type: String(body?.property_preferences?.property_type || '').trim(),
+          selected_platform_count: Array.isArray(body?.selected_platforms) ? body.selected_platforms.length : 0,
+        });
+        renderRun(runBody);
+        if (runBody.bootstrap_required) {
+          status.textContent = readableErrorDetail(runBody.message || `Initialization required for ${runBody.bootstrap_country_label || runBody.bootstrap_country_code || 'this market'}.`, 'Market initialization is required before this search can run.');
+          return;
+        }
+        if (runBody.run_id) {
+          window.location.href = `/app/properties?run_id=${encodeURIComponent(runBody.run_id)}`;
+          return;
+        }
+        pollRun(String(runBody.status_url || ''));
+      } catch (err) {
+        error.textContent = err.message || 'Could not start property search.';
+        status.textContent = '';
+      }
+    };
+    root.querySelector('[data-property-save]')?.addEventListener('click', async () => {
+      try { await savePreferences(); } catch (err) {
+        root.querySelector('[data-property-inline-error]').textContent = err.message || 'Could not save the search.';
+      }
+    });
+    root.querySelector('[data-property-start]')?.addEventListener('click', startSearch);
+    const updateSearchAgent = async (agentId, action, patch = {}) => {
+      const template = String(meta.search_agent_update_endpoint_template || '/v1/onboarding/property-search/agents/__AGENT_ID__');
+      const resolvedAgentId = encodeURIComponent(String(agentId || 'current').trim() || 'current');
+      const endpoint = template.includes('__AGENT_ID__')
+        ? template.replace('__AGENT_ID__', resolvedAgentId)
+        : `${template.replace(/\/$/, '')}/${resolvedAgentId}`;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, patch }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const errorPayload = body?.error;
+        const message = typeof body?.detail === 'string'
+          ? body.detail
+          : typeof errorPayload === 'string'
+            ? errorPayload
+            : (errorPayload?.message || errorPayload?.code || 'Could not update saved search.');
+        throw new Error(message);
+      }
+      return body;
+    };
+    const currentSearchAgentPatch = () => {
+      const payload = collectPayload(form).property_preferences || {};
+      return {
+        preferences_json: payload,
+        location_query: payload.location_query || '',
+        country_code: payload.country_code || '',
+        region_code: payload.region_code || '',
+        listing_mode: payload.listing_mode || 'rent',
+        property_type: payload.property_type || 'any',
+        selected_platforms: Array.isArray(payload.selected_platforms) ? payload.selected_platforms : [],
+        duration_days: payload.search_agent_duration_days || 30,
+        notification_limit: payload.search_agent_notification_limit || 5,
+        notification_period: payload.search_agent_notification_period || 'day',
+      };
+    };
+    const countDirtyFields = (snapshot, current) => {
+      const left = snapshot && typeof snapshot === 'object' ? snapshot : {};
+      const right = current && typeof current === 'object' ? current : {};
+      const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+      let dirtyFields = 0;
+      keys.forEach((key) => {
+        if (JSON.stringify(left[key] ?? null) !== JSON.stringify(right[key] ?? null)) dirtyFields += 1;
+      });
+      return dirtyFields;
+    };
+    const setFieldValue = (fieldName, value) => {
+      if (!form || !fieldName) return;
+      const nodes = [...form.querySelectorAll(`[name="${CSS.escape(fieldName)}"]`)];
+      if (!nodes.length) return;
+      const first = nodes[0];
+      if (first.type === 'checkbox' && nodes.length === 1) {
+        first.checked = value === true || ['1', 'true', 'yes', 'on', 'enabled', 'active'].includes(String(value || '').toLowerCase());
+        first.dispatchEvent(new Event('change', { bubbles: true }));
+        return;
+      }
+      if (first.type === 'checkbox') {
+        const values = Array.isArray(value) ? value.map((item) => String(item)) : csvValues(value).map((item) => String(item));
+        nodes.forEach((node) => {
+          node.checked = values.includes(String(node.value));
+          node.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        return;
+      }
+      first.value = value == null ? '' : String(value);
+      first.dispatchEvent(new Event('input', { bubbles: true }));
+      first.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const resetSearchBriefForm = () => {
+      if (!form) return;
+      form.reset();
+      form.querySelectorAll('input[type="checkbox"]').forEach((node) => {
+        if (!(node instanceof HTMLInputElement)) return;
+        const defaultChecked = node.hasAttribute('checked');
+        node.checked = defaultChecked;
+      });
+      form.querySelectorAll('input[type="radio"]').forEach((node) => {
+        if (!(node instanceof HTMLInputElement)) return;
+        const defaultChecked = node.hasAttribute('checked');
+        node.checked = defaultChecked;
+      });
+      form.querySelectorAll('select').forEach((node) => {
+        if (!(node instanceof HTMLSelectElement)) return;
+        const firstSelected = [...node.options].find((option) => option.defaultSelected);
+        if (firstSelected) {
+          node.value = firstSelected.value;
+        } else if (node.options.length) {
+          node.selectedIndex = 0;
+        }
+      });
+      form.querySelectorAll('input:not([type="checkbox"]):not([type="radio"]), textarea').forEach((node) => {
+        if (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) {
+          node.value = node.defaultValue || '';
+        }
+      });
+      bindRangeOutputs(form);
+      syncMarketAwareFields(form, meta);
+      syncSchoolStageVariantVisibility(form);
+      setMode('brief');
+    };
+    const applySearchAgentPayloadToForm = (payload) => {
+      if (!form || !payload || typeof payload !== 'object') return;
+      resetSearchBriefForm();
+      const source = payload.preferences_json && typeof payload.preferences_json === 'object'
+        ? Object.assign({}, payload, payload.preferences_json)
+        : Object.assign({}, payload);
+      const applyDependentSelections = () => {
+        if (Object.prototype.hasOwnProperty.call(source, 'country_code')) {
+          setFieldValue('country_code', source.country_code);
+          refreshRegionAndLocationChoices();
+        }
+        if (Object.prototype.hasOwnProperty.call(source, 'region_code')) {
+          setFieldValue('region_code', source.region_code);
+          refreshRegionAndLocationChoices();
+        }
+        if (Object.prototype.hasOwnProperty.call(source, 'full_region_scope')) setFieldValue('full_region_scope', source.full_region_scope);
+        if (Object.prototype.hasOwnProperty.call(source, 'location_query')) setFieldValue('location_query', source.location_query);
+        if (Object.prototype.hasOwnProperty.call(source, 'custom_location_query')) setFieldValue('custom_location_query', source.custom_location_query);
+      };
+      applyDependentSelections();
+      const prioritizedKeys = [
+        'listing_mode',
+        'property_type',
+        'search_mode',
+        'keywords',
+        'custom_location_query',
+        'custom_keywords',
+        'preference_person_id',
+        'investment_research_mode',
+        'max_price_eur',
+        'min_rooms',
+        'min_area_m2',
+        'available_within_years',
+        'max_results_per_source',
+        'min_match_score',
+        'search_agent_duration_days',
+        'search_agent_notification_limit',
+        'search_agent_notification_period',
+        'commute_destination',
+        'additional_reachability_targets',
+        'university_name',
+        'eigenmittel_max_eur',
+        'application_window_days',
+        'max_commute_minutes_transit',
+        'max_commute_minutes_drive',
+        'max_commute_minutes_bike',
+        'max_commute_minutes_walk',
+        'max_distance_to_playground_m',
+        'max_distance_to_playground_importance',
+        'max_distance_to_library_m',
+        'max_distance_to_library_importance',
+        'max_distance_to_zoo_m',
+        'max_distance_to_university_m',
+        'max_distance_to_starbucks_m',
+        'max_distance_to_fitness_center_m',
+        'max_distance_to_cinema_m',
+        'max_distance_to_bouldering_m',
+        'max_distance_to_dog_park_m',
+        'max_distance_to_good_cafe_m',
+        'max_distance_to_supermarket_m',
+        'max_distance_to_supermarket_importance',
+        'max_distance_to_market_m',
+        'max_distance_to_hardware_store_m',
+        'max_distance_to_shopping_center_m',
+        'max_distance_to_shopping_street_m',
+        'max_distance_to_theatre_m',
+        'max_distance_to_public_pool_m',
+        'max_distance_to_medical_care_m',
+      ];
+      prioritizedKeys.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(source, key)) setFieldValue(key, source[key]);
+      });
+      Object.entries(source).forEach(([key, value]) => {
+        if (key === 'preferences_json' || key === 'search_agents' || key === 'property_commercial' || key === 'raw_preferences') return;
+        setFieldValue(key, value);
+      });
+      if (source.keywords && !source.custom_keywords) setFieldValue('custom_keywords', source.keywords);
+      bindRangeOutputs(form);
+      syncMarketAwareFields(form, meta);
+      syncSchoolStageVariantVisibility(form);
+      setMode('brief');
+    };
+    const showLoadedSearchAgent = (row, payloadOverride = null) => {
+      if (!loadedAgentState) return;
+      const label = row?.querySelector('strong')?.textContent?.replace('· selected', '').trim() || 'Saved search loaded';
+      loadedSearchAgentId = row?.getAttribute('data-search-agent-id') || 'current';
+      if (payloadOverride && typeof payloadOverride === 'object') {
+        loadedSearchAgentPayload = payloadOverride;
+      } else {
+        try { loadedSearchAgentPayload = JSON.parse(String(row?.getAttribute('data-search-agent-payload') || '{}')); } catch (_) { loadedSearchAgentPayload = {}; }
+      }
+      loadedSearchAgentSnapshot = JSON.stringify(currentSearchAgentPatch());
+      if (loadedAgentLabel) loadedAgentLabel.textContent = `Loaded: ${label}`;
+      if (loadedAgentDirtyLabel) loadedAgentDirtyLabel.textContent = 'No unsaved changes yet. Tweak filters, run now, save changes, or save as a new search.';
+      loadedAgentState.setAttribute('data-visible', 'true');
+    };
+    const updateLoadedSearchAgentDirtyState = () => {
+      if (!loadedAgentState || !loadedAgentState.getAttribute('data-visible') || !loadedAgentDirtyLabel) return;
+      const currentPatch = currentSearchAgentPatch();
+      const currentSnapshot = JSON.stringify(currentPatch);
+      const originalPatch = loadedSearchAgentSnapshot ? JSON.parse(loadedSearchAgentSnapshot) : {};
+      const dirtyFields = countDirtyFields(originalPatch, currentPatch);
+      const dirty = Boolean(dirtyFields);
+      loadedAgentState.setAttribute('data-dirty', dirty ? 'true' : 'false');
+      loadedAgentState.setAttribute('data-dirty-fields', String(dirtyFields));
+      loadedAgentDirtyLabel.textContent = dirty
+        ? `Unsaved changes in ${dirtyFields} field${dirtyFields === 1 ? '' : 's'}. Run now, save changes, save as a new search, or reset.`
+        : 'No unsaved changes yet. Tweak filters, run now, save changes, or save as a new search.';
+    };
+    form?.addEventListener('input', updateLoadedSearchAgentDirtyState);
+    form?.addEventListener('change', updateLoadedSearchAgentDirtyState);
+    root.querySelector('[data-search-agent-save-current]')?.addEventListener('click', async () => {
+      const status = root.querySelector('[data-search-agent-status]');
+      try {
+        await updateSearchAgent(loadedSearchAgentId || 'current', 'save', currentSearchAgentPatch());
+        trackRybbitEvent('saved_search_save_current', {
+          saved_search_id: String(loadedSearchAgentId || 'current').trim(),
+        });
+        loadedSearchAgentSnapshot = JSON.stringify(currentSearchAgentPatch());
+        updateLoadedSearchAgentDirtyState();
+        if (status) status.textContent = 'Saved search changes saved.';
+      } catch (err) {
+        if (status) status.textContent = err instanceof Error ? err.message : 'Could not save search changes.';
+      }
+    });
+    root.querySelector('[data-search-agent-save-new]')?.addEventListener('click', async () => {
+      const status = root.querySelector('[data-search-agent-status]');
+      try {
+        await updateSearchAgent(loadedSearchAgentId || 'current', 'duplicate', currentSearchAgentPatch());
+        trackRybbitEvent('saved_search_save_new', {
+          saved_search_id: String(loadedSearchAgentId || 'current').trim(),
+        });
+        if (status) status.textContent = 'Saved as a new search.';
+        window.setTimeout(() => window.location.reload(), 450);
+      } catch (err) {
+        if (status) status.textContent = err instanceof Error ? err.message : 'Could not save as a new search.';
+      }
+    });
+    loadedAgentResetButton?.addEventListener('click', () => {
+      const status = root.querySelector('[data-search-agent-status]');
+      if (!form || !loadedSearchAgentPayload || typeof loadedSearchAgentPayload !== 'object') return;
+      applySearchAgentPayloadToForm(loadedSearchAgentPayload);
+      loadedSearchAgentSnapshot = JSON.stringify(currentSearchAgentPatch());
+      updateLoadedSearchAgentDirtyState();
+      if (status) status.textContent = 'Saved search reset to the last loaded filters.';
+    });
+    const loadSearchAgentRow = async (row, startAfterLoad = false) => {
+      const status = root.querySelector('[data-search-agent-status]');
+      const agentId = row?.getAttribute('data-search-agent-id') || 'current';
+      let rowPayload = {};
+      try { rowPayload = JSON.parse(String(row?.getAttribute('data-search-agent-payload') || '{}')); } catch (_) { rowPayload = {}; }
+      const loadResponse = await updateSearchAgent(agentId, 'load', {});
+      const canonicalPayload = loadResponse?.property_search_preferences && typeof loadResponse.property_search_preferences === 'object'
+        ? loadResponse.property_search_preferences
+        : rowPayload;
+      applySearchAgentPayloadToForm(canonicalPayload);
+      showLoadedSearchAgent(row, canonicalPayload);
+      updateLoadedSearchAgentDirtyState();
+      if (startAfterLoad) {
+        await updateSearchAgent(agentId, 'resume', currentSearchAgentPatch());
+        await startSearch();
+        return;
+      }
+      if (status) status.textContent = 'Saved search ready to edit. Tweak the filters or run it again.';
+    };
+    root.querySelectorAll('[data-search-agent-action]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        if (!form) return;
+        const action = String(button.getAttribute('data-search-agent-action') || '').trim();
+        const status = root.querySelector('[data-search-agent-status]');
+        const row = button.closest('[data-property-search-agent-row]');
+        const agentId = row?.getAttribute('data-search-agent-id') || 'current';
+        try {
+          if (status) {
+            status.textContent = action === 'load'
+              ? 'Opening saved search for editing...'
+              : action === 'run'
+              ? 'Selecting and starting this saved search...'
+              : action === 'delete'
+                ? 'Deleting saved search...'
+                : 'Updating saved search...';
+          }
+          if (action === 'load') {
+            await loadSearchAgentRow(row, false);
+            return;
+          }
+          if (action === 'run') {
+            await loadSearchAgentRow(row, true);
+            return;
+          }
+          await updateSearchAgent(agentId, action, action === 'save' ? currentSearchAgentPatch() : {});
+          trackRybbitEvent(`saved_search_${action}`, {
+            saved_search_id: String(agentId || 'current').trim(),
+          });
+          if (status) {
+            status.textContent = action === 'pause'
+              ? 'Saved search paused.'
+              : action === 'resume'
+                ? 'Saved search resumed.'
+                : action === 'duplicate'
+                  ? 'Saved search duplicated.'
+                  : action === 'delete'
+                    ? 'Saved search deleted.'
+                    : 'Saved search limits updated.';
+          }
+          if (['delete', 'duplicate', 'resume', 'pause'].includes(action)) {
+            window.setTimeout(() => window.location.reload(), 450);
+          }
+        } catch (err) {
+          if (status) status.textContent = err instanceof Error ? err.message : 'Could not update saved search.';
+        }
+      });
+    });
+    const requestedAgentId = String(new URL(window.location.href).searchParams.get('load_agent') || '').trim();
+    if (requestedAgentId) {
+      const requestedRow = root.querySelector(`[data-property-search-agent-row][data-search-agent-id="${CSS.escape(requestedAgentId)}"]`);
+      if (requestedRow) {
+        loadSearchAgentRow(requestedRow, false).catch((error) => {
+          const status = root.querySelector('[data-search-agent-status]');
+          if (status) status.textContent = error instanceof Error ? error.message : 'Could not load the saved search.';
+        });
+      }
+    }
+    root.querySelector('[data-pqx-launch-top]')?.addEventListener('click', () => {
+      const lastStep = [...root.querySelectorAll('[data-property-step-trigger]')].at(-1);
+      lastStep?.click();
+      setMode('brief');
+    });
+    root.querySelectorAll('[data-pqx-delete-run]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const runId = String(button.getAttribute('data-pqx-delete-run') || '').trim();
+        if (!runId) return;
+        const status = root.querySelector('[data-search-agent-status]');
+        const endpointTemplate = String(data?.endpoints?.delete_run_template || '').trim();
+        const endpoint = endpointTemplate ? endpointTemplate.replace('__RUN_ID__', encodeURIComponent(runId)) : '';
+        if (!endpoint) return;
+        const confirmLabel = String(button.getAttribute('data-pqx-delete-run-label') || '').trim() || 'Delete this search run?';
+        if (!window.confirm(confirmLabel)) return;
+        try {
+          if (status) status.textContent = button.closest('[data-pqx-previous-search-card]') ? 'Deleting previous search...' : 'Removing search run...';
+          button.disabled = true;
+          const response = await fetch(endpoint, {
+            method: 'DELETE',
+            credentials: 'same-origin',
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not delete the previous search.'));
+          const card = button.closest('[data-pqx-previous-search-card]');
+          card?.remove();
+          if (status) status.textContent = 'Previous search deleted.';
+        } catch (err) {
+          button.disabled = false;
+          if (status) status.textContent = err instanceof Error ? err.message : 'Could not delete the previous search.';
+        }
+      });
+    });
+    const scopeLightbox = root.querySelector('[data-pqx-scope-lightbox]');
+    const scopeLightboxImage = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-image]');
+    const scopeLightboxStage = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-stage]');
+    const scopeLightboxZoomable = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-zoomable]');
+    const scopeLightboxOverlay = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-overlay]');
+    const scopeLightboxTooltip = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-tooltip]');
+    const scopeLightboxTitle = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-title]');
+    const scopeLightboxCaption = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-caption]');
+    const filteredDialog = root.querySelector('[data-pqx-filtered-dialog]');
+    const resetScopeLightboxZoom = () => {
+      if (!scopeLightboxZoomable) return;
+      scopeLightboxZoomable.dataset.scale = '1';
+      scopeLightboxZoomable.style.transform = 'translate3d(0px, 0px, 0) scale(1)';
+    };
+    const closeScopeLightbox = () => {
+      resetScopeLightboxZoom();
+      if (scopeLightboxTooltip) {
+        scopeLightboxTooltip.classList.remove('is-visible');
+        scopeLightboxTooltip.textContent = '';
+      }
+      if (scopeLightbox && typeof scopeLightbox.close === 'function' && scopeLightbox.open) scopeLightbox.close();
+    };
+    const closeFilteredDialog = () => {
+      if (filteredDialog && typeof filteredDialog.close === 'function' && filteredDialog.open) filteredDialog.close();
+    };
+    scopeLightbox?.querySelector('[data-pqx-scope-lightbox-close]')?.addEventListener('click', closeScopeLightbox);
+    filteredDialog?.querySelector('[data-pqx-filtered-close]')?.addEventListener('click', closeFilteredDialog);
+    scopeLightbox?.addEventListener('click', (event) => {
+      if (event.target === scopeLightbox) closeScopeLightbox();
+    });
+    filteredDialog?.addEventListener('click', (event) => {
+      if (event.target === filteredDialog) closeFilteredDialog();
+    });
+    scopeLightboxStage?.addEventListener('wheel', (event) => {
+      if (!scopeLightboxZoomable || !scopeLightbox?.open) return;
+      event.preventDefault();
+      const currentScale = Number(scopeLightboxZoomable.dataset.scale || '1') || 1;
+      const delta = event.deltaY < 0 ? 0.14 : -0.14;
+      const nextScale = Math.max(1, Math.min(4, currentScale + delta));
+      scopeLightboxZoomable.dataset.scale = String(nextScale);
+      scopeLightboxZoomable.style.transform = `translate3d(0px, 0px, 0) scale(${nextScale})`;
+    }, { passive: false });
+    root.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('[data-pqx-scope-open]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const imageUrl = String(button.getAttribute('data-pqx-scope-image') || '').trim();
+      if (!scopeLightbox || !scopeLightboxImage || !imageUrl) return;
+      const alt = String(button.getAttribute('data-pqx-scope-alt') || 'Search area preview').trim() || 'Search area preview';
+      const title = String(button.getAttribute('data-pqx-scope-title') || 'Search area preview').trim() || 'Search area preview';
+      const caption = String(button.getAttribute('data-pqx-scope-caption') || '').trim();
+      let overlayRows = [];
+      try {
+        overlayRows = JSON.parse(String(button.getAttribute('data-pqx-scope-overlay') || '[]'));
+      } catch (_error) {
+        overlayRows = [];
+      }
+      scopeLightboxImage.setAttribute('src', imageUrl);
+      scopeLightboxImage.setAttribute('alt', alt);
+      if (scopeLightboxTitle) scopeLightboxTitle.textContent = title;
+      if (scopeLightboxCaption) scopeLightboxCaption.textContent = caption;
+      if (scopeLightboxOverlay) {
+        scopeLightboxOverlay.innerHTML = Array.isArray(overlayRows)
+          ? overlayRows
+              .filter((row) => row && typeof row === 'object' && String(row.path || '').trim())
+              .map((row) => `<path class="${row.selected ? 'is-selected' : ''}" d="${escapeHtml(String(row.path || ''))}" data-label="${escapeHtml(String(row.label || 'Area'))}"><title>${escapeHtml(String(row.label || 'Area'))}</title></path>`)
+              .join('')
+          : '';
+      }
+      resetScopeLightboxZoom();
+      if (typeof scopeLightbox.showModal === 'function') scopeLightbox.showModal();
+    });
+    scopeLightboxOverlay?.addEventListener('mousemove', (event) => {
+      const path = event.target?.closest?.('path[data-label]');
+      if (!path || !scopeLightboxTooltip || !scopeLightboxStage) {
+        if (scopeLightboxTooltip) scopeLightboxTooltip.classList.remove('is-visible');
+        return;
+      }
+      const stageRect = scopeLightboxStage.getBoundingClientRect();
+      const label = String(path.getAttribute('data-label') || '').trim();
+      if (!label) {
+        scopeLightboxTooltip.classList.remove('is-visible');
+        return;
+      }
+      scopeLightboxTooltip.textContent = label;
+      scopeLightboxTooltip.style.left = `${event.clientX - stageRect.left}px`;
+      scopeLightboxTooltip.style.top = `${event.clientY - stageRect.top}px`;
+      scopeLightboxTooltip.classList.add('is-visible');
+    });
+    scopeLightboxOverlay?.addEventListener('mouseleave', () => {
+      if (scopeLightboxTooltip) scopeLightboxTooltip.classList.remove('is-visible');
+    });
+    root.querySelectorAll('[data-pqx-filtered-open]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (filteredDialog && typeof filteredDialog.showModal === 'function') filteredDialog.showModal();
+      });
+    });
+    root.querySelectorAll('[data-pqx-filter-radius]').forEach((slider) => {
+      const card = slider.closest('.pqx-filtered-dialog-rule');
+      const radiusLabel = card?.querySelector('[data-pqx-filter-radius-value]');
+      const impactLabel = card?.querySelector('[data-pqx-filter-impact]');
+      const maxImpact = Math.max(0, Number(slider.getAttribute('data-pqx-filter-max') || '0') || 0);
+      const updateRadiusPreview = () => {
+        const radius = Math.max(250, Number(slider.value || '750') || 750);
+        if (radiusLabel) radiusLabel.textContent = `${radius} m`;
+        if (impactLabel && maxImpact) {
+          const ratio = Math.min(1, Math.max(0.18, radius / 2000));
+          impactLabel.textContent = String(Math.max(1, Math.round(maxImpact * ratio)));
+        }
+      };
+      slider.addEventListener('input', updateRadiusPreview);
+      updateRadiusPreview();
+    });
+    root.querySelectorAll('[data-pqx-counterfactual]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        let adjustments = {};
+        const localStatusNode = button.closest('[data-pqx-empty-results], [data-pqx-filtered-dialog-card]')?.querySelector('[data-pqx-counterfactual-status]') || counterfactualStatusNode;
+        try {
+          adjustments = JSON.parse(String(button.getAttribute('data-pqx-counterfactual') || '{}'));
+        } catch (_error) {
+          adjustments = {};
+        }
+        if (!adjustments || typeof adjustments !== 'object' || Array.isArray(adjustments)) adjustments = {};
+        const radiusSlider = button.closest('.pqx-filtered-dialog-rule')?.querySelector('[data-pqx-filter-radius]');
+        if (radiusSlider) {
+          adjustments.adjacent_area_radius_m = Math.max(250, Number(radiusSlider.value || '750') || 750);
+        }
+        if (localStatusNode) localStatusNode.textContent = 'Applying broader search...';
+        try {
+          const nextPreferences = await saveCounterfactualBrief(adjustments);
+          await startSearchWithPreferences(nextPreferences, localStatusNode);
+        } catch (error) {
+          if (localStatusNode) localStatusNode.textContent = error instanceof Error ? error.message : 'Could not apply the broader search.';
+        }
+      });
+    });
+    root.querySelectorAll('[data-pqx-refresh-status]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const statusUrl = String(data.run?.status_url || '').trim();
+        if (statusUrl) pollRun(statusUrl);
+      });
+    });
+    root.querySelectorAll('[data-pw-decision-state]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const candidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+        const decisionState = String(button.getAttribute('data-pw-decision-state') || '').trim();
+        if (!candidate || !decisionState) return;
+        await recordDecisionState(candidate, decisionState, decisionStateStatusNode);
+      });
+    });
+    if (data.run && typeof data.run === 'object') {
+      renderRun(data.run);
+      const status = String(data.run.status || '').trim().toLowerCase();
+      const statusUrl = String(data.run.status_url || '').trim();
+      if (statusUrl && status && !terminalStates.has(status)) {
+        pollRun(statusUrl);
+      }
+    }
+    const urlParams = new URL(window.location.href).searchParams;
+    const presetDecision = String(urlParams.get('decision') || '').trim().toLowerCase();
+    const presetPrompt = String(urlParams.get('prompt') || '').trim();
+    const shouldOpenClippy = String(urlParams.get('clippy') || '').trim() === '1' || Boolean(presetPrompt);
+    const decisionMap = { yes: 'like', maybe: 'maybe', no: 'dislike', hide: 'hide' };
+    if (decisionMap[presetDecision]) {
+      selectedFeedbackReaction = decisionMap[presetDecision];
+      feedbackReactionButtons.forEach((button) => {
+        button.classList.toggle('active', button.getAttribute('data-pw-feedback-reaction') === selectedFeedbackReaction);
+      });
+      if (decisionDetailNode) decisionDetailNode.hidden = false;
+      if (decisionStepLabelNode) decisionStepLabelNode.textContent = selectedFeedbackReaction === 'hide' ? '2 Confirm' : '2 Explain';
+      if (feedbackStatusNode) feedbackStatusNode.textContent = 'Decision shortcut loaded from the email or shared link. Save when ready.';
+    }
+    if (shouldOpenClippy) {
+      if (clippyPanel) clippyPanel.hidden = false;
+      if (clippyToggle) clippyToggle.textContent = 'Hide question box';
+      if (clippyQuestionNode && presetPrompt) clippyQuestionNode.value = presetPrompt;
+      if (clippyStatusNode && presetPrompt) clippyStatusNode.textContent = 'Question loaded from the email or shared link.';
+    }
+    initPreferenceManager();
+  })();

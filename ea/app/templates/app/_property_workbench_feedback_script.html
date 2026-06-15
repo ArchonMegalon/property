@@ -1,0 +1,638 @@
+    const renderClippyAnswer = (body) => {
+      if (!clippyAnswerNode) return;
+      const evidence = Array.isArray(body?.evidence) ? body.evidence : [];
+      const actions = Array.isArray(body?.actions) ? body.actions : [];
+      clippyAnswerNode.innerHTML = `
+        <div class="pqx-event-card"><strong>${escapeHtml(body?.name || 'Property answer')}</strong><span class="pqx-note">${escapeHtml(body?.answer || 'No answer returned.')}</span></div>
+        ${evidence.map((row) => `
+          <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Evidence')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.confidence || row.source || '')}</span></div>
+        `).join('')}
+        ${actions.length ? `<div class="pqx-actions">${actions.map((row, index) => `<button class="pqx-button" type="button" data-pw-clippy-action="${escapeHtml(row.action || '')}" data-pw-clippy-index="${index}">${escapeHtml(row.label || 'Action')}</button>`).join('')}</div>` : ''}
+      `;
+      clippyAnswerNode.querySelectorAll('[data-pw-clippy-action]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const row = actions[Number.parseInt(String(button.getAttribute('data-pw-clippy-index') || '-1'), 10)];
+          const candidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+          if (!row || !candidate) return;
+          const action = String(row.action || '').trim();
+          if (action === 'open_packet' && row.href) {
+            window.location.href = String(row.href);
+            return;
+          }
+          if (action === 'mark_blocker' && row.reason_key) {
+            selectedFeedbackReaction = String(row.reaction || 'dislike').trim() || 'dislike';
+            feedbackReactionButtons.forEach((candidateButton) => {
+              candidateButton.classList.toggle('active', candidateButton.getAttribute('data-pw-feedback-reaction') === selectedFeedbackReaction);
+            });
+            const reasonButton = feedbackReasonsNode?.querySelector(`[data-pw-feedback-reason="${CSS.escape(String(row.reason_key || ''))}"]`);
+            if (reasonButton) {
+              selectedFeedbackReasonKeys.add(String(row.reason_key || ''));
+              reasonButton.classList.add('active');
+            }
+            if (feedbackStatusNode) feedbackStatusNode.textContent = `Marked ${String(row.detail || 'a blocker').trim()} as the main blocker. Save decision when ready.`;
+            return;
+          }
+          if (action === 'ask_agent' && row.question) {
+            if (clippyStatusNode) clippyStatusNode.textContent = 'Writing agent follow-up into the timeline...';
+            try {
+              const response = await fetch('/app/api/property-feedback', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  stakeholder_id: `profile:${feedbackPersonId}`,
+                  stakeholder_label: feedbackPersonId,
+                  property_ref: candidatePropertyRef(candidate),
+                  category: 'question',
+                  sentiment: 'neutral',
+                  importance: 4,
+                  text: String(row.question || ''),
+                  source: 'clippy_agent_brief',
+                  followup_status: 'asked',
+                }),
+              });
+              const payload = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error, 'Could not record the agent question.'));
+              if (clippyStatusNode) clippyStatusNode.textContent = 'Agent follow-up recorded in the timeline.';
+            } catch (error) {
+              if (clippyStatusNode) clippyStatusNode.textContent = error instanceof Error ? error.message : 'Could not record the agent question.';
+            }
+          }
+        });
+      });
+    };
+    clippyToggle?.addEventListener('click', () => {
+      const open = Boolean(clippyPanel?.hidden);
+      if (clippyPanel) clippyPanel.hidden = !open;
+      clippyToggle.textContent = open ? 'Hide question box' : 'Ask a question';
+    });
+    root.querySelectorAll('[data-pw-clippy-prompt]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (clippyQuestionNode) clippyQuestionNode.value = String(button.getAttribute('data-pw-clippy-prompt') || '').trim();
+      });
+    });
+    root.querySelector('[data-pw-clippy-ask]')?.addEventListener('click', async () => {
+      const candidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+      const question = String(clippyQuestionNode?.value || '').trim();
+      if (!candidate || !question) {
+        if (clippyStatusNode) clippyStatusNode.textContent = 'Ask a specific property question first.';
+        return;
+      }
+      if (clippyStatusNode) clippyStatusNode.textContent = 'Reviewing the current property context...';
+      try {
+        const response = await fetch('/app/api/property/decision-copilot', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            property_ref: candidatePropertyRef(candidate),
+            property_title: String(candidate.title || ''),
+            property_url: String(candidate.packet_url || candidate.property_url || candidate.source_url || ''),
+            question,
+            property_facts: candidate.property_facts || {},
+            assessment: candidate.assessment || {},
+            investment_context: [
+              { title: 'Risk', detail: String(candidate.risk?.summary || 'No risk summary captured yet.'), tag: String(candidate.risk?.level || 'risk') },
+              { title: 'Cost check', detail: String(candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the review details for cost checks when buy mode is active.'), tag: 'cost' },
+            ],
+          }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(body.detail || body.error || body, 'Could not answer right now.'));
+        renderClippyAnswer(body);
+        if (clippyStatusNode) clippyStatusNode.textContent = 'Answered from the current property context.';
+      } catch (error) {
+        if (clippyStatusNode) clippyStatusNode.textContent = error instanceof Error ? error.message : 'Could not answer right now.';
+      }
+    });
+    const renderFeedbackReasonChips = (suggestions) => {
+      if (!feedbackReasonsNode) return;
+      const rows = []
+        .concat(Array.isArray(suggestions?.negative) ? suggestions.negative : [])
+        .concat(Array.isArray(suggestions?.positive) ? suggestions.positive : []);
+      feedbackReasonsNode.innerHTML = rows.map((row) => {
+        const key = String(row?.key || '').trim();
+        const label = String(row?.label || key || 'Reason').trim();
+        return `<button class="pqx-decision-chip" type="button" data-pw-feedback-reason="${escapeHtml(key)}">${escapeHtml(label)}</button>`;
+      }).join('');
+      feedbackReasonsNode.querySelectorAll('[data-pw-feedback-reason]').forEach((chip) => {
+        chip.addEventListener('click', () => {
+          const key = String(chip.getAttribute('data-pw-feedback-reason') || '').trim();
+          if (!key) return;
+          if (selectedFeedbackReasonKeys.has(key)) {
+            selectedFeedbackReasonKeys.delete(key);
+            chip.classList.remove('active');
+          } else {
+            selectedFeedbackReasonKeys.add(key);
+            chip.classList.add('active');
+          }
+        });
+      });
+    };
+    const renderFeedbackQuestions = (suggestions) => {
+      if (!feedbackQuestionsNode) return;
+      const rows = Array.isArray(suggestions?.agent_questions) ? suggestions.agent_questions : [];
+      feedbackQuestionsNode.innerHTML = rows.map((row, index) => `
+        <div class="pqx-event-card"><strong>Question ${index + 1}</strong><span class="pqx-note">${escapeHtml(row.question || '')}</span></div>
+      `).join('') || '<div class="pqx-note">No agent question generated yet.</div>';
+    };
+    const renderFeedbackConsequences = (suggestions) => {
+      if (!feedbackConsequencesNode) return;
+      const rows = Array.isArray(suggestions?.decision_consequences) ? suggestions.decision_consequences : [];
+      feedbackConsequencesNode.innerHTML = rows.map((line) => `
+        <div class="pqx-event-card"><strong>Next</strong><span class="pqx-note">${escapeHtml(line || '')}</span></div>
+      `).join('') || '<div class="pqx-note">Decision consequences will appear here.</div>';
+    };
+    const renderSavedDecisionConsequences = (body) => {
+      if (!feedbackConsequencesNode) return;
+      const ledger = body?.decision_ledger && typeof body.decision_ledger === 'object' ? body.decision_ledger : {};
+      const questions = Array.isArray(body?.agent_question_tasks) ? body.agent_question_tasks : [];
+      const documents = Array.isArray(body?.document_intake) ? body.document_intake : [];
+      const suppression = Array.isArray(body?.suppression_explanation) ? body.suppression_explanation : [];
+      const rows = [];
+      if (ledger?.decision_state) {
+        rows.push(['Decision state', String(ledger.decision_state).replaceAll('_', ' ')]);
+      }
+      questions.slice(0, 3).forEach((row) => rows.push(['Agent question', row?.question_text || row?.next_action || 'Question drafted.']));
+      documents.slice(0, 3).forEach((row) => rows.push(['Document request', `${String(row?.document_type || 'document').replaceAll('_', ' ')} · ${String(row?.verification_state || 'pending').replaceAll('_', ' ')}`]));
+      suppression.slice(0, 3).forEach((line) => rows.push(['Future search', line]));
+      feedbackConsequencesNode.innerHTML = `<div class="pqx-decision-consequence-grid">${
+        rows.map(([title, detail]) => `<div class="pqx-event-card"><strong>${escapeHtml(title)}</strong><span class="pqx-note">${escapeHtml(detail)}</span></div>`).join('')
+        || '<div class="pqx-note">Decision saved. No additional follow-up was generated.</div>'
+      }</div>`;
+    };
+    const renderPersistedDecisionState = (body) => {
+      if (!feedbackConsequencesNode) return;
+      const latestDecision = body?.latest_decision && typeof body.latest_decision === 'object' ? body.latest_decision : {};
+      const questions = Array.isArray(body?.agent_question_tasks) ? body.agent_question_tasks : [];
+      const documents = Array.isArray(body?.document_intake) ? body.document_intake : [];
+      const nextActions = Array.isArray(body?.next_actions) ? body.next_actions : [];
+      const rows = [];
+      if (latestDecision?.decision_state) {
+        rows.push(['Current state', String(latestDecision.decision_state).replaceAll('_', ' ')]);
+      }
+      questions.slice(0, 2).forEach((row) => rows.push([
+        `Agent question${row?.status ? ` · ${String(row.status).replaceAll('_', ' ')}` : ''}`,
+        row?.question_text || 'Question drafted.',
+      ]));
+      documents.slice(0, 2).forEach((row) => rows.push([
+        `Document${row?.verification_state ? ` · ${String(row.verification_state).replaceAll('_', ' ')}` : ''}`,
+        String(row?.document_type || 'document').replaceAll('_', ' '),
+      ]));
+      nextActions.slice(0, 3).forEach((line) => rows.push(['Next action', line]));
+      feedbackConsequencesNode.innerHTML = `<div class="pqx-decision-consequence-grid">${
+        rows.map(([title, detail]) => `<div class="pqx-event-card"><strong>${escapeHtml(title)}</strong><span class="pqx-note">${escapeHtml(detail)}</span></div>`).join('')
+        || '<div class="pqx-note">No saved decision yet. Choose Yes, Maybe, No, or Hide to start the decision trail.</div>'
+      }</div>`;
+      if (followupsNode) {
+        const persistedFollowups = [
+          ...questions.slice(0, 3).map((row) => ({
+            title: 'Agent question',
+            detail: row?.question_text || 'Question drafted.',
+            tag: String(row?.status || 'drafted').replaceAll('_', ' '),
+            task_id: String(row?.task_id || ''),
+            kind: 'agent_question',
+          })),
+          ...documents.slice(0, 3).map((row) => ({
+            title: 'Document request',
+            detail: String(row?.document_type || 'document').replaceAll('_', ' '),
+            tag: String(row?.verification_state || 'pending').replaceAll('_', ' '),
+            document_id: String(row?.document_id || ''),
+            kind: 'document',
+          })),
+        ];
+        followupsNode.innerHTML = persistedFollowups.length
+          ? persistedFollowups.map((row) => {
+              const agentActions = row.kind === 'agent_question' && row.task_id ? `
+                <div class="pqx-actions">
+                  <button class="pqx-button" type="button" data-pw-agent-question-status="sent" data-pw-agent-question-id="${escapeHtml(row.task_id)}">Mark sent</button>
+                  <button class="pqx-button" type="button" data-pw-agent-question-status="answered" data-pw-agent-question-id="${escapeHtml(row.task_id)}">Mark answered</button>
+                </div>
+              ` : '';
+              const documentActions = row.kind === 'document' && row.document_id ? `
+                <div class="pqx-actions">
+                  <button class="pqx-button" type="button" data-pw-document-state="uploaded" data-pw-document-id="${escapeHtml(row.document_id)}">Uploaded</button>
+                  <button class="pqx-button" type="button" data-pw-document-state="verified" data-pw-document-id="${escapeHtml(row.document_id)}">Verified</button>
+                </div>
+              ` : '';
+              return `
+                <div class="pqx-event-card">
+                  <strong>${escapeHtml(row.title || 'Follow-up')}</strong>
+                  <span class="pqx-note">${escapeHtml(row.detail || '')}</span>
+                  <span class="pqx-small">${escapeHtml(row.tag || '')}</span>
+                  ${agentActions}
+                  ${documentActions}
+                </div>
+              `;
+            }).join('')
+          : '<div class="pqx-note">No saved follow-up yet for this property.</div>';
+      }
+    };
+    const updateDecisionFollowupState = async (candidate, kind, id, nextValue) => {
+      if (!candidate || !id || !nextValue) return;
+      if (followupStatusNode) followupStatusNode.textContent = 'Updating follow-up...';
+      try {
+        const endpoint = kind === 'agent_question'
+          ? `/app/api/property/agent-questions/${encodeURIComponent(id)}`
+          : `/app/api/property/documents/${encodeURIComponent(id)}`;
+        const payload = kind === 'agent_question'
+          ? { status: nextValue }
+          : { verification_state: nextValue };
+        const response = await fetch(endpoint, {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(body.detail || body.error || body, 'Could not update the follow-up.'));
+        renderPersistedDecisionState(body);
+        if (followupStatusNode) followupStatusNode.textContent = kind === 'agent_question'
+          ? `Agent question marked ${String(nextValue).replaceAll('_', ' ')}.`
+          : `Document marked ${String(nextValue).replaceAll('_', ' ')}.`;
+      } catch (error) {
+        if (followupStatusNode) followupStatusNode.textContent = error instanceof Error ? error.message : 'Could not update the follow-up.';
+      }
+    };
+    const loadPersistedDecisionState = async (candidate) => {
+      if (!candidate) return;
+      const propertyRef = candidatePropertyRef(candidate);
+      if (!propertyRef) return;
+      latestDecisionStateRequestKey = propertyRef;
+      try {
+        const response = await fetch(propertyDecisionStateEndpoint(propertyRef), {
+          method: 'GET',
+          credentials: 'same-origin',
+          headers: { accept: 'application/json' },
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) return;
+        if (latestDecisionStateRequestKey !== propertyRef) return;
+        renderPersistedDecisionState(body);
+      } catch (_error) {
+        // Keep suggestion/default copy if persisted state cannot be loaded.
+      }
+    };
+    const loadCandidateFeedbackSuggestions = async (candidate) => {
+      if (!candidate || !feedbackReasonsNode) return;
+      const ref = String(candidate.candidate_ref || '').trim();
+      if (!ref) return;
+      if (feedbackSuggestionCache.has(ref)) {
+        renderFeedbackReasonChips(feedbackSuggestionCache.get(ref));
+        renderFeedbackQuestions(feedbackSuggestionCache.get(ref));
+        renderFeedbackConsequences(feedbackSuggestionCache.get(ref));
+        return;
+      }
+      try {
+        const response = await fetch(propertyFeedbackReasonsEndpoint(feedbackPersonId), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            property_facts: candidate.property_facts || {},
+            assessment: candidate.assessment || {},
+          }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(String(body.detail || 'Could not load decision reasons.'));
+        feedbackSuggestionCache.set(ref, body);
+        renderFeedbackReasonChips(body);
+        renderFeedbackQuestions(body);
+        renderFeedbackConsequences(body);
+      } catch (_error) {
+        feedbackReasonsNode.innerHTML = '';
+        if (feedbackQuestionsNode) feedbackQuestionsNode.innerHTML = '';
+        if (feedbackConsequencesNode) feedbackConsequencesNode.innerHTML = '';
+      }
+    };
+    feedbackReactionButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        selectedFeedbackReaction = String(button.getAttribute('data-pw-feedback-reaction') || '').trim();
+        feedbackReactionButtons.forEach((candidateButton) => {
+          candidateButton.classList.toggle('active', candidateButton === button);
+        });
+        if (decisionDetailNode) decisionDetailNode.hidden = false;
+        if (decisionStepLabelNode) decisionStepLabelNode.textContent = selectedFeedbackReaction === 'hide' ? '2 Confirm' : '2 Explain';
+        if (feedbackStatusNode) {
+          const reactionLabel = selectedFeedbackReaction === 'like'
+            ? 'Yes'
+            : selectedFeedbackReaction === 'maybe'
+              ? 'Maybe'
+              : selectedFeedbackReaction === 'dislike'
+                ? 'No'
+                : 'Hide';
+          feedbackStatusNode.textContent = `${reactionLabel} selected. Add the strongest reasons, then save the decision.`;
+        }
+      });
+    });
+    feedbackSaveButton?.addEventListener('click', async () => {
+      const candidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+      if (!feedbackStatusNode) return;
+      if (!candidate) return;
+      if (!selectedFeedbackReaction) {
+        feedbackStatusNode.textContent = 'Choose Yes, Maybe, No, or Hide first.';
+        return;
+      }
+      feedbackStatusNode.textContent = 'Saving decision...';
+      try {
+        const response = await fetch(propertyDecisionSaveEndpoint(), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            person_id: feedbackPersonId,
+            property_slug: String(candidate.candidate_ref || '').trim(),
+            property_url: String(candidate.property_url || candidate.source_url || '').trim(),
+            property_title: String(candidate.title || '').trim(),
+            property_facts: candidate.property_facts || {},
+            reaction: selectedFeedbackReaction,
+            reason_keys: [...selectedFeedbackReasonKeys],
+            note: String(feedbackNoteNode?.value || '').trim(),
+          }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(body.detail || body.error || body, 'Could not save decision.'));
+        const likes = Array.isArray(body.learning_summary?.likes) ? body.learning_summary.likes.length : 0;
+        const dislikes = Array.isArray(body.learning_summary?.dislikes) ? body.learning_summary.dislikes.length : 0;
+        trackRybbitEvent('shortlist_decision_saved', {
+          reaction: selectedFeedbackReaction,
+          reason_count: selectedFeedbackReasonKeys.size,
+          candidate_ref: String(candidate.candidate_ref || '').trim(),
+        });
+        renderSavedDecisionConsequences(body);
+        feedbackStatusNode.textContent = `Saved durably. Profile now has ${likes} positive signal(s) and ${dislikes} avoid signal(s).`;
+      } catch (error) {
+        feedbackStatusNode.textContent = error instanceof Error ? error.message : 'Could not save decision.';
+      }
+    });
+    const updateResearchTaskCounts = (runPayload) => {
+      const counts = runPayload?.research_task_counts || {
+        open: runPayload?.open_research_task_total,
+        filled: runPayload?.filled_research_task_total,
+        dismissed: runPayload?.dismissed_research_task_total,
+      };
+      const open = Number(counts?.open || 0);
+      root.querySelectorAll('[data-research-task-count]').forEach((node) => {
+        node.textContent = `${open} open`;
+      });
+    };
+    const applyResearchTaskSnapshot = (runPayload) => {
+      const tasks = Array.isArray(runPayload?.research_tasks) ? runPayload.research_tasks : [];
+      updateResearchTaskCounts(runPayload);
+      tasks.forEach((task) => {
+        const taskId = String(task?.task_id || '').trim();
+        if (!taskId || !window.CSS?.escape) return;
+        root.querySelectorAll(`[data-research-task-id="${CSS.escape(taskId)}"]`).forEach((row) => {
+          const status = String(task.status || 'queued').replaceAll('_', ' ').trim() || 'queued';
+          row.setAttribute('data-research-task-status', status);
+          row.querySelector('[data-research-task-status-label]').textContent = status.replace(/\b\w/g, (match) => match.toUpperCase());
+          row.querySelector('[data-research-task-value]').textContent = String(task.display_value || task.owner_value || 'Under review');
+          if (task.evidence) row.querySelector('[data-research-task-detail]').textContent = String(task.evidence);
+        });
+      });
+    };
+    const submitResearchTaskAction = async (row, action, form) => {
+      const runId = String(row?.closest('[data-pqx-research-queue]')?.getAttribute('data-run-id') || data.run?.run_id || '').trim();
+      const taskId = String(row?.getAttribute('data-research-task-id') || '').trim();
+      if (!runId || !taskId) return;
+      const message = row.querySelector('[data-research-task-message]');
+      const value = String(form?.querySelector('[name="value"]')?.value || '').trim();
+      const note = String(form?.querySelector('[name="note"]')?.value || '').trim();
+      if (action === 'fill' && !value) {
+        if (message) message.textContent = 'Add the fact value first.';
+        return;
+      }
+      row.classList.add('is-saving');
+      row.querySelectorAll('button, input').forEach((node) => { node.disabled = true; });
+      if (message) message.textContent = 'Saving...';
+      try {
+        const response = await fetch(`/app/api/property/search-runs/${encodeURIComponent(runId)}/research-tasks/${encodeURIComponent(taskId)}`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify({ action, value, note }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not update the research task.'));
+        applyResearchTaskSnapshot(payload);
+        if (message) message.textContent = action === 'fill' ? 'Fact saved.' : (action === 'dismiss' ? 'Fact dismissed.' : 'Task reopened.');
+      } catch (error) {
+        if (message) message.textContent = error instanceof Error ? error.message : 'Could not update the research task.';
+      } finally {
+        row.classList.remove('is-saving');
+        row.querySelectorAll('button, input').forEach((node) => { node.disabled = false; });
+      }
+    };
+    root.querySelectorAll('[data-research-task-form]').forEach((formNode) => {
+      const row = formNode.closest('[data-research-task]');
+      formNode.addEventListener('submit', (event) => {
+        event.preventDefault();
+        submitResearchTaskAction(row, 'fill', formNode);
+      });
+      formNode.querySelectorAll('[data-research-task-action]').forEach((button) => {
+        if (button.getAttribute('type') === 'submit') return;
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          submitResearchTaskAction(row, String(button.getAttribute('data-research-task-action') || 'dismiss'), formNode);
+        });
+      });
+    });
+    const selectCandidate = (candidateRef, { updateUrl = true } = {}) => {
+      const candidate = candidateByRef.get(String(candidateRef || '')) || candidates[0];
+      if (!candidate) return;
+      selectedFeedbackCandidateRef = String(candidate.candidate_ref || '').trim();
+      selectedFeedbackReaction = '';
+      selectedFeedbackReasonKeys = new Set();
+      if (feedbackStatusNode) feedbackStatusNode.textContent = 'Pick Yes, Maybe, No, or Hide to continue.';
+      if (decisionDetailNode) decisionDetailNode.hidden = true;
+      if (decisionStepLabelNode) decisionStepLabelNode.textContent = '2 Explain';
+      if (feedbackNoteNode) feedbackNoteNode.value = '';
+      feedbackReactionButtons.forEach((button) => button.classList.remove('active'));
+      root.querySelectorAll('[data-workbench-row]').forEach((row) => {
+        row.setAttribute('aria-selected', row.getAttribute('data-candidate-ref') === candidate.candidate_ref ? 'true' : 'false');
+      });
+      const title = root.querySelector('[data-pw-title]');
+      const source = root.querySelector('[data-pw-source]');
+      const summaryFacts = root.querySelector('[data-pw-summary-facts]');
+      if (title) title.textContent = candidate.title || 'Selected property';
+      if (source) source.textContent = [candidate.source_label, candidate.location_label].filter(Boolean).join(' · ') || 'PropertyQuarry candidate';
+      if (summaryFacts) {
+        summaryFacts.innerHTML = [
+          candidate.price_display ? `<span class="pqx-result-fact"><strong>${escapeHtml(candidate.price_display)}</strong></span>` : '',
+          candidate.costs_display ? `<span class="pqx-result-fact">${escapeHtml(candidate.costs_display)}</span>` : '',
+          candidate.layout_display ? `<span class="pqx-result-fact">${escapeHtml(candidate.layout_display)}</span>` : '',
+          candidate.location_label ? `<span class="pqx-result-fact">${escapeHtml(candidate.location_label)}</span>` : '',
+        ].filter(Boolean).join('');
+      }
+      const tourNode = root.querySelector('[data-pw-tour]');
+      const theaterShell = root.querySelector('[data-pq-theater]');
+      const tour = candidate.tour || {};
+      if (tourNode && tour.embed_url) {
+        if (theaterShell) theaterShell.classList.remove('no-media');
+        tourNode.hidden = false;
+        tourNode.classList.remove('is-unavailable', 'is-compact');
+        tourNode.innerHTML = `<iframe src="${escapeHtml(tour.embed_url)}" title="Property 360 tour" loading="lazy" allowfullscreen></iframe>`;
+      } else if (tourNode) {
+        if (theaterShell) theaterShell.classList.add('no-media');
+        tourNode.hidden = true;
+        tourNode.classList.remove('is-unavailable', 'is-compact');
+        tourNode.innerHTML = '';
+      }
+      const ooda = root.querySelector('[data-pw-ooda]');
+      if (ooda) ooda.innerHTML = renderOoda(candidate.ooda?.rows);
+      const oodaSummary = root.querySelector('[data-pw-ooda-summary]');
+      if (oodaSummary) {
+        const hasTour = Boolean(tour.url || tour.embed_url);
+        oodaSummary.textContent = candidate.ooda?.summary || (hasTour
+          ? 'Start with the tour, then check the facts below before deciding.'
+          : 'No 360 is available here. Use the review details and the facts below before deciding.');
+      }
+      const match = root.querySelector('[data-pw-match]');
+      if (match) match.innerHTML = renderMatch(candidate.match_reasons);
+      const objections = root.querySelector('[data-pw-objections]');
+      if (objections) objections.innerHTML = renderObjections(candidate.objection_rows);
+      if (householdNode) householdNode.innerHTML = renderHousehold(candidate.household_rows);
+      if (householdScoreNode) householdScoreNode.textContent = `Alignment score ${Number(candidate.household_alignment_score || 0)}/100`;
+      if (householdLabelNode) householdLabelNode.textContent = String(candidate.household_alignment_label || 'waiting');
+      if (riskSignalsNode) riskSignalsNode.innerHTML = renderRiskSignals(candidate.risk_signal_rows);
+      if (recentChangesNode) recentChangesNode.innerHTML = renderRecentChanges(candidate.recent_change_rows);
+      if (officialPostureNode) {
+        const rows = Array.isArray(candidate.official_posture_rows) ? candidate.official_posture_rows : [];
+        officialPostureNode.innerHTML = rows.length
+          ? rows.map((row) => `
+            <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Official check')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
+          `).join('')
+          : '<div class="pqx-note">No authority posture has been attached yet for the selected property.</div>';
+      }
+      if (officialEvidenceNode) {
+        const rows = Array.isArray(candidate.official_evidence_rows) ? candidate.official_evidence_rows : [];
+        officialEvidenceNode.innerHTML = rows.length
+          ? rows.map((row) => `
+            <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Official evidence')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
+          `).join('')
+          : '<div class="pqx-note">No authoritative risk-evidence row is attached yet for the selected property.</div>';
+      }
+      if (followupsNode) {
+        followupsNode.innerHTML = renderFollowups(candidate.followup_rows);
+        followupsNode.querySelectorAll('[data-pw-followup-action]').forEach((button) => {
+          button.addEventListener('click', async () => {
+            const feedbackId = String(button.getAttribute('data-pw-feedback-id') || '').trim();
+            const status = String(button.getAttribute('data-pw-followup-action') || '').trim();
+            if (!feedbackId || !status) return;
+            if (followupStatusNode) followupStatusNode.textContent = 'Updating follow-up state...';
+            try {
+              const response = await fetch(`/app/api/property-feedback/${encodeURIComponent(feedbackId)}/followup-status`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ followup_status: status }),
+              });
+              const payload = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not update follow-up state.'));
+              const target = (Array.isArray(candidate.followup_rows) ? candidate.followup_rows : []).find((row) => String(row.feedback_id || '') === feedbackId);
+              if (target) target.tag = status.replaceAll('_', ' ').replace(/\b\w/g, (match) => match.toUpperCase());
+              followupsNode.innerHTML = renderFollowups(candidate.followup_rows);
+              if (followupStatusNode) followupStatusNode.textContent = `Follow-up marked ${status.replaceAll('_', ' ')}.`;
+            } catch (error) {
+              if (followupStatusNode) followupStatusNode.textContent = error instanceof Error ? error.message : 'Could not update follow-up state.';
+            }
+          });
+        });
+      }
+      const timeline = root.querySelector('[data-pw-timeline]');
+      if (timeline) timeline.innerHTML = renderTimeline(candidate.timeline_rows);
+      const risk = root.querySelector('[data-pw-risk]');
+      if (risk) risk.innerHTML = `<strong>Risk</strong><span class="pqx-note">${escapeHtml(candidate.risk?.summary || 'No risk summary captured yet.')}</span>`;
+      const riskLevel = root.querySelector('[data-pw-risk-level]');
+      if (riskLevel) riskLevel.textContent = candidate.risk?.level || 'unknown';
+      const investment = root.querySelector('[data-pw-investment]');
+      if (investment) investment.textContent = candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the review details for cost checks when buy mode is active.';
+      root.querySelectorAll('[data-pw-actions]').forEach((node) => {
+        if (node.matches('[data-pw-actions]')) node.innerHTML = actionMarkup(candidate);
+      });
+      if (visualRequestStatusNode) {
+        visualRequestStatusNode.textContent = candidate?.tour?.url
+          ? ''
+          : 'Request a visual from the available source material when this home matters enough to inspect further.';
+      }
+      if (topPropertyActionsNode && candidates.length) {
+        topPropertyActionsNode.innerHTML = actionMarkup(candidate);
+      }
+      loadCandidateFeedbackSuggestions(candidate);
+      loadPersistedDecisionState(candidate);
+      if (updateUrl) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('candidate', candidate.candidate_ref || '');
+        window.history.replaceState({}, '', url);
+      }
+    };
+    root.querySelectorAll('[data-workbench-row]').forEach((row) => {
+      row.addEventListener('click', (event) => {
+        const interactiveTarget = event.target?.closest?.('a, button, [data-pqx-scope-open]');
+        if (interactiveTarget && interactiveTarget !== row) return;
+        selectCandidate(row.getAttribute('data-candidate-ref'));
+        setMode('property');
+      });
+      row.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const interactiveTarget = event.target?.closest?.('a, button, [data-pqx-scope-open]');
+        if (interactiveTarget && interactiveTarget !== row) return;
+        event.preventDefault();
+        selectCandidate(row.getAttribute('data-candidate-ref'));
+        setMode('property');
+      });
+    });
+    root.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('[data-fliplink-packet]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const ref = button.getAttribute('data-candidate-ref') || root.querySelector('[aria-selected="true"][data-candidate-ref]')?.getAttribute('data-candidate-ref') || '';
+      createFlipLinkPacket(candidateByRef.get(ref) || candidates[0], button);
+    });
+    root.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('[data-fliplink-shortlist-share]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      createShortlistSharePacket(button);
+    });
+    root.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('[data-pw-visual-request]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const kind = String(button.getAttribute('data-pw-visual-request') || 'tour').trim().toLowerCase();
+      const propertyUrl = String(button.getAttribute('data-property-url') || '').trim();
+      const candidate = candidates.find((row) => String(row.property_url || row.source_url || '').trim() === propertyUrl)
+        || candidateByRef.get(selectedFeedbackCandidateRef)
+        || candidates[0];
+      requestVisualAsset(candidate, kind, button);
+    });
+    root.addEventListener('click', (event) => {
+      const agentButton = event.target?.closest?.('[data-pw-agent-question-id]');
+      if (agentButton) {
+        event.preventDefault();
+        const candidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+        updateDecisionFollowupState(
+          candidate,
+          'agent_question',
+          String(agentButton.getAttribute('data-pw-agent-question-id') || '').trim(),
+          String(agentButton.getAttribute('data-pw-agent-question-status') || '').trim(),
+        );
+        return;
+      }
+      const documentButton = event.target?.closest?.('[data-pw-document-id]');
+      if (documentButton) {
+        event.preventDefault();
+        const candidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+        updateDecisionFollowupState(
+          candidate,
+          'document',
+          String(documentButton.getAttribute('data-pw-document-id') || '').trim(),
+          String(documentButton.getAttribute('data-pw-document-state') || '').trim(),
+        );
+      }
+    });
+    const urlCandidate = new URL(window.location.href).searchParams.get('candidate');
+    if (urlCandidate) selectCandidate(urlCandidate, { updateUrl: false });

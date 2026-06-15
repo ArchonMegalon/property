@@ -1,0 +1,42 @@
+<section class="pqx-stage pqx-running">
+  <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property" data-pqx-screenfit-target="run-progress">
+    <div class="pqx-section-head">
+      <div>
+        <h2>{% if run_active %}Looking for strong matches{% else %}Search progress{% endif %}</h2>
+        <div class="pqx-note" data-pqx-run-summary>{{ (run.get('summary') or {}).get('reviewed_listing_total') or (run.get('summary') or {}).get('listing_total') or 0 }} homes checked so far{% if ((run.get('summary') or {}).get('filtered_floorplan_total') or 0) %} · {{ (run.get('summary') or {}).get('filtered_floorplan_total') or 0 }} still missing floorplans{% endif %}</div>
+      </div>
+      <div class="pqx-inline-actions">
+        {% if run_active %}
+        <button class="pqx-button" type="button" data-pqx-refresh-status>Refresh</button>
+        {% if run.get('run_id') %}
+        <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Stop and remove this live search?">Stop and remove</button>
+        {% endif %}
+        {% else %}
+        <a class="pqx-link-button" href="/app/properties">New search</a>
+        {% if run.get('run_id') %}
+        <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Delete this finished search run?">Delete run</button>
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+    <div class="pqx-note" data-pqx-run-message>{{ run.get('message') or 'The search is queued.' }}</div>
+    {{ progress_board(run, run_sources, research_task_counts) }}
+    <details class="pqx-card" data-pqx-running-details>
+      <summary><strong>Behind the scenes</strong><span class="pqx-note">Open only if you want the detailed search trail, worker lanes, and unresolved checks.</span></summary>
+      {% if (research_task_counts.get('open') or 0) %}
+      <div class="pqx-note" style="margin:12px 0 0;">{{ research_task_counts.get('open') or 0 }} missing details are still being checked in the background.</div>
+      {% endif %}
+      <div class="pqx-event-list" data-pqx-run-events>
+        {% for event in (run.get('events') or [])|reverse %}
+        <div class="pqx-event-card">
+          <strong>{{ (event.get('step') or 'Update')|replace('_', ' ')|title }}</strong>
+          <span class="pqx-note">{{ event.get('message') or 'No detail yet.' }}</span>
+        </div>
+        {% endfor %}
+        {% if not run.get('events') %}
+        <div class="pqx-empty">Waiting for the first search update.</div>
+        {% endif %}
+      </div>
+    </details>
+  </section>
+</section>

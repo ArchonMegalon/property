@@ -1491,11 +1491,14 @@ class OfficeSignalResultOut(BaseModel):
 
 class WillhabenPropertyTourIn(BaseModel):
     property_url: str = Field(min_length=1)
+    request_kind: str = "tour"
     recipient_email: str = ""
     variant_key: str = "layout_first"
     binding_id: str = ""
     source_ref: str = ""
     external_id: str = ""
+    run_id: str = ""
+    candidate_ref: str = ""
     auto_deliver: bool = True
     allow_floorplan_only: bool = False
 
@@ -1529,6 +1532,13 @@ class WillhabenPropertyTourOut(BaseModel):
     human_task_id: str = ""
     source_ref: str = ""
     external_id: str = ""
+    request_kind: str = "tour"
+    run_id: str = ""
+    candidate_ref: str = ""
+    flythrough_url: str = ""
+    flythrough_status: str = ""
+    status_label: str = ""
+    status_detail: str = ""
     tour_media_mode: str = ""
     personal_fit_assessment: dict[str, object] = Field(default_factory=dict)
 

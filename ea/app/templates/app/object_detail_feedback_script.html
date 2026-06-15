@@ -65,7 +65,7 @@
     magicFitPreview.appendChild(row);
     const image = document.createElement('img');
     image.src = imageUrl;
-    image.alt = 'Magic Fit visual simulation';
+    image.alt = 'Lifestyle simulation preview';
     image.loading = 'lazy';
     magicFitPreview.appendChild(image);
     appendTextNode(
@@ -130,7 +130,7 @@
           <div class="object-tag">${escapeHtml(row?.tag || '')}</div>
         </div>
       `;
-    }).join('') || '<div class="object-row"><div><strong>No tracked question yet</strong><small>Use Clippy or Ask agent next to start a tracked follow-up.</small></div><div class="object-tag">Waiting</div></div>';
+    }).join('') || '<div class="object-row"><div><strong>No tracked question yet</strong><small>Use the question helper or the suggested next question to start a tracked follow-up.</small></div><div class="object-tag">Waiting</div></div>';
     followupsNode.querySelectorAll('[data-object-followup-action]').forEach((button) => {
       button.addEventListener('click', async () => {
         const feedbackId = String(button.getAttribute('data-object-feedback-id') || '').trim();
@@ -238,7 +238,7 @@
             selectedReasons.add(String(row.reason_key || ''));
             reasonButton.classList.add('active');
           }
-          if (status) status.textContent = `Clippy marked ${String(row.detail || 'a blocker').trim()} as the current blocker. Save decision when ready.`;
+          if (status) status.textContent = `Question helper marked ${String(row.detail || 'a blocker').trim()} as the current blocker. Save your answer when ready.`;
           return;
         }
         if (action === 'ask_agent' && row.question) {
@@ -273,12 +273,12 @@
   clippyToggle?.addEventListener('click', () => {
     const open = Boolean(clippyPanel?.hidden);
     if (clippyPanel) clippyPanel.hidden = !open;
-    clippyToggle.textContent = open ? 'Hide Clippy' : 'Open Clippy';
+    clippyToggle.textContent = open ? 'Hide question helper' : 'Open question helper';
   });
   magicFitToggle?.addEventListener('click', () => {
     const open = Boolean(magicFitPanel?.hidden);
     if (magicFitPanel) magicFitPanel.hidden = !open;
-    magicFitToggle.textContent = open ? 'Hide Magic Fit' : 'Open Magic Fit';
+    magicFitToggle.textContent = open ? 'Hide furnished preview' : 'Visualize furnished living';
   });
   root.querySelectorAll('[data-object-magicfit-scene]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -438,7 +438,7 @@
   root.querySelector('[data-object-clippy-ask]')?.addEventListener('click', async () => {
     const question = String(clippyQuestion?.value || '').trim();
     if (!question) {
-      if (clippyStatus) clippyStatus.textContent = 'Ask Clippy a specific property question first.';
+      if (clippyStatus) clippyStatus.textContent = 'Ask a specific question about this property first.';
       return;
     }
     if (clippyStatus) clippyStatus.textContent = 'Clippy is reviewing the packet context...';
@@ -530,7 +530,7 @@
   }
   if (shouldOpenClippy) {
     if (clippyPanel) clippyPanel.hidden = false;
-    if (clippyToggle) clippyToggle.textContent = 'Hide Clippy';
+    if (clippyToggle) clippyToggle.textContent = 'Hide question helper';
     if (clippyQuestion && presetPrompt) clippyQuestion.value = presetPrompt;
     if (clippyStatus && presetPrompt) clippyStatus.textContent = 'Clippy prompt loaded from the email or shared link.';
   }

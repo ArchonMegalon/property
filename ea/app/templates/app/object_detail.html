@@ -662,9 +662,9 @@
 	    {% endif %}
 	    {% if object_feedback %}
 	    <section class="object-feedback" data-object-feedback data-object-feedback-payload='{{ object_feedback|tojson|safe }}'>
-	      <div class="object-kicker">Decision feedback</div>
-	      <h2>Would you pursue this property?</h2>
-	      <p class="object-copy">Record the decision here so the next shortlist learns from it and the missing-fact follow-up stays explicit.</p>
+	      <div class="object-kicker">Current read</div>
+	      <h2>Save your decision</h2>
+	      <p class="object-copy">Record the decision here so the next shortlist learns from it and the next real-world step stays explicit.</p>
 	      <div class="object-feedback-row" aria-label="Property feedback reaction">
 	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="like">Yes</button>
 	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="maybe">Maybe</button>
@@ -679,7 +679,7 @@
 	        <button class="console-action" type="button" data-object-decision-state="archived">Archived</button>
 	      </div>
 	      <p class="object-copy" data-object-decision-state-status></p>
-	      <p class="object-copy"><strong>What drove that?</strong> Select the clearest reasons first. If you reject the property, those reasons become the strongest future suppressors.</p>
+	      <p class="object-copy"><strong>What drove that?</strong> Select the clearest reasons first. If you reject the property, those reasons become the strongest future filters.</p>
 	      <div class="object-feedback-reasons" data-object-feedback-reasons>
 	        {% for row in (object_feedback.get('suggestions') or {}).get('negative') or [] %}
 	        <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}">{{ row.get('label') }}</button>
@@ -689,7 +689,7 @@
 	        {% endfor %}
 	      </div>
 	      {% if (object_feedback.get('suggestions') or {}).get('agent_questions') %}
-	      <div class="object-copy"><strong>Ask agent next</strong></div>
+	      <div class="object-copy"><strong>Next question to send</strong></div>
 	      <div class="object-list">
 	        {% for row in (object_feedback.get('suggestions') or {}).get('agent_questions') or [] %}
 	        <div class="object-row">

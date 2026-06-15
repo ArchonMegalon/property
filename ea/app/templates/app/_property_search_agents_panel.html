@@ -1,0 +1,90 @@
+{% if surface_mode == 'agents' %}
+<section class="pqx-advanced-panel" data-property-search-agent-management>
+  <div class="pqx-section-head">
+    <div>
+      <h2>Saved searches</h2>
+      <div class="pqx-note">Keep a recurring search running, cap the number of messages, and send only the best-ranked homes. Search workers are separate and only affect live run speed.</div>
+    </div>
+    <span class="pqx-pill">{{ (search_agents|selectattr('enabled')|list)|length }} active</span>
+  </div>
+  <div class="pqx-pref-list">
+    {% for agent in search_agents %}
+    <div class="pqx-pref-row" data-property-search-agent-row data-search-agent-id="{{ agent.get('agent_id') or 'current' }}" data-search-agent-payload='{{ (agent.get("load_payload") or {})|tojson|safe }}'>
+      {% set agent_scope_preview = agent.get('scope_preview') or {} %}
+      {% if agent_scope_preview.get('image_url') %}
+      <button
+        class="pqx-scope-button"
+        type="button"
+        data-pqx-scope-open
+        data-pqx-scope-image="{{ agent_scope_preview.get('image_url') }}"
+        data-pqx-scope-alt="{{ agent_scope_preview.get('alt') or 'Search area preview' }}"
+        data-pqx-scope-title="{{ agent_scope_preview.get('summary') or agent.get('scope_label') or agent.get('name') }}"
+        data-pqx-scope-overlay='{{ (agent_scope_preview.get("district_rows") or [])|tojson }}'
+        aria-label="Open saved search area preview"
+        style="margin-right:14px;"
+      >
+        <img
+          src="{{ agent_scope_preview.get('image_url') }}"
+          alt="{{ agent_scope_preview.get('alt') or 'Search area preview' }}"
+          loading="lazy"
+        >
+        {% if agent_scope_preview.get("district_rows") %}
+        <svg class="pqx-scope-overlay" viewBox="0 0 640 368" preserveAspectRatio="none" aria-hidden="true">
+          {% for row in agent_scope_preview.get("district_rows") or [] %}
+          {% if row.get('path') %}
+          <path class="{% if row.get('selected') %}is-selected{% endif %}" d="{{ row.get('path') }}"></path>
+          {% endif %}
+          {% endfor %}
+        </svg>
+        {% endif %}
+      </button>
+      {% endif %}
+      <div>
+        <strong>{{ agent.get('name') or 'Saved search' }}{% if agent.get('is_active') %} · selected{% endif %}</strong>
+        <small>{{ agent.get('status_label') }} · {{ agent.get('scope_label') }} · {{ agent.get('duration_label') }} · {{ agent.get('provider_count') }} provider{{ '' if agent.get('provider_count') == 1 else 's' }}</small>
+        <small>{{ agent.get('notification_label') }} · {{ agent.get('delivery_label') }} · {{ agent.get('run_label') }}</small>
+      </div>
+      <div class="pqx-actions">
+        <button class="pqx-button" type="button" data-search-agent-action="load">Edit</button>
+        {% if agent.get('enabled') %}
+        <button class="pqx-button subtle" type="button" data-search-agent-action="pause">Pause</button>
+        {% else %}
+        <button class="pqx-button" type="button" data-search-agent-action="resume">Resume</button>
+        {% endif %}
+        <button class="pqx-button" type="button" data-search-agent-action="save">Save limits</button>
+        <button class="pqx-button subtle" type="button" data-search-agent-action="duplicate">Duplicate</button>
+        <button class="pqx-button subtle" type="button" data-search-agent-action="delete">Delete</button>
+        <button class="pqx-button primary" type="button" data-search-agent-action="run">Run now</button>
+      </div>
+    </div>
+    {% else %}
+    <div class="pqx-pref-row" data-property-search-agent-row data-search-agent-id="current">
+      <div>
+        <strong>No saved search yet</strong>
+        <small>Turn it on to keep this search running and send only the best-ranked homes inside your message budget.</small>
+      </div>
+      <div class="pqx-actions">
+        <button class="pqx-button" type="button" data-search-agent-action="resume">Resume</button>
+        <button class="pqx-button" type="button" data-search-agent-action="save">Save limits</button>
+        <button class="pqx-button primary" type="button" data-search-agent-action="run">Run now</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="pqx-note">Change duration, message budget, and daily or weekly reset above, then save the limits.</div>
+  <div class="pqx-inline-status" data-search-agent-status></div>
+</section>
+{% else %}
+<section class="pqx-card">
+  <div class="pqx-section-head">
+    <div>
+      <h2>Saved searches</h2>
+      <div class="pqx-note">Edit cadence, limits, and delivery in the dedicated view.</div>
+    </div>
+    <span class="pqx-pill">{{ (search_agents|selectattr('enabled')|list)|length }} active</span>
+  </div>
+  <div class="pqx-actions">
+    <a class="pqx-link-button" href="/app/agents">Open saved searches</a>
+  </div>
+</section>
+{% endif %}

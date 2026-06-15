@@ -1,0 +1,78 @@
+<section class="pqx-result-panel active" data-pqx-mobile-panel="results">
+  <div class="pqx-result-panel-head">
+    <div>
+      <div class="pqx-note">{{ results|length }} ranked homes · start with the strongest short read, then open one home.</div>
+    </div>
+    <span class="pqx-pill good">{{ run.get('status_label') or 'Completed' }}</span>
+  </div>
+  <div class="pqx-results-list" data-workbench-results-table>
+    {% for candidate in results %}
+    <article class="pqx-result pqx-card{% if candidate.get('recovered_by_filter') %} is-filter-recovered{% endif %}" role="button" tabindex="0" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
+      {% set primary_price = candidate.get('price_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('costs_display') or 'Price open') %}
+      {% set secondary_price = candidate.get('costs_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('price_per_sqm_display') or candidate.get('costs_display') or '') %}
+      <span class="pqx-result-main">
+        <span class="pqx-result-media">
+          <span class="pqx-thumb">
+            {% if candidate.get('preview_image_url') %}
+            <img src="{{ candidate.get('preview_image_url') }}" alt="">
+            {% else %}
+            <span>Home</span>
+            {% endif %}
+          </span>
+          <span class="pqx-result-summary">
+            <span class="pqx-result-kicker"><span class="pqx-rank">#{{ candidate.get('rank') }}</span>{% if candidate.get('location_label') %}<span>{{ candidate.get('location_label') }}</span>{% endif %}</span>
+            <span class="pqx-result-title">{{ candidate.get('title') }}</span>
+            <span class="pqx-meta">{{ candidate.get('source_label') or 'Source' }}</span>
+          </span>
+        </span>
+        <span class="pqx-result-topline">
+          {% if candidate.get('orientation_preview', {}).get('image_url') %}
+          <span class="pqx-inline-map-preview">
+            <button
+              class="pqx-previous-scope-trigger"
+              type="button"
+              data-pqx-scope-open
+              data-pqx-scope-image="{{ candidate.get('orientation_preview', {}).get('image_url') }}"
+              data-pqx-scope-alt="{{ candidate.get('orientation_preview', {}).get('alt') }}"
+              data-pqx-scope-title="{{ candidate.get('orientation_preview', {}).get('title') }}"
+              data-pqx-scope-caption="{{ candidate.get('orientation_preview', {}).get('caption') }}"
+              data-pqx-scope-overlay='{{ (candidate.get("orientation_preview", {}).get("district_rows") or [])|tojson }}'
+            >
+              <img class="pqx-previous-scope-image" src="{{ candidate.get('orientation_preview', {}).get('image_url') }}" alt="{{ candidate.get('orientation_preview', {}).get('alt') or '' }}">
+              {% if candidate.get("orientation_preview", {}).get("district_rows") %}
+              <svg class="pqx-previous-district-hotspots" viewBox="0 0 640 368" preserveAspectRatio="none" aria-hidden="true">
+                {% for row in candidate.get("orientation_preview", {}).get("district_rows") or [] %}
+                {% if row.get("path") %}
+                <path class="pqx-previous-district-hotspot{% if row.get('selected') %} is-selected{% endif %}" d="{{ row.get('path') }}"></path>
+                {% endif %}
+                {% endfor %}
+              </svg>
+              {% endif %}
+            </button>
+          </span>
+          {% endif %}
+          {% if candidate.get('packet_url') %}
+          <a class="pqx-result-open" href="{{ candidate.get('packet_url') }}">Open property</a>
+          {% endif %}
+        </span>
+        <span class="pqx-result-facts">
+          {% if candidate.get('recovered_by_filter') %}<span class="pqx-result-fact recovered">Recovered{% if candidate.get('relaxed_filter_label') %}: {{ candidate.get('relaxed_filter_label') }}{% endif %}</span>{% endif %}
+          {% if candidate.get('layout_display') %}<span class="pqx-result-fact">{{ candidate.get('layout_display') }}</span>{% endif %}
+          {% if candidate.get('tour', {}).get('status') == 'ready' %}<span class="pqx-result-fact">360 ready</span>{% endif %}
+          {% if candidate.get('tour', {}).get('status') in ['ready', 'queued', 'processing'] %}<span class="pqx-result-fact">{{ candidate.get('tour', {}).get('label') }}</span>{% endif %}
+        </span>
+        <span class="pqx-result-reason">{{ (candidate.get('match_reasons') or [candidate.get('fit_summary') or ''])|first }}</span>
+        <span class="pqx-result-action">Select to inspect on the right.</span>
+      </span>
+      <span class="pqx-result-aside">
+        {% if candidate.get('tour', {}).get('status') in ['ready', 'queued', 'processing'] %}
+        <span class="pqx-pill{% if candidate.get('tour', {}).get('status') == 'ready' %} good{% else %} warn{% endif %}">{{ candidate.get('tour', {}).get('label') }}</span>
+        {% endif %}
+        <strong class="pqx-result-price">{{ primary_price }}</strong>
+        {% if secondary_price %}<span class="pqx-result-secondary">{{ secondary_price }}</span>{% endif %}
+        <span class="pqx-status-line">{% if candidate.get('tour', {}).get('status') in ['queued', 'processing'] and candidate.get('tour', {}).get('eta_label') %}{{ candidate.get('tour', {}).get('eta_label') }}{% else %}Open property{% endif %}</span>
+      </span>
+    </article>
+    {% endfor %}
+  </div>
+</section>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.api.routes.landing_property_saved_searches import format_property_search_agent
 from app.services.onboarding import OnboardingService
 from tests.product_test_helpers import build_property_client, start_workspace
 
@@ -195,6 +196,47 @@ def test_property_search_agent_loads_saved_filters_into_current_preferences() ->
     assert preferences["search_agent_duration_days"] == 365
     assert preferences["search_agent_notification_limit"] == 6
     assert preferences["search_agent_notification_period"] == "week"
+
+
+def test_saved_search_load_payload_prefers_saved_preferences_over_current_brief_defaults() -> None:
+    formatted = format_property_search_agent(
+        {
+            "name": "Monteverde buy watch",
+            "enabled": True,
+            "preferences_json": {
+                "country_code": "CR",
+                "region_code": "puntarenas",
+                "location_query": "Monteverde",
+                "listing_mode": "buy",
+                "property_type": "house",
+                "selected_platforms": ["re_cr_mls"],
+            },
+        },
+        property_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1090 Vienna",
+            "property_type": "apartment",
+        },
+        selected_platforms=["willhaben"],
+        selected_listing_mode="rent",
+        search_mode_requested="strict",
+        default_duration_days=30,
+        default_notification_limit=5,
+        default_notification_period="day",
+        normalize_property_type_values=lambda value: [str(value).strip().lower()] if str(value).strip() else ["any"],
+        scope_preview_builder=lambda country_code, region_code, location_query: {
+            "country_code": country_code,
+            "region_code": region_code,
+            "location_query": location_query,
+        },
+    )
+
+    assert formatted["country_code"] == "CR"
+    assert formatted["region_code"] == "puntarenas"
+    assert formatted["location_query"] == "Monteverde"
+    assert formatted["listing_mode"] == "buy"
+    assert formatted["scope_preview"]["country_code"] == "CR"
 
 
 def test_property_search_preference_save_preserves_other_agents_and_sanitizes_provider_country() -> None:

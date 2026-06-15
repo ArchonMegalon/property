@@ -5,6 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ page_title }}</title>
   {{ rybbit_head_snippet(request) }}
+  {% if principal_id %}
+  <script>
+    window.addEventListener('load', () => {
+      const runIdentify = (rybbit) => {
+        if (!rybbit || typeof rybbit.identify !== 'function') return;
+        try {
+          rybbit.identify({{ principal_id|tojson }}, { brand: {{ brand.key|tojson }} });
+        } catch (_error) {
+          // Analytics identification stays best-effort only.
+        }
+      };
+      if (window.rybbit && typeof window.rybbit.onReady === 'function') {
+        window.rybbit.onReady(runIdentify);
+      } else if (window.rybbit) {
+        runIdentify(window.rybbit);
+      }
+    });
+  </script>
+  {% endif %}
   <style>
     :root {
       --bg: #f6f3ee;
