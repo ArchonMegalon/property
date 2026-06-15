@@ -1424,7 +1424,8 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "Plus" in page.text
     assert "Agent" in page.text
     assert 'href="/app/agents"' in page.text
-    assert ">Open</a>" in page.text
+    assert "Delete</button>" in page.text
+    assert "Run now</button>" in page.text
     assert "load_agent=agent-vienna" in page.text or "load_agent=agent-monteverde" in page.text
 
 

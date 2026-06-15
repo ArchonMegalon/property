@@ -5500,6 +5500,8 @@ def property_workspace_payload(
             if isinstance(item, dict)
         ],
         "previous_search_runs": previous_search_runs,
+        "search_agents": property_search_agents,
+        "search_agent": property_search_agent,
         "results": workbench_results,
         "search_guard_rows": [],
         "suppression_rows": suppression_rows,

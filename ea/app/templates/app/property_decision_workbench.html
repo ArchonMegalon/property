@@ -4021,8 +4021,13 @@
             </span>
           </div>
           {% if surface_mode in ['agents', 'account'] %}
+          {% if surface_mode == 'agents' %}
+          {% set search_agents = workbench.get('search_agents') or (search_agents if search_agents is defined else (property_meta.get('search_agents') or [])) %}
+          {% include "app/_property_search_agents_panel.html" %}
+          {% endif %}
           {% for card in (primary_cards or []) + (secondary_cards or []) %}
           {% if card and card.get('title') %}
+          {% if not (surface_mode == 'agents' and card.get('title') == 'Recurring briefs') %}
           <section class="pqx-card"{% if card.get('id') %} id="{{ card.get('id') }}"{% endif %}>
             <div class="pqx-section-head">
               <div>
@@ -4049,6 +4054,7 @@
             </div>
             {% endif %}
           </section>
+          {% endif %}
           {% endif %}
           {% endfor %}
           {% endif %}
