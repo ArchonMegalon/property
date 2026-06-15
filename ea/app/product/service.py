@@ -20436,8 +20436,6 @@ class ProductService:
         payload["heyy_delivery_status"] = str(heyy_result.get("status") or "").strip()
         if str(heyy_result.get("message_id") or "").strip():
             payload["heyy_message_id"] = str(heyy_result.get("message_id") or "").strip()
-        if str(heyy_result.get("phone_number") or "").strip():
-            payload["heyy_phone_number"] = str(heyy_result.get("phone_number") or "").strip()
         if str(heyy_result.get("reason") or "").strip():
             payload["heyy_delivery_error"] = str(heyy_result.get("reason") or "").strip()
         return payload
@@ -32109,8 +32107,6 @@ class ProductService:
         payload["heyy_delivery_status"] = str(heyy_result.get("status") or "").strip()
         if str(heyy_result.get("message_id") or "").strip():
             payload["heyy_message_id"] = str(heyy_result.get("message_id") or "").strip()
-        if str(heyy_result.get("phone_number") or "").strip():
-            payload["heyy_phone_number"] = str(heyy_result.get("phone_number") or "").strip()
         if str(heyy_result.get("reason") or "").strip():
             payload["heyy_delivery_error"] = str(heyy_result.get("reason") or "").strip()
         self._record_notification_feedback_prompt(

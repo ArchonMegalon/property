@@ -66,14 +66,7 @@ def _truthy(value: object) -> bool:
 
 
 def heyy_live_chat_enabled() -> bool:
-    return any(
-        _truthy(os.getenv(env_name))
-        for env_name in (
-            "EA_PUBLIC_HEYY_LIVE_CHAT_ENABLED",
-            "PROPERTYQUARRY_PUBLIC_HEYY_LIVE_CHAT_ENABLED",
-            "HEYY_LIVE_CHAT_ENABLED",
-        )
-    )
+    return False
 
 
 def _normalize_hostname(hostname: str | None) -> str:

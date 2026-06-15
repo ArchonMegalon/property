@@ -42,8 +42,7 @@ def test_public_heyy_live_chat_uses_propertyquarry_widget(monkeypatch: pytest.Mo
 
     snippet = heyy_live_chat_head_snippet(hostname="propertyquarry.com", path="/pricing")
 
-    assert 'data-heyy-live-chat="property-widget-123"' in snippet
-    assert "https://assets.heyy.io/live-chat/live-chat.js" in snippet
+    assert snippet == ""
 
 
 def test_public_heyy_live_chat_blocks_private_routes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -61,11 +60,11 @@ def test_public_heyy_live_chat_uses_manfred_memorial_widget(monkeypatch: pytest.
     monkeypatch.setenv("MYEXTERNALBRAIN_HEYY_LIVE_CHAT_WIDGET_ID", "brain-widget-123")
     monkeypatch.setenv("MANFRED_MEMORIAL_HEYY_LIVE_CHAT_WIDGET_ID", "manfred-widget-123")
 
-    assert heyy_live_chat_widget_id(hostname="myexternalbrain.com", path="/memorials/manfred") == "manfred-widget-123"
-    assert heyy_live_chat_widget_id(hostname="myexternalbrain.com", path="/") == "brain-widget-123"
+    assert heyy_live_chat_widget_id(hostname="myexternalbrain.com", path="/memorials/manfred") == ""
+    assert heyy_live_chat_widget_id(hostname="myexternalbrain.com", path="/") == ""
 
 
-def test_propertyquarry_public_page_includes_heyy_live_chat_when_enabled(
+def test_propertyquarry_public_page_omits_heyy_live_chat_even_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _clear_heyy_live_chat_env(monkeypatch)
@@ -85,6 +84,6 @@ def test_propertyquarry_public_page_includes_heyy_live_chat_when_enabled(
     )
 
     assert public_response.status_code == 200
-    assert 'data-heyy-live-chat="property-widget-123"' in public_response.text
+    assert "assets.heyy.io/live-chat/live-chat.js" not in public_response.text
     assert app_response.status_code == 200
     assert "assets.heyy.io/live-chat/live-chat.js" not in app_response.text
