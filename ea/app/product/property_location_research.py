@@ -80,6 +80,141 @@ def _property_research_forward_geocode(query: str) -> dict[str, object]:
     row = payload[0]
     return row if isinstance(row, dict) else {}
 
+
+@lru_cache(maxsize=128)
+def _property_research_boundary_record(query: str) -> dict[str, object]:
+    normalized = str(query or "").strip()
+    if not normalized:
+        return {}
+    request = urllib.request.Request(
+        (
+            "https://nominatim.openstreetmap.org/search?"
+            f"format=jsonv2&limit=1&polygon_geojson=1&q={urllib.parse.quote(normalized)}"
+        ),
+        headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8.0) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, list) or not payload:
+        return {}
+    row = payload[0]
+    if not isinstance(row, dict):
+        return {}
+    boundingbox = row.get("boundingbox") if isinstance(row.get("boundingbox"), list) else []
+    try:
+        south = float(boundingbox[0])
+        north = float(boundingbox[1])
+        west = float(boundingbox[2])
+        east = float(boundingbox[3])
+    except (IndexError, TypeError, ValueError):
+        south = north = west = east = 0.0
+    return {
+        "display_name": str(row.get("display_name") or normalized).strip(),
+        "geojson": row.get("geojson") if isinstance(row.get("geojson"), dict) else {},
+        "bounds": (west, south, east, north),
+        "lat": float(row.get("lat") or 0.0) if str(row.get("lat") or "").strip() else 0.0,
+        "lon": float(row.get("lon") or 0.0) if str(row.get("lon") or "").strip() else 0.0,
+    }
+
+
+def _property_research_geojson_outer_rings(geojson: dict[str, object]) -> list[list[tuple[float, float]]]:
+    geometry_type = str(geojson.get("type") or "").strip()
+    coordinates = geojson.get("coordinates")
+    rings: list[list[tuple[float, float]]] = []
+    if geometry_type == "Polygon" and isinstance(coordinates, list):
+        polygons = [coordinates]
+    elif geometry_type == "MultiPolygon" and isinstance(coordinates, list):
+        polygons = coordinates
+    else:
+        polygons = []
+    for polygon in polygons:
+        if not isinstance(polygon, list) or not polygon:
+            continue
+        outer = polygon[0]
+        if not isinstance(outer, list):
+            continue
+        points: list[tuple[float, float]] = []
+        for pair in outer:
+            if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+                continue
+            try:
+                lon = float(pair[0])
+                lat = float(pair[1])
+            except (TypeError, ValueError):
+                continue
+            points.append((lon, lat))
+        if points:
+            rings.append(points)
+    return rings
+
+
+def _property_research_point_in_ring(lat: float, lon: float, ring: list[tuple[float, float]]) -> bool:
+    if len(ring) < 3:
+        return False
+    inside = False
+    test_x = float(lon)
+    test_y = float(lat)
+    prev_x, prev_y = ring[-1]
+    for curr_x, curr_y in ring:
+        intersects = ((curr_y > test_y) != (prev_y > test_y)) and (
+            test_x < (prev_x - curr_x) * (test_y - curr_y) / max(prev_y - curr_y, 1e-12) + curr_x
+        )
+        if intersects:
+            inside = not inside
+        prev_x, prev_y = curr_x, curr_y
+    return inside
+
+
+def _property_research_point_to_ring_distance_m(lat: float, lon: float, ring: list[tuple[float, float]]) -> float | None:
+    if len(ring) < 2:
+        return None
+    if _property_research_point_in_ring(lat, lon, ring):
+        return 0.0
+
+    lat0_rad = math.radians(float(lat))
+    meters_per_lon = 111_320.0 * max(math.cos(lat0_rad), 0.000001)
+    meters_per_lat = 111_320.0
+    point_x = float(lon) * meters_per_lon
+    point_y = float(lat) * meters_per_lat
+
+    min_distance: float | None = None
+    points = list(ring)
+    if points[0] != points[-1]:
+        points.append(points[0])
+    for (lon_a, lat_a), (lon_b, lat_b) in zip(points, points[1:]):
+        ax = lon_a * meters_per_lon
+        ay = lat_a * meters_per_lat
+        bx = lon_b * meters_per_lon
+        by = lat_b * meters_per_lat
+        dx = bx - ax
+        dy = by - ay
+        segment_len_sq = dx * dx + dy * dy
+        if segment_len_sq <= 0.0:
+            distance = math.hypot(point_x - ax, point_y - ay)
+        else:
+            t = ((point_x - ax) * dx + (point_y - ay) * dy) / segment_len_sq
+            t = max(0.0, min(1.0, t))
+            nearest_x = ax + t * dx
+            nearest_y = ay + t * dy
+            distance = math.hypot(point_x - nearest_x, point_y - nearest_y)
+        if min_distance is None or distance < min_distance:
+            min_distance = distance
+    return min_distance
+
+
+def _property_research_point_to_geojson_distance_m(lat: float, lon: float, geojson: dict[str, object]) -> float | None:
+    distances = [
+        _property_research_point_to_ring_distance_m(lat, lon, ring)
+        for ring in _property_research_geojson_outer_rings(dict(geojson or {}))
+    ]
+    known = [float(distance) for distance in distances if distance is not None]
+    if not known:
+        return None
+    return min(known)
+
 def _property_schoolatlas_wfs_base_url() -> str:
     raw = str(
         os.getenv("EA_PROPERTY_SCHOOLATLAS_WFS_BASE_URL")
@@ -605,4 +740,3 @@ def _property_official_risk_evidence(
         "updated_at": _now_iso(),
         "sources": sources,
     }
-

@@ -104,23 +104,20 @@ def _store_property_search_run_record(record: dict[str, object]) -> None:
             )
 
 
-def _load_property_search_run_record(*, run_id: str, principal_id: str = "") -> dict[str, object] | None:
+def _load_property_search_run_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
     if not _property_search_run_database_url():
         return None
     _ensure_property_search_run_schema()
     normalized_run_id = str(run_id or "").strip()
-    if not normalized_run_id:
-        return None
     normalized_principal_id = str(principal_id or "").strip()
+    if not normalized_run_id or not normalized_principal_id:
+        return None
     with _property_search_run_connect() as conn:
         with conn.cursor() as cur:
-            if normalized_principal_id:
-                cur.execute(
-                    "SELECT payload_json FROM property_search_runs WHERE run_id = %s AND principal_id = %s",
-                    (normalized_run_id, normalized_principal_id),
-                )
-            else:
-                cur.execute("SELECT payload_json FROM property_search_runs WHERE run_id = %s", (normalized_run_id,))
+            cur.execute(
+                "SELECT payload_json FROM property_search_runs WHERE run_id = %s AND principal_id = %s",
+                (normalized_run_id, normalized_principal_id),
+            )
             row = cur.fetchone()
     if not row:
         return None
@@ -186,18 +183,16 @@ def _prune_property_search_run_records() -> None:
 def _delete_property_search_run_record(
     *,
     run_id: str,
-    principal_id: str = "",
+    principal_id: str,
     registry: dict[str, dict[str, object]] | None = None,
 ) -> bool:
     normalized_run_id = str(run_id or "").strip()
     normalized_principal_id = str(principal_id or "").strip()
-    if not normalized_run_id:
+    if not normalized_run_id or not normalized_principal_id:
         return False
     if not _property_search_run_database_url():
         if registry is None:
             return False
-        if not normalized_principal_id:
-            return registry.pop(normalized_run_id, None) is not None
         record = registry.get(normalized_run_id)
         if str(dict(record or {}).get("principal_id") or "").strip() != normalized_principal_id:
             return False
@@ -205,13 +200,10 @@ def _delete_property_search_run_record(
     _ensure_property_search_run_schema()
     with _property_search_run_connect() as conn:
         with conn.cursor() as cur:
-            if normalized_principal_id:
-                cur.execute(
-                    "DELETE FROM property_search_runs WHERE run_id = %s AND principal_id = %s",
-                    (normalized_run_id, normalized_principal_id),
-                )
-            else:
-                cur.execute("DELETE FROM property_search_runs WHERE run_id = %s", (normalized_run_id,))
+            cur.execute(
+                "DELETE FROM property_search_runs WHERE run_id = %s AND principal_id = %s",
+                (normalized_run_id, normalized_principal_id),
+            )
             return bool(cur.rowcount)
 
 

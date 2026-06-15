@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
 import urllib.parse
 import uuid
@@ -411,6 +412,63 @@ def test_property_public_preview_workers_warm_multiple_provider_urls(monkeypatch
         cache_index=cache_index,
         property_url="https://example.test/listing/3",
     ) is not None
+
+
+def test_property_adjacent_area_radius_uses_boundary_distance_before_centroid(monkeypatch: pytest.MonkeyPatch) -> None:
+    boundary_geojson = {
+        "type": "Polygon",
+        "coordinates": [[
+            [16.3600, 48.2000],
+            [16.3700, 48.2000],
+            [16.3700, 48.2100],
+            [16.3600, 48.2100],
+            [16.3600, 48.2000],
+        ]],
+    }
+
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_boundary_record",
+        lambda query: {
+            "display_name": query,
+            "geojson": boundary_geojson,
+            "bounds": (16.3600, 48.2000, 16.3700, 48.2100),
+            "lat": 48.2050,
+            "lon": 16.3650,
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_forward_geocode",
+        lambda query: {"lat": 48.2050, "lon": 16.3650},
+    )
+
+    assert product_service._property_candidate_within_adjacent_area_radius(
+        location_hints=("1020 Vienna",),
+        property_facts={"map_lat": 48.2050, "map_lng": 16.3714},
+        country_code="AT",
+        region_code="vienna",
+        adjacent_area_radius_m=200,
+    ) is True
+
+
+def test_property_adjacent_area_radius_falls_back_to_reference_point_when_boundary_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(product_service, "_property_research_boundary_record", lambda query: {})
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_forward_geocode",
+        lambda query: {"lat": 48.2050, "lon": 16.3650},
+    )
+
+    assert product_service._property_candidate_within_adjacent_area_radius(
+        location_hints=("1020 Vienna",),
+        property_facts={"map_lat": 48.2050, "map_lng": 16.3655},
+        country_code="AT",
+        region_code="vienna",
+        adjacent_area_radius_m=100,
+    ) is True
 
 
 def test_property_search_interleave_by_provider_group_spreads_same_provider_shards() -> None:
@@ -3512,7 +3570,10 @@ def test_property_search_run_postgres_round_trip(monkeypatch: pytest.MonkeyPatch
     state["progress"] = 100
 
     product_service._store_property_search_run_record(state)
-    loaded = product_service._load_property_search_run_record(run_id=run_id)
+    loaded = product_service._load_property_search_run_record(
+        run_id=run_id,
+        principal_id="exec-property-postgres-round-trip",
+    )
     listed = product_service._list_property_search_run_records(limit=5, statuses=("processed",))
 
     assert loaded is not None
@@ -3557,3 +3618,33 @@ def test_property_source_listing_cache_postgres_round_trip(monkeypatch: pytest.M
     assert cached_state["status"] == "hit"
     assert cached_state["persistence"] == "postgres"
     assert cached_state["listing_total"] == 2
+
+
+def test_property_search_storage_schema_scripts() -> None:
+    db_url = str(os.environ.get("EA_TEST_PROPERTY_DATABASE_URL") or "").strip()
+    if not db_url:
+        pytest.skip("EA_TEST_PROPERTY_DATABASE_URL is not set")
+
+    env = dict(os.environ)
+    env["DATABASE_URL"] = db_url
+    env["PYTHONPATH"] = "ea"
+
+    migrate = subprocess.run(
+        ["python3", "scripts/migrate_property_search_storage.py"],
+        cwd="/docker/property",
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert migrate.returncode == 0, migrate.stderr or migrate.stdout
+
+    check = subprocess.run(
+        ["python3", "scripts/check_property_search_storage_schema.py"],
+        cwd="/docker/property",
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert check.returncode == 0, check.stderr or check.stdout

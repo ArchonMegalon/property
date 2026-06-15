@@ -16,6 +16,10 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw
+from app.product.property_location_research import (
+    _property_research_boundary_record,
+    _property_research_geojson_outer_rings,
+)
 from app.api.routes.landing_property_saved_searches import (
     build_agent_management_rows,
     build_property_search_agents,
@@ -437,70 +441,11 @@ def _forward_geocode_preview_point(query: str) -> tuple[float, float] | None:
 
 @lru_cache(maxsize=128)
 def _nominatim_boundary_record(query: str) -> dict[str, object]:
-    normalized = str(query or "").strip()
-    if not normalized:
-        return {}
-    request = urllib.request.Request(
-        "https://nominatim.openstreetmap.org/search?"
-        f"format=jsonv2&limit=1&polygon_geojson=1&q={urllib.parse.quote(normalized)}",
-        headers={"User-Agent": "PropertyQuarry/1.0"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=8.0) as response:
-            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
-    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
-        return {}
-    if not isinstance(payload, list) or not payload:
-        return {}
-    row = payload[0]
-    if not isinstance(row, dict):
-        return {}
-    boundingbox = row.get("boundingbox") if isinstance(row.get("boundingbox"), list) else []
-    try:
-        south = float(boundingbox[0])
-        north = float(boundingbox[1])
-        west = float(boundingbox[2])
-        east = float(boundingbox[3])
-    except (IndexError, TypeError, ValueError):
-        south = north = west = east = 0.0
-    return {
-        "display_name": str(row.get("display_name") or normalized).strip(),
-        "geojson": row.get("geojson") if isinstance(row.get("geojson"), dict) else {},
-        "bounds": (west, south, east, north),
-        "lat": float(row.get("lat") or 0.0) if str(row.get("lat") or "").strip() else 0.0,
-        "lon": float(row.get("lon") or 0.0) if str(row.get("lon") or "").strip() else 0.0,
-    }
+    return dict(_property_research_boundary_record(query) or {})
 
 
 def _geojson_outer_rings(geojson: dict[str, object]) -> list[list[tuple[float, float]]]:
-    geometry_type = str(geojson.get("type") or "").strip()
-    coordinates = geojson.get("coordinates")
-    rings: list[list[tuple[float, float]]] = []
-    if geometry_type == "Polygon" and isinstance(coordinates, list):
-        polygons = [coordinates]
-    elif geometry_type == "MultiPolygon" and isinstance(coordinates, list):
-        polygons = coordinates
-    else:
-        polygons = []
-    for polygon in polygons:
-        if not isinstance(polygon, list) or not polygon:
-            continue
-        outer = polygon[0]
-        if not isinstance(outer, list):
-            continue
-        points: list[tuple[float, float]] = []
-        for pair in outer:
-            if not isinstance(pair, (list, tuple)) or len(pair) < 2:
-                continue
-            try:
-                lon = float(pair[0])
-                lat = float(pair[1])
-            except (TypeError, ValueError):
-                continue
-            points.append((lon, lat))
-        if points:
-            rings.append(points)
-    return rings
+    return list(_property_research_geojson_outer_rings(geojson))
 
 
 def _union_geo_bounds(bounds_rows: list[tuple[float, float, float, float]]) -> tuple[float, float, float, float] | None:

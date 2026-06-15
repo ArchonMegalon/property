@@ -90,8 +90,11 @@ from app.product.property_listing_extractors import (
 from app.product.property_location_research import (
     _property_official_risk_evidence,
     _property_point_looks_like_austria,
+    _property_research_boundary_record,
     _property_research_distance_m,
     _property_research_forward_geocode,
+    _property_research_geojson_outer_rings,
+    _property_research_point_to_geojson_distance_m,
     _property_research_nearby_pois,
     _property_research_reverse_geocode,
     _property_schoolatlas_coords_from_facts,
@@ -2115,11 +2118,11 @@ def _list_property_search_run_records(
     )
 
 
-def _load_property_search_run_record(*, run_id: str, principal_id: str = "") -> dict[str, object] | None:
+def _load_property_search_run_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
     return _load_property_search_run_record_storage(run_id=run_id, principal_id=principal_id)
 
 
-def _delete_property_search_run_record(*, run_id: str, principal_id: str = "") -> bool:
+def _delete_property_search_run_record(*, run_id: str, principal_id: str) -> bool:
     with _PROPERTY_SEARCH_RUN_LOCK:
         return _delete_property_search_run_record_storage(
             run_id=run_id,
@@ -5109,6 +5112,41 @@ def _property_search_area_reference_points(
     return tuple(references)
 
 
+def _property_search_area_boundary_geojsons(
+    *,
+    location_hints: tuple[str, ...],
+    country_code: str = "",
+    region_code: str = "",
+) -> tuple[dict[str, object], ...]:
+    boundaries: list[dict[str, object]] = []
+    region_hint = str(region_code or "").replace("_", " ").strip()
+    country_hint = str(country_code or "").strip()
+    seen_display_names: set[str] = set()
+    for hint in location_hints:
+        normalized_hint = str(hint or "").strip()
+        if not normalized_hint:
+            continue
+        query_options = [normalized_hint]
+        if region_hint and region_hint.lower() not in normalized_hint.lower():
+            query_options.append(f"{normalized_hint}, {region_hint}")
+        if country_hint and country_hint.lower() not in normalized_hint.lower():
+            query_options.append(f"{normalized_hint}, {country_hint}")
+        if region_hint and country_hint:
+            query_options.append(f"{normalized_hint}, {region_hint}, {country_hint}")
+        for query in query_options:
+            record = _property_research_boundary_record(query)
+            geojson = dict(record.get("geojson") or {}) if isinstance(record.get("geojson"), dict) else {}
+            if not _property_research_geojson_outer_rings(geojson):
+                continue
+            display_name = str(record.get("display_name") or query).strip().lower()
+            if display_name in seen_display_names:
+                continue
+            seen_display_names.add(display_name)
+            boundaries.append(geojson)
+            break
+    return tuple(boundaries)
+
+
 def _property_candidate_within_adjacent_area_radius(
     *,
     location_hints: tuple[str, ...],
@@ -5122,6 +5160,20 @@ def _property_candidate_within_adjacent_area_radius(
     candidate_point = _property_candidate_point(property_facts)
     if candidate_point is None:
         return False
+    candidate_lat, candidate_lon = candidate_point
+    boundary_geojsons = _property_search_area_boundary_geojsons(
+        location_hints=location_hints,
+        country_code=country_code,
+        region_code=region_code,
+    )
+    for geojson in boundary_geojsons:
+        try:
+            distance_m = _property_research_point_to_geojson_distance_m(candidate_lat, candidate_lon, geojson)
+        except Exception:
+            continue
+        if distance_m is not None and distance_m <= float(adjacent_area_radius_m):
+            return True
+
     reference_points = _property_search_area_reference_points(
         location_hints=location_hints,
         country_code=country_code,
@@ -5129,7 +5181,6 @@ def _property_candidate_within_adjacent_area_radius(
     )
     if not reference_points:
         return False
-    candidate_lat, candidate_lon = candidate_point
     for ref_lat, ref_lon in reference_points:
         try:
             distance_m = _property_research_distance_m(candidate_lat, candidate_lon, ref_lat, ref_lon)
