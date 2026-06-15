@@ -4063,7 +4063,10 @@ def _build_provider_search_url(
         target_url = f"https://www.findmyhome.at/immo/{property_segment}"
         if location_segment:
             target_url = f"{target_url}/{location_segment}"
-        return target_url
+        query_items = {}
+        if min_area_m2:
+            query_items["minArea"] = str(min_area_m2)
+        return _append_query(target_url, query_items)
     if provider.key in {
         "immowelt_at",
         "findmyhome_at",

@@ -1998,6 +1998,32 @@ def test_propertyquarry_workspace_hides_investment_research_for_rent() -> None:
     assert 'name="investment_research_mode"' not in search.text
 
 
+def test_propertyquarry_workspace_hides_investment_research_for_home_buy() -> None:
+    principal_id = "pq-home-buy-no-investment-filter"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Buy Scope Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "search_goal": "home",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "investment_research_mode": "auto",
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+    assert search.status_code == 200
+    assert 'name="investment_research_mode"' not in search.text
+    assert '<select name="investment_strategy">' not in search.text
+
+
 def test_propertyquarry_workspace_setup_stays_user_facing() -> None:
     principal_id = "pq-provider-quality"
     client = build_property_client(principal_id=principal_id)

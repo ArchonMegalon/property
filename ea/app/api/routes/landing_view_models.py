@@ -2015,7 +2015,7 @@ def app_section_payload(
                 "label": "Underwriting depth",
                 "value": str(property_preferences.get("investment_research_mode") or "off"),
                 "options": investment_research_mode_options,
-                "hidden": selected_listing_mode != "buy" and not property_is_investment_search,
+                "hidden": not property_is_investment_search,
                 "tooltip": "When investment mode is active, PropertyQuarry builds quick yield, pricing, and risk context before the full property page.",
                 "step": "search",
             },
@@ -3419,11 +3419,26 @@ def app_section_payload(
             ],
         },
     }
-    if selected_listing_mode != "buy" and not property_is_investment_search:
+    if not property_is_investment_search:
+        investment_only_field_names = {
+            "investment_research_mode",
+            "investment_strategy",
+            "min_gross_yield_pct",
+            "equity_available_eur",
+            "loan_term_years",
+            "max_interest_rate_pct",
+            "min_dscr",
+            "vacancy_reserve_pct",
+            "capex_reserve_pct",
+            "investment_require_floorplan",
+            "investment_require_legal_clarity",
+            "investment_require_tenant_clarity",
+            "investment_avoid_major_renovation",
+        }
         property_form["fields"] = [
             field
             for field in list(property_form.get("fields") or [])
-            if str(field.get("name") or "").strip() != "investment_research_mode"
+            if str(field.get("name") or "").strip() not in investment_only_field_names
         ]
 
     mapping: dict[str, dict[str, object]] = {

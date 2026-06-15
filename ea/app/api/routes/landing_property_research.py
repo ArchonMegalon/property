@@ -140,6 +140,13 @@ def _render_console_object_detail(
     object_sidebar_form: dict[str, object] | None = None,
     object_feedback: dict[str, object] | None = None,
 ) -> HTMLResponse:
+    from app.api.routes.landing import (
+        _console_shell_context,
+        _render_public_template,
+    )
+    from app.api.routes.landing_content import app_nav_groups_for_brand
+    from app.services.public_branding import request_brand
+
     return _render_public_template(
         request,
         "app/object_detail.html",

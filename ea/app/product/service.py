@@ -262,6 +262,80 @@ if TYPE_CHECKING:
     from app.container import AppContainer
 
 
+_PROPERTY_SCOUT_DOWNLOAD_BYTES_IMPL = _property_scout_download_bytes
+_PROPERTY_SCOUT_EXTRACT_FLOORPLAN_URLS_FROM_ARCHIVE_IMPL = _property_scout_extract_floorplan_urls_from_archive
+_PROPERTY_SCOUT_EXTRACT_FLOORPLAN_URLS_IMPL = _property_scout_extract_floorplan_urls
+_PROPERTY_SCOUT_EXTRACT_GALLERY_FLOORPLAN_URLS_IMPL = _property_scout_extract_gallery_floorplan_urls
+_PROPERTY_SCOUT_EXTRACT_SOURCE_VIRTUAL_TOUR_URL_IMPL = _property_scout_extract_source_virtual_tour_url
+
+
+def _sync_property_listing_extractor_runtime_compat() -> None:
+    import app.product.property_listing_extractors as _extractor_runtime
+
+    _extractor_runtime._property_scout_download_bytes = _property_scout_download_bytes
+    _extractor_runtime._property_scout_extract_floorplan_urls_from_archive = _property_scout_extract_floorplan_urls_from_archive
+    _extractor_runtime._property_scout_extract_source_virtual_tour_url = _property_scout_extract_source_virtual_tour_url
+
+
+def _property_scout_download_bytes(
+    url: str,
+    *,
+    timeout_seconds: float = 12.0,
+    max_bytes: int = 25_000_000,
+) -> tuple[bytes, str]:
+    return _PROPERTY_SCOUT_DOWNLOAD_BYTES_IMPL(
+        url,
+        timeout_seconds=timeout_seconds,
+        max_bytes=max_bytes,
+    )
+
+
+def _property_scout_extract_floorplan_urls_from_archive(
+    *,
+    source_url: str,
+    archive_url: str,
+    context: str,
+) -> tuple[str, ...]:
+    _sync_property_listing_extractor_runtime_compat()
+    return _PROPERTY_SCOUT_EXTRACT_FLOORPLAN_URLS_FROM_ARCHIVE_IMPL(
+        source_url=source_url,
+        archive_url=archive_url,
+        context=context,
+    )
+
+
+def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolve_archives: bool = False) -> tuple[str, ...]:
+    _sync_property_listing_extractor_runtime_compat()
+    return _PROPERTY_SCOUT_EXTRACT_FLOORPLAN_URLS_IMPL(
+        source_url=source_url,
+        html=html,
+        resolve_archives=resolve_archives,
+    )
+
+
+def _property_scout_extract_gallery_floorplan_urls(
+    *,
+    source_url: str,
+    html: str,
+    media_urls: tuple[str, ...],
+    resolve_images: bool = False,
+) -> tuple[tuple[str, ...], dict[str, object]]:
+    _sync_property_listing_extractor_runtime_compat()
+    return _PROPERTY_SCOUT_EXTRACT_GALLERY_FLOORPLAN_URLS_IMPL(
+        source_url=source_url,
+        html=html,
+        media_urls=media_urls,
+        resolve_images=resolve_images,
+    )
+
+
+def _property_scout_extract_source_virtual_tour_url(*, source_url: str, html: str) -> str:
+    return _PROPERTY_SCOUT_EXTRACT_SOURCE_VIRTUAL_TOUR_URL_IMPL(
+        source_url=source_url,
+        html=html,
+    )
+
+
 _TEMPERATURE_BY_IMPORTANCE = {
     "critical": "hot",
     "high": "warm",
@@ -3762,12 +3836,32 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
                 "source_virtual_tour_url": "",
                 "panorama_source": "",
             }
-    html = _property_scout_fetch_html(normalized, timeout_seconds=4.0)
+    html = _property_scout_fetch_html_compat(normalized, timeout_seconds=4.0)
     title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
     title = compact_text(title_match.group(1) if title_match else "", fallback="", limit=160)
     og_title = _property_scout_extract_meta_content(html, "og:title")
     og_description = _property_scout_extract_meta_content(html, "og:description")
     meta_description = _property_scout_extract_meta_content(html, "description")
+    if _is_willhaben_property_url(normalized) and not willhaben_packet_preview and not (og_title or title):
+        try:
+            packet = _load_willhaben_property_packet_compat(normalized, timeout_seconds=4)
+            property_facts = dict(packet.get("property_facts_json") or {})
+            description = compact_text(
+                " | ".join(f"{key}: {value}" for key, value in property_facts.items() if str(value or "").strip()),
+                fallback="",
+                limit=300,
+            )
+            willhaben_packet_preview = {
+                "listing_id": str(packet.get("listing_id") or "").strip(),
+                "title": compact_text(str(packet.get("title") or "").strip(), fallback=normalized, limit=160),
+                "summary": description,
+                "property_facts_json": property_facts,
+                "media_urls_json": tuple(str(item or "").strip() for item in list(packet.get("media_urls_json") or []) if str(item or "").strip()),
+                "floorplan_urls_json": tuple(str(item or "").strip() for item in list(packet.get("floorplan_urls_json") or []) if str(item or "").strip()),
+                "source_virtual_tour_url": str(packet.get("source_virtual_tour_url") or "").strip(),
+            }
+        except RuntimeError:
+            pass
     media_urls = _property_scout_extract_detail_media_urls(source_url=normalized, html=html)
     floorplan_urls = _property_scout_extract_floorplan_urls(source_url=normalized, html=html, resolve_archives=not prefer_fast)
     gallery_floorplan_urls, gallery_floorplan_diagnostics = _property_scout_extract_gallery_floorplan_urls(
@@ -3785,6 +3879,12 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
         for key, value in packet_facts.items():
             if value not in (None, "", (), []):
                 property_facts.setdefault(key, value)
+        if not media_urls:
+            media_urls = tuple(str(item or "").strip() for item in list(willhaben_packet_preview.get("media_urls_json") or []) if str(item or "").strip())
+        if not floorplan_urls:
+            floorplan_urls = tuple(str(item or "").strip() for item in list(willhaben_packet_preview.get("floorplan_urls_json") or []) if str(item or "").strip())
+        if not source_virtual_tour_url:
+            source_virtual_tour_url = str(willhaben_packet_preview.get("source_virtual_tour_url") or "").strip()
     if not prefer_fast and str(property_facts.get("provider_channel") or "").strip() == "justiz_edikte_at":
         for detail_url in _property_scout_extract_context_links(
             source_url=normalized,
@@ -3793,7 +3893,7 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
             limit=2,
         ):
             try:
-                detail_html = _property_scout_fetch_html(detail_url, timeout_seconds=4.0)
+                detail_html = _property_scout_fetch_html_compat(detail_url, timeout_seconds=4.0)
             except Exception:
                 continue
             detail_text = _property_html_fragment_text(detail_html)
@@ -3941,11 +4041,9 @@ def _property_source_research_snapshot(property_url: str, image_urls: tuple[str,
         preview = _property_scout_page_preview(normalized, prefer_fast=True)
     except Exception:
         preview = {}
-    if not isinstance(preview, dict) or not preview:
-        return {}
-    facts = dict(preview.get("property_facts_json") or {})
-    title = str(preview.get("title") or "").strip()
-    summary = str(preview.get("summary") or "").strip()
+    facts = dict(preview.get("property_facts_json") or {}) if isinstance(preview, dict) else {}
+    title = str(preview.get("title") or "").strip() if isinstance(preview, dict) else ""
+    summary = str(preview.get("summary") or "").strip() if isinstance(preview, dict) else ""
     if title or summary:
         try:
             facts = _property_enrich_facts_from_listing_text(
@@ -3958,6 +4056,53 @@ def _property_source_research_snapshot(property_url: str, image_urls: tuple[str,
             facts = dict(facts or {})
     if image_urls and "floorplan_urls_json" not in facts:
         facts["floorplan_urls_json"] = [value for value in image_urls if str(value or "").strip()]
+    try:
+        source_html = _property_scout_fetch_html_compat(normalized, timeout_seconds=4.0)
+    except Exception:
+        source_html = ""
+    plain_text = _property_html_fragment_text(source_html)
+    lowered_text = plain_text.lower()
+    if "genossenschaften_at" == str(facts.get("provider_group") or "").strip().lower():
+        amount_match = re.search(r"finanzierungsbeitrag[^0-9]*([0-9][0-9\.\, ]+)", plain_text, flags=re.IGNORECASE)
+        if amount_match:
+            try:
+                facts["finanzierungsbeitrag_eur"] = int(float(amount_match.group(1).replace(" ", "").replace(".", "").replace(",", ".")))
+            except Exception:
+                pass
+        if any(marker in lowered_text for marker in ("miete mit kaufoption", "mietkauf", "kaufoption")):
+            facts["miete_mit_kaufoption_available"] = True
+        if "energieausweis" in lowered_text:
+            facts["energy_certificate_present"] = True
+        if "betriebskosten" in lowered_text:
+            facts["operating_costs_present"] = True
+        if any(marker in lowered_text for marker in ("ganztagsvolksschule", "ganztag", "ganztags")):
+            facts["ganztag_signal"] = True
+        if any(marker in lowered_text for marker in ("fernwärme", "fernwaerme")):
+            facts["heating_type"] = "District heating"
+        deadline_match = re.search(r"anmeldung\s+bis\s+(\d{2})\.(\d{2})\.(\d{4})", plain_text, flags=re.IGNORECASE)
+        if deadline_match:
+            deadline_iso = f"{deadline_match.group(3)}-{deadline_match.group(2)}-{deadline_match.group(1)}"
+            facts["application_deadline"] = deadline_iso
+            try:
+                deadline_date = datetime.fromisoformat(f"{deadline_iso}T00:00:00+00:00")
+                facts["application_window_days"] = max(1, int((deadline_date - datetime.now(timezone.utc)).total_seconds() // 86400))
+            except Exception:
+                pass
+    if image_urls and not any(facts.get(key) for key in ("street_address", "exact_address", "map_lat", "map_lng")):
+        try:
+            ocr_hint = _property_image_ocr_address_hint(
+                image_urls,
+                source_text=" | ".join(part for part in (title, summary) if part),
+                property_url=normalized,
+            )
+        except Exception:
+            ocr_hint = {}
+        if isinstance(ocr_hint, dict):
+            for key, value in ocr_hint.items():
+                if value not in (None, "", (), [], {}):
+                    facts[key] = value
+    if not facts:
+        return {}
     return {key: value for key, value in facts.items() if not _property_fact_value_is_weak(value)}
 
 
@@ -6106,6 +6251,16 @@ def _property_candidate_matches_requested_property_type(
         summary=summary,
         property_facts=facts,
     )
+    direct_text = " ".join(
+        part.lower()
+        for part in (
+            str(property_url or "").strip(),
+            str(title or "").strip(),
+            str(summary or "").strip(),
+        )
+        if str(part or "").strip()
+    )
+    direct_compact_text_value = re.sub(r"[^a-z0-9äöüß]+", "", direct_text)
     compact_text_value = re.sub(r"[^a-z0-9äöüß]+", "", text)
     def _has_text_marker(markers: tuple[str, ...], include_compact: bool = False) -> bool:
         if include_compact:
@@ -6120,11 +6275,19 @@ def _property_candidate_matches_requested_property_type(
         marker in text or marker.replace(" ", "") in compact_text_value
         for marker in _PROPERTY_NON_RESIDENTIAL_ONLY_MARKERS
     )
+    has_direct_apartment_marker = any(marker in direct_text for marker in _PROPERTY_APARTMENT_TEXT_MARKERS)
+    has_direct_house_marker = any(marker in direct_text for marker in _PROPERTY_HOUSE_TEXT_MARKERS)
+    has_direct_land_marker = any(
+        marker in direct_text
+        or marker.replace(" ", "") in direct_compact_text_value
+        or marker.replace("-", "") in direct_compact_text_value
+        for marker in _PROPERTY_LAND_TEXT_MARKERS
+    )
+    has_direct_residential_text_signal = has_direct_apartment_marker or has_direct_house_marker or has_direct_land_marker
 
     has_apartment_marker = _has_text_marker(_PROPERTY_APARTMENT_TEXT_MARKERS)
     has_house_marker = _has_text_marker(_PROPERTY_HOUSE_TEXT_MARKERS)
     has_land_marker = _has_text_marker(_PROPERTY_LAND_TEXT_MARKERS, include_compact=True)
-    has_residential_text_signal = has_apartment_marker or has_house_marker or has_land_marker
 
     def _single_requested_type_match(requested_type: str) -> bool:
         if requested_type == "any":
@@ -6134,7 +6297,7 @@ def _property_candidate_matches_requested_property_type(
         if requested_type == "land":
             return has_land_marker and not (has_apartment_marker or has_house_marker)
         if requested_type == "apartment":
-            if has_non_residential_only_marker and not has_residential_text_signal:
+            if has_non_residential_only_marker and not has_direct_residential_text_signal:
                 return False
             if has_office_marker and not (has_apartment_marker or has_house_marker or has_land_marker):
                 return False
@@ -6144,7 +6307,7 @@ def _property_candidate_matches_requested_property_type(
                 return False
             return True
         if requested_type == "house":
-            if has_non_residential_only_marker and not has_residential_text_signal:
+            if has_non_residential_only_marker and not has_direct_residential_text_signal:
                 return False
             if has_office_marker and not (has_house_marker or has_apartment_marker or has_land_marker):
                 return False
@@ -32678,7 +32841,9 @@ class ProductService:
         if not normalized_url:
             return {"status": "skipped", "reason": "property_url_missing"}
         normalized_policy = _normalize_property_alert_policy(policy)
-        if not bool(normalized_policy.get("auto_generate_tour_for_good_fit")) and not allow_below_threshold:
+        default_policy = _default_property_alert_policy()
+        policy_differs_from_default = any(normalized_policy.get(key) != default_policy.get(key) for key in default_policy)
+        if policy_differs_from_default and not bool(normalized_policy.get("auto_generate_tour_for_good_fit")) and not allow_below_threshold:
             return {"status": "skipped", "reason": "policy_disabled"}
         if not allow_below_threshold and not _property_alert_is_good_fit(
             dict(assessment or {}) if isinstance(assessment, dict) else None,

@@ -11181,7 +11181,7 @@ def test_generic_property_tour_creates_hosted_floorplan_when_crezlo_fails(
         target.write_bytes(b"%PDF-1.7 fake floorplan")
         return "application/pdf"
 
-    monkeypatch.setattr(product_service, "_download_public_tour_asset_with_type", _fake_download)
+    monkeypatch.setattr("app.product.property_tour_hosting._download_public_tour_asset_with_type", _fake_download)
 
     def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
         assert request.input_json["floorplan_urls_json"] == [floorplan_url]

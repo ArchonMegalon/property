@@ -47,7 +47,18 @@ _PROPERTY_SCOUT_FLOORPLAN_MARKERS = (
 )
 _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_CONTEXT_MARKERS = (*_PROPERTY_SCOUT_FLOORPLAN_MARKERS, "pdf", "download", "dokument", "beilage", "anlage", "unterlagen")
 _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MEMBER_MARKERS = (*_PROPERTY_SCOUT_FLOORPLAN_MARKERS, "pdf", "grundrissplan", "wohnungsplan")
-_PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS = ("justimmo.at", "mmo.at", "storage.justimmo.at", "siedlungsunion.at")
+_PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS = (
+    "justimmo.at",
+    "mmo.at",
+    "storage.justimmo.at",
+    "siedlungsunion.at",
+    "gesiba.at",
+    "wbv-gpa.at",
+    "frieden.at",
+    "sozialbau.at",
+    "edikte.justiz.gv.at",
+    "edikte2.justiz.gv.at",
+)
 _PROPERTY_SCOUT_360_HOST_MARKERS = (
     "matterport.com",
     "my.matterport.com",
@@ -80,6 +91,7 @@ _PROPERTY_SCOUT_360_HOST_MARKERS = (
     "feelestate.com",
     "immobilien360",
     "3d.laendleanzeiger.at",
+    "360.kalandra.at",
 )
 _URL_TEXT_RE = re.compile(r"https?://[^\s<>\"]+", re.IGNORECASE)
 _WILLHABEN_HOST_MARKERS = ("willhaben.at",)
@@ -543,6 +555,11 @@ def _property_scout_is_floorplan_archive_candidate_url(*, url: str, context: str
         marker in f"{combined} {lowered_context}" for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS
     ):
         return True
+    if urllib.parse.unquote(parsed.path or "").lower().endswith(".pdf") and any(
+        marker in host for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS
+    ):
+        if any(marker in lowered_context for marker in ("pdf", "download", "dokument", "unterlag", "plan", "oeffnen", "öffnen")):
+            return True
     if not any(marker in host for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS):
         return False
     if any(marker in combined for marker in ("zip", "alldoc", "download", "dokument", "beilage", "anlage", "unterlag", "gutachten")):

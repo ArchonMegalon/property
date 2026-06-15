@@ -1155,11 +1155,12 @@
       };
       const syncListingModeControls = () => {
         const isBuy = String(listingModeField?.value || 'rent').trim().toLowerCase() === 'buy';
+        const isInvestment = String(searchGoalField?.value || 'home').trim().toLowerCase() === 'investment';
         if (investmentFieldWrap) {
-          investmentFieldWrap.hidden = !isBuy || String(form.dataset.propertyActiveStep || '').trim() !== 'search';
+          investmentFieldWrap.hidden = !isInvestment || !isBuy || String(form.dataset.propertyActiveStep || '').trim() !== 'search';
           investmentFieldWrap.toggleAttribute('aria-hidden', investmentFieldWrap.hidden);
         }
-        if (!isBuy && investmentField) investmentField.value = 'off';
+        if ((!isBuy || !isInvestment) && investmentField) investmentField.value = 'off';
         syncAdvancedPanels();
         syncMarketAwareFields(form, meta);
       };
@@ -1200,6 +1201,7 @@
           if (lifestyleField) lifestyleField.checked = false;
           form.dataset.propertyExcludedSteps = 'children,reachability';
         } else {
+          if (investmentField) investmentField.value = 'off';
           form.dataset.propertyExcludedSteps = '';
         }
         const nextEffectiveMode = effectiveListingMode();
