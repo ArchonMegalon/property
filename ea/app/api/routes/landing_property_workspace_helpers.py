@@ -423,6 +423,8 @@ def _property_candidate_preview_image(candidate: dict[str, object]) -> str:
 
 
 def _property_candidate_orientation_preview(candidate: dict[str, object]) -> dict[str, object]:
+    from app.api.routes import landing_view_models
+
     facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
     label = str(
         facts.get("district")
@@ -462,7 +464,7 @@ def _property_candidate_orientation_preview(candidate: dict[str, object]) -> dic
         lng = 0.0
     map_url = str(candidate.get("map_url") or "").strip() or _property_candidate_maps_url(candidate)
     if not (lat or lng):
-        geocoded = _forward_geocode_preview_point(label)
+        geocoded = landing_view_models._forward_geocode_preview_point(label)
         if geocoded:
             lat, lng = geocoded
     selected_labels: list[str] = []
@@ -471,7 +473,7 @@ def _property_candidate_orientation_preview(candidate: dict[str, object]) -> dic
         if value and value.casefold() not in {item.casefold() for item in selected_labels}:
             selected_labels.append(value)
     option_lookup = {item.casefold(): item for item in selected_labels}
-    boundary_preview = _build_scope_boundary_preview(
+    boundary_preview = landing_view_models._build_scope_boundary_preview(
         country_code=country_code.upper(),
         region_code=region_code,
         normalized_query=context_label,
@@ -483,7 +485,10 @@ def _property_candidate_orientation_preview(candidate: dict[str, object]) -> dic
     if boundary_preview:
         image_url = str(boundary_preview.get("image_url") or "").strip()
     elif lat or lng:
-        image_url = _openstreetmap_static_preview_data_url(int(round(lat * 10000.0)), int(round(lng * 10000.0)))
+        image_url = landing_view_models._openstreetmap_static_preview_data_url(
+            int(round(lat * 10000.0)),
+            int(round(lng * 10000.0)),
+        )
     else:
         svg = (
             '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="368" viewBox="0 0 320 184" role="img" aria-label="Area map preview">'

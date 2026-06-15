@@ -103,6 +103,11 @@ from app.product.property_location_research import (
     _property_schoolatlas_wfs_json,
     _PROPERTY_SCHOOLATLAS_SOURCE_URL,
 )
+from app.product.property_search_stage_receipts import (
+    mark_property_search_stage_receipt,
+    new_property_search_stage_receipts,
+    property_search_stage_receipt_summary,
+)
 from app.product.property_tour_hosting import (
     _configured_public_tour_hosts,
     _download_public_tour_asset,
@@ -25238,6 +25243,14 @@ class ProductService:
         refreshed["blocked_tour_total"] = blocked_total
         refreshed["eligible_tour_total"] = eligible_total
         refreshed["hosted_tour_total"] = ready_total
+        if not pending_total:
+            refreshed["timing_receipts"] = property_search_stage_receipt_summary(
+                mark_property_search_stage_receipt(
+                    dict(refreshed.get("timing_receipts") or {}),
+                    "results_delivery_ready_at",
+                ),
+                timing_ms=dict(refreshed.get("timing_ms") or {}),
+            )
         return refreshed
 
     def _persist_property_search_visual_state(
@@ -26326,6 +26339,7 @@ class ProductService:
             steps_delta=1,
             stages_total_override=2 + (len(specs) * max(8, (max(1, int(resolved_max_results or 2)) * 3) + 5)),
         )
+        stage_receipts = mark_property_search_stage_receipt(new_property_search_stage_receipts(), "sources_resolved_at")
 
         if not specs:
             return {
@@ -26387,6 +26401,13 @@ class ProductService:
                 "flythrough_rendered_total": 0,
                 "flythrough_existing_total": 0,
                 "flythrough_failed_total": 0,
+                "timing_receipts": property_search_stage_receipt_summary(
+                    mark_property_search_stage_receipt(
+                        mark_property_search_stage_receipt(stage_receipts, "results_delivery_ready_at"),
+                        "completed_at",
+                    ),
+                    timing_ms={"run_total": round((time.perf_counter() - run_started_at) * 1000.0, 2)},
+                ),
                 "sources": [],
             }
 
@@ -26418,6 +26439,7 @@ class ProductService:
         watch_notified_total = 0
         filter_near_miss_notified_total = 0
         partial_shortlist_reported = False
+        stage_receipts = stage_receipts if isinstance(stage_receipts, dict) else new_property_search_stage_receipts()
         timing_ms = {
             "provider_fetch_total": 0.0,
             "provider_process_total": 0.0,
@@ -28424,6 +28446,7 @@ class ProductService:
             )
             if not partial_shortlist_reported and ranked_rows:
                 partial_shortlist_reported = True
+                stage_receipts = mark_property_search_stage_receipt(stage_receipts, "first_shortlist_ready_at")
                 _report(
                     step="shortlist_ready",
                     message=f"First ranked homes are ready from {source_label}.",
@@ -28435,6 +28458,7 @@ class ProductService:
                     },
                 )
 
+        stage_receipts = mark_property_search_stage_receipt(stage_receipts, "deep_research_ready_at")
         def _source_summary_for_notification(item: dict[str, object]) -> dict[str, object] | None:
             item_source_url = str(item.get("source_url") or "").strip()
             item_source_label = str(item.get("source_label") or "").strip()
@@ -28587,6 +28611,7 @@ class ProductService:
                         source_summary.get("filter_near_miss_notified_total") or 0
                     ) + 1
 
+        stage_receipts = mark_property_search_stage_receipt(stage_receipts, "results_compiled_at")
         payload = {
             "generated_at": _now_iso(),
             "status": "processed",
@@ -28659,6 +28684,12 @@ class ProductService:
                 "run_total": round((time.perf_counter() - run_started_at) * 1000.0, 2),
             },
         }
+        if not self._property_search_results_delivery_pending(result=payload):
+            stage_receipts = mark_property_search_stage_receipt(stage_receipts, "results_delivery_ready_at")
+        payload["timing_receipts"] = property_search_stage_receipt_summary(
+            mark_property_search_stage_receipt(stage_receipts, "completed_at"),
+            timing_ms=dict(payload.get("timing_ms") or {}),
+        )
         payload["search_broaden_suggestions"] = _property_search_broaden_suggestions(
             request_preferences=request_preferences,
             payload=payload,

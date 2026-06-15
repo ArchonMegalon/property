@@ -103,34 +103,49 @@
   const renderFollowups = (rows) => {
     if (!followupsNode) return;
     const safeRows = Array.isArray(rows) ? rows : [];
-    const escapeHtml = (value) => String(value || '')
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
-    followupsNode.innerHTML = safeRows.map((row) => {
-      const feedbackId = String(row?.feedback_id || '').trim();
-      const actions = feedbackId ? `
-        <div class="object-actions">
-          <button class="console-action" type="button" data-object-followup-action="answered" data-object-feedback-id="${escapeHtml(feedbackId)}">Answered</button>
-          <button class="console-action" type="button" data-object-followup-action="needs_follow_up" data-object-feedback-id="${escapeHtml(feedbackId)}">Needs follow-up</button>
-          <button class="console-action" type="button" data-object-followup-action="confirmed" data-object-feedback-id="${escapeHtml(feedbackId)}">Confirmed</button>
-          <button class="console-action" type="button" data-object-followup-action="contradicted" data-object-feedback-id="${escapeHtml(feedbackId)}">Contradicted</button>
-          <button class="console-action" type="button" data-object-followup-action="resolved" data-object-feedback-id="${escapeHtml(feedbackId)}">Resolved</button>
-        </div>
-      ` : '';
-      return `
-        <div class="object-row">
-          <div>
-            <strong>${escapeHtml(row?.title || 'Follow-up')}</strong>
-            <small>${escapeHtml(row?.detail || '')}</small>
-            ${actions}
-          </div>
-          <div class="object-tag">${escapeHtml(row?.tag || '')}</div>
-        </div>
-      `;
-    }).join('') || '<div class="object-row"><div><strong>No tracked question yet</strong><small>Use the question helper or the suggested next question to start a tracked follow-up.</small></div><div class="object-tag">Waiting</div></div>';
+    clearNode(followupsNode);
+    if (!safeRows.length) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'object-row';
+      const body = document.createElement('div');
+      appendTextNode(body, 'strong', 'No tracked question yet');
+      appendTextNode(body, 'small', 'Use the question helper or the suggested next question to start a tracked follow-up.');
+      wrapper.appendChild(body);
+      appendTextNode(wrapper, 'div', 'Waiting').className = 'object-tag';
+      followupsNode.appendChild(wrapper);
+    } else {
+      safeRows.forEach((row) => {
+        const feedbackId = String(row?.feedback_id || '').trim();
+        const wrapper = document.createElement('div');
+        wrapper.className = 'object-row';
+        const body = document.createElement('div');
+        appendTextNode(body, 'strong', row?.title || 'Follow-up');
+        appendTextNode(body, 'small', row?.detail || '');
+        if (feedbackId) {
+          const actions = document.createElement('div');
+          actions.className = 'object-actions';
+          [
+            ['answered', 'Answered'],
+            ['needs_follow_up', 'Needs follow-up'],
+            ['confirmed', 'Confirmed'],
+            ['contradicted', 'Contradicted'],
+            ['resolved', 'Resolved'],
+          ].forEach(([nextStatus, label]) => {
+            const button = document.createElement('button');
+            button.className = 'console-action';
+            button.type = 'button';
+            button.setAttribute('data-object-followup-action', nextStatus);
+            button.setAttribute('data-object-feedback-id', feedbackId);
+            button.textContent = label;
+            actions.appendChild(button);
+          });
+          body.appendChild(actions);
+        }
+        wrapper.appendChild(body);
+        appendTextNode(wrapper, 'div', row?.tag || '').className = 'object-tag';
+        followupsNode.appendChild(wrapper);
+      });
+    }
     followupsNode.querySelectorAll('[data-object-followup-action]').forEach((button) => {
       button.addEventListener('click', async () => {
         const feedbackId = String(button.getAttribute('data-object-feedback-id') || '').trim();
@@ -194,31 +209,39 @@
     if (!clippyAnswer) return;
     const evidence = Array.isArray(body?.evidence) ? body.evidence : [];
     const actions = Array.isArray(body?.actions) ? body.actions : [];
-    const escapeHtml = (value) => String(value || '')
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
-    clippyAnswer.innerHTML = `
-      <div class="object-row">
-        <div>
-          <strong>${escapeHtml(body?.name || 'Clippy')}</strong>
-          <small>${escapeHtml(body?.answer || 'No answer returned.')}</small>
-        </div>
-        <div class="object-tag">Grounded</div>
-      </div>
-      ${evidence.map((row) => `
-        <div class="object-row">
-          <div>
-            <strong>${escapeHtml(row.title || 'Evidence')}</strong>
-            <small>${escapeHtml(row.detail || '')}</small>
-          </div>
-          <div class="object-tag">${escapeHtml(row.confidence || row.source || '')}</div>
-        </div>
-      `).join('')}
-      ${actions.length ? `<div class="object-actions">${actions.map((row, index) => `<button class="console-action" type="button" data-object-clippy-action="${escapeHtml(row.action || '')}" data-object-clippy-index="${index}">${escapeHtml(row.label || 'Action')}</button>`).join('')}</div>` : ''}
-    `;
+    clearNode(clippyAnswer);
+    const topRow = document.createElement('div');
+    topRow.className = 'object-row';
+    const topBody = document.createElement('div');
+    appendTextNode(topBody, 'strong', body?.name || 'Clippy');
+    appendTextNode(topBody, 'small', body?.answer || 'No answer returned.');
+    topRow.appendChild(topBody);
+    appendTextNode(topRow, 'div', 'Grounded').className = 'object-tag';
+    clippyAnswer.appendChild(topRow);
+    evidence.forEach((row) => {
+      const evidenceRow = document.createElement('div');
+      evidenceRow.className = 'object-row';
+      const evidenceBody = document.createElement('div');
+      appendTextNode(evidenceBody, 'strong', row?.title || 'Evidence');
+      appendTextNode(evidenceBody, 'small', row?.detail || '');
+      evidenceRow.appendChild(evidenceBody);
+      appendTextNode(evidenceRow, 'div', row?.confidence || row?.source || '').className = 'object-tag';
+      clippyAnswer.appendChild(evidenceRow);
+    });
+    if (actions.length) {
+      const actionsWrap = document.createElement('div');
+      actionsWrap.className = 'object-actions';
+      actions.forEach((row, index) => {
+        const button = document.createElement('button');
+        button.className = 'console-action';
+        button.type = 'button';
+        button.setAttribute('data-object-clippy-action', String(row?.action || ''));
+        button.setAttribute('data-object-clippy-index', String(index));
+        button.textContent = String(row?.label || 'Action');
+        actionsWrap.appendChild(button);
+      });
+      clippyAnswer.appendChild(actionsWrap);
+    }
     clippyAnswer.querySelectorAll('[data-object-clippy-action]').forEach((button) => {
       button.addEventListener('click', async () => {
         const row = actions[Number.parseInt(String(button.getAttribute('data-object-clippy-index') || '-1'), 10)];

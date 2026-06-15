@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ page_title }}</title>
   {{ rybbit_head_snippet(request) }}
-  {% if principal_id %}
+  {% if analytics_principal_id %}
   <script>
     window.addEventListener('load', () => {
       const runIdentify = (rybbit) => {
         if (!rybbit || typeof rybbit.identify !== 'function') return;
         try {
-          rybbit.identify({{ principal_id|tojson }}, { brand: {{ brand.key|tojson }} });
+          rybbit.identify({{ analytics_principal_id|tojson }}, { brand: {{ brand.key|tojson }} });
         } catch (_error) {
           // Analytics identification stays best-effort only.
         }

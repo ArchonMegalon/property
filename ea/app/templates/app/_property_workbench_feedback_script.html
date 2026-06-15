@@ -1,14 +1,60 @@
+    const clearNode = (node) => {
+      while (node?.firstChild) node.removeChild(node.firstChild);
+    };
+    const appendEventCard = (parent, title, detail = '', tag = '') => {
+      if (!parent) return null;
+      const card = document.createElement('div');
+      card.className = 'pqx-event-card';
+      const strong = document.createElement('strong');
+      strong.textContent = String(title || '');
+      card.appendChild(strong);
+      if (detail) {
+        const note = document.createElement('span');
+        note.className = 'pqx-note';
+        note.textContent = String(detail || '');
+        card.appendChild(note);
+      }
+      if (tag) {
+        const small = document.createElement('span');
+        small.className = 'pqx-small';
+        small.textContent = String(tag || '');
+        card.appendChild(small);
+      }
+      parent.appendChild(card);
+      return card;
+    };
     const renderClippyAnswer = (body) => {
       if (!clippyAnswerNode) return;
       const evidence = Array.isArray(body?.evidence) ? body.evidence : [];
       const actions = Array.isArray(body?.actions) ? body.actions : [];
-      clippyAnswerNode.innerHTML = `
-        <div class="pqx-event-card"><strong>${escapeHtml(body?.name || 'Property answer')}</strong><span class="pqx-note">${escapeHtml(body?.answer || 'No answer returned.')}</span></div>
-        ${evidence.map((row) => `
-          <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Evidence')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.confidence || row.source || '')}</span></div>
-        `).join('')}
-        ${actions.length ? `<div class="pqx-actions">${actions.map((row, index) => `<button class="pqx-button" type="button" data-pw-clippy-action="${escapeHtml(row.action || '')}" data-pw-clippy-index="${index}">${escapeHtml(row.label || 'Action')}</button>`).join('')}</div>` : ''}
-      `;
+      clearNode(clippyAnswerNode);
+      appendEventCard(
+        clippyAnswerNode,
+        body?.name || 'Property answer',
+        body?.answer || 'No answer returned.',
+      );
+      evidence.forEach((row) => {
+        appendEventCard(
+          clippyAnswerNode,
+          row?.title || 'Evidence',
+          row?.detail || '',
+          row?.confidence || row?.source || '',
+        );
+      });
+      if (actions.length) {
+        const actionsWrap = document.createElement('div');
+        actionsWrap.className = 'pqx-actions';
+        actions.forEach((row, index) => {
+          const button = document.createElement('button');
+          button.className = 'pqx-button';
+          button.type = 'button';
+          button.setAttribute('data-pw-clippy-action', String(row?.action || ''));
+          button.setAttribute('data-pw-clippy-index', String(index));
+          button.textContent = String(row?.label || 'Action');
+          actionsWrap.appendChild(button);
+        });
+        clippyAnswerNode.appendChild(actionsWrap);
+      }
       clippyAnswerNode.querySelectorAll('[data-pw-clippy-action]').forEach((button) => {
         button.addEventListener('click', async () => {
           const row = actions[Number.parseInt(String(button.getAttribute('data-pw-clippy-index') || '-1'), 10)];
@@ -110,11 +156,17 @@
       const rows = []
         .concat(Array.isArray(suggestions?.negative) ? suggestions.negative : [])
         .concat(Array.isArray(suggestions?.positive) ? suggestions.positive : []);
-      feedbackReasonsNode.innerHTML = rows.map((row) => {
+      clearNode(feedbackReasonsNode);
+      rows.forEach((row) => {
         const key = String(row?.key || '').trim();
         const label = String(row?.label || key || 'Reason').trim();
-        return `<button class="pqx-decision-chip" type="button" data-pw-feedback-reason="${escapeHtml(key)}">${escapeHtml(label)}</button>`;
-      }).join('');
+        const chip = document.createElement('button');
+        chip.className = 'pqx-decision-chip';
+        chip.type = 'button';
+        chip.setAttribute('data-pw-feedback-reason', key);
+        chip.textContent = label;
+        feedbackReasonsNode.appendChild(chip);
+      });
       feedbackReasonsNode.querySelectorAll('[data-pw-feedback-reason]').forEach((chip) => {
         chip.addEventListener('click', () => {
           const key = String(chip.getAttribute('data-pw-feedback-reason') || '').trim();
@@ -132,16 +184,30 @@
     const renderFeedbackQuestions = (suggestions) => {
       if (!feedbackQuestionsNode) return;
       const rows = Array.isArray(suggestions?.agent_questions) ? suggestions.agent_questions : [];
-      feedbackQuestionsNode.innerHTML = rows.map((row, index) => `
-        <div class="pqx-event-card"><strong>Question ${index + 1}</strong><span class="pqx-note">${escapeHtml(row.question || '')}</span></div>
-      `).join('') || '<div class="pqx-note">No agent question generated yet.</div>';
+      clearNode(feedbackQuestionsNode);
+      if (!rows.length) {
+        const empty = document.createElement('div');
+        empty.className = 'pqx-note';
+        empty.textContent = 'No agent question generated yet.';
+        feedbackQuestionsNode.appendChild(empty);
+        return;
+      }
+      rows.forEach((row, index) => {
+        appendEventCard(feedbackQuestionsNode, `Question ${index + 1}`, row?.question || '');
+      });
     };
     const renderFeedbackConsequences = (suggestions) => {
       if (!feedbackConsequencesNode) return;
       const rows = Array.isArray(suggestions?.decision_consequences) ? suggestions.decision_consequences : [];
-      feedbackConsequencesNode.innerHTML = rows.map((line) => `
-        <div class="pqx-event-card"><strong>Next</strong><span class="pqx-note">${escapeHtml(line || '')}</span></div>
-      `).join('') || '<div class="pqx-note">Decision consequences will appear here.</div>';
+      clearNode(feedbackConsequencesNode);
+      if (!rows.length) {
+        const empty = document.createElement('div');
+        empty.className = 'pqx-note';
+        empty.textContent = 'Decision consequences will appear here.';
+        feedbackConsequencesNode.appendChild(empty);
+        return;
+      }
+      rows.forEach((line) => appendEventCard(feedbackConsequencesNode, 'Next', line || ''));
     };
     const renderSavedDecisionConsequences = (body) => {
       if (!feedbackConsequencesNode) return;
@@ -156,10 +222,18 @@
       questions.slice(0, 3).forEach((row) => rows.push(['Agent question', row?.question_text || row?.next_action || 'Question drafted.']));
       documents.slice(0, 3).forEach((row) => rows.push(['Document request', `${String(row?.document_type || 'document').replaceAll('_', ' ')} · ${String(row?.verification_state || 'pending').replaceAll('_', ' ')}`]));
       suppression.slice(0, 3).forEach((line) => rows.push(['Future search', line]));
-      feedbackConsequencesNode.innerHTML = `<div class="pqx-decision-consequence-grid">${
-        rows.map(([title, detail]) => `<div class="pqx-event-card"><strong>${escapeHtml(title)}</strong><span class="pqx-note">${escapeHtml(detail)}</span></div>`).join('')
-        || '<div class="pqx-note">Decision saved. No additional follow-up was generated.</div>'
-      }</div>`;
+      clearNode(feedbackConsequencesNode);
+      if (!rows.length) {
+        const empty = document.createElement('div');
+        empty.className = 'pqx-note';
+        empty.textContent = 'Decision saved. No additional follow-up was generated.';
+        feedbackConsequencesNode.appendChild(empty);
+        return;
+      }
+      const grid = document.createElement('div');
+      grid.className = 'pqx-decision-consequence-grid';
+      rows.forEach(([title, detail]) => appendEventCard(grid, title, detail));
+      feedbackConsequencesNode.appendChild(grid);
     };
     const renderPersistedDecisionState = (body) => {
       if (!feedbackConsequencesNode) return;
@@ -180,10 +254,18 @@
         String(row?.document_type || 'document').replaceAll('_', ' '),
       ]));
       nextActions.slice(0, 3).forEach((line) => rows.push(['Next action', line]));
-      feedbackConsequencesNode.innerHTML = `<div class="pqx-decision-consequence-grid">${
-        rows.map(([title, detail]) => `<div class="pqx-event-card"><strong>${escapeHtml(title)}</strong><span class="pqx-note">${escapeHtml(detail)}</span></div>`).join('')
-        || '<div class="pqx-note">No saved decision yet. Choose Yes, Maybe, No, or Hide to start the decision trail.</div>'
-      }</div>`;
+      clearNode(feedbackConsequencesNode);
+      if (!rows.length) {
+        const empty = document.createElement('div');
+        empty.className = 'pqx-note';
+        empty.textContent = 'No saved decision yet. Choose Yes, Maybe, No, or Hide to start the decision trail.';
+        feedbackConsequencesNode.appendChild(empty);
+      } else {
+        const grid = document.createElement('div');
+        grid.className = 'pqx-decision-consequence-grid';
+        rows.forEach(([title, detail]) => appendEventCard(grid, title, detail));
+        feedbackConsequencesNode.appendChild(grid);
+      }
       if (followupsNode) {
         const persistedFollowups = [
           ...questions.slice(0, 3).map((row) => ({
@@ -201,31 +283,46 @@
             kind: 'document',
           })),
         ];
-        followupsNode.innerHTML = persistedFollowups.length
-          ? persistedFollowups.map((row) => {
-              const agentActions = row.kind === 'agent_question' && row.task_id ? `
-                <div class="pqx-actions">
-                  <button class="pqx-button" type="button" data-pw-agent-question-status="sent" data-pw-agent-question-id="${escapeHtml(row.task_id)}">Mark sent</button>
-                  <button class="pqx-button" type="button" data-pw-agent-question-status="answered" data-pw-agent-question-id="${escapeHtml(row.task_id)}">Mark answered</button>
-                </div>
-              ` : '';
-              const documentActions = row.kind === 'document' && row.document_id ? `
-                <div class="pqx-actions">
-                  <button class="pqx-button" type="button" data-pw-document-state="uploaded" data-pw-document-id="${escapeHtml(row.document_id)}">Uploaded</button>
-                  <button class="pqx-button" type="button" data-pw-document-state="verified" data-pw-document-id="${escapeHtml(row.document_id)}">Verified</button>
-                </div>
-              ` : '';
-              return `
-                <div class="pqx-event-card">
-                  <strong>${escapeHtml(row.title || 'Follow-up')}</strong>
-                  <span class="pqx-note">${escapeHtml(row.detail || '')}</span>
-                  <span class="pqx-small">${escapeHtml(row.tag || '')}</span>
-                  ${agentActions}
-                  ${documentActions}
-                </div>
-              `;
-            }).join('')
-          : '<div class="pqx-note">No saved follow-up yet for this property.</div>';
+        clearNode(followupsNode);
+        if (!persistedFollowups.length) {
+          const empty = document.createElement('div');
+          empty.className = 'pqx-note';
+          empty.textContent = 'No saved follow-up yet for this property.';
+          followupsNode.appendChild(empty);
+        } else {
+          persistedFollowups.forEach((row) => {
+            const card = appendEventCard(followupsNode, row.title || 'Follow-up', row.detail || '', row.tag || '');
+            if (!card) return;
+            if (row.kind === 'agent_question' && row.task_id) {
+              const actions = document.createElement('div');
+              actions.className = 'pqx-actions';
+              [['sent', 'Mark sent'], ['answered', 'Mark answered']].forEach(([status, label]) => {
+                const button = document.createElement('button');
+                button.className = 'pqx-button';
+                button.type = 'button';
+                button.setAttribute('data-pw-agent-question-status', status);
+                button.setAttribute('data-pw-agent-question-id', row.task_id);
+                button.textContent = label;
+                actions.appendChild(button);
+              });
+              card.appendChild(actions);
+            }
+            if (row.kind === 'document' && row.document_id) {
+              const actions = document.createElement('div');
+              actions.className = 'pqx-actions';
+              [['uploaded', 'Uploaded'], ['verified', 'Verified']].forEach(([status, label]) => {
+                const button = document.createElement('button');
+                button.className = 'pqx-button';
+                button.type = 'button';
+                button.setAttribute('data-pw-document-state', status);
+                button.setAttribute('data-pw-document-id', row.document_id);
+                button.textContent = label;
+                actions.appendChild(button);
+              });
+              card.appendChild(actions);
+            }
+          });
+        }
       }
     };
     const updateDecisionFollowupState = async (candidate, kind, id, nextValue) => {

@@ -23,6 +23,7 @@ from app.api.routes.landing_property_saved_searches import (
 )
 from app.api.routes.landing_property_workspace_helpers import (
     _artifact_receipt_rows,
+    _candidate_detail_sections,
     _compact_provider_label,
     _delivery_proof_rows,
     _group_property_provider_options,
@@ -98,6 +99,57 @@ def _clean_property_candidate_copy(value: object) -> str:
     for old, new in replacements.items():
         text = text.replace(old, new)
     return text.strip()
+
+
+def _property_customer_source_summary(source: dict[str, object]) -> dict[str, object]:
+    source_row = dict(source or {})
+    def _to_int(value: object) -> int:
+        try:
+            return max(0, int(float(str(value or "").strip())))
+        except Exception:
+            return 0
+    return {
+        "source_label": str(source_row.get("source_label") or source_row.get("platform") or "Provider").strip() or "Provider",
+        "platform": str(source_row.get("platform") or "").strip(),
+        "provider_family": str(source_row.get("provider_family") or "").strip(),
+        "source_status": str(source_row.get("source_status") or source_row.get("status") or "Scanned").strip(),
+        "status": str(source_row.get("status") or source_row.get("source_status") or "").strip(),
+        "message": str(source_row.get("message") or "").strip(),
+        "error": str(source_row.get("error") or "").strip(),
+        "listing_total": _to_int(source_row.get("listing_total") or source_row.get("scanned_listing_total") or 0),
+        "scanned_listing_total": _to_int(source_row.get("scanned_listing_total") or source_row.get("listing_total") or 0),
+        "high_fit_total": _to_int(source_row.get("high_fit_total") or 0),
+        "filtered_low_fit_total": _to_int(source_row.get("filtered_low_fit_total") or 0),
+        "filtered_floorplan_total": _to_int(source_row.get("filtered_floorplan_total") or 0),
+        "location_mismatch_reason": str(source_row.get("location_mismatch_reason") or "").strip(),
+        "location_mismatch_candidate_total": _to_int(source_row.get("location_mismatch_candidate_total") or 0),
+        "provider_filter_pushdown": dict(source_row.get("provider_filter_pushdown") or {})
+        if isinstance(source_row.get("provider_filter_pushdown"), dict)
+        else {},
+        "timing_ms": dict(source_row.get("timing_ms") or {})
+        if isinstance(source_row.get("timing_ms"), dict)
+        else {},
+    }
+
+
+def _property_customer_run_summary(summary: dict[str, object]) -> dict[str, object]:
+    source_rows = [
+        _property_customer_source_summary(row)
+        for row in list(dict(summary or {}).get("sources") or [])
+        if isinstance(row, dict)
+    ]
+    clean = {
+        key: value
+        for key, value in dict(summary or {}).items()
+        if key
+        not in {
+            "sources",
+            "research_tasks",
+            "provider_quality",
+        }
+    }
+    clean["sources"] = source_rows
+    return clean
 
 
 def _property_result_title_display(title: object) -> str:
@@ -972,7 +1024,7 @@ def _compact_when(value: str | None, fallback: str) -> str:
 def _property_candidate_ref(candidate: dict[str, object]) -> str:
     raw = "|".join(
         str(candidate.get(key) or "").strip()
-        for key in ("title", "property_url", "review_url", "tour_url", "source_label")
+        for key in ("title", "property_url", "review_url", "source_ref", "source_label")
     )
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
@@ -3424,9 +3476,9 @@ def property_workspace_payload(
     shortlist_candidates = list(property_meta.get("shortlist_candidates") or [])
     run_payload = dict(property_state.get("run") or {})
     run_events = list(run_payload.get("events") or [])
-    run_summary = dict(run_payload.get("summary") or {})
+    raw_run_summary = dict(run_payload.get("summary") or {})
+    run_summary = _property_customer_run_summary(raw_run_summary)
     run_sources = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
-    raw_research_tasks = list(run_payload.get("research_tasks") or run_summary.get("research_tasks") or [])
     selected_locations = _csv_values(property_preferences.get("location_query"))
     selected_keywords = _csv_values(property_preferences.get("keywords"))
     selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
@@ -3475,55 +3527,16 @@ def property_workspace_payload(
     )
     search_worker_state = _property_search_worker_slots(run_summary, plan_key=str(commercial.get("current_plan_key") or "free"))
 
-    research_tasks: list[dict[str, object]] = []
-    for task in raw_research_tasks:
-        if not isinstance(task, dict):
-            continue
-        task_id = str(task.get("task_id") or "").strip()
-        if not task_id:
-            continue
-        status = str(task.get("status") or "queued").strip().lower().replace("_", " ") or "queued"
-        next_actions = [str(item).strip() for item in list(task.get("next_actions") or []) if str(item).strip()]
-        ooda = dict(task.get("ooda") or {}) if isinstance(task.get("ooda"), dict) else {}
-        detail = (
-            str(task.get("evidence") or "").strip()
-            or str(ooda.get("act") or ooda.get("orient") or "").strip()
-            or (next_actions[0] if next_actions else "")
-            or "PropertyQuarry is trying to complete this fact from the available source material."
-        )
-        research_tasks.append(
-            {
-                "task_id": task_id,
-                "field": str(task.get("field") or "").strip(),
-                "label": str(task.get("label") or task.get("field") or "Missing fact").strip(),
-                "status": status,
-                "status_label": status.title(),
-                "priority": str(task.get("priority") or "normal").strip().lower(),
-                "title": str(task.get("title") or "Property").strip(),
-                "source_label": str(task.get("source_label") or "").strip(),
-                "property_url": str(task.get("property_url") or "").strip(),
-                "review_url": str(task.get("review_url") or "").strip(),
-                "fit_score": task.get("fit_score") or 0,
-                "display_value": str(task.get("display_value") or task.get("owner_value") or "").strip(),
-                "detail": detail,
-                "next_action": next_actions[0] if next_actions else str(ooda.get("act") or "").strip(),
-                "updated_at": str(task.get("updated_at") or "").strip(),
-                "owner_note": str(task.get("owner_note") or "").strip(),
-            }
-        )
-    research_tasks.sort(
-        key=lambda row: (
-            1 if str(row.get("status") or "") == "filled" else 0,
-            1 if str(row.get("status") or "") == "dismissed" else 0,
-            0 if str(row.get("priority") or "") == "high" else 1,
-            -float(row.get("fit_score") or 0),
-            str(row.get("title") or "").lower(),
-        )
-    )
-    open_research_task_total = int(run_payload.get("open_research_task_total") or run_summary.get("open_research_task_total") or sum(1 for task in research_tasks if str(task.get("status") or "") in {"queued", "in progress", "blocked"}))
-    filled_research_task_total = int(run_payload.get("filled_research_task_total") or run_summary.get("filled_research_task_total") or sum(1 for task in research_tasks if str(task.get("status") or "") == "filled"))
-    dismissed_research_task_total = int(run_payload.get("dismissed_research_task_total") or run_summary.get("dismissed_research_task_total") or sum(1 for task in research_tasks if str(task.get("status") or "") == "dismissed"))
-    research_task_total = int(run_payload.get("research_task_total") or run_summary.get("research_task_total") or len(research_tasks))
+    def _run_count(value: object, default: int = 0) -> int:
+        try:
+            return max(0, int(float(str(value or "").strip())))
+        except Exception:
+            return default
+
+    open_research_task_total = _run_count(run_payload.get("open_research_task_total") or raw_run_summary.get("open_research_task_total"))
+    filled_research_task_total = _run_count(run_payload.get("filled_research_task_total") or raw_run_summary.get("filled_research_task_total"))
+    dismissed_research_task_total = _run_count(run_payload.get("dismissed_research_task_total") or raw_run_summary.get("dismissed_research_task_total"))
+    research_task_total = _run_count(run_payload.get("research_task_total") or raw_run_summary.get("research_task_total"))
 
     def _previous_run_int(value: object, default: int = 0) -> int:
         try:

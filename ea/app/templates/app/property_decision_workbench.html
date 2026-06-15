@@ -765,10 +765,10 @@
     }
     .pqx-previous-search {
       display: grid;
-      grid-template-columns: minmax(0, 1fr);
-      gap: 10px;
+      grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+      gap: 12px;
       align-items: start;
-      padding: 12px 0;
+      padding: 10px 0;
       border: 0;
       border-bottom: 1px solid var(--pq-line);
       border-radius: 0;
@@ -779,6 +779,32 @@
       position: relative;
       display: grid;
       gap: 4px;
+    }
+    .pqx-previous-delete {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      z-index: 5;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 1px solid rgba(96, 78, 61, 0.18);
+      border-radius: 999px;
+      background: rgba(250, 246, 240, 0.92);
+      color: var(--pq-muted);
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+    }
+    .pqx-previous-delete:hover,
+    .pqx-previous-delete:focus-visible {
+      border-color: rgba(96, 78, 61, 0.3);
+      color: var(--pq-ink);
+      outline: none;
     }
     .pqx-previous-district-hotspots {
       position: absolute;
@@ -916,17 +942,23 @@
       color: var(--pq-ink);
       font-size: 12px;
     }
+    .pqx-previous-open-link {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 4px;
+      color: var(--pq-ink);
+      text-decoration: none;
+    }
+    .pqx-previous-open-link:hover,
+    .pqx-previous-open-link:focus-visible {
+      color: var(--pq-accent-strong);
+      text-decoration: underline;
+      outline: none;
+    }
     .pqx-previous-body {
       display: grid;
       gap: 6px;
       min-width: 0;
-    }
-    .pqx-previous-actions {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 8px;
-      flex-wrap: wrap;
     }
     .pqx-finished-compare {
       display: grid;
@@ -1945,6 +1977,9 @@
       .pqx-surface-search .pqx-dashboard-row,
       .pqx-surface-search .pqx-previous-search {
         padding: 8px;
+      }
+      .pqx-surface-search .pqx-previous-search {
+        grid-template-columns: minmax(0, 1fr);
       }
       .pqx-surface-search .pqx-previous-scope-image {
         aspect-ratio: 16 / 7;
@@ -3619,6 +3654,13 @@
             <article class="pqx-previous-search" data-pqx-previous-search-card>
               {% set scope_preview = previous.get('scope_preview') or {} %}
               <div class="pqx-previous-scope-preview">
+                <button
+                  class="pqx-previous-delete"
+                  type="button"
+                  data-pqx-delete-run="{{ previous.get('run_id') }}"
+                  data-pqx-delete-run-label="Delete this previous search from the dashboard?"
+                  aria-label="Delete previous search"
+                >×</button>
                 {% if scope_preview.get('image_url') %}
                 <button
                   class="pqx-previous-scope-trigger"
@@ -3660,7 +3702,7 @@
                   </div>
                 </div>
                 <div class="pqx-previous-metrics">
-                  <span><b>{{ previous.get('ranked_total') or 0 }}</b> ranked</span>
+                  <a class="pqx-previous-open-link" href="{{ previous.get('href') }}"><b>{{ previous.get('ranked_total') or 0 }}</b> ranked</a>
                   {% if previous.get('sent_total') %}<span><b>{{ previous.get('sent_total') }}</b> sent</span>{% endif %}
                   {% if previous.get('top_fit_score') %}<span>best <b>{{ previous.get('top_fit_score') }}</b></span>{% endif %}
                   {% if previous.get('held_back_total') %}
@@ -3675,10 +3717,6 @@
                   {% endif %}
                 </div>
                 {% if previous.get('status_note') %}<div class="pqx-note">{{ previous.get('status_note') }}</div>{% endif %}
-              </div>
-              <div class="pqx-previous-actions">
-                <a class="pqx-link-button primary" href="{{ previous.get('href') }}">Open</a>
-                <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ previous.get('run_id') }}">Delete</button>
               </div>
             </article>
             {% else %}

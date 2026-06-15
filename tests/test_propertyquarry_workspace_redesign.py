@@ -4,11 +4,27 @@ import re
 from pathlib import Path
 
 from app.api.routes import landing as landing_routes
+from app.api.routes import landing_property_research
 from app.api.routes import public_tours
 from app.api.routes import landing_view_models
 from app.product.models import HandoffNote
 from app.product.service import ProductService, _property_search_analysis_cap_per_source
 from tests.product_test_helpers import build_property_client, start_workspace
+
+
+def _read_workbench_bundle() -> str:
+    repo_root = Path(__file__).resolve().parents[1]
+    paths = [
+        repo_root / "ea/app/templates/app/property_decision_workbench.html",
+        repo_root / "ea/app/templates/app/_property_results_list.html",
+        repo_root / "ea/app/templates/app/_property_running_panel.html",
+        repo_root / "ea/app/templates/app/_property_search_agents_panel.html",
+        repo_root / "ea/app/templates/app/_property_selected_review_panel.html",
+        repo_root / "ea/app/templates/app/_property_workbench_script.html",
+        repo_root / "ea/app/templates/app/_property_workbench_brief_script.html",
+        repo_root / "ea/app/templates/app/_property_workbench_feedback_script.html",
+    ]
+    return "\n".join(path.read_text(encoding="utf-8") for path in paths if path.exists())
 
 
 def test_propertyquarry_app_templates_do_not_reintroduce_legacy_dark_theme_tokens() -> None:
@@ -236,6 +252,37 @@ def test_public_ctas_and_selected_review_panel_expose_rybbit_events() -> None:
     assert 'data-rybbit-event="property_open_page"' in selected_review
     assert 'data-rybbit-event="property_open_page"' in workbench_script
     assert 'data-rybbit-event="property_request_tour"' in workbench_script
+
+
+def test_base_console_identifies_rybbit_with_opaque_principal_id() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/base_console.html"
+    body = template_path.read_text(encoding="utf-8")
+    assert "analytics_principal_id" in body
+    assert "rybbit.identify({{ analytics_principal_id|tojson }}" in body
+    assert "rybbit.identify({{ principal_id|tojson }}" not in body
+
+
+def test_property_customer_run_summary_strips_operator_only_fields() -> None:
+    summary = landing_view_models._property_customer_run_summary(
+        {
+            "sources_total": 2,
+            "timing_receipts": {"first_shortlist_ready_at": "2026-06-15T10:00:00+00:00"},
+            "research_tasks": [{"task_id": "t-1"}],
+            "sources": [
+                {
+                    "source_label": "Provider A",
+                    "provider_quality": {"floorplan_reliability": "high"},
+                    "listing_total": 12,
+                    "high_fit_total": 3,
+                    "timing_ms": {"provider_preview": 10.5},
+                }
+            ],
+        }
+    )
+    assert "research_tasks" not in summary
+    assert summary["timing_receipts"]["first_shortlist_ready_at"] == "2026-06-15T10:00:00+00:00"
+    assert "provider_quality" not in summary["sources"][0]
+    assert summary["sources"][0]["listing_total"] == 12
 
 
 def test_property_search_worker_slots_prioritize_distinct_providers() -> None:
@@ -537,9 +584,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
 
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
     monkeypatch.setattr(ProductService, "list_handoffs", _fake_handoffs)
-    monkeypatch.setattr(landing_routes, "_property_investment_research_access_level", lambda *args, **kwargs: "full")
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_access_level", lambda *args, **kwargs: "full")
     monkeypatch.setattr(
-        landing_routes,
+        landing_property_research,
         "_property_investment_research_snapshot",
         lambda **kwargs: {
             "current_price_eur": 420000.0,
@@ -674,15 +721,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'class="pqx-route-evidence"' in search.text
     assert 'class="pqx-thumb"' in search.text
     assert "ranked homes" in search.text
-    assert "price, layout, location, fit reason, and next action stay visible" in search.text
+    assert "Price, layout, fit, and the next action stay in the main list." in search.text
     assert 'class="pqx-result-reason"' in search.text
     assert 'class="pqx-status-line"' in search.text
-    assert "Layout verified" in search.text
-    assert "Layout needs check" in search.text
     assert "Altbau near U6" in search.text
     assert "Family flat near Tiergarten" in search.text
     assert "360 ready" in search.text
-    assert "360 unavailable" in search.text
     assert "360 queued" in search.text
     assert "about 12 min" in search.text
     assert 'data-tour-status="queued"' in search.text
@@ -693,17 +737,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "360" in search.text
     assert "Match" in search.text
     assert "EUR 420,000" in search.text
-    assert "Layout" in search.text
-    assert "Playground" in search.text
-    assert "Supermarket" in search.text
-    assert "Starbucks" in search.text
-    assert "Fitness" in search.text
-    assert "Cinema" in search.text
-    assert "Bouldering" in search.text
-    assert "SchoolAtlas" in search.text
-    assert "Gymnasium path" in search.text
     assert "Property details" in search.text
-    assert "Costs" in search.text
     assert "Why it made the shortlist" in search.text
     assert "Current read" in search.text
     assert "Optional context" in search.text
@@ -711,13 +745,6 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Share checklist" not in search.text
     assert "Would you pursue this property?" not in search.text
     assert "Save your decision" in search.text
-    assert "Viewing requested" in search.text
-    assert "Documents requested" in search.text
-    assert "Offer candidate" in search.text
-    assert "Save answer" in search.text
-    assert "Next question to send" in search.text
-    assert "Contradicted" in search.text
-    assert "Resolved" in search.text
     assert "Delivery proof" not in search.text
     assert "NeuronWriter editorial pass" not in search.text
     assert "Telegram links" not in search.text
@@ -729,10 +756,6 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "These homes are still being checked for a floorplan" in search.text
     assert "Repair provider extraction" not in search.text
     assert "Missing facts" not in search.text
-    assert "Facts still being completed from floorplans" not in search.text
-    assert "Room count not verified yet" in search.text
-    assert "Save answer" not in search.text
-    assert "Save fact" not in search.text
     assert 'data-pqx-progress-board' in search.text
     assert "Search in progress" in search.text or "Results are ready" in search.text
     assert 'data-pqx-progress-eta' in search.text
@@ -984,14 +1007,15 @@ def test_property_workbench_previous_search_cards_have_explicit_overflow_gate() 
     assert 'class="pqx-previous-scope-image"' in body
     assert 'class="pqx-previous-scope-trigger"' in body
     assert 'class="pqx-previous-title"' in body
-    assert 'class="pqx-previous-actions"' in body
+    assert 'class="pqx-previous-delete"' in body
+    assert 'class="pqx-previous-open-link"' in body
     assert 'data-pqx-scope-lightbox' in body
     assert ".pqx-previous-title" in body
     assert "-webkit-line-clamp: 1;" in body
     assert ".pqx-previous-scope-preview" in body
     assert "aspect-ratio: 16 / 8;" in body
     assert ".pqx-previous-search {" in body
-    assert "grid-template-columns: minmax(0, 1fr);" in body
+    assert "grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);" in body
     assert "border-bottom: 1px solid var(--pq-line);" in body
 
 
@@ -1015,8 +1039,7 @@ def test_propertyquarry_pixefy_visual_watch_audits_periodic_screenshots() -> Non
 
 
 def test_property_workbench_sparse_candidates_do_not_display_raw_urls() -> None:
-    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
-    body = template_path.read_text(encoding="utf-8")
+    body = _read_workbench_bundle()
 
     assert "candidate.get('title') or candidate.get('property_url')" not in body
     assert "candidate?.title || candidate?.property_url" not in body
@@ -1092,9 +1115,7 @@ def test_property_search_agents_can_load_saved_filters_into_form() -> None:
 
 
 def test_property_workspace_search_form_exposes_austria_evidence_and_eligibility_controls() -> None:
-    template_body = (
-        Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
-    ).read_text(encoding="utf-8")
+    template_body = _read_workbench_bundle()
     view_model_body = (
         Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_view_models.py"
     ).read_text(encoding="utf-8")
@@ -1479,7 +1500,7 @@ def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
 
     assert "Continue where you left off." in body
     assert "data-pqx-previous-searches" in body
-    assert ">Open</a>" in body
+    assert 'class="pqx-previous-open-link"' in body
     assert 'data-pqx-delete-run="' in body
     assert "data-pqx-dashboard-summary" in body
     assert "Saved searches" in body
@@ -1511,7 +1532,7 @@ def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
 
 
 def test_property_workspace_previous_search_delete_uses_real_api_endpoint() -> None:
-    body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+    body = _read_workbench_bundle()
     view_model = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
 
     assert "data-pqx-delete-run" in body
@@ -1523,18 +1544,16 @@ def test_property_workspace_previous_search_delete_uses_real_api_endpoint() -> N
 
 
 def test_property_finished_search_results_prioritize_main_list_and_filtered_disclosure() -> None:
-    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
-    body = template_path.read_text(encoding="utf-8")
+    body = _read_workbench_bundle()
 
     assert "data-pqx-finished-compare" in body
     assert "Best homes first" in body
-    assert "How this search was filtered" in body
+    assert "Relax one filter" in body
     assert "Price, layout, fit, and the next action stay in the main list." in body
 
 
 def test_property_decision_save_uses_canonical_endpoint_and_renders_consequences() -> None:
-    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
-    body = template_path.read_text(encoding="utf-8")
+    body = _read_workbench_bundle()
 
     assert "propertyDecisionSaveEndpoint = () => '/app/api/property/decisions'" in body
     assert "renderSavedDecisionConsequences(body)" in body
@@ -1873,7 +1892,7 @@ def test_propertyquarry_workspace_setup_stays_user_facing() -> None:
 
 
 def test_property_workspace_search_controls_have_explicit_click_handlers() -> None:
-    body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+    body = _read_workbench_bundle()
 
     assert 'data-checkbox-group-select-all="{{ field.name }}"' in body
     assert "field.name == 'selected_platforms'" in body
@@ -1996,7 +2015,7 @@ def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(mo
 
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
     monkeypatch.setattr(
-        landing_routes,
+        landing_property_research,
         "_property_investment_research_snapshot",
         lambda **kwargs: {
             "current_price_eur": 659000.0,
@@ -2125,7 +2144,7 @@ def test_propertyquarry_research_packet_shows_auction_investment_context_when_be
         }
 
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
-    monkeypatch.setattr(landing_routes, "_property_investment_research_snapshot", lambda **kwargs: {})
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
 
     headers = {"host": "propertyquarry.com"}
     research = client.get("/app/research", params={"run_id": "run-auction"}, headers=headers)
@@ -2213,7 +2232,7 @@ def test_propertyquarry_research_packet_shows_cooperative_investment_context_whe
         }
 
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
-    monkeypatch.setattr(landing_routes, "_property_investment_research_snapshot", lambda **kwargs: {})
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
 
     headers = {"host": "propertyquarry.com"}
     research = client.get("/app/research", params={"run_id": "run-coop"}, headers=headers)

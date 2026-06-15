@@ -2743,6 +2743,9 @@ def test_direct_property_scout_uses_saved_preferences_and_respects_disabled_flag
     assert observed["preferences"]["location_query"] == "Wien"
     assert observed["preferences"]["listing_mode"] == "rent"
     assert observed["selected_platforms"] == ()
+    assert result["timing_receipts"]["sources_resolved_at"]
+    assert result["timing_receipts"]["results_delivery_ready_at"]
+    assert result["timing_receipts"]["completed_at"]
 
 
 def test_property_search_run_uses_saved_platforms_before_family_toggles(monkeypatch) -> None:

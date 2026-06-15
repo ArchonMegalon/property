@@ -61,6 +61,7 @@ from app.api.routes.landing_property_research import (
     _property_fact_rows,
     _property_investment_research_rows,
     _property_lookup_candidate,
+    _property_missing_fact_items,
     _property_packet_compare_rows,
     _property_packet_compare_table,
     _property_packet_decision_rows,
@@ -77,6 +78,7 @@ from app.api.routes.landing_property_research import (
     _property_review_detail_line,
     _property_rooms_display,
     _property_shortlist_candidates_from_context,
+    _property_tour_media_payload,
     _property_tour_detail_line,
 )
 from app.api.routes.admin_view_models import build_admin_section_payload as _build_admin_section_payload
@@ -642,6 +644,11 @@ def _console_shell_context(
     console_form: dict[str, object] | None = None,
 ) -> dict[str, object]:
     brand = request_brand(request)
+    analytics_principal_id = ""
+    if str(context.principal_id or "").strip():
+        analytics_principal_id = "principal_" + hashlib.sha256(
+            str(context.principal_id or "").strip().encode("utf-8")
+        ).hexdigest()[:24]
     return {
         "page_title": page_title,
         "brand": brand,
@@ -654,6 +661,7 @@ def _console_shell_context(
         "stats": stats,
         "console_form": console_form or {},
         "principal_id": context.principal_id,
+        "analytics_principal_id": analytics_principal_id,
         "access_email": context.access_email,
         "operator_id": context.operator_id,
         "account_nav": _account_nav_context(request=request, context=context),
