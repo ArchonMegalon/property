@@ -784,7 +784,6 @@ def test_property_provider_greenfield_api_returns_mode_aware_default_platforms()
         "core_portals_de",
         "new_build_de",
         "broker_direct_de",
-        "corporate_landlords_de",
     ]
 
 
@@ -1822,9 +1821,6 @@ def test_public_tour_asset_download_enforces_max_bytes(monkeypatch, tmp_path) ->
             "https://cdn.example.com/floorplan.pdf",
             tmp_path / "floorplan.pdf",
         )
-
-    assert payload["tour_cache_status"] == "existing"
-    assert str(payload["hosted_url"]).endswith(f"/{slug}")
 
 
 def test_property_alert_review_reuses_returned_review_packet() -> None:

@@ -51,7 +51,7 @@ def _public_tour_asset_max_bytes() -> int:
         parsed = int(raw_value)
     except Exception:
         return 25_000_000
-    return max(1_000_000, min(parsed, 250_000_000))
+    return max(1, min(parsed, 250_000_000))
 
 
 def _public_tour_asset_content_type_allowed(content_type: str) -> bool:

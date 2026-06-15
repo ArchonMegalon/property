@@ -1217,7 +1217,7 @@ def _property_investment_research_rows(
                             str(underwriting.get("feed_status_detail") or "").strip(),
                         )
                         if part
-                    ) or "External model status pending.",
+                    ) or "External model is still building from the current listing evidence.",
                     str(external_model.get("confidence_label") or "Mixed"),
                 )
             )
