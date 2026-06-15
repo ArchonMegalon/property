@@ -1137,6 +1137,8 @@ def app_section_payload(
     property_country_label = str(property_state.get("country_label") or "Market")
     property_language_label = str(property_state.get("language_label") or "Deutsch")
     property_listing_mode_label = str(property_state.get("listing_mode_label") or "Rent")
+    property_search_goal_label = str(property_state.get("search_goal_label") or "Find a home")
+    property_investment_strategy_label = str(property_state.get("investment_strategy_label") or "Best overall opportunity")
     property_investment_research_mode_label = str(property_state.get("investment_research_mode_label") or "Off")
     property_type_label = str(property_state.get("property_type_label") or "Any type")
     property_provider_total_for_country = int(property_state.get("provider_total_for_country") or 0)
@@ -1153,6 +1155,8 @@ def app_section_payload(
     country_options = [dict(option) for option in list(property_state.get("country_options") or []) if isinstance(option, dict)]
     language_options = [dict(option) for option in list(property_state.get("language_options") or []) if isinstance(option, dict)]
     listing_mode_options = [dict(option) for option in list(property_state.get("listing_mode_options") or []) if isinstance(option, dict)]
+    search_goal_options = [dict(option) for option in list(property_state.get("search_goal_options") or []) if isinstance(option, dict)]
+    investment_strategy_options = [dict(option) for option in list(property_state.get("investment_strategy_options") or []) if isinstance(option, dict)]
     investment_research_mode_options = [dict(option) for option in list(property_state.get("investment_research_mode_options") or []) if isinstance(option, dict)]
     property_type_options = [dict(option) for option in list(property_state.get("property_type_options") or []) if isinstance(option, dict)]
     selected_platforms = {
@@ -1161,6 +1165,41 @@ def app_section_payload(
         if str(value or "").strip()
     }
     selected_country_code = str(property_preferences.get("country_code") or "AT").strip().upper() or "AT"
+    selected_search_goal = str(property_preferences.get("search_goal") or "home").strip().lower() or "home"
+    if selected_search_goal not in {"home", "investment"}:
+        selected_search_goal = "home"
+    selected_investment_strategy = str(property_preferences.get("investment_strategy") or "best_overall").strip().lower() or "best_overall"
+    if selected_investment_strategy not in {"best_overall", "cash_flow", "appreciation", "undervalued", "low_risk"}:
+        selected_investment_strategy = "best_overall"
+    property_is_investment_search = selected_search_goal == "investment"
+    try:
+        min_gross_yield_pct = max(0, min(15, int(float(str(property_preferences.get("min_gross_yield_pct") or "").strip()))))
+    except Exception:
+        min_gross_yield_pct = 0
+    try:
+        equity_available_eur = max(0, min(5_000_000, int(float(str(property_preferences.get("equity_available_eur") or "").strip()))))
+    except Exception:
+        equity_available_eur = 0
+    try:
+        loan_term_years = max(5, min(40, int(float(str(property_preferences.get("loan_term_years") or "").strip()))))
+    except Exception:
+        loan_term_years = 25
+    try:
+        max_interest_rate_pct = max(0, min(12, int(float(str(property_preferences.get("max_interest_rate_pct") or "").strip()))))
+    except Exception:
+        max_interest_rate_pct = 0
+    try:
+        min_dscr = max(0.0, min(3.0, float(str(property_preferences.get("min_dscr") or "").strip())))
+    except Exception:
+        min_dscr = 0.0
+    try:
+        vacancy_reserve_pct = max(0, min(25, int(float(str(property_preferences.get("vacancy_reserve_pct") or "").strip()))))
+    except Exception:
+        vacancy_reserve_pct = 4
+    try:
+        capex_reserve_pct = max(0, min(25, int(float(str(property_preferences.get("capex_reserve_pct") or "").strip()))))
+    except Exception:
+        capex_reserve_pct = 6
     platform_options = [
         dict(option)
         for option in list(property_state.get("platform_options") or [])
@@ -1249,9 +1288,18 @@ def app_section_payload(
     property_market_summary_items = [
         row_item("Country", property_country_label, "Market"),
         row_item("Browser language", property_language_label, "Research"),
+        row_item("Search goal", property_search_goal_label, "Goal"),
         row_item("Search mode", property_listing_mode_label, "Mode"),
         row_item("Property type", property_type_label, "Type"),
     ]
+    if property_is_investment_search:
+        property_market_summary_items.append(row_item("Investment strategy", property_investment_strategy_label, "Thesis"))
+        if min_gross_yield_pct > 0:
+            property_market_summary_items.append(row_item("Minimum gross yield", f"{min_gross_yield_pct}%", "Return"))
+        if equity_available_eur > 0:
+            property_market_summary_items.append(row_item("Equity available", f"EUR {equity_available_eur:,.0f}".replace(",", " "), "Financing"))
+        if min_dscr > 0:
+            property_market_summary_items.append(row_item("Minimum DSCR", f"{min_dscr:.2f}x", "Financing"))
     if selected_listing_mode == "buy":
         property_market_summary_items.append(row_item("Investment research", property_investment_research_mode_label, "Underwriting"))
     if property_available_within_years_value > 0:
@@ -1821,6 +1869,15 @@ def app_section_payload(
         "fields": [
             {
                 "type": "select",
+                "name": "search_goal",
+                "label": "What are you looking for?",
+                "value": selected_search_goal,
+                "options": search_goal_options,
+                "tooltip": "Choose Find a home for lifestyle fit, or Find an investment for yield, value, risk, and execution ranking.",
+                "step": "search",
+            },
+            {
+                "type": "select",
                 "name": "country_code",
                 "label": "Country",
                 "value": str(property_preferences.get("country_code") or "AT"),
@@ -1833,7 +1890,9 @@ def app_section_payload(
                 "label": "Search mode",
                 "value": selected_listing_mode,
                 "options": listing_mode_options,
+                "tooltip": "Home searches can look at rent or buy. Investment searches use buy mode automatically.",
                 "step": "search",
+                "hidden": property_is_investment_search,
             },
             {
                 "type": "checkbox_group",
@@ -1846,10 +1905,139 @@ def app_section_payload(
             {
                 "type": "select",
                 "name": "investment_research_mode",
-                "label": "Investment research",
+                "label": "Underwriting depth",
                 "value": str(property_preferences.get("investment_research_mode") or "off"),
                 "options": investment_research_mode_options,
-                "hidden": selected_listing_mode != "buy",
+                "hidden": selected_listing_mode != "buy" and not property_is_investment_search,
+                "tooltip": "When investment mode is active, PropertyQuarry builds quick yield, pricing, and risk context before the full property page.",
+                "step": "search",
+            },
+            {
+                "type": "select",
+                "name": "investment_strategy",
+                "label": "Investment strategy",
+                "value": selected_investment_strategy,
+                "options": investment_strategy_options,
+                "hidden": not property_is_investment_search,
+                "tooltip": "Choose the thesis first. Cash flow weights yield highest. Appreciation weights area pricing and upside. Low risk penalizes unclear or messy deals.",
+                "step": "search",
+            },
+            {
+                "type": "range",
+                "name": "min_gross_yield_pct",
+                "label": "Minimum gross yield",
+                "value": str(min_gross_yield_pct),
+                "min": "0",
+                "max": "15",
+                "visual_max": "15",
+                "range_step": "1",
+                "format": "percent_cap",
+                "empty_label": "Any yield",
+                "scale_min_label": "Any",
+                "scale_max_label": "15%",
+                "hidden": not property_is_investment_search,
+                "tooltip": "Use this as a hard floor for expected gross yield when enough rent evidence exists. Unknown yields stay visible but rank lower.",
+                "step": "search",
+            },
+            {
+                "type": "range",
+                "name": "equity_available_eur",
+                "label": "Equity available",
+                "value": str(equity_available_eur),
+                "min": "0",
+                "max": "1000000",
+                "visual_max": "1000000",
+                "range_step": "25000",
+                "format": "currency_eur",
+                "empty_label": "Model leverage automatically",
+                "scale_min_label": "Auto",
+                "scale_max_label": "EUR 1.0m",
+                "hidden": not property_is_investment_search,
+                "tooltip": "Use this when you want debt coverage and cash-on-cash yield to reflect your real equity instead of the default leverage assumption.",
+                "step": "search",
+            },
+            {
+                "type": "range",
+                "name": "loan_term_years",
+                "label": "Loan term",
+                "value": str(loan_term_years),
+                "min": "5",
+                "max": "40",
+                "visual_max": "40",
+                "range_step": "1",
+                "format": "loan_term_years",
+                "scale_min_label": "5y",
+                "scale_max_label": "40y",
+                "hidden": not property_is_investment_search,
+                "tooltip": "This drives the modeled annual debt service behind DSCR and cash-on-cash yield.",
+                "step": "search",
+            },
+            {
+                "type": "range",
+                "name": "max_interest_rate_pct",
+                "label": "Rate assumption ceiling",
+                "value": str(max_interest_rate_pct),
+                "min": "0",
+                "max": "12",
+                "visual_max": "12",
+                "range_step": "1",
+                "format": "percent_cap",
+                "empty_label": "Live or fallback rate",
+                "scale_min_label": "Auto",
+                "scale_max_label": "12%",
+                "hidden": not property_is_investment_search,
+                "tooltip": "Use this when you want the financing model to stay conservative even if a live feed returns a softer rate.",
+                "step": "search",
+            },
+            {
+                "type": "range",
+                "name": "min_dscr",
+                "label": "Minimum debt coverage",
+                "value": str(int(round(min_dscr * 100)) if min_dscr > 0 else 0),
+                "min": "0",
+                "max": "250",
+                "visual_max": "250",
+                "range_step": "5",
+                "format": "dscr_hundredths",
+                "empty_label": "Any DSCR",
+                "scale_min_label": "Any",
+                "scale_max_label": "2.50x",
+                "hidden": not property_is_investment_search,
+                "tooltip": "A DSCR floor lets you exclude deals that do not cover their modeled annual debt service cleanly enough.",
+                "step": "search",
+            },
+            {
+                "type": "range",
+                "name": "vacancy_reserve_pct",
+                "label": "Vacancy reserve",
+                "value": str(vacancy_reserve_pct),
+                "min": "0",
+                "max": "25",
+                "visual_max": "25",
+                "range_step": "1",
+                "format": "percent_cap",
+                "empty_label": "Feed or market default",
+                "scale_min_label": "Auto",
+                "scale_max_label": "25%",
+                "hidden": not property_is_investment_search,
+                "tooltip": "This reserve reduces the rent roll before NOI and DSCR are calculated.",
+                "step": "search",
+            },
+            {
+                "type": "range",
+                "name": "capex_reserve_pct",
+                "label": "Capex reserve",
+                "value": str(capex_reserve_pct),
+                "min": "0",
+                "max": "25",
+                "visual_max": "25",
+                "range_step": "1",
+                "format": "percent_cap",
+                "empty_label": "Feed or market default",
+                "scale_min_label": "Auto",
+                "scale_max_label": "25%",
+                "hidden": not property_is_investment_search,
+                "tooltip": "This reserve keeps the underwriting honest when the listing looks cheap but long-run upkeep is still unresolved.",
                 "step": "search",
             },
             {
@@ -1914,6 +2102,46 @@ def app_section_payload(
                 "placeholder": "Free text for areas not covered by the checklist",
                 "tooltip": "Use this only when the district or area is not already available as a visible checkbox.",
                 "step": "areas",
+            },
+            {
+                "type": "checkbox",
+                "name": "investment_require_floorplan",
+                "label": "Only keep deals with a floorplan",
+                "value": "true",
+                "checked": bool(property_preferences.get("investment_require_floorplan") or property_preferences.get("require_floorplan")),
+                "tooltip": "Use this for cleaner underwriting. Listings without a layout stay out of the final investment shortlist.",
+                "step": "areas",
+                "hidden": not property_is_investment_search,
+            },
+            {
+                "type": "checkbox",
+                "name": "investment_require_legal_clarity",
+                "label": "Exclude legal complexity",
+                "value": "true",
+                "checked": bool(property_preferences.get("investment_require_legal_clarity")),
+                "tooltip": "Exclude auctions, leasehold-style structures, and other legally messy deals when you want a cleaner shortlist first.",
+                "step": "areas",
+                "hidden": not property_is_investment_search,
+            },
+            {
+                "type": "checkbox",
+                "name": "investment_require_tenant_clarity",
+                "label": "Exclude unclear tenant status",
+                "value": "true",
+                "checked": bool(property_preferences.get("investment_require_tenant_clarity")),
+                "tooltip": "Penalize or exclude listings that do not make occupancy or rentability clear enough for a fast investment read.",
+                "step": "areas",
+                "hidden": not property_is_investment_search,
+            },
+            {
+                "type": "checkbox",
+                "name": "investment_avoid_major_renovation",
+                "label": "Exclude heavy renovation candidates",
+                "value": "true",
+                "checked": bool(property_preferences.get("investment_avoid_major_renovation")),
+                "tooltip": "Exclude listings whose own text suggests major renovation, core refurbishment, or a fixer-upper posture.",
+                "step": "areas",
+                "hidden": not property_is_investment_search,
             },
             {
                 "type": "checkbox_group",
@@ -3052,12 +3280,12 @@ def app_section_payload(
                 {
                     "key": "search",
                     "label": "Market",
-                    "detail": "Market, mode, and budget.",
+                    "detail": "Goal, market, and budget.",
                 },
                 {
                     "key": "areas",
                     "label": "Areas",
-                    "detail": "Areas, fit signals, and lifestyle priorities.",
+                    "detail": "Areas, spillover distance, and key filters.",
                 },
                 {
                     "key": "children",
@@ -3082,7 +3310,7 @@ def app_section_payload(
             ],
         },
     }
-    if selected_listing_mode != "buy":
+    if selected_listing_mode != "buy" and not property_is_investment_search:
         property_form["fields"] = [
             field
             for field in list(property_form.get("fields") or [])
@@ -3446,6 +3674,21 @@ def property_workspace_payload(
     run_sources = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
     selected_locations = _csv_values(property_preferences.get("location_query"))
     selected_keywords = _csv_values(property_preferences.get("keywords"))
+    selected_search_goal = str(property_preferences.get("search_goal") or "home").strip().lower() or "home"
+    if selected_search_goal not in {"home", "investment"}:
+        selected_search_goal = "home"
+    property_is_investment_search = selected_search_goal == "investment"
+    property_search_goal_label = "Find an investment" if property_is_investment_search else "Find a home"
+    property_investment_strategy_label = (
+        {
+            "cash_flow": "Cash flow",
+            "appreciation": "Appreciation",
+            "undervalued": "Undervalued",
+            "low_risk": "Low risk",
+        }.get(str(property_preferences.get("investment_strategy") or "").strip().lower(), "Best overall opportunity")
+        if property_is_investment_search
+        else ""
+    )
     selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
     suppression_rows = _property_suppression_rows(
         run_summary=run_summary,
@@ -3470,7 +3713,7 @@ def property_workspace_payload(
         if status in {"processed", "completed"}:
             return ("Finished", "")
         if status == "failed":
-            return ("Stopped early", message or "The search stopped before ranking finished.")
+            return ("Search failed", message or "The search failed before ranking finished.")
         if status == "cancelled":
             return ("Stopped", message or "This search was stopped before it finished.")
         if status == "noop":
@@ -4266,10 +4509,28 @@ def property_workspace_payload(
         match_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("match_reasons") or []) if _clean_property_candidate_copy(item)]
         mismatch_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("mismatch_reasons") or []) if _clean_property_candidate_copy(item)]
         detail_sections = _candidate_detail_sections(facts)
+        candidate_investment = dict(candidate.get("investment") or {}) if isinstance(candidate.get("investment"), dict) else {}
         investment_payload = {
             "enabled": str(property_preferences.get("listing_mode") or "").strip().lower() == "buy",
             "price_per_sqm": _money_per_sqm_line(facts),
-            "headline": "Open the property page for full underwriting" if str(property_preferences.get("listing_mode") or "").strip().lower() == "buy" else "",
+            "headline": str(candidate_investment.get("headline") or ("Open the property page for full underwriting" if str(property_preferences.get("listing_mode") or "").strip().lower() == "buy" else "")).strip(),
+            "gross_yield_display": str(candidate_investment.get("gross_yield_display") or "").strip(),
+            "net_yield_display": str(candidate_investment.get("net_yield_display") or "").strip(),
+            "cap_rate_display": str(candidate_investment.get("cap_rate_display") or "").strip(),
+            "cash_on_cash_display": str(candidate_investment.get("cash_on_cash_display") or "").strip(),
+            "dscr_display": str(candidate_investment.get("dscr_display") or "").strip(),
+            "market_delta_display": str(candidate_investment.get("market_delta_display") or "").strip(),
+            "expected_rent_display": str(candidate_investment.get("expected_rent_display") or "").strip(),
+            "confidence_label": str(candidate_investment.get("confidence_label") or "").strip(),
+            "feed_status_label": str(candidate_investment.get("feed_status_label") or "").strip(),
+            "feed_status_detail": str(candidate_investment.get("feed_status_detail") or "").strip(),
+            "score": candidate_investment.get("score"),
+            "score_display": str(candidate_investment.get("score_display") or "").strip(),
+            "underwriting_summary": str(candidate_investment.get("underwriting_summary") or "").strip(),
+            "strategy": str(candidate_investment.get("strategy") or "").strip(),
+            "dimensions": [dict(item) for item in list(candidate_investment.get("dimensions") or []) if isinstance(item, dict)][:7],
+            "reasons": [str(item).strip() for item in list(candidate_investment.get("reasons") or []) if str(item).strip()][:3],
+            "blockers": [str(item).strip() for item in list(candidate_investment.get("blockers") or []) if str(item).strip()][:3],
         }
         orientation_preview = _property_candidate_orientation_preview(candidate)
         workbench_results.append(
@@ -5176,7 +5437,10 @@ def property_workspace_payload(
         },
         "brief": {
             "country": str(property_state.get("country_label") or "Market"),
+            "search_goal": selected_search_goal,
+            "search_goal_label": property_search_goal_label,
             "mode": str(property_preferences.get("listing_mode") or "rent").strip().title(),
+            "investment_strategy_label": property_investment_strategy_label if property_is_investment_search else "",
             "region": str(property_state.get("region_label") or property_preferences.get("region_code") or "").strip(),
             "areas": selected_locations,
             "priorities": selected_keywords,

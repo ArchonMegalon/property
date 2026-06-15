@@ -313,6 +313,8 @@ def test_property_search_worker_slots_prioritize_distinct_providers() -> None:
         "immmo | Austria | Rent | 1010 Vienna",
         "FindMyHome.at | Austria | Rent | 1010 Vienna",
     ]
+    labels = [row.get("label") for row in worker_state.get("workers") or []]
+    assert labels[:3] == ["DER STANDARD", "immmo", "FindMyHome.at"]
     assert worker_state["workers"][0]["shard_count"] == 1
 
 
@@ -1349,7 +1351,7 @@ def test_property_dashboard_failed_previous_search_uses_customer_facing_copy(mon
     page = client.get("/app/properties", headers={"host": "propertyquarry.com"})
 
     assert page.status_code == 200
-    assert "Stopped early" in page.text
+    assert "Search failed" in page.text
     assert "Provider returned 403 while fetching Willhaben." in page.text
     assert ">Failed<" not in page.text
 
@@ -1873,6 +1875,45 @@ def test_propertyquarry_workspace_exposes_adjacent_area_radius_control() -> None
     assert "adjacent_area_radius_m: adjacentAreaRadiusMeters" in brief_script
 
 
+def test_propertyquarry_workspace_exposes_investment_goal_and_guardrails() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    view_models = (repo_root / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
+    brief_script = (repo_root / "ea/app/templates/app/_property_workbench_brief_script.html").read_text(encoding="utf-8")
+    workbench_script = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+
+    assert '"name": "search_goal"' in view_models
+    assert '"label": "What are you looking for?"' in view_models
+    assert '"name": "investment_strategy"' in view_models
+    assert '"name": "min_gross_yield_pct"' in view_models
+    assert '"name": "equity_available_eur"' in view_models
+    assert '"name": "loan_term_years"' in view_models
+    assert '"name": "max_interest_rate_pct"' in view_models
+    assert '"name": "min_dscr"' in view_models
+    assert '"name": "vacancy_reserve_pct"' in view_models
+    assert '"name": "capex_reserve_pct"' in view_models
+    assert '"name": "investment_require_legal_clarity"' in view_models
+    assert '"name": "investment_require_tenant_clarity"' in view_models
+    assert '"name": "investment_avoid_major_renovation"' in view_models
+    assert "Choose the thesis first." in view_models
+    assert "Use this as a hard floor for expected gross yield" in view_models
+    assert "debt coverage and cash-on-cash yield" in view_models
+    assert "A DSCR floor lets you exclude deals" in view_models
+    assert "search_goal: searchGoal" in brief_script
+    assert "investment_strategy: searchGoal === 'investment'" in brief_script
+    assert "min_dscr: searchGoal === 'investment'" in brief_script
+    assert "const searchGoalField = form.querySelector('select[name=\"search_goal\"]');" in workbench_script
+    assert "form.dataset.propertyExcludedSteps = 'children,reachability';" in workbench_script
+
+
+def test_propertyquarry_workspace_surfaces_institutional_underwriting_language() -> None:
+    bundle = _read_workbench_bundle()
+    lowered = bundle.lower()
+    assert "Institutional read" in bundle
+    assert "institutional score" in lowered
+    assert "return, value, demand, liquidity, risk control, execution effort, and evidence confidence" in lowered
+    assert "External model" in bundle
+
+
 def test_propertyquarry_saved_brief_reload_does_not_backfill_custom_location_from_checkbox_scope() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     template = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
@@ -2072,6 +2113,7 @@ def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(mo
     assert "Current underwriting base" in packet.text
     assert "Buy-side benchmark" in packet.text
     assert "Gross yield" in packet.text
+    assert "Institutional underwriting score" in packet.text
 
 
 def test_propertyquarry_workspace_search_surface_keeps_internal_review_link(monkeypatch) -> None:

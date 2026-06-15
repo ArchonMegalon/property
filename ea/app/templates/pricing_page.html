@@ -70,6 +70,36 @@
       grid-template-columns: 1fr;
     }
   }
+  @media (max-width: 760px) {
+    .pricing-hero,
+    .pricing-summary,
+    .tier-card,
+    .comparison-card,
+    .pricing-row,
+    .pricing-note {
+      padding: 16px;
+    }
+    .tier-grid,
+    .comparison-grid,
+    .pricing-table,
+    .pricing-strip,
+    .pricing-notes {
+      gap: 10px;
+    }
+    .tier-card .cta-row {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+    .tier-card .btn,
+    .tier-card button.btn,
+    .tier-card .btn.ghost {
+      width: 100%;
+    }
+    .tier-meta,
+    .tier-price {
+      letter-spacing: 0.03em;
+    }
+  }
 </style>
 
 <section class="section panel pricing-hero">

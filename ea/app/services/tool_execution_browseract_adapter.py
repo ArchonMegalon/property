@@ -2851,7 +2851,7 @@ class BrowserActToolAdapter:
     @staticmethod
     def _crezlo_public_tour_dir() -> Path:
         return Path(
-            str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")
+            str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours")
         ).expanduser()
 
     @staticmethod

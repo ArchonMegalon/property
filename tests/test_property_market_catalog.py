@@ -73,6 +73,7 @@ def test_normalize_property_search_preferences_defaults_country_and_language() -
     assert payload["country_code"] == "AT"
     assert payload["region_code"] == ""
     assert payload["language_code"] == "de"
+    assert payload["search_goal"] == "home"
     assert payload["listing_mode"] == "rent"
     assert payload["property_type"] == ["any"]
     assert payload["alert_frequency"] == "daily"
@@ -81,6 +82,31 @@ def test_normalize_property_search_preferences_defaults_country_and_language() -
     assert payload["search_agent_duration_days"] == 30
     assert payload["search_agent_notification_limit"] == 5
     assert payload["search_agent_notification_period"] == "day"
+
+
+def test_normalize_property_search_preferences_investment_goal_forces_buy_and_auto_underwriting() -> None:
+    payload = normalize_property_search_preferences(
+        {
+            "search_goal": "investment",
+            "listing_mode": "rent",
+            "investment_research_mode": "off",
+            "investment_strategy": "cash_flow",
+            "min_gross_yield_pct": "5",
+            "investment_require_floorplan": "true",
+            "enable_family_mode": "true",
+            "enable_commute_research": "true",
+        }
+    )
+
+    assert payload["search_goal"] == "investment"
+    assert payload["listing_mode"] == "buy"
+    assert payload["investment_research_mode"] == "auto"
+    assert payload["investment_strategy"] == "cash_flow"
+    assert payload["min_gross_yield_pct"] == 5
+    assert payload["investment_require_floorplan"] is True
+    assert payload["enable_family_mode"] is False
+    assert payload["enable_commute_research"] is False
+    assert payload["require_floorplan"] is True
 
 
 def test_normalize_property_search_preferences_clamps_search_agent_controls() -> None:

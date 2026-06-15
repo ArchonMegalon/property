@@ -595,7 +595,8 @@
       const selectedPlatforms = checkedValues(form, 'selected_platforms');
       const countryCode = fieldValue(form, 'country_code') || 'AT';
       const regionCode = fieldValue(form, 'region_code') || '';
-      const listingMode = fieldValue(form, 'listing_mode') || 'rent';
+      const searchGoal = fieldValue(form, 'search_goal') || 'home';
+      const listingMode = searchGoal === 'investment' ? 'buy' : (fieldValue(form, 'listing_mode') || 'rent');
       const fullRegionScope = Boolean(form.querySelector('input[name="full_region_scope"]')?.checked);
       const selectedLocations = checkedValues(form, 'location_query');
       const customLocationQuery = fieldValue(form, 'custom_location_query');
@@ -604,6 +605,7 @@
       const adjacentAreaRadiusMeters = adjacentAreaRadiusValue !== null
         ? Math.max(0, adjacentAreaRadiusValue * (adjacentAreaRadiusUnit === 'km' ? 1000 : 1))
         : 0;
+      const minDscrRaw = integerValue(form, 'min_dscr');
       const customKeywords = fieldValue(form, 'custom_keywords');
       const regionLabel = String(form.querySelector('select[name="region_code"] option:checked')?.textContent || regionCode || '').trim();
       return {
@@ -613,10 +615,21 @@
           country_code: countryCode,
           region_code: regionCode,
           language_code: browserLanguageCode(),
+          search_goal: searchGoal,
           listing_mode: listingMode,
           property_type: checkedValues(form, 'property_type').length ? checkedValues(form, 'property_type') : ['any'],
           search_mode: fieldValue(form, 'search_mode') || 'strict',
-          investment_research_mode: listingMode === 'buy' ? (fieldValue(form, 'investment_research_mode') || 'off') : 'off',
+          investment_research_mode: searchGoal === 'investment'
+            ? 'auto'
+            : (listingMode === 'buy' ? (fieldValue(form, 'investment_research_mode') || 'off') : 'off'),
+          investment_strategy: searchGoal === 'investment' ? (fieldValue(form, 'investment_strategy') || 'best_overall') : 'best_overall',
+          min_gross_yield_pct: searchGoal === 'investment' ? integerValue(form, 'min_gross_yield_pct') : null,
+          equity_available_eur: searchGoal === 'investment' ? integerValue(form, 'equity_available_eur') : null,
+          loan_term_years: searchGoal === 'investment' ? integerValue(form, 'loan_term_years') : null,
+          max_interest_rate_pct: searchGoal === 'investment' ? integerValue(form, 'max_interest_rate_pct') : null,
+          min_dscr: searchGoal === 'investment' && minDscrRaw !== null && minDscrRaw > 0 ? Number((minDscrRaw / 100).toFixed(2)) : null,
+          vacancy_reserve_pct: searchGoal === 'investment' ? integerValue(form, 'vacancy_reserve_pct') : null,
+          capex_reserve_pct: searchGoal === 'investment' ? integerValue(form, 'capex_reserve_pct') : null,
           full_region_scope: fullRegionScope,
           location_query: fullRegionScope && regionLabel ? regionLabel : uniqueValues(selectedLocations, csvValues(customLocationQuery)).join(', '),
           custom_location_query: customLocationQuery,
@@ -637,20 +650,26 @@
           enable_market_supply_research: Boolean(form.querySelector('input[name="enable_market_supply_research"]')?.checked),
           enable_location_risk_research: Boolean(form.querySelector('input[name="enable_location_risk_research"]')?.checked),
           enable_trust_risk_scoring: Boolean(form.querySelector('input[name="enable_trust_risk_scoring"]')?.checked),
-          enable_family_mode: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked),
+          enable_family_mode: searchGoal === 'investment' ? false : Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked),
+          investment_require_floorplan: searchGoal === 'investment' ? Boolean(form.querySelector('input[name="investment_require_floorplan"]')?.checked) : false,
+          investment_require_legal_clarity: searchGoal === 'investment' ? Boolean(form.querySelector('input[name="investment_require_legal_clarity"]')?.checked) : false,
+          investment_require_tenant_clarity: searchGoal === 'investment' ? Boolean(form.querySelector('input[name="investment_require_tenant_clarity"]')?.checked) : false,
+          investment_avoid_major_renovation: searchGoal === 'investment' ? Boolean(form.querySelector('input[name="investment_avoid_major_renovation"]')?.checked) : false,
           ganztag_required: Boolean(form.querySelector('input[name="ganztag_required"]')?.checked),
-          enable_commute_research: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked),
-          commute_destination: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? (fieldValue(form, 'commute_destination') || '') : '',
-          additional_reachability_targets: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? (fieldValue(form, 'additional_reachability_targets') || '') : '',
-          preferred_reachability_modes: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? checkedValues(form, 'preferred_reachability_modes') : [],
-          school_stage_preferences: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? checkedValues(form, 'school_stage_preferences') : [],
-          school_quality_priority: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) && checkedValues(form, 'school_stage_preferences').length > 0 ? (fieldValue(form, 'school_quality_priority') || 'any') : 'any',
+          enable_commute_research: searchGoal === 'investment' ? false : Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked),
+          commute_destination: searchGoal === 'investment' ? '' : (Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? (fieldValue(form, 'commute_destination') || '') : ''),
+          additional_reachability_targets: searchGoal === 'investment' ? '' : (Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? (fieldValue(form, 'additional_reachability_targets') || '') : ''),
+          preferred_reachability_modes: searchGoal === 'investment' ? [] : (Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? checkedValues(form, 'preferred_reachability_modes') : []),
+          school_stage_preferences: searchGoal === 'investment' ? [] : (Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? checkedValues(form, 'school_stage_preferences') : []),
+          school_quality_priority: searchGoal === 'investment'
+            ? 'any'
+            : (Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) && checkedValues(form, 'school_stage_preferences').length > 0 ? (fieldValue(form, 'school_quality_priority') || 'any') : 'any'),
           require_school_evidence: Boolean(form.querySelector('input[name="require_school_evidence"]')?.checked),
           university_name: fieldValue(form, 'university_name') || '',
           desired_project_stages: checkedValues(form, 'desired_project_stages'),
           apply_unknowns_penalty: Boolean(form.querySelector('input[name="apply_unknowns_penalty"]')?.checked),
           enable_action_readiness_research: Boolean(form.querySelector('input[name="enable_action_readiness_research"]')?.checked),
-          enable_lifestyle_research: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked),
+          enable_lifestyle_research: searchGoal === 'investment' ? false : Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked),
           max_price_eur: integerValue(form, 'max_price_eur'),
           min_rooms: integerValue(form, 'min_rooms'),
           min_area_m2: integerValue(form, 'min_area_m2'),
@@ -726,6 +745,9 @@
         if (format === 'count') return value === 1 ? '1 result' : `${numberFormatter.format(Math.round(value))} results`;
         if (format === 'days') return value === 1 ? 'Within 1 day' : `Within ${numberFormatter.format(Math.round(value))} days`;
         if (format === 'distance_outside_area') return `${numberFormatter.format(Math.round(value))} ${unit === 'km' ? 'km' : 'm'}`;
+        if (format === 'percent_cap') return `${numberFormatter.format(Math.round(value))}%+`;
+        if (format === 'loan_term_years') return `${numberFormatter.format(Math.round(value))} years`;
+        if (format === 'dscr_hundredths') return `${(value / 100).toFixed(2)}x`;
         if (format === 'agent_duration_days') {
           if (value <= 7) return '1 week';
           if (value >= 365) return '1 year';

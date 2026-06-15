@@ -135,6 +135,19 @@ LISTING_MODE_LABELS = {
     "buy": "Buy",
 }
 
+SEARCH_GOAL_LABELS = {
+    "home": "Find a home",
+    "investment": "Find an investment",
+}
+
+INVESTMENT_STRATEGY_LABELS = {
+    "best_overall": "Best overall opportunity",
+    "cash_flow": "Cash flow",
+    "appreciation": "Appreciation",
+    "undervalued": "Undervalued",
+    "low_risk": "Low risk",
+}
+
 
 PROPERTY_TYPE_LABELS = {
     "any": "Any type",
@@ -3008,6 +3021,24 @@ def listing_mode_options() -> list[dict[str, str]]:
     return [{"value": key, "label": label} for key, label in LISTING_MODE_LABELS.items()]
 
 
+def search_goal_options() -> list[dict[str, str]]:
+    return [{"value": key, "label": label} for key, label in SEARCH_GOAL_LABELS.items()]
+
+
+def search_goal_label(value: object) -> str:
+    normalized = str(value or "").strip().lower() or "home"
+    return SEARCH_GOAL_LABELS.get(normalized, SEARCH_GOAL_LABELS["home"])
+
+
+def investment_strategy_options() -> list[dict[str, str]]:
+    return [{"value": key, "label": label} for key, label in INVESTMENT_STRATEGY_LABELS.items()]
+
+
+def investment_strategy_label(value: object) -> str:
+    normalized = str(value or "").strip().lower() or "best_overall"
+    return INVESTMENT_STRATEGY_LABELS.get(normalized, INVESTMENT_STRATEGY_LABELS["best_overall"])
+
+
 def property_type_options() -> list[dict[str, str]]:
     return [{"value": key, "label": label} for key, label in PROPERTY_TYPE_LABELS.items()]
 
@@ -3293,16 +3324,28 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     payload = dict(preferences or {})
     raw_search_mode = str(payload.get("search_mode") or "").strip().lower()
     payload["search_mode"] = raw_search_mode if raw_search_mode in {"strict", "discovery"} else "strict"
+    search_goal = str(payload.get("search_goal") or "").strip().lower() or "home"
+    if search_goal not in SEARCH_GOAL_LABELS:
+        search_goal = "home"
+    payload["search_goal"] = search_goal
     country_code = normalize_country_code(payload.get("country_code"))
     payload["country_code"] = country_code
     payload["region_code"] = str(payload.get("region_code") or "").strip().lower()
     payload["language_code"] = normalize_language_code(payload.get("language_code"), country_code=country_code)
     payload["listing_mode"] = normalize_listing_mode(payload.get("listing_mode"))
+    if search_goal == "investment":
+        payload["listing_mode"] = "buy"
     payload["property_type"] = normalize_property_type_values(payload.get("property_type"))
     investment_mode = str(payload.get("investment_research_mode") or "").strip().lower() or "off"
     if investment_mode not in INVESTMENT_RESEARCH_MODE_LABELS:
         investment_mode = "off"
+    if search_goal == "investment" and investment_mode == "off":
+        investment_mode = "auto"
     payload["investment_research_mode"] = investment_mode
+    investment_strategy = str(payload.get("investment_strategy") or "").strip().lower() or "best_overall"
+    if investment_strategy not in INVESTMENT_STRATEGY_LABELS:
+        investment_strategy = "best_overall"
+    payload["investment_strategy"] = investment_strategy
     raw_full_region_scope = payload.get("full_region_scope")
     payload["full_region_scope"] = (
         raw_full_region_scope is True
@@ -3395,6 +3438,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     for numeric_key in (
         "min_price_eur",
         "max_price_eur",
+        "min_gross_yield_pct",
         "eigenmittel_max_eur",
         "min_rooms",
         "min_area_m2",
@@ -3430,6 +3474,8 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         if numeric_value > 0:
             if numeric_key == "available_within_years":
                 payload[numeric_key] = max(1, min(10, numeric_value))
+            elif numeric_key == "min_gross_yield_pct":
+                payload[numeric_key] = max(1, min(15, numeric_value))
             elif numeric_key == "eigenmittel_max_eur":
                 payload[numeric_key] = max(1000, min(1_000_000, numeric_value))
             elif numeric_key == "application_window_days":
@@ -3514,6 +3560,10 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         "enable_commute_research",
         "apply_unknowns_penalty",
         "enable_action_readiness_research",
+        "investment_require_floorplan",
+        "investment_require_legal_clarity",
+        "investment_require_tenant_clarity",
+        "investment_avoid_major_renovation",
     ):
         raw_value = payload.get(bool_key)
         payload[bool_key] = bool(raw_value) or str(raw_value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
@@ -3607,6 +3657,13 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     payload["desired_project_stages"] = desired_project_stages
     if str(payload.get("listing_mode") or "rent").strip().lower() != "buy":
         payload["investment_research_mode"] = "off"
+    if payload["search_goal"] == "investment":
+        payload["listing_mode"] = "buy"
+        payload["investment_research_mode"] = "auto"
+        payload["enable_family_mode"] = False
+        payload["enable_commute_research"] = False
+        payload["enable_lifestyle_research"] = False
+        payload["require_floorplan"] = bool(payload.get("require_floorplan")) or bool(payload.get("investment_require_floorplan"))
     return payload
 
 

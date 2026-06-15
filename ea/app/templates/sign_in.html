@@ -58,6 +58,23 @@
       grid-template-columns: 1fr;
     }
   }
+  @media (max-width: 760px) {
+    .access-panel,
+    .access-card {
+      padding: 18px;
+    }
+    .topbar .actions,
+    .mobile-nav {
+      display: none !important;
+    }
+    .access-panel .cta-row {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+    .access-panel .btn {
+      width: 100%;
+    }
+  }
 </style>
 
 <section class="access-grid">

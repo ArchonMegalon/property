@@ -16,6 +16,7 @@ from app.product.projections.common import compact_text
 from app.product.service import (
     _property_enrich_missing_fact_research,
     _property_investment_area_sqm,
+    _property_investment_underwriting_payload,
     _property_investment_location_seed,
     _property_investment_price_eur,
     _property_investment_research_snapshot,
@@ -1180,6 +1181,37 @@ def _property_investment_research_rows(
         _object_detail_row("Comparable buy samples", f"{int(snapshot.get('buy_sample_count') or 0)} listings", "Comps"),
         _object_detail_row("Comparable rent samples", f"{int(snapshot.get('rent_sample_count') or 0)} listings", "Comps"),
     ]
+    underwriting = _property_investment_underwriting_payload(
+        title=str(facts.get("listing_title") or facts.get("title") or property_url).strip() or property_url,
+        summary=str(facts.get("summary") or facts.get("description_text") or "").strip(),
+        facts=facts,
+        preferences=preferences,
+        snapshot=snapshot,
+    )
+    if underwriting:
+        rows.append(
+            _object_detail_row(
+                "Institutional underwriting score",
+                f"{underwriting.get('score_display') or ''} | {underwriting.get('confidence_label') or 'Partial evidence'}",
+                str(underwriting.get("score_bucket_label") or "Mixed"),
+            )
+        )
+        external_model = dict(underwriting.get("external_model") or {}) if isinstance(underwriting.get("external_model"), dict) else {}
+        if external_model:
+            rows.append(
+                _object_detail_row(
+                    "External model status",
+                    " | ".join(
+                        part
+                        for part in (
+                            str(underwriting.get("feed_status_label") or "").strip(),
+                            str(underwriting.get("feed_status_detail") or "").strip(),
+                        )
+                        if part
+                    ) or "External model status pending.",
+                    str(external_model.get("confidence_label") or "Mixed"),
+                )
+            )
     market_buy = snapshot.get("market_buy_per_sqm_eur")
     delta_pct = snapshot.get("market_buy_delta_pct")
     if isinstance(market_buy, (int, float)):
@@ -1195,11 +1227,43 @@ def _property_investment_research_rows(
         rows.append(_object_detail_row("Expected monthly rent", f"About EUR {float(expected_rent):,.0f} ({float(snapshot.get('market_rent_per_sqm_eur') or 0.0):.2f} EUR/m2)", "Yield"))
     if isinstance(gross_yield, (int, float)):
         rows.append(_object_detail_row("Gross yield", f"About {float(gross_yield):.2f}% before vacancy, tax, and capex.", "Yield"))
+    net_yield = underwriting.get("net_yield_pct")
+    if isinstance(net_yield, (int, float)):
+        rows.append(_object_detail_row("Net yield", f"About {float(net_yield):.2f}% after tax, opex, vacancy, and capex reserves.", "Yield"))
+    cap_rate = underwriting.get("cap_rate_pct")
+    if isinstance(cap_rate, (int, float)):
+        rows.append(_object_detail_row("Cap rate", f"About {float(cap_rate):.2f}% on current acquisition cost assumptions.", "Yield"))
+    dscr = underwriting.get("dscr")
+    if isinstance(dscr, (int, float)):
+        rows.append(_object_detail_row("Debt coverage", f"About {float(dscr):.2f}x on the current financing model.", "Financing"))
     if isinstance(payback_years, (int, float)):
         rows.append(_object_detail_row("Payback horizon", f"About {float(payback_years):.1f} years on gross rent assumptions.", "Yield"))
+    for dimension in list(underwriting.get("dimensions") or [])[:7]:
+        if not isinstance(dimension, dict):
+            continue
+        rows.append(
+            _object_detail_row(
+                str(dimension.get("label") or "Underwriting dimension").strip(),
+                f"{int(float(dimension.get('score') or 0))}/100 | {str(dimension.get('tooltip') or '').strip()}",
+                str(dimension.get("bucket_label") or "Mixed").strip(),
+            )
+        )
     if access_level == "preview":
         rows.append(_object_detail_row("Preview tier limit", "Plus only returns the benchmark headline. Agent unlocks the fuller risk and diligence pass.", "Upgrade"))
         return rows, context_risk_rows
+    external_model = dict(underwriting.get("external_model") or {}) if isinstance(underwriting.get("external_model"), dict) else {}
+    if external_model:
+        financing = dict(external_model.get("financing") or {}) if isinstance(external_model.get("financing"), dict) else {}
+        taxes = dict(external_model.get("taxes") or {}) if isinstance(external_model.get("taxes"), dict) else {}
+        operating = dict(external_model.get("operating_costs") or {}) if isinstance(external_model.get("operating_costs"), dict) else {}
+        if isinstance(external_model.get("acquisition_costs_eur"), (int, float)):
+            rows.append(_object_detail_row("Acquisition cost base", f"About EUR {float(external_model.get('acquisition_costs_eur')):,.0f} including transfer tax and registry fees.", "Base"))
+        if isinstance(taxes.get("property_transfer_tax_pct"), (int, float)):
+            rows.append(_object_detail_row("Transfer tax model", f"{float(taxes.get('property_transfer_tax_pct')):.2f}% transfer tax and {float(taxes.get('land_registry_fee_pct') or 0.0):.2f}% registry fee.", str(taxes.get("source_label") or "Tax model")))
+        if isinstance(operating.get("annual_operating_costs_eur"), (int, float)):
+            rows.append(_object_detail_row("Operating cost model", f"About EUR {float(operating.get('annual_operating_costs_eur')):,.0f} per year ({float(operating.get('operating_cost_ratio_pct') or 0.0):.1f}% of rent when rent is known).", str(operating.get("source_label") or "Operating cost model")))
+        if isinstance(financing.get("interest_rate_pct"), (int, float)):
+            rows.append(_object_detail_row("Financing model", f"{float(financing.get('interest_rate_pct')):.2f}% over {int(float(financing.get('loan_term_years') or 0))} years with about EUR {float(financing.get('annual_debt_service_eur') or 0.0):,.0f} annual debt service.", str(financing.get("source_label") or "Financing model")))
     risk_rows = context_risk_rows + _property_investment_risk_rows(facts, snapshot)
     if isinstance(snapshot.get("buy_samples"), list) and snapshot["buy_samples"]:
         top_buy = snapshot["buy_samples"][0]

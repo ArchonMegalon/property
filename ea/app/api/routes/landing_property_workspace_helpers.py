@@ -78,7 +78,7 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         if raw_status in {"completed", "processed", "done", "success"}:
             return "Done"
         if raw_status in {"failed", "error"} or source_row.get("error"):
-            return "Needs retry"
+            return "Retrying"
         if raw_status in {"running", "processing", "in_progress", "working", "warming"}:
             return "Running"
         if raw_status in {"queued", "pending", "starting"}:
@@ -117,18 +117,19 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
     for index in range(visible_workers):
         source_row = queue[index] if index < len(queue) else {}
         source_label = str(source_row.get("source_label") or source_row.get("label") or "").strip()
+        compact_label = _compact_provider_label(source_label)
         provider_group = _source_provider_group(source_row) if source_row else ""
         shard_count = max(0, int(duplicate_counts.get(provider_group, 0)) - 1) if provider_group else 0
         status_label = _source_status_label(source_row) if source_row else "Idle"
         progress = _source_progress(source_row) if source_row else 0
         worker_rows.append(
             {
-                "label": f"W{index + 1}",
+                "label": compact_label if source_row else ("Waiting" if active_sources or source_rows else "Stand by"),
                 "provider": source_label or ("Waiting for a source" if active_sources or source_rows else "Stand by"),
                 "shard_count": shard_count,
                 "status_label": status_label,
                 "progress_pct": progress,
-                "tone": "done" if progress >= 100 and source_row else ("active" if status_label == "Running" else ("queued" if status_label == "Up next" else "idle")),
+                "tone": "done" if progress >= 100 and source_row and status_label == "Done" else ("active" if status_label == "Running" else ("queued" if status_label in {"Up next", "Retrying"} else "idle")),
             }
         )
 
@@ -152,8 +153,16 @@ def _compact_provider_label(value: object) -> str:
     text = " ".join(str(value or "").split()).strip()
     if not text:
         return "Provider"
-    if "|" in text:
-        text = text.split("|", 1)[0].strip()
+    for marker in ("|", "·", " — ", " – ", ":", "("):
+        if marker in text:
+            text = text.split(marker, 1)[0].strip()
+    words = [part for part in text.split() if part]
+    if len(words) > 3:
+        text = " ".join(words[:3]).strip()
+    if len(text) > 20 and len(words) >= 2:
+        text = " ".join(words[:2]).strip()
+    if len(text) > 20:
+        text = f"{text[:17].rstrip()}..."
     return text or "Provider"
 
 

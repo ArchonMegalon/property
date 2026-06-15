@@ -1725,7 +1725,7 @@
   };
 
   const bindTooltips = (root) => {
-    const tips = [...(root?.querySelectorAll('.console-range-help[data-tooltip-trigger][aria-label]') || [])];
+    const tips = [...(root?.querySelectorAll('.console-range-help[data-tooltip-trigger][aria-label], .pqx-tooltip[data-tooltip-trigger][aria-label]') || [])];
     if (!tips.length) return;
     const closeAll = (exceptNode) => {
       tips.forEach((tip) => {

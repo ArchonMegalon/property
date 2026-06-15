@@ -176,6 +176,44 @@
       display: grid;
     }
   }
+  @media (max-width: 760px) {
+    .pq-home {
+      gap: 18px;
+    }
+    .pq-hero {
+      min-height: 0;
+      gap: 16px;
+    }
+    .pq-hero-copy,
+    .pq-preview,
+    .pq-band,
+    .pq-detail,
+    .pq-final {
+      padding: 20px;
+    }
+    .pq-hero h1 {
+      max-width: none;
+      font-size: clamp(1.9rem, 10vw, 2.9rem);
+      line-height: 1.02;
+    }
+    .pq-result {
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 10px 12px;
+    }
+    .pq-score {
+      grid-column: 2;
+      justify-self: start;
+    }
+    .pq-final .cta-row,
+    .pq-hero-copy .cta-row {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+    .pq-final .btn,
+    .pq-hero-copy .btn {
+      width: 100%;
+    }
+  }
 </style>
 
 <main class="pq-home">

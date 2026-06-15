@@ -777,6 +777,21 @@
     }
   }
   @media (max-width: 760px) {
+    .prd-shell {
+      width: calc(100vw - 20px);
+      gap: 16px;
+    }
+    .prd-panel,
+    .prd-band,
+    .prd-map-card,
+    .prd-meta-card,
+    .prd-lightbox-card {
+      padding: 14px;
+    }
+    .prd-headline-panel h1 {
+      font-size: 1.1rem;
+      line-height: 1.2;
+    }
     .prd-meta {
       grid-template-columns: 1fr 1fr;
     }
@@ -790,8 +805,16 @@
       display: grid;
       grid-template-columns: 1fr;
     }
-    .prd-shell {
-      width: calc(100vw - 20px);
+    .prd-media-frame {
+      min-height: 220px;
+      max-height: none;
+    }
+    .prd-media-frame.prd-media-frame-live {
+      min-height: 240px;
+      max-height: none;
+    }
+    .prd-gallery {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .prd-lightbox {
       width: calc(100vw - 16px);

@@ -96,6 +96,8 @@ from app.services.property_market_catalog import (
     default_platforms_for_country_listing_mode,
     default_platforms_for_country,
     evidence_source_options as property_evidence_source_options,
+    investment_strategy_label as property_investment_strategy_label,
+    investment_strategy_options as property_investment_strategy_options,
     language_label as property_language_label,
     language_options as property_language_options,
     listing_mode_label as property_listing_mode_label,
@@ -107,6 +109,8 @@ from app.services.property_market_catalog import (
     property_type_label as property_type_label_for_value,
     property_type_options as property_type_options_catalog,
     provider_options as property_provider_options,
+    search_goal_label as property_search_goal_label,
+    search_goal_options as property_search_goal_options,
 )
 from app.services.public_branding import request_brand
 from app.services.public_clickrank import (
@@ -941,11 +945,15 @@ def _property_console_context(
         "country_options": property_country_options(),
         "language_options": property_language_options(),
         "listing_mode_options": property_listing_mode_options(),
+        "search_goal_options": property_search_goal_options(),
+        "investment_strategy_options": property_investment_strategy_options(),
         "investment_research_mode_options": property_investment_research_mode_options(),
         "property_type_options": property_type_options_catalog(),
         "country_label": property_country_label(selected_country),
         "language_label": property_language_label(preferences.get("language_code"), country_code=selected_country),
         "listing_mode_label": property_listing_mode_label(preferences.get("listing_mode")),
+        "search_goal_label": property_search_goal_label(preferences.get("search_goal")),
+        "investment_strategy_label": property_investment_strategy_label(preferences.get("investment_strategy")),
         "investment_research_mode_label": property_investment_research_mode_label(preferences.get("investment_research_mode")),
         "property_type_label": property_type_label_for_value(preferences.get("property_type")),
         "provider_total_for_country": len(country_provider_options),

@@ -96,6 +96,41 @@
         appendEventCard(node, row?.title || defaultTitle, row?.detail || '', row?.tag || '');
       });
     };
+    const renderUnderwritingFacts = (node, dimensions) => {
+      if (!node) return;
+      clearNode(node);
+      const rows = Array.isArray(dimensions) ? dimensions : [];
+      if (!rows.length) {
+        const empty = document.createElement('div');
+        empty.className = 'pqx-note';
+        empty.textContent = 'Underwriting dimensions are still building.';
+        node.appendChild(empty);
+        return;
+      }
+      rows.forEach((row) => {
+        const fact = document.createElement('div');
+        fact.className = 'pqx-fact';
+        const label = document.createElement('span');
+        label.textContent = String(row?.label || 'Dimension');
+        const tooltip = String(row?.tooltip || '').trim();
+        if (tooltip) {
+          label.appendChild(document.createTextNode(' '));
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'pqx-tooltip';
+          button.title = tooltip;
+          button.setAttribute('aria-label', tooltip);
+          button.setAttribute('aria-expanded', 'false');
+          button.setAttribute('data-tooltip-trigger', '');
+          button.textContent = '?';
+          label.appendChild(button);
+        }
+        const value = document.createElement('strong');
+        value.textContent = `${Math.round(Number(row?.score || 0))}/100 · ${String(row?.bucket_label || 'Mixed')}`;
+        fact.append(label, value);
+        node.appendChild(fact);
+      });
+    };
     const renderFollowupCards = (node, rows) => {
       if (!node) return;
       clearNode(node);
@@ -353,6 +388,7 @@
     });
     root.querySelector('[data-pw-clippy-ask]')?.addEventListener('click', async () => {
       const candidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+      const investmentSearch = String(briefPreferences.search_goal || '').trim().toLowerCase() === 'investment';
       const question = String(clippyQuestionNode?.value || '').trim();
       if (!candidate || !question) {
         if (clippyStatusNode) clippyStatusNode.textContent = 'Ask a specific property question first.';
@@ -373,7 +409,15 @@
             assessment: candidate.assessment || {},
             investment_context: [
               { title: 'Risk', detail: String(candidate.risk?.summary || 'No risk summary captured yet.'), tag: String(candidate.risk?.level || 'risk') },
-              { title: 'Cost check', detail: String(candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the review details for cost checks when buy mode is active.'), tag: 'cost' },
+              {
+                title: investmentSearch ? 'Return' : 'Cost check',
+                detail: String(
+                  investmentSearch
+                    ? (candidate.investment?.net_yield_display || candidate.investment?.cap_rate_display || candidate.investment?.gross_yield_display || candidate.investment?.market_delta_display || candidate.investment?.headline || 'Open the property page for full underwriting.')
+                    : (candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the review details for cost checks when buy mode is active.')
+                ),
+                tag: investmentSearch ? 'return' : 'cost',
+              },
             ],
           }),
         });
@@ -785,6 +829,8 @@
       const title = root.querySelector('[data-pw-title]');
       const source = root.querySelector('[data-pw-source]');
       const summaryFacts = root.querySelector('[data-pw-summary-facts]');
+      const coverNode = root.querySelector('[data-pw-cover]');
+      const coverImage = root.querySelector('[data-pw-cover-image]');
       if (title) title.textContent = candidate.title || 'Selected property';
       if (source) source.textContent = [candidate.source_label, candidate.location_label].filter(Boolean).join(' · ') || 'PropertyQuarry candidate';
       if (summaryFacts) {
@@ -797,6 +843,12 @@
       const tourNode = root.querySelector('[data-pw-tour]');
       const theaterShell = root.querySelector('[data-pq-theater]');
       const tour = candidate.tour || {};
+      const previewUrl = String(candidate?.orientation_preview?.image_url || candidate?.preview_image_url || '').trim();
+      if (coverNode) coverNode.hidden = Boolean(tour.embed_url) || !previewUrl;
+      if (coverImage && previewUrl) {
+        coverImage.src = previewUrl;
+        coverImage.alt = String(candidate.title || 'Property preview');
+      }
       if (tourNode && tour.embed_url) {
         if (theaterShell) theaterShell.classList.remove('no-media');
         tourNode.hidden = false;
@@ -891,7 +943,33 @@
       const riskLevel = root.querySelector('[data-pw-risk-level]');
       if (riskLevel) riskLevel.textContent = candidate.risk?.level || 'unknown';
       const investment = root.querySelector('[data-pw-investment]');
-      if (investment) investment.textContent = candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the review details for cost checks when buy mode is active.';
+      if (investment) {
+        const investmentSearch = String(briefPreferences.search_goal || '').trim().toLowerCase() === 'investment';
+        investment.textContent = investmentSearch
+          ? (candidate.investment?.net_yield_display || candidate.investment?.cap_rate_display || candidate.investment?.gross_yield_display || candidate.investment?.market_delta_display || candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the property page for full underwriting.')
+          : (candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the review details for cost checks when buy mode is active.');
+      }
+      const underwritingSummary = root.querySelector('[data-pw-underwriting-summary]');
+      if (underwritingSummary) {
+        const summaryParts = [];
+        if (candidate.investment?.score_display) summaryParts.push(String(candidate.investment.score_display));
+        if (candidate.investment?.confidence_label) summaryParts.push(String(candidate.investment.confidence_label));
+        if (candidate.investment?.underwriting_summary) summaryParts.push(String(candidate.investment.underwriting_summary));
+        underwritingSummary.textContent = summaryParts.join(' · ') || 'Institutional score pending.';
+      }
+      const underwritingFacts = root.querySelector('[data-pw-underwriting-facts]');
+      if (underwritingFacts) {
+        renderUnderwritingFacts(underwritingFacts, candidate.investment?.dimensions);
+        if (typeof bindTooltips === 'function') bindTooltips(underwritingFacts);
+      }
+      const feedStatus = root.querySelector('[data-pw-feed-status]');
+      if (feedStatus) {
+        const summaryParts = [];
+        if (candidate.investment?.feed_status_label) summaryParts.push(String(candidate.investment.feed_status_label));
+        if (candidate.investment?.feed_status_detail) summaryParts.push(String(candidate.investment.feed_status_detail));
+        if (candidate.investment?.dscr_display) summaryParts.push(String(candidate.investment.dscr_display));
+        feedStatus.textContent = summaryParts.join(' · ') || 'Feed status pending.';
+      }
       root.querySelectorAll('[data-pw-actions]').forEach((node) => {
         if (node.matches('[data-pw-actions]')) renderPropertyActions(node, candidate);
       });

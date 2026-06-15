@@ -107,6 +107,7 @@ from app.product.property_location_research import (
     _PROPERTY_SCHOOLATLAS_SOURCE_URL,
     property_school_context_summary,
 )
+from app.product.property_investment_external_data import property_investment_external_snapshot
 from app.product.property_search_stage_receipts import (
     mark_property_search_stage_receipt,
     new_property_search_stage_receipts,
@@ -3919,6 +3920,35 @@ def _property_fact_value_is_weak(value: object) -> bool:
     return False
 
 
+@lru_cache(maxsize=256)
+def _property_source_research_snapshot(property_url: str, image_urls: tuple[str, ...] = ()) -> dict[str, object]:
+    normalized = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    if not normalized:
+        return {}
+    try:
+        preview = _property_scout_page_preview(normalized, prefer_fast=True)
+    except Exception:
+        preview = {}
+    if not isinstance(preview, dict) or not preview:
+        return {}
+    facts = dict(preview.get("property_facts_json") or {})
+    title = str(preview.get("title") or "").strip()
+    summary = str(preview.get("summary") or "").strip()
+    if title or summary:
+        try:
+            facts = _property_enrich_facts_from_listing_text(
+                facts=facts,
+                title=title,
+                summary=summary,
+                listing_mode="buy",
+            )
+        except Exception:
+            facts = dict(facts or {})
+    if image_urls and "floorplan_urls_json" not in facts:
+        facts["floorplan_urls_json"] = [value for value in image_urls if str(value or "").strip()]
+    return {key: value for key, value in facts.items() if not _property_fact_value_is_weak(value)}
+
+
 def _property_image_ocr_address_hint(image_urls: tuple[str, ...], *, source_text: str = "", property_url: str = "") -> dict[str, object]:
     if not image_urls or Image is None or pytesseract is None or not shutil.which("tesseract"):
         return {}
@@ -4368,6 +4398,543 @@ def _property_investment_research_snapshot(
             }
         )
     return snapshot
+
+
+_PROPERTY_INVESTMENT_LEGAL_COMPLEXITY_MARKERS = (
+    "versteigerung",
+    "zwangsversteigerung",
+    "auction",
+    "court sale",
+    "baurecht",
+    "leasehold",
+    "erbpacht",
+    "mietkauf",
+    "genossenschaftsanteil",
+    "cooperative share",
+)
+
+_PROPERTY_INVESTMENT_RENOVATION_MARKERS = (
+    "sanierungsbedürftig",
+    "sanierungsbeduerftig",
+    "renovierungsbedürftig",
+    "renovierungsbeduerftig",
+    "kernsanierung",
+    "fixer upper",
+    "fixer-upper",
+    "needs renovation",
+    "renovation project",
+)
+
+
+def _property_search_goal(preferences: dict[str, object] | None) -> str:
+    value = str(dict(preferences or {}).get("search_goal") or "").strip().lower() or "home"
+    return value if value in {"home", "investment"} else "home"
+
+
+def _property_investment_strategy(preferences: dict[str, object] | None) -> str:
+    value = str(dict(preferences or {}).get("investment_strategy") or "").strip().lower() or "best_overall"
+    return value if value in {"best_overall", "cash_flow", "appreciation", "undervalued", "low_risk"} else "best_overall"
+
+
+def _property_investment_min_gross_yield_pct(preferences: dict[str, object] | None) -> float:
+    try:
+        return max(0.0, min(15.0, float(str(dict(preferences or {}).get("min_gross_yield_pct") or "").strip())))
+    except Exception:
+        return 0.0
+
+
+def _property_investment_score_bucket(score: float) -> str:
+    value = max(0.0, min(float(score or 0.0), 100.0))
+    if value >= 78.0:
+        return "strong"
+    if value >= 62.0:
+        return "good"
+    if value >= 45.0:
+        return "mixed"
+    return "weak"
+
+
+def _property_investment_score_bucket_label(score: float) -> str:
+    return {
+        "strong": "Strong",
+        "good": "Solid",
+        "mixed": "Mixed",
+        "weak": "Weak",
+    }.get(_property_investment_score_bucket(score), "Mixed")
+
+
+def _property_investment_dimension_tooltips() -> dict[str, str]:
+    return {
+        "return": "Return weighs gross yield, rent evidence, and how quickly the current price can be earned back on gross rent assumptions.",
+        "value": "Value compares this buy price per square meter against local buy comparables. Below-median pricing scores better.",
+        "demand": "Demand estimates whether the micro-location should keep attracting renters or buyers using transport, daily-life access, and longer-term area context.",
+        "liquidity": "Liquidity estimates how easy this should be to exit or re-let without waiting on a thin market.",
+        "risk": "Risk control penalizes legal complexity, climate and burden flags, unclear tenant posture, and documentation gaps.",
+        "execution": "Execution measures how much work is still needed before this is truly actionable: floorplans, tenant clarity, CAPEX, and renovation friction.",
+        "evidence": "Evidence confidence measures how much of this underwriting read is actually proven by comps, documents, and structured signals.",
+    }
+
+
+def _property_investment_underwriting_payload(
+    *,
+    title: str,
+    summary: str,
+    facts: dict[str, object],
+    preferences: dict[str, object],
+    snapshot: dict[str, object] | None,
+) -> dict[str, object]:
+    snapshot_json = dict(snapshot or {})
+    gross_yield_pct = _float_or_none(snapshot_json.get("gross_yield_pct"))
+    market_delta_pct = _float_or_none(snapshot_json.get("market_buy_delta_pct"))
+    expected_monthly_rent_eur = _float_or_none(snapshot_json.get("expected_monthly_rent_eur"))
+    payback_years = _float_or_none(snapshot_json.get("payback_years"))
+    current_price_per_sqm = _float_or_none(snapshot_json.get("current_price_per_sqm_eur"))
+    market_buy_per_sqm = _float_or_none(snapshot_json.get("market_buy_per_sqm_eur"))
+    market_rent_per_sqm = _float_or_none(snapshot_json.get("market_rent_per_sqm_eur"))
+    buy_sample_count = max(0, int(snapshot_json.get("buy_sample_count") or 0))
+    rent_sample_count = max(0, int(snapshot_json.get("rent_sample_count") or 0))
+    floorplan_ready = bool(
+        facts.get("has_floorplan")
+        or facts.get("floorplan_count")
+        or facts.get("floorplans_count")
+        or facts.get("floorplan_urls_json")
+    )
+    legal_complexity = _property_candidate_has_investment_legal_complexity(title=title, summary=summary, facts=facts)
+    tenant_clarity = any(
+        str(facts.get(key) or "").strip()
+        for key in ("tenant_status", "occupancy_status", "rental_status", "vacant")
+    )
+    heavy_renovation = _property_candidate_needs_major_renovation(title=title, summary=summary, facts=facts)
+    future_research = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
+    official_risk_evidence = dict(facts.get("official_risk_evidence") or {}) if isinstance(facts.get("official_risk_evidence"), dict) else {}
+    official_risk_sources = [
+        dict(row)
+        for row in list(official_risk_evidence.get("sources") or [])
+        if isinstance(row, dict)
+    ]
+    official_risk_keys = {
+        str(row.get("risk_key") or "").strip().lower()
+        for row in official_risk_sources
+        if str(row.get("risk_key") or "").strip()
+    }
+    missing_fact_items = list(dict(facts.get("missing_fact_research") or {}).get("items") or []) if isinstance(facts.get("missing_fact_research"), dict) else []
+    transit_m = min(
+        value
+        for value in (
+            _float_or_none(facts.get("nearest_subway_m")),
+            _float_or_none(facts.get("nearest_tram_bus_m")),
+        )
+        if isinstance(value, float) and value >= 0.0
+    ) if any(isinstance(_float_or_none(facts.get(key)), float) and _float_or_none(facts.get(key)) >= 0.0 for key in ("nearest_subway_m", "nearest_tram_bus_m")) else None
+    supermarket_m = _float_or_none(facts.get("nearest_supermarket_m"))
+    medical_m = _float_or_none(facts.get("nearest_medical_care_m"))
+    school_context = property_school_context_summary(future_research) or property_school_context_summary(facts)
+    planning_confidence = str(future_research.get("planning_confidence") or "").strip().lower()
+    investment_impact = str(future_research.get("investment_impact") or "").strip().lower()
+    value_drivers = [str(item or "").strip() for item in list(future_research.get("future_value_drivers") or []) if str(item or "").strip()]
+    value_risks = [str(item or "").strip() for item in list(future_research.get("future_value_risks") or []) if str(item or "").strip()]
+    source_trust_tier = str(facts.get("source_trust_tier") or "").strip().lower()
+    source_access_level = str(facts.get("source_access_level") or "").strip().lower()
+    source_confidence_bonus = 0.0
+    if source_trust_tier == "high":
+        source_confidence_bonus += 8.0
+    elif source_trust_tier == "medium":
+        source_confidence_bonus += 4.0
+    if source_access_level in {"direct", "verified"}:
+        source_confidence_bonus += 4.0
+    energy_certificate_present = bool(facts.get("energy_certificate_present"))
+    has_360 = bool(facts.get("has_360") or facts.get("source_virtual_tour_url"))
+    location_confident = bool(facts.get("map_lat") and facts.get("map_lng"))
+    external_model = property_investment_external_snapshot(
+        country_code=str(preferences.get("country_code") or facts.get("country_code") or "AT").strip() or "AT",
+        property_url=str(facts.get("property_url") or facts.get("source_url") or "").strip(),
+        title=title,
+        facts=facts,
+        preferences=preferences,
+        snapshot=snapshot_json,
+    )
+    net_yield_pct = _float_or_none(external_model.get("net_yield_pct"))
+    cap_rate_pct = _float_or_none(external_model.get("cap_rate_pct"))
+    cash_on_cash_yield_pct = _float_or_none(external_model.get("cash_on_cash_yield_pct"))
+    dscr = _float_or_none(dict(external_model.get("financing") or {}).get("dscr")) if isinstance(external_model.get("financing"), dict) else None
+    external_confidence_label = str(external_model.get("confidence_label") or "").strip()
+    feed_status_label = str(external_model.get("feed_status_label") or "").strip()
+    feed_status_detail = str(external_model.get("feed_status_detail") or "").strip()
+
+    def _clamp(value: float) -> float:
+        return round(max(0.0, min(float(value or 0.0), 100.0)), 1)
+
+    return_score = 40.0
+    if isinstance(gross_yield_pct, float) and gross_yield_pct > 0.0:
+        if gross_yield_pct >= 7.0:
+            return_score = 88.0
+        elif gross_yield_pct >= 5.5:
+            return_score = 77.0
+        elif gross_yield_pct >= 4.5:
+            return_score = 68.0
+        elif gross_yield_pct >= 3.5:
+            return_score = 56.0
+        elif gross_yield_pct >= 2.5:
+            return_score = 44.0
+        else:
+            return_score = 30.0
+        if isinstance(payback_years, float) and payback_years > 0.0:
+            if payback_years <= 18.0:
+                return_score += 8.0
+            elif payback_years >= 30.0:
+                return_score -= 8.0
+    else:
+        return_score = 22.0
+    if rent_sample_count >= 4:
+        return_score += 6.0
+    elif rent_sample_count == 0:
+        return_score -= 8.0
+    if isinstance(net_yield_pct, float):
+        if net_yield_pct >= 5.0:
+            return_score += 10.0
+        elif net_yield_pct >= 3.75:
+            return_score += 5.0
+        elif net_yield_pct < 2.25:
+            return_score -= 10.0
+    if isinstance(cash_on_cash_yield_pct, float):
+        if cash_on_cash_yield_pct >= 8.0:
+            return_score += 8.0
+        elif cash_on_cash_yield_pct < 3.0:
+            return_score -= 8.0
+    return_score = _clamp(return_score)
+
+    value_score = 46.0
+    if isinstance(market_delta_pct, float):
+        if market_delta_pct <= -15.0:
+            value_score = 90.0
+        elif market_delta_pct <= -8.0:
+            value_score = 80.0
+        elif market_delta_pct <= -3.0:
+            value_score = 68.0
+        elif market_delta_pct < 3.0:
+            value_score = 55.0
+        elif market_delta_pct < 10.0:
+            value_score = 40.0
+        else:
+            value_score = 24.0
+    if buy_sample_count >= 4:
+        value_score += 5.0
+    elif buy_sample_count == 0:
+        value_score -= 10.0
+    value_score = _clamp(value_score)
+
+    demand_score = 45.0
+    if isinstance(transit_m, float):
+        if transit_m <= 250.0:
+            demand_score += 15.0
+        elif transit_m <= 550.0:
+            demand_score += 9.0
+        elif transit_m >= 1200.0:
+            demand_score -= 10.0
+    if isinstance(supermarket_m, float) and supermarket_m <= 500.0:
+        demand_score += 5.0
+    if isinstance(medical_m, float) and medical_m <= 1200.0:
+        demand_score += 4.0
+    if school_context:
+        demand_score += 5.0
+    if investment_impact:
+        if any(token in investment_impact for token in ("positive", "tailwind", "upside", "strong", "supportive")):
+            demand_score += 10.0
+        elif any(token in investment_impact for token in ("negative", "weak", "headwind", "adverse")):
+            demand_score -= 10.0
+    if value_drivers:
+        demand_score += min(len(value_drivers) * 2.0, 8.0)
+    if value_risks:
+        demand_score -= min(len(value_risks) * 2.0, 8.0)
+    demand_score = _clamp(demand_score)
+
+    liquidity_score = 48.0
+    if isinstance(transit_m, float):
+        if transit_m <= 400.0:
+            liquidity_score += 12.0
+        elif transit_m >= 1200.0:
+            liquidity_score -= 12.0
+    if buy_sample_count >= 4:
+        liquidity_score += 10.0
+    elif buy_sample_count == 0:
+        liquidity_score -= 12.0
+    if source_trust_tier == "high":
+        liquidity_score += 4.0
+    if source_access_level in {"direct", "verified"}:
+        liquidity_score += 4.0
+    if any(token in investment_impact for token in ("oversupply", "supply", "softening", "negative")):
+        liquidity_score -= 8.0
+    if legal_complexity:
+        liquidity_score -= 12.0
+    if isinstance(dscr, float):
+        if dscr >= 1.35:
+            liquidity_score += 6.0
+        elif dscr < 1.0:
+            liquidity_score -= 12.0
+    liquidity_score = _clamp(liquidity_score)
+
+    risk_score = 63.0
+    if legal_complexity:
+        risk_score -= 16.0
+    if not tenant_clarity:
+        risk_score -= 8.0
+    if heavy_renovation:
+        risk_score -= 12.0
+    if not energy_certificate_present:
+        risk_score -= 5.0
+    for risk_key in ("flood_risk", "noise_risk", "air_quality_risk", "crime_risk", "parking_pressure_risk", "drinking_water_risk"):
+        if bool(facts.get(risk_key)) or risk_key in official_risk_keys:
+            risk_score -= 6.0
+    if planning_confidence in {"high", "verified"}:
+        risk_score += 4.0
+    elif planning_confidence in {"unknown", "low"}:
+        risk_score -= 3.0
+    if isinstance(dscr, float):
+        if dscr >= 1.25:
+            risk_score += 6.0
+        elif dscr < 1.0:
+            risk_score -= 14.0
+    if isinstance(net_yield_pct, float) and net_yield_pct < 2.0:
+        risk_score -= 6.0
+    risk_score = _clamp(risk_score)
+
+    execution_score = 50.0
+    if floorplan_ready:
+        execution_score += 12.0
+    else:
+        execution_score -= 12.0
+    if tenant_clarity:
+        execution_score += 8.0
+    if energy_certificate_present:
+        execution_score += 5.0
+    if has_360:
+        execution_score += 3.0
+    if heavy_renovation:
+        execution_score -= 16.0
+    execution_score -= min(float(len(missing_fact_items)) * 4.0, 18.0)
+    if str(feed_status_label).lower().startswith("live"):
+        execution_score += 5.0
+    execution_score = _clamp(execution_score)
+
+    evidence_score = 32.0
+    evidence_score += min(float(buy_sample_count) * 6.0, 18.0)
+    evidence_score += min(float(rent_sample_count) * 6.0, 18.0)
+    if floorplan_ready:
+        evidence_score += 8.0
+    if tenant_clarity:
+        evidence_score += 5.0
+    if location_confident:
+        evidence_score += 5.0
+    evidence_score += min(float(len(official_risk_sources)) * 2.0, 8.0)
+    evidence_score += source_confidence_bonus
+    if not snapshot_json:
+        evidence_score -= 16.0
+    if external_confidence_label == "High confidence":
+        evidence_score += 10.0
+    elif external_confidence_label == "Partial evidence":
+        evidence_score += 4.0
+    else:
+        evidence_score -= 6.0
+    evidence_score = _clamp(evidence_score)
+
+    strategy = _property_investment_strategy(preferences)
+    weights = {
+        "best_overall": {"return": 0.23, "value": 0.19, "demand": 0.14, "liquidity": 0.13, "risk": 0.16, "execution": 0.10, "evidence": 0.05},
+        "cash_flow": {"return": 0.34, "value": 0.10, "demand": 0.14, "liquidity": 0.12, "risk": 0.16, "execution": 0.09, "evidence": 0.05},
+        "appreciation": {"return": 0.08, "value": 0.31, "demand": 0.18, "liquidity": 0.16, "risk": 0.12, "execution": 0.10, "evidence": 0.05},
+        "undervalued": {"return": 0.15, "value": 0.33, "demand": 0.12, "liquidity": 0.11, "risk": 0.10, "execution": 0.14, "evidence": 0.05},
+        "low_risk": {"return": 0.07, "value": 0.05, "demand": 0.10, "liquidity": 0.16, "risk": 0.30, "execution": 0.14, "evidence": 0.18},
+    }.get(strategy) or {"return": 0.23, "value": 0.19, "demand": 0.14, "liquidity": 0.13, "risk": 0.16, "execution": 0.10, "evidence": 0.05}
+    dimension_scores = {
+        "return": return_score,
+        "value": value_score,
+        "demand": demand_score,
+        "liquidity": liquidity_score,
+        "risk": risk_score,
+        "execution": execution_score,
+        "evidence": evidence_score,
+    }
+    score = sum(dimension_scores[key] * float(weight) for key, weight in weights.items())
+
+    reasons: list[str] = []
+    blockers: list[str] = []
+    if isinstance(gross_yield_pct, float) and gross_yield_pct > 0.0:
+        reasons.append(f"Expected gross yield is about {gross_yield_pct:.1f}%.")
+    else:
+        blockers.append("Gross yield still needs rent evidence.")
+    if isinstance(net_yield_pct, float):
+        reasons.append(f"Net yield screens at about {net_yield_pct:.1f}% after tax, opex, vacancy, and capex reserves.")
+    else:
+        blockers.append("Net yield still depends on fallback assumptions.")
+    if isinstance(cap_rate_pct, float):
+        reasons.append(f"Cap rate screens at about {cap_rate_pct:.1f}%.")
+    if isinstance(market_delta_pct, float):
+        if market_delta_pct < 0.0:
+            reasons.append(f"Pricing looks {abs(market_delta_pct):.1f}% below local buy comparables.")
+        elif market_delta_pct > 0.0:
+            blockers.append(f"Pricing looks {market_delta_pct:.1f}% above local buy comparables.")
+    else:
+        blockers.append("Local buy comparables are still partial.")
+    if demand_score >= 65.0:
+        reasons.append("Micro-location demand signals look supportive.")
+    elif demand_score <= 40.0:
+        blockers.append("Demand signals are still thin for this micro-location.")
+    if liquidity_score >= 65.0:
+        reasons.append("Exit and reletting liquidity look usable.")
+    elif liquidity_score <= 40.0:
+        blockers.append("Exit liquidity looks thinner than ideal.")
+    if floorplan_ready:
+        reasons.append("Layout evidence is already available.")
+    else:
+        blockers.append("No floorplan is attached yet.")
+    if legal_complexity:
+        blockers.append("Listing text suggests legal complexity.")
+    if not tenant_clarity:
+        blockers.append("Tenant or occupancy status is still unclear.")
+    if heavy_renovation:
+        blockers.append("Listing reads like a heavier renovation case.")
+    if evidence_score <= 45.0:
+        blockers.append("The underwriting read is still relying on partial evidence.")
+    if isinstance(dscr, float):
+        if dscr >= 1.25:
+            reasons.append(f"Debt coverage screens at {dscr:.2f}x.")
+        else:
+            blockers.append(f"Debt coverage is only {dscr:.2f}x.")
+    elif str(feed_status_label).lower().startswith("fallback"):
+        blockers.append("Debt coverage is still using fallback financing.")
+    min_yield = _property_investment_min_gross_yield_pct(preferences)
+    if min_yield > 0.0 and isinstance(gross_yield_pct, float) and gross_yield_pct < min_yield:
+        blockers.append(f"Expected yield is below the {min_yield:.0f}% floor.")
+        score -= 18.0
+    if bool(preferences.get("investment_require_floorplan")) and not floorplan_ready:
+        score -= 100.0
+    if bool(preferences.get("investment_require_legal_clarity")) and legal_complexity:
+        score -= 100.0
+    if bool(preferences.get("investment_require_tenant_clarity")) and not tenant_clarity:
+        score -= 100.0
+    if bool(preferences.get("investment_avoid_major_renovation")) and heavy_renovation:
+        score -= 100.0
+    min_dscr = _float_or_none(preferences.get("min_dscr"))
+    if isinstance(min_dscr, float) and min_dscr > 0.0 and isinstance(dscr, float) and dscr < min_dscr:
+        blockers.append(f"Debt coverage is below the {min_dscr:.2f}x floor.")
+        score -= 18.0
+    score = _clamp(score)
+
+    confidence_label = (
+        "High confidence"
+        if evidence_score >= 72.0 and not blockers[:1]
+        else ("Partial evidence" if evidence_score >= 48.0 else "Needs manual verification")
+    )
+    overall_bucket = _property_investment_score_bucket(score)
+    overall_bucket_label = _property_investment_score_bucket_label(score)
+    headline = reasons[0] if reasons else "This opportunity still needs more evidence before it can rank as a strong investment."
+    if blockers:
+        headline = f"{headline} Main blocker: {blockers[0]}"
+    tooltips = _property_investment_dimension_tooltips()
+    label_map = {
+        "return": "Return",
+        "value": "Value",
+        "demand": "Demand",
+        "liquidity": "Liquidity",
+        "risk": "Risk control",
+        "execution": "Execution",
+        "evidence": "Evidence",
+    }
+    dimensions = [
+        {
+            "key": key,
+            "label": label_map[key],
+            "score": _clamp(raw_score),
+            "bucket": _property_investment_score_bucket(raw_score),
+            "bucket_label": _property_investment_score_bucket_label(raw_score),
+            "tooltip": tooltips.get(key, ""),
+        }
+        for key, raw_score in dimension_scores.items()
+    ]
+    summary_parts = []
+    for key in ("return", "value", "risk", "execution"):
+        row = next((item for item in dimensions if item["key"] == key), None)
+        if row:
+            summary_parts.append(f"{row['label']} {row['bucket_label'].lower()}")
+    return {
+        "score": score,
+        "score_display": f"{score:.0f}/100 institutional score",
+        "score_bucket": overall_bucket,
+        "score_bucket_label": overall_bucket_label,
+        "strategy": strategy,
+        "gross_yield_pct": round(gross_yield_pct, 2) if isinstance(gross_yield_pct, float) else None,
+        "gross_yield_display": f"{gross_yield_pct:.1f}% gross yield" if isinstance(gross_yield_pct, float) else "",
+        "market_delta_pct": round(market_delta_pct, 1) if isinstance(market_delta_pct, float) else None,
+        "market_delta_display": (
+            f"{abs(market_delta_pct):.1f}% below local buy median"
+            if isinstance(market_delta_pct, float) and market_delta_pct < 0
+            else (f"{market_delta_pct:.1f}% above local buy median" if isinstance(market_delta_pct, float) else "")
+        ),
+        "expected_rent_display": f"Rent model about EUR {expected_monthly_rent_eur:,.0f}/mo".replace(",", " ") if isinstance(expected_monthly_rent_eur, float) and expected_monthly_rent_eur > 0 else "",
+        "payback_display": f"Gross payback about {payback_years:.1f} years" if isinstance(payback_years, float) and payback_years > 0 else "",
+        "net_yield_pct": round(net_yield_pct, 2) if isinstance(net_yield_pct, float) else None,
+        "net_yield_display": f"{net_yield_pct:.1f}% net yield" if isinstance(net_yield_pct, float) else "",
+        "cap_rate_pct": round(cap_rate_pct, 2) if isinstance(cap_rate_pct, float) else None,
+        "cap_rate_display": f"{cap_rate_pct:.1f}% cap rate" if isinstance(cap_rate_pct, float) else "",
+        "cash_on_cash_yield_pct": round(cash_on_cash_yield_pct, 2) if isinstance(cash_on_cash_yield_pct, float) else None,
+        "cash_on_cash_display": f"{cash_on_cash_yield_pct:.1f}% cash-on-cash" if isinstance(cash_on_cash_yield_pct, float) else "",
+        "dscr": round(dscr, 2) if isinstance(dscr, float) else None,
+        "dscr_display": f"{dscr:.2f}x DSCR" if isinstance(dscr, float) else "",
+        "price_per_sqm": f"Buy side about EUR {current_price_per_sqm:,.0f}/m2".replace(",", " ") if isinstance(current_price_per_sqm, float) and current_price_per_sqm > 0 else "",
+        "market_buy_per_sqm_display": f"Local buy median about EUR {market_buy_per_sqm:,.0f}/m2".replace(",", " ") if isinstance(market_buy_per_sqm, float) and market_buy_per_sqm > 0 else "",
+        "market_rent_per_sqm_display": f"Local rent median about EUR {market_rent_per_sqm:,.2f}/m2".replace(",", " ") if isinstance(market_rent_per_sqm, float) and market_rent_per_sqm > 0 else "",
+        "feed_status_label": feed_status_label,
+        "feed_status_detail": feed_status_detail,
+        "external_model": external_model,
+        "headline": compact_text(headline, fallback="Investment read pending.", limit=220),
+        "confidence_label": confidence_label,
+        "dimensions": dimensions,
+        "underwriting_summary": " · ".join(summary_parts[:4]),
+        "reasons": reasons[:4],
+        "blockers": blockers[:4],
+    }
+
+
+def _property_candidate_has_investment_legal_complexity(*, title: str, summary: str, facts: dict[str, object]) -> bool:
+    text = _property_candidate_text(property_url="", title=title, summary=summary, property_facts=facts).lower()
+    return any(marker in text for marker in _PROPERTY_INVESTMENT_LEGAL_COMPLEXITY_MARKERS)
+
+
+def _property_candidate_needs_major_renovation(*, title: str, summary: str, facts: dict[str, object]) -> bool:
+    text = _property_candidate_text(property_url="", title=title, summary=summary, property_facts=facts).lower()
+    return any(marker in text for marker in _PROPERTY_INVESTMENT_RENOVATION_MARKERS)
+
+
+def _property_investment_candidate_payload(
+    *,
+    property_url: str,
+    title: str,
+    summary: str,
+    facts: dict[str, object],
+    preferences: dict[str, object],
+    selected_platforms: tuple[str, ...],
+) -> dict[str, object]:
+    if _property_search_goal(preferences) != "investment":
+        return {}
+    current_price_eur = _property_investment_price_eur(facts)
+    current_area_sqm = _property_investment_area_sqm(facts)
+    location_query = str(preferences.get("location_query") or "").strip()
+    snapshot = _property_investment_research_snapshot(
+        property_url=property_url,
+        country_code=str(preferences.get("country_code") or "").strip().upper(),
+        location_query=location_query,
+        selected_platforms_csv=",".join(selected_platforms),
+        current_price_eur=float(current_price_eur or 0.0),
+        current_area_sqm=float(current_area_sqm or 0.0),
+        research_level="preview",
+    ) if current_price_eur and current_area_sqm else {}
+    return _property_investment_underwriting_payload(
+        title=title,
+        summary=summary,
+        facts=facts,
+        preferences=preferences,
+        snapshot=snapshot,
+    )
 
 
 def _property_scout_rank_score(
@@ -5276,7 +5843,7 @@ def _property_search_ranked_candidates_from_sources(sources: object, *, limit: i
             if not str(row.get("map_url") or "").strip():
                 row["map_url"] = _property_candidate_google_maps_url(row)
             rows.append(row)
-    rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
+    rows.sort(key=lambda item: float(item.get("ranking_score") or item.get("investment_score") or item.get("fit_score") or 0.0), reverse=True)
     for index, row in enumerate(rows, start=1):
         row["rank"] = index
     return rows[: max(1, min(int(limit or 50), 200))]
@@ -10636,7 +11203,7 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, object]:
     slug = str(path_parts[-1] or "").strip()
     if not slug:
         return {}
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours")).expanduser()
     bundle_dir = public_dir / slug
     manifest_path = bundle_dir / "tour.json"
     if not manifest_path.exists():
@@ -10747,7 +11314,7 @@ def _hosted_property_tour_bundle_dir(tour_url: str) -> tuple[str, Path] | tuple[
     slug = str(path_parts[-1] or "").strip()
     if not slug:
         return ("", None)
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours")).expanduser()
     bundle_dir = public_dir / slug
     if not bundle_dir.exists() or not bundle_dir.is_dir():
         return (slug, None)
@@ -12341,7 +12908,7 @@ def _hosted_property_tour_telegram_preview_image_url(tour_url: str, *, diorama_s
     slug = str(path_parts[-1] or "").strip()
     if not slug:
         return ""
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours")).expanduser()
     bundle_dir = public_dir / slug
     manifest_path = bundle_dir / "tour.json"
     if not manifest_path.exists():
@@ -26435,6 +27002,7 @@ class ProductService:
         location_hints = _property_search_location_hints(request_preferences)
         requested_property_type = normalize_property_type_values(request_preferences.get("property_type"))
         listing_mode = str(request_preferences.get("listing_mode") or "rent").strip().lower() or "rent"
+        search_goal = _property_search_goal(request_preferences)
         investment_research_mode = str(request_preferences.get("investment_research_mode") or "off").strip().lower() or "off"
         if listing_mode != "buy":
             investment_research_mode = "off"
@@ -26481,6 +27049,7 @@ class ProductService:
             request_preferences.pop("available_within_years", None)
         request_preferences["use_stored_feedback_preferences"] = use_stored_feedback_preferences
         request_preferences["investment_research_mode"] = investment_research_mode
+        request_preferences["search_goal"] = search_goal
         request_preferences["enable_family_mode"] = enable_family_mode
         request_preferences["enable_commute_research"] = enable_commute_research
         request_preferences["apply_unknowns_penalty"] = apply_unknowns_penalty
@@ -26542,6 +27111,7 @@ class ProductService:
                 "search_mode": search_mode,
                 "discovery_relaxed_filters": list(execution_policy.get("discovery_relaxed_filters") or []),
                 "investment_research_mode": investment_research_mode,
+                "search_goal": search_goal,
                 "use_stored_feedback_preferences": use_stored_feedback_preferences,
                 "notification_budget": dict(notification_budget),
                 "provider_workers": dict(provider_worker_state),
@@ -26582,6 +27152,7 @@ class ProductService:
                 "search_mode": search_mode,
                 "discovery_relaxed_filters": list(execution_policy.get("discovery_relaxed_filters") or []),
                 "investment_research_mode": investment_research_mode,
+                "search_goal": search_goal,
                 "use_stored_feedback_preferences": use_stored_feedback_preferences,
                 "include_broker_direct_sources": bool(request_preferences.get("include_broker_direct_sources")),
                 "include_community_signals": bool(request_preferences.get("include_community_signals")),
@@ -28226,9 +28797,22 @@ class ProductService:
                 listing_id = _property_scout_listing_ref(row.get("listing_id"), property_url)
                 title = str(row.get("title") or "").strip() or property_url
                 summary = str(row.get("summary") or "").strip()
+                row_facts = dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {}
                 assessment = dict(row.get("assessment") or {})
                 fit_score = float(row.get("fit_score") or 0.0)
                 assessment_fit_score = _property_alert_fit_score(assessment)
+                investment_payload = _property_investment_candidate_payload(
+                    property_url=property_url,
+                    title=title,
+                    summary=summary,
+                    facts=row_facts,
+                    preferences=request_preferences,
+                    selected_platforms=tuple(run_platforms),
+                )
+                investment_score = float(investment_payload.get("score") or 0.0) if isinstance(investment_payload, dict) else 0.0
+                ranking_score = investment_score if search_goal == "investment" else fit_score
+                if search_goal == "investment" and investment_score <= 0.0:
+                    continue
                 source_ref = f"property-scout:{listing_id}"
                 is_good_fit = _property_alert_is_good_fit(assessment, policy=policy)
                 is_watch_fit = _property_alert_is_watch_fit(assessment, policy=policy)
@@ -28336,6 +28920,8 @@ class ProductService:
                         "title": title,
                         "summary": summary,
                         "fit_score": fit_score,
+                        "ranking_score": ranking_score,
+                        "investment_score": investment_score,
                         "assessment_fit_score": assessment_fit_score,
                         "fit_summary": _property_alert_fit_summary(assessment),
                         "recommendation": str(assessment.get("recommendation") or "").strip(),
@@ -28363,15 +28949,16 @@ class ProductService:
                             or ""
                         ).strip(),
                         "flythrough_reason": str(flythrough_result.get("reason") or "").strip(),
-                        "property_facts": dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {},
+                        "property_facts": row_facts,
                         "map_url": _property_candidate_google_maps_url(
                             {
                                 "title": title,
                                 "property_url": property_url,
-                                "property_facts": dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {},
+                                "property_facts": row_facts,
                             }
                         ),
                         "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
+                        "investment": investment_payload,
                         "match_reasons": [
                             str(item or "").strip()
                             for item in list(assessment.get("match_reasons_json") or [])
@@ -28387,7 +28974,7 @@ class ProductService:
 
             sorted_top_candidates_for_source = sorted(
                 top_candidates_for_source,
-                key=lambda item: float(item.get("fit_score") or 0.0),
+                key=lambda item: float(item.get("ranking_score") or item.get("fit_score") or 0.0),
                 reverse=True,
             )
             for index, candidate in enumerate(sorted_top_candidates_for_source):
@@ -28852,6 +29439,8 @@ class ProductService:
             "available_within_years": available_within_years,
             "require_floorplan": require_floorplan,
             "floorplan_requirement_mode": str(request_preferences.get("floorplan_requirement_mode") or "").strip(),
+            "search_goal": search_goal,
+            "investment_strategy": _property_investment_strategy(request_preferences),
             "investment_research_mode": investment_research_mode,
             "use_stored_feedback_preferences": use_stored_feedback_preferences,
             "include_broker_direct_sources": bool(request_preferences.get("include_broker_direct_sources")),

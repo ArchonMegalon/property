@@ -589,7 +589,7 @@ def _property_scout_extract_floorplan_urls_from_archive(
         if not trusted_floorplan_document_context:
             return ()
         slug = _property_scout_public_asset_slug(source_url=source_url, archive_url=archive_url)
-        public_root = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+        public_root = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours")).expanduser()
         target_dir = public_root / slug
         target_dir.mkdir(parents=True, exist_ok=True)
         filename = _property_scout_public_asset_filename(
@@ -628,7 +628,7 @@ def _property_scout_extract_floorplan_urls_from_archive(
         if not selected_members:
             return ()
         slug = _property_scout_public_asset_slug(source_url=source_url, archive_url=archive_url)
-        public_root = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+        public_root = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours")).expanduser()
         target_dir = public_root / slug
         target_dir.mkdir(parents=True, exist_ok=True)
         public_base = _property_public_app_base_url().rstrip("/")
@@ -1070,4 +1070,3 @@ def _property_scout_extract_source_virtual_tour_url(*, source_url: str, html: st
         if any(marker in combined for marker in _PROPERTY_SCOUT_360_HOST_MARKERS):
             return normalized
     return ""
-

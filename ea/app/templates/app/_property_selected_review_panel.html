@@ -1,4 +1,6 @@
 <section class="pqx-review" data-pqx-mobile-panel="property" data-workbench-dossier>
+  {% set selected_orientation_preview = selected.get('orientation_preview') or {} %}
+  {% set selected_preview_url = selected_orientation_preview.get('image_url') or selected.get('preview_image_url') or '' %}
   <div class="pqx-theater{% if not selected.get('tour', {}).get('embed_url') %} no-media{% endif %}" data-pq-theater>
     <div class="pqx-theater-frame" data-pw-tour{% if not selected.get('tour', {}).get('embed_url') %} hidden{% endif %}>
       {% if selected.get('tour', {}).get('embed_url') %}
@@ -6,6 +8,11 @@
       {% endif %}
     </div>
     <div class="pqx-dossier">
+      <div class="pqx-dossier-cover" data-pw-cover{% if selected.get('tour', {}).get('embed_url') or not selected_preview_url %} hidden{% endif %}>
+        {% if selected_preview_url %}
+        <img src="{{ selected_preview_url }}" alt="{{ selected.get('title') or 'Property preview' }}" loading="lazy" data-pw-cover-image>
+        {% endif %}
+      </div>
       <div class="pqx-dossier-head">
         <div class="pqx-dossier-title">
           <h1 data-pw-title>{{ selected.get('title') or 'Property details' }}</h1>
@@ -24,7 +31,8 @@
         <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}" data-rybbit-event="property_share_home" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Share this home</button>
       </div>
       <details class="pqx-decision-advanced" style="margin-top:12px;">
-        <summary><strong>More actions</strong><span class="pqx-note">Open the source, share the shortlist, or request remote visuals only when you need them.</span></summary>
+        <summary><strong>More actions</strong></summary>
+        <div class="pqx-note" style="margin-top:10px;">Open the source, share the shortlist, or request remote visuals only when you need them.</div>
         <div class="pqx-actions" style="margin-top:14px;">
           {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}" target="_blank" rel="noreferrer" data-rybbit-event="property_open_listing" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open listing</a>{% endif %}
           {% if not selected.get('tour', {}).get('url') and selected.get('property_url') %}
@@ -42,13 +50,33 @@
       <div class="pqx-section-head"><h2>Current read</h2><span class="pqx-pill warn" data-pw-risk-level>{{ selected.get('risk', {}).get('level') or 'unknown' }}</span></div>
       <div class="pqx-note">Use this as the short decision read before you contact the agent, request documents, or move on.</div>
       <div class="pqx-event-list">
-        <div class="pqx-event-card"><strong>Why now</strong><span class="pqx-note" data-pw-ooda-summary>{{ selected.get('ooda', {}).get('summary') or selected.get('fit_summary') or 'This home stayed on the shortlist after the current fit pass.' }}</span></div>
+        <div class="pqx-event-card"><strong>{% if brief.get('search_goal') == 'investment' %}Why this ranks{% else %}Why now{% endif %}</strong><span class="pqx-note" data-pw-ooda-summary>{% if brief.get('search_goal') == 'investment' %}{{ selected.get('investment', {}).get('headline') or selected.get('ooda', {}).get('summary') or selected.get('fit_summary') or 'This opportunity stayed on the shortlist after the current investment pass.' }}{% else %}{{ selected.get('ooda', {}).get('summary') or selected.get('fit_summary') or 'This home stayed on the shortlist after the current fit pass.' }}{% endif %}</span></div>
         <div class="pqx-event-card" data-pw-risk><strong>Risk</strong><span class="pqx-note">{{ selected.get('risk', {}).get('summary') or 'No risk summary captured yet.' }}</span></div>
-        <div class="pqx-event-card"><strong>Money</strong><span class="pqx-note" data-pw-investment>{{ selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Open the review details for cost checks when buy mode is active.' }}</span></div>
+        <div class="pqx-event-card"><strong>{% if brief.get('search_goal') == 'investment' %}Return{% else %}Money{% endif %}</strong><span class="pqx-note" data-pw-investment>{% if brief.get('search_goal') == 'investment' %}{{ selected.get('investment', {}).get('net_yield_display') or selected.get('investment', {}).get('cap_rate_display') or selected.get('investment', {}).get('gross_yield_display') or selected.get('investment', {}).get('market_delta_display') or selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Open the property page for full underwriting.' }}{% else %}{{ selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Open the review details for cost checks when buy mode is active.' }}{% endif %}</span></div>
+        {% if brief.get('search_goal') == 'investment' %}
+        <div class="pqx-event-card">
+          <strong>Institutional read <button type="button" class="pqx-tooltip" title="This score combines return, value, demand, liquidity, risk control, execution effort, and evidence confidence. Open the property page for the full underlying notes." aria-label="This score combines return, value, demand, liquidity, risk control, execution effort, and evidence confidence. Open the property page for the full underlying notes." aria-expanded="false" data-tooltip-trigger>?</button></strong>
+          <span class="pqx-note" data-pw-underwriting-summary>{{ selected.get('investment', {}).get('score_display') or 'Institutional score pending.' }}{% if selected.get('investment', {}).get('confidence_label') %} · {{ selected.get('investment', {}).get('confidence_label') }}{% endif %}{% if selected.get('investment', {}).get('underwriting_summary') %} · {{ selected.get('investment', {}).get('underwriting_summary') }}{% endif %}</span>
+        </div>
+        <div class="pqx-event-card">
+          <strong>External model</strong>
+          <span class="pqx-note" data-pw-feed-status>{{ selected.get('investment', {}).get('feed_status_label') or 'Feed status pending.' }}{% if selected.get('investment', {}).get('feed_status_detail') %} · {{ selected.get('investment', {}).get('feed_status_detail') }}{% endif %}{% if selected.get('investment', {}).get('dscr_display') %} · {{ selected.get('investment', {}).get('dscr_display') }}{% endif %}</span>
+        </div>
+        {% endif %}
         {% if selected.get('review_page_neuronwriter', {}).get('questions') %}
         <div class="pqx-event-card"><strong>Ask next</strong><span class="pqx-note">{{ (selected.get('review_page_neuronwriter', {}).get('questions') or [])[:2]|join(' · ') }}</span></div>
         {% endif %}
       </div>
+      {% if brief.get('search_goal') == 'investment' and selected.get('investment', {}).get('dimensions') %}
+      <div class="pqx-fact-grid" data-pw-underwriting-facts style="margin-top:14px;">
+        {% for row in selected.get('investment', {}).get('dimensions') or [] %}
+        <div class="pqx-fact">
+          <span>{{ row.get('label') }}{% if row.get('tooltip') %} <button type="button" class="pqx-tooltip" title="{{ row.get('tooltip') }}" aria-label="{{ row.get('tooltip') }}" aria-expanded="false" data-tooltip-trigger>?</button>{% endif %}</span>
+          <strong>{{ row.get('score')|int }}/100 · {{ row.get('bucket_label') }}</strong>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
     </section>
     <section class="pqx-card pqx-decision-wizard">
       <div class="pqx-section-head"><h2>Save your decision</h2><span class="pqx-pill">Decision</span></div>

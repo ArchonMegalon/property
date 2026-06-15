@@ -13,8 +13,10 @@ import pytest
 
 import app.product.service as product_service
 import app.product.property_search_storage as property_search_storage
+import app.product.property_investment_external_data as property_investment_external_data
 from app.product.service import ProductService
 from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_matches_requested_location, _property_search_location_hints
+from app.product.service import _property_investment_underwriting_payload
 from app.services.property_billing import property_commercial_snapshot, property_worker_cap
 from app.services import property_market_catalog
 from tests.product_test_helpers import build_product_client, build_property_client, seed_product_state, start_workspace
@@ -69,6 +71,103 @@ def test_property_worker_caps_follow_plan() -> None:
     assert property_worker_cap("free") == 1
     assert property_worker_cap("plus") == 3
     assert property_worker_cap("agent") == 6
+
+
+def test_ranked_candidates_prefer_explicit_ranking_score_when_present() -> None:
+    ranked = product_service._property_search_ranked_candidates_from_sources(
+        [
+            {
+                "source_label": "Source A",
+                "top_candidates": [
+                    {"source_ref": "a", "fit_score": 92, "ranking_score": 48, "title": "Home-biased high fit"},
+                    {"source_ref": "b", "fit_score": 70, "ranking_score": 83, "title": "Better investment score"},
+                ],
+            }
+        ]
+    )
+
+    assert [row["source_ref"] for row in ranked[:2]] == ["b", "a"]
+
+
+def test_investment_underwriting_payload_exposes_dimensions_and_confidence() -> None:
+    payload = _property_investment_underwriting_payload(
+        title="Apartment near U-Bahn",
+        summary="Clean apartment with floorplan and stable tenant demand.",
+        facts={
+            "has_floorplan": True,
+            "tenant_status": "vacant",
+            "energy_certificate_present": True,
+            "map_lat": 48.21,
+            "map_lng": 16.38,
+            "nearest_subway_m": 240,
+            "nearest_supermarket_m": 180,
+            "nearest_medical_care_m": 700,
+            "source_trust_tier": "high",
+            "source_access_level": "direct",
+            "future_change_research": {
+                "planning_confidence": "high",
+                "investment_impact": "positive tailwind",
+                "future_value_drivers": ["subway upgrade", "office employment growth"],
+            },
+            "official_risk_evidence": {
+                "sources": [{"risk_key": "flood_risk", "verification_state": "needs_review"}],
+            },
+        },
+        preferences={
+            "search_goal": "investment",
+            "investment_strategy": "best_overall",
+            "min_gross_yield_pct": 4,
+        },
+        snapshot={
+            "gross_yield_pct": 4.8,
+            "market_buy_delta_pct": -7.5,
+            "expected_monthly_rent_eur": 1450.0,
+            "payback_years": 20.3,
+            "current_price_eur": 362000.0,
+            "current_area_sqm": 67.0,
+            "current_price_per_sqm_eur": 5400.0,
+            "market_buy_per_sqm_eur": 5838.0,
+            "market_rent_per_sqm_eur": 18.1,
+            "buy_sample_count": 5,
+            "rent_sample_count": 4,
+        },
+    )
+
+    assert payload["score"] > 0
+    assert payload["confidence_label"] in {"High confidence", "Partial evidence"}
+    assert payload["gross_yield_display"] == "4.8% gross yield"
+    assert payload["market_delta_display"] == "7.5% below local buy median"
+    assert payload["score_display"].endswith("institutional score")
+    assert len(payload["dimensions"]) == 7
+    assert {row["key"] for row in payload["dimensions"]} == {"return", "value", "demand", "liquidity", "risk", "execution", "evidence"}
+    assert payload["net_yield_display"]
+    assert payload["cap_rate_display"]
+
+
+def test_investment_external_snapshot_falls_back_honestly_without_live_feeds(monkeypatch) -> None:
+    monkeypatch.setattr(property_investment_external_data, "_fetch_external_feed", lambda prefix, request_payload: {})
+    snapshot = property_investment_external_data.property_investment_external_snapshot(
+        country_code="AT",
+        property_url="https://example.test/listing/1",
+        title="Fallback investment case",
+        facts={"area_m2": 80, "operating_costs_monthly": 260, "map_lat": 48.2, "map_lng": 16.38},
+        preferences={"equity_available_eur": 140000, "loan_term_years": 25, "vacancy_reserve_pct": 5, "capex_reserve_pct": 6},
+        snapshot={
+            "current_price_eur": 420000,
+            "current_area_sqm": 80,
+            "expected_monthly_rent_eur": 1450,
+            "expected_annual_rent_eur": 17400,
+        },
+    )
+
+    assert snapshot["feed_status_label"] == "Fallback underwriting model"
+    assert snapshot["confidence_label"] == "Fallback assumptions"
+    assert snapshot["rent_roll"]["source_mode"] == "comp_fallback"
+    assert snapshot["operating_costs"]["source_mode"] in {"listing_fact", "assumption"}
+    assert snapshot["taxes"]["source_mode"] == "country_default"
+    assert snapshot["financing"]["source_mode"] == "assumption"
+    assert snapshot["net_yield_pct"] is not None
+    assert snapshot["cap_rate_pct"] is not None
 
 
 def test_findmyhome_entry_links_are_not_treated_as_supported_property_listings() -> None:
