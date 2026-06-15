@@ -26,7 +26,7 @@ def test_propertyquarry_phase2_exit_gate_is_green() -> None:
     )
     assert_contains_strings(
         payload["required_ui_affordances"],
-        ["Feedback table", "Dealbreaker visual state", "Still unclear section"],
+        ["Feedback table", "Dealbreaker visual state", "Before you decide section"],
         field_name="required_ui_affordances",
     )
     assert_contains_strings(

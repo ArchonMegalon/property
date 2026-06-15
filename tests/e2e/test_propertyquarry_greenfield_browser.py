@@ -588,7 +588,7 @@ def test_propertyquarry_workbench_tracks_household_and_followup_state_in_browser
         response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
         assert page.locator("body", has_text="Why it surfaced").is_visible()
-        assert page.locator("body", has_text="Still unclear").is_visible()
+        assert page.locator("body", has_text="Before you decide").is_visible()
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
         packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
         assert packet_path
@@ -684,7 +684,7 @@ def test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser(
         response = page.goto(f"{base_url}/app/properties?run_id=run-42&candidate={candidate_ref}", wait_until="networkidle")
         assert response is not None and response.ok
         assert page.locator("body", has_text="Why it surfaced").is_visible()
-        assert page.locator("body", has_text="Still unclear").is_visible()
+        assert page.locator("body", has_text="Before you decide").is_visible()
         assert page.locator("body", has_text="Would you pursue this property?").is_visible()
     finally:
         context.close()
@@ -1495,7 +1495,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert page.locator("body", has_text="Altbau near U6").is_visible()
         assert page.locator("body", has_text="Open property page").is_visible()
         assert page.locator("body", has_text="Open 360").is_visible()
-        assert page.locator("body", has_text="What to check").is_visible()
+        assert page.locator("body", has_text="Before you decide").is_visible()
         page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
         assert "/app/properties" in page.url
         assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()

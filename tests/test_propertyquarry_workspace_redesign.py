@@ -584,7 +584,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "about 12 min" in search.text
     assert 'data-tour-status="queued"' in search.text
     assert 'data-tour-eta="about 12 min"' in search.text
-    assert "awaiting floorplans" in search.text
+    assert "held back for layout proof" in search.text
     assert "not scheduled yet" not in search.text
     assert "360 not ready" not in search.text
     assert "360" in search.text
@@ -602,7 +602,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Property details" in search.text
     assert "Costs" in search.text
     assert "Why it surfaced" in search.text
-    assert "Still unclear" in search.text
+    assert "Before you decide" in search.text
     assert "More context" in search.text
     assert "Artifact receipts" not in search.text
     assert "Share checklist" not in search.text
@@ -621,7 +621,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Generated asset receipts" not in search.text
     assert "repair check queued" not in search.text
     assert "Repair: ea_one_manager" not in search.text
-    assert "awaiting floorplans" in search.text
+    assert "held back for layout proof" in search.text
     assert "Pending layout proof" not in search.text
     assert "These are not invalid" in search.text
     assert "Repair provider extraction" not in search.text
@@ -657,7 +657,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Missing floorplan evidence" in search.text
     assert "Floorplan gate" not in search.text
     assert "Filtered by rules" in search.text
-    assert "awaiting floorplans" in search.text
+    assert "held back for layout proof" in search.text
     assert "These are not invalid" in search.text
     assert "Layout not verified" not in search.text
     assert "Missing floorplan evidence" in search.text
@@ -722,7 +722,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Library" in packet.text
     assert "Underground" in packet.text
     assert "Decision call" in packet.text
-    assert "Still unclear" in packet.text
+    assert "Before you decide" in packet.text
     assert "Evidence added" in packet.text
     assert "Manual clearance required" in packet.text
     assert "Luftmessnetz: aktuelle Messdaten Wien" in packet.text
@@ -1802,7 +1802,7 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     assert "The search could not finish." in page.text
     assert "Best matches" in page.text
     assert "Provider returned 403 while fetching Willhaben." in page.text
-    assert "Ways to get more matches" in page.text
+    assert "Open to relax one rule and rerun the search." not in page.text
     assert ("Lower the match threshold" in page.text) or ("Reopen the brief with broader constraints" in page.text)
     assert "Search progress" in page.text
     assert 'data-workbench-brief-drawer' not in page.text

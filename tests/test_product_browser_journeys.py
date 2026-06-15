@@ -253,7 +253,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Price" in response.text
     assert "Layout" in response.text
     assert "Property details" in response.text
-    assert "Still unclear" in response.text
+    assert "Before you decide" in response.text
     assert "360 ready" in response.text
     assert "Berlin" in response.text
     assert "Germany" in response.text

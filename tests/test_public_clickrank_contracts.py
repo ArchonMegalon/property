@@ -92,6 +92,14 @@ def test_clickrank_site_id_for_hostname_uses_env_override(monkeypatch: pytest.Mo
     assert clickrank_site_id_for_hostname("myexternalbrain.com") == "configured-site-id"
 
 
+def test_clickrank_site_id_for_hostname_rejects_invalid_env_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_ENABLE_CLICKRANK", "1")
+    monkeypatch.setenv("CLICKRANK_AI_MYEXTERNALBRAIN_SITE_ID", 'bad/site"id')
+
+    assert clickrank_site_id_for_hostname("myexternalbrain.com") == ""
+    assert clickrank_head_snippet("myexternalbrain.com", "/") == ""
+
+
 def test_clickrank_site_id_for_hostname_falls_back_to_public_base_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

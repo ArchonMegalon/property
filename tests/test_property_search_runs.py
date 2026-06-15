@@ -227,6 +227,58 @@ def test_property_visual_quota_enforces_plus_daily_video_limit() -> None:
         )
 
 
+def test_property_preview_timeout_fails_fast(monkeypatch: pytest.MonkeyPatch) -> None:
+    started = {"value": False}
+
+    def _slow_preview(property_url: str, prefer_fast: bool = False) -> dict[str, object]:
+        started["value"] = True
+        time.sleep(0.2)
+        return {"property_url": property_url, "property_facts_json": {}}
+
+    monkeypatch.setattr(product_service, "_property_scout_page_preview", _slow_preview)
+    monkeypatch.setattr(product_service, "_property_search_preview_timeout_seconds", lambda *, prefer_fast: 0.05)
+
+    with pytest.raises(TimeoutError, match="property_preview_timeout:fast"):
+        product_service._property_scout_page_preview_with_timeout("https://example.com/listing", prefer_fast=True)
+
+    assert started["value"] is True
+
+
+def test_floorplan_recovery_workers_store_recovered_preview(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = ProductService.__new__(ProductService)
+    stored: dict[str, dict[str, object]] = {}
+
+    monkeypatch.setenv("PROPERTYQUARRY_SEARCH_FLOORPLAN_RECOVERY_LIMIT", "4")
+    monkeypatch.setenv("PROPERTYQUARRY_SEARCH_PREVIEW_TIMEOUT_SECONDS", "1")
+
+    def _fake_preview(property_url: str, prefer_fast: bool = False) -> dict[str, object]:
+        return {
+            "property_url": property_url,
+            "title": "Recovered floorplan listing",
+            "summary": "Floorplan PDF found",
+            "property_facts_json": {"floorplan_urls_json": [f"{property_url}/floorplan.pdf"]},
+        }
+
+    monkeypatch.setattr(product_service, "_property_scout_page_preview_with_timeout", _fake_preview)
+    monkeypatch.setattr(
+        service,
+        "_property_public_preview_cache_store",
+        lambda *, cache_index, property_url, preview: stored.setdefault(property_url, dict(preview)),
+    )
+
+    recovered = service._recover_floorplans_for_candidates(
+        candidates=[
+            {"property_url": "https://example.com/listing-1"},
+            {"property_url": "https://example.com/listing-2"},
+        ],
+        cache_index={},
+        plan_key="plus",
+    )
+
+    assert set(recovered) == {"https://example.com/listing-1", "https://example.com/listing-2"}
+    assert set(stored) == {"https://example.com/listing-1", "https://example.com/listing-2"}
+
+
 def test_propertyquarry_public_urls_do_not_inherit_external_brain_defaults(monkeypatch) -> None:
     monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_BASE_URL", raising=False)
     monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", raising=False)

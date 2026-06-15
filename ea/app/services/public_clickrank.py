@@ -4,6 +4,7 @@ import html
 import ipaddress
 import json
 import os
+import re
 from typing import Any
 from urllib.parse import urlparse
 
@@ -50,6 +51,8 @@ _CLICKRANK_PRIVATE_PREFIXES = (
     "/tours",
     "/memorials",
 )
+
+_CLICKRANK_SITE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,120}$")
 
 
 def _normalize_hostname(hostname: str | None) -> str:
@@ -157,7 +160,10 @@ def clickrank_site_id_for_hostname(hostname: str | None) -> str:
     if not config:
         return ""
     env_name, fallback = config
-    return str(os.getenv(env_name) or fallback).strip()
+    site_id = str(os.getenv(env_name) or fallback).strip()
+    if not _CLICKRANK_SITE_ID_PATTERN.fullmatch(site_id):
+        return ""
+    return site_id
 
 
 def rybbit_site_id_for_hostname(hostname: str | None) -> str:

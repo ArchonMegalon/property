@@ -2957,7 +2957,7 @@ def property_research_packet(
             "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("energy_rows") or [])],
         },
         {
-            "eyebrow": "Still unclear",
+            "eyebrow": "Before you decide",
             "title": "What still needs proof",
             "items": (missing_rows + investment_risk_rows)[:10] or [_object_detail_row("No blocker recorded", "The current file does not show a blocking gap beyond normal due diligence.", "Clear")],
         },

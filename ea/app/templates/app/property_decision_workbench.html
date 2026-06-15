@@ -26,6 +26,12 @@
 {% if rows %}
 <details class="pqx-suppression-panel" data-pqx-suppression-summary>
   <summary><strong>Filtered by rules</strong><span class="pqx-note">Open to relax one rule and rerun the search.</span></summary>
+  <div class="pqx-section-head" style="margin-top:18px;">
+    <div>
+      <h2>How this search was filtered</h2>
+      <div class="pqx-note">Ways to get more matches.</div>
+    </div>
+  </div>
   <div class="pqx-suppression-grid">
     {% for row in actions[:4] if row.get('adjustments') %}
     <button class="pqx-suppression-item" type="button" data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}'>
@@ -133,7 +139,7 @@
   <div class="pqx-source-progress" data-pqx-source-progress>
     <div class="pqx-source-progress-head">
       <strong data-pqx-radar-count>{{ source_completed }}/{{ source_total }} sources checked</strong>
-      <span class="pqx-small">{{ (run.get('summary') or {}).get('reviewed_listing_total') or listing_total }} homes reviewed{% if layout_unverified %} · {{ layout_unverified }} floorplans still missing{% endif %}</span>
+      <span class="pqx-small">{{ (run.get('summary') or {}).get('reviewed_listing_total') or listing_total }} homes reviewed{% if layout_unverified %} · {{ layout_unverified }} held back for layout proof{% endif %}</span>
     </div>
     <span class="pqx-note">{{ run.get('message') or 'Waiting for the first source update.' }}</span>
   </div>
@@ -4249,48 +4255,8 @@
               <a class="pqx-link-button primary" href="/app/properties">New search</a>
               <button class="pqx-button subtle" type="button" data-pqx-refresh-status>Refresh delivery</button>
             </div>
-            {% if workbench.get('counterfactual_rows') %}
-            <details class="pqx-inline-disclosure" open>
-              <summary><strong>How this search was filtered</strong><span class="pqx-note">Open to relax one rule and rerun the search.</span></summary>
-              <div class="pqx-section-head" style="margin-top:18px;">
-                <div>
-                  <h2>Ways to get more matches</h2>
-                  <div class="pqx-note">Apply one broader setting and run the search again.</div>
-                </div>
-              </div>
-              <div class="pqx-event-list" data-pqx-counterfactuals>
-                {% for row in workbench.get('counterfactual_rows') or [] %}
-                <div class="pqx-event-card">
-                  <strong>{{ row.get('title') }}</strong>
-                  <span class="pqx-note">{{ row.get('detail') }}</span>
-                  <span class="pqx-small">{{ row.get('tag') }}</span>
-                  <div class="pqx-actions">
-                    <button
-                      class="pqx-button"
-                      type="button"
-                      data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}'
-                    >{{ row.get('action_label') or 'Apply and search again' }}</button>
-                  </div>
-                </div>
-                {% endfor %}
-              </div>
-              {% set breakdown_sources = run_sources if run_sources else (run.get('summary') or {}).get('sources') or [] %}
-              {% if breakdown_sources %}
-              <div class="pqx-source-grid" data-pqx-source-breakdown>
-                {% for source in breakdown_sources %}
-                <article class="pqx-source-card">
-                  <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
-                  <div class="pqx-source-metrics">
-                    <span>Reviewed <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
-                    <span>High fit <b>{{ source.get('high_fit_total') or 0 }}</b></span>
-                    <span>Filtered <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
-                    <span>Missing floorplan <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
-                  </div>
-                </article>
-                {% endfor %}
-              </div>
-              {% endif %}
-            </details>
+            {% if workbench.get('counterfactual_rows') or workbench.get('suppression_rows') %}
+            {{ suppression_panel(workbench.get('suppression_rows') or [], workbench.get('counterfactual_rows') or []) }}
             <div class="pqx-decision-status" data-pqx-counterfactual-status></div>
             {% endif %}
           </div>
@@ -4338,16 +4304,15 @@
                         <span class="pqx-small">{{ candidate.get('source_label') or candidate.get('source_platform') or 'Source' }}</span>
                       </span>
                     </div>
-                    {% set provider_quality = candidate.get('provider_quality') or {} %}
-                    {% if provider_quality.get('floorplan_reliability') or provider_quality.get('filter_pushdown_strength') or provider_quality.get('last_verified') %}
-                    <br><span class="pqx-small">Floorplans {{ provider_quality.get('floorplan_reliability') or 'n/a' }} · Filters {{ provider_quality.get('filter_pushdown_strength') or 'n/a' }}{% if provider_quality.get('last_verified') %} · Verified {{ provider_quality.get('last_verified') }}{% endif %}</span>
-                    {% endif %}
                     <div class="pqx-result-trust">
                       <span class="pqx-trust-chip">Rank #{{ candidate.get('rank') or loop.index }}</span>
                       <span class="pqx-trust-chip">Fit {{ candidate.get('fit_score') or 0 }}/100</span>
                       {% set candidate_facts = candidate.get('property_facts') or {} %}
                       <span class="pqx-trust-chip">Layout {{ 'verified' if candidate.get('has_floorplan') or candidate.get('floorplan_count') or candidate.get('floorplan_urls_json') or candidate_facts.get('has_floorplan') or candidate_facts.get('floorplan_count') or candidate_facts.get('floorplan_urls_json') else 'needs check' }}</span>
-                      <span class="pqx-trust-chip">Tour {{ candidate.get('tour_status') or candidate.get('tour', {}).get('status') or 'not ready' }}</span>
+                      {% set tour_status = candidate.get('tour_status') or candidate.get('tour', {}).get('status') or '' %}
+                      {% if tour_status and tour_status not in ['not_ready', 'not ready', 'pending', 'blocked', 'unavailable', 'suppressed'] %}
+                      <span class="pqx-trust-chip">Tour {{ tour_status|replace('_', ' ')|title }}</span>
+                      {% endif %}
                     </div>
                   </td>
                   <td>
@@ -4409,7 +4374,7 @@
           <div class="pqx-section-head">
             <div>
               <h2>{% if run_active %}Search in progress{% else %}Search progress{% endif %}</h2>
-              <div class="pqx-note" data-pqx-run-summary>{{ (run.get('summary') or {}).get('sources_total') or 0 }} sources · {{ (run.get('summary') or {}).get('reviewed_listing_total') or (run.get('summary') or {}).get('listing_total') or 0 }} homes reviewed{% if ((run.get('summary') or {}).get('filtered_floorplan_total') or 0) %} · {{ (run.get('summary') or {}).get('filtered_floorplan_total') or 0 }} awaiting floorplans{% endif %}</div>
+              <div class="pqx-note" data-pqx-run-summary>{{ (run.get('summary') or {}).get('sources_total') or 0 }} sources · {{ (run.get('summary') or {}).get('reviewed_listing_total') or (run.get('summary') or {}).get('listing_total') or 0 }} homes reviewed{% if ((run.get('summary') or {}).get('filtered_floorplan_total') or 0) %} · {{ (run.get('summary') or {}).get('filtered_floorplan_total') or 0 }} held back for layout proof{% endif %}</div>
             </div>
             {% if run_active %}<button class="pqx-button" type="button" data-pqx-refresh-status>Refresh</button>{% else %}<a class="pqx-link-button" href="/app/properties">New search</a>{% endif %}
           </div>
@@ -4447,25 +4412,7 @@
             </div>
           </div>
           <div class="pqx-note">Price, layout, fit, and the next action stay in the main list. The right side is only for the currently selected home.</div>
-          <details class="pqx-inline-disclosure" data-pqx-source-breakdown-disclosure>
-            <summary><strong>How this search was filtered</strong><span class="pqx-note">Open only when results look wrong or too narrow.</span></summary>
-            {{ suppression_panel(workbench.get('suppression_rows') or [], counterfactual_rows) }}
-            {% if run_sources %}
-            <div class="pqx-source-grid" data-pqx-source-breakdown>
-              {% for source in run_sources %}
-              <article class="pqx-source-card">
-                <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
-                <div class="pqx-source-metrics">
-                  <span>Reviewed <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
-                  <span>High fit <b>{{ source.get('high_fit_total') or 0 }}</b></span>
-                  <span>Filtered <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
-                  <span>Missing floorplan <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
-                </div>
-              </article>
-              {% endfor %}
-            </div>
-            {% endif %}
-          </details>
+          {{ suppression_panel(workbench.get('suppression_rows') or [], counterfactual_rows) }}
         </section>
         {% endif %}
         <section class="pqx-review" data-pqx-mobile-panel="property" data-workbench-dossier>
@@ -4566,8 +4513,8 @@
               </div>
             </section>
             <section class="pqx-card">
-              <div class="pqx-section-head"><h2>What to check</h2><span class="pqx-pill warn" data-pw-risk-level>{{ selected.get('risk', {}).get('level') or 'unknown' }}</span></div>
-              <div class="pqx-note">Still unclear until the risk and money checks are resolved.</div>
+              <div class="pqx-section-head"><h2>Before you decide</h2><span class="pqx-pill warn" data-pw-risk-level>{{ selected.get('risk', {}).get('level') or 'unknown' }}</span></div>
+              <div class="pqx-note">Check the open risks, missing money details, and anything that could change the decision.</div>
               <div class="pqx-event-list">
                 <div class="pqx-event-card" data-pw-risk><strong>Risk</strong><span class="pqx-note">{{ selected.get('risk', {}).get('summary') or 'No risk summary captured yet.' }}</span></div>
                 <div class="pqx-event-card"><strong>Money</strong><span class="pqx-note" data-pw-investment>{{ selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Open the review details for cost checks when buy mode is active.' }}</span></div>
@@ -4721,7 +4668,6 @@
                   {% if candidate.get('tour', {}).get('status') in ['ready', 'queued', 'processing'] %}<span class="pqx-result-fact">{{ candidate.get('tour', {}).get('label') }}</span>{% endif %}
                 </span>
                 <span class="pqx-result-reason">{{ (candidate.get('match_reasons') or [candidate.get('fit_summary') or ''])|first }}</span>
-                {% if candidate.get('provider_quality_line') %}<span class="pqx-small">{{ candidate.get('provider_quality_line') }}</span>{% endif %}
                 <span class="pqx-result-action">Select to inspect on the right.</span>
               </span>
               <span class="pqx-result-aside">
@@ -6735,7 +6681,7 @@
       const sources = Number(summary.sources_total || 0);
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
-      return `${sources} sources · ${reviewed} homes reviewed${noPlan > 0 ? ` · ${noPlan} awaiting floorplans` : ''}`;
+      return `${sources} sources · ${reviewed} homes reviewed${noPlan > 0 ? ` · ${noPlan} held back for layout proof` : ''}`;
     };
     const renderRunEvents = (events) => {
       const rows = Array.isArray(events) ? [...events].reverse().slice(0, 12) : [];
@@ -6965,7 +6911,7 @@
         const state = source?.error ? 'warn' : 'good';
         return `<span class="pqx-source-chip ${state}">${escapeHtml(label)}</span>`;
       }).join('');
-      const sourceMeta = `${reviewed} homes reviewed${layout > 0 ? ` · ${layout} floorplans still missing` : ''}`;
+      const sourceMeta = `${reviewed} homes reviewed${layout > 0 ? ` · ${layout} held back for layout proof` : ''}`;
       const sourceRows = Array.isArray(summary.sources) ? summary.sources : [];
       const sourceProviderGroup = (source) => {
         const family = String(source?.provider_family || '').trim().toLowerCase();

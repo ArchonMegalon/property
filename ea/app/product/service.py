@@ -1144,6 +1144,54 @@ def _property_research_tasks_from_result(
         if not isinstance(source, dict):
             continue
         source_label = compact_text(str(source.get("source_label") or "").strip(), fallback="", limit=120)
+        floorplan_unverified = [
+            dict(item)
+            for item in list(source.get("floorplan_unverified_candidates") or [])[:3]
+            if isinstance(item, dict) and str(item.get("property_url") or "").strip()
+        ]
+        floorplan_recovered_total = max(int(source.get("floorplan_recovered_total") or 0), 0)
+        if floorplan_unverified:
+            first_candidate = floorplan_unverified[0]
+            property_url = urllib.parse.urldefrag(str(first_candidate.get("property_url") or "").strip())[0]
+            property_ref = property_url or str(first_candidate.get("title") or source_label or "property").strip()
+            task_id = _property_future_change_task_id(
+                run_id=run_id,
+                property_url=property_ref,
+                field="floorplan_recovery",
+            )
+            if task_id not in seen:
+                seen.add(task_id)
+                tasks.append(
+                    {
+                        "task_id": task_id,
+                        "kind": "floorplan_recovery",
+                        "field": "floorplan_recovery",
+                        "label": "Recover layout proof for held-back homes",
+                        "status": "queued",
+                        "status_label": "Workers checking",
+                        "priority": "high",
+                        "property_ref": property_ref[:500],
+                        "property_url": property_url[:800],
+                        "title": compact_text(str(first_candidate.get("title") or source_label or "Property"), fallback="Property", limit=180),
+                        "source_label": source_label,
+                        "review_url": "",
+                        "fit_score": 0.0,
+                        "display_value": "",
+                        "detail": (
+                            f"{len(floorplan_unverified)} held back here"
+                            + (f" · {floorplan_recovered_total} already recovered into cache" if floorplan_recovered_total else "")
+                        ),
+                        "evidence": "Workers are rechecking provider pages and attachments for floorplans so the next rerun can reuse verified layout evidence.",
+                        "ooda": {},
+                        "next_actions": [
+                            "Retry a bounded set of held-back listings with full preview extraction.",
+                            "Persist any recovered floorplan into the preview cache.",
+                            "Rerank the source on the next search refresh without waiting for manual provider repair.",
+                        ],
+                        "created_at": str(payload.get("generated_at") or _now_iso()),
+                        "updated_at": str(payload.get("generated_at") or _now_iso()),
+                    }
+                )
         # Provider repair tasks are operator work. They must not become
         # customer-facing research tasks because there is no meaningful action
         # a buyer/renter can take from "repair provider extraction".
@@ -1740,6 +1788,41 @@ def _property_search_provider_worker_warm_limit() -> int:
     except Exception:
         return 3
     return max(0, min(parsed, 8))
+
+
+def _property_search_floorplan_worker_concurrency_for_plan(plan_key: object) -> int:
+    normalized_plan = str(plan_key or "free").strip().lower() or "free"
+    desired = {"free": 1, "plus": 2, "agent": 3}.get(normalized_plan, 1)
+    configured = _property_search_provider_worker_concurrency()
+    return max(1, min(desired, configured if configured > 0 else desired))
+
+
+def _property_search_floorplan_worker_limit() -> int:
+    raw_value = str(os.getenv("PROPERTYQUARRY_SEARCH_FLOORPLAN_RECOVERY_LIMIT") or "").strip()
+    if not raw_value:
+        return 6
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return 6
+    return max(0, min(parsed, 24))
+
+
+def _property_search_preview_timeout_seconds(*, prefer_fast: bool) -> float:
+    env_name = (
+        "PROPERTYQUARRY_SEARCH_PREVIEW_FAST_TIMEOUT_SECONDS"
+        if prefer_fast
+        else "PROPERTYQUARRY_SEARCH_PREVIEW_TIMEOUT_SECONDS"
+    )
+    raw_value = str(os.getenv(env_name) or "").strip()
+    default_value = 8.0 if prefer_fast else 14.0
+    if not raw_value:
+        return default_value
+    try:
+        parsed = float(raw_value)
+    except Exception:
+        return default_value
+    return max(1.0, min(parsed, 60.0))
 
 
 def _property_search_source_fetch_lane(source_spec: dict[str, object]) -> str:
@@ -5317,6 +5400,37 @@ def _property_scout_page_preview_compat(property_url: str, *, prefer_fast: bool 
         if "prefer_fast" not in str(exc):
             raise
         return _property_scout_page_preview(property_url)
+
+
+def _property_scout_page_preview_with_timeout(property_url: str, *, prefer_fast: bool = False) -> dict[str, object]:
+    timeout_seconds = _property_search_preview_timeout_seconds(prefer_fast=prefer_fast)
+    result: dict[str, object] = {}
+    error: dict[str, BaseException] = {}
+    finished = threading.Event()
+
+    def _runner() -> None:
+        try:
+            result["preview"] = _property_scout_page_preview_compat(property_url, prefer_fast=prefer_fast)
+        except BaseException as exc:  # pragma: no cover - surfaced to caller
+            error["exc"] = exc
+        finally:
+            finished.set()
+
+    thread = threading.Thread(
+        target=_runner,
+        name=f"property-preview:{'fast' if prefer_fast else 'full'}",
+        daemon=True,
+    )
+    thread.start()
+    finished.wait(timeout_seconds)
+    if not finished.is_set():
+        raise TimeoutError(
+            f"property_preview_timeout:{'fast' if prefer_fast else 'full'}:{round(timeout_seconds, 2)}"
+        )
+    if "exc" in error:
+        raise error["exc"]
+    preview = result.get("preview")
+    return dict(preview) if isinstance(preview, dict) else {}
 
 
 def _property_research_distance_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> int:
@@ -19836,7 +19950,7 @@ class ProductService:
                     if self._property_public_preview_cache_lookup(cache_index=cache_index, property_url=property_url):
                         return False
                 try:
-                    preview = _property_scout_page_preview_compat(property_url, prefer_fast=True)
+                    preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=True)
                 except Exception:
                     return False
                 with cache_lock:
@@ -19866,6 +19980,66 @@ class ProductService:
             "worker_concurrency": worker_cap,
             "warm_limit": warm_limit,
         }
+
+    def _recover_floorplans_for_candidates(
+        self,
+        *,
+        candidates: list[dict[str, object]],
+        cache_index: dict[str, dict[str, object]],
+        plan_key: str = "free",
+    ) -> dict[str, dict[str, object]]:
+        recovery_limit = _property_search_floorplan_worker_limit()
+        worker_cap = _property_search_floorplan_worker_concurrency_for_plan(plan_key)
+        queued = [
+            dict(row)
+            for row in list(candidates or [])[:recovery_limit]
+            if isinstance(row, dict) and str(row.get("property_url") or "").strip()
+        ]
+        if recovery_limit <= 0 or worker_cap <= 0 or not queued:
+            return {}
+
+        cache_lock = threading.Lock()
+        recovered: dict[str, dict[str, object]] = {}
+
+        def _task(candidate: dict[str, object]) -> tuple[str, dict[str, object]] | None:
+            property_url = urllib.parse.urldefrag(str(candidate.get("property_url") or "").strip())[0]
+            if not property_url:
+                return None
+            try:
+                preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=False)
+            except Exception:
+                return None
+            if not _property_candidate_has_floorplan(
+                property_url=property_url,
+                title=str(preview.get("title") or ""),
+                summary=str(preview.get("summary") or ""),
+                property_facts=dict(preview.get("property_facts_json") or {}),
+                preview=preview,
+            ):
+                return None
+            with cache_lock:
+                self._property_public_preview_cache_store(
+                    cache_index=cache_index,
+                    property_url=property_url,
+                    preview=preview,
+                )
+            return property_url, preview
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=max(1, min(worker_cap, len(queued))),
+            thread_name_prefix="property-floorplan-worker",
+        ) as executor:
+            futures = [executor.submit(_task, row) for row in queued]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    outcome = future.result()
+                except Exception:
+                    continue
+                if not outcome:
+                    continue
+                property_url, preview = outcome
+                recovered[property_url] = dict(preview)
+        return recovered
 
     def _resolve_google_location_history_import_path(self, path: str) -> Path:
         raw = str(path or "").strip()
@@ -29005,6 +29179,7 @@ class ProductService:
             filtered_availability_for_source = 0
             filtered_floorplan_for_source = 0
             filtered_low_fit_for_source = 0
+            floorplan_recovered_for_source = 0
             provider_repair_task_opened_for_source = 0
             provider_repair_task_existing_for_source = 0
             provider_repair_tasks_for_source: list[dict[str, object]] = []
@@ -29225,7 +29400,7 @@ class ProductService:
                         preview = dict(cached_preview)
                         public_property_cache_hit_total += 1
                     else:
-                        preview = _property_scout_page_preview_compat(property_url, prefer_fast=True)
+                        preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=True)
                         self._property_public_preview_cache_store(
                             cache_index=public_preview_cache,
                             property_url=property_url,
@@ -29295,7 +29470,7 @@ class ProductService:
                             detailed_area_preview = dict(cached_preview)
                             public_property_cache_hit_total += 1
                         else:
-                            detailed_area_preview = _property_scout_page_preview_compat(property_url)
+                            detailed_area_preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=False)
                             self._property_public_preview_cache_store(
                                 cache_index=public_preview_cache,
                                 property_url=property_url,
@@ -29410,7 +29585,7 @@ class ProductService:
                             detailed_floorplan_preview = dict(cached_preview)
                             public_property_cache_hit_total += 1
                         else:
-                            detailed_floorplan_preview = _property_scout_page_preview_compat(property_url)
+                            detailed_floorplan_preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=False)
                             self._property_public_preview_cache_store(
                                 cache_index=public_preview_cache,
                                 property_url=property_url,
@@ -29636,7 +29811,7 @@ class ProductService:
                             detailed_preview = dict(cached_preview)
                             public_property_cache_hit_total += 1
                         else:
-                            detailed_preview = _property_scout_page_preview_compat(property_url)
+                            detailed_preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=False)
                             self._property_public_preview_cache_store(
                                 cache_index=public_preview_cache,
                                 property_url=property_url,
@@ -30312,7 +30487,7 @@ class ProductService:
                         "confidence": 0.25,
                         "predicted_reaction": "needs_review",
                         "recommendation": "review",
-                        "match_reasons_json": ["Provider-ranked fallback candidate kept because strict personal-fit scoring produced no shortlist."],
+                        "match_reasons_json": ["Kept as a review candidate because no stronger match cleared the shortlist yet."],
                         "mismatch_reasons_json": [],
                         "unknowns_json": ["Sparse listing data: verify location, availability, layout, and operating costs before treating this as a fit."],
                         "blocking_constraints_json": [],
@@ -30334,7 +30509,7 @@ class ProductService:
                 if ranked_rows:
                     _report(
                         step="source_fallback_shortlist",
-                        message=f"Kept {len(ranked_rows)} provider-ranked fallback candidate(s) for {source_label}.",
+                        message=f"Kept {len(ranked_rows)} review candidate(s) for {source_label} while stronger matches were unavailable.",
                         status="in_progress",
                         steps_delta=0,
                     )
@@ -30672,6 +30847,35 @@ class ProductService:
                         }
                     )
 
+            if enforce_floorplan_filter and floorplan_unverified_candidates_for_source:
+                _report(
+                    step="source_floorplan_recovery",
+                    message=f"Rechecking layout evidence for {min(len(floorplan_unverified_candidates_for_source), _property_search_floorplan_worker_limit())} held-back home(s) from {source_label}.",
+                    status="in_progress",
+                    steps_delta=0,
+                )
+                recovered_floorplan_previews = self._recover_floorplans_for_candidates(
+                    candidates=floorplan_unverified_candidates_for_source,
+                    cache_index=public_preview_cache,
+                    plan_key=plan_key,
+                )
+                if recovered_floorplan_previews:
+                    floorplan_recovered_for_source = len(recovered_floorplan_previews)
+                    filtered_floorplan_for_source = max(0, filtered_floorplan_for_source - floorplan_recovered_for_source)
+                    filtered_floorplan_total = max(0, filtered_floorplan_total - floorplan_recovered_for_source)
+                    floorplan_unverified_candidates_for_source = [
+                        row
+                        for row in floorplan_unverified_candidates_for_source
+                        if urllib.parse.urldefrag(str(row.get("property_url") or "").strip())[0] not in recovered_floorplan_previews
+                    ]
+                    _report(
+                        step="source_floorplan_recovery",
+                        message=f"Recovered verified layout evidence for {floorplan_recovered_for_source} held-back home(s) from {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                        summary_updates={"filtered_floorplan_total": filtered_floorplan_total},
+                    )
+
             reviewed_listing_total += len(listing_urls)
             source_summaries.append(
                 {
@@ -30697,6 +30901,7 @@ class ProductService:
                     "filtered_area_total": filtered_area_for_source,
                     "filtered_availability_total": filtered_availability_for_source,
                     "filtered_floorplan_total": filtered_floorplan_for_source,
+                    "floorplan_recovered_total": floorplan_recovered_for_source,
                     "filtered_low_fit_total": filtered_low_fit_for_source,
                     "provider_repair_task_opened_total": provider_repair_task_opened_for_source,
                     "provider_repair_task_existing_total": provider_repair_task_existing_for_source,
