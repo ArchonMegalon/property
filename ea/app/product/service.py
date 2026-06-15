@@ -5433,6 +5433,10 @@ def _property_scout_page_preview_with_timeout(property_url: str, *, prefer_fast:
     return dict(preview) if isinstance(preview, dict) else {}
 
 
+def _property_floorplan_candidate_stage(candidate: dict[str, object]) -> str:
+    return str(candidate.get("candidate_stage") or "").strip().lower()
+
+
 def _property_research_distance_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> int:
     from math import atan2, cos, radians, sin, sqrt
 
@@ -19979,6 +19983,8 @@ class ProductService:
             "sources_touched": len(touched_sources),
             "worker_concurrency": worker_cap,
             "warm_limit": warm_limit,
+            "floorplan_worker_concurrency": _property_search_floorplan_worker_concurrency_for_plan(plan_key),
+            "floorplan_recovery_limit": _property_search_floorplan_worker_limit(),
         }
 
     def _recover_floorplans_for_candidates(
@@ -29136,6 +29142,8 @@ class ProductService:
         timing_ms = {
             "provider_fetch_total": 0.0,
             "provider_process_total": 0.0,
+            "provider_preview_total": 0.0,
+            "floorplan_recovery_total": 0.0,
         }
         policy = self.property_alert_policy(principal_id=principal_id)
         auto_visual_exception_enabled = paid_plan or bool(policy.get("auto_generate_tour_for_good_fit"))
@@ -29180,6 +29188,10 @@ class ProductService:
             filtered_floorplan_for_source = 0
             filtered_low_fit_for_source = 0
             floorplan_recovered_for_source = 0
+            source_timing_ms = {
+                "provider_preview": 0.0,
+                "floorplan_recovery": 0.0,
+            }
             provider_repair_task_opened_for_source = 0
             provider_repair_task_existing_for_source = 0
             provider_repair_tasks_for_source: list[dict[str, object]] = []
@@ -29378,6 +29390,7 @@ class ProductService:
                 ),
             )
             preliminary_rows: list[dict[str, object]] = []
+            provider_preview_started_at = time.perf_counter()
             for ordinal, property_url in enumerate(listing_urls, start=1):
                 _report(
                     step="source_previewing",
@@ -29648,10 +29661,21 @@ class ProductService:
                         floorplan_unverified_candidates_for_source.append(
                             {
                                 "property_url": property_url,
+                                "listing_id": str(preview.get("listing_id") or "").strip() or property_url,
                                 "title": preview_title,
                                 "summary": preview_summary,
                                 "source_label": source_label,
                                 "candidate_stage": "provider_preview",
+                                "ordinal": ordinal,
+                                "location_match": _property_candidate_matches_search_area(
+                                    location_hints=location_hints,
+                                    request_preferences=request_preferences,
+                                    source_spec=source_spec,
+                                    property_url=property_url,
+                                    title=preview_title,
+                                    summary=preview_summary,
+                                    property_facts=preview_facts,
+                                ),
                                 "floorplan_recovery_diagnostics": recovery_diagnostics,
                             }
                         )
@@ -29759,6 +29783,102 @@ class ProductService:
                         message=f"Ranked {min(ordinal, len(listing_urls))} of {len(listing_urls)} candidate listings for {source_label}.",
                         status="in_progress",
                         steps_delta=1,
+                    )
+
+            source_timing_ms["provider_preview"] = round(
+                float(source_timing_ms.get("provider_preview") or 0.0)
+                + (time.perf_counter() - provider_preview_started_at) * 1000.0,
+                2,
+            )
+
+            if enforce_floorplan_filter and floorplan_unverified_candidates_for_source:
+                provider_preview_floorplan_candidates = [
+                    dict(row)
+                    for row in floorplan_unverified_candidates_for_source
+                    if _property_floorplan_candidate_stage(row) == "provider_preview"
+                ]
+                if provider_preview_floorplan_candidates:
+                    floorplan_recovery_started_at = time.perf_counter()
+                    _report(
+                        step="source_floorplan_recovery",
+                        message=f"Rechecking layout evidence for {min(len(provider_preview_floorplan_candidates), _property_search_floorplan_worker_limit())} held-back home(s) from {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                    )
+                    recovered_floorplan_previews = self._recover_floorplans_for_candidates(
+                        candidates=provider_preview_floorplan_candidates,
+                        cache_index=public_preview_cache,
+                        plan_key=plan_key,
+                    )
+                    if recovered_floorplan_previews:
+                        for recovered_candidate in provider_preview_floorplan_candidates:
+                            property_url = urllib.parse.urldefrag(str(recovered_candidate.get("property_url") or "").strip())[0]
+                            preview = dict(recovered_floorplan_previews.get(property_url) or {})
+                            if not property_url or not preview:
+                                continue
+                            preview_facts = dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {}
+                            preview_facts = _property_facts_with_source_scope(
+                                facts=preview_facts,
+                                source_url=source_url,
+                                source_label=source_label,
+                            )
+                            preview_facts["source_platform"] = str(source_spec.get("platform") or "").strip().lower()
+                            preview_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
+                            preview_facts["source_trust_tier"] = str(source_spec.get("provider_trust_tier") or "").strip().lower()
+                            preview_facts["source_access_level"] = str(source_spec.get("source_access_level") or "").strip().lower()
+                            preview_facts.setdefault("country_code", str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip().upper())
+                            preview_facts.setdefault("region_code", str(request_preferences.get("region_code") or "").strip().lower())
+                            preview_facts["verification_required"] = bool(source_spec.get("verification_required"))
+                            preview_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
+                            preview_facts = _property_enrich_future_change_research(
+                                preview_facts,
+                                investment_research_mode=investment_research_mode,
+                                available_within_years=available_within_years,
+                            )
+                            preview["property_facts_json"] = preview_facts
+                            preview_title = compact_text(str(preview.get("title") or recovered_candidate.get("title") or property_url).strip(), fallback=property_url, limit=160)
+                            preview_summary = compact_text(str(preview.get("summary") or recovered_candidate.get("summary") or "").strip(), fallback="", limit=240)
+                            location_match = bool(recovered_candidate.get("location_match"))
+                            preliminary_row = {
+                                "property_url": property_url,
+                                "listing_id": str(preview.get("listing_id") or recovered_candidate.get("listing_id") or property_url).strip() or property_url,
+                                "title": preview_title,
+                                "summary": preview_summary,
+                                "property_facts": preview_facts,
+                                "assessment": {},
+                                "fit_score": 0.0,
+                                "ordinal": int(recovered_candidate.get("ordinal") or 0),
+                                "location_match": location_match,
+                            }
+                            preliminary_row["fit_score"] = max(
+                                0.0,
+                                _property_scout_rank_score(
+                                    property_url=property_url,
+                                    assessment=None,
+                                    preview=preview,
+                                    ordinal=int(recovered_candidate.get("ordinal") or 0),
+                                ) - (25.0 if location_hints and not location_match else 0.0)
+                            )
+                            preliminary_rows.append(preliminary_row)
+                        floorplan_recovered_for_source += len(recovered_floorplan_previews)
+                        filtered_floorplan_for_source = max(0, filtered_floorplan_for_source - len(recovered_floorplan_previews))
+                        filtered_floorplan_total = max(0, filtered_floorplan_total - len(recovered_floorplan_previews))
+                        floorplan_unverified_candidates_for_source = [
+                            row
+                            for row in floorplan_unverified_candidates_for_source
+                            if urllib.parse.urldefrag(str(row.get("property_url") or "").strip())[0] not in recovered_floorplan_previews
+                        ]
+                        _report(
+                            step="source_floorplan_recovery",
+                            message=f"Recovered verified layout evidence for {len(recovered_floorplan_previews)} held-back home(s) from {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                            summary_updates={"filtered_floorplan_total": filtered_floorplan_total},
+                        )
+                    source_timing_ms["floorplan_recovery"] = round(
+                        float(source_timing_ms.get("floorplan_recovery") or 0.0)
+                        + (time.perf_counter() - floorplan_recovery_started_at) * 1000.0,
+                        2,
                     )
 
             preliminary_rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
@@ -30282,10 +30402,23 @@ class ProductService:
                         floorplan_unverified_candidates_for_source.append(
                             {
                                 "property_url": property_url,
+                                "listing_id": str(preview.get("listing_id") or "").strip() or property_url,
                                 "title": detailed_title,
                                 "summary": detailed_summary,
                                 "source_label": source_label,
                                 "candidate_stage": "shortlist_detail",
+                                "ordinal": ordinal,
+                                "prefilter_row": {
+                                    "property_url": property_url,
+                                    "listing_id": str(preview.get("listing_id") or property_url).strip() or property_url,
+                                    "title": compact_text(detailed_title, fallback=property_url, limit=160),
+                                    "summary": compact_text(detailed_summary, fallback="", limit=240),
+                                    "property_facts": dict(detailed_facts or {}),
+                                    "assessment": dict(row.get("assessment") or {}) if isinstance(row.get("assessment"), dict) else {},
+                                    "fit_score": float(row.get("fit_score") or 0.0),
+                                    "ordinal": int(row.get("ordinal") or ordinal),
+                                    "location_match": bool(row.get("location_match")),
+                                },
                                 "floorplan_recovery_diagnostics": recovery_diagnostics,
                             }
                         )
@@ -30847,22 +30980,31 @@ class ProductService:
                         }
                     )
 
+            late_floorplan_candidates: list[dict[str, object]] = []
             if enforce_floorplan_filter and floorplan_unverified_candidates_for_source:
+                late_floorplan_candidates = [
+                    dict(row)
+                    for row in floorplan_unverified_candidates_for_source
+                    if _property_floorplan_candidate_stage(row) != "provider_preview"
+                ]
+            if enforce_floorplan_filter and late_floorplan_candidates:
+                floorplan_recovery_started_at = time.perf_counter()
                 _report(
                     step="source_floorplan_recovery",
-                    message=f"Rechecking layout evidence for {min(len(floorplan_unverified_candidates_for_source), _property_search_floorplan_worker_limit())} held-back home(s) from {source_label}.",
+                    message=f"Rechecking layout evidence for {min(len(late_floorplan_candidates), _property_search_floorplan_worker_limit())} held-back home(s) from {source_label}.",
                     status="in_progress",
                     steps_delta=0,
                 )
                 recovered_floorplan_previews = self._recover_floorplans_for_candidates(
-                    candidates=floorplan_unverified_candidates_for_source,
+                    candidates=late_floorplan_candidates,
                     cache_index=public_preview_cache,
                     plan_key=plan_key,
                 )
                 if recovered_floorplan_previews:
-                    floorplan_recovered_for_source = len(recovered_floorplan_previews)
-                    filtered_floorplan_for_source = max(0, filtered_floorplan_for_source - floorplan_recovered_for_source)
-                    filtered_floorplan_total = max(0, filtered_floorplan_total - floorplan_recovered_for_source)
+                    recovered_count = len(recovered_floorplan_previews)
+                    floorplan_recovered_for_source += recovered_count
+                    filtered_floorplan_for_source = max(0, filtered_floorplan_for_source - recovered_count)
+                    filtered_floorplan_total = max(0, filtered_floorplan_total - recovered_count)
                     floorplan_unverified_candidates_for_source = [
                         row
                         for row in floorplan_unverified_candidates_for_source
@@ -30873,8 +31015,13 @@ class ProductService:
                         message=f"Recovered verified layout evidence for {floorplan_recovered_for_source} held-back home(s) from {source_label}.",
                         status="in_progress",
                         steps_delta=0,
-                        summary_updates={"filtered_floorplan_total": filtered_floorplan_total},
+                            summary_updates={"filtered_floorplan_total": filtered_floorplan_total},
                     )
+                source_timing_ms["floorplan_recovery"] = round(
+                    float(source_timing_ms.get("floorplan_recovery") or 0.0)
+                    + (time.perf_counter() - floorplan_recovery_started_at) * 1000.0,
+                    2,
+                )
 
             reviewed_listing_total += len(listing_urls)
             source_summaries.append(
@@ -30964,9 +31111,21 @@ class ProductService:
                     "research_candidates": sorted_top_candidates_for_source,
                     "timing_ms": {
                         "provider_fetch": round(provider_fetch_ms, 2),
+                        "provider_preview": round(float(source_timing_ms.get("provider_preview") or 0.0), 2),
+                        "floorplan_recovery": round(float(source_timing_ms.get("floorplan_recovery") or 0.0), 2),
                         "source_total": round((time.perf_counter() - source_started_at) * 1000.0, 2),
                     },
                 }
+            )
+            timing_ms["provider_preview_total"] = round(
+                float(timing_ms.get("provider_preview_total") or 0.0)
+                + float(source_timing_ms.get("provider_preview") or 0.0),
+                2,
+            )
+            timing_ms["floorplan_recovery_total"] = round(
+                float(timing_ms.get("floorplan_recovery_total") or 0.0)
+                + float(source_timing_ms.get("floorplan_recovery") or 0.0),
+                2,
             )
             timing_ms["provider_process_total"] = round(
                 float(timing_ms.get("provider_process_total") or 0.0)

@@ -809,6 +809,76 @@ def test_premium_pipeline_legacy_fallback_requires_emergency_flag(monkeypatch, t
     assert rendered["receipt"]["premium_render_failures"][0]["error_code"] == "premium_pdf_quality_gate_failed"
 
 
+def test_telegram_appendix_uses_premium_pipeline_before_legacy(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
+    monkeypatch.delenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", raising=False)
+
+    source = _sample_source()
+    source["appendix_mode"] = "telegram_pdf_appendix"
+    legacy_called = {"value": False}
+
+    def _fake_playwright(_request):
+        pdf_text = "%PDF-1.4 " + " ".join(_request.expected_text)
+        return PremiumDossierRenderResult(
+            status="rendered",
+            renderer="playwright",
+            pdf_bytes=pdf_text.encode("utf-8"),
+            pdf_sha256="telegram-premium",
+            render_seconds=0.2,
+        )
+
+    def _legacy_renderer(**kwargs):  # noqa: ANN003
+        legacy_called["value"] = True
+        return {"status": "legacy_rendered", "receipt": {"renderer_provider": "legacy"}}
+
+    monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_playwright", _fake_playwright)
+    monkeypatch.setattr(
+        "app.services.premium_dossier.inspect_rendered_artifact",
+        lambda **kwargs: type(
+            "Report",
+            (),
+            {
+                "ok": True,
+                "required_text_check": "passed",
+                "forbidden_text_check": "passed",
+                "page_count": 1,
+                "visual_preview_check": "passed",
+                "cover_dominance_check": "passed",
+                "footer_band_check": "passed",
+                "raw_url_text_check": "passed",
+                "visual_preview_artifact_ref": "",
+                "first_page_width_px": 0,
+                "first_page_height_px": 0,
+                "first_page_nonwhite_ratio": 0.0,
+                "first_page_top_band_nonwhite_ratio": 0.0,
+                "first_page_footer_band_nonwhite_ratio": 0.0,
+                "required_text_hits": list(kwargs.get("expected_text") or []),
+                "forbidden_text_hits": [],
+                "raw_url_text_hits": [],
+            },
+        )(),
+    )
+
+    rendered = render_property_packet_pdf_via_premium_pipeline(
+        artifact_root=tmp_path,
+        publication_id="pub_telegram_appendix",
+        principal_id="cf-email:tibor@example.com",
+        source=source,
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        include_exact_address=False,
+        include_floorplan=True,
+        include_photos=True,
+        legacy_renderer=_legacy_renderer,
+    )
+
+    assert rendered["pdf_path"].endswith(".pdf")
+    assert rendered["receipt"]["renderer_provider"] == "playwright"
+    assert legacy_called["value"] is False
+
+
 def test_pdf_flythrough_url_does_not_fallback_to_tour_pane_without_real_clip() -> None:
     source = {
         "tour_url": "https://propertyquarry.com/tours/test-tour#live-360",
