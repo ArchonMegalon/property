@@ -170,11 +170,41 @@ def test_property_scope_preview_uses_generic_boundary_projection(monkeypatch) ->
     assert all(str(row.get("path") or "").startswith("M") for row in preview["district_rows"])
 
 
-def test_property_scope_preview_without_boundary_data_skips_fake_thumbnail(monkeypatch) -> None:
+def test_property_scope_preview_without_boundary_data_uses_local_layout_fallback(monkeypatch) -> None:
     monkeypatch.setattr(landing_view_models, "_nominatim_boundary_record", lambda query: {})
     preview = landing_view_models._property_scope_preview("AT", "vienna", "1020 Vienna")
-    assert preview["image_url"] == ""
+    assert str(preview["image_url"]).startswith("data:image/svg+xml")
     assert preview["district_rows"] == []
+
+
+def test_property_lookup_candidate_falls_back_to_shortlist_candidates_from_context() -> None:
+    property_context = {
+        "run": {
+            "run_id": "run-1",
+            "summary": {
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Buy | Vienna",
+                        "top_candidates": [
+                            {
+                                "title": "Vienna apartment",
+                                "property_url": "https://example.com/listing/1",
+                                "source_ref": "property-scout:1",
+                                "review_url": "",
+                                "property_facts": {},
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+    }
+    candidate = dict(property_context["run"]["summary"]["sources"][0]["top_candidates"][0])
+    candidate["source_label"] = "Willhaben | Austria | Buy | Vienna"
+    candidate_ref = landing_property_research._property_candidate_ref(candidate)
+    found = landing_property_research._property_lookup_candidate(property_context=property_context, candidate_ref=candidate_ref)
+    assert found is not None
+    assert found["property_url"] == "https://example.com/listing/1"
 
 
 def test_property_workbench_no_longer_embeds_vienna_district_mapping_js() -> None:
@@ -316,6 +346,26 @@ def test_property_search_worker_slots_prioritize_distinct_providers() -> None:
     labels = [row.get("label") for row in worker_state.get("workers") or []]
     assert labels[:3] == ["DER STANDARD", "immmo", "FindMyHome.at"]
     assert worker_state["workers"][0]["shard_count"] == 1
+
+
+def test_property_search_worker_slots_only_show_real_lanes_instead_of_plan_fillers() -> None:
+    worker_state = landing_view_models._property_search_worker_slots(
+        {
+            "provider_workers": {"worker_concurrency": 6},
+            "progress": 12,
+            "status": "running",
+            "sources": [
+                {"source_label": "Willhaben | Austria | Buy | Vienna", "platform": "willhaben_at", "status": "in_progress"},
+                {"source_label": "immmo | Austria | Buy | Vienna", "platform": "immmo_at", "status": "failed", "error": "HTTP 410"},
+            ],
+        },
+        plan_key="agent",
+    )
+
+    assert worker_state["visible_workers"] == 2
+    assert len(worker_state["workers"]) == 2
+    assert [row.get("status_label") for row in worker_state["workers"]] == ["Running", "Retrying"]
+    assert all(row.get("label") != "Preparing sources" for row in worker_state["workers"])
 
 
 def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch) -> None:

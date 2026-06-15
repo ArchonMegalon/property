@@ -3,15 +3,15 @@
     <div>
       <div class="pqx-note">
         {% if brief.get('search_goal') == 'investment' %}
-        {{ results|length }} ranked opportunities · start with the strongest return and risk read, then open one property.
+        <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> ranked opportunities</a> · start with the strongest return and risk read, then open one property.
         {% else %}
-        {{ results|length }} ranked homes · start with the strongest short read, then open one home.
+        <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> ranked homes</a> · start with the strongest short read, then open one home.
         {% endif %}
       </div>
     </div>
     <span class="pqx-pill good">{{ run.get('status_label') or 'Completed' }}</span>
   </div>
-  <div class="pqx-results-list" data-workbench-results-table>
+  <div class="pqx-results-list" id="results-list" data-workbench-results-table>
     {% for candidate in results %}
     <article class="pqx-result pqx-card{% if candidate.get('recovered_by_filter') %} is-filter-recovered{% endif %}" role="button" tabindex="0" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
       {% set orientation_preview = candidate.get('orientation_preview') or {} %}

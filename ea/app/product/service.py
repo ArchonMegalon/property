@@ -828,6 +828,17 @@ def _property_search_run_stale_seconds() -> int:
     return max(60, min(parsed, 24 * 60 * 60))
 
 
+def _property_search_review_open_timeout_seconds() -> float:
+    raw_value = str(os.getenv("EA_PROPERTY_SEARCH_REVIEW_OPEN_TIMEOUT_SECONDS") or "").strip()
+    if not raw_value:
+        return 20.0
+    try:
+        parsed = float(raw_value)
+    except Exception:
+        return 20.0
+    return max(1.0, min(parsed, 300.0))
+
+
 def _property_search_run_is_stale(state: dict[str, object]) -> bool:
     status = str(state.get("status") or "").strip().lower()
     if not status or status in _PROPERTY_SEARCH_TERMINAL_STATUSES or status == "initialization_required":
@@ -21227,6 +21238,96 @@ class ProductService:
             payload["heyy_delivery_error"] = str(heyy_result.get("reason") or "").strip()
         return payload
 
+    def _open_property_alert_review_with_timeout(
+        self,
+        *,
+        principal_id: str,
+        title: str,
+        summary: str,
+        source_ref: str,
+        external_id: str,
+        counterparty: str,
+        account_email: str,
+        property_url: str,
+        actor: str,
+        notify_telegram: bool = True,
+        candidate_properties: tuple[dict[str, object], ...] = (),
+        personal_fit_assessment: dict[str, object] | None = None,
+        preference_person_id: str = "self",
+        tour_url: str = "",
+    ) -> dict[str, object]:
+        result_holder: dict[str, object] = {}
+        error_holder: dict[str, BaseException] = {}
+
+        def _worker() -> None:
+            try:
+                result_holder["value"] = self._open_property_alert_review(
+                    principal_id=principal_id,
+                    title=title,
+                    summary=summary,
+                    source_ref=source_ref,
+                    external_id=external_id,
+                    counterparty=counterparty,
+                    account_email=account_email,
+                    property_url=property_url,
+                    actor=actor,
+                    notify_telegram=notify_telegram,
+                    candidate_properties=candidate_properties,
+                    personal_fit_assessment=personal_fit_assessment,
+                    preference_person_id=preference_person_id,
+                    tour_url=tour_url,
+                )
+            except BaseException as exc:  # noqa: BLE001
+                error_holder["error"] = exc
+
+        timeout_seconds = _property_search_review_open_timeout_seconds()
+        thread = threading.Thread(target=_worker, daemon=True, name="property-alert-review-open")
+        thread.start()
+        thread.join(timeout=timeout_seconds)
+        if thread.is_alive():
+            error_message = (
+                f"Review page preparation timed out after {int(timeout_seconds)}s for "
+                f"{compact_text(str(title or property_url or source_ref), fallback='property', limit=120)}."
+            )
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_alert_review_open_timeout",
+                payload={
+                    "property_url": str(property_url or "").strip(),
+                    "source_ref": str(source_ref or "").strip(),
+                    "external_id": str(external_id or "").strip(),
+                    "title": compact_text(str(title or "").strip(), fallback="", limit=160),
+                    "timeout_seconds": timeout_seconds,
+                    "actor": str(actor or "").strip() or "property_scout",
+                },
+                source_id=str(source_ref or external_id or property_url).strip(),
+                dedupe_key=f"{principal_id}|{source_ref or external_id or property_url}|property-alert-review-open-timeout",
+            )
+            return {
+                "status": "failed",
+                "task_type": "property_alert_review",
+                "property_url": str(property_url or "").strip(),
+                "source_ref": str(source_ref or "").strip(),
+                "external_id": str(external_id or "").strip(),
+                "reason": "property_alert_review_open_timeout",
+                "error": error_message,
+                "tour_url": str(tour_url or "").strip(),
+                "review_reused": False,
+            }
+        if "error" in error_holder:
+            raise error_holder["error"]
+        result = result_holder.get("value")
+        return dict(result) if isinstance(result, dict) else {
+            "status": "failed",
+            "task_type": "property_alert_review",
+            "property_url": str(property_url or "").strip(),
+            "source_ref": str(source_ref or "").strip(),
+            "external_id": str(external_id or "").strip(),
+            "reason": "property_alert_review_open_invalid",
+            "tour_url": str(tour_url or "").strip(),
+            "review_reused": False,
+        }
+
     def _maybe_open_property_alert_review_from_signal(
         self,
         *,
@@ -25329,9 +25430,20 @@ class ProductService:
             run_id=normalized_run_id,
             state=dict(state),
         )
+        summary = dict(state.get("summary") or {})
+        normalized_status = str(state.get("status") or summary.get("status") or "").strip().lower()
+        if normalized_status:
+            summary["status"] = normalized_status
+        if normalized_status in _PROPERTY_SEARCH_TERMINAL_STATUSES:
+            summary["progress"] = 100
+            summary["progress_percent"] = 100
+        elif "progress" in state:
+            summary["progress"] = int(state.get("progress") or 0)
+            summary["progress_percent"] = int(state.get("progress") or 0)
+        state = {**dict(state), "summary": summary}
         snapshot = {
             **dict(state),
-            "summary": dict(dict(state.get("summary") or {})),
+            "summary": dict(summary),
             "events": [dict(item) for item in list(state.get("events") or [])],
             "selected_platforms": list(state.get("selected_platforms") or ()),
         }
@@ -25404,6 +25516,7 @@ class ProductService:
                 state["summary"] = summary
             summary = dict(state.get("summary") or {})
             state["summary"] = summary
+            summary["status"] = updated_status
             if updated_status not in _PROPERTY_SEARCH_TERMINAL_STATUSES:
                 normalized_progress, eta_seconds, eta_label = _property_search_run_progress_projection(
                     state=state,
@@ -25418,8 +25531,12 @@ class ProductService:
                 state["eta_label"] = eta_label
                 state["eta_seconds_smoothed"] = eta_seconds
                 summary["progress"] = normalized_progress
+                summary["progress_percent"] = normalized_progress
                 summary["eta_seconds"] = eta_seconds
                 summary["eta_label"] = eta_label
+            else:
+                summary["progress"] = int(state.get("progress") or 100)
+                summary["progress_percent"] = int(state.get("progress") or 100)
             events = list(state.get("events") or [])
             events.append(
                 {
@@ -28909,7 +29026,7 @@ class ProductService:
                 tour_result: dict[str, object] = {"status": "skipped", "tour_url": "", "blocked_reason": ""}
                 flythrough_result: dict[str, object] = {"status": "skipped", "video_url": "", "reason": "fit_below_threshold"}
 
-                opened = self._open_property_alert_review(
+                opened = self._open_property_alert_review_with_timeout(
                     principal_id=principal_id,
                     title=title,
                     summary=summary,
@@ -28925,16 +29042,29 @@ class ProductService:
                     preference_person_id=source_preference_person_id,
                     tour_url=str(tour_result.get("tour_url") or "").strip(),
                 )
-                _report(
-                    step="source_review_packet",
-                    message=f"Prepared property page for {title[:72]}.",
-                    status="in_progress",
-                    steps_delta=1,
-                )
-                if str(opened.get("status") or "").strip() == "opened":
+                opened_status = str(opened.get("status") or "").strip().lower()
+                if opened_status in {"opened", "existing"}:
+                    _report(
+                        step="source_review_packet",
+                        message=f"Prepared property page for {title[:72]}.",
+                        status="in_progress",
+                        steps_delta=1,
+                    )
+                else:
+                    _report(
+                        step="source_review_packet_failed",
+                        message=compact_text(
+                            str(opened.get("error") or opened.get("reason") or f"Could not prepare the property page for {title[:72]}."),
+                            fallback=f"Could not prepare the property page for {title[:72]}.",
+                            limit=280,
+                        ),
+                        status="in_progress",
+                        steps_delta=1,
+                    )
+                if opened_status == "opened":
                     created_for_source += 1
                     review_created_total += 1
-                else:
+                elif opened_status == "existing":
                     existing_for_source += 1
                     review_existing_total += 1
                 if top_watch_candidate is not None and str(top_watch_candidate.get("source_ref") or "").strip() == source_ref:

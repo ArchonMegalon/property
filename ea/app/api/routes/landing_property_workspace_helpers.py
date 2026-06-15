@@ -40,10 +40,10 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
     slot_cap = {"free": 1, "plus": 3, "agent": 6}.get(normalized_plan, 1)
     provider_workers = dict(run_summary.get("provider_workers") or {}) if isinstance(run_summary.get("provider_workers"), dict) else {}
     configured_workers = max(1, int(provider_workers.get("worker_concurrency") or slot_cap or 1))
-    visible_workers = max(1, min(slot_cap, configured_workers))
     source_rows = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
     run_progress = max(0, min(100, int(run_summary.get("progress") or 0)))
     run_status = str(run_summary.get("status") or "").strip().lower()
+    run_active = bool(run_progress > 0 or run_status in {"queued", "starting", "in_progress", "running", "processing", "scanning"})
 
     def _source_provider_group(source_row: dict[str, object]) -> str:
         provider_family = str(source_row.get("provider_family") or "").strip().lower()
@@ -95,7 +95,11 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         row for row in source_rows
         if str(row.get("status") or row.get("state") or "").strip().lower() in {"completed", "processed", "done", "success"}
     ]
-    queue = active_sources + completed_sources
+    failed_sources = [
+        row for row in source_rows
+        if str(row.get("status") or row.get("state") or "").strip().lower() in {"failed", "error", "skipped"} or row.get("error")
+    ]
+    queue = active_sources + failed_sources + completed_sources
 
     diversified_queue: list[dict[str, object]] = []
     seen_groups: set[str] = set()
@@ -115,6 +119,9 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         diversified_queue.append(source_row)
     queue = diversified_queue
 
+    actual_visible_workers = min(slot_cap, len(queue))
+    visible_workers = actual_visible_workers if actual_visible_workers > 0 else (1 if run_active else 0)
+
     worker_rows: list[dict[str, object]] = []
     for index in range(visible_workers):
         source_row = queue[index] if index < len(queue) else {}
@@ -122,7 +129,7 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         compact_label = _compact_provider_label(source_label)
         provider_group = _source_provider_group(source_row) if source_row else ""
         shard_count = max(0, int(duplicate_counts.get(provider_group, 0)) - 1) if provider_group else 0
-        status_label = _source_status_label(source_row) if source_row else ("Starting" if (run_progress > 0 or run_status in {"queued", "in_progress", "running", "processing", "starting"}) else "Idle")
+        status_label = _source_status_label(source_row) if source_row else ("Starting" if run_active else "Idle")
         progress = _source_progress(source_row) if source_row else (max(8, min(run_progress, 24)) if status_label == "Starting" else 0)
         worker_rows.append(
             {
@@ -145,6 +152,7 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         "plan_key": normalized_plan,
         "visible_workers": visible_workers,
         "slot_cap": slot_cap,
+        "configured_workers": configured_workers,
         "workers": worker_rows,
         "upgrade_copy": upgrade_copy,
         "tooltip": "Search workers are the parallel source lanes running this search right now. They are not the same thing as recurring saved searches.",

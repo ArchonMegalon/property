@@ -778,7 +778,6 @@
       const planKey = String(meta?.commercial?.current_plan_key || runPayload?.brief?.plan_key || data?.brief?.plan_key || 'free').toLowerCase();
       const planCap = planKey === 'agent' ? 6 : (planKey === 'plus' ? 3 : 1);
       const configuredWorkers = Math.max(1, Number(summary?.provider_workers?.worker_concurrency || planCap));
-      const workerCount = Math.max(1, Math.min(planCap, configuredWorkers));
       const workerTooltip = 'Search workers are the parallel source lanes running this search right now. They are separate from recurring saved searches.';
       const sourceChips = (Array.isArray(summary.sources) ? summary.sources.slice(0, 8) : []).map((source) => {
         const label = source?.source_label || source?.label || 'Source';
@@ -811,8 +810,9 @@
         return (label.split('|')[0] || label).trim().toLowerCase() || 'provider';
       };
       const activeSources = sourceRows.filter((source) => !['completed', 'processed', 'done', 'success', 'failed', 'error', 'skipped'].includes(String(source?.status || source?.state || '').toLowerCase()));
+      const failedSources = sourceRows.filter((source) => ['failed', 'error', 'skipped'].includes(String(source?.status || source?.state || '').toLowerCase()) || source?.error);
       const completedPool = sourceRows.filter((source) => ['completed', 'processed', 'done', 'success'].includes(String(source?.status || source?.state || '').toLowerCase()));
-      const rawWorkerQueue = [...activeSources, ...completedPool];
+      const rawWorkerQueue = [...activeSources, ...failedSources, ...completedPool];
       const seenWorkerGroups = new Set();
       const workerQueue = [];
       rawWorkerQueue.forEach((source) => {
@@ -825,6 +825,9 @@
         if (workerQueue.includes(source)) return;
         workerQueue.push(source);
       });
+      const runActive = progress > 0 || ['queued', 'in_progress', 'running', 'processing', 'starting'].includes(runState);
+      const actualWorkerCount = Math.min(planCap, workerQueue.length);
+      const workerCount = actualWorkerCount > 0 ? actualWorkerCount : (runActive ? 1 : 0);
       const workers = Array.from({ length: workerCount }, (_, index) => {
         const source = workerQueue[index] || null;
         const groupKey = sourceProviderGroup(source);

@@ -263,6 +263,67 @@ def _scope_preview_layout(country_code: str, region_code: str, options: list[dic
     return grid_rows
 
 
+def _svg_to_data_url(svg: str) -> str:
+    encoded = urllib.parse.quote(svg, safe=":/?&=,+-_.!~*'()#")
+    return f"data:image/svg+xml;charset=utf-8,{encoded}"
+
+
+def _scope_layout_preview_data_url(
+    *,
+    country_code: str,
+    region_code: str,
+    normalized_query: str,
+    market_label: str,
+    layout_rows: list[dict[str, object]],
+    selected_lookup: set[str],
+) -> str:
+    width = 640
+    height = 368
+    chips: list[str] = []
+    for row in layout_rows[:18]:
+        value = str(row.get("value") or "").strip().lower()
+        label = html.escape(str(row.get("label") or row.get("value") or "").strip())
+        if not value or not label:
+            continue
+        x = float(row.get("x") or 0.0) / 100.0 * width
+        y = float(row.get("y") or 0.0) / 100.0 * height
+        chip_width = max(92.0, min((float(row.get("width") or 24.0) / 100.0 * width), 188.0))
+        chip_height = max(34.0, min((float(row.get("height") or 20.0) / 100.0 * height), 54.0))
+        selected = value in selected_lookup
+        fill = "#c73a43" if selected else "#f4ede4"
+        stroke = "#8f1f29" if selected else "#d9ccbd"
+        text_fill = "#fffaf6" if selected else "#3f3630"
+        chips.append(
+            f'<rect x="{x:.1f}" y="{y:.1f}" width="{chip_width:.1f}" height="{chip_height:.1f}" rx="10" '
+            f'fill="{fill}" stroke="{stroke}" stroke-width="2"/>'
+        )
+        chips.append(
+            f'<text x="{x + 12:.1f}" y="{y + (chip_height / 2) + 5:.1f}" fill="{text_fill}" '
+            f'font-family="Inter, Arial, sans-serif" font-size="15" font-weight="600">{label}</text>'
+        )
+    title = html.escape(normalized_query or market_label or "Search area")
+    subtitle = html.escape(market_label or f"{region_code} · {country_code}")
+    badge = html.escape(country_code or "")
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
+        '<defs>'
+        '<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">'
+        '<stop offset="0%" stop-color="#f6f0e8"/>'
+        '<stop offset="100%" stop-color="#efe5d8"/>'
+        '</linearGradient>'
+        '</defs>'
+        f'<rect width="{width}" height="{height}" fill="url(#bg)"/>'
+        '<rect x="18" y="18" width="604" height="332" rx="18" fill="rgba(255,255,255,0.48)" stroke="#ddd0c1" stroke-width="2"/>'
+        f'<text x="34" y="52" fill="#2f2a25" font-family="Inter, Arial, sans-serif" font-size="25" font-weight="700">{title}</text>'
+        f'<text x="34" y="78" fill="#72665b" font-family="Inter, Arial, sans-serif" font-size="15">{subtitle}</text>'
+        f'<rect x="544" y="28" width="62" height="28" rx="14" fill="#ffffff" stroke="#d9ccbd" stroke-width="1.5"/>'
+        f'<text x="575" y="47" text-anchor="middle" fill="#61554b" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700">{badge}</text>'
+        + "".join(chips) +
+        '</svg>'
+    )
+    return _svg_to_data_url(svg)
+
+
 def _latlon_to_tile(lat: float, lon: float, zoom: int) -> tuple[float, float]:
     lat_rad = math.radians(max(min(lat, 85.05112878), -85.05112878))
     scale = 2.0 ** zoom
@@ -695,6 +756,28 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
     )
     if preview:
         return preview
+
+    fallback_rows = _merge_option_catalog(option_rows, selected_values)
+    fallback_layout = _scope_preview_layout(normalized_country, normalized_region, fallback_rows)
+    if fallback_layout:
+        if not selected_lookup and selected_values:
+            selected_lookup = {str(value or "").strip().lower() for value in selected_values if str(value or "").strip()}
+        return {
+            "image_url": _scope_layout_preview_data_url(
+                country_code=normalized_country,
+                region_code=normalized_region,
+                normalized_query=normalized_query,
+                market_label=market_label,
+                layout_rows=fallback_layout,
+                selected_lookup=selected_lookup,
+            ),
+            "alt": f"Search area preview for {normalized_query or market_label}",
+            "summary": ", ".join(selected_labels[:2]) if selected_labels else (normalized_query or market_label),
+            "count_label": "",
+            "market_label": market_label,
+            "district_rows": [],
+            "district_overlay_svg": "",
+        }
 
     return {
         "image_url": "",

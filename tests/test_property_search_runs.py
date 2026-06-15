@@ -2857,6 +2857,81 @@ def test_property_search_run_status_marks_stale_active_run_failed(monkeypatch) -
     assert any(event["step"] == "run_interrupted" for event in status["events"])
 
 
+def test_property_search_run_event_syncs_summary_status_and_progress() -> None:
+    principal_id = "cf-email:summary.sync@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Summary Sync Office")
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = "run-summary-sync-1"
+    state = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "Vienna"},
+        force_refresh=False,
+    )
+    product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+
+    service._record_property_search_run_event(
+        run_id=run_id,
+        principal_id=principal_id,
+        step="source_started",
+        message="Scanning source.",
+        status="in_progress",
+        steps_delta=1,
+    )
+
+    updated = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id])
+    assert updated["summary"]["status"] == "in_progress"
+    assert isinstance(updated["summary"]["progress_percent"], int)
+
+
+def test_property_alert_review_open_timeout_returns_failed_payload(monkeypatch) -> None:
+    principal_id = "cf-email:timeout@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Review Timeout Office")
+    service = product_service.build_product_service(client.app.state.container)
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_REVIEW_OPEN_TIMEOUT_SECONDS", "1")
+
+    recorded: list[dict[str, object]] = []
+
+    def _fake_record_product_event(self, *, principal_id: str, event_type: str, payload: dict[str, object], source_id: str = "", dedupe_key: str = "") -> None:  # type: ignore[no-untyped-def]
+        recorded.append(
+            {
+                "principal_id": principal_id,
+                "event_type": event_type,
+                "payload": dict(payload),
+                "source_id": source_id,
+                "dedupe_key": dedupe_key,
+            }
+        )
+
+    def _fake_open(*args, **kwargs):  # type: ignore[no-untyped-def]
+        time.sleep(1.2)
+        return {"status": "opened"}
+
+    monkeypatch.setattr(ProductService, "_record_product_event", _fake_record_product_event)
+    monkeypatch.setattr(ProductService, "_open_property_alert_review", _fake_open)
+
+    result = service._open_property_alert_review_with_timeout(
+        principal_id=principal_id,
+        title="Delayed packet",
+        summary="This review creation hangs.",
+        source_ref="property-scout:timeout",
+        external_id="https://example.com/listing",
+        counterparty="Willhaben",
+        account_email="timeout@example.com",
+        property_url="https://example.com/listing",
+        actor="property_scout",
+        notify_telegram=False,
+    )
+
+    assert result["status"] == "failed"
+    assert result["reason"] == "property_alert_review_open_timeout"
+    assert recorded
+    assert recorded[0]["event_type"] == "property_alert_review_open_timeout"
+
+
 def test_property_search_run_status_survives_registry_loss_via_persisted_record(monkeypatch) -> None:
     principal_id = "exec-property-search-run-persisted"
     client = build_property_client(principal_id=principal_id)

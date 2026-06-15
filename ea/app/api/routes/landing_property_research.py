@@ -220,6 +220,9 @@ def _property_lookup_candidate(
     property_context: dict[str, object],
     candidate_ref: str,
 ) -> dict[str, object] | None:
+    normalized_ref = str(candidate_ref or "").strip()
+    if not normalized_ref:
+        return None
     summary = dict(dict(property_context.get("run") or {}).get("summary") or {})
     for source in list(summary.get("sources") or []):
         if not isinstance(source, dict):
@@ -230,8 +233,14 @@ def _property_lookup_candidate(
                 continue
             candidate = dict(raw_candidate)
             candidate.setdefault("source_label", source_label)
-            if _property_candidate_ref(candidate) == candidate_ref:
+            if _property_candidate_ref(candidate) == normalized_ref:
                 return candidate
+    for candidate in _property_shortlist_candidates_from_context(property_context):
+        if not isinstance(candidate, dict):
+            continue
+        candidate_row = dict(candidate)
+        if _property_candidate_ref(candidate_row) == normalized_ref:
+            return candidate
     return None
 
 
