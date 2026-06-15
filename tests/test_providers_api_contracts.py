@@ -7200,7 +7200,7 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert page.status_code == 200
     assert "Property Tour" in page.text
     assert f"/tours/files/{slug}/scene-01.jpg" in page.text
-    assert "https://js.clickrank.ai/seo/33ff8f39-6213-4903-99d7-81048b5b3e1f/script?" in page.text
+    assert "https://js.clickrank.ai/seo/33ff8f39-6213-4903-99d7-81048b5b3e1f/script?" not in page.text
     page_head = client.head(f"/tours/{slug}", follow_redirects=False)
     assert page_head.status_code == 200
 

@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 import app.product.service as product_service
+import app.product.property_search_storage as property_search_storage
 from app.product.service import ProductService
 from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_matches_requested_location, _property_search_location_hints
 from app.services.property_billing import property_commercial_snapshot, property_worker_cap
@@ -3557,7 +3558,7 @@ def test_property_search_run_postgres_round_trip(monkeypatch: pytest.MonkeyPatch
     if not db_url:
         pytest.skip("EA_TEST_PROPERTY_DATABASE_URL is not set")
     monkeypatch.setenv("DATABASE_URL", db_url)
-    monkeypatch.setattr(product_service, "_PROPERTY_SEARCH_RUN_SCHEMA_READY", False)
+    monkeypatch.setattr(property_search_storage, "_PROPERTY_SEARCH_RUN_SCHEMA_READY", False)
     run_id = f"run-postgres-round-trip-{uuid.uuid4().hex}"
     state = product_service._new_property_search_run_record(
         run_id=run_id,
@@ -3591,7 +3592,7 @@ def test_property_source_listing_cache_postgres_round_trip(monkeypatch: pytest.M
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_BACKEND", "postgres")
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS", "60")
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_STALE_MAX_SECONDS", "3600")
-    monkeypatch.setattr(product_service, "_PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY", False)
+    monkeypatch.setattr(property_search_storage, "_PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY", False)
     cache_key = f"willhaben:postgres-round-trip:{uuid.uuid4().hex}"
     listing_urls = (
         "https://www.willhaben.at/iad/object?adId=postgres-cache-1",
