@@ -49,6 +49,7 @@ feedback/*github-review-pr.md
 
 # Local smoke/test scratch
 .smoke_tmp/
+tmp_audit/
 api_rewrite_artifact_details.json
 combined_sort_seed.json
 multi_priority_filter_seed.json

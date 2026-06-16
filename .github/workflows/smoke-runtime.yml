@@ -32,6 +32,7 @@ jobs:
       - name: Run Security And Isolation Gates
         run: |
           PYTHONPATH=ea python scripts/verify_env_no_secrets.py
+          python scripts/check_property_release_hygiene.py
           PYTHONPATH=ea python scripts/check_property_security_posture.py
           PYTHONPATH=ea python scripts/check_property_repo_isolation.py
           PYTHONPATH=ea python scripts/check_property_search_storage_schema.py

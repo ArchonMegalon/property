@@ -167,7 +167,7 @@ ALERT_FREQUENCY_LABELS = {
 }
 
 
-ALERT_CHANNEL_KEYS = ("telegram", "email")
+ALERT_CHANNEL_KEYS = ("telegram", "email", "whatsapp")
 
 INVESTMENT_RESEARCH_MODE_LABELS = {
     "off": "Off",

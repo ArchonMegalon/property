@@ -76,19 +76,6 @@ def render_property_packet_pdf_via_premium_pipeline(
     legacy_renderer: Callable[..., dict[str, object]],
 ) -> dict[str, object]:
     normalized_appendix_mode = str(source.get("appendix_mode") or "").strip().lower()
-    if normalized_appendix_mode.endswith("appendix"):
-        return legacy_renderer(
-            artifact_root=artifact_root,
-            publication_id=publication_id,
-            principal_id=principal_id,
-            source=source,
-            packet_kind=packet_kind,
-            privacy_mode=privacy_mode,
-            fliplink_format=fliplink_format,
-            include_exact_address=include_exact_address,
-            include_floorplan=include_floorplan,
-            include_photos=include_photos,
-        )
     redaction = redact_property_packet(
         source=source,
         privacy_mode=privacy_mode,

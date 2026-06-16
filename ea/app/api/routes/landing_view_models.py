@@ -19,16 +19,23 @@ from PIL import Image, ImageDraw
 from app.product.property_location_research import (
     _property_research_boundary_record,
     _property_research_geojson_outer_rings,
-    property_school_context_summary,
 )
 from app.api.routes.landing_property_saved_searches import (
     build_agent_management_rows,
     build_property_search_agents,
     select_property_search_agent,
 )
+from app.api.routes.landing_property_search_posture import (
+    build_property_market_summary_items,
+)
+from app.api.routes.landing_property_shortlist_panel import (
+    build_property_source_rows,
+    build_property_shortlist_panel,
+)
 from app.product.property_surface_state import (
     build_property_empty_outcome_summary,
     build_property_previous_run_summary,
+    build_property_search_form_state_snapshot,
     build_property_shortlist_snapshot,
     build_property_workbench_candidate_snapshot,
     effective_property_listing_mode,
@@ -1440,24 +1447,22 @@ def app_section_payload(
         for value in (property_state.get("selected_platforms") or [])
         if str(value or "").strip()
     }
-    selected_country_code = str(property_preferences.get("country_code") or "AT").strip().upper() or "AT"
-    selected_search_goal = normalized_property_search_goal(property_preferences.get("search_goal"))
-    selected_investment_strategy = str(property_preferences.get("investment_strategy") or "best_overall").strip().lower() or "best_overall"
-    if selected_investment_strategy not in {"best_overall", "cash_flow", "appreciation", "undervalued", "low_risk"}:
-        selected_investment_strategy = "best_overall"
-    selected_investment_research_mode = str(property_preferences.get("investment_research_mode") or "off").strip().lower() or "off"
-    if selected_investment_research_mode not in {"off", "auto"}:
-        selected_investment_research_mode = "off"
-    property_is_investment_search = selected_search_goal == "investment"
-    effective_listing_mode = effective_property_listing_mode(
-        {
-            **property_preferences,
-            "search_goal": selected_search_goal,
-            "listing_mode": selected_listing_mode,
-        },
-        fallback=selected_listing_mode,
+    search_form_state = build_property_search_form_state_snapshot(
+        property_preferences,
+        selected_listing_mode=selected_listing_mode,
     )
-    selected_listing_mode = effective_listing_mode
+    selected_country_code = str(search_form_state.get("selected_country_code") or "AT").strip().upper() or "AT"
+    selected_search_goal = str(search_form_state.get("selected_search_goal") or "home").strip().lower() or "home"
+    selected_investment_strategy = str(search_form_state.get("selected_investment_strategy") or "best_overall").strip().lower() or "best_overall"
+    selected_investment_research_mode = str(search_form_state.get("selected_investment_research_mode") or "off").strip().lower() or "off"
+    property_is_investment_search = bool(search_form_state.get("property_is_investment_search"))
+    selected_school_stage_preferences = [
+        str(item or "").strip()
+        for item in list(search_form_state.get("selected_school_stage_preferences") or [])
+        if str(item or "").strip()
+    ]
+    school_evidence_controls_enabled = bool(search_form_state.get("school_evidence_controls_enabled"))
+    selected_listing_mode = str(search_form_state.get("selected_listing_mode") or selected_listing_mode or "rent").strip().lower() or "rent"
     property_listing_mode_label = property_mode_visibility_label(
         {
             **property_preferences,
@@ -1466,35 +1471,25 @@ def app_section_payload(
         },
         fallback=selected_listing_mode,
     )
-    show_investment_underwriting_controls = property_is_investment_search and selected_investment_research_mode != "off"
-    try:
-        min_gross_yield_pct = max(0, min(15, int(float(str(property_preferences.get("min_gross_yield_pct") or "").strip()))))
-    except Exception:
-        min_gross_yield_pct = 0
-    try:
-        equity_available_eur = max(0, min(5_000_000, int(float(str(property_preferences.get("equity_available_eur") or "").strip()))))
-    except Exception:
-        equity_available_eur = 0
-    try:
-        loan_term_years = max(5, min(40, int(float(str(property_preferences.get("loan_term_years") or "").strip()))))
-    except Exception:
-        loan_term_years = 25
-    try:
-        max_interest_rate_pct = max(0, min(12, int(float(str(property_preferences.get("max_interest_rate_pct") or "").strip()))))
-    except Exception:
-        max_interest_rate_pct = 0
-    try:
-        min_dscr = max(0.0, min(3.0, float(str(property_preferences.get("min_dscr") or "").strip())))
-    except Exception:
-        min_dscr = 0.0
-    try:
-        vacancy_reserve_pct = max(0, min(25, int(float(str(property_preferences.get("vacancy_reserve_pct") or "").strip()))))
-    except Exception:
-        vacancy_reserve_pct = 4
-    try:
-        capex_reserve_pct = max(0, min(25, int(float(str(property_preferences.get("capex_reserve_pct") or "").strip()))))
-    except Exception:
-        capex_reserve_pct = 6
+    show_investment_underwriting_controls = bool(search_form_state.get("show_investment_underwriting_controls"))
+    show_lifestyle_research_controls = bool(search_form_state.get("show_lifestyle_research_controls"))
+    show_community_validation_controls = bool(search_form_state.get("show_community_validation_controls"))
+    show_developer_project_stage_controls = bool(search_form_state.get("show_developer_project_stage_controls"))
+    show_public_housing_policy_controls = bool(search_form_state.get("show_public_housing_policy_controls"))
+    show_distressed_review_controls = bool(search_form_state.get("show_distressed_review_controls"))
+    show_search_agent_detail_controls = bool(search_form_state.get("show_search_agent_detail_controls"))
+    show_preference_profile_controls = bool(search_form_state.get("show_preference_profile_controls"))
+    show_school_quality_priority_controls = bool(search_form_state.get("show_school_quality_priority_controls"))
+    show_playground_importance_controls = bool(search_form_state.get("show_playground_importance_controls"))
+    show_library_importance_controls = bool(search_form_state.get("show_library_importance_controls"))
+    show_supermarket_importance_controls = bool(search_form_state.get("show_supermarket_importance_controls"))
+    min_gross_yield_pct = int(search_form_state.get("min_gross_yield_pct") or 0)
+    equity_available_eur = int(search_form_state.get("equity_available_eur") or 0)
+    loan_term_years = int(search_form_state.get("loan_term_years") or 25)
+    max_interest_rate_pct = int(search_form_state.get("max_interest_rate_pct") or 0)
+    min_dscr = float(search_form_state.get("min_dscr") or 0.0)
+    vacancy_reserve_pct = int(search_form_state.get("vacancy_reserve_pct") or 4)
+    capex_reserve_pct = int(search_form_state.get("capex_reserve_pct") or 6)
     platform_options = [
         dict(option)
         for option in list(property_state.get("platform_options") or [])
@@ -1580,104 +1575,28 @@ def app_section_payload(
         for option in platform_options
         if str(option.get("value") or "").strip() in selected_platforms
     ]
-    property_market_summary_items = [
-        row_item("Country", property_country_label, "Market"),
-        row_item("Browser language", property_language_label, "Research"),
-        row_item("Search goal", property_search_goal_label, "Goal"),
-        row_item("Property type", property_type_label, "Type"),
-    ]
-    if not property_is_investment_search:
-        property_market_summary_items.insert(3, row_item("Search mode", property_listing_mode_label, "Mode"))
-    if property_is_investment_search:
-        property_market_summary_items.append(row_item("Investment strategy", property_investment_strategy_label, "Thesis"))
-        if min_gross_yield_pct > 0:
-            property_market_summary_items.append(row_item("Minimum gross yield", f"{min_gross_yield_pct}%", "Return"))
-        if equity_available_eur > 0:
-            property_market_summary_items.append(row_item("Equity available", f"EUR {equity_available_eur:,.0f}".replace(",", " "), "Financing"))
-        if min_dscr > 0:
-            property_market_summary_items.append(row_item("Minimum DSCR", f"{min_dscr:.2f}x", "Financing"))
-    if property_is_investment_search:
-        property_market_summary_items.append(row_item("Investment research", property_investment_research_mode_label, "Underwriting"))
-    if property_available_within_years_value > 0:
-        property_market_summary_items.append(
-            row_item(
-                "Move-in deadline",
-                "Within 1 year" if property_available_within_years_value == 1 else f"Within {property_available_within_years_value} years",
-                "Timing",
-            )
-        )
-    if str(property_preferences.get("location_query") or "").strip():
-        property_market_summary_items.append(
-            row_item("Location query", str(property_preferences.get("location_query") or "").strip(), "Target")
-        )
-    if str(property_preferences.get("keywords") or "").strip():
-        property_market_summary_items.append(
-            row_item("Research focus", str(property_preferences.get("keywords") or "").strip(), "Focus")
-        )
-    if custom_keywords:
-        property_market_summary_items.append(row_item("Custom priorities", custom_keywords, "Custom"))
-    if str(property_preferences.get("commute_destination") or "").strip():
-        property_market_summary_items.append(
-            row_item("Commute destination", str(property_preferences.get("commute_destination") or "").strip(), "Route")
-        )
-    if str(property_preferences.get("additional_reachability_targets") or "").strip():
-        property_market_summary_items.append(
-            row_item("Additional destinations", str(property_preferences.get("additional_reachability_targets") or "").strip(), "Route")
-        )
-    if str(property_preferences.get("university_name") or "").strip():
-        property_market_summary_items.append(
-            row_item("University focus", str(property_preferences.get("university_name") or "").strip(), "Research")
-        )
-    school_stage_preferences = [
-        str(item or "").strip().replace("_", " ")
-        for item in list(property_preferences.get("school_stage_preferences") or [])
-        if str(item or "").strip()
-    ]
-    if school_stage_preferences:
-        property_market_summary_items.append(
-            row_item("Children", ", ".join(school_stage_preferences), "Family")
-        )
-    if bool(property_preferences.get("ganztag_required")):
-        property_market_summary_items.append(row_item("All-day school", "Required", "Family"))
-    if bool(property_preferences.get("require_school_evidence")):
-        property_market_summary_items.append(row_item("School evidence", "Required", "Evidence"))
-    if str(property_preferences.get("school_quality_priority") or "any") not in {"", "any"}:
-        property_market_summary_items.append(
-            row_item("School evidence priority", str(property_preferences.get("school_quality_priority") or "any").replace("_", " ").title(), "Evidence")
-        )
-    desired_project_stages = [
-        str(item or "").strip().replace("_", " ")
-        for item in list(property_preferences.get("desired_project_stages") or [])
-        if str(item or "").strip()
-    ]
-    if desired_project_stages:
-        property_market_summary_items.append(row_item("Accepted project stages", ", ".join(desired_project_stages), "Pipeline"))
-    if bool(property_preferences.get("prefer_good_air_quality")):
-        property_market_summary_items.append(row_item("Air quality", "Prefer stronger station-backed air quality", "Risk"))
-    if bool(property_preferences.get("avoid_noise_risk_area")):
-        property_market_summary_items.append(row_item("Noise posture", "Avoid noise-risk areas", "Risk"))
-    if bool(property_preferences.get("require_high_speed_internet")):
-        property_market_summary_items.append(row_item("Home office", "High-speed internet required", "Infrastructure"))
-    if bool(property_preferences.get("require_energy_certificate")):
-        property_market_summary_items.append(row_item("Energy certificate", "Required", "Documents"))
-    if bool(property_preferences.get("require_operating_cost_statement")):
-        property_market_summary_items.append(row_item("Operating costs", "Statement required", "Documents"))
-    if selected_listing_mode == "rent" and bool(property_preferences.get("wiener_wohnticket_available")):
-        property_market_summary_items.append(row_item("Wiener Wohn-Ticket", "Available", "Eligibility"))
-    if selected_listing_mode == "rent" and bool(property_preferences.get("subsidized_required")):
-        property_market_summary_items.append(row_item("Subsidized supply", "Required", "Eligibility"))
-    if selected_listing_mode == "rent" and bool(property_preferences.get("miete_mit_kaufoption")):
-        property_market_summary_items.append(row_item("Miete mit Kaufoption", "Accepted", "Eligibility"))
-    if selected_listing_mode == "rent" and int(property_preferences.get("eigenmittel_max_eur") or 0) > 0:
-        property_market_summary_items.append(
-            row_item("Eigenmittel ceiling", f"EUR {int(property_preferences.get('eigenmittel_max_eur') or 0):,}".replace(",", ","), "Eligibility")
-        )
-    if selected_listing_mode == "rent" and int(property_preferences.get("application_window_days") or 0) > 0:
-        property_market_summary_items.append(
-            row_item("Application window", f"Within {int(property_preferences.get('application_window_days') or 0)} days", "Eligibility")
-        )
-    if selected_listing_mode == "buy" and bool(property_preferences.get("enable_auction_legal_review")):
-        property_market_summary_items.append(row_item("Auction legal review", "Required when auction evidence appears", "Legal"))
+    property_market_summary_items = build_property_market_summary_items(
+        row_item=row_item,
+        property_country_label=property_country_label,
+        property_language_label=property_language_label,
+        property_search_goal_label=property_search_goal_label,
+        property_type_label=property_type_label,
+        property_listing_mode_label=property_listing_mode_label,
+        property_is_investment_search=property_is_investment_search,
+        show_investment_underwriting_controls=show_investment_underwriting_controls,
+        property_investment_strategy_label=property_investment_strategy_label,
+        min_gross_yield_pct=min_gross_yield_pct,
+        equity_available_eur=equity_available_eur,
+        min_dscr=min_dscr,
+        property_investment_research_mode_label=property_investment_research_mode_label,
+        property_available_within_years_value=property_available_within_years_value,
+        property_preferences=property_preferences,
+        custom_keywords=custom_keywords,
+        show_lifestyle_research_controls=show_lifestyle_research_controls,
+        show_developer_project_stage_controls=show_developer_project_stage_controls,
+        show_public_housing_policy_controls=show_public_housing_policy_controls,
+        show_distressed_review_controls=show_distressed_review_controls,
+    )
     property_platform_rows = [
         row_item(
             str(option.get("label") or option.get("value") or "Provider"),
@@ -1785,209 +1704,16 @@ def app_section_payload(
             property_summary["ranked_candidates"] = ranked_candidates[:50]
             property_run["summary"] = property_summary
 
-    property_source_rows = [
-        row_item(
-            str(source.get("source_label") or source.get("source_url") or "Source").strip(),
-            " | ".join(
-                part
-                for part in (
-                    f"{int(source.get('listing_total') or 0)} listings",
-                    f"{int(source.get('high_fit_total') or 0)} high-fit",
-                    f"{int(source.get('filtered_floorplan_total') or 0)} still waiting on floorplans"
-                    if int(source.get('filtered_floorplan_total') or 0)
-                    else "",
-                    f"{int(source.get('tour_created_total') or 0)} hosted tours",
-                    f"{int(source.get('notified_total') or 0)} client alerts",
-                    f"{int(source.get('email_notified_total') or 0)} email" if int(source.get('email_notified_total') or 0) else "",
-                    f"top score {float(source.get('top_fit_score') or 0.0):.2f}" if source.get("top_fit_score") is not None else "",
-                )
-                if part
-            ),
-            "Scanned",
-        )
-        for source in list(property_summary.get("sources") or [])
-        if isinstance(source, dict)
-    ]
-    property_shortlist_rows: list[dict[str, str]] = []
-    property_shortlist_cards: list[dict[str, object]] = []
-
-    def _candidate_lifestyle_highlights(candidate: dict[str, object]) -> list[dict[str, str]]:
-        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-        specs = (
-            ("SB", "Starbucks", facts.get("nearest_starbucks_m")),
-            ("GYM", "Fitness", facts.get("nearest_fitness_center_m")),
-            ("FILM", "Cinema", facts.get("nearest_cinema_m")),
-            ("BLD", "Bouldering", facts.get("nearest_bouldering_m")),
-            ("DOG", "Dog park", facts.get("nearest_dog_park_m")),
-            ("CAFE", "Cafe", facts.get("nearest_good_cafe_m")),
-        )
-        rows: list[dict[str, str]] = []
-        for icon, label, raw_value in specs:
-            if raw_value in (None, "", []):
-                continue
-            try:
-                meters = int(float(raw_value))
-            except Exception:
-                continue
-            rows.append({"icon": icon, "label": label, "distance": f"{meters} m"})
-        return rows[:4]
-
-    def _candidate_research_highlights(candidate: dict[str, object]) -> list[dict[str, str]]:
-        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-        future = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
-        rows: list[dict[str, str]] = []
-        school_quality = property_school_context_summary(future)
-        school_progression = str(future.get("school_atlas_progression_summary") or "").strip()
-        school_evidence = str(future.get("school_atlas_evidence_type") or "").strip().replace("_", " ")
-        if school_quality:
-            rows.append(
-                {
-                    "icon": "SCH",
-                    "label": "School context",
-                    "detail": school_quality,
-                    "tag": school_evidence.title() if school_evidence else "Research",
-                }
-            )
-        if school_progression:
-            rows.append(
-                {
-                    "icon": "AHS",
-                    "label": "School transition",
-                    "detail": school_progression,
-                    "tag": school_evidence.title() if school_evidence else "Research",
-                }
-            )
-        return rows[:3]
-
-    if surface_scope.wants_run_views:
-        for source in list(property_summary.get("sources") or []):
-            if not isinstance(source, dict):
-                continue
-            source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
-            for candidate in list(source.get("top_candidates") or [])[:5]:
-                if not isinstance(candidate, dict):
-                    continue
-                title = str(candidate.get("title") or candidate.get("property_url") or "Property candidate").strip() or "Property candidate"
-                detail_parts = [
-                    _clean_property_candidate_copy(candidate.get("fit_summary") or ""),
-                    source_label,
-                ]
-                match_reasons = [
-                    _clean_property_candidate_copy(item)
-                    for item in list(candidate.get("match_reasons") or [])
-                    if _clean_property_candidate_copy(item)
-                ]
-                mismatch_reasons = [
-                    _clean_property_candidate_copy(item)
-                    for item in list(candidate.get("mismatch_reasons") or [])
-                    if _clean_property_candidate_copy(item)
-                ]
-                priority_reason = _candidate_priority_reason(match_reasons, mismatch_reasons, _clean_property_candidate_copy(candidate.get("fit_summary") or ""))
-                compare_reason = str(candidate.get("compare_reason") or "").strip()
-                if compare_reason:
-                    detail_parts.append(compare_reason)
-                if priority_reason:
-                    detail_parts.append(priority_reason)
-                row: dict[str, str] = {
-                    "title": title,
-                    "detail": " | ".join(part for part in detail_parts if part) or source_label,
-                    "tag": str(candidate.get("recommendation") or "candidate").replace("_", " ").title(),
-                }
-                review_url = str(candidate.get("review_url") or "").strip()
-                tour_url = str(candidate.get("tour_url") or "").strip()
-                property_url = str(candidate.get("property_url") or "").strip()
-                packet_ref = _property_candidate_ref(
-                    {
-                        "title": title,
-                        "property_url": property_url,
-                        "review_url": review_url,
-                        "tour_url": tour_url,
-                        "source_label": source_label,
-                    }
-                )
-                packet_url = f"/app/research/{packet_ref}"
-                if active_run_id:
-                    packet_url = f"{packet_url}?run_id={active_run_id}"
-                if review_url:
-                    row["action_href"] = packet_url
-                    row["action_method"] = "get"
-                    row["action_label"] = "Open property page"
-                    row["secondary_action_href"] = review_url
-                    row["secondary_action_method"] = "get"
-                    row["secondary_action_label"] = "Open listing"
-                else:
-                    row["action_href"] = packet_url
-                    row["action_method"] = "get"
-                    row["action_label"] = "Open property page"
-                if tour_url:
-                    if row.get("secondary_action_href"):
-                        row["tertiary_action_href"] = tour_url
-                        row["tertiary_action_method"] = "get"
-                        row["tertiary_action_label"] = "Open 360"
-                    elif row.get("action_href"):
-                        row["secondary_action_href"] = tour_url
-                        row["secondary_action_method"] = "get"
-                        row["secondary_action_label"] = "Open 360"
-                    else:
-                        row["action_href"] = tour_url
-                        row["action_method"] = "get"
-                        row["action_label"] = "Open 360"
-                if property_url:
-                    if row.get("tertiary_action_href"):
-                        row["quaternary_action_href"] = property_url
-                        row["quaternary_action_method"] = "get"
-                        row["quaternary_action_label"] = "Source"
-                    elif row.get("secondary_action_href"):
-                        row["tertiary_action_href"] = property_url
-                        row["tertiary_action_method"] = "get"
-                        row["tertiary_action_label"] = "Source"
-                    elif row.get("action_href"):
-                        row["secondary_action_href"] = property_url
-                        row["secondary_action_method"] = "get"
-                        row["secondary_action_label"] = "Source"
-                    else:
-                        row["action_href"] = property_url
-                        row["action_method"] = "get"
-                        row["action_label"] = "Source"
-                property_shortlist_rows.append(row)
-                property_shortlist_cards.append(
-                    {
-                        "title": title,
-                        "source_label": source_label,
-                        "detail": row["detail"],
-                        "tag": row["tag"],
-                        "fit_summary": str(candidate.get("fit_summary") or "").strip(),
-                        "recommendation": str(candidate.get("recommendation") or "").strip(),
-                        "property_url": property_url,
-                        "packet_url": packet_url,
-                        "review_url": review_url,
-                        "tour_url": tour_url,
-                        "tour_status": str(candidate.get("tour_status") or "").strip(),
-                        "tour_eta_minutes": candidate.get("tour_eta_minutes") or "",
-                        "blocked_reason": str(candidate.get("blocked_reason") or "").strip(),
-                        "match_reasons": match_reasons,
-                        "mismatch_reasons": mismatch_reasons,
-                        "lifestyle_highlights": _candidate_lifestyle_highlights(candidate),
-                        "research_highlights": _candidate_research_highlights(candidate),
-                        "property_facts": dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {},
-                        "assessment": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
-                        "feedback_summary": dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {},
-                        "feedback_rows": [
-                            dict(row)
-                            for row in list(candidate.get("feedback_rows") or [])
-                            if isinstance(row, dict)
-                        ],
-                    }
-                )
-        property_shortlist_rows.sort(
-            key=lambda item: (
-                "shortlist" not in str(item.get("tag") or "").lower(),
-                "view if compelling" not in str(item.get("tag") or "").lower(),
-                str(item.get("title") or ""),
-            )
-        )
-        property_shortlist_rows = property_shortlist_rows[:8]
-        property_shortlist_cards = property_shortlist_cards[:6]
+    property_source_rows = build_property_source_rows(property_summary=property_summary)
+    property_shortlist_rows, property_shortlist_cards = build_property_shortlist_panel(
+        property_summary=property_summary,
+        property_preferences=property_preferences,
+        active_run_id=active_run_id,
+        wants_run_views=surface_scope.wants_run_views,
+        clean_candidate_copy=_clean_property_candidate_copy,
+        candidate_priority_reason=_candidate_priority_reason,
+        property_candidate_ref=_property_candidate_ref,
+    )
     property_learning_summary = dict(property_state.get("learning_summary") or {})
     property_learning_rows = [
         row_item(entry, "Learned positive preference from explicit filters or listing feedback.", "Learnt")
@@ -2513,6 +2239,7 @@ def app_section_payload(
                 "tooltip": "Community-sourced hits should be treated as unverified until a human confirms identity, freshness, and legitimacy.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
+                "hidden": not show_community_validation_controls,
             },
             {
                 "type": "checkbox",
@@ -2544,7 +2271,7 @@ def app_section_payload(
                 "tooltip": "Only treat Vienna municipal and subsidized opportunities as fully usable when a Wiener Wohn-Ticket is already available.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
-                "hidden": selected_listing_mode != "rent",
+                "hidden": not show_public_housing_policy_controls,
             },
             {
                 "type": "checkbox",
@@ -2555,7 +2282,7 @@ def app_section_payload(
                 "tooltip": "Bias the search toward geforderte, cooperative, and municipal supply instead of private-market inventory.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
-                "hidden": selected_listing_mode != "rent",
+                "hidden": not show_public_housing_policy_controls,
             },
             {
                 "type": "checkbox",
@@ -2566,7 +2293,7 @@ def app_section_payload(
                 "tooltip": "Keep lease-to-own style cooperative offers visible as their own eligibility-sensitive lane.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
-                "hidden": selected_listing_mode != "rent",
+                "hidden": not show_public_housing_policy_controls,
             },
             {
                 "type": "range",
@@ -2584,7 +2311,7 @@ def app_section_payload(
                 "tooltip": "Treat cooperative or subsidized offers above this financing contribution as a weaker fit instead of hiding them completely.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
-                "hidden": selected_listing_mode != "rent",
+                "hidden": not show_public_housing_policy_controls,
             },
             {
                 "type": "range",
@@ -2602,7 +2329,7 @@ def app_section_payload(
                 "tooltip": "Keep short registration windows visible as an urgency signal when cooperative or subsidized stock is scarce.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
-                "hidden": selected_listing_mode != "rent",
+                "hidden": not show_public_housing_policy_controls,
             },
             {
                 "type": "checkbox",
@@ -2641,6 +2368,7 @@ def app_section_payload(
                 "manage_href": profile_manage_href,
                 "manage_label": "Manage feedback preferences",
                 "step": "areas",
+                "hidden": not show_preference_profile_controls,
             },
             {
                 "type": "checkbox",
@@ -2708,6 +2436,7 @@ def app_section_payload(
                 ],
                 "step": "children",
                 "advanced_panel": "children",
+                "hidden": not show_school_quality_priority_controls,
             },
             {
                 "type": "checkbox",
@@ -2749,6 +2478,7 @@ def app_section_payload(
                 "tooltip": "Controls how strongly playground distance affects ranking and how far the adaptive fallback may relax the radius.",
                 "step": "children",
                 "advanced_panel": "children_distances",
+                "hidden": not show_playground_importance_controls,
             },
             {
                 "type": "range",
@@ -2780,6 +2510,7 @@ def app_section_payload(
                 "tooltip": "Controls how strongly library distance affects ranking and adaptive radius relaxation.",
                 "step": "children",
                 "advanced_panel": "children_distances",
+                "hidden": not show_library_importance_controls,
             },
             {
                 "type": "range",
@@ -2922,6 +2653,7 @@ def app_section_payload(
                 ],
                 "values": list(property_preferences.get("desired_project_stages") or []),
                 "step": "research",
+                "hidden": not show_developer_project_stage_controls,
             },
             {
                 "type": "checkbox",
@@ -2967,7 +2699,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("enable_auction_legal_review")),
                 "tooltip": "Keep court-sale and auction listings separate from normal homes and flag them for extra legal review.",
                 "step": "research",
-                "hidden": selected_listing_mode != "buy",
+                "hidden": not show_distressed_review_controls,
             },
             {
                 "type": "checkbox",
@@ -2985,6 +2717,7 @@ def app_section_payload(
                 "value": str(property_preferences.get("university_name") or ""),
                 "placeholder": "University of Vienna, WU, TU Wien",
                 "step": "areas",
+                "hidden": not show_lifestyle_research_controls,
             },
             {
                 "type": "range",
@@ -3002,6 +2735,7 @@ def app_section_payload(
                 "tooltip": "Keep university proximity visible as a livability and investment signal. Use the university name above for a target campus or institution.",
                 "step": "areas",
                 "advanced_panel": "lifestyle_distances",
+                "hidden": not show_lifestyle_research_controls,
             },
             {
                 "type": "range",
@@ -3019,6 +2753,7 @@ def app_section_payload(
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest Starbucks.",
                 "step": "areas",
                 "advanced_panel": "lifestyle_distances",
+                "hidden": not show_lifestyle_research_controls,
             },
             {
                 "type": "range",
@@ -3036,6 +2771,7 @@ def app_section_payload(
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest fitness center or gym.",
                 "step": "areas",
                 "advanced_panel": "lifestyle_distances",
+                "hidden": not show_lifestyle_research_controls,
             },
             {
                 "type": "range",
@@ -3053,6 +2789,7 @@ def app_section_payload(
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest cinema.",
                 "step": "areas",
                 "advanced_panel": "lifestyle_distances",
+                "hidden": not show_lifestyle_research_controls,
             },
             {
                 "type": "range",
@@ -3070,6 +2807,7 @@ def app_section_payload(
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest bouldering or climbing gym.",
                 "step": "areas",
                 "advanced_panel": "lifestyle_distances",
+                "hidden": not show_lifestyle_research_controls,
             },
             {
                 "type": "range",
@@ -3087,6 +2825,7 @@ def app_section_payload(
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest dog park or dog exercise area.",
                 "step": "areas",
                 "advanced_panel": "lifestyle_distances",
+                "hidden": not show_lifestyle_research_controls,
             },
             {
                 "type": "range",
@@ -3104,6 +2843,7 @@ def app_section_payload(
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest cafe-quality proxy.",
                 "step": "areas",
                 "advanced_panel": "lifestyle_distances",
+                "hidden": not show_lifestyle_research_controls,
             },
             {
                 "type": "range",
@@ -3135,6 +2875,7 @@ def app_section_payload(
                 "tooltip": "Controls how strongly supermarket distance affects ranking and adaptive radius relaxation.",
                 "step": "areas",
                 "advanced_panel": "shopping_distances",
+                "hidden": not show_supermarket_importance_controls,
             },
             {
                 "type": "range",
@@ -3479,6 +3220,7 @@ def app_section_payload(
                 "scale_max_label": "1 year",
                 "tooltip": "How long this recurring search should stay active before it expires or needs review.",
                 "step": "providers",
+                "hidden": not show_search_agent_detail_controls,
             },
             {
                 "type": "range",
@@ -3495,6 +3237,7 @@ def app_section_payload(
                 "scale_max_label": "50",
                 "tooltip": "Maximum Telegram property alerts to send in the selected period. If more matches exist, PropertyQuarry ranks them and sends only the best ones.",
                 "step": "providers",
+                "hidden": not show_search_agent_detail_controls,
             },
             {
                 "type": "select",
@@ -3507,6 +3250,7 @@ def app_section_payload(
                 ],
                 "tooltip": "Choose whether the notification budget resets daily or weekly.",
                 "step": "providers",
+                "hidden": not show_search_agent_detail_controls,
             },
             {
                 "type": "checkbox",

@@ -6,9 +6,13 @@ from typing import Callable
 
 from app.product.models import (
     PropertyBillingTruthSnapshot,
+    PropertyPreferenceManagerSnapshot,
     PropertyResearchPacketSnapshot,
     PropertyRecurringWatchSnapshot,
+    PropertySearchFormStateSnapshot,
     PropertyRunHealthSnapshot,
+    PropertyRunReliabilitySnapshot,
+    PropertyRunRepairSnapshot,
     PropertySearchAgentSelectionSnapshot,
     PropertySearchRunSnapshot,
     PropertyShortlistSnapshot,
@@ -61,6 +65,8 @@ def property_run_status_copy(status_value: object, message_value: object = "") -
     message = str(message_value or "").strip()
     if status in {"processed", "completed"}:
         return ("Finished", "")
+    if status == "completed_partial":
+        return ("Finished with partial coverage", message or "The shortlist is ready, but one or more sources finished degraded.")
     if status == "failed":
         return ("Search failed", message or "The search failed before ranking finished.")
     if status == "cancelled":
@@ -107,7 +113,7 @@ def build_property_run_health_snapshot(
         progress=_positive_int(payload.get("progress")),
         status_url=str(payload.get("status_url") or "").strip(),
         eta_label=str(payload.get("eta_label") or "").strip(),
-        in_progress=status not in {"processed", "completed", "failed", "noop", "cancelled", "not_started", "not started"},
+        in_progress=status not in {"processed", "completed", "completed_partial", "failed", "noop", "cancelled", "not_started", "not started"},
         source_total=_positive_int(summary.get("sources_total")),
         listing_total=_positive_int(summary.get("listing_total") or summary.get("raw_listing_total")),
         filtered_total=filtered_total,
@@ -116,6 +122,162 @@ def build_property_run_health_snapshot(
         open_research_task_total=_positive_int(payload.get("open_research_task_total") or summary.get("open_research_task_total")),
         filled_research_task_total=_positive_int(payload.get("filled_research_task_total") or summary.get("filled_research_task_total")),
         dismissed_research_task_total=_positive_int(payload.get("dismissed_research_task_total") or summary.get("dismissed_research_task_total")),
+    ).to_dict()
+
+
+def build_property_run_repair_snapshot(
+    run_payload: dict[str, object],
+    *,
+    results_total: int = 0,
+) -> dict[str, object]:
+    payload = dict(run_payload or {})
+    summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
+    timing = dict(summary.get("timing_receipts") or {}) if isinstance(summary.get("timing_receipts"), dict) else {}
+    status = str(payload.get("status") or summary.get("status") or "queued").strip().lower() or "queued"
+    progress = max(0, min(100, _positive_int(payload.get("progress") or summary.get("progress"))))
+    source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    failed_total = 0
+    for row in source_rows:
+        row_status = str(row.get("status") or row.get("state") or "").strip().lower()
+        if row_status in {"failed", "error", "skipped"} or row.get("error"):
+            failed_total += 1
+    repair_step = str(summary.get("repair_step_label") or "").strip()
+    if not repair_step and failed_total:
+        repair_step = f"Retrying {failed_total} source{'s' if failed_total != 1 else ''}"
+    next_useful_eta = str(summary.get("next_useful_update_eta_label") or "").strip()
+    if not next_useful_eta and timing.get("first_shortlist_ready_at") and results_total > 0:
+        next_useful_eta = "new shortlist already ready"
+    final_eta = str(payload.get("eta_label") or summary.get("eta_label") or "").strip()
+    eta_confidence = str(summary.get("eta_confidence") or "").strip().lower()
+    if not eta_confidence:
+        if final_eta and progress >= 20:
+            eta_confidence = "medium"
+        elif final_eta:
+            eta_confidence = "low"
+        else:
+            eta_confidence = "unknown"
+    repair_status = str(summary.get("repair_status") or "").strip().lower()
+    if not repair_status:
+        if status == "completed_partial":
+            repair_status = "degraded"
+        elif failed_total:
+            repair_status = "repairing"
+        else:
+            repair_status = "stable"
+    repair_status_label = str(summary.get("repair_status_label") or "").strip()
+    if not repair_status_label:
+        if repair_status == "repairing":
+            repair_status_label = "Repairing"
+        elif repair_status == "degraded":
+            repair_status_label = "Partial coverage"
+        elif repair_status == "failed":
+            repair_status_label = "Repair failed"
+        else:
+            repair_status_label = "Stable"
+    repair_outcome_summary = str(summary.get("repair_outcome_summary") or "").strip()
+    if not repair_outcome_summary:
+        if status == "completed_partial":
+            repair_outcome_summary = "The shortlist is ready, but one or more sources finished degraded."
+        elif failed_total and results_total > 0:
+            repair_outcome_summary = "Some sources are retrying, but the current shortlist is already usable."
+        elif failed_total:
+            repair_outcome_summary = "Some sources are retrying before the shortlist can settle."
+    return PropertyRunRepairSnapshot(
+        repair_status=repair_status,
+        repair_status_label=repair_status_label,
+        repair_step_label=repair_step,
+        repair_outcome_summary=repair_outcome_summary,
+        repair_class=str(summary.get("repair_class") or "").strip(),
+        repair_attempt_count=_positive_int(summary.get("repair_attempt_count")),
+        eta_confidence_label=eta_confidence.title() if eta_confidence else "Unknown",
+        next_useful_update_eta_label=next_useful_eta,
+        can_auto_repair=bool(summary.get("can_auto_repair") or failed_total or repair_status in {"repairing", "degraded"}),
+    ).to_dict()
+
+
+def build_property_run_reliability_snapshot(
+    run_payload: dict[str, object],
+    *,
+    results_total: int = 0,
+) -> dict[str, object]:
+    payload = dict(run_payload or {})
+    summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
+    status = str(payload.get("status") or summary.get("status") or "queued").strip().lower() or "queued"
+    progress = max(0, min(100, _positive_int(payload.get("progress") or summary.get("progress"))))
+    message = str(payload.get("message") or "").strip()
+    source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    source_total = max(0, _positive_int(summary.get("sources_total"), default=len(source_rows)))
+    source_checked = len(source_rows)
+    listing_total = max(0, _positive_int(summary.get("listing_total") or summary.get("reviewed_listing_total")))
+    filtered_total = max(0, _positive_int(summary.get("filtered_out_total")))
+    failed_total = 0
+    for row in source_rows:
+        row_status = str(row.get("status") or row.get("state") or "").strip().lower()
+        if row_status in {"failed", "error", "skipped"} or row.get("error"):
+            failed_total += 1
+    pending_total = max(0, source_total - source_checked)
+    repair = build_property_run_repair_snapshot(payload, results_total=results_total)
+    customer_status = str(summary.get("customer_status_message") or "").strip()
+    if not customer_status:
+        if status in {"processed", "completed"}:
+            customer_status = "Search finished cleanly."
+        elif status == "completed_partial":
+            customer_status = message or "Search finished with partial coverage after one or more sources degraded."
+        elif status == "failed":
+            customer_status = message or "Search interrupted before the final pass completed."
+        elif failed_total and results_total > 0:
+            customer_status = "Some sources are retrying, but the current shortlist is already usable."
+        elif failed_total:
+            customer_status = "Some sources are retrying before the shortlist can settle."
+        elif results_total > 0:
+            customer_status = "Strongest verified matches are already ready while the rest of the search finishes."
+        elif source_checked > 0:
+            customer_status = "Providers are being checked and the first shortlist is still building."
+        else:
+            customer_status = message or "Preparing the first provider lanes."
+    if status in {"processed", "completed"}:
+        health_tone = "good"
+        health_label = "Healthy"
+    elif status == "completed_partial":
+        health_tone = "warn"
+        health_label = "Partial coverage"
+    elif status == "failed":
+        health_tone = "bad"
+        health_label = "Interrupted"
+    elif failed_total:
+        health_tone = "warn"
+        health_label = "Repairing"
+    elif source_checked > 0 or progress > 0:
+        health_tone = "good"
+        health_label = "Working"
+    else:
+        health_tone = "idle"
+        health_label = "Starting"
+    coverage_label = ""
+    if source_total:
+        coverage_label = f"{source_checked}/{source_total} sources checked"
+        if pending_total:
+            coverage_label += f" · {pending_total} still running"
+    result_label = ""
+    if results_total > 0:
+        result_label = f"{results_total} ranked result{'s' if results_total != 1 else ''} ready"
+    elif listing_total > 0:
+        result_label = f"{listing_total} homes reviewed"
+    filtered_label = ""
+    if filtered_total > 0:
+        filtered_label = f"{filtered_total} filtered by active rules"
+    return PropertyRunReliabilitySnapshot(
+        health_label=health_label,
+        health_tone=health_tone,
+        coverage_label=coverage_label,
+        result_label=result_label,
+        filtered_label=filtered_label,
+        repair_step_label=str(repair.get("repair_step_label") or "").strip(),
+        next_useful_update_eta_label=str(repair.get("next_useful_update_eta_label") or "").strip(),
+        final_eta_label=str(payload.get("eta_label") or summary.get("eta_label") or "").strip(),
+        eta_confidence_label=str(repair.get("eta_confidence_label") or "Unknown").strip() or "Unknown",
+        customer_status_message=customer_status,
+        repair=repair,
     ).to_dict()
 
 
@@ -146,6 +308,163 @@ def build_property_billing_truth_snapshot(
         order_endpoints_by_plan=dict(billing_order_endpoints_by_plan),
         provider_labels_by_plan=dict(billing_provider_labels_by_plan),
         fleet_digest=dict(fleet_digest or {}),
+    ).to_dict()
+
+
+def build_property_preference_manager_snapshot(
+    *,
+    person_id: str,
+    raw_preference_nodes: list[dict[str, object]],
+    include_full_manager: bool,
+    schema: dict[str, object] | None = None,
+) -> dict[str, object]:
+    def _preference_value_label(value: object) -> str:
+        if isinstance(value, list):
+            return ", ".join(str(item).strip() for item in value if str(item).strip()) or "empty list"
+        if isinstance(value, dict):
+            return ", ".join(f"{key}: {item}" for key, item in value.items() if str(key).strip()) or "empty object"
+        if isinstance(value, bool):
+            return "yes" if value else "no"
+        return str(value if value is not None else "").strip() or "empty"
+
+    def _preference_key_label(row: dict[str, object]) -> str:
+        key = str(row.get("key") or "").strip().replace("_", " ")
+        category = str(row.get("category") or "").strip().replace("_", " ")
+        return (key or "Preference").title() + (f" ({category.title()})" if category else "")
+
+    active_preference_total = sum(
+        1
+        for row in raw_preference_nodes
+        if str(row.get("node_id") or "").strip()
+        and str(row.get("status") or "").strip().lower() in {"", "active"}
+    )
+    nodes = (
+        [
+            {
+                "node_id": str(row.get("node_id") or "").strip(),
+                "domain": str(row.get("domain") or "").strip() or "willhaben",
+                "category": str(row.get("category") or "").strip() or "soft_preference",
+                "key": str(row.get("key") or "").strip(),
+                "label": _preference_key_label(row),
+                "value_label": _preference_value_label(row.get("value_json")),
+                "value_json": row.get("value_json"),
+                "strength": str(row.get("strength") or "medium").strip() or "medium",
+                "confidence": row.get("confidence") or 0,
+                "source_mode": str(row.get("source_mode") or "").strip(),
+                "status": str(row.get("status") or "").strip().lower() or "active",
+                "updated_at": str(row.get("updated_at") or "").strip(),
+            }
+            for row in raw_preference_nodes
+            if str(row.get("node_id") or "").strip()
+        ]
+        if include_full_manager
+        else []
+    )
+    if nodes:
+        nodes.sort(key=lambda row: (str(row.get("status") or "") != "active", str(row.get("label") or "").lower()))
+    active_nodes = (
+        [row for row in nodes if str(row.get("status") or "") == "active"]
+        if include_full_manager
+        else [{"status": "active"} for _ in range(active_preference_total)]
+    )
+    return PropertyPreferenceManagerSnapshot(
+        person_id=str(person_id or "self").strip() or "self",
+        nodes=nodes,
+        active_nodes=active_nodes,
+        schema=dict(schema or {}) if include_full_manager else {},
+        bundle_endpoint=f"/app/api/people/{urllib.parse.quote(str(person_id or 'self').strip() or 'self', safe='')}/preference-profile",
+        node_endpoint=f"/app/api/people/{urllib.parse.quote(str(person_id or 'self').strip() or 'self', safe='')}/preference-profile/nodes",
+        archive_endpoint_template=f"/app/api/people/{urllib.parse.quote(str(person_id or 'self').strip() or 'self', safe='')}/preference-profile/nodes/__NODE_ID__/archive",
+    ).to_dict()
+
+
+def build_property_search_form_state_snapshot(
+    property_preferences: dict[str, object] | None,
+    *,
+    selected_listing_mode: str,
+) -> dict[str, object]:
+    preferences = dict(property_preferences or {})
+    selected_country_code = str(preferences.get("country_code") or "AT").strip().upper() or "AT"
+    selected_search_goal = normalized_property_search_goal(preferences.get("search_goal"))
+    selected_investment_strategy = str(preferences.get("investment_strategy") or "best_overall").strip().lower() or "best_overall"
+    if selected_investment_strategy not in {"best_overall", "cash_flow", "appreciation", "undervalued", "low_risk"}:
+        selected_investment_strategy = "best_overall"
+    selected_investment_research_mode = str(preferences.get("investment_research_mode") or "off").strip().lower() or "off"
+    if selected_investment_research_mode not in {"off", "auto"}:
+        selected_investment_research_mode = "off"
+    property_is_investment_search = selected_search_goal == "investment"
+    selected_school_stage_preferences = [
+        str(item or "").strip()
+        for item in list(preferences.get("school_stage_preferences") or [])
+        if str(item or "").strip()
+    ]
+    school_evidence_controls_enabled = (
+        not property_is_investment_search
+        and (
+            bool(selected_school_stage_preferences)
+            or bool(preferences.get("require_school_evidence"))
+        )
+    )
+    effective_listing_mode_value = effective_property_listing_mode(
+        {
+            **preferences,
+            "search_goal": selected_search_goal,
+            "listing_mode": selected_listing_mode,
+        },
+        fallback=selected_listing_mode,
+    )
+    show_investment_underwriting_controls = property_is_investment_search and selected_investment_research_mode != "off"
+    show_lifestyle_research_controls = not property_is_investment_search and bool(preferences.get("enable_lifestyle_research"))
+    show_community_validation_controls = bool(preferences.get("include_community_signals"))
+    show_developer_project_stage_controls = bool(preferences.get("include_developer_project_signals"))
+    show_public_housing_policy_controls = effective_listing_mode_value == "rent" and bool(preferences.get("include_public_housing_signals"))
+    show_distressed_review_controls = effective_listing_mode_value == "buy" and bool(preferences.get("include_distressed_sale_signals"))
+    show_search_agent_detail_controls = bool(preferences.get("search_agent_enabled"))
+    show_preference_profile_controls = bool(preferences.get("use_stored_feedback_preferences", True))
+    show_playground_importance_controls = not property_is_investment_search and bool(preferences.get("max_distance_to_playground_m"))
+    show_library_importance_controls = not property_is_investment_search and bool(preferences.get("max_distance_to_library_m"))
+    show_supermarket_importance_controls = bool(preferences.get("max_distance_to_supermarket_m"))
+
+    def _bounded_int(name: str, *, default: int, minimum: int, maximum: int) -> int:
+        try:
+            return max(minimum, min(maximum, int(float(str(preferences.get(name) or "").strip()))))
+        except Exception:
+            return default
+
+    def _bounded_float(name: str, *, default: float, minimum: float, maximum: float) -> float:
+        try:
+            return max(minimum, min(maximum, float(str(preferences.get(name) or "").strip())))
+        except Exception:
+            return default
+
+    return PropertySearchFormStateSnapshot(
+        selected_country_code=selected_country_code,
+        selected_search_goal=selected_search_goal,
+        selected_listing_mode=effective_listing_mode_value,
+        selected_investment_strategy=selected_investment_strategy,
+        selected_investment_research_mode=selected_investment_research_mode,
+        property_is_investment_search=property_is_investment_search,
+        selected_school_stage_preferences=selected_school_stage_preferences,
+        school_evidence_controls_enabled=school_evidence_controls_enabled,
+        show_investment_underwriting_controls=show_investment_underwriting_controls,
+        show_lifestyle_research_controls=show_lifestyle_research_controls,
+        show_community_validation_controls=show_community_validation_controls,
+        show_developer_project_stage_controls=show_developer_project_stage_controls,
+        show_public_housing_policy_controls=show_public_housing_policy_controls,
+        show_distressed_review_controls=show_distressed_review_controls,
+        show_search_agent_detail_controls=show_search_agent_detail_controls,
+        show_preference_profile_controls=show_preference_profile_controls,
+        show_school_quality_priority_controls=school_evidence_controls_enabled,
+        show_playground_importance_controls=show_playground_importance_controls,
+        show_library_importance_controls=show_library_importance_controls,
+        show_supermarket_importance_controls=show_supermarket_importance_controls,
+        min_gross_yield_pct=_bounded_int("min_gross_yield_pct", default=0, minimum=0, maximum=15),
+        equity_available_eur=_bounded_int("equity_available_eur", default=0, minimum=0, maximum=5_000_000),
+        loan_term_years=_bounded_int("loan_term_years", default=25, minimum=5, maximum=40),
+        max_interest_rate_pct=_bounded_int("max_interest_rate_pct", default=0, minimum=0, maximum=12),
+        min_dscr=_bounded_float("min_dscr", default=0.0, minimum=0.0, maximum=3.0),
+        vacancy_reserve_pct=_bounded_int("vacancy_reserve_pct", default=4, minimum=0, maximum=25),
+        capex_reserve_pct=_bounded_int("capex_reserve_pct", default=6, minimum=0, maximum=25),
     ).to_dict()
 
 

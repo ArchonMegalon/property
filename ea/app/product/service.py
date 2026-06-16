@@ -155,15 +155,18 @@ from app.product.property_search_storage import (
     _store_property_search_run_record,
 )
 from app.product.property_search_run_state import (
+    property_search_run_apply_event as _state_property_search_run_apply_event,
     new_property_search_run_record as _state_new_property_search_run_record,
     property_search_eta_label as _state_property_search_eta_label,
     property_search_review_open_timeout_seconds as _state_property_search_review_open_timeout_seconds,
     property_search_run_default_summary as _state_property_search_run_default_summary,
     property_search_run_expired as _state_property_search_run_expired,
+    property_search_run_stale_failure_event as _state_property_search_run_stale_failure_event,
     property_search_run_is_stale as _state_property_search_run_is_stale,
     property_search_run_progress_projection as _state_property_search_run_progress_projection,
     property_search_run_stale_seconds as _state_property_search_run_stale_seconds,
     property_search_run_step_source_fraction as _state_property_search_run_step_source_fraction,
+    property_search_run_sync_summary as _state_property_search_run_sync_summary,
 )
 from app.product.extractors import extract_commitment_candidates
 from app.product.models import (
@@ -25457,22 +25460,19 @@ class ProductService:
             return None
         if _property_search_run_is_stale(dict(state)):
             stale_seconds = _property_search_run_stale_seconds()
+            stale_failure = _state_property_search_run_stale_failure_event(
+                dict(state),
+                stale_seconds=stale_seconds,
+            )
             self._record_property_search_run_event(
                 run_id=normalized_run_id,
                 principal_id=normalized_principal,
-                step="run_interrupted",
-                message=(
-                    f"Search interrupted. This run stopped updating for more than {int(stale_seconds / 60)} minutes and is now marked failed. "
-                    "Start a new search to retry the same brief."
-                ),
-                status="failed",
+                step=str(stale_failure.get("step") or "run_interrupted"),
+                message=str(stale_failure.get("message") or "Search interrupted."),
+                status=str(stale_failure.get("status") or "failed"),
                 steps_delta=0,
-                summary_updates={
-                    "interrupted": True,
-                    "stale_after_seconds": stale_seconds,
-                    "last_known_status": str(state.get("status") or "").strip().lower(),
-                },
-                force_status="failed",
+                summary_updates=dict(stale_failure.get("summary_updates") or {}),
+                force_status=str(stale_failure.get("force_status") or "failed"),
             )
             with _PROPERTY_SEARCH_RUN_LOCK:
                 state = dict(_PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id) or state)
@@ -25482,15 +25482,11 @@ class ProductService:
             state=dict(state),
         )
         summary = dict(state.get("summary") or {})
-        normalized_status = str(state.get("status") or summary.get("status") or "").strip().lower()
-        if normalized_status:
-            summary["status"] = normalized_status
-        if normalized_status in _PROPERTY_SEARCH_TERMINAL_STATUSES:
-            summary["progress"] = 100
-            summary["progress_percent"] = 100
-        elif "progress" in state:
-            summary["progress"] = int(state.get("progress") or 0)
-            summary["progress_percent"] = int(state.get("progress") or 0)
+        summary = _state_property_search_run_sync_summary(
+            state=dict(state),
+            summary=summary,
+            terminal_statuses=_PROPERTY_SEARCH_TERMINAL_STATUSES,
+        )
         state = {**dict(state), "summary": summary}
         snapshot = {
             **dict(state),
@@ -25543,64 +25539,23 @@ class ProductService:
                 return
             if str(state.get("principal_id") or "").strip() != normalized_principal:
                 return
-            updated_status = str(force_status or status or "in_progress").strip().lower() or "in_progress"
-            state["status"] = updated_status
-            state["current_step"] = compact_text(str(step), fallback="run_step")
-            state["message"] = compact_text(str(message), fallback="", limit=280)
-            if stages_total_override is not None:
-                state["stages_total"] = max(
-                    int(state.get("steps_completed") or 0) + 1,
-                    int(stages_total_override),
-                )
-            stages_total = max(1, int(state.get("stages_total") or _PROPERTY_SEARCH_RUN_STAGES))
-            if updated_status in _PROPERTY_SEARCH_TERMINAL_STATUSES:
-                state["steps_completed"] = stages_total
-                state["progress"] = 100
-                state["eta_seconds"] = 0
-                state["eta_label"] = ""
-                state["eta_seconds_smoothed"] = 0
-            else:
-                state["steps_completed"] = min(stages_total, max(0, int(state.get("steps_completed") or 0) + int(steps_delta)))
-            if summary_updates:
-                summary = dict(state.get("summary") or {})
-                summary.update(dict(summary_updates))
-                state["summary"] = summary
-            summary = dict(state.get("summary") or {})
-            state["summary"] = summary
-            summary["status"] = updated_status
-            if updated_status not in _PROPERTY_SEARCH_TERMINAL_STATUSES:
-                normalized_progress, eta_seconds, eta_label = _property_search_run_progress_projection(
-                    state=state,
-                    step=step,
-                    status=updated_status,
-                    summary=summary,
-                    stages_total=stages_total,
-                    steps_completed=int(state.get("steps_completed") or 0),
-                )
-                state["progress"] = normalized_progress
-                state["eta_seconds"] = eta_seconds
-                state["eta_label"] = eta_label
-                state["eta_seconds_smoothed"] = eta_seconds
-                summary["progress"] = normalized_progress
-                summary["progress_percent"] = normalized_progress
-                summary["eta_seconds"] = eta_seconds
-                summary["eta_label"] = eta_label
-            else:
-                summary["progress"] = int(state.get("progress") or 100)
-                summary["progress_percent"] = int(state.get("progress") or 100)
-            events = list(state.get("events") or [])
-            events.append(
-                {
-                    "at": _now_iso(),
-                    "step": compact_text(str(step), fallback="run_step"),
-                    "message": compact_text(str(message), fallback="", limit=320),
-                    "status": updated_status,
-                }
+            state = _state_property_search_run_apply_event(
+                state=state,
+                step=step,
+                message=message,
+                status=status,
+                steps_delta=steps_delta,
+                summary_updates=summary_updates,
+                force_status=force_status,
+                stages_total_override=stages_total_override,
+                terminal_statuses=_PROPERTY_SEARCH_TERMINAL_STATUSES,
+                default_stages_total=_PROPERTY_SEARCH_RUN_STAGES,
+                now_iso=_now_iso,
+                compact_text=compact_text,
+                progress_projection=_property_search_run_progress_projection,
+                sync_summary=_state_property_search_run_sync_summary,
             )
-            if len(events) > 240:
-                events = events[-240:]
-            state["events"] = events
-            state["updated_at"] = _now_iso()
+            _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = dict(state)
             persisted_state = dict(state)
         try:
             _store_property_search_run_record(persisted_state)

@@ -85,6 +85,16 @@ def test_normalize_property_search_preferences_defaults_country_and_language() -
     assert payload["search_agent_notification_period"] == "day"
 
 
+def test_normalize_property_search_preferences_keeps_whatsapp_alert_channel() -> None:
+    payload = normalize_property_search_preferences(
+        {
+            "alert_channels": ["whatsapp", "telegram", "unknown"],
+        }
+    )
+
+    assert payload["alert_channels"] == ["whatsapp", "telegram"]
+
+
 def test_normalize_property_search_preferences_investment_goal_forces_buy_without_forcing_underwriting_on() -> None:
     payload = normalize_property_search_preferences(
         {

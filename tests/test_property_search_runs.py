@@ -1774,7 +1774,21 @@ def test_hosted_property_tour_bundle_splits_public_manifest_from_private_receipt
         property_url="https://www.willhaben.at/iad/object?adId=private-floorplan-1",
         variant_key="layout_first",
         floorplan_urls=("https://cdn.example.com/floorplan.pdf",),
-        property_facts_json={},
+        property_facts_json={
+            "address_lines": ["1200 Wien"],
+            "exact_address": "Private Street 1, 1200 Wien",
+            "map_lat": 48.2,
+            "map_lng": 16.3,
+            "personal_fit_assessment": {
+                "fit_score": 81,
+                "good_fit_reasons": ["Strong layout signal"],
+                "preference_nodes": [{"key": "private-node"}],
+            },
+            "public_preference_snapshot": {
+                "profile": {"principal_id": "exec-private-tour"},
+                "preference_nodes": [{"key": "prefer_balcony", "value_json": True}],
+            },
+        },
         source_host="willhaben.at",
         source_ref="property-scout:private-floorplan-1",
         external_id="ext-private-floorplan-1",
@@ -1790,6 +1804,19 @@ def test_hosted_property_tour_bundle_splits_public_manifest_from_private_receipt
     assert "recipient_email" not in public_manifest
     assert "source_ref" not in public_manifest
     assert "external_id" not in public_manifest
+    serialized_public_manifest = json.dumps(public_manifest, sort_keys=True)
+    for private_marker in (
+        "exec-private-tour",
+        "anna@example.com",
+        "property-scout:private-floorplan-1",
+        "ext-private-floorplan-1",
+        "Private Street 1",
+        "map_lat",
+        "map_lng",
+        "public_preference_snapshot",
+        "preference_nodes",
+    ):
+        assert private_marker not in serialized_public_manifest
     assert private_manifest["principal_id"] == "exec-private-tour"
     assert private_manifest["recipient_email"] == "anna@example.com"
     assert private_manifest["source_ref"] == "property-scout:private-floorplan-1"
@@ -2851,6 +2878,78 @@ def test_property_search_run_status_marks_stale_active_run_failed(monkeypatch) -
     assert status["progress"] == 100
     assert status["summary"]["interrupted"] is True
     assert any(event["step"] == "run_interrupted" for event in status["events"])
+
+
+def test_property_search_run_state_builds_stale_failure_event() -> None:
+    event = product_service._state_property_search_run_stale_failure_event(
+        {"status": "in_progress"},
+        stale_seconds=20 * 60,
+    )
+
+    assert event["step"] == "run_interrupted"
+    assert event["status"] == "failed"
+    assert "more than 20 minutes" in str(event["message"])
+    assert dict(event["summary_updates"]) == {
+        "interrupted": True,
+        "stale_after_seconds": 1200,
+        "last_known_status": "in_progress",
+    }
+    assert event["force_status"] == "failed"
+
+
+def test_property_search_run_state_syncs_summary_projection() -> None:
+    summary = product_service._state_property_search_run_sync_summary(
+        state={"status": "in_progress", "progress": 42},
+        summary={"listing_total": 3},
+        terminal_statuses={"processed", "completed", "failed", "cancelled", "noop"},
+        eta_seconds=360,
+        eta_label="about 6 min",
+    )
+
+    assert summary["status"] == "in_progress"
+    assert summary["progress"] == 42
+    assert summary["progress_percent"] == 42
+    assert summary["eta_seconds"] == 360
+    assert summary["eta_label"] == "about 6 min"
+
+
+def test_property_search_run_state_applies_event_and_caps_history() -> None:
+    state = {
+        "status": "queued",
+        "progress": 0,
+        "stages_total": 4,
+        "steps_completed": 0,
+        "summary": {"sources_total": 2, "sources": [{"source": "a"}]},
+        "events": [{"at": f"2026-01-01T00:00:{index:02d}Z", "step": "queued", "message": "queued", "status": "queued"} for index in range(240)],
+    }
+
+    updated = product_service._state_property_search_run_apply_event(
+        state=state,
+        step="source_started",
+        message="Scanning source.",
+        status="in_progress",
+        steps_delta=1,
+        summary_updates={"listing_total": 3},
+        force_status="",
+        stages_total_override=None,
+        terminal_statuses={"processed", "completed", "failed", "cancelled", "noop"},
+        default_stages_total=4,
+        now_iso=lambda: "2026-01-01T01:00:00Z",
+        compact_text=product_service.compact_text,
+        progress_projection=product_service._property_search_run_progress_projection,
+        sync_summary=product_service._state_property_search_run_sync_summary,
+    )
+
+    assert updated["status"] == "in_progress"
+    assert updated["current_step"] == "source_started"
+    assert updated["message"] == "Scanning source."
+    assert updated["steps_completed"] == 1
+    assert updated["summary"]["listing_total"] == 3
+    assert updated["summary"]["status"] == "in_progress"
+    assert isinstance(updated["summary"]["progress_percent"], int)
+    assert len(updated["events"]) == 240
+    assert updated["events"][-1]["step"] == "source_started"
+    assert updated["updated_at"] == "2026-01-01T01:00:00Z"
 
 
 def test_property_search_run_event_syncs_summary_status_and_progress() -> None:

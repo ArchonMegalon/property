@@ -556,12 +556,22 @@ def test_propertyquarry_search_goal_toggle_keeps_underwriting_controls_hidden_un
         investment_mode = page.locator('[data-property-field-name="investment_research_mode"]').first
         listing_mode = page.locator('[data-property-field-name="listing_mode"]').first
         investment_strategy = page.locator('[data-property-field-name="investment_strategy"]').first
+        investment_equity = page.locator('[data-property-field-name="equity_available_eur"]').first
+        investment_loan_term = page.locator('[data-property-field-name="loan_term_years"]').first
+        investment_rate = page.locator('[data-property-field-name="max_interest_rate_pct"]').first
+        investment_dscr = page.locator('[data-property-field-name="min_dscr"]').first
+        investment_vacancy = page.locator('[data-property-field-name="vacancy_reserve_pct"]').first
         investment_floorplan = page.locator('[data-property-field-name="investment_require_floorplan"]').first
         public_housing = page.locator('[data-property-field-name="include_public_housing_signals"]').first
         wohnticket = page.locator('[data-property-field-name="wiener_wohnticket_available"]').first
         distressed = page.locator('[data-property-field-name="include_distressed_sale_signals"]').first
         assert investment_mode.evaluate("(node) => node.hidden") is True
         assert investment_strategy.evaluate("(node) => node.hidden") is True
+        assert investment_equity.evaluate("(node) => node.hidden") is True
+        assert investment_loan_term.evaluate("(node) => node.hidden") is True
+        assert investment_rate.evaluate("(node) => node.hidden") is True
+        assert investment_dscr.evaluate("(node) => node.hidden") is True
+        assert investment_vacancy.evaluate("(node) => node.hidden") is True
         assert investment_floorplan.evaluate("(node) => node.hidden") is True
 
         page.locator('select[name="search_goal"]').select_option("investment")
@@ -572,14 +582,24 @@ def test_propertyquarry_search_goal_toggle_keeps_underwriting_controls_hidden_un
               const mode = document.querySelector('[data-property-field-name="investment_research_mode"]');
               const listingMode = document.querySelector('[data-property-field-name="listing_mode"]');
               const strategy = document.querySelector('[data-property-field-name="investment_strategy"]');
+              const equity = document.querySelector('[data-property-field-name="equity_available_eur"]');
+              const loanTerm = document.querySelector('[data-property-field-name="loan_term_years"]');
+              const rate = document.querySelector('[data-property-field-name="max_interest_rate_pct"]');
+              const dscr = document.querySelector('[data-property-field-name="min_dscr"]');
+              const vacancy = document.querySelector('[data-property-field-name="vacancy_reserve_pct"]');
               const floorplan = document.querySelector('[data-property-field-name="investment_require_floorplan"]');
               const publicHousing = document.querySelector('[data-property-field-name="include_public_housing_signals"]');
               const wohnticket = document.querySelector('[data-property-field-name="wiener_wohnticket_available"]');
               return Boolean(
-                mode && listingMode && strategy && floorplan && publicHousing && wohnticket
+                mode && listingMode && strategy && equity && loanTerm && rate && dscr && vacancy && floorplan && publicHousing && wohnticket
                 && !mode.hidden
                 && listingMode.hidden
                 && strategy.hidden
+                && equity.hidden
+                && loanTerm.hidden
+                && rate.hidden
+                && dscr.hidden
+                && vacancy.hidden
                 && floorplan.hidden
                 && publicHousing.hidden
                 && wohnticket.hidden
@@ -590,6 +610,11 @@ def test_propertyquarry_search_goal_toggle_keeps_underwriting_controls_hidden_un
         assert listing_mode.evaluate("(node) => node.hidden") is True
         assert investment_mode.evaluate("(node) => node.hidden") is False
         assert investment_strategy.evaluate("(node) => node.hidden") is True
+        assert investment_equity.evaluate("(node) => node.hidden") is True
+        assert investment_loan_term.evaluate("(node) => node.hidden") is True
+        assert investment_rate.evaluate("(node) => node.hidden") is True
+        assert investment_dscr.evaluate("(node) => node.hidden") is True
+        assert investment_vacancy.evaluate("(node) => node.hidden") is True
         assert investment_floorplan.evaluate("(node) => node.hidden") is True
         assert public_housing.evaluate("(node) => node.hidden") is True
         assert wohnticket.evaluate("(node) => node.hidden") is True
@@ -600,12 +625,22 @@ def test_propertyquarry_search_goal_toggle_keeps_underwriting_controls_hidden_un
             """
             () => {
               const strategy = document.querySelector('[data-property-field-name="investment_strategy"]');
+              const equity = document.querySelector('[data-property-field-name="equity_available_eur"]');
+              const loanTerm = document.querySelector('[data-property-field-name="loan_term_years"]');
+              const rate = document.querySelector('[data-property-field-name="max_interest_rate_pct"]');
+              const dscr = document.querySelector('[data-property-field-name="min_dscr"]');
+              const vacancy = document.querySelector('[data-property-field-name="vacancy_reserve_pct"]');
               const floorplan = document.querySelector('[data-property-field-name="investment_require_floorplan"]');
-              return Boolean(strategy && floorplan && !strategy.hidden && !floorplan.hidden);
+              return Boolean(strategy && equity && loanTerm && rate && dscr && vacancy && floorplan && !strategy.hidden && !equity.hidden && !loanTerm.hidden && !rate.hidden && !dscr.hidden && !vacancy.hidden && !floorplan.hidden);
             }
             """
         )
         assert investment_strategy.evaluate("(node) => node.hidden") is False
+        assert investment_equity.evaluate("(node) => node.hidden") is False
+        assert investment_loan_term.evaluate("(node) => node.hidden") is False
+        assert investment_rate.evaluate("(node) => node.hidden") is False
+        assert investment_dscr.evaluate("(node) => node.hidden") is False
+        assert investment_vacancy.evaluate("(node) => node.hidden") is False
         assert investment_floorplan.evaluate("(node) => node.hidden") is False
 
         page.locator('select[name="search_goal"]').select_option("home")
@@ -616,14 +651,24 @@ def test_propertyquarry_search_goal_toggle_keeps_underwriting_controls_hidden_un
             () => {
               const mode = document.querySelector('[data-property-field-name="investment_research_mode"]');
               const strategy = document.querySelector('[data-property-field-name="investment_strategy"]');
+              const equity = document.querySelector('[data-property-field-name="equity_available_eur"]');
+              const loanTerm = document.querySelector('[data-property-field-name="loan_term_years"]');
+              const rate = document.querySelector('[data-property-field-name="max_interest_rate_pct"]');
+              const dscr = document.querySelector('[data-property-field-name="min_dscr"]');
+              const vacancy = document.querySelector('[data-property-field-name="vacancy_reserve_pct"]');
               const floorplan = document.querySelector('[data-property-field-name="investment_require_floorplan"]');
               const distressed = document.querySelector('[data-property-field-name="include_distressed_sale_signals"]');
               const progress = document.querySelector('[data-property-step-progress]');
               const workflowStep = [...document.querySelectorAll('[data-property-step-trigger] strong')].map((node) => node.textContent || '');
               return Boolean(
-                mode && strategy && floorplan && distressed && progress
+                mode && strategy && equity && loanTerm && rate && dscr && vacancy && floorplan && distressed && progress
                 && mode.hidden
                 && strategy.hidden
+                && equity.hidden
+                && loanTerm.hidden
+                && rate.hidden
+                && dscr.hidden
+                && vacancy.hidden
                 && floorplan.hidden
                 && distressed.hidden
                 && String(progress.textContent || '').includes('Where')
@@ -637,6 +682,11 @@ def test_propertyquarry_search_goal_toggle_keeps_underwriting_controls_hidden_un
         )
         assert investment_mode.evaluate("(node) => node.hidden") is True
         assert investment_strategy.evaluate("(node) => node.hidden") is True
+        assert investment_equity.evaluate("(node) => node.hidden") is True
+        assert investment_loan_term.evaluate("(node) => node.hidden") is True
+        assert investment_rate.evaluate("(node) => node.hidden") is True
+        assert investment_dscr.evaluate("(node) => node.hidden") is True
+        assert investment_vacancy.evaluate("(node) => node.hidden") is True
         assert investment_floorplan.evaluate("(node) => node.hidden") is True
         assert distressed.evaluate("(node) => node.hidden") is True
     finally:

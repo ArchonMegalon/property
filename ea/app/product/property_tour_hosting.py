@@ -66,10 +66,17 @@ def _public_tour_asset_content_type_allowed(content_type: str) -> bool:
 
 
 def _public_tour_public_payload(payload: dict[str, object]) -> dict[str, object]:
-    public_payload = dict(payload or {})
-    for key in ("principal_id", "source_ref", "external_id", "recipient_email"):
-        public_payload.pop(key, None)
-    return public_payload
+    from app.api.routes.public_tour_payloads import redacted_public_tour_payload
+
+    normalized_payload = dict(payload or {})
+    slug = str(normalized_payload.get("slug") or "").strip()
+    bundle_dir = _public_tour_dir() / slug if slug else None
+    return redacted_public_tour_payload(
+        normalized_payload,
+        expose_asset_relpaths=True,
+        url_allowed=lambda _url: False,
+        bundle_dir_resolver=lambda requested_slug: bundle_dir if bundle_dir and str(requested_slug or "").strip() == slug else None,
+    )
 
 
 def _public_tour_private_receipt(payload: dict[str, object]) -> dict[str, object]:

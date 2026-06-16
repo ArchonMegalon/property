@@ -130,6 +130,144 @@ def property_search_eta_label(seconds: float) -> str:
     return f"about {hours} hr {remainder} min"
 
 
+def property_search_run_stale_failure_event(
+    state: dict[str, object],
+    *,
+    stale_seconds: int,
+) -> dict[str, object]:
+    minutes = max(1, int(float(stale_seconds) / 60.0))
+    return {
+        "step": "run_interrupted",
+        "message": (
+            f"Search interrupted. This run stopped updating for more than {minutes} minutes and is now marked failed. "
+            "Start a new search to retry the same brief."
+        ),
+        "status": "failed",
+        "summary_updates": {
+            "interrupted": True,
+            "stale_after_seconds": stale_seconds,
+            "last_known_status": str(state.get("status") or "").strip().lower(),
+        },
+        "force_status": "failed",
+    }
+
+
+def property_search_run_sync_summary(
+    *,
+    state: dict[str, object],
+    summary: dict[str, object] | None,
+    terminal_statuses: set[str] | frozenset[str],
+    eta_seconds: int | None = None,
+    eta_label: str | None = None,
+) -> dict[str, object]:
+    normalized_summary = dict(summary or {})
+    normalized_status = str(state.get("status") or normalized_summary.get("status") or "").strip().lower()
+    if normalized_status:
+        normalized_summary["status"] = normalized_status
+    if normalized_status in terminal_statuses:
+        progress_value = int(state.get("progress") or 100)
+        normalized_summary["progress"] = progress_value
+        normalized_summary["progress_percent"] = progress_value
+        return normalized_summary
+    progress_value = int(state.get("progress") or 0)
+    normalized_summary["progress"] = progress_value
+    normalized_summary["progress_percent"] = progress_value
+    if eta_seconds is not None:
+        normalized_summary["eta_seconds"] = int(eta_seconds)
+    if eta_label is not None:
+        normalized_summary["eta_label"] = str(eta_label or "").strip()
+    return normalized_summary
+
+
+def property_search_run_apply_event(
+    *,
+    state: dict[str, object],
+    step: str,
+    message: str,
+    status: str,
+    steps_delta: int,
+    summary_updates: dict[str, object] | None,
+    force_status: str,
+    stages_total_override: int | None,
+    terminal_statuses: set[str] | frozenset[str],
+    default_stages_total: int,
+    now_iso: Callable[[], str],
+    compact_text: Callable[..., str],
+    progress_projection: Callable[..., tuple[int, int, str]],
+    sync_summary: Callable[..., dict[str, object]],
+) -> dict[str, object]:
+    mutated_state = dict(state)
+    normalized_status = str(force_status or status or "in_progress").strip().lower() or "in_progress"
+    normalized_step = compact_text(str(step), fallback="run_step")
+    normalized_message = compact_text(str(message), fallback="", limit=280)
+    mutated_state["status"] = normalized_status
+    mutated_state["current_step"] = normalized_step
+    mutated_state["message"] = normalized_message
+    if stages_total_override is not None:
+        mutated_state["stages_total"] = max(
+            int(mutated_state.get("steps_completed") or 0) + 1,
+            int(stages_total_override),
+        )
+    stages_total = max(1, int(mutated_state.get("stages_total") or default_stages_total))
+    if normalized_status in terminal_statuses:
+        mutated_state["steps_completed"] = stages_total
+        mutated_state["progress"] = 100
+        mutated_state["eta_seconds"] = 0
+        mutated_state["eta_label"] = ""
+        mutated_state["eta_seconds_smoothed"] = 0
+    else:
+        mutated_state["steps_completed"] = min(
+            stages_total,
+            max(0, int(mutated_state.get("steps_completed") or 0) + int(steps_delta)),
+        )
+    if summary_updates:
+        summary = dict(mutated_state.get("summary") or {})
+        summary.update(dict(summary_updates))
+        mutated_state["summary"] = summary
+    summary = dict(mutated_state.get("summary") or {})
+    if normalized_status not in terminal_statuses:
+        normalized_progress, eta_seconds, eta_label = progress_projection(
+            state=mutated_state,
+            step=step,
+            status=normalized_status,
+            summary=summary,
+            stages_total=stages_total,
+            steps_completed=int(mutated_state.get("steps_completed") or 0),
+        )
+        mutated_state["progress"] = normalized_progress
+        mutated_state["eta_seconds"] = eta_seconds
+        mutated_state["eta_label"] = eta_label
+        mutated_state["eta_seconds_smoothed"] = eta_seconds
+        summary = sync_summary(
+            state=dict(mutated_state),
+            summary=summary,
+            terminal_statuses=terminal_statuses,
+            eta_seconds=eta_seconds,
+            eta_label=eta_label,
+        )
+    else:
+        summary = sync_summary(
+            state=dict(mutated_state),
+            summary=summary,
+            terminal_statuses=terminal_statuses,
+        )
+    mutated_state["summary"] = summary
+    events = list(mutated_state.get("events") or [])
+    events.append(
+        {
+            "at": now_iso(),
+            "step": normalized_step,
+            "message": compact_text(str(message), fallback="", limit=320),
+            "status": normalized_status,
+        }
+    )
+    if len(events) > 240:
+        events = events[-240:]
+    mutated_state["events"] = events
+    mutated_state["updated_at"] = now_iso()
+    return mutated_state
+
+
 def property_search_run_progress_projection(
     *,
     state: dict[str, object],

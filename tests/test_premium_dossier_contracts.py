@@ -810,7 +810,7 @@ def test_premium_pipeline_records_quality_failure_when_legacy_fallback_runs(monk
     assert rendered["receipt"]["premium_render_failures"][0]["error_code"] == "premium_pdf_quality_gate_failed"
 
 
-def test_telegram_appendix_uses_compact_legacy_renderer_directly(monkeypatch, tmp_path: Path) -> None:
+def test_telegram_appendix_uses_premium_pipeline_before_legacy_fallback(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
     monkeypatch.delenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", raising=False)
@@ -875,8 +875,9 @@ def test_telegram_appendix_uses_compact_legacy_renderer_directly(monkeypatch, tm
         legacy_renderer=_legacy_renderer,
     )
 
-    assert rendered["status"] == "legacy_rendered"
-    assert legacy_called["value"] is True
+    assert Path(str(rendered["pdf_path"])).is_file()
+    assert rendered["receipt"]["renderer_provider"] == "playwright"
+    assert legacy_called["value"] is False
 
 
 def test_pdf_flythrough_url_does_not_fallback_to_tour_pane_without_real_clip() -> None:

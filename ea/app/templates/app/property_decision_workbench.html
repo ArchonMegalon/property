@@ -4235,7 +4235,7 @@
     <div hidden data-property-workspace-meta='{{ property_meta|tojson|safe }}'></div>
 
     <header class="pqx-topbar">
-      <a class="pqx-brand" href="/app/properties" aria-label="PropertyQuarry home">
+      <a class="pqx-brand" href="/app/search" aria-label="PropertyQuarry home">
         <span class="pqx-mark">PQ</span>
         <span>
           <strong>PropertyQuarry</strong>
@@ -4244,7 +4244,9 @@
       </a>
       <nav class="pqx-primary-nav" aria-label="PropertyQuarry sections">
         <a href="/app/search"{% if surface_mode == 'search' %} class="is-active"{% endif %}>Search</a>
+        {% if run_active or has_results or run_terminal_no_results %}
         <a href="/app/properties"{% if surface_mode == 'properties' %} class="is-active"{% endif %}>Run</a>
+        {% endif %}
         <a href="/app/shortlist"{% if surface_mode == 'shortlist' %} class="is-active"{% endif %}>Shortlist</a>
         <a href="/app/agents"{% if surface_mode == 'agents' %} class="is-active"{% endif %}>Automation</a>
         <a href="/app/billing"{% if surface_mode == 'billing' %} class="is-active"{% endif %}>Billing</a>

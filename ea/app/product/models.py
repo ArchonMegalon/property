@@ -343,6 +343,54 @@ class PropertySearchAgentSelectionSnapshot:
 
 
 @dataclass(frozen=True)
+class PropertyPreferenceManagerSnapshot:
+    person_id: str
+    nodes: list[dict[str, object]] = field(default_factory=list)
+    active_nodes: list[dict[str, object]] = field(default_factory=list)
+    schema: dict[str, object] = field(default_factory=dict)
+    bundle_endpoint: str = ""
+    node_endpoint: str = ""
+    archive_endpoint_template: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class PropertySearchFormStateSnapshot:
+    selected_country_code: str
+    selected_search_goal: str
+    selected_listing_mode: str
+    selected_investment_strategy: str
+    selected_investment_research_mode: str
+    property_is_investment_search: bool
+    selected_school_stage_preferences: list[str] = field(default_factory=list)
+    school_evidence_controls_enabled: bool = False
+    show_investment_underwriting_controls: bool = False
+    show_lifestyle_research_controls: bool = False
+    show_community_validation_controls: bool = False
+    show_developer_project_stage_controls: bool = False
+    show_public_housing_policy_controls: bool = False
+    show_distressed_review_controls: bool = False
+    show_search_agent_detail_controls: bool = False
+    show_preference_profile_controls: bool = True
+    show_school_quality_priority_controls: bool = False
+    show_playground_importance_controls: bool = False
+    show_library_importance_controls: bool = False
+    show_supermarket_importance_controls: bool = False
+    min_gross_yield_pct: int = 0
+    equity_available_eur: int = 0
+    loan_term_years: int = 25
+    max_interest_rate_pct: int = 0
+    min_dscr: float = 0.0
+    vacancy_reserve_pct: int = 4
+    capex_reserve_pct: int = 6
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class PropertyWorkbenchCandidateSnapshot:
     candidate_ref: str
     rank: int

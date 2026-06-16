@@ -8,6 +8,7 @@ from app.api.routes.landing_property_surface_contracts import PropertySurfaceSco
 from app.api.routes import landing_property_workspace_helpers
 from app.api.routes import landing_property_research
 from app.api.routes import landing_property_saved_searches
+from app.api.routes import landing_property_shortlist_panel
 from app.api.routes import public_tours
 from app.api.routes import landing_view_models
 from app.services import property_market_catalog
@@ -97,6 +98,15 @@ def test_propertyquarry_search_route_does_not_use_generic_workspace_search(monke
     assert "Search people, threads, commitments, decisions, deadlines, evidence, rules, and handoffs." not in response.text
 
 
+def test_propertyquarry_properties_route_redirects_to_search_without_a_run() -> None:
+    client = build_property_client(principal_id="pq-properties-redirects-to-search")
+    start_workspace(client, mode="personal", workspace_name="Search First Office")
+
+    response = client.get("/app/properties", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/app/search"
+
+
 def test_property_provider_options_expose_homepage_links() -> None:
     options = property_market_catalog.provider_options(country_code="AT")
     willhaben = next(option for option in options if option["value"] == "willhaben")
@@ -137,6 +147,29 @@ def test_property_surface_state_builds_billing_truth_snapshot() -> None:
     assert snapshot["checkout_provider"] == "payfunnels"
     assert snapshot["order_endpoint"] == "/billing/order"
     assert snapshot["fleet_digest"] == {"summary": "Visible"}
+
+
+def test_property_surface_state_builds_preference_manager_snapshot() -> None:
+    snapshot = property_surface_state.build_property_preference_manager_snapshot(
+        person_id="self",
+        raw_preference_nodes=[
+            {
+                "node_id": "node-1",
+                "domain": "willhaben",
+                "category": "constraint",
+                "key": "budget_max",
+                "value_json": 900000,
+                "strength": "high",
+                "status": "active",
+            }
+        ],
+        include_full_manager=True,
+        schema={"keys": ["budget_max"]},
+    )
+    assert snapshot["person_id"] == "self"
+    assert snapshot["schema"] == {"keys": ["budget_max"]}
+    assert snapshot["nodes"][0]["label"] == "Budget Max (Constraint)"
+    assert snapshot["active_nodes"][0]["node_id"] == "node-1"
 
 
 def test_property_surface_state_builds_run_health_snapshot() -> None:
@@ -357,6 +390,34 @@ def test_property_console_context_keeps_preference_profile_hydration_on_search(m
 
     assert seen["profile"] == 1
     assert context["preference_bundle"]["preference_nodes"][0]["node_id"] == "node-1"
+
+
+def test_property_console_context_keeps_preference_profile_hydration_on_account(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-account-profile")
+    seen = {"profile": 0, "learning": 0}
+
+    class _Product:
+        def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
+            seen["profile"] += 1
+            return {"preference_nodes": [{"node_id": "node-1", "key": "budget_max", "value_json": 900000}]}
+
+        def property_feedback_learning_summary(self, *, principal_id: str, person_id: str = "self", domain: str = "willhaben"):
+            seen["learning"] += 1
+            return {"summary": "Learning ready"}
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    context = landing_routes._property_console_context(
+        container=client.app.state.container,
+        principal_id="pq-account-profile",
+        status={"property_search_preferences": {"country_code": "AT"}},
+        surface_mode="account",
+    )
+
+    assert seen["profile"] == 1
+    assert seen["learning"] == 0
+    assert context["preference_bundle"]["preference_nodes"][0]["node_id"] == "node-1"
+    assert context["learning_summary"] == {}
 
 
 def test_property_properties_surface_skips_search_agent_snapshot_build(monkeypatch) -> None:
@@ -773,6 +834,114 @@ def test_property_run_reliability_summary_surfaces_repair_and_eta_state() -> Non
     assert reliability["coverage_label"] == "2/4 sources checked · 2 still running"
     assert reliability["result_label"] == "3 ranked results ready"
     assert reliability["filtered_label"] == "7 filtered by active rules"
+    assert reliability["repair"]["repair_status"] == "repairing"
+    assert reliability["repair"]["can_auto_repair"] is True
+
+
+def test_property_run_reliability_summary_surfaces_completed_partial_state() -> None:
+    reliability = landing_property_workspace_helpers._property_run_reliability_summary(
+        {
+            "status": "completed_partial",
+            "message": "One provider stayed degraded.",
+            "summary": {
+                "sources_total": 4,
+                "sources": [
+                    {"source_label": "A", "status": "completed"},
+                    {"source_label": "B", "status": "failed", "error": "HTTP 410"},
+                    {"source_label": "C", "status": "completed"},
+                    {"source_label": "D", "status": "completed"},
+                ],
+            },
+        },
+        results_total=4,
+    )
+
+    assert reliability["health_label"] == "Partial coverage"
+    assert reliability["health_tone"] == "warn"
+    assert reliability["customer_status_message"] == "One provider stayed degraded."
+    assert reliability["repair"]["repair_status"] == "degraded"
+    assert reliability["repair"]["repair_status_label"] == "Partial coverage"
+
+
+def test_property_surface_state_builds_run_repair_snapshot() -> None:
+    repair = property_surface_state.build_property_run_repair_snapshot(
+        {
+            "status": "running",
+            "progress": 44,
+            "eta_label": "about 6m",
+            "summary": {
+                "sources": [
+                    {"source_label": "A", "status": "completed"},
+                    {"source_label": "B", "status": "failed", "error": "HTTP 410"},
+                ],
+            },
+        },
+        results_total=2,
+    )
+
+    assert repair["repair_status"] == "repairing"
+    assert repair["repair_status_label"] == "Repairing"
+    assert repair["repair_step_label"] == "Retrying 1 source"
+    assert repair["repair_outcome_summary"] == "Some sources are retrying, but the current shortlist is already usable."
+    assert repair["eta_confidence_label"] == "Medium"
+    assert repair["can_auto_repair"] is True
+
+
+def test_property_surface_state_builds_run_reliability_snapshot() -> None:
+    reliability = property_surface_state.build_property_run_reliability_snapshot(
+        {
+            "status": "completed_partial",
+            "message": "One provider stayed degraded.",
+            "summary": {
+                "sources_total": 4,
+                "sources": [
+                    {"source_label": "A", "status": "completed"},
+                    {"source_label": "B", "status": "failed", "error": "HTTP 410"},
+                    {"source_label": "C", "status": "completed"},
+                    {"source_label": "D", "status": "completed"},
+                ],
+            },
+        },
+        results_total=4,
+    )
+
+    assert reliability["health_label"] == "Partial coverage"
+    assert reliability["repair_step_label"] == "Retrying 1 source"
+    assert reliability["repair"]["repair_status"] == "degraded"
+    assert reliability["customer_status_message"] == "One provider stayed degraded."
+
+
+def test_property_surface_state_builds_search_form_state_snapshot() -> None:
+    snapshot = property_surface_state.build_property_search_form_state_snapshot(
+        {
+            "country_code": "at",
+            "search_goal": "investment",
+            "listing_mode": "rent",
+            "investment_research_mode": "off",
+            "investment_strategy": "cash_flow",
+            "include_public_housing_signals": True,
+            "include_distressed_sale_signals": True,
+            "max_distance_to_playground_m": 500,
+            "use_stored_feedback_preferences": False,
+            "loan_term_years": "41",
+            "min_dscr": "4.0",
+            "vacancy_reserve_pct": "-3",
+        },
+        selected_listing_mode="rent",
+    )
+
+    assert snapshot["selected_country_code"] == "AT"
+    assert snapshot["selected_search_goal"] == "investment"
+    assert snapshot["selected_listing_mode"] == "buy"
+    assert snapshot["property_is_investment_search"] is True
+    assert snapshot["show_investment_underwriting_controls"] is False
+    assert snapshot["show_public_housing_policy_controls"] is False
+    assert snapshot["show_distressed_review_controls"] is True
+    assert snapshot["show_playground_importance_controls"] is False
+    assert snapshot["show_preference_profile_controls"] is False
+    assert snapshot["loan_term_years"] == 40
+    assert snapshot["min_dscr"] == 3.0
+    assert snapshot["vacancy_reserve_pct"] == 0
 
 
 def test_propertyquarry_results_template_marks_top_rank_and_watch_out_copy() -> None:
@@ -1757,6 +1926,100 @@ def test_property_workspace_payload_returns_decision_workbench_contract_shape() 
     assert payload["current_plan_label"] == "Agent"
 
 
+def test_property_billing_payload_skips_full_preference_manager_build(monkeypatch) -> None:
+    monkeypatch.setattr(
+        landing_view_models,
+        "_property_preference_schema",
+        lambda: (_ for _ in ()).throw(AssertionError("billing surface should not build the full preference manager schema")),
+    )
+
+    payload = landing_routes._property_workspace_payload(
+        "billing",
+        status={"workspace": {"name": "Billing Scope"}, "channels": {}},
+        property_state={
+            "preferences": {"country_code": "AT", "listing_mode": "buy"},
+            "commercial": {"current_plan_label": "Agent", "current_plan_key": "agent"},
+            "preference_bundle": {
+                "preference_nodes": [
+                    {"node_id": "node-1", "status": "active", "key": "budget_max", "value_json": 900000}
+                ]
+            },
+        },
+    )
+
+    preference_manager = dict(payload.get("preference_manager") or {})
+    assert preference_manager.get("schema") == {}
+    assert preference_manager.get("nodes") == []
+    assert len(list(preference_manager.get("active_nodes") or [])) == 1
+
+
+def test_property_search_posture_summary_hides_child_rows_when_parent_toggles_are_off() -> None:
+    payload = landing_routes._property_workspace_payload(
+        "properties",
+        status={"workspace": {"name": "Summary Hygiene"}, "channels": {}},
+        property_state={
+            "preferences": {
+                "country_code": "AT",
+                "search_goal": "investment",
+                "listing_mode": "buy",
+                "investment_research_mode": "off",
+                "investment_strategy": "cash_flow",
+                "min_gross_yield_pct": 6,
+                "equity_available_eur": 250000,
+                "min_dscr": 1.35,
+                "enable_commute_research": False,
+                "commute_destination": "Stephansplatz",
+                "additional_reachability_targets": "Praterstern",
+                "enable_lifestyle_research": False,
+                "university_name": "WU Wien",
+                "school_stage_preferences": ["volksschule"],
+                "require_school_evidence": True,
+                "school_quality_priority": "very_important",
+                "include_developer_project_signals": False,
+                "desired_project_stages": ["planned", "waitlist"],
+                "include_public_housing_signals": False,
+                "wiener_wohnticket_available": True,
+                "subsidized_required": True,
+                "miete_mit_kaufoption": True,
+                "eigenmittel_max_eur": 25000,
+                "application_window_days": 14,
+                "include_distressed_sale_signals": False,
+                "enable_auction_legal_review": True,
+            },
+            "commercial": {},
+            "preference_bundle": {},
+        },
+    )
+
+    search_posture_card = next(
+        card
+        for card in list(payload.get("primary_cards") or [])
+        if str(card.get("eyebrow") or "").strip() == "Search posture"
+    )
+    labels = {
+        str(item.get("title") or "").strip()
+        for item in list(search_posture_card.get("items") or [])
+        if isinstance(item, dict)
+    }
+    assert "Investment strategy" not in labels
+    assert "Minimum gross yield" not in labels
+    assert "Equity available" not in labels
+    assert "Minimum DSCR" not in labels
+    assert "Commute destination" not in labels
+    assert "Additional destinations" not in labels
+    assert "University focus" not in labels
+    assert "Children" not in labels
+    assert "School evidence" not in labels
+    assert "School evidence priority" not in labels
+    assert "Accepted project stages" not in labels
+    assert "Wiener Wohn-Ticket" not in labels
+    assert "Subsidized supply" not in labels
+    assert "Miete mit Kaufoption" not in labels
+    assert "Eigenmittel ceiling" not in labels
+    assert "Application window" not in labels
+    assert "Auction legal review" not in labels
+
+
 def test_property_dashboard_renders_previous_searches_with_compact_finished_results(monkeypatch) -> None:
     principal_id = "pq-previous-searches"
     client = build_property_client(principal_id=principal_id)
@@ -2407,6 +2670,84 @@ def test_propertyquarry_shortlist_uses_run_search_goal_over_saved_defaults(monke
     assert "Open the investment read." not in shortlist.text
 
 
+def test_propertyquarry_shortlist_panel_builds_cards_and_actions() -> None:
+    def _priority_reason(match_reasons: list[str], mismatch_reasons: list[str], fit_summary: str) -> str:
+        if match_reasons:
+            return match_reasons[0]
+        if mismatch_reasons:
+            return mismatch_reasons[0]
+        return fit_summary
+
+    rows, cards = landing_property_shortlist_panel.build_property_shortlist_panel(
+        property_summary={
+            "sources": [
+                {
+                    "source_label": "Willhaben",
+                    "top_candidates": [
+                        {
+                            "title": "Vienna family flat",
+                            "fit_summary": "Strong home fit near parks and daily errands.",
+                            "match_reasons": ["Near parks"],
+                            "mismatch_reasons": ["Needs a second bathroom"],
+                            "recommendation": "shortlist",
+                            "review_url": "https://example.test/review",
+                            "tour_url": "https://example.test/360",
+                            "property_url": "https://example.test/source",
+                            "property_facts": {
+                                "nearest_starbucks_m": 240,
+                                "future_change_research": {
+                                    "school_atlas_progression_summary": "Strong local AHS transition.",
+                                    "school_atlas_evidence_type": "verified",
+                                },
+                            },
+                            "feedback_rows": [{"label": "Daily life works"}],
+                        }
+                    ],
+                }
+            ]
+        },
+        property_preferences={},
+        active_run_id="run-42",
+        wants_run_views=True,
+        clean_candidate_copy=landing_view_models._clean_property_candidate_copy,
+        candidate_priority_reason=_priority_reason,
+        property_candidate_ref=landing_view_models._property_candidate_ref,
+    )
+
+    assert len(rows) == 1
+    assert len(cards) == 1
+    assert rows[0]["action_label"] == "Open property page"
+    assert rows[0]["secondary_action_label"] == "Open listing"
+    assert rows[0]["tertiary_action_label"] == "Open 360"
+    assert rows[0]["quaternary_action_label"] == "Source"
+    assert cards[0]["packet_url"].endswith("?run_id=run-42")
+    assert cards[0]["lifestyle_highlights"][0]["label"] == "Starbucks"
+    assert cards[0]["research_highlights"][0]["label"] == "School transition"
+    source_rows = landing_property_shortlist_panel.build_property_source_rows(
+        property_summary={
+            "sources": [
+                {
+                    "source_label": "Willhaben",
+                    "listing_total": 12,
+                    "high_fit_total": 3,
+                    "filtered_floorplan_total": 2,
+                    "tour_created_total": 1,
+                    "notified_total": 1,
+                    "email_notified_total": 1,
+                    "top_fit_score": 87.5,
+                }
+            ]
+        }
+    )
+    assert source_rows == [
+        {
+            "title": "Willhaben",
+            "detail": "12 listings | 3 high-fit | 2 still waiting on floorplans | 1 hosted tours | 1 client alerts | 1 email | top score 87.50",
+            "tag": "Scanned",
+        }
+    ]
+
+
 def test_property_search_analysis_cap_defaults_to_top_k_slice(monkeypatch) -> None:
     monkeypatch.delenv("PROPERTYQUARRY_SEARCH_ANALYSIS_CAP_PER_SOURCE", raising=False)
     assert _property_search_analysis_cap_per_source(max_results=2, candidate_total=31) == 6
@@ -2544,6 +2885,11 @@ def test_propertyquarry_workspace_exposes_investment_goal_and_guardrails() -> No
     assert "min_dscr: investmentResearchEnabled" in brief_script
     assert "const searchGoalField = form.querySelector('select[name=\"search_goal\"]');" in workbench_script
     assert "form.dataset.propertyExcludedSteps = 'children,reachability';" in workbench_script
+    assert "const resyncSearchFormState = () => {" in workbench_script
+    assert "}).finally(resyncSearchFormState);" in workbench_script
+    assert "const lifestyleDetailWraps = [" in workbench_script
+    assert "input[name=\"enable_lifestyle_research\"]')?.addEventListener('change', syncSearchGoalControls);" in workbench_script
+    assert "university_name: Boolean(form.querySelector('input[name=\"enable_lifestyle_research\"]')?.checked)" in brief_script
 
 
 def test_propertyquarry_workspace_surfaces_institutional_underwriting_language() -> None:
@@ -2638,6 +2984,12 @@ def test_propertyquarry_workspace_hides_underwriting_controls_when_investment_de
     assert 'data-property-field-name="investment_research_mode"' in search.text
     assert 'data-property-field-name="investment_strategy" hidden' in search.text
     assert 'data-property-field-name="min_gross_yield_pct" hidden' in search.text
+    assert 'data-property-field-name="equity_available_eur" hidden' in search.text
+    assert 'data-property-field-name="loan_term_years" hidden' in search.text
+    assert 'data-property-field-name="max_interest_rate_pct" hidden' in search.text
+    assert 'data-property-field-name="min_dscr" hidden' in search.text
+    assert 'data-property-field-name="vacancy_reserve_pct" hidden' in search.text
+    assert 'data-property-field-name="capex_reserve_pct" hidden' in search.text
     assert 'data-property-field-name="investment_require_floorplan" hidden' in search.text
     assert 'data-property-field-name="investment_require_legal_clarity" hidden' in search.text
 
@@ -2704,6 +3056,275 @@ def test_propertyquarry_workspace_hides_buy_only_provider_controls_for_rent_sear
     assert search.status_code == 200
     assert 'data-property-field-name="include_distressed_sale_signals" hidden' in search.text
     assert 'data-property-field-name="enable_auction_legal_review" hidden' in search.text
+
+
+def test_propertyquarry_workspace_hides_community_validation_when_community_signals_are_off() -> None:
+    principal_id = "pq-home-no-community-validation"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Community Scope Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "search_goal": "home",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "include_community_signals": False,
+            "require_manual_validation_for_community": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+    assert search.status_code == 200
+    assert 'data-property-field-name="include_community_signals"' in search.text
+    assert 'data-property-field-name="require_manual_validation_for_community" hidden' in search.text
+
+
+def test_propertyquarry_workspace_hides_public_housing_child_controls_when_public_housing_signals_are_off() -> None:
+    principal_id = "pq-rent-no-public-housing-children"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Public Housing Scope Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "search_goal": "home",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "include_public_housing_signals": False,
+            "wiener_wohnticket_available": True,
+            "subsidized_required": True,
+            "miete_mit_kaufoption": True,
+            "eigenmittel_max_eur": 50000,
+            "application_window_days": 14,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+    assert search.status_code == 200
+    assert 'data-property-field-name="include_public_housing_signals"' in search.text
+    assert 'data-property-field-name="wiener_wohnticket_available" hidden' in search.text
+    assert 'data-property-field-name="subsidized_required" hidden' in search.text
+    assert 'data-property-field-name="miete_mit_kaufoption" hidden' in search.text
+    assert 'data-property-field-name="eigenmittel_max_eur" hidden' in search.text
+    assert 'data-property-field-name="application_window_days" hidden' in search.text
+
+
+def test_propertyquarry_workspace_hides_project_stage_controls_when_developer_signals_are_off() -> None:
+    principal_id = "pq-no-developer-project-stage-children"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Developer Pipeline Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "search_goal": "home",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "include_developer_project_signals": False,
+            "desired_project_stages": ["planned", "waitlist"],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+    assert search.status_code == 200
+    assert 'data-property-field-name="include_developer_project_signals"' in search.text
+    assert 'data-property-field-name="desired_project_stages" hidden' in search.text
+
+
+def test_propertyquarry_workspace_hides_recurring_search_details_when_recurring_search_is_off() -> None:
+    principal_id = "pq-no-recurring-search-details"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Recurring Search Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "search_goal": "home",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "search_agent_enabled": False,
+            "search_agent_duration_days": 90,
+            "search_agent_notification_limit": 9,
+            "search_agent_notification_period": "week",
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+    assert search.status_code == 200
+    assert 'data-property-field-name="search_agent_enabled"' in search.text
+    assert 'data-property-field-name="search_agent_duration_days" hidden' in search.text
+    assert 'data-property-field-name="search_agent_notification_limit" hidden' in search.text
+    assert 'data-property-field-name="search_agent_notification_period" hidden' in search.text
+
+
+def test_propertyquarry_workspace_hides_preference_profile_when_stored_feedback_is_off() -> None:
+    principal_id = "pq-no-stored-feedback-profile"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Feedback Profile Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "search_goal": "home",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "use_stored_feedback_preferences": False,
+            "preference_person_id": "partner-profile",
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+    assert search.status_code == 200
+    assert 'data-property-field-name="use_stored_feedback_preferences"' in search.text
+    assert 'data-property-field-name="preference_person_id" hidden' in search.text
+
+
+def test_propertyquarry_workspace_hides_auction_review_when_distressed_signals_are_off() -> None:
+    principal_id = "pq-buy-no-distressed-review"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Auction Scope Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "search_goal": "home",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "include_distressed_sale_signals": False,
+            "enable_auction_legal_review": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+    assert search.status_code == 200
+    assert 'data-property-field-name="include_distressed_sale_signals"' in search.text
+    assert 'data-property-field-name="enable_auction_legal_review" hidden' in search.text
+
+
+def test_propertyquarry_workspace_hides_lifestyle_detail_controls_when_lifestyle_research_is_off() -> None:
+    principal_id = "pq-home-no-lifestyle-detail"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Lifestyle Scope Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "search_goal": "home",
+            "enable_lifestyle_research": False,
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "university_name": "WU",
+            "max_distance_to_university_m": 500,
+            "max_distance_to_starbucks_m": 300,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+    assert search.status_code == 200
+    assert 'data-property-field-name="enable_lifestyle_research"' in search.text
+    assert 'data-property-field-name="university_name" hidden' in search.text
+    assert 'data-property-field-name="max_distance_to_university_m" hidden' in search.text
+    assert 'data-property-field-name="max_distance_to_starbucks_m" hidden' in search.text
+    assert 'data-property-field-name="max_distance_to_fitness_center_m" hidden' in search.text
+    assert 'data-property-field-name="max_distance_to_cinema_m" hidden' in search.text
+    assert 'data-property-field-name="max_distance_to_bouldering_m" hidden' in search.text
+    assert 'data-property-field-name="max_distance_to_dog_park_m" hidden' in search.text
+    assert 'data-property-field-name="max_distance_to_good_cafe_m" hidden' in search.text
+
+
+def test_propertyquarry_workspace_hides_school_evidence_priority_when_school_evidence_is_inactive() -> None:
+    principal_id = "pq-home-no-school-evidence-priority"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="School Evidence Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "search_goal": "home",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "school_quality_priority": "very_important",
+            "require_school_evidence": False,
+            "school_stage_preferences": [],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+    assert search.status_code == 200
+    assert 'data-property-field-name="school_quality_priority" hidden' in search.text
+
+
+def test_propertyquarry_workspace_hides_distance_importance_controls_without_distance_caps() -> None:
+    principal_id = "pq-home-no-distance-importance"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Distance Importance Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "search_goal": "home",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "max_distance_to_playground_m": 0,
+            "max_distance_to_playground_importance": "must_have",
+            "max_distance_to_library_m": 0,
+            "max_distance_to_library_importance": "must_have",
+            "max_distance_to_supermarket_m": 0,
+            "max_distance_to_supermarket_importance": "must_have",
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+    assert search.status_code == 200
+    assert 'data-property-field-name="max_distance_to_playground_importance" hidden' in search.text
+    assert 'data-property-field-name="max_distance_to_library_importance" hidden' in search.text
+    assert 'data-property-field-name="max_distance_to_supermarket_importance" hidden' in search.text
 
 
 def test_propertyquarry_workspace_setup_stays_user_facing() -> None:
@@ -3104,10 +3725,10 @@ def test_propertyquarry_shell_uses_the_new_surface_navigation() -> None:
     client = build_property_client(principal_id="pq-surface-nav")
     start_workspace(client, mode="personal", workspace_name="Surface Nav")
 
-    response = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+    response = client.get("/app/search", headers={"host": "propertyquarry.com"})
     assert response.status_code == 200
-    assert ">Run<" in response.text
     assert ">Search<" in response.text
+    assert ">Run<" not in response.text
     assert ">Shortlist<" in response.text
     assert ">Automation<" in response.text
     assert ">Account<" in response.text

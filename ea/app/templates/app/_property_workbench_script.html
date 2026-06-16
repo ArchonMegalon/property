@@ -1138,6 +1138,17 @@
         form.querySelector('[data-property-field-name="vacancy_reserve_pct"]'),
         form.querySelector('[data-property-field-name="capex_reserve_pct"]'),
       ].filter(Boolean);
+      const setFieldsetEnabled = (wrap, enabled) => {
+        if (!(wrap instanceof HTMLElement)) return;
+        wrap.querySelectorAll('input, select, textarea, button').forEach((field) => {
+          if (!(field instanceof HTMLElement)) return;
+          if (enabled) {
+            field.removeAttribute('disabled');
+          } else if (!field.hasAttribute('data-tooltip-trigger') && field.getAttribute('type') !== 'hidden') {
+            field.setAttribute('disabled', 'disabled');
+          }
+        });
+      };
       const investmentGuardrailWraps = [
         form.querySelector('[data-property-field-name="investment_require_floorplan"]'),
         form.querySelector('[data-property-field-name="investment_require_legal_clarity"]'),
@@ -1146,6 +1157,19 @@
       ].filter(Boolean);
       const rentOnlyProviderPolicyWraps = [
         form.querySelector('[data-property-field-name="include_public_housing_signals"]'),
+        form.querySelector('[data-property-field-name="wiener_wohnticket_available"]'),
+        form.querySelector('[data-property-field-name="subsidized_required"]'),
+        form.querySelector('[data-property-field-name="miete_mit_kaufoption"]'),
+        form.querySelector('[data-property-field-name="eigenmittel_max_eur"]'),
+        form.querySelector('[data-property-field-name="application_window_days"]'),
+      ].filter(Boolean);
+      const communityValidationWraps = [
+        form.querySelector('[data-property-field-name="require_manual_validation_for_community"]'),
+      ].filter(Boolean);
+      const developerProjectStageWraps = [
+        form.querySelector('[data-property-field-name="desired_project_stages"]'),
+      ].filter(Boolean);
+      const publicHousingChildWraps = [
         form.querySelector('[data-property-field-name="wiener_wohnticket_available"]'),
         form.querySelector('[data-property-field-name="subsidized_required"]'),
         form.querySelector('[data-property-field-name="miete_mit_kaufoption"]'),
@@ -1161,13 +1185,28 @@
       const commuteResearchField = form.querySelector('input[name="enable_commute_research"]');
       const commuteResearchWrap = form.querySelector('[data-property-field-name="enable_commute_research"]');
       const lifestyleResearchWrap = form.querySelector('[data-property-field-name="enable_lifestyle_research"]');
+      const lifestyleDetailWraps = [
+        form.querySelector('[data-property-field-name="university_name"]'),
+        form.querySelector('[data-property-field-name="max_distance_to_university_m"]'),
+        form.querySelector('[data-property-field-name="max_distance_to_starbucks_m"]'),
+        form.querySelector('[data-property-field-name="max_distance_to_fitness_center_m"]'),
+        form.querySelector('[data-property-field-name="max_distance_to_cinema_m"]'),
+        form.querySelector('[data-property-field-name="max_distance_to_bouldering_m"]'),
+        form.querySelector('[data-property-field-name="max_distance_to_dog_park_m"]'),
+        form.querySelector('[data-property-field-name="max_distance_to_good_cafe_m"]'),
+      ].filter(Boolean);
       const schoolStageWrap = form.querySelector('[data-property-field-name="school_stage_preferences"]');
       const schoolQualityWrap = form.querySelector('[data-property-field-name="school_quality_priority"]');
+      const schoolEvidenceWrap = form.querySelector('[data-property-field-name="require_school_evidence"]');
       const playgroundDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_playground_m"]');
+      const playgroundImportanceWrap = form.querySelector('[data-property-field-name="max_distance_to_playground_importance"]');
       const libraryDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_library_m"]');
+      const libraryImportanceWrap = form.querySelector('[data-property-field-name="max_distance_to_library_importance"]');
       const zooDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_zoo_m"]');
       const publicPoolDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_public_pool_m"]');
       const medicalCareDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_medical_care_m"]');
+      const supermarketDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_supermarket_m"]');
+      const supermarketImportanceWrap = form.querySelector('[data-property-field-name="max_distance_to_supermarket_importance"]');
       const commuteDetailWraps = [
         form.querySelector('[data-property-field-name="commute_destination"]'),
         form.querySelector('[data-property-field-name="additional_reachability_targets"]'),
@@ -1179,6 +1218,14 @@
       ].filter(Boolean);
       const fullRegionScopeField = form.querySelector('input[name="full_region_scope"]');
       const preferencePersonField = form.querySelector('[name="preference_person_id"]');
+      const useStoredFeedbackPreferencesField = form.querySelector('input[name="use_stored_feedback_preferences"]');
+      const preferencePersonWrap = form.querySelector('[data-property-field-name="preference_person_id"]');
+      const searchAgentEnabledField = form.querySelector('input[name="search_agent_enabled"]');
+      const searchAgentDetailWraps = [
+        form.querySelector('[data-property-field-name="search_agent_duration_days"]'),
+        form.querySelector('[data-property-field-name="search_agent_notification_limit"]'),
+        form.querySelector('[data-property-field-name="search_agent_notification_period"]'),
+      ].filter(Boolean);
       const fullRegionScopeFieldWrap = form.querySelector('[data-property-field-name="full_region_scope"]');
       const locationFieldWrap = form.querySelector('[data-property-field-name="location_query"]');
       const rawPlanPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
@@ -1231,6 +1278,12 @@
         const rentMode = currentEffectiveMode !== 'buy';
         const buyMode = !rentMode;
         const investmentResearchEnabled = isInvestment && String(investmentField?.value || 'off').trim().toLowerCase() !== 'off';
+        const communitySignalsEnabled = Boolean(form.querySelector('input[name="include_community_signals"]')?.checked);
+        const developerProjectSignalsEnabled = Boolean(form.querySelector('input[name="include_developer_project_signals"]')?.checked);
+        const storedFeedbackPreferencesEnabled = Boolean(useStoredFeedbackPreferencesField?.checked);
+        const searchAgentEnabled = Boolean(searchAgentEnabledField?.checked);
+        const publicHousingSignalsEnabled = rentMode && Boolean(form.querySelector('input[name="include_public_housing_signals"]')?.checked);
+        const distressedSignalsEnabled = buyMode && Boolean(form.querySelector('input[name="include_distressed_sale_signals"]')?.checked);
         if (listingModeFieldWrap) {
           listingModeFieldWrap.hidden = isInvestment || activeStep !== 'search';
           listingModeFieldWrap.toggleAttribute('aria-hidden', listingModeFieldWrap.hidden);
@@ -1239,13 +1292,40 @@
         investmentSearchDetailWraps.forEach((wrap) => {
           wrap.hidden = !investmentResearchEnabled || activeStep !== 'search';
           wrap.toggleAttribute('aria-hidden', wrap.hidden);
+          setFieldsetEnabled(wrap, !wrap.hidden);
         });
         investmentGuardrailWraps.forEach((wrap) => {
           wrap.hidden = !investmentResearchEnabled || activeStep !== 'areas';
           wrap.toggleAttribute('aria-hidden', wrap.hidden);
+          setFieldsetEnabled(wrap, !wrap.hidden);
         });
         rentOnlyProviderPolicyWraps.forEach((wrap) => {
           const shouldShow = rentMode && activeStep === 'providers';
+          wrap.hidden = !shouldShow;
+          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+        });
+        communityValidationWraps.forEach((wrap) => {
+          const shouldShow = communitySignalsEnabled && activeStep === 'providers';
+          wrap.hidden = !shouldShow;
+          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+        });
+        developerProjectStageWraps.forEach((wrap) => {
+          const shouldShow = developerProjectSignalsEnabled && activeStep === 'research';
+          wrap.hidden = !shouldShow;
+          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+        });
+        if (preferencePersonWrap) {
+          const shouldShow = storedFeedbackPreferencesEnabled && activeStep === 'areas';
+          preferencePersonWrap.hidden = !shouldShow;
+          preferencePersonWrap.toggleAttribute('aria-hidden', preferencePersonWrap.hidden);
+        }
+        searchAgentDetailWraps.forEach((wrap) => {
+          const shouldShow = searchAgentEnabled && activeStep === 'providers';
+          wrap.hidden = !shouldShow;
+          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+        });
+        publicHousingChildWraps.forEach((wrap) => {
+          const shouldShow = publicHousingSignalsEnabled && activeStep === 'providers';
           wrap.hidden = !shouldShow;
           wrap.toggleAttribute('aria-hidden', wrap.hidden);
         });
@@ -1255,7 +1335,7 @@
           wrap.toggleAttribute('aria-hidden', wrap.hidden);
         });
         buyOnlyResearchWraps.forEach((wrap) => {
-          const shouldShow = buyMode && activeStep === 'research';
+          const shouldShow = distressedSignalsEnabled && activeStep === 'research';
           wrap.hidden = !shouldShow;
           wrap.toggleAttribute('aria-hidden', wrap.hidden);
         });
@@ -1267,6 +1347,37 @@
           lifestyleResearchWrap.hidden = isInvestment || activeStep !== 'areas';
           lifestyleResearchWrap.toggleAttribute('aria-hidden', lifestyleResearchWrap.hidden);
         }
+        const selectedSchoolStages = !isInvestment ? checkedValues(form, 'school_stage_preferences') : [];
+        const schoolEvidenceEnabled = !isInvestment && (
+          selectedSchoolStages.length > 0
+          || Boolean(form.querySelector('input[name="require_school_evidence"]')?.checked)
+        );
+        if (schoolQualityWrap) {
+          const shouldShow = schoolEvidenceEnabled && activeStep === 'children';
+          schoolQualityWrap.hidden = !shouldShow;
+          schoolQualityWrap.toggleAttribute('aria-hidden', schoolQualityWrap.hidden);
+        }
+        if (playgroundImportanceWrap) {
+          const shouldShow = !isInvestment && integerValue(form, 'max_distance_to_playground_m') !== null && activeStep === 'children';
+          playgroundImportanceWrap.hidden = !shouldShow;
+          playgroundImportanceWrap.toggleAttribute('aria-hidden', playgroundImportanceWrap.hidden);
+        }
+        if (libraryImportanceWrap) {
+          const shouldShow = !isInvestment && integerValue(form, 'max_distance_to_library_m') !== null && activeStep === 'children';
+          libraryImportanceWrap.hidden = !shouldShow;
+          libraryImportanceWrap.toggleAttribute('aria-hidden', libraryImportanceWrap.hidden);
+        }
+        if (supermarketImportanceWrap) {
+          const shouldShow = integerValue(form, 'max_distance_to_supermarket_m') !== null && activeStep === 'areas';
+          supermarketImportanceWrap.hidden = !shouldShow;
+          supermarketImportanceWrap.toggleAttribute('aria-hidden', supermarketImportanceWrap.hidden);
+        }
+        const lifestyleEnabled = !isInvestment && Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked);
+        lifestyleDetailWraps.forEach((wrap) => {
+          const shouldShow = lifestyleEnabled && activeStep === 'areas';
+          wrap.hidden = !shouldShow;
+          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+        });
         if (isInvestment) {
           if (commuteResearchField) commuteResearchField.checked = false;
           const lifestyleField = form.querySelector('input[name="enable_lifestyle_research"]');
@@ -1282,18 +1393,72 @@
           if (distressedField) distressedField.checked = false;
           if (auctionField) auctionField.checked = false;
         } else {
+          const communityValidationField = form.querySelector('input[name="require_manual_validation_for_community"]');
           const publicHousingField = form.querySelector('input[name="include_public_housing_signals"]');
           const wohnticketField = form.querySelector('input[name="wiener_wohnticket_available"]');
           const subsidizedField = form.querySelector('input[name="subsidized_required"]');
           const kaufoptionField = form.querySelector('input[name="miete_mit_kaufoption"]');
           const eigenmittelField = form.querySelector('[name="eigenmittel_max_eur"]');
           const applicationWindowField = form.querySelector('[name="application_window_days"]');
+          if (communityValidationField && !communitySignalsEnabled) communityValidationField.checked = false;
           if (publicHousingField) publicHousingField.checked = false;
           if (wohnticketField) wohnticketField.checked = false;
           if (subsidizedField) subsidizedField.checked = false;
           if (kaufoptionField) kaufoptionField.checked = false;
           if (eigenmittelField) eigenmittelField.value = '0';
           if (applicationWindowField) applicationWindowField.value = '0';
+        }
+        if (!developerProjectSignalsEnabled) {
+          form.querySelectorAll('input[name="desired_project_stages"]').forEach((field) => { field.checked = false; });
+        }
+        if (!schoolEvidenceEnabled) {
+          const schoolEvidenceField = form.querySelector('input[name="require_school_evidence"]');
+          const schoolQualityField = form.querySelector('[name="school_quality_priority"]');
+          if (schoolEvidenceField && !selectedSchoolStages.length) schoolEvidenceField.checked = false;
+          if (schoolQualityField) schoolQualityField.value = 'any';
+        }
+        if (integerValue(form, 'max_distance_to_playground_m') === null) {
+          const playgroundImportanceField = form.querySelector('[name="max_distance_to_playground_importance"]');
+          if (playgroundImportanceField) playgroundImportanceField.value = 'important';
+        }
+        if (integerValue(form, 'max_distance_to_library_m') === null) {
+          const libraryImportanceField = form.querySelector('[name="max_distance_to_library_importance"]');
+          if (libraryImportanceField) libraryImportanceField.value = 'nice_to_have';
+        }
+        if (integerValue(form, 'max_distance_to_supermarket_m') === null) {
+          const supermarketImportanceField = form.querySelector('[name="max_distance_to_supermarket_importance"]');
+          if (supermarketImportanceField) supermarketImportanceField.value = 'important';
+        }
+        if (!storedFeedbackPreferencesEnabled && preferencePersonField) {
+          preferencePersonField.value = 'self';
+        }
+        if (!searchAgentEnabled) {
+          const searchAgentDurationField = form.querySelector('[name="search_agent_duration_days"]');
+          const searchAgentNotificationLimitField = form.querySelector('[name="search_agent_notification_limit"]');
+          const searchAgentNotificationPeriodField = form.querySelector('[name="search_agent_notification_period"]');
+          if (searchAgentDurationField) searchAgentDurationField.value = '30';
+          if (searchAgentNotificationLimitField) searchAgentNotificationLimitField.value = '5';
+          if (searchAgentNotificationPeriodField) searchAgentNotificationPeriodField.value = 'day';
+        }
+        if (!communitySignalsEnabled) {
+          const communityValidationField = form.querySelector('input[name="require_manual_validation_for_community"]');
+          if (communityValidationField) communityValidationField.checked = false;
+        }
+        if (!publicHousingSignalsEnabled) {
+          const wohnticketField = form.querySelector('input[name="wiener_wohnticket_available"]');
+          const subsidizedField = form.querySelector('input[name="subsidized_required"]');
+          const kaufoptionField = form.querySelector('input[name="miete_mit_kaufoption"]');
+          const eigenmittelField = form.querySelector('[name="eigenmittel_max_eur"]');
+          const applicationWindowField = form.querySelector('[name="application_window_days"]');
+          if (wohnticketField) wohnticketField.checked = false;
+          if (subsidizedField) subsidizedField.checked = false;
+          if (kaufoptionField) kaufoptionField.checked = false;
+          if (eigenmittelField) eigenmittelField.value = '0';
+          if (applicationWindowField) applicationWindowField.value = '0';
+        }
+        if (!distressedSignalsEnabled) {
+          const auctionField = form.querySelector('input[name="enable_auction_legal_review"]');
+          if (auctionField) auctionField.checked = false;
         }
         const nextEffectiveMode = currentEffectiveMode;
         if (previousEffectiveMode !== nextEffectiveMode) syncProviderOptionsForMarket();
@@ -1383,9 +1548,17 @@
         form.dataset.propertyManualGeography = '1';
       };
       const geographyLocked = () => String(form.dataset.propertyManualGeography || '').trim() === '1';
+      const resyncSearchFormState = () => {
+        syncAreaScopeControls();
+        syncListingModeControls();
+        syncCommuteControls();
+        syncFamilyModeControls();
+        syncSearchGoalControls();
+        syncMarketAwareFields(form, meta);
+      };
       const applyPreferenceProfile = () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncAreaScopeControls, {
         preserveGeography: geographyLocked(),
-      }).finally(syncFamilyModeControls);
+      }).finally(resyncSearchFormState);
       const refreshRegionAndLocationChoices = () => {
         const regionCatalog = meta.region_catalog_by_country || {};
         const locationCatalog = meta.location_catalog_by_country_region || {};
@@ -1462,6 +1635,7 @@
       });
       preferencePersonField?.addEventListener('change', applyPreferenceProfile);
       preferencePersonField?.addEventListener('blur', applyPreferenceProfile);
+      useStoredFeedbackPreferencesField?.addEventListener('change', syncSearchGoalControls);
       regionField?.addEventListener('input', markManualGeographySelection);
       regionField?.addEventListener('change', () => {
         markManualGeographySelection();
@@ -1480,6 +1654,7 @@
         syncListingModeControls();
       });
       commuteResearchField?.addEventListener('change', syncCommuteControls);
+      form.querySelector('input[name="enable_lifestyle_research"]')?.addEventListener('change', syncSearchGoalControls);
       form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));
       form.querySelectorAll('[data-property-show-unavailable]').forEach((node) => node.addEventListener('change', () => syncMarketAwareFields(form, meta)));
       form.querySelectorAll('[data-checkbox-group-select-all]').forEach((button) => {
@@ -1549,12 +1724,12 @@
       });
       searchGoalField?.addEventListener('change', syncSearchGoalControls);
       investmentField?.addEventListener('change', syncSearchGoalControls);
-      syncAreaScopeControls();
-      syncListingModeControls();
-      syncCommuteControls();
-      syncFamilyModeControls();
-      syncSearchGoalControls();
-      syncMarketAwareFields(form, meta);
+      form.querySelector('input[name="include_community_signals"]')?.addEventListener('change', syncSearchGoalControls);
+      form.querySelector('input[name="include_developer_project_signals"]')?.addEventListener('change', syncSearchGoalControls);
+      form.querySelector('input[name="include_public_housing_signals"]')?.addEventListener('change', syncSearchGoalControls);
+      form.querySelector('input[name="include_distressed_sale_signals"]')?.addEventListener('change', syncSearchGoalControls);
+      searchAgentEnabledField?.addEventListener('change', syncSearchGoalControls);
+      resyncSearchFormState();
       syncSelectAllButtons(form, planPlatformCap);
       applyBrowserAndIpDefaults().finally(applyPreferenceProfile);
     }

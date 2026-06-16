@@ -21,7 +21,8 @@ class PropertySurfaceScope:
     wants_run_state: bool
     wants_recent_runs: bool
     wants_recent_matches: bool
-    wants_learning: bool
+    wants_preference_profile: bool
+    wants_learning_summary: bool
     wants_search_runs: bool
     wants_agent_views: bool
     wants_credit_digest: bool
@@ -37,7 +38,8 @@ class PropertySurfaceScope:
             wants_run_state=normalized in {"properties", "shortlist"},
             wants_recent_runs=normalized in {"properties", "search", "shortlist", "agents"},
             wants_recent_matches=normalized in {"shortlist"},
-            wants_learning=normalized in {"search"},
+            wants_preference_profile=normalized in {"search", "account"},
+            wants_learning_summary=normalized in {"search"},
             wants_search_runs=normalized in {"search", "shortlist", "agents"},
             wants_agent_views=normalized == "agents",
             wants_credit_digest=normalized in {"agents", "account", "billing"},

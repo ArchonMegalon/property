@@ -37,6 +37,7 @@ from app.api.routes.landing_property_workspace_helpers import (
 )
 from app.product.property_surface_state import (
     build_property_empty_outcome_summary,
+    build_property_preference_manager_snapshot,
     build_property_previous_run_summary,
     build_property_shortlist_snapshot,
     build_property_workbench_candidate_snapshot,
@@ -72,6 +73,7 @@ def property_workspace_payload(
     wants_agent_views = surface_scope.wants_agent_views
     wants_credit_digest = surface_scope.wants_credit_digest
     wants_run_views = surface_scope.wants_run_views
+    wants_full_preference_manager = normalized_section == "account"
     base = app_section_payload("properties", status, live_feed=(), property_context=property_state)
     cards = list(base.get("cards") or [])
     cards_by_eyebrow = {
@@ -105,11 +107,15 @@ def property_workspace_payload(
     property_preferences = dict(property_state.get("preferences") or {})
     preference_person_id = str(property_state.get("preference_person_id") or property_preferences.get("preference_person_id") or "self").strip() or "self"
     preference_bundle = dict(property_state.get("preference_bundle") or {})
-    raw_preference_nodes = [
-        dict(row)
-        for row in list(preference_bundle.get("preference_nodes") or [])
-        if isinstance(row, dict)
-    ]
+    raw_preference_nodes = (
+        [
+            dict(row)
+            for row in list(preference_bundle.get("preference_nodes") or [])
+            if isinstance(row, dict)
+        ]
+        if preference_bundle
+        else []
+    )
     workspace = dict(status.get("workspace") or {})
     channels = dict(status.get("channels") or {})
     google = dict(channels.get("google") or {})
@@ -299,48 +305,12 @@ def property_workspace_payload(
     selected_agent_open_href = selected_agent_context["selected_agent_open_href"]
     selected_agent_edit_href = selected_agent_context["selected_agent_edit_href"]
 
-    def _preference_value_label(value: object) -> str:
-        if isinstance(value, list):
-            return ", ".join(str(item).strip() for item in value if str(item).strip()) or "empty list"
-        if isinstance(value, dict):
-            return ", ".join(f"{key}: {item}" for key, item in value.items() if str(key).strip()) or "empty object"
-        if isinstance(value, bool):
-            return "yes" if value else "no"
-        return str(value if value is not None else "").strip() or "empty"
-
-    def _preference_key_label(row: dict[str, object]) -> str:
-        key = str(row.get("key") or "").strip().replace("_", " ")
-        category = str(row.get("category") or "").strip().replace("_", " ")
-        return (key or "Preference").title() + (f" ({category.title()})" if category else "")
-
-    preference_manager_nodes = [
-        {
-            "node_id": str(row.get("node_id") or "").strip(),
-            "domain": str(row.get("domain") or "").strip() or "willhaben",
-            "category": str(row.get("category") or "").strip() or "soft_preference",
-            "key": str(row.get("key") or "").strip(),
-            "label": _preference_key_label(row),
-            "value_label": _preference_value_label(row.get("value_json")),
-            "value_json": row.get("value_json"),
-            "strength": str(row.get("strength") or "medium").strip() or "medium",
-            "confidence": row.get("confidence") or 0,
-            "source_mode": str(row.get("source_mode") or "").strip(),
-            "status": str(row.get("status") or "").strip().lower() or "active",
-            "updated_at": str(row.get("updated_at") or "").strip(),
-        }
-        for row in raw_preference_nodes
-        if str(row.get("node_id") or "").strip()
-    ]
-    preference_manager_nodes.sort(key=lambda row: (str(row.get("status") or "") != "active", str(row.get("label") or "").lower()))
-    preference_manager = {
-        "person_id": preference_person_id,
-        "nodes": preference_manager_nodes,
-        "active_nodes": [row for row in preference_manager_nodes if str(row.get("status") or "") == "active"],
-        "schema": _property_preference_schema(),
-        "bundle_endpoint": f"/app/api/people/{preference_person_id}/preference-profile",
-        "node_endpoint": f"/app/api/people/{preference_person_id}/preference-profile/nodes",
-        "archive_endpoint_template": f"/app/api/people/{preference_person_id}/preference-profile/nodes/__NODE_ID__/archive",
-    }
+    preference_manager = build_property_preference_manager_snapshot(
+        person_id=preference_person_id,
+        raw_preference_nodes=raw_preference_nodes,
+        include_full_manager=wants_full_preference_manager,
+        schema=_property_preference_schema() if wants_full_preference_manager else {},
+    )
 
     def _tour_source_gap_detail(candidate: dict[str, object]) -> str:
         blocked_reason = str(candidate.get("blocked_reason") or "").strip()

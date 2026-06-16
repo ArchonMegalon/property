@@ -786,7 +786,8 @@ def _property_console_context(
     wants_run_state = surface_scope.wants_run_state
     wants_recent_runs = surface_scope.wants_recent_runs
     wants_recent_matches = surface_scope.wants_recent_matches
-    wants_learning = surface_scope.wants_learning
+    wants_preference_profile = surface_scope.wants_preference_profile
+    wants_learning_summary = surface_scope.wants_learning_summary
     raw_property_preferences = dict(status.get("property_search_preferences") or {})
     preferences = normalize_property_search_preferences(dict(raw_property_preferences.get("raw_preferences") or raw_property_preferences))
     selected_country = normalize_country_code(preferences.get("country_code"))
@@ -958,7 +959,7 @@ def _property_console_context(
                     break
         except Exception:
             recent_matches = []
-    if wants_learning:
+    if wants_preference_profile:
         try:
             preference_bundle = dict(
                 product.get_preference_profile(
@@ -969,7 +970,7 @@ def _property_console_context(
             )
         except Exception:
             preference_bundle = {}
-    if wants_learning:
+    if wants_learning_summary:
         try:
             learning_summary = dict(
                 product.property_feedback_learning_summary(
@@ -2585,6 +2586,20 @@ def app_shell(
             if resolved_section in property_sections or resolved_section == "properties"
             else None
         )
+        if (
+            property_brand
+            and resolved_section == "properties"
+            and not str(run_id or "").strip()
+            and isinstance(property_context, dict)
+        ):
+            route_run = dict(property_context.get("run") or {}) if isinstance(property_context.get("run"), dict) else {}
+            route_run_id = str(route_run.get("run_id") or "").strip()
+            if not route_run_id:
+                query = str(request.url.query or "").strip()
+                target = "/app/search"
+                if query:
+                    target = f"{target}?{query}"
+                return RedirectResponse(target, status_code=307)
         if property_context is not None and property_brand:
             property_context["surface_mode"] = current_nav
             if PropertySurfaceScope.for_section(resolved_section).wants_credit_digest:
