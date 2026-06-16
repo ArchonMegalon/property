@@ -3397,33 +3397,43 @@ def app_section_payload(
             "wizard_steps": [
                 {
                     "key": "search",
-                    "label": "Market",
-                    "detail": "Goal, market, and budget.",
+                    "label": "Market" if property_is_investment_search else "Where",
+                    "detail": "Market, listing mode, and budget."
+                    if property_is_investment_search
+                    else "Country, city, and the first budget line.",
                 },
                 {
                     "key": "areas",
-                    "label": "Areas",
-                    "detail": "Areas, spillover distance, and key filters.",
+                    "label": "Strategy" if property_is_investment_search else "Home shape",
+                    "detail": "Target areas, spillover distance, and investment guardrails."
+                    if property_is_investment_search
+                    else "Areas, spillover distance, and the home shape that should survive the cut.",
                 },
                 {
                     "key": "children",
-                    "label": "Family",
-                    "detail": "Playgrounds, schools, and childcare.",
+                    "label": "Guardrails" if property_is_investment_search else "Daily life",
+                    "detail": "Execution risk, legal posture, and which weak listings should be excluded."
+                    if property_is_investment_search
+                    else "Schools, childcare, and the everyday context that should stay explicit.",
                 },
                 {
                     "key": "reachability",
-                    "label": "Commute",
-                    "detail": "Destinations, travel modes, and time limits.",
+                    "label": "Evidence" if property_is_investment_search else "Reachability",
+                    "detail": "How much underwriting and supporting evidence the shortlist needs."
+                    if property_is_investment_search
+                    else "Destinations, travel modes, and time limits that change the ranking.",
                 },
                 {
                     "key": "research",
-                    "label": "Research",
-                    "detail": "Risk, supply, investment, and evidence depth.",
+                    "label": "Underwriting" if property_is_investment_search else "Research depth",
+                    "detail": "Return, risk, and external evidence depth."
+                    if property_is_investment_search
+                    else "Risk, supply, and how much evidence each strong match should carry.",
                 },
                 {
                     "key": "providers",
                     "label": "Sources",
-                    "detail": "Choose sources, then save or launch.",
+                    "detail": "Choose trusted sources, then save or launch.",
                 },
             ],
         },
@@ -3830,6 +3840,60 @@ def property_workspace_payload(
         if isinstance(item, dict)
     ]
     fleet_digest_summary = str(fleet_digest.get("summary") or fleet_digest.get("preview_text") or "").strip()
+    def _local_int(value: object) -> int:
+        try:
+            if value not in (None, ""):
+                return int(float(value))
+        except Exception:
+            pass
+        return 0
+    fleet_digest_stats = dict(fleet_digest.get("stats") or {}) if isinstance(fleet_digest.get("stats"), dict) else {}
+    visible_credits = _local_int(fleet_digest_stats.get("visible_credits"))
+    runway_hours = _local_int(fleet_digest_stats.get("runway_hours"))
+    active_fleet_lanes = _local_int(fleet_digest_stats.get("active_lanes"))
+    queued_fleet_lanes = _local_int(fleet_digest_stats.get("queued_lanes"))
+    failed_fleet_lanes = _local_int(fleet_digest_stats.get("failed_lanes"))
+    stalled_fleet_lanes = _local_int(fleet_digest_stats.get("stalled_lanes"))
+    improvement_loop_enabled = bool(int(fleet_digest_stats.get("improvement_loop_enabled") or 0))
+    credit_truth_rows = [
+        row_item(
+            "Visible credits",
+            f"{visible_credits:,} credits visible" if visible_credits else "No live credit total is visible yet.",
+            "Live" if visible_credits else "Pending",
+        ),
+        row_item(
+            "Runway",
+            f"About {runway_hours}h at the current burn rate." if runway_hours else "Runway is waiting for a verified burn estimate.",
+            "Estimated" if runway_hours else "Pending",
+        ),
+        row_item(
+            "Improvement gate",
+            "Continuous improvement can keep running." if improvement_loop_enabled else "Held at the reserve floor until more credits are visible.",
+            "Open" if improvement_loop_enabled else "Held",
+        ),
+    ]
+    repair_truth_rows = [
+        row_item(
+            "Repair lanes",
+            " · ".join(
+                part
+                for part in (
+                    f"{active_fleet_lanes} active" if active_fleet_lanes else "",
+                    f"{queued_fleet_lanes} queued" if queued_fleet_lanes else "",
+                    f"{failed_fleet_lanes} failed" if failed_fleet_lanes else "",
+                    f"{stalled_fleet_lanes} stalled" if stalled_fleet_lanes else "",
+                )
+                if part
+            )
+            or "No live repair telemetry is visible yet.",
+            "Repair",
+        ),
+        row_item(
+            "Digest",
+            fleet_digest_summary or "Repair and credit digests will appear here once the next refresh completes.",
+            "Digest",
+        ),
+    ]
     packet_ready_total = sum(
         1
         for candidate in shortlist_candidates
@@ -4924,8 +4988,8 @@ def property_workspace_payload(
         "agents": [
             {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring briefs available for editing and rerunning.", "href": f"/app/agents{run_suffix}"},
             {"label": "Active", "value": str(sum(1 for agent in property_search_agents if agent.get("enabled"))), "detail": "Agents allowed to send matching updates.", "href": f"/app/agents{run_suffix}"},
-            {"label": "Notification window", "value": str(property_search_agent.get("notification_label") or "Set per agent"), "detail": "Each agent ranks down to the allowed message budget.", "href": f"/app/agents{run_suffix}"},
-            {"label": "Reports", "value": "Email", "detail": "Digests and repair notes can leave through the automation lane.", "href": f"/app/agents{run_suffix}"},
+            {"label": "Delivery", "value": str(property_search_agent.get("notification_label") or "Set per agent"), "detail": "Each recurring search ranks down to the allowed message budget.", "href": f"/app/agents{run_suffix}"},
+            {"label": "Reports", "value": "Email", "detail": "Digests, repair notes, and market watches leave from this lane.", "href": f"/app/agents{run_suffix}"},
         ],
         "billing": [
             {"label": "Plan", "value": current_plan_label, "detail": "Current commercial posture.", "href": f"/app/billing{run_suffix}"},
@@ -5197,12 +5261,12 @@ def property_workspace_payload(
                 else ("Keep the run visible until the shortlist is ready." if run_in_progress else "No run is active right now.")
             ),
             "hero_summary": (
-                "Once the run is done, keep the result surface simple: one ranked table, property pages, and clear 360 status."
+                "Once the run is done, keep this surface focused on completion truth: final coverage, property pages prepared, and whether anything still needs repair."
                 if run_status_value in {"processed", "completed"} and results_table_rows
                 else (
-                    "Show only progress, source coverage, repair state, and the first usable signals until the final ranked table is ready."
+                    "Show only health, source coverage, repair state, and the next useful update until the final ranked shortlist is ready."
                     if run_in_progress
-                    else "Search setup now lives in Search. This surface should answer whether the latest sweep is healthy and what it already produced."
+                    else "Search setup now lives in Search. This surface should answer whether the latest sweep is healthy, what it already produced, and whether repair work is still needed."
                 )
             ),
             "hero_actions": [{"href": f"/app/search{run_suffix}", "label": "Open search"}, {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"}] if run_in_progress else (hero_actions["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
@@ -5231,17 +5295,17 @@ def property_workspace_payload(
         },
         "shortlist": {
             "title": "Shortlist",
-            "summary": "Keep the strongest candidates in one ranked lane and record preference feedback directly on the cards.",
+            "summary": "Use one ranked decision table for the strongest candidates and open the full property page only when a card deserves it.",
             "hero_kicker": "Shortlist",
-            "hero_title": "Review the properties that deserve attention now.",
-            "hero_summary": "This surface is only for ranked candidates, quick comparison, and opening the full property page. Search setup and worker mechanics stay out.",
+            "hero_title": "Review the best candidates before you open deeper property pages.",
+            "hero_summary": "This surface is the answer lane: ranked candidates, quick comparison, explicit watch-outs, and the jump into one full property page. Search setup and worker mechanics stay out.",
             "hero_actions": hero_actions["shortlist"],
             "hero_highlights": hero_highlights["shortlist"],
             "primary_cards": [
                 {
-                    "eyebrow": "At a glance",
-                    "title": "Compare the top shortlist before opening deeper property pages",
-                    "body": "The first scan should show which candidate looks strongest right now without forcing the user to open five pages.",
+                    "eyebrow": "Decision table",
+                    "title": "Compare the top shortlist before you open a single full property page",
+                    "body": "The first scan should make the top candidate obvious, the main watch-out explicit, and the next property page worth opening clear.",
                     "items": compare_rows or [row_item("No ranked shortlist yet", "Complete the next run and this panel becomes the first comparison desk for the leading candidates.", "First run")],
                 },
                 shortlist_card,
@@ -5330,24 +5394,24 @@ def property_workspace_payload(
         },
         "agents": {
             "title": "Automation",
-            "summary": "Manage recurring searches, notification budgets, repair policy, and the reports behind each ongoing market watch.",
+            "summary": "Run recurring market watches, reports, delivery limits, and repair policy from one automation control plane.",
             "hero_kicker": "Automation",
-            "hero_title": str((selected_agent or {}).get("name") or "Manage the recurring searches and reports that keep watching the market."),
+            "hero_title": str((selected_agent or {}).get("name") or "Control recurring searches, reports, and repair policy."),
             "hero_summary": (
-                f"{str((selected_agent or {}).get('scope_label') or '').strip()} | {str((selected_agent or {}).get('delivery_label') or '').strip()} | {str((selected_agent_latest_run or {}).get('held_back_total') or 0)} filtered on the latest finished run. Recurring searches, digests, and repair state belong here; live search workers belong on the run surface."
+                f"{str((selected_agent or {}).get('scope_label') or '').strip()} | {str((selected_agent or {}).get('delivery_label') or '').strip()} | {str((selected_agent_latest_run or {}).get('held_back_total') or 0)} filtered on the latest finished run. Recurring searches, delivery, digests, and repair state belong here; live search workers belong on the Run surface."
                 if selected_agent
-                else "Each recurring search owns one saved brief, message budget, report posture, and repair history. Search workers are separate: they are the parallel lanes used during one live run."
+                else "Each recurring search owns one saved brief, delivery budget, report posture, and repair history. Search workers are separate: they are the parallel lanes used during one live run."
             ),
             "hero_actions": hero_actions["agents"],
             "hero_highlights": hero_highlights["agents"],
             "primary_cards": [
                 {
-                    "eyebrow": "Selected search",
-                    "title": str((selected_agent or {}).get("name") or "Open a saved search"),
+                    "eyebrow": "Recurring search",
+                    "title": str((selected_agent or {}).get("name") or "Open a recurring search"),
                     "body": (
-                        "This recurring search owns one saved brief, a notification budget, and the shortlist that leaves first."
+                        "This recurring search owns one saved brief, one delivery budget, and the shortlist that leaves first."
                         if selected_agent
-                        else "Choose a saved search to inspect its watch, recent runs, and edit path."
+                        else "Choose a recurring search to inspect its watch, recent runs, delivery, and edit path."
                     ),
                     "items": (
                         [
@@ -5377,23 +5441,41 @@ def property_workspace_payload(
                     ),
                 },
                 {
-                    "eyebrow": "Recurring searches",
-                    "title": "Recurring briefs",
-                    "body": "Use Edit to load a saved search back into Search, adjust the filters, and run or save it again.",
+                    "eyebrow": "Control plane",
+                    "title": "Recurring searches",
+                    "body": "Use Edit to load a recurring search back into Search, adjust the brief, and run or save it again.",
                     "items": agent_management_rows,
                 }
             ],
             "secondary_cards": [
                 {
-                    "eyebrow": "Repair and reports",
-                    "title": "Auto-repair, digests, and credit posture",
-                    "body": fleet_digest_summary or "Fleet monitors repair health, digests, and credit runway for recurring searches.",
-                    "items": fleet_digest_items or [row_item("Fleet digest", "Credit posture and repair receipts will appear here once the next digest is refreshed.", "Digest")],
+                    "eyebrow": "Reports and delivery",
+                    "title": "What leaves this automation lane",
+                    "body": "Recurring searches should feel like ongoing market intelligence, not passive saved filters.",
+                    "items": [
+                        row_item("Delivery", str((selected_agent or {}).get("delivery_label") or "Set a daily or weekly delivery cap."), str((selected_agent or {}).get("notification_label") or "Budget")),
+                        row_item("Reports", "Daily, weekly, and repair digests can leave through email.", "Email"),
+                        row_item(
+                            "Latest outcome",
+                            (
+                                f"Ranked {str((selected_agent_latest_run or {}).get('ranked_total') or 0)} | Sent {str((selected_agent_latest_run or {}).get('sent_total') or 0)} | Filtered {str((selected_agent_latest_run or {}).get('held_back_total') or 0)}"
+                                if selected_agent_latest_run
+                                else "No finished recurring run has produced a delivery summary yet."
+                            ),
+                            str((selected_agent_latest_run or {}).get("status_label") or "Waiting"),
+                        ),
+                    ],
                 },
                 {
-                    "eyebrow": "Limits",
-                    "title": "Saved searches and workers are different limits",
-                    "body": "Saved searches control how many recurring briefs you keep active. Search workers control how many source lanes can run in parallel during one live search.",
+                    "eyebrow": "Repair and coverage",
+                    "title": "Auto-repair and fleet posture",
+                    "body": fleet_digest_summary or "Fleet monitors repair health, digests, and credit runway for recurring searches.",
+                    "items": repair_truth_rows + (fleet_digest_items[:2] if fleet_digest_items else [row_item("Fleet digest", "Credit posture and repair receipts will appear here once the next digest is refreshed.", "Digest")]),
+                },
+                {
+                    "eyebrow": "Limits and quotas",
+                    "title": "Recurring searches and workers are different limits",
+                    "body": "Recurring searches control how many market watches stay active. Search workers control how many source lanes can run in parallel during one live search.",
                     "items": [
                         row_item("Free", "1 active saved search · 1 live search worker.", "Plan"),
                         row_item("Plus", "3 active saved searches · 2 live search workers.", "Plan"),
@@ -5462,13 +5544,13 @@ def property_workspace_payload(
         },
         "account": {
             "title": "Account",
-            "summary": "Keep identity, plan, credits, saved defaults, and sign-out narrow and product-specific.",
+            "summary": "Keep identity, plan, credits, entitlements, saved defaults, and account truth in one narrow product console.",
             "hero_kicker": "Account",
             "hero_title": "Manage identity, plan, credits, and saved defaults.",
-            "hero_summary": "Account should feel like product control: identity, plan, credit posture, recurring reports, and saved defaults in one place.",
+            "hero_summary": "Account should be the truth console: identity, plan, entitlements, credit posture, recurring reports, and saved defaults in one place.",
             "hero_actions": [
-                {"href": f"/app/properties{run_suffix}", "label": "Back to Home", "tone": "primary"},
-                {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
+                {"href": f"/app/properties{run_suffix}", "label": "Open run", "tone": "primary"},
+                {"href": f"/app/agents{run_suffix}", "label": "Open automation"},
                 {"href": "/pricing", "label": "Open pricing"},
             ],
             "hero_highlights": [
@@ -5486,6 +5568,16 @@ def property_workspace_payload(
                     "items": preference_rows + settings_connection_rows,
                 },
                 {
+                    "id": "plans",
+                    "eyebrow": "Plan and entitlements",
+                    "title": "Current plan, worker capacity, and provider breadth",
+                    "body": "This surface should make limits explicit: plan, worker entitlement, and how much source breadth the current tier supports.",
+                    "items": billing_rows + [
+                        row_item("Workers", "Free 1 · Plus 2 · Agent 4 live search workers.", "Workers"),
+                        row_item("Providers", f"Current plan allows up to {commercial.get('max_platforms') or 'multi'} sources in one run.", "Breadth"),
+                    ],
+                },
+                {
                     "id": "profile",
                     "eyebrow": "Saved defaults",
                     "title": "Current search brief state",
@@ -5494,10 +5586,10 @@ def property_workspace_payload(
                 },
                 {
                     "id": "credits",
-                    "eyebrow": "Credits and reports",
-                    "title": "Current credit posture and operator digest",
+                    "eyebrow": "Credit truth",
+                    "title": "Current credit posture, runway, and operator digest",
                     "body": fleet_digest_summary or "Credit runway, repair posture, and recurring digests stay visible here.",
-                    "items": fleet_digest_items or [row_item("Fleet digest", "Credit posture is waiting for the next verified refresh.", "Digest")],
+                    "items": credit_truth_rows + (fleet_digest_items[:2] if fleet_digest_items else [row_item("Fleet digest", "Credit posture is waiting for the next verified refresh.", "Digest")]),
                 },
                 {
                     "eyebrow": "Operating posture",
@@ -5511,11 +5603,14 @@ def property_workspace_payload(
                 },
             ],
             "secondary_cards": [billing_rows and {
-                "id": "plans",
-                "eyebrow": "Plan",
-                "title": "Commercial posture",
-                "body": "Plan limits and research depth stay visible here too.",
-                "items": billing_rows,
+                "eyebrow": "Automation and reports",
+                "title": "Recurring intelligence leaving this account",
+                "body": "Automation, reports, and repair digests should stay visible next to the account truth that governs them.",
+                "items": [
+                    row_item("Recurring searches", f"{len(property_search_agents)} saved searches ready to rerun or edit.", "Automation"),
+                    row_item("Delivery lane", "Email digests, repair notes, and recurring market watches leave through Automation.", "Reports"),
+                    row_item("Repair posture", repair_truth_rows[0].get("detail") if repair_truth_rows else "No live repair telemetry is visible yet.", "Repair"),
+                ],
             } or {}, {
                 "eyebrow": "Public surfaces",
                 "title": "Product-facing controls",

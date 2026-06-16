@@ -3848,7 +3848,7 @@
               {% elif surface_mode in ['agents', 'account'] %}
               {{ hero_kicker or title or surface_mode|replace('_', ' ')|title }}
               {% else %}
-              Run desk
+              Run
               {% endif %}
             </span>
             <h1>
@@ -3857,7 +3857,7 @@
               {% elif surface_mode in ['agents', 'account'] %}
               {{ hero_title or title or surface_mode|replace('_', ' ')|title }}
               {% else %}
-              Open a run, recurring search, or new brief.
+              Open the right surface for the next decision.
               {% endif %}
             </h1>
           </div>
@@ -3874,7 +3874,7 @@
           </div>
           {% elif surface_mode != 'search' %}
           <div class="pqx-brief-stack">
-            <p class="pqx-note">Search owns the brief. Run owns health and repair. Shortlist owns ranking. Automation owns recurring searches and reports.</p>
+            <p class="pqx-note">Search owns intake. Run owns health and repair. Shortlist owns ranking. Automation owns recurring watches and reports. Account owns plan, credits, and defaults.</p>
           </div>
           {% endif %}
           {% if surface_mode not in ['agents', 'account'] %}
@@ -3887,8 +3887,8 @@
             {% if surface_mode != 'search' %}
             <div class="pqx-dashboard-row">
               <span class="pqx-small">Start</span>
-              <strong>{% if dashboard_agents %}Open a recurring search, inspect the last run, or launch a new brief{% else %}Create the first search brief{% endif %}</strong>
-              <span class="pqx-note">Only the strongest homes are sent when limits apply.</span>
+              <strong>{% if dashboard_agents %}Start with Search, open Run for health, or open Shortlist for decisions{% else %}Create the first search brief{% endif %}</strong>
+              <span class="pqx-note">Only the strongest ranked homes or opportunities should leave this workspace.</span>
             </div>
             <div class="pqx-actions">
               <a class="pqx-link-button primary" href="/app/search">New search</a>
@@ -4077,11 +4077,11 @@
               </h2>
               <div class="pqx-note" data-property-step-summary>
                 {% if surface_mode == 'agents' %}
-                Manage recurring searches, reports, and the latest finished runs.
+                Control recurring searches, delivery, reports, and repair posture.
                 {% elif surface_mode == 'account' %}
-                Identity, plan, and saved defaults stay here instead of leaking office tooling.
+                Identity, plan, entitlements, credits, and saved defaults stay here instead of leaking office tooling.
                 {% else %}
-                Market, property, priorities, research, then launch.
+                Answer the key intake questions, then save or launch.
                 {% endif %}
               </div>
             </div>

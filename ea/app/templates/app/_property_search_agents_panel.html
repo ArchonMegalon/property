@@ -3,7 +3,7 @@
   <div class="pqx-section-head">
     <div>
       <h2>Automation</h2>
-      <div class="pqx-note">Keep a recurring search running, cap the number of outbound messages, and let repair/reporting stay visible without mixing it into the live run screen. Search workers are separate and only affect live run speed.</div>
+      <div class="pqx-note">Treat this as the control plane for recurring market watches: saved briefs, delivery budgets, repair posture, and the reports that leave the product. Search workers are separate and only affect live run speed.</div>
     </div>
     <span class="pqx-pill">{{ (search_agents|selectattr('enabled')|list)|length }} active</span>
   </div>
@@ -71,7 +71,7 @@
     </div>
     {% endfor %}
   </div>
-  <div class="pqx-note">Change cadence, message budget, and reset window above, then save the limits. Reports and repair digests stay in this automation lane.</div>
+  <div class="pqx-note">Change cadence, delivery budget, and reset window above, then save the limits. Reports and repair digests stay in this automation lane.</div>
   <div class="pqx-inline-status" data-search-agent-status></div>
 </section>
 {% else %}
@@ -79,7 +79,7 @@
   <div class="pqx-section-head">
     <div>
       <h2>Automation</h2>
-      <div class="pqx-note">Edit cadence, limits, reports, and delivery in the dedicated view.</div>
+      <div class="pqx-note">Recurring searches, delivery, reports, and repair policy live in the dedicated automation view.</div>
     </div>
     <span class="pqx-pill">{{ (search_agents|selectattr('enabled')|list)|length }} active</span>
   </div>

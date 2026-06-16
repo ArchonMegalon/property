@@ -736,7 +736,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'class="pqx-disclosure-summary"' in setup.text
     assert 'class="pqx-disclosure-icon" aria-hidden="true">+</span>' in setup.text
     assert 'class="pqx-disclosure-summary pqx-disclosure-summary-secondary"' in setup.text
-    assert ">Family<" in setup.text
+    assert ">Daily life<" in setup.text
     assert 'data-property-advanced-panel="location_research"' in setup.text
     assert 'name="max_distance_to_library_m"' in setup.text
     assert 'name="max_distance_to_library_importance"' in setup.text
@@ -772,7 +772,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-property-pulse-strip' not in setup.text
     assert "Min area" in setup.text
     assert "Automation" in setup.text
-    assert "Edit cadence, limits, reports, and delivery in the dedicated view." in setup.text
+    assert "Recurring searches, delivery, reports, and repair policy live in the dedicated automation view." in setup.text
     assert "Open automation" in setup.text
     assert "Last:" in setup.text
     assert "Next:" in setup.text
@@ -1394,7 +1394,7 @@ def test_property_dashboard_renders_previous_searches_with_compact_finished_resu
     page = client.get("/app/properties", headers={"host": "propertyquarry.com"})
 
     assert page.status_code == 200
-    assert "Open a run, recurring search, or new brief." in page.text
+    assert "Open the right surface for the next decision." in page.text
     assert "1020 Vienna" in page.text
     assert "ranked" in page.text
     assert "EUR 1,150" in page.text
@@ -1500,8 +1500,8 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "Automation" in page.text
     assert "Vienna apartments" in page.text
     assert "Monteverde land" in page.text
-    assert "Selected search" in page.text
-    assert "Saved searches and workers are different limits" in page.text
+    assert "Recurring search" in page.text
+    assert "Recurring searches and workers are different limits" in page.text
     assert "Free" in page.text
     assert "Plus" in page.text
     assert "Agent" in page.text
@@ -1601,7 +1601,7 @@ def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     body = template_path.read_text(encoding="utf-8")
     view_model = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
 
-    assert "Open a run, recurring search, or new brief." in body
+    assert "Open the right surface for the next decision." in body
     assert "data-pqx-previous-searches" in body
     assert 'class="pqx-previous-open-link"' in body
     assert 'data-pqx-delete-run="' in body
@@ -2213,7 +2213,7 @@ def test_propertyquarry_workspace_setup_stays_user_facing() -> None:
     start_workspace(client, mode="personal", workspace_name="Property Office")
     response = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)
     assert response.status_code == 200
-    assert "Run desk" in response.text
+    assert "Run" in response.text
     assert "Automation" in response.text
     assert "Open automation" in response.text
     assert "Open preferences" in response.text
