@@ -86,6 +86,8 @@ _MAGIX_HEALTH_STATE: dict[str, object] = {
     "provider_key": "magixai",
 }
 _MAGIX_HEALTH_LOCK = threading.Lock()
+_DOTENV_CACHE_LOCK = threading.Lock()
+_DOTENV_CACHE: dict[str, tuple[float, dict[str, str]]] = {}
 
 _LANE_HARD = "hard"
 _LANE_REVIEW = "review"
@@ -570,7 +572,64 @@ class ProviderConfig:
 
 
 def _env(name: str, default: str = "") -> str:
-    return str(os.environ.get(name) or default).strip()
+    return str(os.environ.get(name) or _dotenv_value(name) or default).strip()
+
+
+def _dotenv_candidate_paths() -> tuple[Path, ...]:
+    candidates = (
+        Path("/docker/property/.env"),
+        Path.cwd() / ".env",
+    )
+    seen: set[str] = set()
+    resolved: list[Path] = []
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        resolved.append(candidate)
+    return tuple(resolved)
+
+
+def _dotenv_values_from_path(path: Path) -> dict[str, str]:
+    key = str(path)
+    try:
+        stat = path.stat()
+    except OSError:
+        return {}
+    mtime = float(stat.st_mtime)
+    with _DOTENV_CACHE_LOCK:
+        cached = _DOTENV_CACHE.get(key)
+        if cached and cached[0] == mtime:
+            return dict(cached[1])
+    values: dict[str, str] = {}
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    for raw_line in raw_text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        normalized_name = str(name or "").strip()
+        if not normalized_name:
+            continue
+        values[normalized_name] = str(value or "").strip().strip("'").strip('"')
+    with _DOTENV_CACHE_LOCK:
+        _DOTENV_CACHE[key] = (mtime, dict(values))
+    return values
+
+
+def _dotenv_value(name: str) -> str:
+    normalized_name = str(name or "").strip()
+    if not normalized_name:
+        return ""
+    for path in _dotenv_candidate_paths():
+        value = _dotenv_values_from_path(path).get(normalized_name)
+        if value:
+            return value
+    return ""
 
 
 def _fleet_status_base_url() -> str:
@@ -1480,6 +1539,20 @@ def onemin_owner_rows() -> tuple[dict[str, str], ...]:
     return tuple(dict(row) for row in _onemin_owner_entries())
 
 
+def onemin_owner_email_for_account(*, account_name: str) -> str:
+    normalized = str(account_name or "").strip()
+    if not normalized:
+        return ""
+    for row in _onemin_owner_entries():
+        if normalized in {
+            str(row.get("account_name") or "").strip(),
+            str(row.get("slot") or "").strip(),
+            str(row.get("owner_label") or "").strip(),
+        }:
+            return str(row.get("owner_email") or "").strip()
+    return ""
+
+
 def _normalize_onemin_credit_subject(value: object) -> str:
     raw = re.sub(r"[\s_-]+", " ", str(value or "").strip().casefold()).strip()
     for suffix in (" team", " workspace", " organization", " account"):
@@ -1712,6 +1785,10 @@ def onemin_account_login_credentials(
                 if value:
                     team_name = value
                     break
+    if not login_email:
+        login_email = onemin_owner_email_for_account(account_name=normalized_account_name)
+    if not login_password:
+        login_password = _env("ONEMIN_DEFAULT_PASSWORD") or _env("BROWSERACT_PASSWORD")
     if login_email or login_password or team_id or team_name:
         result = {
             "login_email": login_email,

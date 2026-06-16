@@ -2397,7 +2397,6 @@ def app_shell(
         "automations": "/app/settings",
     }
     property_legacy_redirects = {
-        "shortlist": "/app/properties",
         "research": "/app/properties",
         "profile": "/app/account",
         "alerts": "/app/account",
@@ -2407,7 +2406,7 @@ def app_shell(
     allowed.update(legacy_redirects)
     allowed.update({"today", "queue", "commitments", "people", "evidence", "activity", "channel-loop"})
     if property_brand:
-        allowed.update({"properties", "search", "agents", "account"})
+        allowed.update({"properties", "search", "shortlist", "agents", "account"})
         legacy_redirects.update(property_legacy_redirects)
         allowed.update(property_legacy_redirects)
     else:
@@ -2437,6 +2436,7 @@ def app_shell(
     property_surface_aliases = {
         "properties": "properties",
         "search": "properties",
+        "shortlist": "shortlist",
         "agents": "agents",
         "account": "account",
     }
@@ -2500,7 +2500,7 @@ def app_shell(
                 stats=stats,
             ),
         )
-    property_sections = {"properties", "search", "agents", "account"} if property_brand else set()
+    property_sections = {"properties", "search", "shortlist", "agents", "account"} if property_brand else set()
     core_sections = {"today", "queue", "commitments", "people", "evidence", "activity"}
     if not property_brand:
         core_sections.add("settings")
@@ -2537,6 +2537,7 @@ def app_shell(
         )
     else:
         property_payload_section = property_surface_aliases.get(resolved_section, resolved_section) if property_brand else resolved_section
+        product = build_product_service(container)
         property_context = (
             _property_console_context(
                 container=container,
@@ -2550,8 +2551,18 @@ def app_shell(
         )
         if property_context is not None and property_brand:
             property_context["surface_mode"] = current_nav
+            pack = product.channel_loop_pack(
+                principal_id=context.principal_id,
+                operator_id=str(context.operator_id or "").strip(),
+            )
+            digests = list(pack.get("digests") or [])
+            property_context["channel_digests"] = digests
+            property_context["fleet_digest"] = next(
+                (dict(item) for item in digests if str(item.get("digest_key") or "").strip() == "fleet"),
+                {},
+            )
         if resolved_section in property_sections or resolved_section == "properties":
-            build_product_service(container).record_surface_event(
+            product.record_surface_event(
                 principal_id=context.principal_id,
                 event_type=f"{current_nav}_opened",
                 surface=current_nav,

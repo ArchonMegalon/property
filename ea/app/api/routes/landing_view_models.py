@@ -3806,12 +3806,30 @@ def property_workspace_payload(
         source_rows=run_sources,
         preferences=property_preferences,
     )
+    counterfactual_rows = _property_counterfactual_rows(
+        preferences=property_preferences,
+        raw_preferences=dict(property_state.get("raw_preferences") or {}),
+        run_summary=run_summary,
+        provider_options=provider_options,
+        current_platform_cap=current_platform_cap,
+    )
     delivery_proof_rows = _delivery_proof_rows(run_summary)
     artifact_receipt_rows = _artifact_receipt_rows(run_summary)
     selected_candidate_ref = str(property_state.get("selected_candidate_ref") or "").strip()
     run_id = str(run_payload.get("run_id") or "").strip()
     run_suffix = f"?run_id={run_id}" if run_id else ""
     search_posture_items = list(search_posture_card.get("items") or [])
+    fleet_digest = dict(property_state.get("fleet_digest") or {})
+    fleet_digest_items = [
+        row_item(
+            str(item.get("title") or "Fleet digest"),
+            str(item.get("detail") or item.get("value") or "").strip() or str(fleet_digest.get("preview_text") or "Digest pending"),
+            str(item.get("tag") or "Digest"),
+        )
+        for item in list(fleet_digest.get("items") or [])[:4]
+        if isinstance(item, dict)
+    ]
+    fleet_digest_summary = str(fleet_digest.get("summary") or fleet_digest.get("preview_text") or "").strip()
     packet_ready_total = sum(
         1
         for candidate in shortlist_candidates
@@ -3836,6 +3854,46 @@ def property_workspace_payload(
             return ("Running", message)
         label = status.replace("_", " ").title() if status else "Queued"
         return (label, message)
+
+    def _property_empty_outcome_summary() -> dict[str, str]:
+        filtered_total = int(run_summary.get("filtered_total") or run_summary.get("held_back_total") or 0)
+        source_total = int(run_summary.get("sources_total") or len(run_sources) or 0)
+        listing_total = int(run_summary.get("listing_total") or 0)
+        status_value = str(run_status_value or "").strip().lower()
+        strongest_relax = next(
+            (row for row in (counterfactual_rows or []) if row.get("adjustments")),
+            {},
+        )
+        active_rule = ""
+        if strongest_relax:
+            active_rule = str(strongest_relax.get("title") or strongest_relax.get("rule_label") or "").strip()
+        elif suppression_rows:
+            active_rule = str((suppression_rows[0] or {}).get("title") or "").strip()
+        if status_value == "failed":
+            happened = str(run_message or "The search stopped before a stable shortlist was ready.").strip()
+        elif filtered_total > 0:
+            happened = (
+                f"The search finished, but {filtered_total} candidate{'s' if filtered_total != 1 else ''} stayed outside the shortlist."
+            )
+        else:
+            happened = "The search finished without a candidate clearing the current shortlist."
+        still_worked = (
+            f"{source_total} source{'s' if source_total != 1 else ''} checked {listing_total} listing{'s' if listing_total != 1 else ''}."
+            if source_total or listing_total
+            else "The brief, providers, and run receipts were still recorded."
+        )
+        next_move = (
+            str(strongest_relax.get("detail") or "").strip()
+            or (f"Relax {active_rule} first so the next run changes one rule at a time." if active_rule else "")
+            or ("Restart the same brief and let auto-repair retry the failed sources." if status_value == "failed" else "")
+            or "Widen one rule first, then rerun."
+        )
+        return {
+            "happened": happened,
+            "still_worked": still_worked,
+            "next_move": next_move,
+            "active_rule": active_rule,
+        }
 
     run_message = str(run_payload.get("message") or "").strip()
     run_status_value = str(run_payload.get("status") or "").strip().lower()
@@ -4788,13 +4846,13 @@ def property_workspace_payload(
     hero_actions = {
         "properties": [
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist", "tone": "primary"},
-            {"href": f"/app/research{run_suffix}", "label": "Open research"},
-            {"href": f"/app/billing{run_suffix}", "label": "Plans"},
+            {"href": f"/app/search{run_suffix}", "label": "Edit brief"},
+            {"href": f"/app/agents{run_suffix}", "label": "Automation"},
         ],
         "shortlist": [
-            {"href": f"/app/research{run_suffix}", "label": "Open research", "tone": "primary"},
-            {"href": f"/app/properties{run_suffix}", "label": "Refine search"},
-            {"href": f"/app/alerts{run_suffix}", "label": "Alerts"},
+            {"href": f"/app/properties{run_suffix}", "label": "Open run", "tone": "primary"},
+            {"href": f"/app/search{run_suffix}", "label": "Refine search"},
+            {"href": f"/app/agents{run_suffix}", "label": "Automation"},
         ],
         "research": [
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist", "tone": "primary"},
@@ -4812,8 +4870,8 @@ def property_workspace_payload(
             {"href": f"/app/settings{run_suffix}", "label": "Notifications"},
         ],
         "agents": [
-            {"href": f"/app/properties{run_suffix}", "label": "Create or edit", "tone": "primary"},
-            {"href": f"/app/alerts{run_suffix}", "label": "Recent alerts"},
+            {"href": f"/app/search{run_suffix}", "label": "Edit brief", "tone": "primary"},
+            {"href": f"/app/properties{run_suffix}", "label": "Open run"},
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
         ],
         "billing": [
@@ -4833,10 +4891,10 @@ def property_workspace_payload(
                 "label": "Market",
                 "value": str(property_state.get("country_label") or "Market"),
                 "detail": str(search_posture_items[0].get("detail") or "").strip() if search_posture_items else "",
-                "href": f"/app/properties{run_suffix}",
+                "href": f"/app/search{run_suffix}",
             },
-            {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target areas.", "href": "/app/account#profile"},
-            {"label": "Priorities", "value": str(len(selected_keywords) or 0), "detail": ", ".join(selected_keywords[:3]) or "Record what should drive the ranking.", "href": "/app/account#profile"},
+            {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target areas.", "href": f"/app/search{run_suffix}"},
+            {"label": "Priorities", "value": str(len(selected_keywords) or 0), "detail": ", ".join(selected_keywords[:3]) or "Record what should drive the ranking.", "href": f"/app/search{run_suffix}"},
             {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "The selected portals for the next sweep.", "href": f"/app/search{run_suffix}"},
         ],
         "shortlist": [
@@ -4867,7 +4925,7 @@ def property_workspace_payload(
             {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring briefs available for editing and rerunning.", "href": f"/app/agents{run_suffix}"},
             {"label": "Active", "value": str(sum(1 for agent in property_search_agents if agent.get("enabled"))), "detail": "Agents allowed to send matching updates.", "href": f"/app/agents{run_suffix}"},
             {"label": "Notification window", "value": str(property_search_agent.get("notification_label") or "Set per agent"), "detail": "Each agent ranks down to the allowed message budget.", "href": f"/app/agents{run_suffix}"},
-            {"label": "Next run", "value": str(property_search_agent.get("next_run_label") or "waiting"), "detail": str(property_search_agent.get("area_label") or "Saved search area"), "href": f"/app/agents{run_suffix}"},
+            {"label": "Reports", "value": "Email", "detail": "Digests and repair notes can leave through the automation lane.", "href": f"/app/agents{run_suffix}"},
         ],
         "billing": [
             {"label": "Plan", "value": current_plan_label, "detail": "Current commercial posture.", "href": f"/app/billing{run_suffix}"},
@@ -5122,35 +5180,35 @@ def property_workspace_payload(
 
     sections: dict[str, dict[str, object]] = {
         "properties": {
-            "title": "Results" if run_status_value in {"processed", "completed"} and results_table_rows else ("Live search" if run_in_progress else "Search Brief"),
+            "title": "Run",
             "summary": (
                 "Review the final ranked result table."
                 if run_status_value in {"processed", "completed"} and results_table_rows
                 else (
-                    "The search brief is locked while the run is active. Keep the visible progress and source-by-source status in front of the user."
+                    "Keep health, coverage, repair state, and the next useful update visible while the run is active."
                     if run_in_progress
-                    else str(base.get("summary") or "Define the search brief, launch the run, and keep the crawl visible.")
+                    else "This surface is for run health, partial coverage, and the last completed sweep."
                 )
             ),
-            "hero_kicker": "Results" if run_status_value in {"processed", "completed"} and results_table_rows else ("Live search" if run_in_progress else "Search brief"),
+            "hero_kicker": "Run",
             "hero_title": (
-                "Review the finished shortlist in one table."
+                "Review the finished run in one table."
                 if run_status_value in {"processed", "completed"} and results_table_rows
-                else ("Keep the run visible until the shortlist is ready." if run_in_progress else "Shape the next market sweep before the crawlers fan out.")
+                else ("Keep the run visible until the shortlist is ready." if run_in_progress else "No run is active right now.")
             ),
             "hero_summary": (
                 "Once the run is done, keep the result surface simple: one ranked table, property pages, and clear 360 status."
                 if run_status_value in {"processed", "completed"} and results_table_rows
                 else (
-                    "Hide the search form while the run is active. Show only progress, source events, and the first usable signals until the final ranked table is ready."
+                    "Show only progress, source coverage, repair state, and the first usable signals until the final ranked table is ready."
                     if run_in_progress
-                    else "Pick the market, region, buying posture, shortlist priorities, and provider set once so the run starts from an explicit brief instead of a stack of browser tabs."
+                    else "Search setup now lives in Search. This surface should answer whether the latest sweep is healthy and what it already produced."
                 )
             ),
-            "hero_actions": [{"href": f"/app/search{run_suffix}", "label": "Open search"}, {"href": f"/app/properties{run_suffix}", "label": "Back to Home"}] if run_in_progress else (hero_actions["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
+            "hero_actions": [{"href": f"/app/search{run_suffix}", "label": "Open search"}, {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"}] if run_in_progress else (hero_actions["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
                 {"href": f"/app/search{run_suffix}", "label": "Refine search", "tone": "primary"},
-                {"href": f"/app/properties{run_suffix}", "label": "Back to Home"},
-                {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
+                {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
+                {"href": f"/app/agents{run_suffix}", "label": "Automation"},
             ]),
             "hero_highlights": [
                 {"label": "Run state", "value": run_status_label, "detail": run_message or "The current live run status."},
@@ -5176,7 +5234,7 @@ def property_workspace_payload(
             "summary": "Keep the strongest candidates in one ranked lane and record preference feedback directly on the cards.",
             "hero_kicker": "Shortlist",
             "hero_title": "Review the properties that deserve attention now.",
-            "hero_summary": "Start with fit, risks, property page, 360 link, and one-step feedback. Crawl counters stay secondary.",
+            "hero_summary": "This surface is only for ranked candidates, quick comparison, and opening the full property page. Search setup and worker mechanics stay out.",
             "hero_actions": hero_actions["shortlist"],
             "hero_highlights": hero_highlights["shortlist"],
             "primary_cards": [
@@ -5271,14 +5329,14 @@ def property_workspace_payload(
             "show_shortlist_cards": False,
         },
         "agents": {
-            "title": "Saved searches",
-            "summary": "Manage recurring searches, notification budgets, and the saved filters behind each ongoing run.",
-            "hero_kicker": "Saved searches",
-            "hero_title": str((selected_agent or {}).get("name") or "Edit the searches that keep watching the market."),
+            "title": "Automation",
+            "summary": "Manage recurring searches, notification budgets, repair policy, and the reports behind each ongoing market watch.",
+            "hero_kicker": "Automation",
+            "hero_title": str((selected_agent or {}).get("name") or "Manage the recurring searches and reports that keep watching the market."),
             "hero_summary": (
-                f"{str((selected_agent or {}).get('scope_label') or '').strip()} | {str((selected_agent or {}).get('delivery_label') or '').strip()} | {str((selected_agent_latest_run or {}).get('held_back_total') or 0)} filtered on the latest finished run. Saved searches are recurring briefs; search workers are the parallel lanes used during one live run."
+                f"{str((selected_agent or {}).get('scope_label') or '').strip()} | {str((selected_agent or {}).get('delivery_label') or '').strip()} | {str((selected_agent_latest_run or {}).get('held_back_total') or 0)} filtered on the latest finished run. Recurring searches, digests, and repair state belong here; live search workers belong on the run surface."
                 if selected_agent
-                else "Each saved search owns one recurring brief, its message budget, and whether it is active. Search workers are separate: they are the parallel lanes used during one live run."
+                else "Each recurring search owns one saved brief, message budget, report posture, and repair history. Search workers are separate: they are the parallel lanes used during one live run."
             ),
             "hero_actions": hero_actions["agents"],
             "hero_highlights": hero_highlights["agents"],
@@ -5319,13 +5377,19 @@ def property_workspace_payload(
                     ),
                 },
                 {
-                    "eyebrow": "Saved searches",
+                    "eyebrow": "Recurring searches",
                     "title": "Recurring briefs",
-                    "body": "Use Edit to load a saved search back into the search desk, adjust the filters, and run or save it again.",
+                    "body": "Use Edit to load a saved search back into Search, adjust the filters, and run or save it again.",
                     "items": agent_management_rows,
                 }
             ],
             "secondary_cards": [
+                {
+                    "eyebrow": "Repair and reports",
+                    "title": "Auto-repair, digests, and credit posture",
+                    "body": fleet_digest_summary or "Fleet monitors repair health, digests, and credit runway for recurring searches.",
+                    "items": fleet_digest_items or [row_item("Fleet digest", "Credit posture and repair receipts will appear here once the next digest is refreshed.", "Digest")],
+                },
                 {
                     "eyebrow": "Limits",
                     "title": "Saved searches and workers are different limits",
@@ -5398,10 +5462,10 @@ def property_workspace_payload(
         },
         "account": {
             "title": "Account",
-            "summary": "Keep plan, profile, settings, and sign-out narrow and product-specific.",
+            "summary": "Keep identity, plan, credits, saved defaults, and sign-out narrow and product-specific.",
             "hero_kicker": "Account",
-            "hero_title": "Manage account, plan, and saved defaults.",
-            "hero_summary": "Account keeps identity, plan limits, saved defaults, and sign-out in one place. It should feel like product control, not inherited office tooling.",
+            "hero_title": "Manage identity, plan, credits, and saved defaults.",
+            "hero_summary": "Account should feel like product control: identity, plan, credit posture, recurring reports, and saved defaults in one place.",
             "hero_actions": [
                 {"href": f"/app/properties{run_suffix}", "label": "Back to Home", "tone": "primary"},
                 {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
@@ -5427,6 +5491,13 @@ def property_workspace_payload(
                     "title": "Current search brief state",
                     "body": "The saved brief stays visible so you can change the product posture before the next run.",
                     "items": list(search_posture_card.get("items") or []),
+                },
+                {
+                    "id": "credits",
+                    "eyebrow": "Credits and reports",
+                    "title": "Current credit posture and operator digest",
+                    "body": fleet_digest_summary or "Credit runway, repair posture, and recurring digests stay visible here.",
+                    "items": fleet_digest_items or [row_item("Fleet digest", "Credit posture is waiting for the next verified refresh.", "Digest")],
                 },
                 {
                     "eyebrow": "Operating posture",
@@ -5613,13 +5684,7 @@ def property_workspace_payload(
             "billing_order": str(property_meta.get("billing_order_endpoint") or "").strip(),
             "delete_run_template": "/app/api/property/search-runs/__RUN_ID__",
         },
-        "counterfactual_rows": _property_counterfactual_rows(
-            preferences=property_preferences,
-            raw_preferences=dict(property_state.get("raw_preferences") or {}),
-            run_summary=run_summary,
-            provider_options=provider_options,
-            current_platform_cap=current_platform_cap,
-        ),
+        "counterfactual_rows": counterfactual_rows,
         "recent_packets": [
             {
                 "title": str(item.get("title") or item.get("label") or "Property page").strip(),
@@ -5647,6 +5712,7 @@ def property_workspace_payload(
         },
         "selected_candidate_ref": str(selected_result.get("candidate_ref") or "").strip(),
         "selected": selected_result,
+        "empty_outcome": _property_empty_outcome_summary(),
         "show_brief_default": not (run_in_progress or (run_status_value in {"processed", "completed"} and bool(workbench_results))),
     }
     return payload

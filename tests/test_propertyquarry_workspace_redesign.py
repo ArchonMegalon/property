@@ -771,9 +771,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'No practical zoo or Tiergarten signal is configured for this market yet.' in setup.text
     assert 'data-property-pulse-strip' not in setup.text
     assert "Min area" in setup.text
-    assert "Saved searches" in setup.text
-    assert "Edit cadence, limits, and delivery in the dedicated view." in setup.text
-    assert "Open saved searches" in setup.text
+    assert "Automation" in setup.text
+    assert "Edit cadence, limits, reports, and delivery in the dedicated view." in setup.text
+    assert "Open automation" in setup.text
     assert "Last:" in setup.text
     assert "Next:" in setup.text
     assert "Sent 0/" in setup.text
@@ -986,12 +986,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     profile = client.get("/app/profile", params={"run_id": "run-42"}, headers=headers)
     assert profile.status_code == 200
     assert "Account" in profile.text
-    assert "Manage account, plan, and saved defaults." in profile.text
+    assert "Manage identity, plan, credits, and saved defaults." in profile.text
 
     alerts = client.get("/app/alerts", params={"run_id": "run-42"}, headers=headers)
     assert alerts.status_code == 200
     assert "Account" in alerts.text
-    assert "Manage account, plan, and saved defaults." in alerts.text
+    assert "Manage identity, plan, credits, and saved defaults." in alerts.text
 
     notifications_preview = client.get("/app/properties/notifications/preview", params={"template": "property_match"}, headers=headers)
     assert notifications_preview.status_code == 200
@@ -1008,7 +1008,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=headers)
     assert billing.status_code == 200
     assert "Account" in billing.text
-    assert "Manage account, plan, and saved defaults." in billing.text
+    assert "Manage identity, plan, credits, and saved defaults." in billing.text
 
 
 def test_property_packets_dashboard_uses_customer_facing_language() -> None:
@@ -1265,9 +1265,9 @@ def test_property_workspace_hero_actions_use_visible_propertyquarry_surfaces() -
     ).read_text(encoding="utf-8")
 
     assert '{"href": f"/app/search{run_suffix}", "label": "Open search"}' in body
-    assert '{"href": f"/app/properties{run_suffix}", "label": "Back to Home"}' in body
-    assert '{"href": f"/app/agents{run_suffix}", "label": "Saved searches"}' in body
-    assert '{"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target areas.", "href": "/app/account#profile"}' in body
+    assert '{"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"}' in body
+    assert '{"href": f"/app/agents{run_suffix}", "label": "Automation"}' in body
+    assert '{"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target areas.", "href": f"/app/search{run_suffix}"}' in body
 
 
 def test_property_workspace_sign_out_clears_workspace_session_cookie() -> None:
@@ -1394,7 +1394,7 @@ def test_property_dashboard_renders_previous_searches_with_compact_finished_resu
     page = client.get("/app/properties", headers={"host": "propertyquarry.com"})
 
     assert page.status_code == 200
-    assert "Continue where you left off." in page.text
+    assert "Open a run, recurring search, or new brief." in page.text
     assert "1020 Vienna" in page.text
     assert "ranked" in page.text
     assert "EUR 1,150" in page.text
@@ -1497,7 +1497,7 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
 
     page = client.get("/app/agents", headers={"host": "propertyquarry.com"})
     assert page.status_code == 200
-    assert "Saved searches" in page.text
+    assert "Automation" in page.text
     assert "Vienna apartments" in page.text
     assert "Monteverde land" in page.text
     assert "Selected search" in page.text
@@ -1601,12 +1601,12 @@ def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     body = template_path.read_text(encoding="utf-8")
     view_model = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
 
-    assert "Continue where you left off." in body
+    assert "Open a run, recurring search, or new brief." in body
     assert "data-pqx-previous-searches" in body
     assert 'class="pqx-previous-open-link"' in body
     assert 'data-pqx-delete-run="' in body
     assert "data-pqx-dashboard-summary" in body
-    assert "Saved searches" in body
+    assert "Automation" in body
     assert "Start" in body
     assert "Recent decisions and reviews" in body
     assert "pqx-previous-scope-caption" in body
@@ -2213,10 +2213,9 @@ def test_propertyquarry_workspace_setup_stays_user_facing() -> None:
     start_workspace(client, mode="personal", workspace_name="Property Office")
     response = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)
     assert response.status_code == 200
-    assert "Previous searches" in response.text
-    assert "Saved searches" in response.text
-    assert "Saved searches" in response.text
-    assert "Open saved searches" in response.text
+    assert "Run desk" in response.text
+    assert "Automation" in response.text
+    assert "Open automation" in response.text
     assert "Open preferences" in response.text
     assert "Build the brief. Then let the agents work." not in response.text
 
@@ -2587,7 +2586,7 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
 
     account = client.get("/app/account", headers={"host": "propertyquarry.com"})
     assert account.status_code == 200
-    assert "Manage account, plan, and saved defaults." in account.text
+    assert "Manage identity, plan, credits, and saved defaults." in account.text
     assert "Identity and return access" in account.text
     assert "Current search brief state" in account.text
     assert "Operating posture" in account.text
@@ -2607,11 +2606,11 @@ def test_propertyquarry_shell_uses_the_new_surface_navigation() -> None:
 
     response = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert response.status_code == 200
-    assert ">Home<" in response.text
+    assert ">Run<" in response.text
     assert ">Search<" in response.text
-    assert ">Saved searches<" in response.text
+    assert ">Shortlist<" in response.text
+    assert ">Automation<" in response.text
     assert ">Account<" in response.text
-    assert ">Shortlist<" not in response.text
     assert 'href="/app/research"' not in response.text
     assert ">Alerts<" not in response.text
     assert ">Billing<" not in response.text

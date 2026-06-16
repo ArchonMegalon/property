@@ -18,10 +18,11 @@
 {% set run_visible = run_active %}
 {% set has_results = results|length > 0 %}
 {% set static_surface = surface_mode in ['agents', 'account'] %}
-{% set setup_mode = static_surface or (not run_visible and not run_terminal_no_results and not has_results) %}
+{% set setup_mode = static_surface or surface_mode == 'search' or (surface_mode == 'properties' and not run_visible and not run_terminal_no_results and not has_results) %}
 {% set show_form_controls = show_brief_form and setup_mode %}
 {% set research_tasks = workbench.get('research_tasks') or [] %}
 {% set research_task_counts = workbench.get('research_task_counts') or {} %}
+{% set empty_outcome = workbench.get('empty_outcome') or {} %}
 {% macro suppression_panel(rows, actions=[]) -%}
 {% if rows %}
 <details class="pqx-suppression-panel" data-pqx-suppression-summary>
@@ -3759,9 +3760,10 @@
         </span>
       </a>
       <nav class="pqx-primary-nav" aria-label="PropertyQuarry sections">
-        <a href="/app/properties"{% if surface_mode == 'properties' %} class="is-active"{% endif %}>Home</a>
         <a href="/app/search"{% if surface_mode == 'search' %} class="is-active"{% endif %}>Search</a>
-        <a href="/app/agents"{% if surface_mode == 'agents' %} class="is-active"{% endif %}>Saved searches</a>
+        <a href="/app/properties"{% if surface_mode == 'properties' %} class="is-active"{% endif %}>Run</a>
+        <a href="/app/shortlist"{% if surface_mode == 'shortlist' %} class="is-active"{% endif %}>Shortlist</a>
+        <a href="/app/agents"{% if surface_mode == 'agents' %} class="is-active"{% endif %}>Automation</a>
         <a href="/app/account"{% if surface_mode == 'account' %} class="is-active"{% endif %}>Account</a>
       </nav>
       <div class="pqx-top-actions" data-pq-context-actions>
@@ -3846,7 +3848,7 @@
               {% elif surface_mode in ['agents', 'account'] %}
               {{ hero_kicker or title or surface_mode|replace('_', ' ')|title }}
               {% else %}
-              Previous searches
+              Run desk
               {% endif %}
             </span>
             <h1>
@@ -3855,7 +3857,7 @@
               {% elif surface_mode in ['agents', 'account'] %}
               {{ hero_title or title or surface_mode|replace('_', ' ')|title }}
               {% else %}
-              Continue where you left off.
+              Open a run, recurring search, or new brief.
               {% endif %}
             </h1>
           </div>
@@ -3872,7 +3874,7 @@
           </div>
           {% elif surface_mode != 'search' %}
           <div class="pqx-brief-stack">
-            <p class="pqx-note">Open a recent run, load a saved search, or start a new brief.</p>
+            <p class="pqx-note">Search owns the brief. Run owns health and repair. Shortlist owns ranking. Automation owns recurring searches and reports.</p>
           </div>
           {% endif %}
           {% if surface_mode not in ['agents', 'account'] %}
@@ -3885,12 +3887,12 @@
             {% if surface_mode != 'search' %}
             <div class="pqx-dashboard-row">
               <span class="pqx-small">Start</span>
-              <strong>{% if dashboard_agents %}Open a saved search or launch a new brief{% else %}Create the first search brief{% endif %}</strong>
+              <strong>{% if dashboard_agents %}Open a recurring search, inspect the last run, or launch a new brief{% else %}Create the first search brief{% endif %}</strong>
               <span class="pqx-note">Only the strongest homes are sent when limits apply.</span>
             </div>
             <div class="pqx-actions">
               <a class="pqx-link-button primary" href="/app/search">New search</a>
-              <a class="pqx-link-button subtle" href="/app/agents">Saved searches</a>
+              <a class="pqx-link-button subtle" href="/app/agents">Automation</a>
             </div>
             {% endif %}
           </div>
@@ -4066,7 +4068,7 @@
             <div>
               <h2>
                 {% if surface_mode == 'agents' %}
-                Saved searches
+                Automation
                 {% elif surface_mode == 'account' %}
                 Account
                 {% else %}
@@ -4075,11 +4077,11 @@
               </h2>
               <div class="pqx-note" data-property-step-summary>
                 {% if surface_mode == 'agents' %}
-                Manage recurring searches, limits, and the latest finished runs.
+                Manage recurring searches, reports, and the latest finished runs.
                 {% elif surface_mode == 'account' %}
                 Identity, plan, and saved defaults stay here instead of leaking office tooling.
                 {% else %}
-                Market, property, must-haves, research, then launch.
+                Market, property, priorities, research, then launch.
                 {% endif %}
               </div>
             </div>
@@ -4498,9 +4500,15 @@
               <div class="pqx-fact"><span>Listings</span><strong>{{ run_summary.get('listing_total') or 0 }}</strong></div>
               <div class="pqx-fact"><span>Min score</span><strong>{{ run_summary.get('high_match_min_score') or 'n/a' }}</strong></div>
             </div>
-            <p class="pqx-note">{% if run_status == 'failed' %}Try the search again, or remove one strict rule before rerunning.{% else %}Widen the area, lower the fit threshold, or make one must-have optional to see more homes.{% endif %}</p>
+            <div class="pqx-card" style="margin-top:12px;">
+              <div class="pqx-pref-list">
+                <div class="pqx-pref-row"><div><strong>What happened</strong><small>{{ empty_outcome.get('happened') or ('The search stopped before a stable shortlist was ready.' if run_status == 'failed' else 'The search finished without a candidate clearing the shortlist.') }}</small></div></div>
+                <div class="pqx-pref-row"><div><strong>What still worked</strong><small>{{ empty_outcome.get('still_worked') or 'The brief and latest source receipts are still available.' }}</small></div></div>
+                <div class="pqx-pref-row"><div><strong>Best next move</strong><small>{{ empty_outcome.get('next_move') or ('Restart the same brief and let repair retry the failed sources.' if run_status == 'failed' else 'Widen one rule first, then rerun.') }}</small></div></div>
+              </div>
+            </div>
             <div class="pqx-actions">
-              <a class="pqx-link-button primary" href="/app/properties">New search</a>
+              <a class="pqx-link-button primary" href="/app/search">New search</a>
               <button class="pqx-button subtle" type="button" data-pqx-refresh-status>Refresh delivery</button>
             </div>
             {% if workbench.get('counterfactual_rows') or workbench.get('suppression_rows') %}
@@ -4515,7 +4523,7 @@
           <div class="pqx-section-head" data-pqx-screenfit-target="run-progress">
             <div>
               <h2>Ways to get more matches</h2>
-              <div class="pqx-note" data-pqx-run-summary">Relax one rule at a time so the next shortlist stays easy to compare.</div>
+              <div class="pqx-note" data-pqx-run-summary">{{ empty_outcome.get('next_move') or 'Relax one rule at a time so the next shortlist stays easy to compare.' }}</div>
             </div>
             <div style="display:grid;gap:6px;justify-items:end;">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
@@ -4545,8 +4553,8 @@
           {% elif not ranked_candidates %}
           <div class="pqx-suppression-grid" style="margin-bottom:12px;">
             <button class="pqx-suppression-item" type="button" data-pqx-filtered-open aria-label="Relax area">
-              <strong>Relax area</strong>
-              <span class="pqx-note">Widen one location rule first so the next pass stays easy to explain.</span>
+              <strong>{{ empty_outcome.get('active_rule') or 'Relax area' }}</strong>
+              <span class="pqx-note">{{ empty_outcome.get('next_move') or 'Widen one location rule first so the next pass stays easy to explain.' }}</span>
               <span class="pqx-suppression-action">Relax rule</span>
             </button>
           </div>

@@ -4,10 +4,17 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import time
+from pathlib import Path
 import pytest
 
 from app.domain.models import ToolInvocationResult
 from app.services import responses_upstream as upstream
+
+
+@pytest.fixture(autouse=True)
+def _isolate_responses_upstream_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(upstream, "_DOTENV_CACHE", {})
+    monkeypatch.setattr(upstream, "_dotenv_candidate_paths", lambda: ())
 
 
 class _SlowUrlopenResponse:
@@ -101,6 +108,8 @@ def test_onemin_nano_model_is_not_treated_as_code_capable() -> None:
 
 
 def test_onemin_account_login_credentials_reads_team_hints_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON", "[]")
+    monkeypatch.setattr(upstream, "_dotenv_candidate_paths", lambda: ())
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_60_TEAM_ID", "team-60")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_60_TEAM_NAME", "Finland Office")
 
@@ -112,6 +121,43 @@ def test_onemin_account_login_credentials_reads_team_hints_from_env(monkeypatch:
         "team_id": "team-60",
         "team_name": "Finland Office",
     }
+
+
+def test_onemin_account_login_credentials_falls_back_to_owner_email_and_default_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            [
+                {
+                    "account_name": "ONEMIN_AI_API_KEY_FALLBACK_55",
+                    "owner_email": "owner55@example.com",
+                }
+            ]
+        ),
+    )
+    monkeypatch.setenv("ONEMIN_DEFAULT_PASSWORD", "default-password")
+
+    credentials = upstream.onemin_account_login_credentials(account_name="ONEMIN_AI_API_KEY_FALLBACK_55")
+
+    assert credentials == {
+        "login_email": "owner55@example.com",
+        "login_password": "default-password",
+    }
+
+
+def test_responses_upstream_env_reads_dotenv_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("ONEMIN_DEFAULT_PASSWORD=from-dotenv\n", encoding="utf-8")
+    monkeypatch.delenv("ONEMIN_DEFAULT_PASSWORD", raising=False)
+    monkeypatch.setattr(upstream, "_DOTENV_CACHE", {})
+    monkeypatch.setattr(upstream, "_dotenv_candidate_paths", lambda: (dotenv,))
+
+    assert upstream._env("ONEMIN_DEFAULT_PASSWORD") == "from-dotenv"
 
 
 def test_onemin_direct_api_proxy_pool_hashes_subjects_stably(monkeypatch: pytest.MonkeyPatch) -> None:
