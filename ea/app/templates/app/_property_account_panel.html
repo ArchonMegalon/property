@@ -1,0 +1,68 @@
+{% set account_cards = (primary_cards or []) + (secondary_cards or []) %}
+{% set identity_card = namespace(value={}) %}
+{% set plan_card = namespace(value={}) %}
+{% set profile_card = namespace(value={}) %}
+{% set delivery_card = namespace(value={}) %}
+{% set automation_card = namespace(value={}) %}
+{% set operating_card = namespace(value={}) %}
+{% set public_card = namespace(value={}) %}
+{% for card in account_cards %}
+  {% if card.get('id') == 'settings' %}{% set identity_card.value = card %}{% endif %}
+  {% if card.get('id') == 'plans' %}{% set plan_card.value = card %}{% endif %}
+  {% if card.get('id') == 'profile' %}{% set profile_card.value = card %}{% endif %}
+  {% if card.get('id') == 'delivery' %}{% set delivery_card.value = card %}{% endif %}
+  {% if card.get('title') == 'Recurring intelligence leaving this account' %}{% set automation_card.value = card %}{% endif %}
+  {% if card.get('title') == 'Where the next change belongs' %}{% set operating_card.value = card %}{% endif %}
+  {% if card.get('title') == 'Product-facing controls' %}{% set public_card.value = card %}{% endif %}
+{% endfor %}
+
+<section class="pqx-card pqx-account-board">
+  <div class="pqx-section-head">
+    <div>
+      <div class="pqx-small">Account truth</div>
+      <h2>Identity, defaults, delivery</h2>
+    </div>
+  </div>
+
+  <div class="pqx-account-summary">
+    {% for highlight in hero_highlights or [] %}
+    <section class="pqx-account-summary-card">
+      <span class="pqx-small">{{ highlight.get('label') }}</span>
+      <strong>{{ highlight.get('value') }}</strong>
+      <small>{{ highlight.get('detail') }}</small>
+      {% if highlight.get('href') %}<a class="pqx-link-button subtle" href="{{ highlight.get('href') }}">Open</a>{% endif %}
+    </section>
+    {% endfor %}
+  </div>
+
+  <div class="pqx-account-grid">
+    {% for card in [identity_card.value, plan_card.value, delivery_card.value, profile_card.value, automation_card.value, operating_card.value, public_card.value] if card %}
+    <section class="pqx-account-card"{% if card.get('id') %} id="{{ card.get('id') }}"{% endif %}>
+      <div class="pqx-section-head">
+        <div>
+          {% if card.get('eyebrow') %}<div class="pqx-small">{{ card.get('eyebrow') }}</div>{% endif %}
+          <h2>{{ card.get('title') }}</h2>
+          {% if card.get('body') %}<div class="pqx-note">{{ card.get('body') }}</div>{% endif %}
+        </div>
+      </div>
+      {% if card.get('items') %}
+      <div class="pqx-pref-list">
+        {% for item in card.get('items') or [] %}
+        <div class="pqx-pref-row">
+          <div>
+            <strong>{{ item.get('title') }}</strong>
+            {% if item.get('detail') %}<small>{{ item.get('detail') }}</small>{% endif %}
+          </div>
+          <div class="pqx-actions">
+            {% if item.get('tag') %}<span class="pqx-pill">{{ item.get('tag') }}</span>{% endif %}
+            {% if item.get('action_href') and item.get('action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('action_href') }}">{{ item.get('action_label') }}</a>{% endif %}
+            {% if item.get('secondary_action_href') and item.get('secondary_action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('secondary_action_href') }}">{{ item.get('secondary_action_label') }}</a>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </section>
+    {% endfor %}
+  </div>
+</section>

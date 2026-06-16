@@ -26,6 +26,25 @@ from app.api.routes.landing_property_saved_searches import (
     build_property_search_agents,
     select_property_search_agent,
 )
+from app.product.property_surface_state import (
+    build_property_empty_outcome_summary,
+    build_property_previous_run_summary,
+    build_property_shortlist_snapshot,
+    build_property_workbench_candidate_snapshot,
+    effective_property_listing_mode,
+    normalized_property_search_goal,
+    property_mode_visibility_label,
+)
+from app.api.routes.landing_property_surface_contracts import (
+    PropertyDecisionWorkbenchBriefContract,
+    PropertyDecisionWorkbenchContract,
+    PropertyDecisionWorkbenchRunContract,
+    PropertySurfacePayloadContract,
+    PropertySurfaceScope,
+)
+from app.api.routes.landing_property_workspace_payload import (
+    property_workspace_payload as build_property_workspace_payload,
+)
 from app.api.routes.landing_property_workspace_helpers import (
     _artifact_receipt_rows,
     _candidate_detail_sections,
@@ -825,7 +844,8 @@ def _property_preference_schema() -> dict[str, object]:
     return {"categories": categories}
 
 
-def _property_region_options(country_code: str) -> list[dict[str, str]]:
+@lru_cache(maxsize=32)
+def _property_region_options_cached(country_code: str) -> tuple[tuple[str, str, str], ...]:
     from app.services.property_market_catalog import normalize_country_code, region_options_for_country
 
     catalogs: dict[str, list[dict[str, str]]] = {
@@ -844,11 +864,28 @@ def _property_region_options(country_code: str) -> list[dict[str, str]]:
     }
     normalized_country = normalize_country_code(country_code)
     if normalized_country in catalogs:
-        return list(catalogs[normalized_country])
-    return region_options_for_country(normalized_country)
+        rows = catalogs[normalized_country]
+    else:
+        rows = region_options_for_country(normalized_country)
+    return tuple(
+        (
+            str(row.get("value") or ""),
+            str(row.get("label") or ""),
+            str(row.get("detail") or ""),
+        )
+        for row in rows
+    )
 
 
-def _property_location_options(country_code: str, region_code: str = "") -> list[dict[str, str]]:
+def _property_region_options(country_code: str) -> list[dict[str, str]]:
+    return [
+        {"value": value, "label": label, "detail": detail}
+        for value, label, detail in _property_region_options_cached(country_code)
+    ]
+
+
+@lru_cache(maxsize=128)
+def _property_location_options_cached(country_code: str, region_code: str = "") -> tuple[tuple[str, str, str], ...]:
     from app.services.property_market_catalog import location_options_for_country_region, normalize_country_code
 
     austria_catalogs: dict[str, list[dict[str, str]]] = {
@@ -976,12 +1013,35 @@ def _property_location_options(country_code: str, region_code: str = "") -> list
     }
     normalized_country = normalize_country_code(country_code)
     if normalized_country in catalogs:
-        return list(catalogs[normalized_country])
-    return location_options_for_country_region(normalized_country, region_code)
+        rows = catalogs[normalized_country]
+    else:
+        rows = location_options_for_country_region(normalized_country, region_code)
+    return tuple(
+        (
+            str(row.get("value") or ""),
+            str(row.get("label") or ""),
+            str(row.get("detail") or ""),
+        )
+        for row in rows
+    )
 
 
-def _property_keyword_options() -> list[dict[str, str]]:
+def _property_location_options(country_code: str, region_code: str = "") -> list[dict[str, str]]:
     return [
+        {"value": value, "label": label, "detail": detail}
+        for value, label, detail in _property_location_options_cached(country_code, region_code)
+    ]
+
+
+@lru_cache(maxsize=1)
+def _property_keyword_options_cached() -> tuple[tuple[str, str, str], ...]:
+    return tuple(
+        (
+            str(row["value"]),
+            str(row["label"]),
+            str(row["detail"]),
+        )
+        for row in [
         {"value": "lift", "label": "Lift", "detail": "Elevator in the building"},
         {"value": "balcony", "label": "Balcony", "detail": "Outdoor private space"},
         {"value": "terrace", "label": "Terrace", "detail": "Large outdoor space"},
@@ -999,7 +1059,106 @@ def _property_keyword_options() -> list[dict[str, str]]:
         {"value": "pets allowed", "label": "Pets allowed", "detail": "Pet-friendly rules"},
         {"value": "quiet", "label": "Quiet", "detail": "Lower street noise"},
         {"value": "bright", "label": "Bright", "detail": "Good natural light"},
+        ]
+    )
+
+
+def _property_keyword_options() -> list[dict[str, str]]:
+    return [
+        {"value": value, "label": label, "detail": detail}
+        for value, label, detail in _property_keyword_options_cached()
     ]
+
+
+@lru_cache(maxsize=8)
+def _property_region_catalog_by_country_cached(country_values: tuple[str, ...]) -> tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...]:
+    return tuple(
+        (
+            country_code,
+            tuple(
+                (row["value"], row["label"], row["detail"])
+                for row in _property_region_options(country_code)
+            ),
+        )
+        for country_code in country_values
+        if country_code
+    )
+
+
+def _property_region_catalog_by_country(country_values: tuple[str, ...]) -> dict[str, list[dict[str, str]]]:
+    return {
+        country_code: [
+            {"value": value, "label": label, "detail": detail}
+            for value, label, detail in rows
+        ]
+        for country_code, rows in _property_region_catalog_by_country_cached(country_values)
+    }
+
+
+@lru_cache(maxsize=8)
+def _property_market_filter_capabilities_catalog_cached(
+    country_values: tuple[str, ...],
+) -> tuple[tuple[str, tuple[tuple[str, tuple[tuple[str, bool], ...]], ...]], ...]:
+    return tuple(
+        (
+            country_code,
+            tuple(
+                (
+                    str(region.get("value") or ""),
+                    tuple(sorted(_property_market_filter_capabilities(country_code, str(region.get("value") or "")).items())),
+                )
+                for region in _property_region_options(country_code)
+            ),
+        )
+        for country_code in country_values
+        if country_code
+    )
+
+
+def _property_market_filter_capabilities_catalog(country_values: tuple[str, ...]) -> dict[str, dict[str, dict[str, bool]]]:
+    return {
+        country_code: {
+            region_code: {key: bool(value) for key, value in capability_rows}
+            for region_code, capability_rows in region_rows
+        }
+        for country_code, region_rows in _property_market_filter_capabilities_catalog_cached(country_values)
+    }
+
+
+@lru_cache(maxsize=8)
+def _property_location_catalog_by_country_region_cached(
+    country_values: tuple[str, ...],
+) -> tuple[tuple[str, tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...]], ...]:
+    return tuple(
+        (
+            country_code,
+            tuple(
+                (
+                    str(region.get("value") or ""),
+                    tuple(
+                        (row["value"], row["label"], row["detail"])
+                        for row in _property_location_options(country_code, str(region.get("value") or ""))
+                    ),
+                )
+                for region in _property_region_options(country_code)
+            ),
+        )
+        for country_code in country_values
+        if country_code
+    )
+
+
+def _property_location_catalog_by_country_region(country_values: tuple[str, ...]) -> dict[str, dict[str, list[dict[str, str]]]]:
+    return {
+        country_code: {
+            region_code: [
+                {"value": value, "label": label, "detail": detail}
+                for value, label, detail in location_rows
+            ]
+            for region_code, location_rows in region_rows
+        }
+        for country_code, region_rows in _property_location_catalog_by_country_region_cached(country_values)
+    }
 
 
 def humanize(value: str) -> str:
@@ -1239,6 +1398,7 @@ def app_section_payload(
         for title in trust_notes
     ]
     property_state = dict(property_context or {})
+    surface_scope = PropertySurfaceScope.for_section(str(property_state.get("surface_mode") or "properties"))
     property_run = dict(property_state.get("run") or {})
     property_run_preferences = (
         dict(property_run.get("property_search_preferences") or property_run.get("preferences") or {})
@@ -1281,13 +1441,32 @@ def app_section_payload(
         if str(value or "").strip()
     }
     selected_country_code = str(property_preferences.get("country_code") or "AT").strip().upper() or "AT"
-    selected_search_goal = str(property_preferences.get("search_goal") or "home").strip().lower() or "home"
-    if selected_search_goal not in {"home", "investment"}:
-        selected_search_goal = "home"
+    selected_search_goal = normalized_property_search_goal(property_preferences.get("search_goal"))
     selected_investment_strategy = str(property_preferences.get("investment_strategy") or "best_overall").strip().lower() or "best_overall"
     if selected_investment_strategy not in {"best_overall", "cash_flow", "appreciation", "undervalued", "low_risk"}:
         selected_investment_strategy = "best_overall"
+    selected_investment_research_mode = str(property_preferences.get("investment_research_mode") or "off").strip().lower() or "off"
+    if selected_investment_research_mode not in {"off", "auto"}:
+        selected_investment_research_mode = "off"
     property_is_investment_search = selected_search_goal == "investment"
+    effective_listing_mode = effective_property_listing_mode(
+        {
+            **property_preferences,
+            "search_goal": selected_search_goal,
+            "listing_mode": selected_listing_mode,
+        },
+        fallback=selected_listing_mode,
+    )
+    selected_listing_mode = effective_listing_mode
+    property_listing_mode_label = property_mode_visibility_label(
+        {
+            **property_preferences,
+            "search_goal": selected_search_goal,
+            "listing_mode": selected_listing_mode,
+        },
+        fallback=selected_listing_mode,
+    )
+    show_investment_underwriting_controls = property_is_investment_search and selected_investment_research_mode != "off"
     try:
         min_gross_yield_pct = max(0, min(15, int(float(str(property_preferences.get("min_gross_yield_pct") or "").strip()))))
     except Exception:
@@ -1405,9 +1584,10 @@ def app_section_payload(
         row_item("Country", property_country_label, "Market"),
         row_item("Browser language", property_language_label, "Research"),
         row_item("Search goal", property_search_goal_label, "Goal"),
-        row_item("Search mode", property_listing_mode_label, "Mode"),
         row_item("Property type", property_type_label, "Type"),
     ]
+    if not property_is_investment_search:
+        property_market_summary_items.insert(3, row_item("Search mode", property_listing_mode_label, "Mode"))
     if property_is_investment_search:
         property_market_summary_items.append(row_item("Investment strategy", property_investment_strategy_label, "Thesis"))
         if min_gross_yield_pct > 0:
@@ -1416,7 +1596,7 @@ def app_section_payload(
             property_market_summary_items.append(row_item("Equity available", f"EUR {equity_available_eur:,.0f}".replace(",", " "), "Financing"))
         if min_dscr > 0:
             property_market_summary_items.append(row_item("Minimum DSCR", f"{min_dscr:.2f}x", "Financing"))
-    if selected_listing_mode == "buy":
+    if property_is_investment_search:
         property_market_summary_items.append(row_item("Investment research", property_investment_research_mode_label, "Underwriting"))
     if property_available_within_years_value > 0:
         property_market_summary_items.append(
@@ -1436,8 +1616,6 @@ def app_section_payload(
         )
     if custom_keywords:
         property_market_summary_items.append(row_item("Custom priorities", custom_keywords, "Custom"))
-    if bool(property_preferences.get("enable_family_mode")):
-        property_market_summary_items.append(row_item("Family mode", "Enabled", "Mode"))
     if str(property_preferences.get("commute_destination") or "").strip():
         property_market_summary_items.append(
             row_item("Commute destination", str(property_preferences.get("commute_destination") or "").strip(), "Route")
@@ -1484,21 +1662,21 @@ def app_section_payload(
         property_market_summary_items.append(row_item("Energy certificate", "Required", "Documents"))
     if bool(property_preferences.get("require_operating_cost_statement")):
         property_market_summary_items.append(row_item("Operating costs", "Statement required", "Documents"))
-    if bool(property_preferences.get("wiener_wohnticket_available")):
+    if selected_listing_mode == "rent" and bool(property_preferences.get("wiener_wohnticket_available")):
         property_market_summary_items.append(row_item("Wiener Wohn-Ticket", "Available", "Eligibility"))
-    if bool(property_preferences.get("subsidized_required")):
+    if selected_listing_mode == "rent" and bool(property_preferences.get("subsidized_required")):
         property_market_summary_items.append(row_item("Subsidized supply", "Required", "Eligibility"))
-    if bool(property_preferences.get("miete_mit_kaufoption")):
+    if selected_listing_mode == "rent" and bool(property_preferences.get("miete_mit_kaufoption")):
         property_market_summary_items.append(row_item("Miete mit Kaufoption", "Accepted", "Eligibility"))
-    if int(property_preferences.get("eigenmittel_max_eur") or 0) > 0:
+    if selected_listing_mode == "rent" and int(property_preferences.get("eigenmittel_max_eur") or 0) > 0:
         property_market_summary_items.append(
             row_item("Eigenmittel ceiling", f"EUR {int(property_preferences.get('eigenmittel_max_eur') or 0):,}".replace(",", ","), "Eligibility")
         )
-    if int(property_preferences.get("application_window_days") or 0) > 0:
+    if selected_listing_mode == "rent" and int(property_preferences.get("application_window_days") or 0) > 0:
         property_market_summary_items.append(
             row_item("Application window", f"Within {int(property_preferences.get('application_window_days') or 0)} days", "Eligibility")
         )
-    if bool(property_preferences.get("enable_auction_legal_review")):
+    if selected_listing_mode == "buy" and bool(property_preferences.get("enable_auction_legal_review")):
         property_market_summary_items.append(row_item("Auction legal review", "Required when auction evidence appears", "Legal"))
     property_platform_rows = [
         row_item(
@@ -1512,7 +1690,7 @@ def app_section_payload(
         dict(item)
         for item in list(property_state.get("recent_matches") or [])
         if isinstance(item, dict)
-    ]
+    ] if surface_scope.wants_recent_matches else []
     property_event_rows = [
         row_item(
             str(event.get("step") or "Update").replace("_", " ").capitalize(),
@@ -1551,60 +1729,61 @@ def app_section_payload(
             return "Preferred because it stayed closest to the current brief on the available facts; 3D evidence helps verification but was not decisive on its own."
         return ""
 
-    for source in list(property_summary.get("sources") or []):
-        if not isinstance(source, dict):
-            continue
-        source_row = dict(source)
-        source_label = str(source_row.get("source_label") or source_row.get("source_url") or "Source").strip()
-        source_row["display_source_label"] = _compact_provider_label(source_label)
-        enriched_candidates: list[dict[str, object]] = []
-        for candidate in list(source_row.get("top_candidates") or []):
-            if not isinstance(candidate, dict):
+    if surface_scope.wants_run_views:
+        for source in list(property_summary.get("sources") or []):
+            if not isinstance(source, dict):
                 continue
-            candidate_row = dict(candidate)
-            candidate_row.setdefault("source_label", source_label)
-            candidate_row.setdefault("source_short_label", _compact_provider_label(source_label))
-            if not str(candidate_row.get("packet_url") or "").strip():
-                candidate_row["packet_url"] = _packet_url_for_candidate(candidate_row, source_label=source_label)
-            enriched_candidates.append(candidate_row)
-        source_row["top_candidates"] = enriched_candidates
-        enriched_sources.append(source_row)
-    if enriched_sources:
-        property_summary["sources"] = enriched_sources
-        ranked_candidates = [
-            dict(row)
-            for row in list(property_summary.get("ranked_candidates") or [])
-            if isinstance(row, dict)
-        ]
-        if not ranked_candidates:
-            seen_candidates: set[str] = set()
-            for source_row in enriched_sources:
-                source_label = str(source_row.get("source_label") or source_row.get("source_url") or "Source").strip()
-                for candidate in list(source_row.get("top_candidates") or []):
-                    if not isinstance(candidate, dict):
-                        continue
-                    candidate_row = dict(candidate)
-                    candidate_key = str(candidate_row.get("source_ref") or candidate_row.get("property_url") or candidate_row.get("listing_id") or "").strip()
-                    if candidate_key and candidate_key in seen_candidates:
-                        continue
-                    if candidate_key:
-                        seen_candidates.add(candidate_key)
-                    candidate_row.setdefault("source_label", source_label)
-                    candidate_row.setdefault("source_short_label", _compact_provider_label(source_label))
-                    ranked_candidates.append(candidate_row)
-        ranked_candidates.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
-        for index, candidate_row in enumerate(ranked_candidates, start=1):
-            candidate_row["rank"] = index
-            candidate_row.setdefault("map_url", _property_candidate_maps_url(candidate_row))
-            candidate_row.setdefault("preview_image_url", _property_candidate_preview_image(candidate_row))
-            candidate_row.setdefault("route_evidence", _property_candidate_route_evidence(candidate_row, property_preferences))
-            if not str(candidate_row.get("packet_url") or "").strip():
-                candidate_row["packet_url"] = _packet_url_for_candidate(
-                    candidate_row,
-                    source_label=str(candidate_row.get("source_label") or "Source"),
-                )
-        property_summary["ranked_candidates"] = ranked_candidates[:50]
-        property_run["summary"] = property_summary
+            source_row = dict(source)
+            source_label = str(source_row.get("source_label") or source_row.get("source_url") or "Source").strip()
+            source_row["display_source_label"] = _compact_provider_label(source_label)
+            enriched_candidates: list[dict[str, object]] = []
+            for candidate in list(source_row.get("top_candidates") or []):
+                if not isinstance(candidate, dict):
+                    continue
+                candidate_row = dict(candidate)
+                candidate_row.setdefault("source_label", source_label)
+                candidate_row.setdefault("source_short_label", _compact_provider_label(source_label))
+                if not str(candidate_row.get("packet_url") or "").strip():
+                    candidate_row["packet_url"] = _packet_url_for_candidate(candidate_row, source_label=source_label)
+                enriched_candidates.append(candidate_row)
+            source_row["top_candidates"] = enriched_candidates
+            enriched_sources.append(source_row)
+        if enriched_sources:
+            property_summary["sources"] = enriched_sources
+            ranked_candidates = [
+                dict(row)
+                for row in list(property_summary.get("ranked_candidates") or [])
+                if isinstance(row, dict)
+            ]
+            if not ranked_candidates:
+                seen_candidates: set[str] = set()
+                for source_row in enriched_sources:
+                    source_label = str(source_row.get("source_label") or source_row.get("source_url") or "Source").strip()
+                    for candidate in list(source_row.get("top_candidates") or []):
+                        if not isinstance(candidate, dict):
+                            continue
+                        candidate_row = dict(candidate)
+                        candidate_key = str(candidate_row.get("source_ref") or candidate_row.get("property_url") or candidate_row.get("listing_id") or "").strip()
+                        if candidate_key and candidate_key in seen_candidates:
+                            continue
+                        if candidate_key:
+                            seen_candidates.add(candidate_key)
+                        candidate_row.setdefault("source_label", source_label)
+                        candidate_row.setdefault("source_short_label", _compact_provider_label(source_label))
+                        ranked_candidates.append(candidate_row)
+            ranked_candidates.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
+            for index, candidate_row in enumerate(ranked_candidates, start=1):
+                candidate_row["rank"] = index
+                candidate_row.setdefault("map_url", _property_candidate_maps_url(candidate_row))
+                candidate_row.setdefault("preview_image_url", _property_candidate_preview_image(candidate_row))
+                candidate_row.setdefault("route_evidence", _property_candidate_route_evidence(candidate_row, property_preferences))
+                if not str(candidate_row.get("packet_url") or "").strip():
+                    candidate_row["packet_url"] = _packet_url_for_candidate(
+                        candidate_row,
+                        source_label=str(candidate_row.get("source_label") or "Source"),
+                    )
+            property_summary["ranked_candidates"] = ranked_candidates[:50]
+            property_run["summary"] = property_summary
 
     property_source_rows = [
         row_item(
@@ -1680,134 +1859,135 @@ def app_section_payload(
             )
         return rows[:3]
 
-    for source in list(property_summary.get("sources") or []):
-        if not isinstance(source, dict):
-            continue
-        source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
-        for candidate in list(source.get("top_candidates") or [])[:5]:
-            if not isinstance(candidate, dict):
+    if surface_scope.wants_run_views:
+        for source in list(property_summary.get("sources") or []):
+            if not isinstance(source, dict):
                 continue
-            title = str(candidate.get("title") or candidate.get("property_url") or "Property candidate").strip() or "Property candidate"
-            detail_parts = [
-                _clean_property_candidate_copy(candidate.get("fit_summary") or ""),
-                source_label,
-            ]
-            match_reasons = [
-                _clean_property_candidate_copy(item)
-                for item in list(candidate.get("match_reasons") or [])
-                if _clean_property_candidate_copy(item)
-            ]
-            mismatch_reasons = [
-                _clean_property_candidate_copy(item)
-                for item in list(candidate.get("mismatch_reasons") or [])
-                if _clean_property_candidate_copy(item)
-            ]
-            priority_reason = _candidate_priority_reason(match_reasons, mismatch_reasons, _clean_property_candidate_copy(candidate.get("fit_summary") or ""))
-            compare_reason = str(candidate.get("compare_reason") or "").strip()
-            if compare_reason:
-                detail_parts.append(compare_reason)
-            if priority_reason:
-                detail_parts.append(priority_reason)
-            row: dict[str, str] = {
-                "title": title,
-                "detail": " | ".join(part for part in detail_parts if part) or source_label,
-                "tag": str(candidate.get("recommendation") or "candidate").replace("_", " ").title(),
-            }
-            review_url = str(candidate.get("review_url") or "").strip()
-            tour_url = str(candidate.get("tour_url") or "").strip()
-            property_url = str(candidate.get("property_url") or "").strip()
-            packet_ref = _property_candidate_ref(
-                {
+            source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
+            for candidate in list(source.get("top_candidates") or [])[:5]:
+                if not isinstance(candidate, dict):
+                    continue
+                title = str(candidate.get("title") or candidate.get("property_url") or "Property candidate").strip() or "Property candidate"
+                detail_parts = [
+                    _clean_property_candidate_copy(candidate.get("fit_summary") or ""),
+                    source_label,
+                ]
+                match_reasons = [
+                    _clean_property_candidate_copy(item)
+                    for item in list(candidate.get("match_reasons") or [])
+                    if _clean_property_candidate_copy(item)
+                ]
+                mismatch_reasons = [
+                    _clean_property_candidate_copy(item)
+                    for item in list(candidate.get("mismatch_reasons") or [])
+                    if _clean_property_candidate_copy(item)
+                ]
+                priority_reason = _candidate_priority_reason(match_reasons, mismatch_reasons, _clean_property_candidate_copy(candidate.get("fit_summary") or ""))
+                compare_reason = str(candidate.get("compare_reason") or "").strip()
+                if compare_reason:
+                    detail_parts.append(compare_reason)
+                if priority_reason:
+                    detail_parts.append(priority_reason)
+                row: dict[str, str] = {
                     "title": title,
-                    "property_url": property_url,
-                    "review_url": review_url,
-                    "tour_url": tour_url,
-                    "source_label": source_label,
+                    "detail": " | ".join(part for part in detail_parts if part) or source_label,
+                    "tag": str(candidate.get("recommendation") or "candidate").replace("_", " ").title(),
                 }
-            )
-            packet_url = f"/app/research/{packet_ref}"
-            if active_run_id:
-                packet_url = f"{packet_url}?run_id={active_run_id}"
-            if review_url:
-                row["action_href"] = packet_url
-                row["action_method"] = "get"
-                row["action_label"] = "Open property page"
-                row["secondary_action_href"] = review_url
-                row["secondary_action_method"] = "get"
-                row["secondary_action_label"] = "Open listing"
-            else:
-                row["action_href"] = packet_url
-                row["action_method"] = "get"
-                row["action_label"] = "Open property page"
-            if tour_url:
-                if row.get("secondary_action_href"):
-                    row["tertiary_action_href"] = tour_url
-                    row["tertiary_action_method"] = "get"
-                    row["tertiary_action_label"] = "Open 360"
-                elif row.get("action_href"):
-                    row["secondary_action_href"] = tour_url
-                    row["secondary_action_method"] = "get"
-                    row["secondary_action_label"] = "Open 360"
-                else:
-                    row["action_href"] = tour_url
+                review_url = str(candidate.get("review_url") or "").strip()
+                tour_url = str(candidate.get("tour_url") or "").strip()
+                property_url = str(candidate.get("property_url") or "").strip()
+                packet_ref = _property_candidate_ref(
+                    {
+                        "title": title,
+                        "property_url": property_url,
+                        "review_url": review_url,
+                        "tour_url": tour_url,
+                        "source_label": source_label,
+                    }
+                )
+                packet_url = f"/app/research/{packet_ref}"
+                if active_run_id:
+                    packet_url = f"{packet_url}?run_id={active_run_id}"
+                if review_url:
+                    row["action_href"] = packet_url
                     row["action_method"] = "get"
-                    row["action_label"] = "Open 360"
-            if property_url:
-                if row.get("tertiary_action_href"):
-                    row["quaternary_action_href"] = property_url
-                    row["quaternary_action_method"] = "get"
-                    row["quaternary_action_label"] = "Source"
-                elif row.get("secondary_action_href"):
-                    row["tertiary_action_href"] = property_url
-                    row["tertiary_action_method"] = "get"
-                    row["tertiary_action_label"] = "Source"
-                elif row.get("action_href"):
-                    row["secondary_action_href"] = property_url
+                    row["action_label"] = "Open property page"
+                    row["secondary_action_href"] = review_url
                     row["secondary_action_method"] = "get"
-                    row["secondary_action_label"] = "Source"
+                    row["secondary_action_label"] = "Open listing"
                 else:
-                    row["action_href"] = property_url
+                    row["action_href"] = packet_url
                     row["action_method"] = "get"
-                    row["action_label"] = "Source"
-            property_shortlist_rows.append(row)
-            property_shortlist_cards.append(
-                {
-                    "title": title,
-                    "source_label": source_label,
-                    "detail": row["detail"],
-                    "tag": row["tag"],
-                    "fit_summary": str(candidate.get("fit_summary") or "").strip(),
-                    "recommendation": str(candidate.get("recommendation") or "").strip(),
-                    "property_url": property_url,
-                    "packet_url": packet_url,
-                    "review_url": review_url,
-                    "tour_url": tour_url,
-                    "tour_status": str(candidate.get("tour_status") or "").strip(),
-                    "tour_eta_minutes": candidate.get("tour_eta_minutes") or "",
-                    "blocked_reason": str(candidate.get("blocked_reason") or "").strip(),
-                    "match_reasons": match_reasons,
-                    "mismatch_reasons": mismatch_reasons,
-                    "lifestyle_highlights": _candidate_lifestyle_highlights(candidate),
-                    "research_highlights": _candidate_research_highlights(candidate),
-                    "property_facts": dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {},
-                    "assessment": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
-                    "feedback_summary": dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {},
-                    "feedback_rows": [
-                        dict(row)
-                        for row in list(candidate.get("feedback_rows") or [])
-                        if isinstance(row, dict)
-                    ],
-                }
+                    row["action_label"] = "Open property page"
+                if tour_url:
+                    if row.get("secondary_action_href"):
+                        row["tertiary_action_href"] = tour_url
+                        row["tertiary_action_method"] = "get"
+                        row["tertiary_action_label"] = "Open 360"
+                    elif row.get("action_href"):
+                        row["secondary_action_href"] = tour_url
+                        row["secondary_action_method"] = "get"
+                        row["secondary_action_label"] = "Open 360"
+                    else:
+                        row["action_href"] = tour_url
+                        row["action_method"] = "get"
+                        row["action_label"] = "Open 360"
+                if property_url:
+                    if row.get("tertiary_action_href"):
+                        row["quaternary_action_href"] = property_url
+                        row["quaternary_action_method"] = "get"
+                        row["quaternary_action_label"] = "Source"
+                    elif row.get("secondary_action_href"):
+                        row["tertiary_action_href"] = property_url
+                        row["tertiary_action_method"] = "get"
+                        row["tertiary_action_label"] = "Source"
+                    elif row.get("action_href"):
+                        row["secondary_action_href"] = property_url
+                        row["secondary_action_method"] = "get"
+                        row["secondary_action_label"] = "Source"
+                    else:
+                        row["action_href"] = property_url
+                        row["action_method"] = "get"
+                        row["action_label"] = "Source"
+                property_shortlist_rows.append(row)
+                property_shortlist_cards.append(
+                    {
+                        "title": title,
+                        "source_label": source_label,
+                        "detail": row["detail"],
+                        "tag": row["tag"],
+                        "fit_summary": str(candidate.get("fit_summary") or "").strip(),
+                        "recommendation": str(candidate.get("recommendation") or "").strip(),
+                        "property_url": property_url,
+                        "packet_url": packet_url,
+                        "review_url": review_url,
+                        "tour_url": tour_url,
+                        "tour_status": str(candidate.get("tour_status") or "").strip(),
+                        "tour_eta_minutes": candidate.get("tour_eta_minutes") or "",
+                        "blocked_reason": str(candidate.get("blocked_reason") or "").strip(),
+                        "match_reasons": match_reasons,
+                        "mismatch_reasons": mismatch_reasons,
+                        "lifestyle_highlights": _candidate_lifestyle_highlights(candidate),
+                        "research_highlights": _candidate_research_highlights(candidate),
+                        "property_facts": dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {},
+                        "assessment": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
+                        "feedback_summary": dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {},
+                        "feedback_rows": [
+                            dict(row)
+                            for row in list(candidate.get("feedback_rows") or [])
+                            if isinstance(row, dict)
+                        ],
+                    }
+                )
+        property_shortlist_rows.sort(
+            key=lambda item: (
+                "shortlist" not in str(item.get("tag") or "").lower(),
+                "view if compelling" not in str(item.get("tag") or "").lower(),
+                str(item.get("title") or ""),
             )
-    property_shortlist_rows.sort(
-        key=lambda item: (
-            "shortlist" not in str(item.get("tag") or "").lower(),
-            "view if compelling" not in str(item.get("tag") or "").lower(),
-            str(item.get("title") or ""),
         )
-    )
-    property_shortlist_rows = property_shortlist_rows[:8]
-    property_shortlist_cards = property_shortlist_cards[:6]
+        property_shortlist_rows = property_shortlist_rows[:8]
+        property_shortlist_cards = property_shortlist_cards[:6]
     property_learning_summary = dict(property_state.get("learning_summary") or {})
     property_learning_rows = [
         row_item(entry, "Learned positive preference from explicit filters or listing feedback.", "Learnt")
@@ -1925,17 +2105,20 @@ def app_section_payload(
     if property_search_mode_requested not in {"strict", "discovery"}:
         property_search_mode_requested = "strict"
     selected_property_type_values = _normalize_property_type_values(property_preferences.get("property_type"))
-    property_search_agents, property_search_agent = build_property_search_agents(
-        property_preferences,
-        selected_platforms=selected_platforms,
-        selected_listing_mode=selected_listing_mode,
-        search_mode_requested=property_search_mode_requested,
-        default_duration_days=property_search_agent_duration_days,
-        default_notification_limit=property_search_agent_notification_limit,
-        default_notification_period=property_search_agent_notification_period,
-        normalize_property_type_values=_normalize_property_type_values,
-        scope_preview_builder=_property_scope_preview,
-    )
+    if surface_scope.wants_search_runs or surface_scope.wants_agent_views:
+        property_search_agents, property_search_agent = build_property_search_agents(
+            property_preferences,
+            selected_platforms=selected_platforms,
+            selected_listing_mode=selected_listing_mode,
+            search_mode_requested=property_search_mode_requested,
+            default_duration_days=property_search_agent_duration_days,
+            default_notification_limit=property_search_agent_notification_limit,
+            default_notification_period=property_search_agent_notification_period,
+            normalize_property_type_values=_normalize_property_type_values,
+            scope_preview_builder=_property_scope_preview,
+        )
+    else:
+        property_search_agents, property_search_agent = [], {}
     property_search_mode = property_search_mode_requested
     property_run_for_defaults = dict(property_state.get("run") or {})
     property_run_summary_for_defaults = dict(property_run_for_defaults.get("summary") or {})
@@ -1976,6 +2159,14 @@ def app_section_payload(
                 "label": selected_preference_person_id,
             }
         )
+    country_codes = tuple(
+        str(option.get("value") or "").strip()
+        for option in country_options
+        if str(option.get("value") or "").strip()
+    )
+    region_catalog_by_country = _property_region_catalog_by_country(country_codes)
+    market_filter_capabilities_by_country_region = _property_market_filter_capabilities_catalog(country_codes)
+    location_catalog_by_country_region = _property_location_catalog_by_country_region(country_codes)
     property_form = {
         "variant": "property_search",
         "title": "Run a premium market sweep",
@@ -2021,11 +2212,11 @@ def app_section_payload(
             {
                 "type": "select",
                 "name": "investment_research_mode",
-                "label": "Underwriting depth",
+                "label": "Investment research",
                 "value": str(property_preferences.get("investment_research_mode") or "off"),
                 "options": investment_research_mode_options,
                 "hidden": not property_is_investment_search,
-                "tooltip": "When investment mode is active, PropertyQuarry builds quick yield, pricing, and risk context before the full property page.",
+                "tooltip": "Choose whether the investment sweep should stay ranking-only or add yield, pricing, and risk context before the full property page.",
                 "step": "search",
             },
             {
@@ -2034,7 +2225,7 @@ def app_section_payload(
                 "label": "Investment strategy",
                 "value": selected_investment_strategy,
                 "options": investment_strategy_options,
-                "hidden": not property_is_investment_search,
+                "hidden": not show_investment_underwriting_controls,
                 "tooltip": "Choose the thesis first. Cash flow weights yield highest. Appreciation weights area pricing and upside. Low risk penalizes unclear or messy deals.",
                 "step": "search",
             },
@@ -2051,7 +2242,7 @@ def app_section_payload(
                 "empty_label": "Any yield",
                 "scale_min_label": "Any",
                 "scale_max_label": "15%",
-                "hidden": not property_is_investment_search,
+                "hidden": not show_investment_underwriting_controls,
                 "tooltip": "Use this as a hard floor for expected gross yield when enough rent evidence exists. Unknown yields stay visible but rank lower.",
                 "step": "search",
             },
@@ -2068,7 +2259,7 @@ def app_section_payload(
                 "empty_label": "Model leverage automatically",
                 "scale_min_label": "Auto",
                 "scale_max_label": "EUR 1.0m",
-                "hidden": not property_is_investment_search,
+                "hidden": not show_investment_underwriting_controls,
                 "tooltip": "Use this when you want debt coverage and cash-on-cash yield to reflect your real equity instead of the default leverage assumption.",
                 "step": "search",
             },
@@ -2084,7 +2275,7 @@ def app_section_payload(
                 "format": "loan_term_years",
                 "scale_min_label": "5y",
                 "scale_max_label": "40y",
-                "hidden": not property_is_investment_search,
+                "hidden": not show_investment_underwriting_controls,
                 "tooltip": "This drives the modeled annual debt service behind DSCR and cash-on-cash yield.",
                 "step": "search",
             },
@@ -2101,7 +2292,7 @@ def app_section_payload(
                 "empty_label": "Live or fallback rate",
                 "scale_min_label": "Auto",
                 "scale_max_label": "12%",
-                "hidden": not property_is_investment_search,
+                "hidden": not show_investment_underwriting_controls,
                 "tooltip": "Use this when you want the financing model to stay conservative even if a live feed returns a softer rate.",
                 "step": "search",
             },
@@ -2118,7 +2309,7 @@ def app_section_payload(
                 "empty_label": "Any DSCR",
                 "scale_min_label": "Any",
                 "scale_max_label": "2.50x",
-                "hidden": not property_is_investment_search,
+                "hidden": not show_investment_underwriting_controls,
                 "tooltip": "A DSCR floor lets you exclude deals that do not cover their modeled annual debt service cleanly enough.",
                 "step": "search",
             },
@@ -2135,7 +2326,7 @@ def app_section_payload(
                 "empty_label": "Feed or market default",
                 "scale_min_label": "Auto",
                 "scale_max_label": "25%",
-                "hidden": not property_is_investment_search,
+                "hidden": not show_investment_underwriting_controls,
                 "tooltip": "This reserve reduces the rent roll before NOI and DSCR are calculated.",
                 "step": "search",
             },
@@ -2152,7 +2343,7 @@ def app_section_payload(
                 "empty_label": "Feed or market default",
                 "scale_min_label": "Auto",
                 "scale_max_label": "25%",
-                "hidden": not property_is_investment_search,
+                "hidden": not show_investment_underwriting_controls,
                 "tooltip": "This reserve keeps the underwriting honest when the listing looks cheap but long-run upkeep is still unresolved.",
                 "step": "search",
             },
@@ -2227,7 +2418,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("investment_require_floorplan") or property_preferences.get("require_floorplan")),
                 "tooltip": "Use this for cleaner underwriting. Listings without a layout stay out of the final investment shortlist.",
                 "step": "areas",
-                "hidden": not property_is_investment_search,
+                "hidden": not show_investment_underwriting_controls,
             },
             {
                 "type": "checkbox",
@@ -2237,7 +2428,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("investment_require_legal_clarity")),
                 "tooltip": "Exclude auctions, leasehold-style structures, and other legally messy deals when you want a cleaner shortlist first.",
                 "step": "areas",
-                "hidden": not property_is_investment_search,
+                "hidden": not show_investment_underwriting_controls,
             },
             {
                 "type": "checkbox",
@@ -2247,7 +2438,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("investment_require_tenant_clarity")),
                 "tooltip": "Penalize or exclude listings that do not make occupancy or rentability clear enough for a fast investment read.",
                 "step": "areas",
-                "hidden": not property_is_investment_search,
+                "hidden": not show_investment_underwriting_controls,
             },
             {
                 "type": "checkbox",
@@ -2257,7 +2448,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("investment_avoid_major_renovation")),
                 "tooltip": "Exclude listings whose own text suggests major renovation, core refurbishment, or a fixer-upper posture.",
                 "step": "areas",
-                "hidden": not property_is_investment_search,
+                "hidden": not show_investment_underwriting_controls,
             },
             {
                 "type": "checkbox_group",
@@ -2342,6 +2533,7 @@ def app_section_payload(
                 "tooltip": "Track municipal, public housing, and Wohnservice-like lanes separately from commercial marketplaces.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
+                "hidden": selected_listing_mode != "rent",
             },
             {
                 "type": "checkbox",
@@ -2352,6 +2544,7 @@ def app_section_payload(
                 "tooltip": "Only treat Vienna municipal and subsidized opportunities as fully usable when a Wiener Wohn-Ticket is already available.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
+                "hidden": selected_listing_mode != "rent",
             },
             {
                 "type": "checkbox",
@@ -2362,6 +2555,7 @@ def app_section_payload(
                 "tooltip": "Bias the search toward geforderte, cooperative, and municipal supply instead of private-market inventory.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
+                "hidden": selected_listing_mode != "rent",
             },
             {
                 "type": "checkbox",
@@ -2372,6 +2566,7 @@ def app_section_payload(
                 "tooltip": "Keep lease-to-own style cooperative offers visible as their own eligibility-sensitive lane.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
+                "hidden": selected_listing_mode != "rent",
             },
             {
                 "type": "range",
@@ -2389,6 +2584,7 @@ def app_section_payload(
                 "tooltip": "Treat cooperative or subsidized offers above this financing contribution as a weaker fit instead of hiding them completely.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
+                "hidden": selected_listing_mode != "rent",
             },
             {
                 "type": "range",
@@ -2406,6 +2602,7 @@ def app_section_payload(
                 "tooltip": "Keep short registration windows visible as an urgency signal when cooperative or subsidized stock is scarce.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
+                "hidden": selected_listing_mode != "rent",
             },
             {
                 "type": "checkbox",
@@ -2416,6 +2613,7 @@ def app_section_payload(
                 "tooltip": "Keep court-published, auction, and forced-sale listings visible as a separate source family.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
+                "hidden": selected_listing_mode != "buy",
             },
             {
                 "type": "checkbox_group",
@@ -2480,26 +2678,6 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("enable_location_risk_research")),
                 "tooltip": "Investigate safety, schools, clinics, daily-life access, pollution, flood, heat, and nuisance burden.",
                 "step": "areas",
-            },
-            {
-                "type": "checkbox",
-                "name": "enable_family_mode",
-                "label": "Family mode",
-                "value": "true",
-                "checked": bool(property_preferences.get("enable_family_mode")),
-                "tooltip": "Prioritize school evidence, childcare, playgrounds, pediatrician access, and daily family logistics as a coherent mode.",
-                "step": "children",
-            },
-            {
-                "type": "checkbox",
-                "name": "ganztag_required",
-                "label": "Ganztag matters",
-                "value": "true",
-                "checked": bool(property_preferences.get("ganztag_required")),
-                "tooltip": "Treat all-day school or childcare availability as a first-class family signal instead of a nice-to-have note.",
-                "step": "children",
-                "advanced_panel": "children",
-                "hidden": True,
             },
             {
                 "type": "checkbox_group",
@@ -2789,6 +2967,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("enable_auction_legal_review")),
                 "tooltip": "Keep court-sale and auction listings separate from normal homes and flag them for extra legal review.",
                 "step": "research",
+                "hidden": selected_listing_mode != "buy",
             },
             {
                 "type": "checkbox",
@@ -3355,31 +3534,10 @@ def app_section_payload(
                 dict(property_state.get("platform_catalog_by_country") or {})
             ),
             "default_language_by_country": dict(property_state.get("default_language_by_country") or {}),
-            "region_catalog_by_country": {
-                option.get("value"): _property_region_options(str(option.get("value") or ""))
-                for option in country_options
-                if str(option.get("value") or "").strip()
-            },
-            "market_filter_capabilities_by_country_region": {
-                str(option.get("value") or ""): {
-                    str(region.get("value") or ""): _property_market_filter_capabilities(
-                        str(option.get("value") or ""),
-                        str(region.get("value") or ""),
-                    )
-                    for region in _property_region_options(str(option.get("value") or ""))
-                }
-                for option in country_options
-                if str(option.get("value") or "").strip()
-            },
+            "region_catalog_by_country": region_catalog_by_country,
+            "market_filter_capabilities_by_country_region": market_filter_capabilities_by_country_region,
             "market_filter_capabilities": market_filter_capabilities,
-            "location_catalog_by_country_region": {
-                str(option.get("value") or ""): {
-                    str(region.get("value") or ""): _property_location_options(str(option.get("value") or ""), str(region.get("value") or ""))
-                    for region in _property_region_options(str(option.get("value") or ""))
-                }
-                for option in country_options
-                if str(option.get("value") or "").strip()
-            },
+            "location_catalog_by_country_region": location_catalog_by_country_region,
             "supports_full_region_scope": True,
             "commercial": dict(property_state.get("commercial") or {}),
             "billing_checkout_enabled": bool(property_state.get("billing_checkout_enabled")),
@@ -3736,2081 +3894,11 @@ def property_workspace_payload(
     status: dict[str, object],
     property_state: dict[str, object],
 ) -> dict[str, object]:
-    base = app_section_payload("properties", status, live_feed=(), property_context=property_state)
-    cards = list(base.get("cards") or [])
-    cards_by_eyebrow = {
-        str(card.get("eyebrow") or "").strip().lower(): dict(card)
-        for card in cards
-        if isinstance(card, dict)
-    }
-    cards_by_title = {
-        str(card.get("title") or "").strip().lower(): dict(card)
-        for card in cards
-        if isinstance(card, dict)
-    }
-    property_form = dict(base.get("console_form") or {})
-    property_meta = dict(property_form.get("meta") or {})
-    property_search_agents = [
-        dict(agent)
-        for agent in list(property_meta.get("search_agents") or [])
-        if isinstance(agent, dict)
-    ]
-    property_search_agent = next((agent for agent in property_search_agents if agent.get("is_active")), property_search_agents[0] if property_search_agents else {})
-    provider_options = []
-    for field in list(property_form.get("schema") or []):
-        if not isinstance(field, dict):
-            continue
-        if str(field.get("name") or "").strip() != "selected_platforms":
-            continue
-        provider_options = [dict(option) for option in list(field.get("options") or []) if isinstance(option, dict)]
-        break
-    commercial = dict(property_state.get("commercial") or {})
-    property_preferences = dict(property_state.get("preferences") or {})
-    preference_person_id = str(property_state.get("preference_person_id") or property_preferences.get("preference_person_id") or "self").strip() or "self"
-    preference_bundle = dict(property_state.get("preference_bundle") or {})
-    raw_preference_nodes = [
-        dict(row)
-        for row in list(preference_bundle.get("preference_nodes") or [])
-        if isinstance(row, dict)
-    ]
-    workspace = dict(status.get("workspace") or {})
-    channels = dict(status.get("channels") or {})
-    google = dict(channels.get("google") or {})
-    current_plan_label = str(commercial.get("current_plan_label") or "Free").strip() or "Free"
-    try:
-        current_platform_cap = int(commercial.get("max_platforms") if commercial.get("max_platforms") is not None else 3)
-    except Exception:
-        current_platform_cap = 3
-    search_posture_card = cards_by_eyebrow.get("search posture", {})
-    market_coverage_card = cards_by_eyebrow.get("market coverage", {})
-    shortlist_card = cards_by_eyebrow.get("shortlist", {})
-    run_card = cards_by_eyebrow.get("run status", {})
-    learning_card = cards_by_eyebrow.get("learning loop", {})
-    recent_matches_card = cards_by_eyebrow.get("recent matches", {})
-    shortlist_candidates = list(property_meta.get("shortlist_candidates") or [])
-    run_payload = dict(property_state.get("run") or {})
-    run_events = list(run_payload.get("events") or [])
-    raw_run_summary = dict(run_payload.get("summary") or {})
-    run_summary = _property_customer_run_summary(raw_run_summary)
-    run_sources = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
-    selected_locations = _csv_values(property_preferences.get("location_query"))
-    selected_keywords = _csv_values(property_preferences.get("keywords"))
-    selected_search_goal = str(property_preferences.get("search_goal") or "home").strip().lower() or "home"
-    if selected_search_goal not in {"home", "investment"}:
-        selected_search_goal = "home"
-    property_is_investment_search = selected_search_goal == "investment"
-    property_search_goal_label = "Find an investment" if property_is_investment_search else "Find a home"
-    property_investment_strategy_label = (
-        {
-            "cash_flow": "Cash flow",
-            "appreciation": "Appreciation",
-            "undervalued": "Undervalued",
-            "low_risk": "Low risk",
-        }.get(str(property_preferences.get("investment_strategy") or "").strip().lower(), "Best overall opportunity")
-        if property_is_investment_search
-        else ""
+    return build_property_workspace_payload(
+        section,
+        status=status,
+        property_state=property_state,
     )
-    selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
-    suppression_rows = _property_suppression_rows(
-        run_summary=run_summary,
-        source_rows=run_sources,
-        preferences=property_preferences,
-    )
-    counterfactual_rows = _property_counterfactual_rows(
-        preferences=property_preferences,
-        raw_preferences=dict(property_state.get("raw_preferences") or {}),
-        run_summary=run_summary,
-        provider_options=provider_options,
-        current_platform_cap=current_platform_cap,
-    )
-    delivery_proof_rows = _delivery_proof_rows(run_summary)
-    artifact_receipt_rows = _artifact_receipt_rows(run_summary)
-    selected_candidate_ref = str(property_state.get("selected_candidate_ref") or "").strip()
-    run_id = str(run_payload.get("run_id") or "").strip()
-    run_suffix = f"?run_id={run_id}" if run_id else ""
-    search_posture_items = list(search_posture_card.get("items") or [])
-    fleet_digest = dict(property_state.get("fleet_digest") or {})
-    fleet_digest_items = [
-        row_item(
-            str(item.get("title") or "Fleet digest"),
-            str(item.get("detail") or item.get("value") or "").strip() or str(fleet_digest.get("preview_text") or "Digest pending"),
-            str(item.get("tag") or "Digest"),
-        )
-        for item in list(fleet_digest.get("items") or [])[:4]
-        if isinstance(item, dict)
-    ]
-    fleet_digest_summary = str(fleet_digest.get("summary") or fleet_digest.get("preview_text") or "").strip()
-    def _local_int(value: object) -> int:
-        try:
-            if value not in (None, ""):
-                return int(float(value))
-        except Exception:
-            pass
-        return 0
-    fleet_digest_stats = dict(fleet_digest.get("stats") or {}) if isinstance(fleet_digest.get("stats"), dict) else {}
-    visible_credits = _local_int(fleet_digest_stats.get("visible_credits"))
-    runway_hours = _local_int(fleet_digest_stats.get("runway_hours"))
-    active_fleet_lanes = _local_int(fleet_digest_stats.get("active_lanes"))
-    queued_fleet_lanes = _local_int(fleet_digest_stats.get("queued_lanes"))
-    failed_fleet_lanes = _local_int(fleet_digest_stats.get("failed_lanes"))
-    stalled_fleet_lanes = _local_int(fleet_digest_stats.get("stalled_lanes"))
-    improvement_loop_enabled = bool(int(fleet_digest_stats.get("improvement_loop_enabled") or 0))
-    credit_truth_rows = [
-        row_item(
-            "Visible credits",
-            f"{visible_credits:,} credits visible" if visible_credits else "No live credit total is visible yet.",
-            "Live" if visible_credits else "Pending",
-        ),
-        row_item(
-            "Runway",
-            f"About {runway_hours}h at the current burn rate." if runway_hours else "Runway is waiting for a verified burn estimate.",
-            "Estimated" if runway_hours else "Pending",
-        ),
-        row_item(
-            "Improvement gate",
-            "Continuous improvement can keep running." if improvement_loop_enabled else "Held at the reserve floor until more credits are visible.",
-            "Open" if improvement_loop_enabled else "Held",
-        ),
-    ]
-    repair_truth_rows = [
-        row_item(
-            "Repair lanes",
-            " · ".join(
-                part
-                for part in (
-                    f"{active_fleet_lanes} active" if active_fleet_lanes else "",
-                    f"{queued_fleet_lanes} queued" if queued_fleet_lanes else "",
-                    f"{failed_fleet_lanes} failed" if failed_fleet_lanes else "",
-                    f"{stalled_fleet_lanes} stalled" if stalled_fleet_lanes else "",
-                )
-                if part
-            )
-            or "No live repair telemetry is visible yet.",
-            "Repair",
-        ),
-        row_item(
-            "Digest",
-            fleet_digest_summary or "Repair and credit digests will appear here once the next refresh completes.",
-            "Digest",
-        ),
-    ]
-    packet_ready_total = sum(
-        1
-        for candidate in shortlist_candidates
-        if str(candidate.get("packet_url") or candidate.get("review_url") or "").strip()
-    )
-    tour_ready_total = sum(1 for candidate in shortlist_candidates if str(candidate.get("tour_url") or "").strip())
-
-    def _property_run_status_copy(status_value: object, message_value: object = "") -> tuple[str, str]:
-        status = str(status_value or "").strip().lower()
-        message = str(message_value or "").strip()
-        if status in {"processed", "completed"}:
-            return ("Finished", "")
-        if status == "failed":
-            return ("Search failed", message or "The search failed before ranking finished.")
-        if status == "cancelled":
-            return ("Stopped", message or "This search was stopped before it finished.")
-        if status == "noop":
-            return ("No changes", message or "The search finished without anything new to rank.")
-        if status in {"queued", "starting"}:
-            return ("Queued", message)
-        if status in {"running", "in_progress", "processing", "scanning"}:
-            return ("Running", message)
-        label = status.replace("_", " ").title() if status else "Queued"
-        return (label, message)
-
-    def _property_empty_outcome_summary() -> dict[str, str]:
-        filtered_total = int(run_summary.get("filtered_total") or run_summary.get("held_back_total") or 0)
-        source_total = int(run_summary.get("sources_total") or len(run_sources) or 0)
-        listing_total = int(run_summary.get("listing_total") or 0)
-        status_value = str(run_status_value or "").strip().lower()
-        strongest_relax = next(
-            (row for row in (counterfactual_rows or []) if row.get("adjustments")),
-            {},
-        )
-        active_rule = ""
-        if strongest_relax:
-            active_rule = str(strongest_relax.get("title") or strongest_relax.get("rule_label") or "").strip()
-        elif suppression_rows:
-            active_rule = str((suppression_rows[0] or {}).get("title") or "").strip()
-        if status_value == "failed":
-            happened = str(run_message or "The search stopped before a stable shortlist was ready.").strip()
-        elif filtered_total > 0:
-            happened = (
-                f"The search finished, but {filtered_total} candidate{'s' if filtered_total != 1 else ''} stayed outside the shortlist."
-            )
-        else:
-            happened = "The search finished without a candidate clearing the current shortlist."
-        still_worked = (
-            f"{source_total} source{'s' if source_total != 1 else ''} checked {listing_total} listing{'s' if listing_total != 1 else ''}."
-            if source_total or listing_total
-            else "The brief, providers, and run receipts were still recorded."
-        )
-        next_move = (
-            str(strongest_relax.get("detail") or "").strip()
-            or (f"Relax {active_rule} first so the next run changes one rule at a time." if active_rule else "")
-            or ("Restart the same brief and let auto-repair retry the failed sources." if status_value == "failed" else "")
-            or "Widen one rule first, then rerun."
-        )
-        return {
-            "happened": happened,
-            "still_worked": still_worked,
-            "next_move": next_move,
-            "active_rule": active_rule,
-        }
-
-    run_message = str(run_payload.get("message") or "").strip()
-    run_status_value = str(run_payload.get("status") or "").strip().lower()
-    run_status_label, run_status_note = _property_run_status_copy(run_status_value or "not started", run_message)
-    run_in_progress = bool(run_id and run_status_value and run_status_value not in {"processed", "completed", "failed", "noop", "cancelled", "not started"})
-    progress_route_previews = _property_progress_route_preview_rows(
-        run_summary=run_summary,
-        property_preferences=property_preferences,
-    )
-    search_worker_state = _property_search_worker_slots(run_summary, plan_key=str(commercial.get("current_plan_key") or "free"))
-
-    def _run_count(value: object, default: int = 0) -> int:
-        try:
-            return max(0, int(float(str(value or "").strip())))
-        except Exception:
-            return default
-
-    open_research_task_total = _run_count(run_payload.get("open_research_task_total") or raw_run_summary.get("open_research_task_total"))
-    filled_research_task_total = _run_count(run_payload.get("filled_research_task_total") or raw_run_summary.get("filled_research_task_total"))
-    dismissed_research_task_total = _run_count(run_payload.get("dismissed_research_task_total") or raw_run_summary.get("dismissed_research_task_total"))
-    research_task_total = _run_count(run_payload.get("research_task_total") or raw_run_summary.get("research_task_total"))
-
-    def _previous_run_int(value: object, default: int = 0) -> int:
-        try:
-            return max(0, int(float(str(value or "").strip())))
-        except Exception:
-            return default
-
-    def _previous_run_price_text(candidate: dict[str, object]) -> str:
-        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-        for raw_value in (
-            candidate.get("price_display"),
-            candidate.get("costs_display"),
-            facts.get("price_display"),
-            facts.get("rent_display"),
-            facts.get("price"),
-            facts.get("rent"),
-        ):
-            text = str(raw_value or "").strip()
-            if text:
-                return text
-        title_text = " ".join(str(candidate.get("title") or "").split()).strip()
-        if not title_text:
-            return ""
-        for pattern in (
-            r"(€\s?[0-9][0-9\.\s]*(?:,\d{1,2})?\s*,-?)",
-            r"((?:EUR|USD|CHF)\s?[0-9][0-9\.,\s]*)",
-        ):
-            match = re.search(pattern, title_text, flags=re.IGNORECASE)
-            if match:
-                return " ".join(str(match.group(1) or "").split()).strip(" ,")
-        return ""
-
-    def _format_previous_search_run(raw_run: dict[str, object]) -> dict[str, object]:
-        summary = dict(raw_run.get("summary") or {}) if isinstance(raw_run.get("summary"), dict) else {}
-        preferences_json = dict(raw_run.get("property_search_preferences") or raw_run.get("preferences") or {}) if isinstance(raw_run.get("property_search_preferences") or raw_run.get("preferences"), dict) else {}
-        run_status = str(raw_run.get("status") or summary.get("status") or "queued").strip().lower()
-        run_id_value = str(raw_run.get("run_id") or "").strip()
-        country = str(preferences_json.get("country_code") or summary.get("country_code") or "").strip().upper()
-        region = str(preferences_json.get("region_code") or summary.get("region_code") or "").strip()
-        location = str(preferences_json.get("location_query") or summary.get("location_query") or "").strip()
-        mode = str(preferences_json.get("listing_mode") or summary.get("listing_mode") or "").strip().title()
-        scope_parts = [part for part in (country, region, location) if part]
-        ranked_candidates = [
-            dict(row)
-            for row in list(summary.get("ranked_candidates") or [])
-            if isinstance(row, dict)
-        ]
-        top_candidates: list[dict[str, object]] = []
-        for candidate in ranked_candidates[:3]:
-            title = str(candidate.get("title") or "Property").strip() or "Property"
-            source_label = str(candidate.get("source_label") or candidate.get("source_platform") or "Source").strip() or "Source"
-            source_short_label = _compact_provider_label(source_label)
-            top_candidates.append(
-                {
-                    "title": title,
-                    "source_label": source_label,
-                    "source_short_label": source_short_label,
-                    "fit_score": _previous_run_int(candidate.get("fit_score")),
-                    "detail": str(
-                        candidate.get("compare_reason")
-                        or candidate.get("fit_summary")
-                        or (list(candidate.get("match_reasons") or [""])[0] if isinstance(candidate.get("match_reasons"), list) else "")
-                        or "Open the finished search to review this candidate."
-                    ).strip(),
-                    "review_url": str(candidate.get("packet_url") or candidate.get("review_url") or "").strip(),
-                    "map_url": str(candidate.get("map_url") or _property_candidate_maps_url(candidate)).strip(),
-                    "price_display": _previous_run_price_text(candidate),
-                }
-            )
-        held_back_total = max(
-            0,
-            _previous_run_int(summary.get("filtered_floorplan_total"))
-            + _previous_run_int(summary.get("filtered_area_total"))
-            + _previous_run_int(summary.get("filtered_low_fit_total"))
-            + _previous_run_int(summary.get("notification_budget_suppressed_total")),
-        )
-        status_label, status_note = _property_run_status_copy(
-            raw_run.get("status") or summary.get("status"),
-            raw_run.get("message") or summary.get("message"),
-        )
-        scope_preview = _property_scope_preview(country, region, location)
-        return {
-            "run_id": run_id_value,
-            "agent_id": str(raw_run.get("active_search_agent_id") or preferences_json.get("active_search_agent_id") or "").strip(),
-            "status": run_status,
-            "status_label": status_label,
-            "status_note": status_note,
-            "title": location or region or country or "Saved search",
-            "scope_label": " · ".join(scope_parts) or "No scope saved",
-            "scope_preview": scope_preview,
-            "scope_summary": str(scope_preview.get("summary") or location or region or country or "Search area").strip(),
-            "mode_label": mode or "Search",
-            "href": f"/app/shortlist?run_id={urllib.parse.quote(run_id_value, safe='')}" if run_id_value else "/app/shortlist",
-            "updated_at": str(raw_run.get("updated_at") or raw_run.get("generated_at") or "").strip(),
-            "source_total": _previous_run_int(summary.get("sources_total")),
-            "listing_total": _previous_run_int(summary.get("listing_total") or summary.get("raw_listing_total")),
-            "ranked_total": len(ranked_candidates),
-            "sent_total": _previous_run_int(summary.get("notified_total") or summary.get("watch_notified_total")),
-            "held_back_total": held_back_total,
-            "top_fit_score": _previous_run_int(summary.get("top_fit_score") or (top_candidates[0].get("fit_score") if top_candidates else 0)),
-            "top_price_display": str((top_candidates[0].get("price_display") if top_candidates else "") or "").strip(),
-            "top_candidates": top_candidates,
-            "is_finished": run_status in {"processed", "completed", "failed", "noop", "cancelled"},
-        }
-
-    previous_search_runs = [
-        _format_previous_search_run(dict(row))
-        for row in list(property_state.get("recent_search_runs") or [])
-        if isinstance(row, dict) and str(row.get("run_id") or "").strip()
-    ]
-    selected_agent_context = select_property_search_agent(
-        property_search_agents,
-        requested_agent_id=str(property_state.get("selected_agent_id") or "").strip(),
-        previous_runs=previous_search_runs,
-        run_id=run_id,
-    )
-    selected_agent = selected_agent_context["selected_agent"]
-    selected_agent_id = selected_agent_context["selected_agent_id"]
-    selected_agent_runs = selected_agent_context["selected_agent_runs"]
-    selected_agent_latest_run = selected_agent_context["selected_agent_latest_run"]
-    selected_agent_open_href = selected_agent_context["selected_agent_open_href"]
-    selected_agent_edit_href = selected_agent_context["selected_agent_edit_href"]
-
-    def _preference_value_label(value: object) -> str:
-        if isinstance(value, list):
-            return ", ".join(str(item).strip() for item in value if str(item).strip()) or "empty list"
-        if isinstance(value, dict):
-            return ", ".join(f"{key}: {item}" for key, item in value.items() if str(key).strip()) or "empty object"
-        if isinstance(value, bool):
-            return "yes" if value else "no"
-        return str(value if value is not None else "").strip() or "empty"
-
-    def _preference_key_label(row: dict[str, object]) -> str:
-        key = str(row.get("key") or "").strip().replace("_", " ")
-        category = str(row.get("category") or "").strip().replace("_", " ")
-        return (key or "Preference").title() + (f" ({category.title()})" if category else "")
-
-    preference_manager_nodes = [
-        {
-            "node_id": str(row.get("node_id") or "").strip(),
-            "domain": str(row.get("domain") or "").strip() or "willhaben",
-            "category": str(row.get("category") or "").strip() or "soft_preference",
-            "key": str(row.get("key") or "").strip(),
-            "label": _preference_key_label(row),
-            "value_label": _preference_value_label(row.get("value_json")),
-            "value_json": row.get("value_json"),
-            "strength": str(row.get("strength") or "medium").strip() or "medium",
-            "confidence": row.get("confidence") or 0,
-            "source_mode": str(row.get("source_mode") or "").strip(),
-            "status": str(row.get("status") or "").strip().lower() or "active",
-            "updated_at": str(row.get("updated_at") or "").strip(),
-        }
-        for row in raw_preference_nodes
-        if str(row.get("node_id") or "").strip()
-    ]
-    preference_manager_nodes.sort(key=lambda row: (str(row.get("status") or "") != "active", str(row.get("label") or "").lower()))
-    preference_manager = {
-        "person_id": preference_person_id,
-        "nodes": preference_manager_nodes,
-        "active_nodes": [row for row in preference_manager_nodes if str(row.get("status") or "") == "active"],
-        "schema": _property_preference_schema(),
-        "bundle_endpoint": f"/app/api/people/{preference_person_id}/preference-profile",
-        "node_endpoint": f"/app/api/people/{preference_person_id}/preference-profile/nodes",
-        "archive_endpoint_template": f"/app/api/people/{preference_person_id}/preference-profile/nodes/__NODE_ID__/archive",
-    }
-
-    def _tour_source_gap_detail(candidate: dict[str, object]) -> str:
-        blocked_reason = str(candidate.get("blocked_reason") or "").strip()
-        if blocked_reason:
-            reason_map = {
-                "listing_360_media_missing": "3D tour not ready yet. This listing still needs a floorplan or usable 360 source.",
-                "pure_360_assets_unavailable": "3D tour not ready yet. The source media could not be opened reliably enough to rebuild it.",
-                "property_tour_fallback_disabled": "3D tour not ready yet. A floorplan or usable 360 source is still missing.",
-            }
-            return reason_map.get(blocked_reason, blocked_reason.replace("_", " "))
-        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-
-        def _false_flag(value: object) -> bool:
-            return str(value or "").strip().lower() in {"0", "false", "no", "none", "null"}
-
-        def _zero_count(*keys: str) -> bool:
-            for key in keys:
-                raw_value = facts.get(key)
-                if raw_value in (None, ""):
-                    continue
-                try:
-                    return float(str(raw_value).strip()) <= 0.0
-                except Exception:
-                    continue
-            return False
-
-        if _false_flag(facts.get("has_floorplan")) or _zero_count("floorplan_count", "floorplans_count"):
-            return "3D tour not ready yet. This listing still needs a floorplan or usable 360 source."
-        if _false_flag(facts.get("has_360")) or _zero_count("media_count", "image_count"):
-            return "3D tour not ready yet. More usable room media is still needed."
-        return "3D tour not ready yet. More source material is still needed before it can be built."
-
-    def _candidate_fact_line(candidate: dict[str, object]) -> str:
-        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-        parts: list[str] = []
-        price_value = str(
-            facts.get("price_display")
-            or facts.get("rent_display")
-            or facts.get("price")
-            or facts.get("price_eur")
-            or ""
-        ).strip()
-        rooms_value = str(facts.get("rooms") or facts.get("room_count") or "").strip()
-        area_value = str(facts.get("area_m2") or facts.get("living_area_m2") or "").strip()
-        if price_value:
-            parts.append(price_value)
-        if rooms_value:
-            parts.append(f"{rooms_value} rooms")
-        if area_value:
-            parts.append(f"{area_value} m2")
-        return " | ".join(parts)
-
-    compare_rows = []
-    for candidate in shortlist_candidates[:3]:
-        fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "").strip()
-        fact_line = _candidate_fact_line(candidate)
-        detail = " | ".join(part for part in (fit_summary, fact_line) if part) or "Open the property page to inspect the ranking and evidence."
-        compare_rows.append(
-            {
-                "title": str(candidate.get("title") or "Shortlist candidate").strip() or "Shortlist candidate",
-                "detail": detail,
-                "tag": str(candidate.get("tag") or candidate.get("recommendation") or "Candidate").strip() or "Candidate",
-                "action_href": str(candidate.get("packet_url") or candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
-                "action_method": "get",
-                "action_label": "Open property page",
-                "secondary_action_href": str(candidate.get("tour_url") or candidate.get("review_url") or "").strip(),
-                "secondary_action_method": "get" if (candidate.get("tour_url") or candidate.get("review_url")) else "",
-                "secondary_action_label": "Open 360" if candidate.get("tour_url") else ("Open listing" if candidate.get("review_url") else ""),
-            }
-        )
-
-    def _tour_status_line(candidate: dict[str, object]) -> str:
-        if str(candidate.get("tour_url") or "").strip():
-            return "Ready | Live now"
-        status = str(candidate.get("tour_status") or "").strip().lower()
-        eta_minutes = int(candidate.get("tour_eta_minutes") or 0) if str(candidate.get("tour_eta_minutes") or "").strip() else 0
-        if status in {"queued", "pending"}:
-            return f"Queued | ETA about {eta_minutes or 10} min"
-        if status in {"processing", "running", "in_progress", "started"}:
-            return f"Rendering | ETA about {eta_minutes or 5} min"
-        if status in {"created", "existing"}:
-            return "Ready"
-        if status in {"blocked", "failed", "skipped", "not_applicable"}:
-            return f"Blocked | {_tour_source_gap_detail(candidate)}"
-        blocked_reason = str(candidate.get("blocked_reason") or "").strip()
-        if blocked_reason:
-            return f"Blocked | {blocked_reason.replace('_', ' ')}"
-        return f"Unavailable | {_tour_source_gap_detail(candidate)}"
-
-    def _distance_line(candidate: dict[str, object]) -> str:
-        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-        family_filters_active = _property_family_filters_active(property_preferences)
-        specs = (
-            ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m"), True),
-            ("Library", facts.get("nearest_library_m"), True),
-            ("Zoo", facts.get("nearest_zoo_m"), True),
-            ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m"), False),
-            ("Medical", facts.get("nearest_medical_care_m"), True),
-            ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m"), False),
-            ("Market", facts.get("nearest_market_m"), False),
-            ("Baumarkt", facts.get("nearest_hardware_store_m"), False),
-            ("Starbucks", facts.get("nearest_starbucks_m"), False),
-            ("Fitness", facts.get("nearest_fitness_center_m"), False),
-            ("Run", facts.get("nearest_running_m"), False),
-            ("Straßenbahn / Bus", facts.get("nearest_tram_bus_m") or facts.get("nearest_transit_m"), False),
-            ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m"), False),
-        )
-        parts: list[str] = []
-        for label, raw_value, family_only in specs:
-            if family_only and not family_filters_active:
-                continue
-            if raw_value in (None, "", []):
-                continue
-            try:
-                meters = int(float(raw_value))
-            except Exception:
-                continue
-            bike_minutes = max(1, int(round(float(meters) / 330.0)))
-            parts.append(f"{label} {meters} m | {bike_minutes} min bike")
-        return " · ".join(parts[:3])
-
-    results_table_rows = []
-    workbench_results: list[dict[str, object]] = []
-
-    def _money_per_sqm_line(facts: dict[str, object]) -> str:
-        raw_price = facts.get("price_eur") or facts.get("purchase_price_eur")
-        raw_area = facts.get("area_m2") or facts.get("living_area_m2")
-        try:
-            price = float(raw_price)
-            area = float(raw_area)
-        except Exception:
-            return ""
-        if price <= 0 or area <= 0:
-            return ""
-        return f"EUR {price / area:,.0f}/m2"
-
-    def _missing_fact_items(facts: dict[str, object]) -> list[dict[str, object]]:
-        research = facts.get("missing_fact_research")
-        if not isinstance(research, dict):
-            return []
-        items = research.get("items")
-        if not isinstance(items, list):
-            return []
-        return [dict(item) for item in items if isinstance(item, dict)]
-
-    def _missing_fact_item(facts: dict[str, object], field: str) -> dict[str, object]:
-        normalized = str(field or "").strip()
-        for item in _missing_fact_items(facts):
-            if str(item.get("field") or "").strip() == normalized:
-                return item
-        return {}
-
-    def _rooms_layout_part(facts: dict[str, object]) -> str:
-        label = str(facts.get("rooms_label") or "").strip()
-        if label:
-            return label
-        raw_value = facts.get("rooms") or facts.get("room_count")
-        if raw_value:
-            return f"{raw_value} rooms"
-        item = _missing_fact_item(facts, "rooms")
-        if item:
-            return str(item.get("display_value") or "Rooms under research").strip() or "Rooms under research"
-        return ""
-
-    def _risk_summary(candidate: dict[str, object], facts: dict[str, object]) -> dict[str, str]:
-        mismatch = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
-        missing: list[str] = []
-        if not str(candidate.get("tour_url") or "").strip():
-            tour_status = str(candidate.get("tour_status") or "").strip().lower()
-            if tour_status in {"blocked", "failed", "skipped", "not_applicable"}:
-                missing.append("floorplan/360 source media")
-            else:
-                missing.append("360 pending")
-        if not (facts.get("street_address") or facts.get("address")):
-            missing.append("address")
-        if not (facts.get("heating") or facts.get("heating_type")):
-            missing.append("heating")
-        if bool(facts.get("air_quality_risk")):
-            missing.append("air quality")
-        if bool(facts.get("crime_risk")):
-            missing.append("crime risk")
-        if bool(facts.get("parking_pressure_risk")):
-            missing.append("parking pressure")
-        if bool(facts.get("drinking_water_risk")):
-            missing.append("water quality")
-        if bool(facts.get("cesspit_risk")):
-            missing.append("Senkgrube or septic burden")
-        if bool(facts.get("winter_access_risk")):
-            missing.append("winter access")
-        if bool(facts.get("flood_risk")):
-            missing.append("flood exposure")
-        for item in _missing_fact_items(facts):
-            if str(item.get("status") or "").strip().lower() != "filled":
-                missing.append(str(item.get("label") or item.get("field") or "research fact").strip())
-        if mismatch:
-            return {"level": "medium", "summary": mismatch[0]}
-        if len(missing) >= 2:
-            return {"level": "medium", "summary": "Missing " + ", ".join(missing[:3])}
-        if missing:
-            return {"level": "low", "summary": "Missing " + missing[0]}
-        return {"level": "low", "summary": "No major packet risk flagged yet."}
-
-    def _candidate_ooda_rows(candidate: dict[str, object], facts: dict[str, object]) -> list[dict[str, str]]:
-        rows: list[dict[str, str]] = []
-        family_filters_active = _property_family_filters_active(property_preferences)
-        for label, raw_value, family_only in (
-            ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m"), True),
-            ("Library", facts.get("nearest_library_m"), True),
-            ("Zoo", facts.get("nearest_zoo_m"), True),
-            ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m"), False),
-            ("Medical care", facts.get("nearest_medical_care_m"), True),
-            ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m"), False),
-            ("Market", facts.get("nearest_market_m"), False),
-            ("Baumarkt", facts.get("nearest_hardware_store_m"), False),
-            ("Starbucks", facts.get("nearest_starbucks_m"), False),
-            ("Fitness", facts.get("nearest_fitness_center_m"), False),
-            ("Run or green space", facts.get("nearest_running_m"), False),
-            ("Straßenbahn / Bus", facts.get("nearest_tram_bus_m") or facts.get("nearest_transit_m"), False),
-            ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m"), False),
-        ):
-            if family_only and not family_filters_active:
-                continue
-            if raw_value in (None, "", []):
-                continue
-            try:
-                meters = int(float(raw_value))
-            except Exception:
-                continue
-            rows.append(
-                {
-                    "label": label,
-                    "value": f"{meters} m",
-                    "detail": f"about {max(1, int(round(float(meters) / 330.0)))} min by bike",
-                }
-            )
-        match_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("match_reasons") or []) if _clean_property_candidate_copy(item)]
-        mismatch_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("mismatch_reasons") or []) if _clean_property_candidate_copy(item)]
-        rows.insert(
-            0,
-            {
-                "label": "Decide",
-                "value": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(),
-                "detail": match_reasons[0] if match_reasons else (mismatch_reasons[0] if mismatch_reasons else "Open the property page for the full decision read."),
-            },
-        )
-        for item in _missing_fact_items(facts):
-            if str(item.get("status") or "").strip().lower() == "filled":
-                continue
-            ooda = dict(item.get("ooda") or {}) if isinstance(item.get("ooda"), dict) else {}
-            label = str(item.get("label") or item.get("field") or "Missing fact").strip()
-            rows.append(
-                {
-                    "label": "Research",
-                    "value": str(item.get("display_value") or label).strip(),
-                    "detail": str(ooda.get("act") or item.get("evidence") or "Missing-fact research queued.").strip(),
-                }
-            )
-        for risk_key, label, detail in (
-            ("air_quality_risk", "Risk", "Air quality needs explicit verification for this micro-location."),
-            ("crime_risk", "Risk", "Crime and safety burden need explicit verification for this quarter."),
-            ("parking_pressure_risk", "Risk", "Parking pressure still needs clarification if no garage is included."),
-            ("drinking_water_risk", "Risk", "Water source and groundwater burden still need verification."),
-            ("cesspit_risk", "Risk", "Senkgrube or septic burden still needs verification."),
-            ("winter_access_risk", "Risk", "Winter driving access still needs verification."),
-            ("flood_risk", "Risk", "Flood and runoff exposure still need verification."),
-        ):
-            if bool(facts.get(risk_key)):
-                rows.append({"label": label, "value": risk_key.replace("_", " ").title(), "detail": detail})
-        return rows[:6]
-
-    def _candidate_objection_rows(candidate: dict[str, object], facts: dict[str, object]) -> list[dict[str, str]]:
-        mismatch_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("mismatch_reasons") or []) if _clean_property_candidate_copy(item)]
-        rows: list[dict[str, str]] = []
-        feedback_summary = dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {}
-        for reason in mismatch_reasons[:3]:
-            rows.append({"title": "Mismatch", "detail": reason, "tag": "Risk"})
-        for cluster in list(feedback_summary.get("clusters") or [])[:2]:
-            if not isinstance(cluster, dict):
-                continue
-            rows.append(
-                {
-                    "title": str(cluster.get("theme") or "feedback").replace("_", " ").title(),
-                    "detail": str(cluster.get("summary") or "No detail yet.").strip(),
-                    "tag": str(cluster.get("severity") or "Risk").replace("_", " ").title(),
-                }
-            )
-        if not str(candidate.get("tour_url") or "").strip():
-            rows.append({"title": "360 gap", "detail": _tour_source_gap_detail(candidate), "tag": "Review"})
-        for item in _missing_fact_items(facts)[:2]:
-            if str(item.get("status") or "").strip().lower() == "filled":
-                continue
-            rows.append(
-                {
-                    "title": str(item.get("label") or item.get("field") or "Missing fact").strip(),
-                    "detail": str(item.get("evidence") or item.get("display_value") or "Still under research.").strip(),
-                    "tag": "Research",
-                }
-            )
-        for risk_key, title, detail in (
-            ("air_quality_risk", "Air quality", "Location-risk research should verify pollution burden and recurring exposure."),
-            ("crime_risk", "Crime burden", "Quarter-level safety pattern still needs verification."),
-            ("parking_pressure_risk", "Parking pressure", "Street-parking burden still needs verification where no garage is included."),
-            ("drinking_water_risk", "Water quality", "Drinking-water source and groundwater burden still need verification."),
-            ("cesspit_risk", "Senkgrube or septic", "Recurring cost, smell, or maintenance burden still need verification."),
-            ("winter_access_risk", "Winter access", "Snow, slope, and seasonal driveability still need verification."),
-            ("flood_risk", "Flood exposure", "Historic flooding and runoff exposure still need verification."),
-        ):
-            if bool(facts.get(risk_key)):
-                rows.append({"title": title, "detail": detail, "tag": "Risk"})
-        for note in list(facts.get("austria_preference_notes") or [])[:2]:
-            detail = str(note or "").strip()
-            if detail:
-                rows.append({"title": "Austria fit rule", "detail": detail.capitalize(), "tag": "Eligibility"})
-        if not rows:
-            rows.append({"title": "No recorded objection yet", "detail": "This candidate has no explicit blocker captured yet.", "tag": "Clear"})
-        return rows[:4]
-
-    def _candidate_timeline_rows(candidate: dict[str, object], facts: dict[str, object]) -> list[dict[str, str]]:
-        rows = [
-            {
-                "title": "Found by provider",
-                "detail": str(candidate.get("source_label") or "Property provider").strip() or "Property provider",
-                "tag": "Found",
-            },
-            {
-                "title": "Ranked",
-                "detail": _clean_property_candidate_copy(candidate.get("fit_summary") or candidate.get("recommendation") or "Candidate ranked for review."),
-                "tag": "Ranked",
-            },
-            {
-                "title": "360 state",
-                "detail": str(candidate.get("tour_url") or _tour_status_line(candidate)).strip(),
-                "tag": "360",
-            },
-        ]
-        pending_missing = [
-            str(item.get("label") or item.get("field") or "Missing fact").strip()
-            for item in _missing_fact_items(facts)
-            if str(item.get("status") or "").strip().lower() != "filled"
-        ]
-        if pending_missing:
-            rows.append(
-                {
-                    "title": "Decision checks queued",
-                    "detail": ", ".join(pending_missing[:3]),
-                    "tag": "Research",
-                }
-            )
-        if str(candidate.get("packet_url") or "").strip():
-            rows.append(
-                {
-                    "title": "Packet ready",
-                    "detail": "The property page is ready for household or advisor follow-up.",
-                    "tag": "Packet",
-                }
-            )
-        feedback_summary = dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {}
-        household = dict(feedback_summary.get("household_review") or {}) if isinstance(feedback_summary.get("household_review"), dict) else {}
-        if int(feedback_summary.get("household_alignment_score") or 0) > 0:
-            rows.append(
-                {
-                    "title": "Household alignment",
-                    "detail": f"{int(feedback_summary.get('household_alignment_score') or 0)}/100 · {str(household.get('alignment_label') or feedback_summary.get('family_alignment') or 'waiting').replace('_', ' ')}",
-                    "tag": "Household",
-                }
-            )
-        return rows[:5]
-
-    def _candidate_household_rows(candidate: dict[str, object]) -> list[dict[str, str]]:
-        feedback_summary = dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {}
-        household = dict(feedback_summary.get("household_review") or {}) if isinstance(feedback_summary.get("household_review"), dict) else {}
-        rows = [
-            {
-                "title": str(row.get("stakeholder_label") or "Stakeholder").strip(),
-                "detail": str(row.get("reason") or "No detail yet.").strip(),
-                "tag": str(row.get("decision") or "maybe").replace("_", " ").title(),
-            }
-            for row in list(household.get("stakeholders") or [])[:4]
-            if isinstance(row, dict)
-        ]
-        if not rows:
-            rows.append({"title": "No household votes yet", "detail": "Shared reactions will appear here after a property page decision is recorded.", "tag": "Waiting"})
-        return rows
-
-    def _candidate_risk_signal_rows(candidate: dict[str, object]) -> list[dict[str, str]]:
-        feedback_summary = dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {}
-        rows = [
-            {
-                "title": str(row.get("theme") or "risk").replace("_", " ").title(),
-                "detail": f"{str(row.get('summary') or 'No summary yet.').strip()} | privacy {str(row.get('privacy_state') or 'suppressed')} | confidence {str(row.get('confidence') or 'low')}",
-                "tag": str(row.get("reason_key") or "signal").replace("_", " ").title(),
-            }
-            for row in list(feedback_summary.get("risk_signal_candidates") or [])[:3]
-            if isinstance(row, dict)
-        ]
-        if not rows:
-            rows.append({"title": "No published risk signal yet", "detail": "Signals stay suppressed until the privacy threshold is met.", "tag": "Suppressed"})
-        return rows
-
-    def _candidate_followup_rows(candidate: dict[str, object]) -> list[dict[str, str]]:
-        feedback_rows = [dict(row) for row in list(candidate.get("feedback_rows") or []) if isinstance(row, dict)]
-        rows = [
-            {
-                "feedback_id": str(row.get("feedback_id") or "").strip(),
-                "title": str(row.get("text") or row.get("category") or "Follow-up").strip(),
-                "detail": str(row.get("followup_note") or row.get("stakeholder_label") or row.get("stakeholder_id") or "").strip(),
-                "tag": str(row.get("followup_status") or "suggested").replace("_", " ").title(),
-            }
-            for row in feedback_rows
-            if str(row.get("category") or "").strip() == "question"
-        ]
-        if not rows:
-            rows.append({"feedback_id": "", "title": "No tracked question yet", "detail": "Use Clippy or Ask agent next to start a tracked follow-up.", "tag": "Waiting"})
-        return rows[:4]
-
-    def _candidate_recent_change_rows(candidate: dict[str, object]) -> list[dict[str, str]]:
-        timeline_rows = [dict(row) for row in list(candidate.get("timeline_rows") or []) if isinstance(row, dict)]
-        rows = [
-            {
-                "title": str(row.get("title") or "Update").strip(),
-                "detail": str(row.get("detail") or "Property state updated.").strip(),
-                "tag": str(row.get("tag") or "Changed").strip(),
-            }
-            for row in timeline_rows[:3]
-            if str(row.get("detail") or row.get("title") or "").strip()
-        ]
-        if not rows:
-            rows.append({"title": "No new deltas yet", "detail": "The visible timeline will summarize what changed after the first decision, packet event, or follow-up update.", "tag": "Waiting"})
-        return rows
-
-    def _tour_payload(candidate: dict[str, object]) -> dict[str, str]:
-        tour_url = str(candidate.get("tour_url") or "").strip()
-        status = str(candidate.get("tour_status") or "").strip().lower()
-        eta_minutes = str(candidate.get("tour_eta_minutes") or "").strip()
-        if tour_url:
-            embed_url = "" if "myexternalbrain.com" in tour_url.lower() else tour_url
-            return {"status": "ready", "label": "360 ready", "url": tour_url, "embed_url": embed_url, "eta_label": ""}
-        if status in {"queued", "pending"}:
-            return {"status": "queued", "label": "360 queued", "url": "", "embed_url": "", "eta_label": f"about {eta_minutes or '10'} min"}
-        if status in {"processing", "running", "in_progress", "started"}:
-            return {"status": "processing", "label": "360 rendering", "url": "", "embed_url": "", "eta_label": f"about {eta_minutes or '5'} min"}
-        if status in {"blocked", "failed", "skipped", "not_applicable"}:
-            return {"status": "blocked", "label": "360 unavailable", "url": "", "embed_url": "", "eta_label": _tour_source_gap_detail(candidate)}
-        return {"status": "missing", "label": "360 unavailable", "url": "", "embed_url": "", "eta_label": _tour_source_gap_detail(candidate)}
-
-    def _fit_score_value(candidate: dict[str, object], facts: dict[str, object]) -> int:
-        assessment = dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {}
-        assessment = assessment or (dict(facts.get("personal_fit_assessment") or {}) if isinstance(facts.get("personal_fit_assessment"), dict) else {})
-        for raw_value in (
-            candidate.get("fit_score"),
-            candidate.get("assessment_fit_score"),
-            assessment.get("adjusted_fit_score"),
-            assessment.get("fit_score"),
-        ):
-            if raw_value in (None, ""):
-                continue
-            try:
-                return max(0, min(100, int(round(float(raw_value)))))
-            except Exception:
-                continue
-        return 0
-
-    def _normalized_money_text(text: str) -> str:
-        currency = "EUR" if ("eur" in text.lower() or "€" in text) else ""
-        money_match = re.search(r"[0-9][0-9\.\,\s]*(?:[,.][0-9]{1,2})?", text)
-        if not money_match:
-            return text if currency else ""
-        number_text = money_match.group(0).replace(" ", "").strip(".,")
-        if "." in number_text and "," in number_text:
-            number_text = number_text.replace(".", "").replace(",", ".")
-        elif "," in number_text:
-            integer_part, decimal_part = number_text.rsplit(",", 1)
-            number_text = integer_part + decimal_part if len(decimal_part) == 3 else integer_part + "." + decimal_part
-        elif number_text.count(".") > 1:
-            number_text = number_text.replace(".", "")
-        elif "." in number_text:
-            integer_part, decimal_part = number_text.rsplit(".", 1)
-            if len(decimal_part) == 3 and integer_part.isdigit():
-                number_text = integer_part + decimal_part
-        try:
-            amount = float(number_text)
-        except Exception:
-            return text if currency else ""
-        if amount <= 0:
-            return ""
-        return f"{currency or 'EUR'} {amount:,.0f}".replace(",", ",")
-
-    def _money_display(value: object) -> str:
-        if value in (None, "", []):
-            return ""
-        if isinstance(value, str):
-            text = value.strip()
-            if not text:
-                return ""
-            lowered = text.lower()
-            if "eur" in lowered or "€" in text:
-                return _normalized_money_text(text)
-            try:
-                value = float(text.replace(",", "."))
-            except Exception:
-                return text
-        if isinstance(value, (int, float)):
-            amount = float(value)
-            if abs(amount) >= 1000:
-                formatted = f"{amount:,.0f}".replace(",", ",")
-                return f"EUR {formatted}"
-            if amount:
-                return f"EUR {amount:.0f}"
-        return ""
-
-    def _money_numeric_value(value: object) -> float | None:
-        if value in (None, "", []):
-            return None
-        if isinstance(value, (int, float)):
-            amount = float(value)
-            return amount if amount > 0.0 else None
-        text = str(value or "").strip()
-        if not text:
-            return None
-        normalized = _normalized_money_text(text) if ("eur" in text.lower() or "€" in text) else text
-        cleaned = normalized.replace("EUR", "").replace(",", "").strip()
-        try:
-            amount = float(cleaned)
-        except Exception:
-            return None
-        return amount if amount > 0.0 else None
-
-    def _candidate_costs_line(facts: dict[str, object], *, listing_mode: str, price_line: str) -> str:
-        normalized_mode = str(listing_mode or "").strip().lower()
-        for key in (
-            "operating_costs_display",
-            "operating_costs_monthly_display",
-            "service_charges_display",
-            "additional_costs_display",
-            "side_costs_display",
-            "monthly_costs_display",
-        ):
-            value = str(facts.get(key) or "").strip()
-            if value:
-                return value
-        for key in (
-            "operating_costs_monthly",
-            "operating_costs",
-            "service_charges_eur",
-            "additional_costs_eur",
-            "side_costs_eur",
-            "betriebskosten_eur",
-        ):
-            value = _money_display(facts.get(key))
-            if value:
-                return f"Costs {value}/mo" if normalized_mode == "buy" else f"Costs {value}"
-        if normalized_mode == "rent":
-            warm_rent = _money_display(facts.get("warm_rent_eur") or facts.get("warm_rent"))
-            cold_rent = _money_display(facts.get("cold_rent_eur") or facts.get("cold_rent"))
-            total_rent = _money_display(facts.get("total_rent_eur") or facts.get("rent_eur"))
-            if warm_rent and cold_rent and warm_rent != cold_rent:
-                return f"Cold {cold_rent} · Warm {warm_rent}"
-            if total_rent and total_rent != price_line:
-                return f"Monthly total {total_rent}"
-            if warm_rent and warm_rent != price_line:
-                return f"Warm rent {warm_rent}"
-            if cold_rent and cold_rent != price_line:
-                return f"Cold rent {cold_rent}"
-            return "Additional costs not listed"
-        price_per_sqm = _money_per_sqm_line(facts)
-        if price_per_sqm:
-            return price_per_sqm
-        return "Additional costs not listed"
-
-    def _title_price_fallback(title: object) -> str:
-        text = " ".join(str(title or "").split()).strip()
-        if not text:
-            return ""
-        patterns = [
-            r"(€\s?[0-9][0-9\.\s]*(?:,[0-9]{1,2})?\s*,-?)",
-            r"((?:EUR|USD|CHF)\s?[0-9][0-9\.,\s]*)",
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, text, flags=re.IGNORECASE)
-            if match:
-                raw = " ".join(str(match.group(1) or "").split()).strip(" ,")
-                return _normalized_money_text(raw) or raw
-        return ""
-
-    for candidate in shortlist_candidates:
-        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-        price_line = str(
-            facts.get("price_display")
-            or facts.get("rent_display")
-            or facts.get("price_eur")
-            or ""
-        ).strip()
-        parsed_buy_price = _money_numeric_value(facts.get("price_eur"))
-        if str(property_preferences.get("listing_mode") or "").strip().lower() == "buy":
-            suspicious_display = _money_numeric_value(price_line) if price_line else None
-            if isinstance(parsed_buy_price, float) and parsed_buy_price >= 1000.0 and (
-                not price_line
-                or not isinstance(suspicious_display, float)
-                or suspicious_display < 1000.0
-            ):
-                price_line = _money_display(parsed_buy_price)
-        if not price_line or price_line.lower() == "n/a":
-            price_line = _title_price_fallback(candidate.get("title") or "")
-        if not price_line:
-            price_line = "n/a"
-        fit_score = _fit_score_value(candidate, facts)
-        layout_parts = [
-            _rooms_layout_part(facts),
-            f"{facts.get('area_m2') or facts.get('area_sqm')} m2" if (facts.get("area_m2") or facts.get("area_sqm")) else "",
-        ]
-        layout_verified = bool(
-            facts.get("has_floorplan")
-            or facts.get("floorplan_count")
-            or facts.get("floorplans_count")
-            or facts.get("floorplan_urls_json")
-            or facts.get("floorplan_urls")
-        )
-        packet_url = str(candidate.get("packet_url") or candidate.get("review_url") or "").strip()
-        packet_label = "Property page" if packet_url else "Pending"
-        map_url = str(candidate.get("map_url") or "").strip() or _property_candidate_maps_url(candidate)
-        tour_status_line = _tour_status_line(candidate)
-        ooda_detail = _distance_line(candidate)
-        candidate_ref = str(packet_url or "").split("/app/research/", 1)[-1].split("?", 1)[0] if "/app/research/" in packet_url else _property_candidate_ref(candidate)
-        tour_payload = _tour_payload(candidate)
-        ooda_rows = _candidate_ooda_rows(candidate, facts)
-        risk_payload = _risk_summary(candidate, facts)
-        match_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("match_reasons") or []) if _clean_property_candidate_copy(item)]
-        mismatch_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("mismatch_reasons") or []) if _clean_property_candidate_copy(item)]
-        detail_sections = _candidate_detail_sections(facts)
-        candidate_investment = dict(candidate.get("investment") or {}) if isinstance(candidate.get("investment"), dict) else {}
-        investment_headline_fallback = (
-            "Underwriting is still building from the current listing evidence."
-            if str(property_preferences.get("listing_mode") or "").strip().lower() == "buy"
-            else ""
-        )
-        investment_payload = {
-            "enabled": str(property_preferences.get("listing_mode") or "").strip().lower() == "buy",
-            "price_per_sqm": _money_per_sqm_line(facts),
-            "headline": str(candidate_investment.get("headline") or investment_headline_fallback).strip(),
-            "gross_yield_display": str(candidate_investment.get("gross_yield_display") or "").strip(),
-            "net_yield_display": str(candidate_investment.get("net_yield_display") or "").strip(),
-            "cap_rate_display": str(candidate_investment.get("cap_rate_display") or "").strip(),
-            "cash_on_cash_display": str(candidate_investment.get("cash_on_cash_display") or "").strip(),
-            "dscr_display": str(candidate_investment.get("dscr_display") or "").strip(),
-            "market_delta_display": str(candidate_investment.get("market_delta_display") or "").strip(),
-            "expected_rent_display": str(candidate_investment.get("expected_rent_display") or "").strip(),
-            "confidence_label": str(candidate_investment.get("confidence_label") or "").strip(),
-            "feed_status_label": str(candidate_investment.get("feed_status_label") or "").strip(),
-            "feed_status_detail": str(candidate_investment.get("feed_status_detail") or "").strip(),
-            "score": candidate_investment.get("score"),
-            "score_display": str(candidate_investment.get("score_display") or "").strip(),
-            "underwriting_summary": str(candidate_investment.get("underwriting_summary") or "").strip(),
-            "strategy": str(candidate_investment.get("strategy") or "").strip(),
-            "dimensions": [dict(item) for item in list(candidate_investment.get("dimensions") or []) if isinstance(item, dict)][:7],
-            "reasons": [str(item).strip() for item in list(candidate_investment.get("reasons") or []) if str(item).strip()][:3],
-            "blockers": [str(item).strip() for item in list(candidate_investment.get("blockers") or []) if str(item).strip()][:3],
-        }
-        orientation_preview = _property_candidate_orientation_preview(candidate)
-        workbench_results.append(
-            {
-                "candidate_ref": candidate_ref,
-                "rank": len(workbench_results) + 1,
-                "title": _property_result_title_display(candidate.get("title") or "Candidate"),
-                "recovered_by_filter": bool(candidate.get("recovered_by_filter") or candidate.get("counterfactual_recovered")),
-                "relaxed_filter_label": str(candidate.get("relaxed_filter_label") or candidate.get("counterfactual_label") or "").strip(),
-                "preview_image_url": str(candidate.get("preview_image_url") or _property_candidate_preview_image(candidate) or "").strip(),
-                "source_label": str(candidate.get("source_label") or "").strip(),
-                "location_label": str(facts.get("postal_name") or facts.get("city") or facts.get("address") or "").strip(),
-                "price_display": price_line,
-                "costs_display": _candidate_costs_line(
-                    facts,
-                    listing_mode=str(property_preferences.get("listing_mode") or ""),
-                    price_line=price_line,
-                ),
-                "price_per_sqm_display": investment_payload["price_per_sqm"],
-                "layout_display": " | ".join(part for part in layout_parts if part) or "n/a",
-                "layout_verification_label": "verified" if layout_verified else "needs check",
-                "fit_score": fit_score,
-                "fit_label": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(),
-                "fit_summary": _clean_property_candidate_copy(candidate.get("fit_summary") or ""),
-                "tour": tour_payload,
-                "orientation_preview": orientation_preview,
-                "ooda": {
-                    "summary": ooda_detail or (match_reasons[0] if match_reasons else "Open the property page to inspect the decision read."),
-                    "rows": ooda_rows,
-                },
-                "risk": risk_payload,
-                "investment": investment_payload,
-                "match_reasons": match_reasons,
-                "mismatch_reasons": mismatch_reasons,
-                "review_page_neuronwriter": dict(candidate.get("review_page_neuronwriter") or {}) if isinstance(candidate.get("review_page_neuronwriter"), dict) else {},
-                "packet_url": packet_url,
-                "review_url": str(candidate.get("review_url") or "").strip(),
-                "property_url": str(candidate.get("property_url") or "").strip(),
-                "map_url": map_url,
-                "source_url": str(candidate.get("property_url") or "").strip(),
-                "property_facts": facts,
-                "assessment": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
-                "objection_rows": _candidate_objection_rows(candidate, facts),
-                "timeline_rows": _candidate_timeline_rows(candidate, facts),
-                "household_rows": _candidate_household_rows(candidate),
-                "risk_signal_rows": _candidate_risk_signal_rows(candidate),
-                "followup_rows": _candidate_followup_rows(candidate),
-                "recent_change_rows": _candidate_recent_change_rows(candidate),
-                "official_evidence_rows": [
-                    {
-                        "title": str(row.get("label") or row.get("risk_key") or "Official evidence").strip(),
-                        "detail": " | ".join(
-                            part
-                            for part in (
-                                str(row.get("source_label") or row.get("provider") or "").strip(),
-                                str(row.get("summary") or "").strip(),
-                                f"Next: {str(row.get('required_next_step') or '').strip()}" if str(row.get("required_next_step") or "").strip() else "",
-                            )
-                            if part
-                        ) or "Official source linked for this risk lane.",
-                        "tag": " · ".join(
-                            part
-                            for part in (
-                                str(row.get("availability") or "").replace("_", " ").title(),
-                                str(row.get("verification_state") or "").replace("_", " ").title(),
-                                str(row.get("confidence") or "").replace("_", " ").title(),
-                            )
-                            if part
-                        ),
-                    }
-                    for row in list(dict(facts.get("official_risk_evidence") or {}).get("sources") or [])[:4]
-                    if isinstance(row, dict)
-                ],
-                "official_posture_rows": _official_risk_posture_rows(
-                    dict(facts.get("official_risk_evidence") or {})
-                    if isinstance(facts.get("official_risk_evidence"), dict)
-                    else {}
-                ),
-                "object_rows": detail_sections["object_rows"],
-                "cost_rows": detail_sections["cost_rows"],
-                "feature_values": detail_sections["feature_values"],
-                "description_text": detail_sections["description_text"],
-                "location_text": detail_sections["location_text"],
-                "energy_rows": detail_sections["energy_rows"],
-                "household_alignment_score": int(dict(candidate.get("feedback_summary") or {}).get("household_alignment_score") or 0) if isinstance(candidate.get("feedback_summary"), dict) else 0,
-                "household_alignment_label": str(dict(candidate.get("feedback_summary") or {}).get("family_alignment") or "waiting") if isinstance(candidate.get("feedback_summary"), dict) else "waiting",
-            }
-        )
-        results_table_rows.append(
-            {
-                "cells": [
-                    {"title": "Open 360" if str(candidate.get("tour_url") or "").strip() else tour_status_line, "detail": tour_status_line if str(candidate.get("tour_url") or "").strip() else "", "href": str(candidate.get("tour_url") or "").strip()},
-                    {"title": f"#{len(results_table_rows) + 1} {str(candidate.get('title') or 'Candidate').strip() or 'Candidate'}", "detail": str(candidate.get("source_label") or "").strip()},
-                    {"title": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(), "detail": str(candidate.get("fit_summary") or "").strip()},
-                    {"title": "Open Map" if map_url else "Map pending", "detail": "", "href": map_url},
-                    {"title": price_line, "detail": ""},
-                    {"title": " | ".join(part for part in layout_parts if part) or "n/a", "detail": ""},
-                    {"title": ooda_detail or "Packet explains the neighbourhood fit.", "detail": "", "href": packet_url},
-                    {"title": packet_label, "detail": packet_url or str(candidate.get("property_url") or "").strip(), "href": packet_url},
-                ],
-                "packet_url": packet_url,
-                "tour_url": str(candidate.get("tour_url") or "").strip(),
-                "map_url": map_url,
-                "source_url": str(candidate.get("property_url") or "").strip(),
-            }
-        )
-
-    hero_actions = {
-        "properties": [
-            {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist", "tone": "primary"},
-            {"href": f"/app/search{run_suffix}", "label": "Edit brief"},
-            {"href": f"/app/agents{run_suffix}", "label": "Automation"},
-        ],
-        "shortlist": [
-            {"href": f"/app/properties{run_suffix}", "label": "Open run", "tone": "primary"},
-            {"href": f"/app/search{run_suffix}", "label": "Refine search"},
-            {"href": f"/app/agents{run_suffix}", "label": "Automation"},
-        ],
-        "research": [
-            {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist", "tone": "primary"},
-            {"href": f"/app/properties{run_suffix}", "label": "Refine search"},
-            {"href": f"/app/alerts{run_suffix}", "label": "Alerts"},
-        ],
-        "profile": [
-            {"href": f"/app/properties{run_suffix}", "label": "Refine search", "tone": "primary"},
-            {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
-            {"href": f"/app/settings{run_suffix}", "label": "Settings"},
-        ],
-        "alerts": [
-            {"href": f"/app/properties{run_suffix}", "label": "Open search desk", "tone": "primary"},
-            {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
-            {"href": f"/app/settings{run_suffix}", "label": "Notifications"},
-        ],
-        "agents": [
-            {"href": f"/app/search{run_suffix}", "label": "Edit brief", "tone": "primary"},
-            {"href": f"/app/properties{run_suffix}", "label": "Open run"},
-            {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
-        ],
-        "billing": [
-            {"href": "/pricing", "label": "Open pricing", "tone": "primary"},
-            {"href": f"/app/properties{run_suffix}", "label": "Back to search"},
-            {"href": "/security", "label": "Security"},
-        ],
-        "settings": [
-            {"href": f"/app/properties{run_suffix}", "label": "Back to search", "tone": "primary"},
-            {"href": "/security", "label": "Open security"},
-            {"href": "/pricing", "label": "Open pricing"},
-        ],
-    }
-    hero_highlights = {
-        "properties": [
-            {
-                "label": "Market",
-                "value": str(property_state.get("country_label") or "Market"),
-                "detail": str(search_posture_items[0].get("detail") or "").strip() if search_posture_items else "",
-                "href": f"/app/search{run_suffix}",
-            },
-            {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target areas.", "href": f"/app/search{run_suffix}"},
-            {"label": "Priorities", "value": str(len(selected_keywords) or 0), "detail": ", ".join(selected_keywords[:3]) or "Record what should drive the ranking.", "href": f"/app/search{run_suffix}"},
-            {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "The selected portals for the next sweep.", "href": f"/app/search{run_suffix}"},
-        ],
-        "shortlist": [
-            {"label": "Candidates", "value": str(len(shortlist_candidates)), "detail": "Ranked properties worth direct review now.", "href": f"/app/shortlist{run_suffix}"},
-            {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready before the raw portal listing.", "href": f"/app/research{run_suffix}"},
-            {"label": "360 ready", "value": str(tour_ready_total), "detail": "Hosted or embedded tours already available.", "href": f"/app/research{run_suffix}"},
-            {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest run status.", "href": f"/app/properties{run_suffix}"},
-        ],
-        "research": [
-            {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready for inspection.", "href": f"/app/research{run_suffix}"},
-            {"label": "Tours", "value": str(tour_ready_total), "detail": "Candidates already backed by a 360 or hosted tour.", "href": f"/app/research{run_suffix}"},
-            {"label": "Signals", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Raw listings considered in the latest run.", "href": f"/app/properties{run_suffix}"},
-            {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest research pass.", "href": f"/app/properties{run_suffix}"},
-        ],
-        "profile": [
-            {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "No areas saved yet.", "href": f"/app/profile{run_suffix}"},
-            {"label": "Priorities", "value": str(len(selected_keywords) or 0), "detail": ", ".join(selected_keywords[:3]) or "No ranking preferences saved yet.", "href": f"/app/profile{run_suffix}"},
-            {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "Current active provider set.", "href": f"/app/properties{run_suffix}"},
-            {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": f"/app/billing{run_suffix}"},
-        ],
-        "alerts": [
-            {"label": "Delivered", "value": str(len(recent_matches_card.get("items") or [])), "detail": "Hosted pages or packets already sent.", "href": f"/app/alerts{run_suffix}"},
-            {"label": "Run events", "value": str(len(run_events[-4:])), "detail": "Recent run updates visible to the user.", "href": f"/app/alerts{run_suffix}"},
-            {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "Portals currently feeding the alert lane.", "href": f"/app/properties{run_suffix}"},
-            {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest saved-search sweep.", "href": f"/app/properties{run_suffix}"},
-        ],
-        "agents": [
-            {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring briefs available for editing and rerunning.", "href": f"/app/agents{run_suffix}"},
-            {"label": "Active", "value": str(sum(1 for agent in property_search_agents if agent.get("enabled"))), "detail": "Agents allowed to send matching updates.", "href": f"/app/agents{run_suffix}"},
-            {"label": "Delivery", "value": str(property_search_agent.get("notification_label") or "Set per agent"), "detail": "Each recurring search ranks down to the allowed message budget.", "href": f"/app/agents{run_suffix}"},
-            {"label": "Reports", "value": "Email", "detail": "Digests, repair notes, and market watches leave from this lane.", "href": f"/app/agents{run_suffix}"},
-        ],
-        "billing": [
-            {"label": "Plan", "value": current_plan_label, "detail": "Current commercial posture.", "href": f"/app/billing{run_suffix}"},
-            {"label": "Depth", "value": str(commercial.get("research_depth") or "deep").title(), "detail": "How deep the research lane runs.", "href": f"/app/billing{run_suffix}"},
-            {"label": "Providers", "value": str(commercial.get("max_platforms") or "Multi"), "detail": "Maximum provider breadth for this plan.", "href": f"/app/billing{run_suffix}"},
-            {"label": "Per source", "value": str(commercial.get("max_results_per_source") or 2), "detail": "Maximum ranked results per provider.", "href": f"/app/billing{run_suffix}"},
-        ],
-        "settings": [
-            {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": f"/app/settings{run_suffix}"},
-            {"label": "Account", "value": str(workspace.get("name") or "PropertyQuarry"), "detail": str(workspace.get("timezone") or "Europe/Vienna"), "href": f"/app/settings{run_suffix}"},
-            {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": f"/app/billing{run_suffix}"},
-            {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/profile{run_suffix}"},
-        ],
-    }
-    preference_rows = [
-        row_item(
-            "Account",
-            str(workspace.get("name") or "PropertyQuarry"),
-            "Account",
-        ),
-        row_item(
-            "Google sign-in",
-            str(google.get("connected_account_email") or google.get("status") or "Not connected"),
-            "Connection",
-        ),
-        row_item(
-            "Timezone",
-            str(workspace.get("timezone") or "Europe/Vienna"),
-            "Preference",
-        ),
-        row_item(
-            "Active plan",
-            current_plan_label,
-            "Plan",
-        ),
-    ]
-    settings_connection_rows = [
-        row_item(
-            "Google sign-in",
-            "Identity-only return access. PropertyQuarry should not widen this into office sync on the settings surface.",
-            "Connection",
-        ),
-        row_item(
-            "Notification delivery",
-            "Good matches can leave through Telegram or email once the shortlist is credible enough to notify.",
-            "Alerts",
-        ),
-        row_item(
-            "Account posture",
-            "Billing, saved defaults, and security should stay explicit and product-specific.",
-            "Control",
-        ),
-    ]
-    alerts_rows = list(recent_matches_card.get("items") or []) + [
-        row_item(
-            str(event.get("step") or "Run update").replace("_", " ").strip().title(),
-            str(event.get("message") or "No further detail.").strip() or "No further detail.",
-            str(event.get("status") or "Update").replace("_", " ").strip().title(),
-        )
-        for event in run_events[-4:]
-        if isinstance(event, dict)
-    ]
-    if not alerts_rows:
-        alerts_rows = [
-            row_item(
-                "No client-facing alert has been sent yet",
-                "This lane will show the first hosted page or run update once the shortlist is strong enough to notify.",
-                "Quiet",
-            )
-        ]
-    plan_catalog = [dict(plan) for plan in list(commercial.get("plan_catalog") or []) if isinstance(plan, dict)]
-    current_plan_key = str(commercial.get("current_plan_key") or "free").strip().lower() or "free"
-    current_plan_spec = next((plan for plan in plan_catalog if str(plan.get("plan_key") or "").strip().lower() == current_plan_key), {})
-    current_platform_cap = int(current_plan_spec.get("max_platforms") or commercial.get("max_platforms") or 0)
-    current_result_cap = int(current_plan_spec.get("max_results_per_source") or commercial.get("max_results_per_source") or 0)
-    current_match_cap = int(current_plan_spec.get("max_match_score") or commercial.get("max_match_score") or 0)
-    billing_rows = [
-        row_item(
-            "Current plan",
-            f"{current_plan_label} | {str(commercial.get('research_depth') or 'deep')} research",
-            "Plan",
-        ),
-        row_item(
-            "Coverage",
-            f"{commercial.get('max_platforms') or 'Multi'} sources | up to {commercial.get('max_results_per_source') or 2} results per source",
-            "Limits",
-        ),
-        row_item(
-            "Checkout",
-            str(property_state.get("billing_checkout_provider_label") or "Unavailable"),
-            "Provider",
-        ),
-    ]
-    if commercial.get("active_until"):
-        billing_rows.append(
-            row_item(
-                "Access window",
-                str(commercial.get("active_until") or "").strip(),
-                "Status",
-            )
-        )
-    billing_upgrade_rows = []
-    for plan in plan_catalog:
-        plan_key = str(plan.get("plan_key") or "").strip().lower()
-        if not plan_key or plan_key == current_plan_key:
-            continue
-        platform_cap = int(plan.get("max_platforms") or 0)
-        result_cap = int(plan.get("max_results_per_source") or 0)
-        match_cap = int(plan.get("max_match_score") or 0)
-        delta_parts = [
-            f"{platform_cap} platforms" if platform_cap else "",
-            f"{result_cap} results per source" if result_cap else "",
-            f"{match_cap}/100 match ceiling" if match_cap else "",
-            f"{str(plan.get('research_depth') or '').strip()} research".strip() if str(plan.get("research_depth") or "").strip() else "",
-        ]
-        improvement_parts = []
-        if platform_cap > current_platform_cap:
-            improvement_parts.append(f"+{platform_cap - current_platform_cap} platform breadth")
-        elif platform_cap < current_platform_cap:
-            improvement_parts.append(f"{current_platform_cap - platform_cap} fewer platforms, but a tighter working lane")
-        if result_cap > current_result_cap:
-            improvement_parts.append(f"+{result_cap - current_result_cap} more results per source")
-        if match_cap > current_match_cap:
-            improvement_parts.append(f"+{match_cap - current_match_cap} points of shortlist ceiling")
-        billing_upgrade_rows.append(
-            row_item(
-                str(plan.get("display_name") or "Plan"),
-                " | ".join(part for part in delta_parts if part) + (
-                    f" | {'; '.join(improvement_parts)}" if improvement_parts else ""
-                ),
-                str(plan.get("checkout_label") or "Plan"),
-            )
-        )
-    if not billing_upgrade_rows:
-        billing_upgrade_rows = [
-            row_item(
-                "No live upgrade catalog available",
-                "Checkout metadata is not loaded yet. The current plan still governs search breadth, shortlist density, and research depth.",
-                "Catalog",
-            )
-        ]
-    billing_decision_rows = [
-        row_item(
-            "Stay on the current tier",
-            "Use the current plan until the real bottleneck is clear: source breadth, shortlist density, or deeper research.",
-            "Decision",
-        ),
-        row_item(
-            "Move tiers for a concrete reason",
-            "Upgrade when the current caps block a real search run, not because the feature grid sounds bigger.",
-            "Decision",
-        ),
-    ]
-    if current_plan_key == "free":
-        billing_decision_rows.append(
-            row_item(
-                "First paid move",
-                "Plus buys a denser working shortlist; Agent is the lane for full-breadth, full-depth search.",
-                "Next tier",
-            )
-        )
-    elif current_plan_key == "plus":
-        billing_decision_rows.append(
-            row_item(
-                "When to jump to Agent",
-                "Move when the search needs both full provider coverage and the heaviest research posture at the same time.",
-                "Next tier",
-            )
-        )
-    else:
-        billing_decision_rows.append(
-            row_item(
-                "Agent posture",
-                "The focus here is not another upgrade. It is making sure the heavier research lane is actually being used productively.",
-                "Current tier",
-            )
-        )
-    research_rows = []
-    for candidate in shortlist_candidates[:6]:
-        title = str(candidate.get("title") or "Research packet").strip() or "Research packet"
-        reasons = list(candidate.get("match_reasons") or [])[:2]
-        mismatches = list(candidate.get("mismatch_reasons") or [])[:2]
-        detail_parts = []
-        if candidate.get("fit_summary"):
-            detail_parts.append(str(candidate.get("fit_summary") or "").strip())
-        if reasons:
-            detail_parts.append("; ".join(str(reason).strip() for reason in reasons if str(reason).strip()))
-        if mismatches:
-            detail_parts.append("Risks: " + "; ".join(str(reason).strip() for reason in mismatches if str(reason).strip()))
-        research_rows.append(
-            {
-                "title": title,
-                "detail": " | ".join(part for part in detail_parts if part) or "Open the property page to inspect the fit and missing evidence.",
-                "tag": str(candidate.get("tag") or candidate.get("recommendation") or "Packet").strip() or "Packet",
-                "action_href": str(candidate.get("packet_url") or candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
-                "action_method": "get",
-                "action_label": "Open property page",
-                "secondary_action_href": str(candidate.get("review_url") or candidate.get("tour_url") or "").strip(),
-                "secondary_action_method": "get" if (candidate.get("review_url") or candidate.get("tour_url")) else "",
-                "secondary_action_label": "Open listing" if candidate.get("review_url") else ("Open 360" if candidate.get("tour_url") else ""),
-            }
-        )
-    if not research_rows:
-        research_rows = list(recent_matches_card.get("items") or []) or [
-            row_item(
-                "Research pages have not been opened yet",
-                "As soon as a run finishes with credible matches, the strongest candidates will be promoted into hosted property pages from this desk.",
-                "First page",
-            )
-        ]
-    saved_search_rows = [
-        {
-            "title": "Current saved search",
-            "detail": " | ".join(
-                part for part in (
-                    str(property_state.get("country_label") or "").strip(),
-                    f"{len(selected_locations)} target area(s)" if selected_locations else "",
-                    f"{len(selected_platforms)} provider(s)" if selected_platforms else "",
-                ) if part
-            ) or "No saved search brief yet.",
-            "tag": "Saved",
-            "action_href": f"/app/properties{run_suffix}",
-            "action_method": "get",
-            "action_label": "Refine brief",
-        },
-        {
-            "title": "Latest run posture",
-            "detail": run_message or "Open the search desk to launch or monitor the next sweep.",
-            "tag": run_status_label,
-            "action_href": f"/app/properties{run_suffix}",
-            "action_method": "get",
-            "action_label": "Open search desk",
-        },
-        {
-            "title": "Delivery path",
-            "detail": "Telegram and email stay secondary until the shortlist is credible enough to notify.",
-            "tag": "Alerts",
-            "action_href": f"/app/settings{run_suffix}",
-            "action_method": "get",
-            "action_label": "Review settings",
-        },
-    ]
-    agent_management_rows = build_agent_management_rows(property_search_agents, run_id=run_id)
-    if not agent_management_rows:
-        agent_management_rows = [
-            row_item(
-                "No saved search yet",
-                "Create one from the search desk, then return here to edit, pause, or review its notification budget.",
-                "First search",
-            )
-        ]
-
-    sections: dict[str, dict[str, object]] = {
-        "properties": {
-            "title": "Run",
-            "summary": (
-                "Review the final ranked result table."
-                if run_status_value in {"processed", "completed"} and results_table_rows
-                else (
-                    "Keep health, coverage, repair state, and the next useful update visible while the run is active."
-                    if run_in_progress
-                    else "This surface is for run health, partial coverage, and the last completed sweep."
-                )
-            ),
-            "hero_kicker": "Run",
-            "hero_title": (
-                "Review the finished run in one table."
-                if run_status_value in {"processed", "completed"} and results_table_rows
-                else ("Keep the run visible until the shortlist is ready." if run_in_progress else "No run is active right now.")
-            ),
-            "hero_summary": (
-                "Once the run is done, keep this surface focused on completion truth: final coverage, property pages prepared, and whether anything still needs repair."
-                if run_status_value in {"processed", "completed"} and results_table_rows
-                else (
-                    "Show only health, source coverage, repair state, and the next useful update until the final ranked shortlist is ready."
-                    if run_in_progress
-                    else "Search setup now lives in Search. This surface should answer whether the latest sweep is healthy, what it already produced, and whether repair work is still needed."
-                )
-            ),
-            "hero_actions": [{"href": f"/app/search{run_suffix}", "label": "Open search"}, {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"}] if run_in_progress else (hero_actions["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
-                {"href": f"/app/search{run_suffix}", "label": "Refine search", "tone": "primary"},
-                {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
-                {"href": f"/app/agents{run_suffix}", "label": "Automation"},
-            ]),
-            "hero_highlights": [
-                {"label": "Run state", "value": run_status_label, "detail": run_message or "The current live run status."},
-                {"label": "Sources", "value": str(int(run_summary.get("sources_total") or 0)), "detail": "Places being checked for this search."},
-                {"label": "Listings", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Listings recovered so far."},
-            ] if run_in_progress else (hero_highlights["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
-                {"label": "Results", "value": str(len(results_table_rows)), "detail": "Final ranked candidates in this run."},
-                {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready now."},
-                {"label": "360 ready", "value": str(tour_ready_total), "detail": "Hosted tours available right now."},
-            ]),
-            "primary_cards": [] if (run_status_value in {"processed", "completed"} and results_table_rows) or run_in_progress else [search_posture_card, market_coverage_card],
-            "secondary_cards": [] if run_status_value in {"processed", "completed"} and results_table_rows else ([run_card] if run_in_progress else [run_card, recent_matches_card]),
-            "console_form": property_form,
-            "show_brief_form": not ((run_status_value in {"processed", "completed"} and results_table_rows) or run_in_progress),
-            "show_run_panel": run_in_progress,
-            "show_shortlist_cards": False,
-            "show_results_table": run_status_value in {"processed", "completed"} and bool(results_table_rows),
-            "results_table_headers": ["360", "Candidate", "Fit", "Map", "Price", "Layout", "Quick read", "Review"],
-            "results_table_rows": results_table_rows,
-        },
-        "shortlist": {
-            "title": "Shortlist",
-            "summary": "Use one ranked decision table for the strongest candidates and open the full property page only when a card deserves it.",
-            "hero_kicker": "Shortlist",
-            "hero_title": "Review the best candidates before you open deeper property pages.",
-            "hero_summary": "This surface is the answer lane: ranked candidates, quick comparison, explicit watch-outs, and the jump into one full property page. Search setup and worker mechanics stay out.",
-            "hero_actions": hero_actions["shortlist"],
-            "hero_highlights": hero_highlights["shortlist"],
-            "primary_cards": [
-                {
-                    "eyebrow": "Decision table",
-                    "title": "Compare the top shortlist before you open a single full property page",
-                    "body": "The first scan should make the top candidate obvious, the main watch-out explicit, and the next property page worth opening clear.",
-                    "items": compare_rows or [row_item("No ranked shortlist yet", "Complete the next run and this panel becomes the first comparison desk for the leading candidates.", "First run")],
-                },
-                shortlist_card,
-            ],
-            "secondary_cards": [run_card, market_coverage_card],
-            "console_form": property_form,
-            "show_brief_form": False,
-            "show_shortlist_cards": True,
-        },
-        "research": {
-            "title": "Research",
-            "summary": "Turn high-fit candidates into property dossiers with evidence, property pages, and hosted follow-ups.",
-            "hero_kicker": "Research pages",
-            "hero_title": "Inspect the evidence before you open the raw listing.",
-            "hero_summary": "This lane should feel like a property dossier desk: fit reasons, decision checks, property pages, and hosted tours where they exist.",
-            "hero_actions": hero_actions["research"],
-            "hero_highlights": hero_highlights["research"],
-            "primary_cards": [
-                {
-                    "eyebrow": "Research pages",
-                    "title": "Open the strongest property pages first",
-                    "body": "Hosted property pages and 360 tours stay primary. Raw portal links remain secondary.",
-                    "items": research_rows,
-                }
-            ],
-            "secondary_cards": [recent_matches_card, run_card],
-            "console_form": {},
-            "show_brief_form": False,
-            "show_shortlist_cards": False,
-        },
-        "profile": {
-            "title": "Profile Learning",
-            "summary": "Show what the ranking learned, what should be suppressed next time, and which rules remain explicit.",
-            "hero_kicker": "Profile learning",
-            "hero_title": "Make the learning loop visible and editable.",
-            "hero_summary": "Likes, dislikes, and hard rules must survive beyond one run. This lane is where the ranking becomes personal instead of repeating the same weak matches.",
-            "hero_actions": hero_actions["profile"],
-            "hero_highlights": hero_highlights["profile"],
-            "primary_cards": [learning_card],
-            "secondary_cards": [
-                {
-                    "eyebrow": "Saved posture",
-                    "title": "Current profile state",
-                    "body": "The saved search posture should be easy to inspect without reopening the full brief.",
-                    "items": list(search_posture_card.get("items") or []),
-                },
-                {
-                    "eyebrow": "Account",
-                    "title": "Who this profile belongs to",
-                    "body": "Identity and connection state stay narrow and explicit on PropertyQuarry.",
-                    "items": preference_rows,
-                },
-            ],
-            "console_form": {},
-            "show_brief_form": False,
-            "show_shortlist_cards": False,
-        },
-        "alerts": {
-            "title": "Alerts",
-            "summary": "Track what has already been delivered and which run events are preparing the next outbound property page.",
-            "hero_kicker": "Alerts",
-            "hero_title": "See what has been sent and what is about to leave.",
-            "hero_summary": "Alerts are product output, not hidden queue state. Keep hosted matches, property pages, and run updates visible in one lane.",
-            "hero_actions": hero_actions["alerts"],
-            "hero_highlights": hero_highlights["alerts"],
-            "primary_cards": [
-                {
-                    "eyebrow": "Client alerts",
-                    "title": "Recent outbound property follow-ups",
-                    "body": "Hosted pages, property briefs, and run updates that mattered enough to notify the client.",
-                    "items": alerts_rows,
-                }
-            ],
-            "secondary_cards": [
-                {
-                    "eyebrow": "Saved search",
-                    "title": "The alert lane should still expose the search brief driving it",
-                    "body": "Recurring alerts are only useful when the user can still see and revise the search posture behind them.",
-                    "items": saved_search_rows,
-                },
-                run_card,
-            ],
-            "console_form": {},
-            "show_brief_form": False,
-            "show_shortlist_cards": False,
-        },
-        "agents": {
-            "title": "Automation",
-            "summary": "Run recurring market watches, reports, delivery limits, and repair policy from one automation control plane.",
-            "hero_kicker": "Automation",
-            "hero_title": str((selected_agent or {}).get("name") or "Control recurring searches, reports, and repair policy."),
-            "hero_summary": (
-                f"{str((selected_agent or {}).get('scope_label') or '').strip()} | {str((selected_agent or {}).get('delivery_label') or '').strip()} | {str((selected_agent_latest_run or {}).get('held_back_total') or 0)} filtered on the latest finished run. Recurring searches, delivery, digests, and repair state belong here; live search workers belong on the Run surface."
-                if selected_agent
-                else "Each recurring search owns one saved brief, delivery budget, report posture, and repair history. Search workers are separate: they are the parallel lanes used during one live run."
-            ),
-            "hero_actions": hero_actions["agents"],
-            "hero_highlights": hero_highlights["agents"],
-            "primary_cards": [
-                {
-                    "eyebrow": "Recurring search",
-                    "title": str((selected_agent or {}).get("name") or "Open a recurring search"),
-                    "body": (
-                        "This recurring search owns one saved brief, one delivery budget, and the shortlist that leaves first."
-                        if selected_agent
-                        else "Choose a recurring search to inspect its watch, recent runs, delivery, and edit path."
-                    ),
-                    "items": (
-                        [
-                            {
-                                "title": "Watching",
-                                "detail": str((selected_agent or {}).get("scope_label") or "No scope saved"),
-                                "tag": str((selected_agent or {}).get("status_label") or "Idle"),
-                                "action_href": selected_agent_open_href or f"/app/agents{run_suffix}",
-                                "action_method": "get",
-                                "action_label": "Refresh",
-                                "secondary_action_href": selected_agent_edit_href or f"/app/properties{run_suffix}",
-                                "secondary_action_method": "get",
-                                "secondary_action_label": "Edit",
-                            },
-                            row_item("Notification budget", str((selected_agent or {}).get("delivery_label") or "Set a daily or weekly cap."), str((selected_agent or {}).get("notification_label") or "Budget")),
-                            row_item("Run cadence", str((selected_agent or {}).get("run_label") or "Waiting for the first scheduler run."), "Timing"),
-                            row_item(
-                                "Latest finished run",
-                                (
-                                    f"Ranked {str((selected_agent_latest_run or {}).get('ranked_total') or 0)} | Sent {str((selected_agent_latest_run or {}).get('sent_total') or 0)} | Filtered {str((selected_agent_latest_run or {}).get('held_back_total') or 0)}"
-                                    if selected_agent_latest_run
-                                    else "No finished run for this saved search yet."
-                                ),
-                                str((selected_agent_latest_run or {}).get("status_label") or "Waiting"),
-                            ),
-                        ]
-                    ),
-                },
-                {
-                    "eyebrow": "Control plane",
-                    "title": "Recurring searches",
-                    "body": "Use Edit to load a recurring search back into Search, adjust the brief, and run or save it again.",
-                    "items": agent_management_rows,
-                }
-            ],
-            "secondary_cards": [
-                {
-                    "eyebrow": "Reports and delivery",
-                    "title": "What leaves this automation lane",
-                    "body": "Recurring searches should feel like ongoing market intelligence, not passive saved filters.",
-                    "items": [
-                        row_item("Delivery", str((selected_agent or {}).get("delivery_label") or "Set a daily or weekly delivery cap."), str((selected_agent or {}).get("notification_label") or "Budget")),
-                        row_item("Reports", "Daily, weekly, and repair digests can leave through email.", "Email"),
-                        row_item(
-                            "Latest outcome",
-                            (
-                                f"Ranked {str((selected_agent_latest_run or {}).get('ranked_total') or 0)} | Sent {str((selected_agent_latest_run or {}).get('sent_total') or 0)} | Filtered {str((selected_agent_latest_run or {}).get('held_back_total') or 0)}"
-                                if selected_agent_latest_run
-                                else "No finished recurring run has produced a delivery summary yet."
-                            ),
-                            str((selected_agent_latest_run or {}).get("status_label") or "Waiting"),
-                        ),
-                    ],
-                },
-                {
-                    "eyebrow": "Repair and coverage",
-                    "title": "Auto-repair and fleet posture",
-                    "body": fleet_digest_summary or "Fleet monitors repair health, digests, and credit runway for recurring searches.",
-                    "items": repair_truth_rows + (fleet_digest_items[:2] if fleet_digest_items else [row_item("Fleet digest", "Credit posture and repair receipts will appear here once the next digest is refreshed.", "Digest")]),
-                },
-                {
-                    "eyebrow": "Limits and quotas",
-                    "title": "Recurring searches and workers are different limits",
-                    "body": "Recurring searches control how many market watches stay active. Search workers control how many source lanes can run in parallel during one live search.",
-                    "items": [
-                        row_item("Free", "1 active saved search · 1 live search worker.", "Plan"),
-                        row_item("Plus", "3 active saved searches · 2 live search workers.", "Plan"),
-                        row_item("Agent", "Unlimited saved searches · 4 live search workers.", "Plan"),
-                    ],
-                },
-                {
-                    "eyebrow": "Recent runs",
-                    "title": "What changed on the latest sweeps",
-                    "body": "Use finished runs to inspect what was ranked, what left the budget, and what stayed outside the current rules.",
-                    "items": (
-                        [
-                            {
-                                "title": str(run.get("title") or "Saved search"),
-                                "detail": f"{str(run.get('status_label') or 'Run').strip()} | Ranked {str(run.get('ranked_total') or 0)} | Sent {str(run.get('sent_total') or 0)} | Filtered {str(run.get('held_back_total') or 0)}",
-                                "tag": str(run.get("top_fit_score") or 0),
-                                "action_href": str(run.get("href") or ""),
-                                "action_method": "get",
-                                "action_label": "Open results",
-                            }
-                            for run in (selected_agent_runs[:3] if selected_agent_runs else previous_search_runs[:3])
-                        ]
-                        or [row_item("No finished run yet", "The first completed sweep will show ranked, sent, and held-back counts here.", "Waiting")]
-                    ),
-                },
-                run_card,
-            ],
-            "console_form": {},
-            "show_brief_form": False,
-            "show_shortlist_cards": False,
-        },
-        "billing": {
-            "title": "Billing",
-            "summary": "Keep plan state, checkout path, and usage posture visible without mixing them into the shortlist surface.",
-            "hero_kicker": "Billing",
-            "hero_title": "Control the research tier without losing the search context.",
-            "hero_summary": "The billing lane should explain what the current plan unlocks, what is capped, and how the next upgrade changes the search depth.",
-            "hero_actions": hero_actions["billing"],
-            "hero_highlights": hero_highlights["billing"],
-            "primary_cards": [
-                {
-                    "eyebrow": "Plan posture",
-                    "title": "Current commercial state",
-                    "body": "Free should prove the product. Paid should expand research, provider breadth, and automation cleanly.",
-                    "items": billing_rows,
-                }
-            ],
-            "secondary_cards": [
-                {
-                    "eyebrow": "Upgrade impact",
-                    "title": "What actually changes with each tier",
-                    "body": "Show the numerical delta before the user opens checkout: provider breadth, shortlist density, threshold ceiling, and research depth.",
-                    "items": billing_upgrade_rows,
-                },
-                {
-                    "eyebrow": "Commercial decision",
-                    "title": "Upgrade only when the current lane is the bottleneck",
-                    "body": "The billing surface should help a serious buyer decide whether the next tier is justified by workload, not by generic SaaS pressure.",
-                    "items": billing_decision_rows,
-                },
-            ],
-            "console_form": property_form,
-            "show_brief_form": False,
-            "show_shortlist_cards": False,
-            "show_billing_cards": True,
-        },
-        "account": {
-            "title": "Account",
-            "summary": "Keep identity, plan, credits, entitlements, saved defaults, and account truth in one narrow product console.",
-            "hero_kicker": "Account",
-            "hero_title": "Manage identity, plan, credits, and saved defaults.",
-            "hero_summary": "Account should be the truth console: identity, plan, entitlements, credit posture, recurring reports, and saved defaults in one place.",
-            "hero_actions": [
-                {"href": f"/app/properties{run_suffix}", "label": "Open run", "tone": "primary"},
-                {"href": f"/app/agents{run_suffix}", "label": "Open automation"},
-                {"href": "/pricing", "label": "Open pricing"},
-            ],
-            "hero_highlights": [
-                {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account#settings"},
-                {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": "/app/account#plans"},
-                {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
-                {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": "/app/account#profile"},
-            ],
-            "primary_cards": [
-                {
-                    "id": "settings",
-                    "eyebrow": "Connections",
-                    "title": "Identity and return access",
-                    "body": "Google is optional identity and easier return access. It is not an office sync contract here.",
-                    "items": preference_rows + settings_connection_rows,
-                },
-                {
-                    "id": "plans",
-                    "eyebrow": "Plan and entitlements",
-                    "title": "Current plan, worker capacity, and provider breadth",
-                    "body": "This surface should make limits explicit: plan, worker entitlement, and how much source breadth the current tier supports.",
-                    "items": billing_rows + [
-                        row_item("Workers", "Free 1 · Plus 2 · Agent 4 live search workers.", "Workers"),
-                        row_item("Providers", f"Current plan allows up to {commercial.get('max_platforms') or 'multi'} sources in one run.", "Breadth"),
-                    ],
-                },
-                {
-                    "id": "profile",
-                    "eyebrow": "Saved defaults",
-                    "title": "Current search brief state",
-                    "body": "The saved brief stays visible so you can change the product posture before the next run.",
-                    "items": list(search_posture_card.get("items") or []),
-                },
-                {
-                    "id": "credits",
-                    "eyebrow": "Credit truth",
-                    "title": "Current credit posture, runway, and operator digest",
-                    "body": fleet_digest_summary or "Credit runway, repair posture, and recurring digests stay visible here.",
-                    "items": credit_truth_rows + (fleet_digest_items[:2] if fleet_digest_items else [row_item("Fleet digest", "Credit posture is waiting for the next verified refresh.", "Digest")]),
-                },
-                {
-                    "eyebrow": "Operating posture",
-                    "title": "Where the next change belongs",
-                    "body": "Settings should tell the user what to change next instead of leaking inherited assistant concepts.",
-                    "items": [
-                        row_item("Search brief", "Go back to Search when the market, provider mix, or shortlist depth needs adjustment.", "Search"),
-                        row_item("Plan", "Open the plan ladder when you need more providers, deeper research, or more sustained automation.", "Plan"),
-                        row_item("Security", "Use the public security page to inspect retention and identity posture on this product.", "Trust"),
-                    ],
-                },
-            ],
-            "secondary_cards": [billing_rows and {
-                "eyebrow": "Automation and reports",
-                "title": "Recurring intelligence leaving this account",
-                "body": "Automation, reports, and repair digests should stay visible next to the account truth that governs them.",
-                "items": [
-                    row_item("Recurring searches", f"{len(property_search_agents)} saved searches ready to rerun or edit.", "Automation"),
-                    row_item("Delivery lane", "Email digests, repair notes, and recurring market watches leave through Automation.", "Reports"),
-                    row_item("Repair posture", repair_truth_rows[0].get("detail") if repair_truth_rows else "No live repair telemetry is visible yet.", "Repair"),
-                ],
-            } or {}, {
-                "eyebrow": "Public surfaces",
-                "title": "Product-facing controls",
-                "body": "The user should understand where the public contract lives too.",
-                "items": [
-                    {
-                        "title": "Pricing",
-                        "detail": "Inspect the current plan ladder and commercial delta on the public product page.",
-                        "tag": "Public",
-                        "action_href": "/pricing",
-                        "action_method": "get",
-                        "action_label": "Open pricing",
-                    },
-                    {
-                        "title": "Security",
-                        "detail": "Review trust, identity, and data-posture language on the public product page.",
-                        "tag": "Public",
-                        "action_href": "/security",
-                        "action_method": "get",
-                        "action_label": "Open security",
-                    },
-                ],
-            }],
-            "console_form": property_form,
-            "show_brief_form": False,
-            "show_shortlist_cards": False,
-        },
-        "settings": {
-            "title": "Account",
-            "summary": "Keep plan, profile, settings, and sign-out narrow and product-specific.",
-            "hero_kicker": "Account",
-            "hero_title": "Manage account, plan, and saved defaults.",
-            "hero_summary": "Account keeps identity, plan limits, saved defaults, and sign-out in one place. It should feel like product control, not inherited office tooling.",
-            "hero_actions": [
-                {"href": f"/app/properties{run_suffix}", "label": "Back to Home", "tone": "primary"},
-                {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
-                {"href": "/pricing", "label": "Open pricing"},
-            ],
-            "hero_highlights": [
-                {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account#settings"},
-                {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": "/app/account#plans"},
-                {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
-                {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": "/app/account#profile"},
-            ],
-            "primary_cards": [
-                {
-                    "id": "settings",
-                    "eyebrow": "Connections",
-                    "title": "Identity and return access",
-                    "body": "Google is optional identity and easier return access. It is not an office sync contract here.",
-                    "items": preference_rows + settings_connection_rows,
-                },
-                {
-                    "id": "profile",
-                    "eyebrow": "Saved defaults",
-                    "title": "Current search brief state",
-                    "body": "The saved brief stays visible so you can change the product posture before the next run.",
-                    "items": list(search_posture_card.get("items") or []),
-                },
-                {
-                    "eyebrow": "Operating posture",
-                    "title": "Where the next change belongs",
-                    "body": "Settings should tell the user what to change next instead of leaking inherited assistant concepts.",
-                    "items": [
-                        row_item("Search brief", "Go back to Search when the market, provider mix, or shortlist depth needs adjustment.", "Search"),
-                        row_item("Plan", "Open the plan ladder when you need more providers, deeper research, or more sustained automation.", "Plan"),
-                        row_item("Security", "Use the public security page to inspect retention and identity posture on this product.", "Trust"),
-                    ],
-                },
-            ],
-            "secondary_cards": [billing_rows and {
-                "id": "plans",
-                "eyebrow": "Plan",
-                "title": "Commercial posture",
-                "body": "Plan limits and research depth stay visible here too.",
-                "items": billing_rows,
-            } or {}, {
-                "eyebrow": "Public surfaces",
-                "title": "Product-facing controls",
-                "body": "The user should understand where the public contract lives too.",
-                "items": [
-                    {
-                        "title": "Pricing",
-                        "detail": "Inspect the current plan ladder and commercial delta on the public product page.",
-                        "tag": "Public",
-                        "action_href": "/pricing",
-                        "action_method": "get",
-                        "action_label": "Open pricing",
-                    },
-                    {
-                        "title": "Security",
-                        "detail": "Review trust, identity, and data-posture language on the public product page.",
-                        "tag": "Public",
-                        "action_href": "/security",
-                        "action_method": "get",
-                        "action_label": "Open security",
-                    },
-                ],
-            }],
-            "console_form": property_form,
-            "show_brief_form": False,
-            "show_shortlist_cards": False,
-        },
-    }
-
-    payload = dict(sections.get(section, sections["properties"]))
-    payload["stats"] = list(base.get("stats") or [])
-    payload["current_plan_label"] = current_plan_label
-    payload["run_payload"] = run_payload
-    payload["run_summary"] = run_summary
-    payload["preference_manager"] = preference_manager
-    selected_result = workbench_results[0] if workbench_results else {}
-    if selected_candidate_ref:
-        for index, row in enumerate(workbench_results):
-            if str(row.get("candidate_ref") or "").strip() != selected_candidate_ref:
-                continue
-            selected_result = row
-            if index != 0:
-                workbench_results = [row, *workbench_results[:index], *workbench_results[index + 1 :]]
-            break
-    payload["decision_workbench"] = {
-        "run": {
-            "run_id": run_id,
-            "status": run_status_value or "not_started",
-            "status_label": run_status_label,
-            "progress": int(run_payload.get("progress") or 0),
-            "message": run_status_note or run_message,
-            "status_url": str(run_payload.get("status_url") or "").strip(),
-            "summary": run_summary,
-            "events": run_events[-8:],
-            "worker_state": search_worker_state,
-            "reliability": _property_run_reliability_summary(
-                {
-                    "status": run_status_value or "not_started",
-                    "progress": int(run_payload.get("progress") or 0),
-                    "message": run_status_note or run_message,
-                    "eta_label": str(run_payload.get("eta_label") or "").strip(),
-                    "summary": run_summary,
-                },
-                results_total=len(workbench_results),
-            ),
-            "research_task_total": research_task_total,
-            "open_research_task_total": open_research_task_total,
-            "filled_research_task_total": filled_research_task_total,
-            "dismissed_research_task_total": dismissed_research_task_total,
-            "route_previews": progress_route_previews,
-        },
-        "brief": {
-            "country": str(property_state.get("country_label") or "Market"),
-            "search_goal": selected_search_goal,
-            "search_goal_label": property_search_goal_label,
-            "mode": str(property_preferences.get("listing_mode") or "rent").strip().title(),
-            "investment_strategy_label": property_investment_strategy_label if property_is_investment_search else "",
-            "region": str(property_state.get("region_label") or property_preferences.get("region_code") or "").strip(),
-            "areas": selected_locations,
-            "priorities": selected_keywords,
-            "providers": selected_platforms,
-            "plan": current_plan_label,
-            "plan_key": str(commercial.get("current_plan_key") or "free").strip().lower() or "free",
-            "research_depth": str(commercial.get("research_depth") or "deep").strip(),
-        },
-        "brief_preferences": dict(property_preferences),
-        "endpoints": {
-            "preferences": str(property_meta.get("preferences_endpoint") or "").strip(),
-            "start": str(property_meta.get("start_endpoint") or "").strip(),
-            "billing_order": str(property_meta.get("billing_order_endpoint") or "").strip(),
-            "delete_run_template": "/app/api/property/search-runs/__RUN_ID__",
-        },
-        "counterfactual_rows": counterfactual_rows,
-        "recent_packets": [
-            {
-                "title": str(item.get("title") or item.get("label") or "Property page").strip(),
-                "detail": str(item.get("detail") or "").strip(),
-                "tag": str(item.get("tag") or "Packet").strip(),
-                "url": str(item.get("action_href") or "").strip(),
-            }
-            for item in list(recent_matches_card.get("items") or [])[:5]
-            if isinstance(item, dict)
-        ],
-        "previous_search_runs": previous_search_runs,
-        "search_agents": property_search_agents,
-        "search_agent": property_search_agent,
-        "results": workbench_results,
-        "search_guard_rows": [],
-        "suppression_rows": suppression_rows,
-        "delivery_proof_rows": delivery_proof_rows,
-        "artifact_receipt_rows": artifact_receipt_rows,
-        "research_tasks": [],
-        "research_task_counts": {
-            "total": research_task_total,
-            "open": open_research_task_total,
-            "filled": filled_research_task_total,
-            "dismissed": dismissed_research_task_total,
-        },
-        "selected_candidate_ref": str(selected_result.get("candidate_ref") or "").strip(),
-        "selected": selected_result,
-        "empty_outcome": _property_empty_outcome_summary(),
-        "show_brief_default": not (run_in_progress or (run_status_value in {"processed", "completed"} and bool(workbench_results))),
-    }
-    return payload
 
 
 def admin_section_payload(section: str) -> dict[str, object]:

@@ -39,6 +39,7 @@ from app.api.routes.landing_content import (
     SIGN_IN_NOTES,
     TRUST_CARDS,
 )
+from app.api.routes.landing_property_surface_contracts import PropertySurfaceScope
 from app.api.routes.landing_view_models import (
     app_section_payload as _app_section_payload,
     channel_cards as _channel_cards,
@@ -85,6 +86,12 @@ from app.api.routes.admin_view_models import build_admin_section_payload as _bui
 from app.api.routes.workspace_view_models import workspace_section_payload as _workspace_section_payload
 from app.container import AppContainer
 from app.product.commercial import workspace_plan_for_mode
+from app.product.property_surface_state import (
+    build_property_billing_truth_snapshot,
+    build_property_research_packet_snapshot,
+    build_property_run_health_snapshot,
+    normalize_property_search_run_snapshot,
+)
 from app.product.service import build_product_service
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import complete_google_oauth_callback
@@ -627,7 +634,7 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
         "label": account_label,
         "menu_label": menu_label,
         "profile_href": "/app/account#profile",
-        "billing_href": "/app/account#plans",
+        "billing_href": "/app/billing",
         "settings_href": "/app/account#settings",
         "sign_out_action": "/app/actions/sign-out",
         "sign_out_return_to": str(brand.get("public_base_url") or "/").strip() or "/",
@@ -772,8 +779,14 @@ def _property_console_context(
     status: dict[str, object],
     run_id: str = "",
     selected_agent_id: str = "",
+    surface_mode: str = "properties",
 ) -> dict[str, object]:
     product = build_product_service(container)
+    surface_scope = PropertySurfaceScope.for_section(surface_mode)
+    wants_run_state = surface_scope.wants_run_state
+    wants_recent_runs = surface_scope.wants_recent_runs
+    wants_recent_matches = surface_scope.wants_recent_matches
+    wants_learning = surface_scope.wants_learning
     raw_property_preferences = dict(status.get("property_search_preferences") or {})
     preferences = normalize_property_search_preferences(dict(raw_property_preferences.get("raw_preferences") or raw_property_preferences))
     selected_country = normalize_country_code(preferences.get("country_code"))
@@ -804,11 +817,16 @@ def _property_console_context(
     run_payload: dict[str, object] = {}
     normalized_run_id = str(run_id or "").strip()
     recent_search_runs: list[dict[str, object]] = []
-    try:
-        recent_search_runs = product.list_property_search_runs(principal_id=principal_id, limit=8)
-    except Exception:
-        recent_search_runs = []
-    if not normalized_run_id:
+    if wants_recent_runs:
+        try:
+            recent_search_runs = [
+                normalize_property_search_run_snapshot(dict(row))
+                for row in product.list_property_search_runs(principal_id=principal_id, limit=8)
+                if isinstance(row, dict)
+            ]
+        except Exception:
+            recent_search_runs = []
+    if wants_run_state and not normalized_run_id:
         terminal_statuses = {"processed", "completed", "failed", "noop", "cancelled", "not started"}
         for recent_run in recent_search_runs:
             if not isinstance(recent_run, dict):
@@ -821,7 +839,7 @@ def _property_console_context(
             if candidate_status and candidate_status not in terminal_statuses:
                 normalized_run_id = candidate_run_id
                 break
-    if normalized_run_id:
+    if wants_run_state and normalized_run_id:
         try:
             run_payload = dict(
                 product.get_property_search_run_status(
@@ -856,7 +874,8 @@ def _property_console_context(
                     )
                 )
             country_provider_options = [dict(option) for option in property_provider_options(country_code=selected_country)]
-    if run_payload:
+    enrich_run_candidates_with_feedback = wants_run_state and surface_scope.section == "shortlist"
+    if run_payload and enrich_run_candidates_with_feedback:
         packet_service = build_fliplink_packet_service(container)
         summary = dict(run_payload.get("summary") or {}) if isinstance(run_payload.get("summary"), dict) else {}
         sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
@@ -892,69 +911,84 @@ def _property_console_context(
             source["top_candidates"] = enriched_candidates
         summary["sources"] = sources
         run_payload["summary"] = summary
+    run_health = build_property_run_health_snapshot(
+        run_payload,
+        run_summary=dict(run_payload.get("summary") or {}) if isinstance(run_payload.get("summary"), dict) else {},
+    ) if wants_run_state else {}
 
     recent_matches: list[dict[str, object]] = []
     learning_summary: dict[str, object] = {}
     preference_bundle: dict[str, object] = {}
     preference_person_id = str(preferences.get("preference_person_id") or "self").strip() or "self"
-    try:
-        for handoff in product.list_handoffs(principal_id=principal_id, limit=12, status=None):
-            task_type = str(getattr(handoff, "task_type", "") or "").strip()
-            if task_type not in {"property_tour_followup", "property_alert_review"}:
-                continue
-            hosted_url = str(getattr(handoff, "tour_url", "") or "").strip()
-            review_url = str(getattr(handoff, "editor_url", "") or "").strip()
-            title = str(getattr(handoff, "summary", "") or "").strip() or str(getattr(handoff, "id", "") or "").strip() or "Property match"
-            detail_parts = [
-                str(getattr(handoff, "delivery_reason", "") or "").strip(),
-                str(getattr(handoff, "counterparty", "") or "").strip(),
-                str(getattr(handoff, "blocked_reason", "") or "").strip(),
-            ]
-            detail = " | ".join(part for part in detail_parts if part) or "Recent property follow-up."
-            row: dict[str, object] = {
-                "title": title,
-                "detail": detail,
-                "tag": "Hosted tour" if hosted_url else "Review",
-            }
-            if hosted_url:
-                row["action_href"] = hosted_url
-                row["action_method"] = "get"
-                row["action_label"] = "Open 360"
-            if review_url:
+    if wants_recent_matches:
+        try:
+            for handoff in product.list_handoffs(principal_id=principal_id, limit=12, status=None):
+                task_type = str(getattr(handoff, "task_type", "") or "").strip()
+                if task_type not in {"property_tour_followup", "property_alert_review"}:
+                    continue
+                hosted_url = str(getattr(handoff, "tour_url", "") or "").strip()
+                review_url = str(getattr(handoff, "editor_url", "") or "").strip()
+                title = str(getattr(handoff, "summary", "") or "").strip() or str(getattr(handoff, "id", "") or "").strip() or "Property match"
+                detail_parts = [
+                    str(getattr(handoff, "delivery_reason", "") or "").strip(),
+                    str(getattr(handoff, "counterparty", "") or "").strip(),
+                    str(getattr(handoff, "blocked_reason", "") or "").strip(),
+                ]
+                detail = " | ".join(part for part in detail_parts if part) or "Recent property follow-up."
+                row: dict[str, object] = {
+                    "title": title,
+                    "detail": detail,
+                    "tag": "Hosted tour" if hosted_url else "Review",
+                }
                 if hosted_url:
-                    row["secondary_action_href"] = review_url
-                    row["secondary_action_method"] = "get"
-                    row["secondary_action_label"] = "Review brief"
-                else:
-                    row["action_href"] = review_url
+                    row["action_href"] = hosted_url
                     row["action_method"] = "get"
-                    row["action_label"] = "Review brief"
-            recent_matches.append(row)
-            if len(recent_matches) >= 6:
-                break
-    except Exception:
-        recent_matches = []
-    try:
-        preference_bundle = dict(
-            product.get_preference_profile(
-                principal_id=principal_id,
-                person_id=preference_person_id,
+                    row["action_label"] = "Open 360"
+                if review_url:
+                    if hosted_url:
+                        row["secondary_action_href"] = review_url
+                        row["secondary_action_method"] = "get"
+                        row["secondary_action_label"] = "Review brief"
+                    else:
+                        row["action_href"] = review_url
+                        row["action_method"] = "get"
+                        row["action_label"] = "Review brief"
+                recent_matches.append(row)
+                if len(recent_matches) >= 6:
+                    break
+        except Exception:
+            recent_matches = []
+    if wants_learning:
+        try:
+            preference_bundle = dict(
+                product.get_preference_profile(
+                    principal_id=principal_id,
+                    person_id=preference_person_id,
+                )
+                or {}
             )
-            or {}
-        )
-    except Exception:
-        preference_bundle = {}
-    try:
-        learning_summary = dict(
-            product.property_feedback_learning_summary(
-                principal_id=principal_id,
-                person_id=preference_person_id,
-                domain="willhaben",
+        except Exception:
+            preference_bundle = {}
+    if wants_learning:
+        try:
+            learning_summary = dict(
+                product.property_feedback_learning_summary(
+                    principal_id=principal_id,
+                    person_id=preference_person_id,
+                    domain="willhaben",
+                )
+                or {}
             )
-            or {}
-        )
-    except Exception:
-        learning_summary = {}
+        except Exception:
+            learning_summary = {}
+
+    billing_truth = build_property_billing_truth_snapshot(
+        commercial=commercial,
+        default_billing_plan=default_billing_plan,
+        billing_enabled_plans=billing_enabled_plans,
+        billing_order_endpoints_by_plan=billing_order_endpoints_by_plan,
+        billing_provider_labels_by_plan=billing_provider_labels_by_plan,
+    )
 
     return {
         "platform_options": country_provider_options,
@@ -1001,6 +1035,7 @@ def _property_console_context(
         "raw_preferences": raw_property_preferences,
         "selected_platforms": list(selected_platforms),
         "run": run_payload,
+        "run_health": run_health,
         "recent_search_runs": recent_search_runs,
         "selected_agent_id": str(selected_agent_id or "").strip(),
         "recent_matches": recent_matches,
@@ -1010,17 +1045,14 @@ def _property_console_context(
         "start_endpoint": "/app/api/property/search-runs",
         "preferences_endpoint": "/v1/onboarding/property-search/preferences",
         "commercial": commercial,
-        "billing_checkout_provider": (
-            "payfunnels"
-            if default_billing_plan and billing_provider_labels_by_plan.get(default_billing_plan) == "PayFunnels"
-            else ("paypal" if default_billing_plan and billing_provider_labels_by_plan.get(default_billing_plan) == "PayPal" else "")
-        ),
-        "billing_checkout_provider_label": str(billing_provider_labels_by_plan.get(default_billing_plan) or ""),
-        "billing_checkout_enabled": bool(billing_enabled_plans),
-        "billing_checkout_enabled_plans": billing_enabled_plans,
-        "billing_order_endpoint": str(billing_order_endpoints_by_plan.get(default_billing_plan) or ""),
-        "billing_order_endpoints_by_plan": billing_order_endpoints_by_plan,
-        "billing_provider_labels_by_plan": billing_provider_labels_by_plan,
+        "billing_checkout_provider": str(billing_truth.get("checkout_provider") or ""),
+        "billing_checkout_provider_label": str(billing_truth.get("checkout_provider_label") or ""),
+        "billing_checkout_enabled": bool(billing_truth.get("checkout_enabled")),
+        "billing_checkout_enabled_plans": list(billing_truth.get("checkout_enabled_plans") or []),
+        "billing_order_endpoint": str(billing_truth.get("order_endpoint") or ""),
+        "billing_order_endpoints_by_plan": dict(billing_truth.get("order_endpoints_by_plan") or {}),
+        "billing_provider_labels_by_plan": dict(billing_truth.get("provider_labels_by_plan") or {}),
+        "billing_truth": billing_truth,
     }
 
 
@@ -2224,6 +2256,54 @@ def property_research_packet(
         "followup_status_endpoint_template": "/app/api/property-feedback/__FEEDBACK_ID__/followup-status",
     }
     review_page_neuronwriter = dict(candidate.get("review_page_neuronwriter") or {})
+    research_snapshot = build_property_research_packet_snapshot(
+        title=display_title,
+        summary=object_summary,
+        source_label=source_label,
+        price=price_summary or "Price on request",
+        area=f"{area_summary} m²" if area_summary else "",
+        rooms=rooms_summary,
+        location=location_summary or source_label,
+        media=research_media,
+        preview_image=preview_image,
+        gallery_items=gallery_items,
+        location_preview=location_preview,
+        actions=hero_actions,
+        visual_status_line=visual_status_line,
+        source_ref=str(candidate.get("source_ref") or "").strip(),
+        run_id=str(run_id or "").strip(),
+        candidate_ref=str(candidate_ref or "").strip(),
+        overview_rows=overview_rows,
+        sections=research_sections,
+        match_reasons=match_reasons,
+        mismatch_reasons=mismatch_reasons,
+        listing_rows=list(detail_sections.get("object_rows") or []),
+        cost_rows=list(detail_sections.get("cost_rows") or []),
+        feature_values=list(detail_sections.get("feature_values") or []),
+        description_text=str(detail_sections.get("description_text") or "").strip(),
+        location_text=str(detail_sections.get("location_text") or "").strip(),
+        energy_rows=list(detail_sections.get("energy_rows") or []),
+        missing_rows=missing_rows,
+        decision_rows=decision_rows,
+        compare_rows=compare_rows,
+        compare_table_rows=compare_table_rows,
+        compare_headers=["Candidate", "Fit", "Price", "Layout", "360", "Open"],
+        official_evidence_rows=official_evidence_rows,
+        official_posture_rows=official_posture_rows,
+        future_research_rows=future_research_rows,
+        provenance_rows=provenance_rows,
+        timeline_rows=timeline_rows,
+        everyday_fit_rows=everyday_fit_rows,
+        risk_fit_rows=risk_fit_rows,
+        investment_rows=investment_rows,
+        investment_risk_rows=investment_risk_rows,
+        next_best_question=next_best_question,
+        feedback=feedback_payload,
+        neuronwriter=review_page_neuronwriter,
+        objection_rows=objection_clusters,
+        household_rows=household_rows,
+        risk_signal_rows=risk_signal_rows,
+    )
     return _render_public_template(
         request,
         "app/property_research_detail.html",
@@ -2240,52 +2320,7 @@ def property_research_packet(
                 cards=[],
                 stats=[{"label": row["label"], "value": row["value"]} for row in overview_rows[:4]],
             ),
-            "research_title": display_title,
-            "research_summary": object_summary,
-            "research_source_label": source_label,
-            "research_price": price_summary or "Price on request",
-            "research_area": f"{area_summary} m²" if area_summary else "",
-            "research_rooms": rooms_summary,
-            "research_location": location_summary or source_label,
-            "research_media": research_media,
-            "research_preview_image": preview_image,
-            "research_gallery_items": gallery_items,
-            "research_location_preview": location_preview,
-            "research_actions": hero_actions,
-            "research_visual_status_line": visual_status_line,
-            "research_source_ref": str(candidate.get("source_ref") or "").strip(),
-            "research_run_id": str(run_id or "").strip(),
-            "research_candidate_ref": str(candidate_ref or "").strip(),
-            "research_overview_rows": overview_rows,
-            "research_sections": research_sections,
-            "research_match_reasons": match_reasons,
-            "research_mismatch_reasons": mismatch_reasons,
-            "research_listing_rows": list(detail_sections.get("object_rows") or []),
-            "research_cost_rows": list(detail_sections.get("cost_rows") or []),
-            "research_feature_values": list(detail_sections.get("feature_values") or []),
-            "research_description_text": str(detail_sections.get("description_text") or "").strip(),
-            "research_location_text": str(detail_sections.get("location_text") or "").strip(),
-            "research_energy_rows": list(detail_sections.get("energy_rows") or []),
-            "research_missing_rows": missing_rows,
-            "research_decision_rows": decision_rows,
-            "research_compare_rows": compare_rows,
-            "research_compare_table_rows": compare_table_rows,
-            "research_compare_headers": ["Candidate", "Fit", "Price", "Layout", "360", "Open"],
-            "research_official_evidence_rows": official_evidence_rows,
-            "research_official_posture_rows": official_posture_rows,
-            "research_future_research_rows": future_research_rows,
-            "research_provenance_rows": provenance_rows,
-            "research_timeline_rows": timeline_rows,
-            "research_everyday_fit_rows": everyday_fit_rows,
-            "research_risk_fit_rows": risk_fit_rows,
-            "research_investment_rows": investment_rows,
-            "research_investment_risk_rows": investment_risk_rows,
-            "research_next_best_question": next_best_question,
-            "research_feedback": feedback_payload,
-            "research_neuronwriter": review_page_neuronwriter,
-            "research_objection_rows": objection_clusters,
-            "research_household_rows": household_rows,
-            "research_risk_signal_rows": risk_signal_rows,
+            **research_snapshot,
         },
     )
 
@@ -2400,13 +2435,12 @@ def app_shell(
         "research": "/app/properties",
         "profile": "/app/account",
         "alerts": "/app/account",
-        "billing": "/app/account",
         "settings": "/app/account",
     }
     allowed.update(legacy_redirects)
     allowed.update({"today", "queue", "commitments", "people", "evidence", "activity", "channel-loop"})
     if property_brand:
-        allowed.update({"properties", "search", "shortlist", "agents", "account"})
+        allowed.update({"properties", "search", "shortlist", "agents", "billing", "account"})
         legacy_redirects.update(property_legacy_redirects)
         allowed.update(property_legacy_redirects)
     else:
@@ -2439,6 +2473,7 @@ def app_shell(
         "shortlist": "shortlist",
         "agents": "agents",
         "account": "account",
+        "billing": "billing",
     }
     status = container.onboarding.status(principal_id=context.principal_id)
     if resolved_section == "channel-loop":
@@ -2500,7 +2535,7 @@ def app_shell(
                 stats=stats,
             ),
         )
-    property_sections = {"properties", "search", "shortlist", "agents", "account"} if property_brand else set()
+    property_sections = {"properties", "search", "shortlist", "agents", "account", "billing"} if property_brand else set()
     core_sections = {"today", "queue", "commitments", "people", "evidence", "activity"}
     if not property_brand:
         core_sections.add("settings")
@@ -2545,22 +2580,28 @@ def app_shell(
                 status=status,
                 run_id=run_id,
                 selected_agent_id=agent_id,
+                surface_mode=resolved_section,
             )
             if resolved_section in property_sections or resolved_section == "properties"
             else None
         )
         if property_context is not None and property_brand:
             property_context["surface_mode"] = current_nav
-            pack = product.channel_loop_pack(
-                principal_id=context.principal_id,
-                operator_id=str(context.operator_id or "").strip(),
-            )
-            digests = list(pack.get("digests") or [])
-            property_context["channel_digests"] = digests
-            property_context["fleet_digest"] = next(
-                (dict(item) for item in digests if str(item.get("digest_key") or "").strip() == "fleet"),
-                {},
-            )
+            if PropertySurfaceScope.for_section(resolved_section).wants_credit_digest:
+                pack = product.channel_loop_pack(
+                    principal_id=context.principal_id,
+                    operator_id=str(context.operator_id or "").strip(),
+                )
+                digests = list(pack.get("digests") or [])
+                property_context["channel_digests"] = digests
+                property_context["fleet_digest"] = next(
+                    (dict(item) for item in digests if str(item.get("digest_key") or "").strip() == "fleet"),
+                    {},
+                )
+                billing_truth = dict(property_context.get("billing_truth") or {})
+                if billing_truth:
+                    billing_truth["fleet_digest"] = dict(property_context.get("fleet_digest") or {})
+                    property_context["billing_truth"] = billing_truth
         if resolved_section in property_sections or resolved_section == "properties":
             product.record_surface_event(
                 principal_id=context.principal_id,
@@ -2582,6 +2623,9 @@ def app_shell(
             elif current_nav == "account":
                 payload["title"] = "Account"
                 payload["summary"] = "Keep plan, profile, settings, and sign-out narrow and product-specific."
+            elif current_nav == "billing":
+                payload["title"] = "Billing"
+                payload["summary"] = "Make plan, limits, checkout, and entitlement truth visible in one place."
         else:
             payload = _app_section_payload(
                 resolved_section,

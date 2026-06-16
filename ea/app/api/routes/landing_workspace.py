@@ -12,6 +12,7 @@ from app.api.routes.landing import (
     _form_value,
     _normalize_browser_return_to,
     _render_public_template,
+    app_shell as _app_shell,
 )
 from app.api.routes.landing_content import app_nav_groups_for_brand
 from app.api.routes.landing_property_research import _object_detail_row, _render_console_object_detail
@@ -2070,6 +2071,16 @@ def app_search(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    if request_brand(request)["key"] == "propertyquarry":
+        return _app_shell(
+            section="search",
+            request=request,
+            container=container,
+            context=context,
+            run_id="",
+            candidate="",
+            agent_id="",
+        )
     workspace = dict(container.onboarding.status(principal_id=context.principal_id).get("workspace") or {})
     product = build_product_service(container)
     normalized_query = str(query or "").strip()

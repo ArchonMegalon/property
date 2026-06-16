@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from functools import lru_cache
+
 import urllib.parse
 from typing import Any
 
@@ -758,7 +760,8 @@ def _group_property_provider_options(options: list[dict[str, object]]) -> list[d
     return rows
 
 
-def _property_market_filter_capabilities(country_code: str, region_code: str) -> dict[str, bool]:
+@lru_cache(maxsize=128)
+def _property_market_filter_capabilities_cached(country_code: str, region_code: str) -> tuple[tuple[str, bool], ...]:
     country = str(country_code or "").strip().upper() or "AT"
     region = str(region_code or "").strip().lower()
     defaults: dict[str, bool] = {"family_zoo": True}
@@ -774,7 +777,8 @@ def _property_market_filter_capabilities(country_code: str, region_code: str) ->
             "tyrol": {"family_zoo": False},
             "vorarlberg": {"family_zoo": False},
         }
-        return {**defaults, **regional.get(region, {"family_zoo": False})}
+        rows = {**defaults, **regional.get(region, {"family_zoo": False})}
+        return tuple(sorted(rows.items()))
     if country == "DE":
         regional = {
             "berlin": {"family_zoo": True},
@@ -783,10 +787,18 @@ def _property_market_filter_capabilities(country_code: str, region_code: str) ->
             "cologne": {"family_zoo": True},
             "frankfurt": {"family_zoo": True},
         }
-        return {**defaults, **regional.get(region, defaults)}
+        rows = {**defaults, **regional.get(region, defaults)}
+        return tuple(sorted(rows.items()))
     if country in {"UK", "FR", "ES", "IT", "NL", "BE", "CH"}:
-        return defaults
-    return defaults
+        return tuple(sorted(defaults.items()))
+    return tuple(sorted(defaults.items()))
+
+
+def _property_market_filter_capabilities(country_code: str, region_code: str) -> dict[str, bool]:
+    return {
+        key: bool(value)
+        for key, value in _property_market_filter_capabilities_cached(country_code, region_code)
+    }
 
 
 def _property_search_guard_rows(

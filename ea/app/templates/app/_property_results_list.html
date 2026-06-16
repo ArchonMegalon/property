@@ -27,7 +27,7 @@
         <span class="pqx-result-media{% if not primary_preview_url %} no-thumb{% endif %}">
           {% if primary_preview_url %}
           <span class="pqx-thumb">
-            <img src="{{ primary_preview_url }}" alt="">
+            <img src="{{ primary_preview_url }}" alt="" loading="lazy" decoding="async" fetchpriority="low">
             {% if orientation_preview.get("district_rows") %}
             <svg class="pqx-previous-district-hotspots" viewBox="0 0 640 368" preserveAspectRatio="none" aria-hidden="true">
               {% for row in orientation_preview.get("district_rows") or [] %}
@@ -72,6 +72,9 @@
           {% endif %}
         </span>
         <span class="pqx-result-thesis">
+          {% if loop.first %}
+          <span class="pqx-pill good" style="margin-right:8px;">{% if brief.get('search_goal') == 'investment' %}Best current opportunity{% else %}Best current home{% endif %}</span>
+          {% endif %}
           {{ thesis_line }}
         </span>
         <span class="pqx-result-reason">
@@ -83,6 +86,9 @@
         </span>
         {% if blocker_line and blocker_line != thesis_line %}
         <span class="pqx-result-blocker">Watch-out: {{ blocker_line }}</span>
+        {% endif %}
+        {% if brief.get('search_goal') == 'investment' and (candidate.get('investment', {}).get('confidence_label') or candidate.get('investment', {}).get('feed_status_label')) %}
+        <span class="pqx-result-blocker">Confidence: {{ candidate.get('investment', {}).get('confidence_label') or 'Partial' }}{% if candidate.get('investment', {}).get('feed_status_label') %} · {{ candidate.get('investment', {}).get('feed_status_label') }}{% endif %}</span>
         {% endif %}
         <span class="pqx-result-action">{% if brief.get('search_goal') == 'investment' %}Open the investment read.{% else %}Open property details.{% endif %}</span>
       </span>

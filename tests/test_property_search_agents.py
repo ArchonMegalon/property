@@ -277,6 +277,46 @@ def test_saved_search_load_payload_prefers_saved_preferences_over_current_brief_
     assert formatted["scope_preview"]["country_code"] == "CR"
 
 
+def test_investment_saved_search_snapshot_forces_buy_and_investment_labels() -> None:
+    formatted = format_property_search_agent(
+        {
+            "name": "",
+            "enabled": True,
+            "preferences_json": {
+                "country_code": "AT",
+                "region_code": "vienna",
+                "location_query": "Vienna",
+                "search_goal": "investment",
+                "listing_mode": "rent",
+                "selected_platforms": ["willhaben"],
+            },
+        },
+        property_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "search_goal": "home",
+        },
+        selected_platforms=["willhaben"],
+        selected_listing_mode="rent",
+        search_mode_requested="strict",
+        default_duration_days=30,
+        default_notification_limit=5,
+        default_notification_period="day",
+        normalize_property_type_values=lambda value: [str(value).strip().lower()] if str(value).strip() else ["any"],
+        scope_preview_builder=lambda country_code, region_code, location_query: {
+            "country_code": country_code,
+            "region_code": region_code,
+            "location_query": location_query,
+        },
+    )
+
+    assert formatted["listing_mode"] == "buy"
+    assert formatted["scope_label"].startswith("Investment · ")
+    assert formatted["load_payload"]["search_goal"] == "investment"
+    assert formatted["load_payload"]["listing_mode"] == "buy"
+
+
 def test_property_search_preference_save_preserves_other_agents_and_sanitizes_provider_country() -> None:
     client = build_property_client(principal_id="exec-property-search-agent-preserve")
     start_workspace(client, mode="personal", workspace_name="Property office")

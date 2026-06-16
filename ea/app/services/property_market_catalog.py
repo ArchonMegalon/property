@@ -3044,6 +3044,18 @@ def property_type_options() -> list[dict[str, str]]:
     return [{"value": key, "label": label} for key, label in PROPERTY_TYPE_LABELS.items()]
 
 
+def _provider_homepage_url(provider: PropertyProviderSpec) -> str:
+    search_url = next((str(url or "").strip() for url in provider.search_urls.values() if str(url or "").strip()), "")
+    if search_url:
+        parsed = urllib.parse.urlsplit(search_url)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+    host = next((str(host or "").strip() for host in provider.host_markers if str(host or "").strip()), "")
+    if host:
+        return f"https://{host}"
+    return ""
+
+
 def provider_options(*, country_code: str | None = None) -> list[dict[str, str]]:
     normalized_country = normalize_country_code(country_code, default="AT") if country_code else ""
     rows: list[dict[str, str]] = []
@@ -3076,6 +3088,7 @@ def provider_options(*, country_code: str | None = None) -> list[dict[str, str]]
                 "filter_pushdown_strength": provider.filter_pushdown_strength,
                 "official_source_quality": provider.official_source_quality,
                 "last_verified": provider.last_verified,
+                "homepage_url": _provider_homepage_url(provider),
             }
         )
     return rows
@@ -3354,8 +3367,6 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     investment_mode = str(payload.get("investment_research_mode") or "").strip().lower() or "off"
     if investment_mode not in INVESTMENT_RESEARCH_MODE_LABELS:
         investment_mode = "off"
-    if search_goal == "investment" and investment_mode == "off":
-        investment_mode = "auto"
     payload["investment_research_mode"] = investment_mode
     investment_strategy = str(payload.get("investment_strategy") or "").strip().lower() or "best_overall"
     if investment_strategy not in INVESTMENT_STRATEGY_LABELS:
@@ -3674,7 +3685,6 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         payload["investment_research_mode"] = "off"
     if payload["search_goal"] == "investment":
         payload["listing_mode"] = "buy"
-        payload["investment_research_mode"] = "auto"
         payload["enable_family_mode"] = False
         payload["enable_commute_research"] = False
         payload["enable_lifestyle_research"] = False

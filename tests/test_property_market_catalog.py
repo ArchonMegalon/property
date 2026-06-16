@@ -85,7 +85,7 @@ def test_normalize_property_search_preferences_defaults_country_and_language() -
     assert payload["search_agent_notification_period"] == "day"
 
 
-def test_normalize_property_search_preferences_investment_goal_forces_buy_and_auto_underwriting() -> None:
+def test_normalize_property_search_preferences_investment_goal_forces_buy_without_forcing_underwriting_on() -> None:
     payload = normalize_property_search_preferences(
         {
             "search_goal": "investment",
@@ -101,7 +101,7 @@ def test_normalize_property_search_preferences_investment_goal_forces_buy_and_au
 
     assert payload["search_goal"] == "investment"
     assert payload["listing_mode"] == "buy"
-    assert payload["investment_research_mode"] == "auto"
+    assert payload["investment_research_mode"] == "off"
     assert payload["investment_strategy"] == "cash_flow"
     assert payload["min_gross_yield_pct"] == 5
     assert payload["investment_require_floorplan"] is True

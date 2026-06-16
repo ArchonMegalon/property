@@ -697,10 +697,19 @@
           preview_path: routePreviewPath(originLat, originLng),
         });
       }
+      const familyEvidenceEnabled = Boolean(
+        briefPreferences.enable_family_mode
+        || (Array.isArray(briefPreferences.school_stage_preferences) && briefPreferences.school_stage_preferences.length)
+        || briefPreferences.require_school_evidence
+        || briefPreferences.max_distance_to_playground_m
+        || briefPreferences.max_distance_to_library_m
+        || briefPreferences.max_distance_to_public_pool_m
+        || briefPreferences.max_distance_to_medical_care_m
+      );
       const specs = [
-        ['School', 'nearest_school_m', 'nearest_school_name', 'nearest_school_lat', 'nearest_school_lng', 'Transit', Boolean(briefPreferences.enable_family_mode)],
+        ['School', 'nearest_school_m', 'nearest_school_name', 'nearest_school_lat', 'nearest_school_lng', 'Transit', familyEvidenceEnabled],
         ['Supermarket', 'nearest_supermarket_m', 'nearest_supermarket_name', 'nearest_supermarket_lat', 'nearest_supermarket_lng', 'Walk', true],
-        ['Playground', 'nearest_playground_m', 'nearest_playground_name', 'nearest_playground_lat', 'nearest_playground_lng', 'Walk', Boolean(briefPreferences.enable_family_mode)],
+        ['Playground', 'nearest_playground_m', 'nearest_playground_name', 'nearest_playground_lat', 'nearest_playground_lng', 'Walk', familyEvidenceEnabled],
         ['Pharmacy', 'nearest_pharmacy_m', 'nearest_pharmacy_name', 'nearest_pharmacy_lat', 'nearest_pharmacy_lng', 'Walk', true],
         ['Underground', 'nearest_subway_m', 'nearest_subway_name', 'nearest_subway_lat', 'nearest_subway_lng', 'Transit', true],
       ];
@@ -1014,6 +1023,30 @@
       }
     };
     const form = root.querySelector('[data-console-form-variant="property_search"]');
+    const wizardStepPresentation = (step, isInvestment) => {
+      const key = String(step?.key || '').trim();
+      const fallbackLabel = String(step?.label || 'Search').trim() || 'Search';
+      const fallbackDetail = String(step?.detail || '').trim();
+      const map = {
+        search: isInvestment
+          ? { label: 'Market', detail: 'Market, listing mode, and budget.' }
+          : { label: 'Where', detail: 'Country, city, and the first budget line.' },
+        areas: isInvestment
+          ? { label: 'Strategy', detail: 'Target areas, spillover distance, and investment guardrails.' }
+          : { label: 'Home shape', detail: 'Areas, spillover distance, and the home shape that should survive the cut.' },
+        children: isInvestment
+          ? { label: 'Guardrails', detail: 'Execution risk, legal posture, and which weak listings should be excluded.' }
+          : { label: 'Daily life', detail: 'Schools, childcare, and the everyday context that should stay explicit.' },
+        reachability: isInvestment
+          ? { label: 'Evidence', detail: 'How much underwriting and supporting evidence the shortlist needs.' }
+          : { label: 'Reachability', detail: 'Destinations, travel modes, and time limits that change the ranking.' },
+        research: isInvestment
+          ? { label: 'Underwriting', detail: 'Return, risk, and external evidence depth.' }
+          : { label: 'Research depth', detail: 'Risk, supply, and how much evidence each strong match should carry.' },
+        providers: { label: 'Sources', detail: 'Choose trusted sources, then save or launch.' },
+      };
+      return map[key] || { label: fallbackLabel, detail: fallbackDetail };
+    };
     const initWizard = (form) => {
       const steps = Array.isArray(meta.wizard_steps) ? meta.wizard_steps.filter((step) => step && step.key) : [];
       const fieldNodes = [...form.querySelectorAll('[data-property-field-step]')];
@@ -1033,12 +1066,24 @@
         );
         return steps.filter((step) => !excluded.has(String(step?.key || '').trim()));
       };
+      const refreshStepLabels = () => {
+        const isInvestment = String(form.querySelector('select[name="search_goal"]')?.value || 'home').trim().toLowerCase() === 'investment';
+        triggers.forEach((node) => {
+          const triggerStep = String(node.getAttribute('data-property-step-trigger') || '').trim();
+          const step = steps.find((candidateStep) => String(candidateStep?.key || '').trim() === triggerStep);
+          const presentation = wizardStepPresentation(step, isInvestment);
+          const strong = node.querySelector('strong');
+          if (strong) strong.textContent = presentation.label;
+        });
+      };
       const applyStep = (index) => {
         const visibleSteps = activeSteps();
         if (!visibleSteps.length) return;
         current = Math.max(0, Math.min(visibleSteps.length - 1, index));
         const step = visibleSteps[current] || {};
         const stepKey = String(step.key || '').trim();
+        const isInvestment = String(form.querySelector('select[name="search_goal"]')?.value || 'home').trim().toLowerCase() === 'investment';
+        const presentation = wizardStepPresentation(step, isInvestment);
         form.dataset.propertyActiveStep = stepKey;
         fieldNodes.forEach((node) => { node.hidden = String(node.getAttribute('data-property-field-step') || '') !== stepKey; });
         triggers.forEach((node) => {
@@ -1047,8 +1092,9 @@
           node.hidden = !isVisible;
           node.classList.toggle('active', triggerStep === stepKey);
         });
-        if (progress) progress.textContent = `${String(step.label || 'Search').trim()} ${current + 1}/${visibleSteps.length}`;
-        if (summary) summary.textContent = String(step.detail || '').trim();
+        refreshStepLabels();
+        if (progress) progress.textContent = `${presentation.label} ${current + 1}/${visibleSteps.length}`;
+        if (summary) summary.textContent = presentation.detail;
         if (back) back.hidden = current === 0;
         if (next) {
           next.hidden = current >= visibleSteps.length - 1;
@@ -1066,6 +1112,7 @@
       back?.addEventListener('click', () => applyStep(current - 1));
       next?.addEventListener('click', () => applyStep(current + 1));
       form.addEventListener('propertyquarry:wizardrefresh', () => applyStep(current));
+      refreshStepLabels();
       applyStep(0);
     };
     bindTooltips(root);
@@ -1097,8 +1144,20 @@
         form.querySelector('[data-property-field-name="investment_require_tenant_clarity"]'),
         form.querySelector('[data-property-field-name="investment_avoid_major_renovation"]'),
       ].filter(Boolean);
-      const familyModeField = form.querySelector('input[name="enable_family_mode"]');
-      const familyModeWrap = form.querySelector('[data-property-field-name="enable_family_mode"]');
+      const rentOnlyProviderPolicyWraps = [
+        form.querySelector('[data-property-field-name="include_public_housing_signals"]'),
+        form.querySelector('[data-property-field-name="wiener_wohnticket_available"]'),
+        form.querySelector('[data-property-field-name="subsidized_required"]'),
+        form.querySelector('[data-property-field-name="miete_mit_kaufoption"]'),
+        form.querySelector('[data-property-field-name="eigenmittel_max_eur"]'),
+        form.querySelector('[data-property-field-name="application_window_days"]'),
+      ].filter(Boolean);
+      const buyOnlyProviderPolicyWraps = [
+        form.querySelector('[data-property-field-name="include_distressed_sale_signals"]'),
+      ].filter(Boolean);
+      const buyOnlyResearchWraps = [
+        form.querySelector('[data-property-field-name="enable_auction_legal_review"]'),
+      ].filter(Boolean);
       const commuteResearchField = form.querySelector('input[name="enable_commute_research"]');
       const commuteResearchWrap = form.querySelector('[data-property-field-name="enable_commute_research"]');
       const lifestyleResearchWrap = form.querySelector('[data-property-field-name="enable_lifestyle_research"]');
@@ -1144,7 +1203,7 @@
           const panelKey = String(panel.getAttribute('data-property-advanced-panel') || '').trim();
           const visibleFields = [...panel.querySelectorAll('.pqx-field')].filter((node) => !node.hidden && String(node.getAttribute('aria-hidden') || '').trim() !== 'true');
           const shouldShow = panelKey === 'children' || panelKey === 'children_distances' || panelKey === 'children_wellbeing'
-            ? Boolean(familyModeField?.checked) && visibleFields.length > 0
+            ? String(searchGoalField?.value || 'home').trim().toLowerCase() !== 'investment' && visibleFields.length > 0
             : panelKey === 'commute'
               ? Boolean(commuteResearchField?.checked) && visibleFields.length > 0
               : visibleFields.length > 0;
@@ -1168,24 +1227,38 @@
         const activeStep = String(form.dataset.propertyActiveStep || '').trim();
         const previousEffectiveMode = String(form.dataset.propertyEffectiveListingMode || '').trim();
         const isInvestment = String(searchGoalField?.value || 'home').trim().toLowerCase() === 'investment';
+        const currentEffectiveMode = effectiveListingMode();
+        const rentMode = currentEffectiveMode !== 'buy';
+        const buyMode = !rentMode;
+        const investmentResearchEnabled = isInvestment && String(investmentField?.value || 'off').trim().toLowerCase() !== 'off';
         if (listingModeFieldWrap) {
           listingModeFieldWrap.hidden = isInvestment || activeStep !== 'search';
           listingModeFieldWrap.toggleAttribute('aria-hidden', listingModeFieldWrap.hidden);
         }
         if (isInvestment && listingModeField) listingModeField.value = 'buy';
-        if (investmentField && isInvestment) investmentField.value = 'auto';
         investmentSearchDetailWraps.forEach((wrap) => {
-          wrap.hidden = !isInvestment || activeStep !== 'search';
+          wrap.hidden = !investmentResearchEnabled || activeStep !== 'search';
           wrap.toggleAttribute('aria-hidden', wrap.hidden);
         });
         investmentGuardrailWraps.forEach((wrap) => {
-          wrap.hidden = !isInvestment || activeStep !== 'areas';
+          wrap.hidden = !investmentResearchEnabled || activeStep !== 'areas';
           wrap.toggleAttribute('aria-hidden', wrap.hidden);
         });
-        if (familyModeWrap) {
-          familyModeWrap.hidden = isInvestment || activeStep !== 'children';
-          familyModeWrap.toggleAttribute('aria-hidden', familyModeWrap.hidden);
-        }
+        rentOnlyProviderPolicyWraps.forEach((wrap) => {
+          const shouldShow = rentMode && activeStep === 'providers';
+          wrap.hidden = !shouldShow;
+          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+        });
+        buyOnlyProviderPolicyWraps.forEach((wrap) => {
+          const shouldShow = buyMode && activeStep === 'providers';
+          wrap.hidden = !shouldShow;
+          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+        });
+        buyOnlyResearchWraps.forEach((wrap) => {
+          const shouldShow = buyMode && activeStep === 'research';
+          wrap.hidden = !shouldShow;
+          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+        });
         if (commuteResearchWrap) {
           commuteResearchWrap.hidden = isInvestment || activeStep !== 'reachability';
           commuteResearchWrap.toggleAttribute('aria-hidden', commuteResearchWrap.hidden);
@@ -1195,7 +1268,6 @@
           lifestyleResearchWrap.toggleAttribute('aria-hidden', lifestyleResearchWrap.hidden);
         }
         if (isInvestment) {
-          if (familyModeField) familyModeField.checked = false;
           if (commuteResearchField) commuteResearchField.checked = false;
           const lifestyleField = form.querySelector('input[name="enable_lifestyle_research"]');
           if (lifestyleField) lifestyleField.checked = false;
@@ -1204,7 +1276,26 @@
           if (investmentField) investmentField.value = 'off';
           form.dataset.propertyExcludedSteps = '';
         }
-        const nextEffectiveMode = effectiveListingMode();
+        if (rentMode) {
+          const distressedField = form.querySelector('input[name="include_distressed_sale_signals"]');
+          const auctionField = form.querySelector('input[name="enable_auction_legal_review"]');
+          if (distressedField) distressedField.checked = false;
+          if (auctionField) auctionField.checked = false;
+        } else {
+          const publicHousingField = form.querySelector('input[name="include_public_housing_signals"]');
+          const wohnticketField = form.querySelector('input[name="wiener_wohnticket_available"]');
+          const subsidizedField = form.querySelector('input[name="subsidized_required"]');
+          const kaufoptionField = form.querySelector('input[name="miete_mit_kaufoption"]');
+          const eigenmittelField = form.querySelector('[name="eigenmittel_max_eur"]');
+          const applicationWindowField = form.querySelector('[name="application_window_days"]');
+          if (publicHousingField) publicHousingField.checked = false;
+          if (wohnticketField) wohnticketField.checked = false;
+          if (subsidizedField) subsidizedField.checked = false;
+          if (kaufoptionField) kaufoptionField.checked = false;
+          if (eigenmittelField) eigenmittelField.value = '0';
+          if (applicationWindowField) applicationWindowField.value = '0';
+        }
+        const nextEffectiveMode = currentEffectiveMode;
         if (previousEffectiveMode !== nextEffectiveMode) syncProviderOptionsForMarket();
         form.dataset.propertyEffectiveListingMode = nextEffectiveMode;
         syncListingModeControls();
@@ -1246,45 +1337,44 @@
       const syncFamilyModeControls = () => {
         const activeStep = String(form.dataset.propertyActiveStep || '').trim();
         const isChildrenStep = !activeStep || activeStep === 'children';
-        const familyModeEnabled = Boolean(familyModeField?.checked);
         const selectedSchoolStages = checkedValues(form, 'school_stage_preferences');
-        const showSchoolDetails = isChildrenStep && familyModeEnabled;
+        const showSchoolDetails = isChildrenStep;
         const showSchoolPriority = showSchoolDetails && selectedSchoolStages.length > 0;
         syncSchoolStageVariantVisibility(form);
         if (schoolStageWrap) {
           schoolStageWrap.hidden = !showSchoolDetails;
           schoolStageWrap.toggleAttribute('aria-hidden', schoolStageWrap.hidden);
-          schoolStageWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+          schoolStageWrap.dataset.propertyCollapsedBy = '';
         }
         if (playgroundDistanceWrap) {
           playgroundDistanceWrap.hidden = !showSchoolDetails;
           playgroundDistanceWrap.toggleAttribute('aria-hidden', playgroundDistanceWrap.hidden);
-          playgroundDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+          playgroundDistanceWrap.dataset.propertyCollapsedBy = '';
         }
         if (libraryDistanceWrap) {
           libraryDistanceWrap.hidden = !showSchoolDetails;
           libraryDistanceWrap.toggleAttribute('aria-hidden', libraryDistanceWrap.hidden);
-          libraryDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+          libraryDistanceWrap.dataset.propertyCollapsedBy = '';
         }
         if (zooDistanceWrap) {
           zooDistanceWrap.hidden = !showSchoolDetails;
           zooDistanceWrap.toggleAttribute('aria-hidden', zooDistanceWrap.hidden);
-          zooDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+          zooDistanceWrap.dataset.propertyCollapsedBy = '';
         }
         if (publicPoolDistanceWrap) {
           publicPoolDistanceWrap.hidden = !showSchoolDetails;
           publicPoolDistanceWrap.toggleAttribute('aria-hidden', publicPoolDistanceWrap.hidden);
-          publicPoolDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+          publicPoolDistanceWrap.dataset.propertyCollapsedBy = '';
         }
         if (medicalCareDistanceWrap) {
           medicalCareDistanceWrap.hidden = !showSchoolDetails;
           medicalCareDistanceWrap.toggleAttribute('aria-hidden', medicalCareDistanceWrap.hidden);
-          medicalCareDistanceWrap.dataset.propertyCollapsedBy = showSchoolDetails ? '' : 'enable_family_mode';
+          medicalCareDistanceWrap.dataset.propertyCollapsedBy = '';
         }
         if (schoolQualityWrap) {
           schoolQualityWrap.hidden = !showSchoolPriority;
           schoolQualityWrap.toggleAttribute('aria-hidden', schoolQualityWrap.hidden);
-          schoolQualityWrap.dataset.propertyCollapsedBy = showSchoolPriority ? '' : (familyModeEnabled ? 'school_stage_preferences' : 'enable_family_mode');
+          schoolQualityWrap.dataset.propertyCollapsedBy = showSchoolPriority ? '' : 'school_stage_preferences';
         }
         syncAdvancedPanels();
         syncMarketAwareFields(form, meta);
@@ -1390,7 +1480,6 @@
         syncListingModeControls();
       });
       commuteResearchField?.addEventListener('change', syncCommuteControls);
-      familyModeField?.addEventListener('change', syncFamilyModeControls);
       form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));
       form.querySelectorAll('[data-property-show-unavailable]').forEach((node) => node.addEventListener('change', () => syncMarketAwareFields(form, meta)));
       form.querySelectorAll('[data-checkbox-group-select-all]').forEach((button) => {
@@ -1459,6 +1548,7 @@
         syncSearchGoalControls();
       });
       searchGoalField?.addEventListener('change', syncSearchGoalControls);
+      investmentField?.addEventListener('change', syncSearchGoalControls);
       syncAreaScopeControls();
       syncListingModeControls();
       syncCommuteControls();

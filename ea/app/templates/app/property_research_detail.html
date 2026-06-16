@@ -964,7 +964,7 @@
     </section>
     {% if research_gallery_items %}
     <section class="prd-panel">
-      <div class="prd-kicker">Photos & diorama</div>
+      <div class="prd-kicker">Media and plans</div>
       <div class="prd-gallery">
         {% for item in research_gallery_items %}
         <div class="prd-gallery-item">
@@ -990,9 +990,9 @@
   <section class="prd-body">
     <section class="prd-sections">
       <section class="prd-band">
-        <div class="prd-kicker">At a glance</div>
-        <h2 class="prd-section-title">Why this home is still worth your attention</h2>
-        <p class="prd-section-copy">Start with the few facts that justify another minute of attention. Everything else should support or block that decision.</p>
+        <div class="prd-kicker">Current read</div>
+        <h2 class="prd-section-title">Why this property is still worth your attention</h2>
+        <p class="prd-section-copy">Start with the few facts that justify another minute of attention. Everything else should support, sharpen, or block that decision.</p>
         <div class="prd-summary-grid">
           {% for row in research_overview_rows[:4] %}
           <div class="prd-summary-box">
@@ -1015,8 +1015,8 @@
 
       {% if research_missing_rows or research_investment_risk_rows %}
       <section class="prd-band">
-        <div class="prd-kicker">Hard gates</div>
-        <h2 class="prd-section-title">Do not spend more time until these points are clear enough</h2>
+        <div class="prd-kicker">Watch-outs</div>
+        <h2 class="prd-section-title">Do not move forward until these points are clear enough</h2>
         <div class="prd-gate-list">
           {% for item in (research_missing_rows + research_investment_risk_rows)[:6] %}
           <div class="prd-gate-item">
@@ -1033,7 +1033,7 @@
 
       <section class="prd-split">
         <section class="prd-band">
-          <div class="prd-kicker">Home</div>
+          <div class="prd-kicker">Listing evidence</div>
           <h2 class="prd-section-title">What the listing clearly says</h2>
           <div class="object-list">
             {% for row in research_listing_rows %}
@@ -1052,9 +1052,9 @@
           {% endif %}
         </section>
         <section class="prd-band">
-          <div class="prd-kicker">Money</div>
-          <h2 class="prd-section-title">Price, rent, and running costs</h2>
-          <p class="prd-section-copy">Buy-side underwriting view for acquisition cost, rent, financing, taxes, and running-cost assumptions.</p>
+          <div class="prd-kicker">Return and costs</div>
+          <h2 class="prd-section-title">Price, rent, financing, and running-cost posture</h2>
+          <p class="prd-section-copy">Use this as the money view: acquisition cost, rent, financing, taxes, and running-cost assumptions when they are available.</p>
           <div class="object-list">
             {% for row in research_cost_rows %}
             <div class="prd-row">
@@ -1074,8 +1074,8 @@
 
       {% if research_description_text %}
       <section class="prd-band">
-        <div class="prd-kicker">Description</div>
-        <h2 class="prd-section-title">How the provider is selling the home</h2>
+        <div class="prd-kicker">Narrative</div>
+        <h2 class="prd-section-title">How the provider is selling the property</h2>
         <p class="prd-copy">{{ research_description_text }}</p>
       </section>
       {% endif %}
@@ -1118,9 +1118,9 @@
 
       {% if research_compare_table_rows %}
       <section class="prd-band">
-        <div class="prd-kicker">Compare next</div>
-        <h2 class="prd-section-title">The next-best homes from this run</h2>
-        <p class="prd-section-copy">If this home slips, these are the closest alternatives worth opening next.</p>
+        <div class="prd-kicker">Decision support</div>
+        <h2 class="prd-section-title">The next-best properties from this run</h2>
+        <p class="prd-section-copy">If this property slips, these are the closest alternatives worth opening next.</p>
         <div class="prd-table-wrap">
           <table class="prd-table">
             <thead>
@@ -1147,8 +1147,8 @@
       </section>
       {% elif research_compare_rows %}
       <section class="prd-band">
-        <div class="prd-kicker">Compare next</div>
-        <h2 class="prd-section-title">Other homes worth checking after this one</h2>
+        <div class="prd-kicker">Decision support</div>
+        <h2 class="prd-section-title">Other properties worth checking after this one</h2>
         <div class="prd-compare-list">
           {% for item in research_compare_rows %}
           <div class="prd-compare-card">
@@ -1166,15 +1166,15 @@
       <details class="prd-collapse">
         <summary>
           <span>
-            <span class="prd-kicker">Deeper evidence</span>
-            <strong>Research, provenance, and follow-up history</strong>
+            <span class="prd-kicker">Evidence and documents</span>
+            <strong>External evidence, provenance, and follow-up history</strong>
           </span>
           <span class="prd-tag">Optional</span>
         </summary>
         <div class="prd-collapse-body">
           {% if research_official_evidence_rows or research_official_posture_rows or research_future_research_rows or research_provenance_rows %}
           <section class="prd-stack">
-            <h2 class="prd-section-title">How the wider area reads today</h2>
+            <h2 class="prd-section-title">What the wider evidence says</h2>
             <p class="prd-section-copy">Evidence added beyond the listing so the surrounding risk, demand, and future-change picture is visible before you commit.</p>
             <div class="object-list">
               {% for row in research_official_evidence_rows[:4] %}
@@ -1208,7 +1208,7 @@
 
     <aside class="prd-side-stack">
       <section class="prd-panel">
-        <div class="prd-kicker">Current read</div>
+        <div class="prd-kicker">Next move</div>
         <h2>What to do next</h2>
         <p class="prd-section-copy">Use this as the short decision brief before you open the listing, contact the agent, or move on.</p>
         <div class="prd-key-points">

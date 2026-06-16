@@ -17,7 +17,7 @@
 {% set run_terminal_no_results = run.get('run_id') and run_status in terminal_states and not results %}
 {% set run_visible = run_active %}
 {% set has_results = results|length > 0 %}
-{% set static_surface = surface_mode in ['agents', 'account'] %}
+{% set static_surface = surface_mode in ['agents', 'account', 'billing'] %}
 {% set setup_mode = static_surface or surface_mode == 'search' or (surface_mode == 'properties' and not run_visible and not run_terminal_no_results and not has_results) %}
 {% set show_form_controls = show_brief_form and setup_mode %}
 {% set research_tasks = workbench.get('research_tasks') or [] %}
@@ -235,14 +235,14 @@
   {{ rybbit_head_snippet(request) }}
   <style>
     :root {
-      --pq-bg: #f6f3ee;
-      --pq-ink: #191714;
-      --pq-muted: #6c675f;
-      --pq-faint: #958e83;
-      --pq-paper: #fffdf8;
-      --pq-panel: #fdf9f1;
-      --pq-line: #ded6c8;
-      --pq-line-strong: #b9ad9a;
+      --pq-bg: #f4f0e8;
+      --pq-ink: #171513;
+      --pq-muted: #696358;
+      --pq-faint: #90877a;
+      --pq-paper: #fffdf9;
+      --pq-panel: #fbf7ef;
+      --pq-line: #ddd4c5;
+      --pq-line-strong: #b6aa97;
       --pq-charcoal: #242321;
       --pq-charcoal-soft: #383633;
       --pq-gold: #bd8b2f;
@@ -250,12 +250,16 @@
       --pq-green: #276b53;
       --pq-red: #a65347;
       --pq-blue: #315e87;
-      --pq-shadow: 0 18px 48px rgba(38, 32, 22, 0.12);
+      --pq-shadow: 0 20px 52px rgba(38, 32, 22, 0.08);
+      --pq-shadow-soft: 0 12px 26px rgba(38, 32, 22, 0.05);
+      --pq-hover-shadow: 0 20px 40px rgba(38, 32, 22, 0.10);
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; }
     body {
-      background: var(--pq-bg);
+      background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.8), transparent 34%),
+        linear-gradient(180deg, #f7f3ec 0%, var(--pq-bg) 18%, #f2ede5 100%);
       color: var(--pq-ink);
       font: 14px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Arial, sans-serif;
       letter-spacing: 0;
@@ -269,6 +273,7 @@
       min-height: 100vh;
       display: grid;
       grid-template-rows: auto 1fr auto;
+      overflow-x: clip;
     }
     .pqx-topbar {
       position: sticky;
@@ -281,9 +286,10 @@
       align-items: center;
       min-height: 64px;
       padding: 10px 24px;
-      border-bottom: 1px solid var(--pq-line);
-      background: rgba(246, 243, 238, 0.92);
-      backdrop-filter: blur(14px);
+      border-bottom: 1px solid color-mix(in srgb, var(--pq-line) 82%, white);
+      background: rgba(250, 247, 241, 0.82);
+      backdrop-filter: blur(18px) saturate(1.05);
+      box-shadow: 0 8px 22px rgba(38, 32, 22, 0.04);
     }
     .pqx-primary-nav {
       grid-area: nav;
@@ -299,24 +305,26 @@
       min-height: 32px;
       display: inline-flex;
       align-items: center;
-      padding: 0 4px;
+      padding: 0 10px;
       border: 0;
-      border-bottom: 2px solid transparent;
+      border-radius: 999px;
       color: var(--pq-muted);
       font-size: 13px;
-      font-weight: 650;
+      font-weight: 700;
       text-decoration: none;
       white-space: nowrap;
+      transition: color 140ms ease, background 140ms ease;
     }
     .pqx-primary-nav a:hover,
     .pqx-primary-nav a:focus-visible {
       color: var(--pq-ink);
+      background: rgba(255, 255, 255, 0.72);
       outline: none;
     }
     .pqx-primary-nav a.is-active {
       color: var(--pq-ink);
-      border-bottom-color: var(--pq-gold);
-      background: transparent;
+      background: rgba(255, 252, 245, 0.96);
+      box-shadow: inset 0 0 0 1px rgba(189, 139, 47, 0.22);
     }
     .pqx-brand {
       grid-area: brand;
@@ -335,6 +343,7 @@
       color: #fff9ed;
       font-size: 12px;
       font-weight: 800;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
     }
     .pqx-brand strong,
     .pqx-title strong,
@@ -354,7 +363,9 @@
       font-size: 12px;
     }
     .pqx-brand-copy {
-      display: none;
+      display: block;
+      font-size: 11px;
+      letter-spacing: 0.02em;
     }
     .pqx-run-summary { display: none; }
     .pqx-run-chip {
@@ -420,6 +431,12 @@
       font-weight: 720;
       cursor: pointer;
       text-decoration: none;
+      transition:
+        transform 140ms ease,
+        box-shadow 140ms ease,
+        border-color 140ms ease,
+        background 140ms ease,
+        color 140ms ease;
     }
     .pqx-button.primary,
     .pqx-link-button.primary {
@@ -433,6 +450,18 @@
       background: transparent;
       color: var(--pq-muted);
     }
+    .pqx-button:hover,
+    .pqx-link-button:hover,
+    .pqx-mode-button:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--pq-shadow-soft);
+      border-color: color-mix(in srgb, var(--pq-line-strong) 82%, white);
+    }
+    .pqx-button.primary:hover,
+    .pqx-link-button.primary:hover {
+      background: color-mix(in srgb, var(--pq-charcoal) 92%, white);
+      border-color: color-mix(in srgb, var(--pq-charcoal) 92%, white);
+    }
     .pqx-account-menu {
       grid-area: account;
       position: relative;
@@ -445,18 +474,31 @@
       align-items: center;
       justify-content: center;
       min-width: 38px;
-      padding: 0 10px;
+      gap: 8px;
+      padding: 0 12px;
       border: 1px solid var(--pq-line);
-      border-radius: 8px;
-      background: rgba(255, 253, 248, 0.84);
+      border-radius: 999px;
+      background: rgba(255, 253, 248, 0.88);
       color: var(--pq-muted);
       font-weight: 720;
       cursor: pointer;
+      transition: border-color 140ms ease, background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+    }
+    .pqx-account-menu summary::after {
+      content: attr(data-account-label);
+      max-width: 16ch;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      color: var(--pq-ink);
+      font-weight: 700;
     }
     .pqx-account-menu summary::-webkit-details-marker { display: none; }
     .pqx-account-menu[open] summary {
       border-color: var(--pq-gold);
       color: var(--pq-ink);
+      box-shadow: var(--pq-shadow-soft);
     }
     .pqx-account-menu-panel {
       position: absolute;
@@ -540,9 +582,39 @@
     .pqx-link-button:focus-visible,
     .pqx-mode-button:focus-visible,
     .pqx-result:focus-visible,
-    .pqx-check:focus-within {
+    .pqx-check:focus-within,
+    .pqx-account-menu summary:focus-visible,
+    .pqx-card summary:focus-visible {
       outline: 3px solid rgba(189, 139, 47, 0.34);
       outline-offset: 2px;
+      box-shadow: 0 0 0 4px rgba(255, 249, 237, 0.82);
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .pqx-stage > *,
+      .pqx-results-list > *,
+      .pqx-automation-card,
+      .pqx-account-card,
+      .pqx-billing-card {
+        animation: pqxFadeUp 220ms ease both;
+      }
+      .pqx-results-list > *:nth-child(2) { animation-delay: 20ms; }
+      .pqx-results-list > *:nth-child(3) { animation-delay: 40ms; }
+      .pqx-results-list > *:nth-child(4) { animation-delay: 60ms; }
+      .pqx-results-list > *:nth-child(5) { animation-delay: 80ms; }
+    }
+    @keyframes pqxFadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
     }
     .pqx-field-link {
       width: fit-content;
@@ -698,6 +770,7 @@
       line-height: 1.08;
       font-weight: 790;
       letter-spacing: 0;
+      text-wrap: balance;
     }
     .pqx-title h1 { font-size: clamp(1.9rem, 3.2vw, 3.7rem); max-width: 14ch; }
     .pqx-section-head h2 { font-size: 1.05rem; }
@@ -800,6 +873,8 @@
       border-radius: 0;
       background: transparent;
       min-width: 0;
+      content-visibility: auto;
+      contain-intrinsic-size: 260px;
     }
     .pqx-previous-scope-preview {
       position: relative;
@@ -1009,6 +1084,9 @@
       color: var(--pq-accent-strong);
       text-decoration: underline;
       outline: none;
+    }
+    .pqx-note {
+      text-wrap: pretty;
     }
     .pqx-previous-body {
       display: grid;
@@ -1665,6 +1743,13 @@
       height: 20px;
       font-size: 14px;
     }
+    .pqx-disclosure-summary-static {
+      grid-template-columns: minmax(0, 1fr);
+      cursor: default;
+      border-style: dashed;
+      background: #fffdf7;
+      box-shadow: none;
+    }
     .pqx-advanced-panel summary::-webkit-details-marker {
       display: none;
     }
@@ -2023,6 +2108,23 @@
       font-size: 12px;
       line-height: 1.3;
     }
+    .pqx-provider-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 6px;
+      color: var(--pq-blue);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      text-decoration: none;
+      width: fit-content;
+    }
+    .pqx-provider-link:hover,
+    .pqx-provider-link:focus-visible {
+      text-decoration: underline;
+      outline: none;
+    }
     .pqx-form-footer {
       display: flex;
       grid-column: 1 / -1;
@@ -2202,6 +2304,315 @@
       color: var(--pq-muted);
       font-size: 11px;
       line-height: 1.35;
+    }
+    .pqx-automation-board {
+      display: grid;
+      gap: 14px;
+    }
+    .pqx-automation-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .pqx-automation-summary-card {
+      display: grid;
+      gap: 4px;
+      padding: 12px;
+      border: 1px solid var(--pq-line);
+      border-radius: 10px;
+      background: #fffefa;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+      transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+    }
+    .pqx-automation-summary-card:hover {
+      transform: translateY(-1px);
+      border-color: color-mix(in srgb, var(--pq-line-strong) 72%, white);
+      box-shadow: var(--pq-shadow-soft);
+    }
+    .pqx-automation-summary-card strong {
+      font-size: 1.1rem;
+      line-height: 1.1;
+    }
+    .pqx-automation-summary-card small {
+      color: var(--pq-muted);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .pqx-automation-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .pqx-automation-layout {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.92fr);
+      align-items: start;
+    }
+    .pqx-automation-main,
+    .pqx-automation-side {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+    }
+    .pqx-automation-focus,
+    .pqx-automation-section,
+    .pqx-automation-side-card {
+      display: grid;
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid var(--pq-line);
+      border-radius: 12px;
+      background: #fffefa;
+      content-visibility: auto;
+      contain-intrinsic-size: 320px;
+    }
+    .pqx-automation-history-wrap {
+      overflow: auto;
+      border: 1px solid var(--pq-line);
+      border-radius: 12px;
+      background: #fffdfa;
+    }
+    .pqx-automation-history-table {
+      width: 100%;
+      min-width: 620px;
+      border-collapse: collapse;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .pqx-automation-history-table th,
+    .pqx-automation-history-table td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--pq-line);
+      text-align: left;
+      vertical-align: top;
+    }
+    .pqx-automation-history-table th {
+      color: var(--pq-muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: rgba(244, 239, 230, 0.78);
+    }
+    .pqx-automation-history-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    .pqx-automation-history-table strong {
+      display: block;
+      color: var(--pq-ink);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .pqx-automation-card {
+      display: grid;
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid var(--pq-line);
+      border-radius: 12px;
+      background: #fffefa;
+      box-shadow: var(--pq-shadow-soft);
+      transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+      content-visibility: auto;
+      contain-intrinsic-size: 360px;
+    }
+    .pqx-automation-card:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--pq-hover-shadow);
+    }
+    .pqx-automation-card.is-selected {
+      border-color: #c79c48;
+      box-shadow: 0 0 0 1px rgba(199, 156, 72, 0.15);
+      background: #fff9ed;
+    }
+    .pqx-automation-card-top {
+      display: grid;
+      grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
+    .pqx-automation-scope {
+      width: 100%;
+      margin-right: 0;
+    }
+    .pqx-automation-scope-empty {
+      display: grid;
+      gap: 4px;
+      align-content: start;
+      min-height: 124px;
+      padding: 12px;
+      border: 1px dashed var(--pq-line-strong);
+      border-radius: 10px;
+      background: #fffdf7;
+    }
+    .pqx-automation-scope-empty small {
+      color: var(--pq-muted);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .pqx-automation-meta {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+    .pqx-automation-headline {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      justify-content: space-between;
+    }
+    .pqx-automation-headline strong {
+      font-size: 1rem;
+      line-height: 1.25;
+    }
+    .pqx-automation-subhead {
+      color: var(--pq-ink);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .pqx-automation-metrics {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 10px;
+      color: var(--pq-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .pqx-automation-metrics span {
+      display: inline-flex;
+      gap: 4px;
+      align-items: baseline;
+      min-width: 0;
+    }
+    .pqx-automation-actions {
+      display: grid;
+      gap: 8px;
+      padding-top: 2px;
+      border-top: 1px solid var(--pq-line);
+    }
+    .pqx-account-board {
+      display: grid;
+      gap: 14px;
+    }
+    .pqx-account-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .pqx-account-summary-card,
+    .pqx-account-card {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid var(--pq-line);
+      border-radius: 10px;
+      background: #fffefa;
+      box-shadow: var(--pq-shadow-soft);
+      transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+      content-visibility: auto;
+      contain-intrinsic-size: 240px;
+    }
+    .pqx-account-summary-card:hover,
+    .pqx-account-card:hover {
+      transform: translateY(-1px);
+      border-color: color-mix(in srgb, var(--pq-line-strong) 72%, white);
+      box-shadow: var(--pq-hover-shadow);
+    }
+    .pqx-account-summary-card strong {
+      font-size: 1.08rem;
+      line-height: 1.12;
+    }
+    .pqx-account-summary-card small {
+      color: var(--pq-muted);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .pqx-account-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .pqx-billing-board {
+      display: grid;
+      gap: 14px;
+    }
+    .pqx-billing-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .pqx-billing-summary-card,
+    .pqx-billing-card {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid var(--pq-line);
+      border-radius: 10px;
+      background: #fffefa;
+      box-shadow: var(--pq-shadow-soft);
+      transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+      content-visibility: auto;
+      contain-intrinsic-size: 250px;
+    }
+    .pqx-billing-summary-card:hover,
+    .pqx-billing-card:hover {
+      transform: translateY(-1px);
+      border-color: color-mix(in srgb, rgba(171, 145, 83, 0.35) 70%, white);
+      box-shadow: var(--pq-hover-shadow);
+    }
+    .pqx-billing-summary-card strong {
+      font-size: 1.08rem;
+      line-height: 1.12;
+    }
+    .pqx-billing-summary-card small {
+      color: var(--pq-muted);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .pqx-billing-metric-strip {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    .pqx-billing-metric {
+      display: grid;
+      gap: 4px;
+      padding: 12px;
+      border: 1px solid rgba(171, 145, 83, 0.18);
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(255, 250, 240, 0.96), rgba(255, 253, 248, 0.98));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
+    }
+    .pqx-billing-metric strong {
+      font-size: 0.98rem;
+      line-height: 1.2;
+      color: var(--pq-ink);
+    }
+    .pqx-billing-metric small {
+      color: var(--pq-muted);
+      font-size: 11px;
+      line-height: 1.42;
+    }
+    .pqx-billing-note-rail {
+      display: flex;
+      gap: 10px;
+      align-items: baseline;
+      padding: 10px 12px;
+      border-left: 3px solid rgba(175, 137, 49, 0.42);
+      border-radius: 10px;
+      background: rgba(255, 250, 242, 0.82);
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .pqx-billing-note-rail strong {
+      color: var(--pq-ink);
+      white-space: nowrap;
+    }
+    .pqx-billing-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
     }
     .pqx-pref-form {
       display: grid;
@@ -3065,6 +3476,8 @@
       overflow: hidden;
       background: var(--pq-charcoal);
       color: #fff9ed;
+      content-visibility: auto;
+      contain-intrinsic-size: 680px;
     }
     .pqx-theater.no-media {
       overflow: visible;
@@ -3196,13 +3609,45 @@
       display: grid;
       gap: 12px;
     }
+    .pqx-reading-board {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-top: 12px;
+      margin-bottom: 14px;
+    }
+    .pqx-reading-card {
+      display: grid;
+      gap: 6px;
+      padding: 12px;
+      border: 1px solid rgba(171, 145, 83, 0.18);
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(255, 251, 243, 0.98), rgba(255, 254, 250, 0.98));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    }
+    .pqx-reading-card strong {
+      font-size: 0.96rem;
+      line-height: 1.35;
+      color: var(--pq-ink);
+    }
+    .pqx-reading-card small {
+      color: var(--pq-muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
     .pqx-card {
       display: grid;
-      gap: 9px;
-      padding: 14px;
-      border: 1px solid var(--pq-line);
-      border-radius: 10px;
-      background: var(--pq-paper);
+      gap: 10px;
+      padding: 15px;
+      border: 1px solid color-mix(in srgb, var(--pq-line) 88%, white);
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 252, 245, 0.96));
+      box-shadow: var(--pq-shadow-soft);
+      transition: box-shadow 160ms ease, border-color 160ms ease, transform 160ms ease;
+    }
+    details.pqx-card {
+      content-visibility: auto;
+      contain-intrinsic-size: 120px;
     }
     .pqx-ooda-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3240,6 +3685,8 @@
       justify-content: space-between;
       gap: 12px;
       align-items: end;
+      padding-bottom: 4px;
+      border-bottom: 1px solid rgba(221, 212, 197, 0.72);
     }
     .pqx-result-panel-head h2 {
       margin: 0;
@@ -3252,14 +3699,22 @@
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 12px;
       align-items: start;
-      padding: 14px;
+      padding: 15px;
       text-align: left;
       cursor: pointer;
+      transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, background 160ms ease;
+      content-visibility: auto;
+      contain-intrinsic-size: 240px;
+      scroll-margin-top: 96px;
+    }
+    .pqx-result:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--pq-hover-shadow);
     }
     .pqx-result.is-top-ranked {
-      border-color: rgba(189, 139, 47, 0.46);
-      background: linear-gradient(180deg, rgba(255, 250, 238, 0.98), rgba(255, 253, 248, 0.98));
-      box-shadow: 0 14px 32px rgba(74, 56, 24, 0.08);
+      border-color: rgba(189, 139, 47, 0.52);
+      background: linear-gradient(180deg, rgba(255, 251, 242, 0.98), rgba(255, 254, 249, 0.98));
+      box-shadow: 0 18px 38px rgba(74, 56, 24, 0.10);
     }
     .pqx-card summary {
       display: grid;
@@ -3307,8 +3762,8 @@
     .pqx-result-thesis {
       color: var(--pq-ink);
       font-size: 13px;
-      line-height: 1.4;
-      font-weight: 720;
+      line-height: 1.45;
+      font-weight: 760;
     }
     .pqx-result-kicker {
       display: inline-flex;
@@ -3334,7 +3789,7 @@
     .pqx-result-reason {
       color: var(--pq-ink);
       font-size: 13px;
-      line-height: 1.38;
+      line-height: 1.42;
     }
     .pqx-result-blocker {
       color: var(--pq-muted);
@@ -3382,6 +3837,14 @@
       font-weight: 760;
       text-decoration: none;
       white-space: nowrap;
+      transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+    }
+    .pqx-result-open:hover,
+    .pqx-result-open:focus-visible {
+      background: rgba(255, 255, 255, 0.94);
+      border-color: var(--pq-line-strong);
+      transform: translateY(-1px);
+      outline: none;
     }
     .pqx-rank {
       width: 38px;
@@ -3421,13 +3884,14 @@
       width: fit-content;
       align-items: center;
       min-height: 26px;
-      padding: 0 8px;
-      border: 1px solid var(--pq-line);
+      padding: 0 9px;
+      border: 1px solid color-mix(in srgb, var(--pq-line) 92%, white);
       border-radius: 999px;
-      background: var(--pq-panel);
+      background: rgba(255, 253, 248, 0.92);
       color: var(--pq-muted);
       font-size: 12px;
-      font-weight: 720;
+      font-weight: 760;
+      letter-spacing: 0.01em;
       white-space: nowrap;
       cursor: default;
       user-select: none;
@@ -3437,13 +3901,13 @@
       cursor: inherit;
     }
     .pqx-pill.good {
-      border-color: rgba(39, 107, 83, 0.25);
-      background: rgba(39, 107, 83, 0.09);
+      border-color: rgba(39, 107, 83, 0.22);
+      background: rgba(234, 246, 239, 0.96);
       color: var(--pq-green);
     }
     .pqx-pill.warn {
-      border-color: rgba(189, 139, 47, 0.28);
-      background: rgba(189, 139, 47, 0.1);
+      border-color: rgba(189, 139, 47, 0.22);
+      background: rgba(253, 246, 232, 0.96);
       color: #7f5a19;
     }
     .pqx-empty {
@@ -3453,6 +3917,7 @@
       border: 1px dashed var(--pq-line-strong);
       border-radius: 10px;
       background: rgba(255, 253, 248, 0.72);
+      text-wrap: pretty;
     }
     .pqx-bottom-nav {
       display: none;
@@ -3537,6 +4002,9 @@
       .pqx-top-actions > .pqx-link-button,
       .pqx-top-actions > .pqx-context-actions,
       .pqx-top-actions > [data-pqx-browser-alerts] {
+        display: none;
+      }
+      .pqx-account-menu summary::after {
         display: none;
       }
       .pqx-run-summary {
@@ -3649,6 +4117,21 @@
       .pqx-research-task-actions,
       .pqx-research-task-foot {
         align-items: stretch;
+        flex-direction: column;
+      }
+      .pqx-automation-summary,
+      .pqx-automation-layout,
+      .pqx-automation-card-top,
+      .pqx-account-summary,
+      .pqx-account-grid,
+      .pqx-billing-metric-strip,
+      .pqx-billing-summary,
+      .pqx-billing-grid,
+      .pqx-reading-board {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .pqx-billing-note-rail {
+        align-items: flex-start;
         flex-direction: column;
       }
       .pqx-result {
@@ -3764,6 +4247,7 @@
         <a href="/app/properties"{% if surface_mode == 'properties' %} class="is-active"{% endif %}>Run</a>
         <a href="/app/shortlist"{% if surface_mode == 'shortlist' %} class="is-active"{% endif %}>Shortlist</a>
         <a href="/app/agents"{% if surface_mode == 'agents' %} class="is-active"{% endif %}>Automation</a>
+        <a href="/app/billing"{% if surface_mode == 'billing' %} class="is-active"{% endif %}>Billing</a>
         <a href="/app/account"{% if surface_mode == 'account' %} class="is-active"{% endif %}>Account</a>
       </nav>
       <div class="pqx-top-actions" data-pq-context-actions>
@@ -3804,7 +4288,7 @@
         {% endif %}
         {% if account_nav %}
         <details class="pqx-account-menu">
-          <summary aria-label="Account navigation" title="Account">{{ ((account_nav.label or 'Me')[:1])|upper }}</summary>
+          <summary aria-label="Account navigation" title="Account" data-account-label="{{ account_nav.label }}">{{ ((account_nav.label or 'Me')[:1])|upper }}</summary>
           <div class="pqx-account-menu-panel">
             <div class="pqx-account-menu-label">
               <span>Signed in</span>
@@ -3845,7 +4329,7 @@
             <span>
               {% if surface_mode == 'search' %}
               Search
-              {% elif surface_mode in ['agents', 'account'] %}
+              {% elif surface_mode in ['agents', 'account', 'billing'] %}
               {{ hero_kicker or title or surface_mode|replace('_', ' ')|title }}
               {% else %}
               Run
@@ -3854,16 +4338,18 @@
             <h1>
               {% if surface_mode == 'search' %}
               Edit the brief.
-              {% elif surface_mode in ['agents', 'account'] %}
+              {% elif surface_mode in ['agents', 'account', 'billing'] %}
               {{ hero_title or title or surface_mode|replace('_', ' ')|title }}
               {% else %}
               Open the right surface for the next decision.
               {% endif %}
             </h1>
           </div>
-          {% if surface_mode in ['agents', 'account'] %}
+          {% if surface_mode in ['agents', 'account', 'billing'] %}
           <div class="pqx-brief-stack">
+            {% if hero_summary or summary %}
             <p class="pqx-note">{{ hero_summary or summary or '' }}</p>
+            {% endif %}
             {% if hero_actions %}
             <div class="pqx-actions">
               {% for action in hero_actions[:3] %}
@@ -3872,12 +4358,8 @@
             </div>
             {% endif %}
           </div>
-          {% elif surface_mode != 'search' %}
-          <div class="pqx-brief-stack">
-            <p class="pqx-note">Search owns intake. Run owns health and repair. Shortlist owns ranking. Automation owns recurring watches and reports. Account owns plan, credits, and defaults.</p>
-          </div>
           {% endif %}
-          {% if surface_mode not in ['agents', 'account'] %}
+          {% if surface_mode not in ['agents', 'account', 'billing'] %}
           <div class="pqx-dashboard-stack" data-pqx-dashboard-summary>
             <div class="pqx-dashboard-row">
               <span class="pqx-small">Saved searches</span>
@@ -3886,9 +4368,8 @@
             </div>
             {% if surface_mode != 'search' %}
             <div class="pqx-dashboard-row">
-              <span class="pqx-small">Start</span>
-              <strong>{% if dashboard_agents %}Start with Search, open Run for health, or open Shortlist for decisions{% else %}Create the first search brief{% endif %}</strong>
-              <span class="pqx-note">Only the strongest ranked homes or opportunities should leave this workspace.</span>
+              <span class="pqx-small">Flow</span>
+              <strong>{% if dashboard_agents %}Search · Run · Shortlist{% else %}Create the first search brief{% endif %}</strong>
             </div>
             <div class="pqx-actions">
               <a class="pqx-link-button primary" href="/app/search">New search</a>
@@ -3925,6 +4406,8 @@
                     src="{{ scope_preview.get('image_url') }}"
                     alt="{{ scope_preview.get('alt') or 'Search area preview' }}"
                     loading="lazy"
+                    decoding="async"
+                    fetchpriority="low"
                   >
                   {% if scope_preview.get("district_rows") %}
                   <svg class="pqx-previous-district-hotspots" viewBox="0 0 640 368" preserveAspectRatio="none" aria-hidden="true">
@@ -4069,6 +4552,8 @@
               <h2>
                 {% if surface_mode == 'agents' %}
                 Automation
+                {% elif surface_mode == 'billing' %}
+                Billing
                 {% elif surface_mode == 'account' %}
                 Account
                 {% else %}
@@ -4077,9 +4562,11 @@
               </h2>
               <div class="pqx-note" data-property-step-summary>
                 {% if surface_mode == 'agents' %}
-                Control recurring searches, delivery, reports, and repair posture.
+                Selected watch, delivery, repair, outcomes, and limits live here.
+                {% elif surface_mode == 'billing' %}
+                Plan, entitlements, limits, and checkout truth stay here.
                 {% elif surface_mode == 'account' %}
-                Identity, plan, entitlements, credits, and saved defaults stay here instead of leaking office tooling.
+                Identity, defaults, delivery posture, and account truth stay here.
                 {% else %}
                 Answer the key intake questions, then save or launch.
                 {% endif %}
@@ -4088,6 +4575,8 @@
             <span class="pqx-pill" data-property-step-progress>
               {% if surface_mode == 'agents' %}
               Agents
+              {% elif surface_mode == 'billing' %}
+              Billing
               {% elif surface_mode == 'account' %}
               Account
               {% else %}
@@ -4095,14 +4584,20 @@
               {% endif %}
             </span>
           </div>
-          {% if surface_mode in ['agents', 'account'] %}
+          {% if surface_mode in ['agents', 'account', 'billing'] %}
           {% if surface_mode == 'agents' %}
           {% set search_agents = workbench.get('search_agents') or (search_agents if search_agents is defined else (property_meta.get('search_agents') or [])) %}
           {% include "app/_property_search_agents_panel.html" %}
           {% endif %}
+          {% if surface_mode == 'account' %}
+          {% include "app/_property_account_panel.html" %}
+          {% endif %}
+          {% if surface_mode == 'billing' %}
+          {% include "app/_property_billing_panel.html" %}
+          {% endif %}
           {% for card in (primary_cards or []) + (secondary_cards or []) %}
           {% if card and card.get('title') %}
-          {% if not (surface_mode == 'agents' and card.get('title') == 'Recurring briefs') %}
+          {% if not ((surface_mode == 'agents' and card.get('title') == 'Recurring briefs') or surface_mode in ['account', 'billing']) %}
           <section class="pqx-card"{% if card.get('id') %} id="{{ card.get('id') }}"{% endif %}>
             <div class="pqx-section-head">
               <div>
@@ -4168,7 +4663,14 @@
               {% if advanced_panel and not panel.open %}
               {% set panel.open = true %}
               {% set panel.current = advanced_panel %}
-              <details class="pqx-advanced-panel" data-property-advanced-panel="{{ advanced_panel }}">
+              <details class="pqx-advanced-panel" data-property-advanced-panel="{{ advanced_panel }}"{% if advanced_panel == 'children' %} open{% endif %}>
+                {% if advanced_panel == 'children' %}
+                <div class="pqx-disclosure-summary pqx-disclosure-summary-static">
+                  <span class="pqx-disclosure-copy">
+                    <span class="pqx-disclosure-label">Children and school needs</span>
+                  </span>
+                </div>
+                {% else %}
                 <summary class="pqx-disclosure-summary">
                   <span class="pqx-disclosure-copy">
                   <span class="pqx-disclosure-label">
@@ -4193,6 +4695,7 @@
                   </span>
                   <span class="pqx-disclosure-icon" aria-hidden="true">+</span>
                 </summary>
+                {% endif %}
                 <div class="pqx-advanced-panel-grid">
                   <div class="pqx-note" data-property-unavailable-toggle-wrap hidden>
                     <label><input type="checkbox" data-property-show-unavailable> Show locked filters</label>
@@ -4253,6 +4756,7 @@
                         <span>
                           <span>{{ option.get('label') }}</span>
                           {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
+                          {% if option.get('homepage_url') %}<a class="pqx-provider-link" href="{{ option.get('homepage_url') }}" target="_blank" rel="noopener noreferrer" data-provider-homepage-link onclick="event.stopPropagation();">Homepage</a>{% endif %}
                         </span>
                       </label>
                       {% endfor %}
@@ -4269,6 +4773,7 @@
                       <span>
                         <span>{{ option.get('label') }}</span>
                         {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
+                        {% if option.get('homepage_url') %}<a class="pqx-provider-link" href="{{ option.get('homepage_url') }}" target="_blank" rel="noopener noreferrer" data-provider-homepage-link onclick="event.stopPropagation();">Homepage</a>{% endif %}
                       </span>
                     </label>
                     {% endfor %}
@@ -4504,6 +5009,7 @@
               <div class="pqx-pref-list">
                 <div class="pqx-pref-row"><div><strong>What happened</strong><small>{{ empty_outcome.get('happened') or ('The search stopped before a stable shortlist was ready.' if run_status == 'failed' else 'The search finished without a candidate clearing the shortlist.') }}</small></div></div>
                 <div class="pqx-pref-row"><div><strong>What still worked</strong><small>{{ empty_outcome.get('still_worked') or 'The brief and latest source receipts are still available.' }}</small></div></div>
+                <div class="pqx-pref-row"><div><strong>Main blocker</strong><small>{{ empty_outcome.get('active_rule') or ('Source health and repair blocked the run before a stable shortlist formed.' if run_status == 'failed' else 'The current shortlist rules stayed stricter than the available market evidence.') }}</small></div></div>
                 <div class="pqx-pref-row"><div><strong>Best next move</strong><small>{{ empty_outcome.get('next_move') or ('Restart the same brief and let repair retry the failed sources.' if run_status == 'failed' else 'Widen one rule first, then rerun.') }}</small></div></div>
               </div>
             </div>
@@ -4655,7 +5161,7 @@
             <div class="pqx-note">{% if run_status == 'failed' %}Refresh if the failure looks transient. Otherwise remove one strict rule before starting over.{% else %}Try one small relaxation first, then rerun only if the current brief is clearly too narrow.{% endif %}</div>
           </section>
           <details class="pqx-card">
-            <summary><strong>How this search was filtered</strong><span class="pqx-note">Open only if you want to inspect the provider trail.</span></summary>
+            <summary><strong>How this search was filtered</strong></summary>
             <div class="pqx-source-list" data-pqx-source-breakdown>
               {% for source in run_sources[:8] %}
               <article class="pqx-source-card">

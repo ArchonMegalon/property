@@ -543,7 +543,7 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         context.close()
 
 
-def test_propertyquarry_search_goal_toggle_reveals_investment_controls_in_browser(
+def test_propertyquarry_search_goal_toggle_keeps_underwriting_controls_hidden_until_enabled_in_browser(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
 ) -> None:
@@ -554,9 +554,15 @@ def test_propertyquarry_search_goal_toggle_reveals_investment_controls_in_browse
         response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
         assert response is not None and response.ok
         investment_mode = page.locator('[data-property-field-name="investment_research_mode"]').first
+        listing_mode = page.locator('[data-property-field-name="listing_mode"]').first
         investment_strategy = page.locator('[data-property-field-name="investment_strategy"]').first
+        investment_floorplan = page.locator('[data-property-field-name="investment_require_floorplan"]').first
+        public_housing = page.locator('[data-property-field-name="include_public_housing_signals"]').first
+        wohnticket = page.locator('[data-property-field-name="wiener_wohnticket_available"]').first
+        distressed = page.locator('[data-property-field-name="include_distressed_sale_signals"]').first
         assert investment_mode.evaluate("(node) => node.hidden") is True
         assert investment_strategy.evaluate("(node) => node.hidden") is True
+        assert investment_floorplan.evaluate("(node) => node.hidden") is True
 
         page.locator('select[name="search_goal"]').select_option("investment")
 
@@ -564,13 +570,75 @@ def test_propertyquarry_search_goal_toggle_reveals_investment_controls_in_browse
             """
             () => {
               const mode = document.querySelector('[data-property-field-name="investment_research_mode"]');
+              const listingMode = document.querySelector('[data-property-field-name="listing_mode"]');
               const strategy = document.querySelector('[data-property-field-name="investment_strategy"]');
-              return Boolean(mode && strategy && !mode.hidden && !strategy.hidden);
+              const floorplan = document.querySelector('[data-property-field-name="investment_require_floorplan"]');
+              const publicHousing = document.querySelector('[data-property-field-name="include_public_housing_signals"]');
+              const wohnticket = document.querySelector('[data-property-field-name="wiener_wohnticket_available"]');
+              return Boolean(
+                mode && listingMode && strategy && floorplan && publicHousing && wohnticket
+                && !mode.hidden
+                && listingMode.hidden
+                && strategy.hidden
+                && floorplan.hidden
+                && publicHousing.hidden
+                && wohnticket.hidden
+              );
             }
             """
         )
+        assert listing_mode.evaluate("(node) => node.hidden") is True
         assert investment_mode.evaluate("(node) => node.hidden") is False
+        assert investment_strategy.evaluate("(node) => node.hidden") is True
+        assert investment_floorplan.evaluate("(node) => node.hidden") is True
+        assert public_housing.evaluate("(node) => node.hidden") is True
+        assert wohnticket.evaluate("(node) => node.hidden") is True
+
+        page.locator('select[name="investment_research_mode"]').select_option("auto")
+
+        page.wait_for_function(
+            """
+            () => {
+              const strategy = document.querySelector('[data-property-field-name="investment_strategy"]');
+              const floorplan = document.querySelector('[data-property-field-name="investment_require_floorplan"]');
+              return Boolean(strategy && floorplan && !strategy.hidden && !floorplan.hidden);
+            }
+            """
+        )
         assert investment_strategy.evaluate("(node) => node.hidden") is False
+        assert investment_floorplan.evaluate("(node) => node.hidden") is False
+
+        page.locator('select[name="search_goal"]').select_option("home")
+        page.locator('select[name="listing_mode"]').select_option("rent")
+
+        page.wait_for_function(
+            """
+            () => {
+              const mode = document.querySelector('[data-property-field-name="investment_research_mode"]');
+              const strategy = document.querySelector('[data-property-field-name="investment_strategy"]');
+              const floorplan = document.querySelector('[data-property-field-name="investment_require_floorplan"]');
+              const distressed = document.querySelector('[data-property-field-name="include_distressed_sale_signals"]');
+              const progress = document.querySelector('[data-property-step-progress]');
+              const workflowStep = [...document.querySelectorAll('[data-property-step-trigger] strong')].map((node) => node.textContent || '');
+              return Boolean(
+                mode && strategy && floorplan && distressed && progress
+                && mode.hidden
+                && strategy.hidden
+                && floorplan.hidden
+                && distressed.hidden
+                && String(progress.textContent || '').includes('Where')
+                && workflowStep.includes('Home shape')
+                && workflowStep.includes('Daily life')
+                && workflowStep.includes('Reachability')
+                && workflowStep.includes('Research depth')
+              );
+            }
+            """
+        )
+        assert investment_mode.evaluate("(node) => node.hidden") is True
+        assert investment_strategy.evaluate("(node) => node.hidden") is True
+        assert investment_floorplan.evaluate("(node) => node.hidden") is True
+        assert distressed.evaluate("(node) => node.hidden") is True
     finally:
         context.close()
 
@@ -943,23 +1011,7 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('input[name="full_region_scope"]').is_checked() is False
 
         page.locator('[data-property-step-trigger="children"]').click()
-        page.locator('[data-property-field-name="enable_family_mode"]').wait_for(state="visible")
-        assert page.locator('[data-property-field-name="enable_family_mode"]').is_visible()
-        assert page.locator('details[data-property-advanced-panel="children"]').is_hidden()
-        assert page.locator('[data-property-field-name="school_stage_preferences"]').is_hidden()
-        assert page.locator('[data-property-field-name="school_stage_preferences"]').get_attribute("data-property-collapsed-by") == "enable_family_mode"
-        assert page.locator('[data-property-field-name="school_quality_priority"]').is_hidden()
-        assert page.locator('[data-property-field-name="max_distance_to_playground_m"]').is_hidden()
-        assert page.locator('[data-property-field-name="max_distance_to_library_m"]').is_hidden()
-        assert page.locator('[data-property-field-name="max_distance_to_zoo_m"]').is_hidden()
-
-        page.locator('input[name="enable_family_mode"]').check()
-        assert page.locator('details[data-property-advanced-panel="children"]').is_visible()
-        assert page.locator('details[data-property-advanced-panel="children"]').evaluate("(node) => node.hasAttribute('open')") is False
-        assert page.locator('[data-property-field-name="school_stage_preferences"]').is_hidden()
-        assert page.locator('[data-property-field-name="school_quality_priority"]').is_hidden()
-        assert page.locator('[data-property-field-name="school_quality_priority"]').get_attribute("data-property-collapsed-by") == "school_stage_preferences"
-        page.locator('details[data-property-advanced-panel="children"] summary').click()
+        assert page.locator('[data-property-field-name="enable_family_mode"]').count() == 0
         assert page.locator('details[data-property-advanced-panel="children"]').evaluate("(node) => node.hasAttribute('open')") is True
         page.locator('[data-property-field-name="school_stage_preferences"]').wait_for(state="visible")
         assert page.locator('[data-property-field-name="school_stage_preferences"]').is_visible()
@@ -983,20 +1035,10 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('[data-kindergarten-variant]').first.is_visible()
         assert "Public and private kindergarten refine the Kindergarten choice." in (page.locator('[data-school-stage-note]').text_content() or "")
 
-        page.locator('input[name="enable_family_mode"]').uncheck()
-        assert page.locator('details[data-property-advanced-panel="children"]').is_hidden()
-        assert page.locator('[data-property-field-name="school_stage_preferences"]').is_hidden()
-        assert page.locator('[data-property-field-name="school_quality_priority"]').is_hidden()
-        assert page.locator('[data-property-field-name="max_distance_to_playground_m"]').is_hidden()
-        assert page.locator('[data-property-field-name="max_distance_to_library_m"]').is_hidden()
-        assert page.locator('[data-property-field-name="max_distance_to_zoo_m"]').is_hidden()
-
         page.locator('[data-property-step-trigger="search"]').click()
         page.select_option('select[name="region_code"]', "lower_austria")
         page.locator('[data-property-step-trigger="children"]').click()
-        page.locator('input[name="enable_family_mode"]').check()
         children_panel = page.locator('details[data-property-advanced-panel="children"]')
-        children_panel.locator("summary").click()
         children_distances_panel = page.locator('details[data-property-advanced-panel="children_distances"]')
         children_distances_panel.locator("summary").click()
         assert children_distances_panel.locator('[data-property-unavailable-toggle-wrap]').is_visible()
@@ -1454,8 +1496,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         )
         page.locator('[data-property-step-trigger="children"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'")
-        page.locator('input[name="enable_family_mode"]').check()
-        page.locator('details[data-property-advanced-panel="children"] summary').click()
+        assert page.locator('[data-property-field-name="enable_family_mode"]').count() == 0
         page.locator('details[data-property-advanced-panel="children_distances"] summary').click()
         page.locator('input[name="max_distance_to_library_m"]').evaluate(
             "(node) => { node.value = '700'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
