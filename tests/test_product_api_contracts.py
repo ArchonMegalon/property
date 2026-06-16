@@ -254,13 +254,14 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert any(item["action_label"] == "Approve now" for item in channel_loop_body["items"])
     assert any("/app/channel-actions/" in item.get("action_href", "") for item in channel_loop_body["items"])
     digests = {item["key"]: item for item in channel_loop_body["digests"]}
-    assert {"memo", "approvals", "operator"} <= set(digests)
+    assert {"memo", "approvals", "operator", "fleet"} <= set(digests)
     assert digests["memo"]["preview_text"]
     assert any(item["title"] == "Support closure grounding" for item in digests["memo"]["items"])
     assert any(item["action_label"] == "Approve now" for item in digests["approvals"]["items"])
     assert any(item["secondary_action_label"] == "Reject" for item in digests["approvals"]["items"] if item["tag"] == "Draft")
     assert any(item["tag"] == "Handoff" for item in digests["operator"]["items"])
     assert any(item["title"] == "Operator memo grounding" for item in digests["operator"]["items"])
+    assert any(item["title"] == "1min.AI credit posture" for item in digests["fleet"]["items"])
     memo_plain = client.get("/app/api/channel-loop/memo/plain")
     assert memo_plain.status_code == 200
     assert "Morning memo digest" in memo_plain.text

@@ -1161,6 +1161,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "Morning memo digest" in channel_loop.text
     assert "Inline approvals" in channel_loop.text
     assert "Operator handoff digest" in channel_loop.text
+    assert "Fleet repair and expansion digest" in channel_loop.text
 
     memo_digest = client.get("/app/channel-loop/memo")
     assert memo_digest.status_code == 200
@@ -1177,6 +1178,10 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert operator_digest.status_code == 200
     assert "Operator handoff digest" in operator_digest.text
     assert "Operator memo grounding" in operator_digest.text
+    fleet_digest = client.get("/app/channel-loop/fleet")
+    assert fleet_digest.status_code == 200
+    assert "Fleet repair and expansion digest" in fleet_digest.text
+    assert "1min.AI credit posture" in fleet_digest.text
 
 
 def test_commitment_detail_form_can_schedule_commitment() -> None:

@@ -159,6 +159,100 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
     }
 
 
+def _property_run_reliability_summary(
+    run: dict[str, object],
+    *,
+    results_total: int = 0,
+) -> dict[str, object]:
+    summary = dict(run.get("summary") or {}) if isinstance(run.get("summary"), dict) else {}
+    timing = dict(summary.get("timing_receipts") or {}) if isinstance(summary.get("timing_receipts"), dict) else {}
+    status = str(run.get("status") or summary.get("status") or "queued").strip().lower() or "queued"
+    progress = max(0, min(100, int(run.get("progress") or summary.get("progress") or 0)))
+    message = str(run.get("message") or "").strip()
+    source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    source_total = max(0, int(summary.get("sources_total") or len(source_rows) or 0))
+    source_checked = len(source_rows)
+    listing_total = max(0, int(summary.get("listing_total") or summary.get("reviewed_listing_total") or 0))
+    filtered_total = max(0, int(summary.get("filtered_out_total") or 0))
+    failed_total = 0
+    for row in source_rows:
+        row_status = str(row.get("status") or row.get("state") or "").strip().lower()
+        if row_status in {"failed", "error", "skipped"} or row.get("error"):
+            failed_total += 1
+    pending_total = max(0, source_total - source_checked)
+    next_useful_eta = str(summary.get("next_useful_update_eta_label") or "").strip()
+    final_eta = str(run.get("eta_label") or summary.get("eta_label") or "").strip()
+    eta_confidence = str(summary.get("eta_confidence") or "").strip().lower()
+    if not eta_confidence:
+        if final_eta and progress >= 20:
+            eta_confidence = "medium"
+        elif final_eta:
+            eta_confidence = "low"
+        else:
+            eta_confidence = "unknown"
+    repair_step = str(summary.get("repair_step_label") or "").strip()
+    customer_status = str(summary.get("customer_status_message") or "").strip()
+    if not repair_step and failed_total:
+        repair_step = f"Retrying {failed_total} source{'s' if failed_total != 1 else ''}"
+    if not next_useful_eta and timing.get("first_shortlist_ready_at") and results_total > 0:
+        next_useful_eta = "new shortlist already ready"
+    if not customer_status:
+        if status in {"processed", "completed"}:
+            customer_status = "Search finished cleanly."
+        elif status == "failed":
+            customer_status = message or "Search interrupted before the final pass completed."
+        elif failed_total and results_total > 0:
+            customer_status = "Some sources are retrying, but the current shortlist is already usable."
+        elif failed_total:
+            customer_status = "Some sources are retrying before the shortlist can settle."
+        elif results_total > 0:
+            customer_status = "Strongest verified matches are already ready while the rest of the search finishes."
+        elif source_checked > 0:
+            customer_status = "Providers are being checked and the first shortlist is still building."
+        else:
+            customer_status = message or "Preparing the first provider lanes."
+    if status in {"processed", "completed"}:
+        health_tone = "good"
+        health_label = "Healthy"
+    elif status == "failed":
+        health_tone = "bad"
+        health_label = "Interrupted"
+    elif failed_total:
+        health_tone = "warn"
+        health_label = "Repairing"
+    elif source_checked > 0 or progress > 0:
+        health_tone = "good"
+        health_label = "Working"
+    else:
+        health_tone = "idle"
+        health_label = "Starting"
+    coverage_label = ""
+    if source_total:
+        coverage_label = f"{source_checked}/{source_total} sources checked"
+        if pending_total:
+            coverage_label += f" · {pending_total} still running"
+    result_label = ""
+    if results_total > 0:
+        result_label = f"{results_total} ranked result{'s' if results_total != 1 else ''} ready"
+    elif listing_total > 0:
+        result_label = f"{listing_total} homes reviewed"
+    filtered_label = ""
+    if filtered_total > 0:
+        filtered_label = f"{filtered_total} filtered by active rules"
+    return {
+        "health_label": health_label,
+        "health_tone": health_tone,
+        "coverage_label": coverage_label,
+        "result_label": result_label,
+        "filtered_label": filtered_label,
+        "repair_step_label": repair_step,
+        "next_useful_update_eta_label": next_useful_eta,
+        "final_eta_label": final_eta,
+        "eta_confidence_label": eta_confidence.title() if eta_confidence else "Unknown",
+        "customer_status_message": customer_status,
+    }
+
+
 def _compact_provider_label(value: object) -> str:
     text = " ".join(str(value or "").split()).strip()
     if not text:
@@ -777,7 +871,9 @@ def _property_suppression_rows(
     *,
     run_summary: dict[str, object],
     source_rows: list[dict[str, object]],
+    preferences: dict[str, object] | None = None,
 ) -> list[dict[str, object]]:
+    effective_preferences = dict(preferences or {})
     counters = {
         "Outside selected area": 0,
         "Missing floorplan evidence": 0,
@@ -811,6 +907,20 @@ def _property_suppression_rows(
         summary_budget = 0
     if summary_budget > counters["Alert budget"]:
         counters["Alert budget"] = summary_budget
+    summary_field_map = (
+        ("Outside selected area", "filtered_location_total"),
+        ("Missing floorplan evidence", "filtered_floorplan_total"),
+        ("Below fit threshold", "filtered_low_fit_total"),
+        ("Outside area/size rule", "filtered_area_total"),
+        ("Availability mismatch", "filtered_availability_total"),
+    )
+    for label, field_name in summary_field_map:
+        if counters[label] > 0:
+            continue
+        try:
+            counters[label] = max(int(float(run_summary.get(field_name) or 0)), 0)
+        except Exception:
+            counters[label] = 0
     action_map = {
         "Outside selected area": "Add nearby districts first instead of opening the full market.",
         "Missing floorplan evidence": "These homes are still being checked for a floorplan in photos, PDFs, downloads, and 360 media.",
@@ -835,16 +945,51 @@ def _property_suppression_rows(
         "Availability mismatch": "Edit move-in timing",
         "Alert budget": "Raise alerts",
     }
+
+    def _positive_int(value: object) -> int:
+        try:
+            return max(0, int(float(str(value or "").strip())))
+        except Exception:
+            return 0
+
+    min_match_score = _positive_int(effective_preferences.get("min_match_score"))
+    min_area_m2 = _positive_int(effective_preferences.get("min_area_m2"))
+    max_area_m2 = _positive_int(effective_preferences.get("max_area_m2"))
+    available_within_years = _positive_int(effective_preferences.get("available_within_years"))
+    adjacent_radius_m = _positive_int(effective_preferences.get("adjacent_area_radius_m"))
+    location_query = ", ".join(str(item).strip() for item in str(effective_preferences.get("location_query") or "").split(",") if str(item).strip())
+
     rows: list[dict[str, str]] = []
     for label, total in counters.items():
         if total <= 0:
             continue
         providers = ", ".join(sorted(source_labels[label])[:3])
+        rule_detail = ""
+        if label == "Below fit threshold" and min_match_score > 0:
+            rule_detail = f" Current match bar: {min_match_score}."
+        elif label == "Outside area/size rule":
+            size_parts: list[str] = []
+            if min_area_m2 > 0:
+                size_parts.append(f"min {min_area_m2} m²")
+            if max_area_m2 > 0:
+                size_parts.append(f"max {max_area_m2} m²")
+            if size_parts:
+                rule_detail = f" Current size rule: {' · '.join(size_parts)}."
+        elif label == "Availability mismatch" and available_within_years > 0:
+            rule_detail = f" Current move-in window: within {available_within_years} year{'s' if available_within_years != 1 else ''}."
+        elif label == "Outside selected area":
+            area_parts: list[str] = []
+            if location_query:
+                area_parts.append(location_query)
+            if adjacent_radius_m > 0:
+                area_parts.append(f"{adjacent_radius_m} m spillover")
+            if area_parts:
+                rule_detail = f" Current area rule: {' · '.join(area_parts)}."
         rows.append(
             {
                 "title": title_map.get(label, label),
                 "rule_key": label,
-                "detail": f"{total} candidate{' was' if total == 1 else 's were'} filtered out. {action_map[label]}",
+                "detail": f"{total} candidate{' was' if total == 1 else 's were'} filtered out.{rule_detail} {action_map[label]}",
                 "tag": providers or "Search rule",
                 "affected_total": total,
                 "action_label": action_label_map.get(label, "Review rule"),

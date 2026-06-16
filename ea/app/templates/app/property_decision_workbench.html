@@ -125,6 +125,7 @@
 {% set eta_label = run.get('eta_label') or summary.get('eta_label') or '' %}
 {% set route_previews = run.get('route_previews') or [] %}
 {% set worker_state = run.get('worker_state') or summary.get('worker_state') or {} %}
+{% set reliability = run.get('reliability') or {} %}
 <div class="pqx-progress-board" data-pqx-progress-board data-progress-state="{{ status }}">
   <div class="pqx-concierge-pulse">
     <div class="pqx-progress-headline">
@@ -143,6 +144,22 @@
     </div>
     <span class="pqx-note">{{ run.get('message') or 'Waiting for the first source update.' }}</span>
   </div>
+  {% if reliability %}
+  <div class="pqx-reliability-strip" data-pqx-run-reliability>
+    <div class="pqx-reliability-head">
+      <span class="pqx-pill {{ reliability.get('health_tone') }}">{{ reliability.get('health_label') or 'Working' }}</span>
+      {% if reliability.get('repair_step_label') %}<strong>{{ reliability.get('repair_step_label') }}</strong>{% endif %}
+      {% if reliability.get('next_useful_update_eta_label') %}<span class="pqx-small">Next useful update: {{ reliability.get('next_useful_update_eta_label') }}</span>{% endif %}
+      {% if reliability.get('final_eta_label') %}<span class="pqx-small">Finish: {{ reliability.get('final_eta_label') }} · {{ reliability.get('eta_confidence_label') }} confidence</span>{% endif %}
+    </div>
+    <div class="pqx-reliability-metrics">
+      {% if reliability.get('coverage_label') %}<span>{{ reliability.get('coverage_label') }}</span>{% endif %}
+      {% if reliability.get('result_label') %}<span>{{ reliability.get('result_label') }}</span>{% endif %}
+      {% if reliability.get('filtered_label') %}<span>{{ reliability.get('filtered_label') }}</span>{% endif %}
+    </div>
+    {% if reliability.get('customer_status_message') %}<div class="pqx-note">{{ reliability.get('customer_status_message') }}</div>{% endif %}
+  </div>
+  {% endif %}
   {% if worker_state.get('workers') %}
   <div class="pqx-worker-strip" data-pqx-worker-strip>
     <div class="pqx-worker-strip-head">
@@ -183,7 +200,7 @@
     </span>
     {% endfor %}
   </div>
-  {% if route_previews %}
+  {% if route_previews and status in ['processed', 'completed'] %}
   <div class="pqx-route-preview-strip" data-pqx-route-preview-strip>
     {% for route in route_previews[:3] %}
     <article class="pqx-route-preview-card">
@@ -2411,6 +2428,26 @@
       letter-spacing: .02em;
       text-transform: uppercase;
     }
+    .pqx-reliability-strip {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid color-mix(in srgb, var(--pq-gold) 18%, var(--pq-line));
+      border-radius: 8px;
+      background: rgba(255, 253, 248, 0.9);
+    }
+    .pqx-reliability-head,
+    .pqx-reliability-metrics {
+      display: flex;
+      align-items: center;
+      gap: 8px 12px;
+      flex-wrap: wrap;
+    }
+    .pqx-reliability-metrics span {
+      color: var(--pq-muted);
+      font-size: 12px;
+      font-weight: 640;
+    }
     .pqx-source-list {
       grid-area: source-list;
       display: flex;
@@ -3218,6 +3255,11 @@
       text-align: left;
       cursor: pointer;
     }
+    .pqx-result.is-top-ranked {
+      border-color: rgba(189, 139, 47, 0.46);
+      background: linear-gradient(180deg, rgba(255, 250, 238, 0.98), rgba(255, 253, 248, 0.98));
+      box-shadow: 0 14px 32px rgba(74, 56, 24, 0.08);
+    }
     .pqx-card summary {
       display: grid;
       gap: 3px;
@@ -3261,6 +3303,12 @@
       gap: 3px;
       min-width: 0;
     }
+    .pqx-result-thesis {
+      color: var(--pq-ink);
+      font-size: 13px;
+      line-height: 1.4;
+      font-weight: 720;
+    }
     .pqx-result-kicker {
       display: inline-flex;
       align-items: center;
@@ -3286,6 +3334,11 @@
       color: var(--pq-ink);
       font-size: 13px;
       line-height: 1.38;
+    }
+    .pqx-result-blocker {
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.35;
     }
     .pqx-result-fact {
       display: inline-flex;

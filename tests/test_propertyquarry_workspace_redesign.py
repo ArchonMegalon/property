@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from app.api.routes import landing as landing_routes
+from app.api.routes import landing_property_workspace_helpers
 from app.api.routes import landing_property_research
 from app.api.routes import public_tours
 from app.api.routes import landing_view_models
@@ -365,6 +366,38 @@ def test_property_search_worker_slots_only_show_real_lanes_instead_of_plan_fille
     assert len(worker_state["workers"]) == 2
     assert [row.get("status_label") for row in worker_state["workers"]] == ["Running", "Retrying"]
     assert all(row.get("label") != "Preparing sources" for row in worker_state["workers"])
+
+
+def test_property_run_reliability_summary_surfaces_repair_and_eta_state() -> None:
+    reliability = landing_property_workspace_helpers._property_run_reliability_summary(
+        {
+            "status": "running",
+            "progress": 42,
+            "message": "Retrying one provider while the shortlist stays visible.",
+            "eta_label": "about 6m",
+            "summary": {
+                "sources_total": 4,
+                "sources": [
+                    {"source_label": "A", "status": "completed"},
+                    {"source_label": "B", "status": "failed", "error": "HTTP 410"},
+                ],
+                "filtered_out_total": 7,
+            },
+        },
+        results_total=3,
+    )
+    assert reliability["health_label"] == "Repairing"
+    assert reliability["repair_step_label"] == "Retrying 1 source"
+    assert reliability["coverage_label"] == "2/4 sources checked · 2 still running"
+    assert reliability["result_label"] == "3 ranked results ready"
+    assert reliability["filtered_label"] == "7 filtered by active rules"
+
+
+def test_propertyquarry_results_template_marks_top_rank_and_watch_out_copy() -> None:
+    body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
+    assert "is-top-ranked" in body
+    assert "Watch-out:" in body
+    assert "Why it ranks:" in body
 
 
 def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch) -> None:
@@ -1876,6 +1909,97 @@ def test_propertyquarry_properties_auto_opens_latest_active_run_when_run_id_miss
     assert "Checking fresh rental listings for Vienna." in live.text
     assert "Open a saved search or launch a new brief" not in live.text
     assert "run-active-42" in live.text
+
+
+def test_propertyquarry_suppression_rows_use_summary_fallback_and_show_active_rule() -> None:
+    rows = landing_property_workspace_helpers._property_suppression_rows(
+        run_summary={
+            "filtered_low_fit_total": 9,
+            "filtered_area_total": 4,
+            "filtered_location_total": 3,
+        },
+        source_rows=[],
+        preferences={
+            "min_match_score": 82,
+            "min_area_m2": 70,
+            "adjacent_area_radius_m": 500,
+            "location_query": "Vienna",
+        },
+    )
+    low_fit_row = next(row for row in rows if row.get("rule_key") == "Below fit threshold")
+    assert "Current match bar: 82." in str(low_fit_row.get("detail") or "")
+    location_row = next(row for row in rows if row.get("rule_key") == "Outside selected area")
+    assert "Vienna" in str(location_row.get("detail") or "")
+    assert "500 m spillover" in str(location_row.get("detail") or "")
+
+
+def test_propertyquarry_shortlist_uses_run_search_goal_over_saved_defaults(monkeypatch) -> None:
+    principal_id = "pq-run-goal-overrides-saved-defaults"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "search_goal": "investment",
+            "investment_research_mode": "auto",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-run-goal-overrides-saved-defaults"
+        assert run_id == "run-home-42"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "language_code": "de",
+                "listing_mode": "buy",
+                "search_goal": "home",
+                "investment_research_mode": "off",
+                "location_query": "Vienna",
+                "selected_platforms": ["willhaben"],
+            },
+            "summary": {
+                "status": "processed",
+                "ranked_candidates": [
+                    {
+                        "title": "Vienna family flat",
+                        "property_url": "https://example.test/vienna-family-flat",
+                        "fit_summary": "Strong home fit near parks and daily errands.",
+                        "match_reasons": ["Parks and daily errands stay close."],
+                        "property_facts": {
+                            "price_display": "EUR 520,000",
+                            "rooms": 3,
+                            "area_m2": 82,
+                            "postal_name": "1020 Wien",
+                        },
+                    }
+                ],
+                "sources": [],
+            },
+            "events": [{"step": "completed", "message": "Property scouting run completed.", "status": "processed"}],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    shortlist = client.get("/app/shortlist", params={"run_id": "run-home-42"}, headers={"host": "propertyquarry.com"})
+    assert shortlist.status_code == 200
+    assert '"search_goal": "home"' in shortlist.text
+    assert "Find a home" in shortlist.text
+    assert "ranked opportunities" not in shortlist.text
+    assert "Why this ranks" not in shortlist.text
+    assert "Open the investment read." not in shortlist.text
 
 
 def test_property_search_analysis_cap_defaults_to_top_k_slice(monkeypatch) -> None:

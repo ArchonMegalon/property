@@ -25574,7 +25574,7 @@ class ProductService:
                 principal_id=normalized_principal,
                 step="run_interrupted",
                 message=(
-                    f"This search stopped updating for more than {int(stale_seconds / 60)} minutes. "
+                    f"Search interrupted. This run stopped updating for more than {int(stale_seconds / 60)} minutes and is now marked failed. "
                     "Start a new search to retry the same brief."
                 ),
                 status="failed",
@@ -40119,6 +40119,160 @@ class ProductService:
                 return dict(row)
         return None
 
+    def _fleet_digest_payload(
+        self,
+        *,
+        principal_id: str,
+        operator_key: str = "",
+    ) -> dict[str, object]:
+        try:
+            if operator_key:
+                report = responses_upstream.codex_status_report(window="24h")
+            else:
+                report = responses_upstream.codex_status_report(window="24h", principal_id=principal_id)
+        except TypeError:
+            report = responses_upstream.codex_status_report(window="24h")
+        except Exception:
+            report = {}
+
+        lane_telemetry = dict(report.get("lane_telemetry") or {}) if isinstance(report, dict) else {}
+        onemin_aggregate = dict(report.get("onemin_aggregate") or {}) if isinstance(report, dict) else {}
+        onemin_billing = dict(report.get("onemin_billing_aggregate") or {}) if isinstance(report, dict) else {}
+        fleet_burn = dict(report.get("fleet_burn") or {}) if isinstance(report, dict) else {}
+
+        def _int_value(*values: object) -> int:
+            for value in values:
+                try:
+                    if value not in (None, ""):
+                        return int(float(value))
+                except Exception:
+                    continue
+            return 0
+
+        def _number_text(value: int) -> str:
+            return f"{value:,}"
+
+        def _pick_text(*values: object) -> str:
+            for value in values:
+                text = str(value or "").strip()
+                if text:
+                    return text
+            return ""
+
+        credits_total = _int_value(
+            onemin_billing.get("actual_remaining_credits_total"),
+            onemin_aggregate.get("actual_remaining_credits_total"),
+            onemin_billing.get("estimated_remaining_credits_total"),
+            onemin_aggregate.get("estimated_remaining_credits_total"),
+            onemin_aggregate.get("live_remaining_credits_total"),
+        )
+        credits_floor = 200_000_000
+        last_balance_at = _pick_text(
+            onemin_billing.get("last_actual_balance_at"),
+            onemin_aggregate.get("last_actual_balance_at"),
+        )
+        active_lanes = _int_value(
+            lane_telemetry.get("active_lanes"),
+            lane_telemetry.get("inflight_lanes"),
+            lane_telemetry.get("running_lanes"),
+        )
+        stalled_lanes = _int_value(lane_telemetry.get("stalled_lanes"), lane_telemetry.get("blocked_lanes"))
+        failed_lanes = _int_value(lane_telemetry.get("failed_lanes"), lane_telemetry.get("error_lanes"))
+        queued_lanes = _int_value(lane_telemetry.get("queued_lanes"), lane_telemetry.get("pending_lanes"))
+        burn_per_hour = _int_value(
+            fleet_burn.get("current_burn_credits_per_hour"),
+            fleet_burn.get("estimated_pool_burn_credits_per_hour"),
+            onemin_billing.get("current_burn_credits_per_hour"),
+        )
+        runway_hours = _int_value(
+            fleet_burn.get("runway_hours"),
+            onemin_billing.get("runway_hours"),
+            onemin_aggregate.get("runway_hours"),
+        )
+        loop_allowed = credits_total > credits_floor
+        gate_detail = (
+            f"Live surplus is {_number_text(max(credits_total - credits_floor, 0))} credits above the reserve floor."
+            if loop_allowed
+            else f"Reserve floor is {_number_text(credits_floor)} credits; current visible total is {_number_text(credits_total)}."
+        )
+        items = [
+            {
+                "title": "1min.AI credit posture",
+                "detail": " · ".join(
+                    part
+                    for part in (
+                        f"{_number_text(credits_total)} credits visible" if credits_total else "No live credit total visible yet",
+                        f"Last billing refresh {last_balance_at}" if last_balance_at else "",
+                        f"{_number_text(burn_per_hour)}/h burn" if burn_per_hour else "",
+                        f"{runway_hours}h runway" if runway_hours else "",
+                    )
+                    if part
+                ) or "Billing refresh has not produced a visible credit snapshot yet.",
+                "tag": "Credits",
+                "href": "/admin/providers",
+                "action_href": "/admin/providers",
+                "action_label": "Open provider lane",
+                "action_method": "get",
+            },
+            {
+                "title": "Repair lane",
+                "detail": " · ".join(
+                    part
+                    for part in (
+                        f"{active_lanes} active lanes" if active_lanes else "",
+                        f"{queued_lanes} queued" if queued_lanes else "",
+                        f"{failed_lanes} failed" if failed_lanes else "",
+                        f"{stalled_lanes} stalled" if stalled_lanes else "",
+                    )
+                    if part
+                ) or "No live lane telemetry is visible yet.",
+                "tag": "Repair",
+                "href": "/admin/audit-trail",
+                "action_href": "/admin/audit-trail",
+                "action_label": "Open telemetry",
+                "action_method": "get",
+            },
+            {
+                "title": "Continuous improvement gate",
+                "detail": gate_detail,
+                "tag": "Fleet",
+                "href": "/app/channel-loop/fleet",
+                "action_href": "/app/channel-loop/fleet",
+                "action_label": "Open fleet digest",
+                "action_method": "get",
+            },
+        ]
+        if loop_allowed:
+            items.append(
+                {
+                    "title": "Expansion backlog",
+                    "detail": "Use the surplus window for provider repair, missing-country coverage, and UX hardening only after search reliability stays green.",
+                    "tag": "Backlog",
+                    "href": "/admin/operators",
+                    "action_href": "/admin/operators",
+                    "action_label": "Open operator lane",
+                    "action_method": "get",
+                }
+            )
+        preview_bits = [
+            f"{_number_text(credits_total)} credits visible" if credits_total else "credit snapshot pending",
+            f"{active_lanes} active lane{'s' if active_lanes != 1 else ''}" if active_lanes or queued_lanes or failed_lanes or stalled_lanes else "lane telemetry pending",
+            "improvement loop enabled" if loop_allowed else "improvement loop held at reserve floor",
+        ]
+        return {
+            "items": items,
+            "stats": {
+                "visible_credits": credits_total,
+                "active_lanes": active_lanes,
+                "failed_lanes": failed_lanes,
+                "stalled_lanes": stalled_lanes,
+                "queued_lanes": queued_lanes,
+                "runway_hours": runway_hours,
+                "improvement_loop_enabled": 1 if loop_allowed else 0,
+            },
+            "preview_text": ", ".join(bit for bit in preview_bits if bit),
+        }
+
     def channel_digest_text(
         self,
         *,
@@ -40878,6 +41032,7 @@ class ProductService:
                     "action_method": operator_action_method,
                 }
             )
+        fleet_digest = self._fleet_digest_payload(principal_id=principal_id, operator_key=operator_key)
         for handoff in visible_handoffs:
             actions = self._handoff_channel_actions(
                 principal_id=principal_id,
@@ -41151,6 +41306,14 @@ class ProductService:
                     "open_commitments": len(snapshot.commitments),
                     "memo_blockers": 1 if memo_blocker_item is not None else 0,
                 },
+            },
+            {
+                "key": "fleet",
+                "headline": "Fleet repair and expansion digest",
+                "summary": "Credit posture, repair-lane telemetry, and the continuous improvement gate in one operator-safe digest.",
+                "preview_text": str(fleet_digest.get("preview_text") or ""),
+                "items": list(fleet_digest.get("items") or []),
+                "stats": dict(fleet_digest.get("stats") or {}),
             },
         ]
 

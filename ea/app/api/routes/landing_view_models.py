@@ -42,6 +42,7 @@ from app.api.routes.landing_property_workspace_helpers import (
     _property_family_filters_active,
     _property_market_filter_capabilities,
     _property_progress_route_preview_rows,
+    _property_run_reliability_summary,
     _property_route_preview_path,
     _property_search_guard_rows,
     _property_search_worker_slots,
@@ -1238,8 +1239,16 @@ def app_section_payload(
         for title in trust_notes
     ]
     property_state = dict(property_context or {})
-    property_preferences = dict(property_state.get("preferences") or {})
     property_run = dict(property_state.get("run") or {})
+    property_run_preferences = (
+        dict(property_run.get("property_search_preferences") or property_run.get("preferences") or {})
+        if isinstance(property_run.get("property_search_preferences") or property_run.get("preferences"), dict)
+        else {}
+    )
+    property_preferences = {
+        **dict(property_state.get("preferences") or {}),
+        **property_run_preferences,
+    }
     property_summary = dict(property_run.get("summary") or {})
     property_country_label = str(property_state.get("country_label") or "Market")
     property_language_label = str(property_state.get("language_label") or "Deutsch")
@@ -3795,6 +3804,7 @@ def property_workspace_payload(
     suppression_rows = _property_suppression_rows(
         run_summary=run_summary,
         source_rows=run_sources,
+        preferences=property_preferences,
     )
     delivery_proof_rows = _delivery_proof_rows(run_summary)
     artifact_receipt_rows = _artifact_receipt_rows(run_summary)
@@ -5566,6 +5576,16 @@ def property_workspace_payload(
             "summary": run_summary,
             "events": run_events[-8:],
             "worker_state": search_worker_state,
+            "reliability": _property_run_reliability_summary(
+                {
+                    "status": run_status_value or "not_started",
+                    "progress": int(run_payload.get("progress") or 0),
+                    "message": run_status_note or run_message,
+                    "eta_label": str(run_payload.get("eta_label") or "").strip(),
+                    "summary": run_summary,
+                },
+                results_total=len(workbench_results),
+            ),
             "research_task_total": research_task_total,
             "open_research_task_total": open_research_task_total,
             "filled_research_task_total": filled_research_task_total,
