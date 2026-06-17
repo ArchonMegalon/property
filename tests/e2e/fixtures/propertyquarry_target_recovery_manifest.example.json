@@ -1,0 +1,44 @@
+[
+  {
+    "provider": "willhaben",
+    "country_code": "AT",
+    "canonical_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1090-alsergrund/example-target",
+    "title": "Example target listing",
+    "listing_mode": "rent",
+    "property_type": "apartment",
+    "location_query": "1090 Vienna",
+    "district_hint": "Alsergrund",
+    "postal_hint": "1090 Vienna",
+    "price_eur": 1850,
+    "area_m2": 86,
+    "rooms": 3,
+    "selected_platforms": [
+      "willhaben"
+    ],
+    "selected_districts": [
+      "1090 Vienna"
+    ],
+    "soft_preferences": {
+      "max_distance_to_subway_m": 500,
+      "max_distance_to_subway_importance": "nice_to_have",
+      "keyword_preferences": {
+        "balcony": "nice_to_have",
+        "lift": "nice_to_have"
+      }
+    },
+    "negatives": [
+      {
+        "canonical_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1140-penzing/example-wrong-district",
+        "title": "Wrong district near Hütteldorf",
+        "district_hint": "1140 Vienna",
+        "must_not_rank": true
+      },
+      {
+        "canonical_url": "https://www.willhaben.at/iad/immobilien/d/eigentumswohnungen/wien/wien-1090-alsergrund/example-wrong-mode",
+        "title": "Same district but buy instead of rent",
+        "district_hint": "1090 Vienna",
+        "must_not_rank": true
+      }
+    ]
+  }
+]

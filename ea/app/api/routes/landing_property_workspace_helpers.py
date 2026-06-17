@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import re
 
 import urllib.parse
 from typing import Any
@@ -62,8 +63,14 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
 
     def _source_progress(source_row: dict[str, object]) -> int:
         raw_status = str(source_row.get("status") or source_row.get("state") or "").strip().lower()
+        repair_tasks = [dict(row) for row in list(source_row.get("provider_repair_tasks") or []) if isinstance(row, dict)]
+        repair_status = str((repair_tasks[0] if repair_tasks else {}).get("status") or source_row.get("repair_status") or "").strip().lower()
         if raw_status in {"completed", "processed", "done", "success"}:
             return 100
+        if raw_status == "repaired" or repair_status == "returned":
+            return 100
+        if raw_status == "repairing" or repair_status in {"pending", "assigned"}:
+            return 72
         if raw_status in {"failed", "error", "skipped"} or source_row.get("error"):
             return 100
         try:
@@ -80,10 +87,16 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
 
     def _source_status_label(source_row: dict[str, object]) -> str:
         raw_status = str(source_row.get("status") or source_row.get("state") or "").strip().lower()
+        repair_tasks = [dict(row) for row in list(source_row.get("provider_repair_tasks") or []) if isinstance(row, dict)]
+        repair_status = str((repair_tasks[0] if repair_tasks else {}).get("status") or source_row.get("repair_status") or "").strip().lower()
+        if raw_status == "repaired" or repair_status == "returned":
+            return "Repaired"
+        if raw_status == "repairing" or repair_status in {"pending", "assigned"}:
+            return "Repairing"
         if raw_status in {"completed", "processed", "done", "success"}:
             return "Done"
         if raw_status in {"failed", "error"} or source_row.get("error"):
-            return "Retrying"
+            return "Fetch failed"
         if raw_status in {"running", "processing", "in_progress", "working", "warming"}:
             return "Running"
         if raw_status in {"queued", "pending", "starting"}:
@@ -141,7 +154,7 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
                 "shard_count": shard_count,
                 "status_label": status_label,
                 "progress_pct": progress,
-                "tone": "done" if progress >= 100 and source_row and status_label == "Done" else ("active" if status_label in {"Running", "Starting"} else ("queued" if status_label in {"Up next", "Retrying"} else "idle")),
+                "tone": "done" if progress >= 100 and source_row and status_label in {"Done", "Repaired"} else ("active" if status_label in {"Running", "Starting", "Repairing"} else ("queued" if status_label in {"Up next"} else "idle")),
             }
         )
 
@@ -449,6 +462,11 @@ def _property_candidate_preview_image(candidate: dict[str, object]) -> str:
                 normalized = str(value or "").strip()
                 if normalized.startswith(("https://", "/")):
                     return normalized
+    orientation_preview = _property_candidate_orientation_preview(candidate)
+    for key in ("thumb_image_url", "image_url"):
+        normalized = str(orientation_preview.get(key) or "").strip()
+        if normalized:
+            return normalized
     return ""
 
 
@@ -456,6 +474,14 @@ def _property_candidate_orientation_preview(candidate: dict[str, object]) -> dic
     from app.api.routes import landing_view_models
 
     facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    title = str(candidate.get("title") or "").strip()
+    summary = str(candidate.get("summary") or "").strip()
+    combined_text = " | ".join(part for part in (title, summary) if part)
+    if not any(str(facts.get(key) or "").strip() for key in ("postal_name", "district", "city", "address", "street_address", "exact_address")):
+        postal_match = re.search(r"\b(1\d{3})\s+W(?:ien|ien)\b", combined_text, flags=re.IGNORECASE)
+        if postal_match:
+            facts["postal_name"] = f"{postal_match.group(1)} Wien"
+            facts.setdefault("address", f"{postal_match.group(1)} Wien")
     label = str(
         facts.get("district")
         or facts.get("postal_name")
@@ -512,13 +538,17 @@ def _property_candidate_orientation_preview(candidate: dict[str, object]) -> dic
         option_lookup=option_lookup,
         market_label=context_label or label,
     )
-    if boundary_preview:
-        image_url = str(boundary_preview.get("image_url") or "").strip()
-    elif lat or lng:
-        image_url = landing_view_models._openstreetmap_static_preview_data_url(
+    thumb_image_url = ""
+    if lat or lng:
+        thumb_image_url = landing_view_models._openstreetmap_static_preview_data_url(
             int(round(lat * 10000.0)),
             int(round(lng * 10000.0)),
+            zoom=15,
         )
+    if thumb_image_url:
+        image_url = thumb_image_url
+    elif boundary_preview:
+        image_url = str(boundary_preview.get("image_url") or "").strip()
     else:
         svg = (
             '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="368" viewBox="0 0 320 184" role="img" aria-label="Area map preview">'
@@ -534,6 +564,7 @@ def _property_candidate_orientation_preview(candidate: dict[str, object]) -> dic
     caption = str(boundary_preview.get("summary") or "Open a larger area map").strip() if boundary_preview else "Open a larger area map"
     return {
         "image_url": image_url,
+        "thumb_image_url": thumb_image_url or image_url,
         "alt": alt,
         "title": label,
         "caption": caption,

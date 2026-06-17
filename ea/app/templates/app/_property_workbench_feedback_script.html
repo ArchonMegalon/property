@@ -246,7 +246,7 @@
           },
         });
         appendActionControl(actions, {
-          label: 'Request flythrough',
+          label: 'Request walkthrough',
           attributes: {
             'data-pw-visual-request': 'flythrough',
             'data-property-url': String(candidate.property_url || ''),
@@ -270,10 +270,27 @@
       status.className = 'pqx-decision-status';
       status.setAttribute('data-pw-visual-request-status', '');
       status.textContent = !tour.url
-        ? 'Need a remote view? Request a 3D tour or flythrough from the available source material.'
+        ? 'Need a remote view? Request a 3D tour or walkthrough from the available source material.'
         : '';
       details.appendChild(status);
       node.appendChild(details);
+    };
+    const renderTopPropertyActions = (node, candidate) => {
+      if (!node || !candidate) return;
+      clearNode(node);
+      const candidateRef = String(candidate.candidate_ref || '').trim();
+      if (candidate.packet_url) {
+        appendActionControl(node, {
+          label: 'Open property page',
+          href: String(candidate.packet_url || ''),
+          link: true,
+          primary: true,
+          attributes: {
+            'data-rybbit-event': 'property_open_page',
+            'data-rybbit-prop-candidate': candidateRef,
+          },
+        });
+      }
     };
     const renderEventCards = (node, rows, emptyTitle, emptyDetail = '') => {
       if (!node) return;
@@ -978,7 +995,7 @@
           ? ''
           : 'Request a visual from the available source material when this home matters enough to inspect further.';
       }
-      if (topPropertyActionsNode && candidates.length) renderPropertyActions(topPropertyActionsNode, candidate);
+      if (topPropertyActionsNode && candidates.length) renderTopPropertyActions(topPropertyActionsNode, candidate);
       loadCandidateFeedbackSuggestions(candidate);
       loadPersistedDecisionState(candidate);
       if (updateUrl) {
@@ -987,22 +1004,27 @@
         window.history.replaceState({}, '', url);
       }
     };
-    root.querySelectorAll('[data-workbench-row]').forEach((row) => {
-      row.addEventListener('click', (event) => {
-        const interactiveTarget = event.target?.closest?.('a, button, [data-pqx-scope-open]');
-        if (interactiveTarget && interactiveTarget !== row) return;
-        selectCandidate(row.getAttribute('data-candidate-ref'));
-        setMode('property');
+    function bindWorkbenchRows(scope = root) {
+      scope.querySelectorAll('[data-workbench-row]').forEach((row) => {
+        if (row.dataset.pqxRowBound === '1') return;
+        row.dataset.pqxRowBound = '1';
+        row.addEventListener('click', (event) => {
+          const interactiveTarget = event.target?.closest?.('a, button, [data-pqx-scope-open]');
+          if (interactiveTarget && interactiveTarget !== row) return;
+          selectCandidate(row.getAttribute('data-candidate-ref'));
+          if (root.querySelector('[data-workbench-mobile-mode="property"]')) setMode('property');
+        });
+        row.addEventListener('keydown', (event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          const interactiveTarget = event.target?.closest?.('a, button, [data-pqx-scope-open]');
+          if (interactiveTarget && interactiveTarget !== row) return;
+          event.preventDefault();
+          selectCandidate(row.getAttribute('data-candidate-ref'));
+          if (root.querySelector('[data-workbench-mobile-mode="property"]')) setMode('property');
+        });
       });
-      row.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        const interactiveTarget = event.target?.closest?.('a, button, [data-pqx-scope-open]');
-        if (interactiveTarget && interactiveTarget !== row) return;
-        event.preventDefault();
-        selectCandidate(row.getAttribute('data-candidate-ref'));
-        setMode('property');
-      });
-    });
+    }
+    bindWorkbenchRows(root);
     root.addEventListener('click', (event) => {
       const button = event.target?.closest?.('[data-fliplink-packet]');
       if (!button) return;

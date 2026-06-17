@@ -11,6 +11,7 @@ from app.product.models import (
     PropertyRecurringWatchSnapshot,
     PropertySearchFormStateSnapshot,
     PropertyRunHealthSnapshot,
+    PropertyRunLiveBoardSnapshot,
     PropertyRunReliabilitySnapshot,
     PropertyRunRepairSnapshot,
     PropertySearchAgentSelectionSnapshot,
@@ -18,6 +19,15 @@ from app.product.models import (
     PropertyShortlistSnapshot,
     PropertyWorkbenchCandidateSnapshot,
 )
+
+
+_GENERIC_SOURCE_FAMILIES = {
+    "genossenschaften",
+    "genossenschaften at",
+    "community housing",
+    "community providers",
+    "developer projects",
+}
 
 
 def _positive_int(value: object, *, default: int = 0) -> int:
@@ -56,8 +66,76 @@ def property_mode_visibility_label(
     return "Buy" if effective_property_listing_mode(payload, fallback=fallback) == "buy" else "Rent"
 
 
+def _property_search_ranked_candidates_from_sources(
+    sources: list[dict[str, object]],
+    *,
+    limit: int = 50,
+) -> list[dict[str, object]]:
+    ranked_candidates: list[dict[str, object]] = []
+    seen_keys: set[str] = set()
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        source_label = str(source.get("source_label") or source.get("label") or "").strip()
+        for candidate in list(source.get("research_candidates") or source.get("top_candidates") or []):
+            if not isinstance(candidate, dict):
+                continue
+            candidate_row = dict(candidate)
+            candidate_row.setdefault("source_label", source_label)
+            candidate_key = str(
+                candidate_row.get("candidate_ref")
+                or candidate_row.get("source_ref")
+                or candidate_row.get("property_url")
+                or candidate_row.get("listing_id")
+                or candidate_row.get("title")
+                or ""
+            ).strip()
+            if candidate_key and candidate_key in seen_keys:
+                continue
+            if candidate_key:
+                seen_keys.add(candidate_key)
+            ranked_candidates.append(candidate_row)
+    ranked_candidates.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
+    for index, candidate_row in enumerate(ranked_candidates, start=1):
+        candidate_row.setdefault("rank", index)
+    return ranked_candidates[:limit]
+
+
+def _property_summary_held_back_total(summary: dict[str, object]) -> int:
+    return max(
+        0,
+        _positive_int(summary.get("held_back_total"))
+        or _positive_int(summary.get("filtered_total"))
+        or _positive_int(summary.get("filtered_out_total"))
+        or (
+            _positive_int(summary.get("filtered_floorplan_total"))
+            + _positive_int(summary.get("filtered_area_total"))
+            + _positive_int(summary.get("filtered_low_fit_total"))
+            + _positive_int(summary.get("notification_budget_suppressed_total"))
+        ),
+    )
+
+
 def normalize_property_search_run_snapshot(raw_run: dict[str, object]) -> dict[str, object]:
-    return PropertySearchRunSnapshot.from_dict(dict(raw_run or {})).to_dict()
+    payload = PropertySearchRunSnapshot.from_dict(dict(raw_run or {})).to_dict()
+    summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
+    sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    if sources:
+        ranked_candidates = [
+            dict(row)
+            for row in list(summary.get("ranked_candidates") or [])
+            if isinstance(row, dict)
+        ]
+        if not ranked_candidates:
+            ranked_candidates = _property_search_ranked_candidates_from_sources(sources)
+            if ranked_candidates:
+                summary["ranked_candidates"] = ranked_candidates
+        held_back_total = _property_summary_held_back_total(summary)
+        if held_back_total > 0:
+            summary.setdefault("held_back_total", held_back_total)
+            summary.setdefault("filtered_total", held_back_total)
+        payload["summary"] = summary
+    return payload
 
 
 def property_run_status_copy(status_value: object, message_value: object = "") -> tuple[str, str]:
@@ -278,6 +356,274 @@ def build_property_run_reliability_snapshot(
         eta_confidence_label=str(repair.get("eta_confidence_label") or "Unknown").strip() or "Unknown",
         customer_status_message=customer_status,
         repair=repair,
+    ).to_dict()
+
+
+def _compact_run_message(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "Waiting for the first source update."
+    candidate_match = re.search(r"(?:Reviewing|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
+    if candidate_match:
+        return f"{candidate_match.group(1)} / {candidate_match.group(2)}"
+    shortlist_match = re.search(r"^Built shortlist of\s+\d+\s+listing\(s\)\s+for\s+(.+)\.$", text, flags=re.IGNORECASE)
+    if shortlist_match:
+        return "Shortlist ready"
+    return text
+
+
+def _parse_property_run_message_info(value: object) -> dict[str, str]:
+    text = str(value or "").strip()
+    if not text:
+        return {
+            "raw": "",
+            "fraction_label": "",
+            "source_label": "",
+            "phase_label": "Waiting for the first source update.",
+        }
+    source_match = re.search(r"\sfor\s+(.+?)\.?$", text, flags=re.IGNORECASE)
+    candidate_match = re.search(r"^(Reviewing|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
+    if candidate_match:
+        verb = str(candidate_match.group(1) or "").strip().lower()
+        phase_label = (
+            "Reviewing homes"
+            if verb.startswith("review")
+            else ("Scoring homes" if verb.startswith("scor") else "Updating shortlist")
+        )
+        return {
+            "raw": text,
+            "fraction_label": f"{candidate_match.group(2)} / {candidate_match.group(3)}",
+            "source_label": str(source_match.group(1) or "").strip() if source_match else "",
+            "phase_label": phase_label,
+        }
+    enrich_match = re.search(r"^Enriching top\s+(\d+)\s+candidate\(s\)\s+out of\s+(\d+)\s+for\s+(.+?)\s+before final shortlist scoring\.?$", text, flags=re.IGNORECASE)
+    if enrich_match:
+        return {
+            "raw": text,
+            "fraction_label": f"{enrich_match.group(1)} / {enrich_match.group(2)}",
+            "source_label": str(enrich_match.group(3) or "").strip(),
+            "phase_label": "Preparing shortlist",
+        }
+    shortlist_match = re.search(r"^Built shortlist of\s+(\d+)\s+listing\(s\)\s+for\s+(.+)\.$", text, flags=re.IGNORECASE)
+    if shortlist_match:
+        total = str(shortlist_match.group(1) or "0")
+        return {
+            "raw": text,
+            "fraction_label": "",
+            "source_label": str(shortlist_match.group(2) or "").strip(),
+            "phase_label": f"Shortlist ready · {total} home{'' if total == '1' else 's'}",
+        }
+    prepared_match = re.search(r"^Prepared property page for\s+.+\.$", text, flags=re.IGNORECASE)
+    if prepared_match:
+        return {
+            "raw": text,
+            "fraction_label": "",
+            "source_label": "",
+            "phase_label": "Preparing property pages",
+        }
+    completed_match = re.search(r"^Completed scanning\s+(.+?)\.?$", text, flags=re.IGNORECASE)
+    if completed_match:
+        return {
+            "raw": text,
+            "fraction_label": "",
+            "source_label": str(completed_match.group(1) or "").strip(),
+            "phase_label": "Source finished",
+        }
+    return {
+        "raw": text,
+        "fraction_label": "",
+        "source_label": str(source_match.group(1) or "").strip() if source_match else "",
+        "phase_label": _compact_run_message(text),
+    }
+
+
+def _latest_property_run_fraction_info(run_payload: dict[str, object]) -> dict[str, str]:
+    current = _parse_property_run_message_info(run_payload.get("message"))
+    if current.get("fraction_label"):
+        return current
+    events = list(run_payload.get("events") or [])
+    for event in reversed(events):
+        if not isinstance(event, dict):
+            continue
+        parsed = _parse_property_run_message_info(event.get("message"))
+        if parsed.get("fraction_label"):
+            return parsed
+    return current
+
+
+def _compact_property_provider_label(value: object) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return "Provider"
+    segments = [part.strip() for part in text.split("|") if str(part).strip()]
+    if len(segments) > 1 and str(segments[0]).strip().lower() in _GENERIC_SOURCE_FAMILIES:
+        text = segments[-1]
+    else:
+        for marker in ("|", "·", " — ", " – ", ":", "("):
+            if marker in text:
+                text = text.split(marker)[0].strip()
+    words = [item for item in text.split(" ") if item]
+    if len(words) > 3:
+        text = " ".join(words[:3]).strip()
+    if len(text) > 20 and len(words) >= 2:
+        text = " ".join(words[:2]).strip()
+    if len(text) > 20:
+        text = f"{text[:17].rstrip()}..."
+    return text or "Provider"
+
+
+def _source_provider_group(source: dict[str, object]) -> str:
+    family = str(source.get("provider_family") or "").strip().lower()
+    if family:
+        return family
+    platform = str(source.get("platform") or "").strip().lower()
+    if platform:
+        return platform
+    label = str(source.get("source_label") or source.get("label") or "").strip()
+    return (label.split("|")[0] or label).strip().lower() or "provider"
+
+
+def build_property_run_live_board_snapshot(
+    run_payload: dict[str, object],
+    *,
+    plan_key: str = "free",
+) -> dict[str, object]:
+    payload = dict(run_payload or {})
+    summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
+    status = str(payload.get("status") or summary.get("status") or "queued").strip().lower() or "queued"
+    progress = max(0, min(100, _positive_int(payload.get("progress") or summary.get("progress"))))
+    source_total = max(0, _positive_int(summary.get("sources_total")))
+    source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    reviewed_total = max(0, _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total") or summary.get("raw_listing_total")))
+    waiting_on_floorplans = max(0, _positive_int(summary.get("filtered_floorplan_total")))
+    packet_prepared = max(0, _positive_int(summary.get("review_created_total")) + _positive_int(summary.get("review_existing_total")))
+    shortlist_ready = max(0, _positive_int(summary.get("high_fit_total")))
+
+    live_info = _latest_property_run_fraction_info(payload)
+    current_info = _parse_property_run_message_info(payload.get("message"))
+    active_source_label = str(current_info.get("source_label") or live_info.get("source_label") or "").strip()
+    message_text = str(payload.get("message") or "").strip().lower()
+
+    aggregate_label = f"{reviewed_total} homes reviewed"
+    if waiting_on_floorplans > 0:
+        aggregate_label += f" · {waiting_on_floorplans} still waiting on floorplans"
+    phase_label = str(current_info.get("phase_label") or "").strip() or "Waiting for the first source update."
+    if phase_label == "Waiting for the first source update." and packet_prepared > 0 and str(payload.get("current_step") or "").strip().lower() == "source_review_packet":
+        phase_label = f"{packet_prepared} property pages prepared"
+    elif phase_label == "Waiting for the first source update." and shortlist_ready > 0 and str(payload.get("current_step") or "").strip().lower() == "source_shortlist":
+        phase_label = f"{shortlist_ready} shortlist homes ready"
+
+    normalized_rows: list[dict[str, object]] = []
+    for source in source_rows:
+        row = dict(source)
+        raw_status = str(row.get("status") or row.get("state") or "").strip().lower()
+        row_label = str(row.get("source_label") or row.get("label") or "").strip()
+        if not raw_status:
+            row["status"] = "failed" if row.get("error") else "completed"
+        if active_source_label and row_label == active_source_label and not message_text.startswith("completed scanning "):
+            row["status"] = "failed" if row.get("error") else "running"
+        normalized_rows.append(row)
+    synthetic_active = []
+    if active_source_label and not any(str(row.get("source_label") or row.get("label") or "").strip() == active_source_label for row in normalized_rows) and not message_text.startswith("completed scanning "):
+        synthetic_active.append({"source_label": active_source_label, "label": active_source_label, "status": "running"})
+    lane_rows = [*synthetic_active, *normalized_rows]
+    active_rows = [
+        row for row in lane_rows
+        if str(row.get("status") or row.get("state") or "").strip().lower() in {"running", "processing", "in_progress", "working", "warming", "queued", "pending", "starting"}
+    ]
+    failed_rows = [
+        row for row in lane_rows
+        if str(row.get("status") or row.get("state") or "").strip().lower() in {"failed", "error", "skipped"} or row.get("error")
+    ]
+    completed_rows = [
+        row for row in lane_rows
+        if str(row.get("status") or row.get("state") or "").strip().lower() in {"completed", "processed", "done", "success"}
+    ]
+    raw_worker_queue = [*active_rows, *failed_rows, *completed_rows]
+    seen_groups: set[str] = set()
+    worker_queue: list[dict[str, object]] = []
+    for row in raw_worker_queue:
+        key = _source_provider_group(row)
+        if key in seen_groups:
+            continue
+        seen_groups.add(key)
+        worker_queue.append(row)
+    plan_cap = 4 if plan_key == "agent" else (2 if plan_key == "plus" else 1)
+    run_active = progress > 0 or status in {"queued", "in_progress", "running", "processing", "starting"}
+    actual_worker_count = min(plan_cap, len(worker_queue))
+    worker_count = actual_worker_count if actual_worker_count > 0 else (1 if run_active else 0)
+    worker_lanes: list[dict[str, object]] = []
+    for index in range(worker_count):
+        source = worker_queue[index] if index < len(worker_queue) else None
+        raw_status = str((source or {}).get("status") or (source or {}).get("state") or "").strip().lower()
+        progress_pct = _positive_int((source or {}).get("progress"))
+        if progress_pct <= 0:
+            if raw_status in {"completed", "processed", "done", "success", "failed", "error", "skipped"}:
+                progress_pct = 100
+            elif raw_status in {"running", "processing", "in_progress", "working", "warming"}:
+                progress_pct = 58
+            elif raw_status in {"queued", "pending", "starting"}:
+                progress_pct = 18
+            else:
+                progress_pct = 0
+        if source is None:
+            status_label = "Starting" if run_active else "Idle"
+        elif raw_status in {"completed", "processed", "done", "success"}:
+            status_label = "Done"
+        elif raw_status in {"failed", "error"} or source.get("error"):
+            status_label = "Fetch failed"
+        elif raw_status in {"running", "processing", "in_progress", "working", "warming"}:
+            status_label = "Running"
+        else:
+            status_label = "Up next"
+        if source is None:
+            tone = "active" if status_label == "Starting" else "idle"
+        elif progress_pct >= 100 and status_label == "Done":
+            tone = "done"
+        elif status_label in {"Running", "Starting"}:
+            tone = "active"
+        elif status_label == "Fetch failed":
+            tone = "warn"
+        else:
+            tone = "queued"
+        provider = str((source or {}).get("source_label") or (source or {}).get("label") or ("Preparing source lanes" if status_label == "Starting" else ("Waiting for a source" if source_rows else "Ready when you start")))
+        group_key = _source_provider_group(source or {})
+        shard_count = max(0, len([row for row in raw_worker_queue if _source_provider_group(row) == group_key]) - 1) if source else 0
+        worker_lanes.append(
+            {
+                "label": _compact_property_provider_label(provider) if source else ("Preparing sources" if status_label == "Starting" else ("Waiting" if source_rows else "Ready")),
+                "provider": provider,
+                "shard_count": shard_count,
+                "status_label": status_label,
+                "progress_pct": progress_pct if source else (max(8, min(progress or 12, 24)) if status_label == "Starting" else progress_pct),
+                "tone": tone,
+            }
+        )
+    source_chips = [
+        {
+            "label": str(source.get("source_label") or source.get("label") or "Source"),
+            "tone": "warn" if source.get("error") else "good",
+        }
+        for source in source_rows[:8]
+    ]
+    provider_full_label = str(live_info.get("source_label") or (worker_queue[0].get("source_label") if worker_queue else "") or "").strip()
+    provider_label = _compact_property_provider_label(provider_full_label or f"{len(source_rows)}/{source_total} sources checked")
+    source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} sources checked"
+    summary_label = (
+        f"{source_total} sources · {provider_label} · {live_info.get('fraction_label')}"
+        if provider_full_label and live_info.get("fraction_label")
+        else f"{source_total} sources · {aggregate_label}"
+    )
+    return PropertyRunLiveBoardSnapshot(
+        provider_label=provider_label,
+        provider_full_label=provider_full_label,
+        fraction_label=str(live_info.get("fraction_label") or "").strip(),
+        phase_label=phase_label,
+        aggregate_label=aggregate_label,
+        summary_label=summary_label,
+        source_count_label=source_count_label,
+        source_chips=source_chips,
+        worker_lanes=worker_lanes,
     ).to_dict()
 
 
@@ -641,12 +987,10 @@ def build_property_shortlist_snapshot(
     selected = ordered_results[0] if ordered_results else {}
     normalized_selected_ref = str(selected_candidate_ref or "").strip()
     if normalized_selected_ref:
-        for index, row in enumerate(ordered_results):
+        for row in ordered_results:
             if str(row.get("candidate_ref") or "").strip() != normalized_selected_ref:
                 continue
             selected = row
-            if index != 0:
-                ordered_results = [row, *ordered_results[:index], *ordered_results[index + 1 :]]
             break
     return PropertyShortlistSnapshot(
         results=ordered_results,
@@ -727,6 +1071,7 @@ def build_property_workbench_candidate_snapshot(
     fit_label: str,
     fit_summary: str,
     tour: dict[str, object],
+    flythrough: dict[str, object] | None = None,
     orientation_preview: dict[str, object],
     ooda: dict[str, object],
     risk: dict[str, object],
@@ -739,6 +1084,7 @@ def build_property_workbench_candidate_snapshot(
     property_url: str,
     map_url: str,
     source_url: str,
+    floorplan_url: str = "",
     property_facts: dict[str, object],
     assessment: dict[str, object],
     objection_rows: list[dict[str, str]],
@@ -760,6 +1106,8 @@ def build_property_workbench_candidate_snapshot(
     recovered_by_filter: bool = False,
     relaxed_filter_label: str = "",
     preview_image_url: str = "",
+    repair_flag_label: str = "",
+    repair_flag_detail: str = "",
 ) -> dict[str, object]:
     return PropertyWorkbenchCandidateSnapshot(
         candidate_ref=str(candidate_ref or "").strip(),
@@ -776,6 +1124,7 @@ def build_property_workbench_candidate_snapshot(
         fit_label=str(fit_label or "Candidate").strip() or "Candidate",
         fit_summary=str(fit_summary or "").strip(),
         tour=dict(tour or {}),
+        flythrough=dict(flythrough or {}),
         orientation_preview=dict(orientation_preview or {}),
         ooda=dict(ooda or {}),
         risk=dict(risk or {}),
@@ -788,6 +1137,7 @@ def build_property_workbench_candidate_snapshot(
         property_url=str(property_url or "").strip(),
         map_url=str(map_url or "").strip(),
         source_url=str(source_url or "").strip(),
+        floorplan_url=str(floorplan_url or "").strip(),
         property_facts=dict(property_facts or {}),
         assessment=dict(assessment or {}),
         objection_rows=[dict(row) for row in list(objection_rows or []) if isinstance(row, dict)],
@@ -809,6 +1159,8 @@ def build_property_workbench_candidate_snapshot(
         recovered_by_filter=bool(recovered_by_filter),
         relaxed_filter_label=str(relaxed_filter_label or "").strip(),
         preview_image_url=str(preview_image_url or "").strip(),
+        repair_flag_label=str(repair_flag_label or "").strip(),
+        repair_flag_detail=str(repair_flag_detail or "").strip(),
     ).to_dict()
 
 
@@ -861,6 +1213,11 @@ def build_property_research_packet_snapshot(
     household_rows: list[dict[str, object]],
     risk_signal_rows: list[dict[str, object]],
 ) -> dict[str, object]:
+    if isinstance(preview_image, dict):
+        preview_image_payload = dict(preview_image)
+    else:
+        preview_image_url = str(preview_image or "").strip()
+        preview_image_payload = {"image_url": preview_image_url} if preview_image_url else {}
     return PropertyResearchPacketSnapshot(
         research_title=str(title or "").strip() or "Research packet",
         research_summary=str(summary or "").strip(),
@@ -870,7 +1227,7 @@ def build_property_research_packet_snapshot(
         research_rooms=str(rooms or "").strip(),
         research_location=str(location or "").strip(),
         research_media=dict(media or {}),
-        research_preview_image=dict(preview_image or {}),
+        research_preview_image=preview_image_payload,
         research_gallery_items=[dict(row) for row in list(gallery_items or []) if isinstance(row, dict)],
         research_location_preview=dict(location_preview or {}),
         research_actions=[dict(row) for row in list(actions or []) if isinstance(row, dict)],

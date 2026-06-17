@@ -895,13 +895,30 @@ def _run_scheduler_property_results_finalize(container, log: logging.Logger) -> 
     except Exception:
         log.exception("scheduler property results finalize failed")
         return {"ran": True, "attempted": 0, "finalized": 0, "emailed": 0, "pending": 0, "errors": 1}
+    repair_resolved_total = 0
+    repair_deferred_total = 0
+    repair_errors = 0
+    for principal_id in _scheduler_property_scout_principal_ids(container):
+        try:
+            repair_summary = service.process_property_provider_repair_tasks(
+                principal_id=principal_id,
+                actor="scheduler",
+                limit=40,
+            )
+            repair_resolved_total += int(repair_summary.get("resolved_total") or 0)
+            repair_deferred_total += int(repair_summary.get("deferred_total") or 0)
+        except Exception:
+            repair_errors += 1
+            log.exception("scheduler property provider repair processing failed principal=%s", principal_id)
     return {
         "ran": True,
         "attempted": int(summary.get("attempted") or 0),
         "finalized": int(summary.get("finalized") or 0),
         "emailed": int(summary.get("emailed") or 0),
         "pending": int(summary.get("pending") or 0),
-        "errors": 0,
+        "repair_resolved_total": repair_resolved_total,
+        "repair_deferred_total": repair_deferred_total,
+        "errors": repair_errors,
     }
 
 

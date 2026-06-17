@@ -156,6 +156,7 @@ from app.product.property_search_storage import (
 )
 from app.product.property_search_run_state import (
     property_search_run_apply_event as _state_property_search_run_apply_event,
+    property_search_run_terminal_outcome as _state_property_search_run_terminal_outcome,
     new_property_search_run_record as _state_new_property_search_run_record,
     property_search_eta_label as _state_property_search_eta_label,
     property_search_review_open_timeout_seconds as _state_property_search_review_open_timeout_seconds,
@@ -2043,6 +2044,16 @@ def _property_tour_status_is_terminal(value: object) -> bool:
     return normalized in {"created", "existing", "ready", "blocked", "failed", "skipped", "not_applicable"}
 
 
+def _normalize_property_flythrough_result(result: dict[str, object] | None) -> dict[str, object]:
+    payload = dict(result or {})
+    video_url = str(payload.get("video_url") or payload.get("flythrough_url") or "").strip()
+    status = str(payload.get("status") or "").strip().lower()
+    if video_url and status not in {"rendered", "existing", "ready"}:
+        payload["status"] = "rendered"
+        payload.setdefault("reason", "")
+    return payload
+
+
 def _new_property_search_run_record(
     *,
     run_id: str,
@@ -2216,12 +2227,19 @@ def _merged_property_scout_source_specs(
     principal_id: str,
     max_results_per_source: int | None,
     default_person_id: str,
+    prefer_configured_only: bool = False,
 ) -> tuple[dict[str, object], ...]:
     raw_preferences = dict(preferences or {})
     configured = _property_scout_source_specs()
-    should_prefer_configured_only = bool(configured) and not selected_platforms and not any(
-        str(raw_preferences.get(key) or "").strip()
-        for key in ("country_code", "location_query", "keywords", "listing_mode", "property_type")
+    should_prefer_configured_only = bool(configured) and (
+        bool(prefer_configured_only)
+        or (
+            not selected_platforms
+            and not any(
+                str(raw_preferences.get(key) or "").strip()
+                for key in ("country_code", "location_query", "keywords", "listing_mode", "property_type")
+            )
+        )
     )
     if should_prefer_configured_only:
         generated: tuple[dict[str, object], ...] = ()
@@ -2457,7 +2475,8 @@ def _property_floorplan_quiet_signal_diagnostics(payload: bytes) -> dict[str, ob
     edges = gray.filter(ImageFilter.FIND_EDGES)
     edge_mean = float(ImageStat.Stat(edges).mean[0])
     rgb = image.convert("RGB").resize((120, 120))
-    pixels = list(rgb.getdata())
+    pixel_source = rgb.get_flattened_data() if hasattr(rgb, "get_flattened_data") else rgb.getdata()
+    pixels = list(pixel_source)
     if not pixels:
         return {"status": "image_empty_sample", "signal": "none"}
     brightness = [((r + g + b) / 3.0) for r, g, b in pixels]
@@ -5324,6 +5343,15 @@ def _property_austria_preference_score_adjustment(
 
 def _property_search_location_hints(preferences: dict[str, object] | None) -> tuple[str, ...]:
     preference_payload = dict(preferences or {})
+    selected_location_values = preference_payload.get("selected_location_values")
+    if isinstance(selected_location_values, (list, tuple, set)):
+        explicit_values = tuple(
+            str(item or "").strip()
+            for item in selected_location_values
+            if str(item or "").strip()
+        )
+        if explicit_values:
+            return explicit_values
     raw_value = str(preference_payload.get("location_query") or "").strip()
     if not raw_value and isinstance(preference_payload.get("raw_preferences"), dict):
         raw_value = str(dict(preference_payload.get("raw_preferences") or {}).get("location_query") or "").strip()
@@ -5643,9 +5671,7 @@ def _property_candidate_matches_requested_location(
     hint_text = " ".join(hints).lower()
     explicit_hint_postal_codes = frozenset(re.findall(r"\b\d{4}\b", hint_text))
     wants_vienna = "wien" in hint_text or "vienna" in hint_text or any(str(code).startswith("1") for code in explicit_hint_postal_codes)
-    real_concrete_postal_codes = tuple(
-        code for code in re.findall(r"\b\d{4}\b", real_concrete_text) if not source_postal_code or code != source_postal_code
-    )
+    real_concrete_postal_codes = tuple(re.findall(r"\b\d{4}\b", real_concrete_text))
     exact_postal_match = bool(
         explicit_hint_postal_codes
         and real_concrete_postal_codes
@@ -5873,6 +5899,176 @@ def _property_candidate_matches_search_area(
         region_code=effective_region_code,
         adjacent_area_radius_m=_property_search_adjacent_area_radius_m(preferences),
     )
+
+
+def _property_candidate_notification_price_signal(
+    facts: dict[str, object],
+    *,
+    listing_mode: str,
+    title: object = "",
+) -> str:
+    normalized_mode = str(listing_mode or "").strip().lower()
+    if normalized_mode == "buy":
+        for key in (
+            "price_display",
+            "purchase_price_display",
+            "buy_price_display",
+            "price_eur",
+            "purchase_price_eur",
+            "buy_price_eur",
+            "kaufpreis_eur",
+        ):
+            value = facts.get(key)
+            if key.endswith("_eur"):
+                try:
+                    amount = float(str(value).replace(",", "").strip())
+                except Exception:
+                    amount = 0.0
+                if amount > 0.0:
+                    return f"{amount:.0f}"
+            elif str(value or "").strip():
+                return str(value).strip()
+    else:
+        for key in (
+            "rent_display",
+            "monthly_rent_display",
+            "warm_rent_display",
+            "cold_rent_display",
+            "total_rent_display",
+            "gesamtmiete_display",
+            "rent_eur",
+            "total_rent_eur",
+            "warm_rent_eur",
+            "cold_rent_eur",
+        ):
+            value = facts.get(key)
+            if key.endswith("_eur"):
+                try:
+                    amount = float(str(value).replace(",", "").strip())
+                except Exception:
+                    amount = 0.0
+                if amount > 0.0:
+                    return f"{amount:.0f}"
+            elif str(value or "").strip():
+                return str(value).strip()
+    title_text = " ".join(str(title or "").split()).strip()
+    if not title_text:
+        return ""
+    for pattern in (
+        r"(€\s?[0-9][0-9\.\s]*(?:,[0-9]{1,2})?\s*,-?)",
+        r"((?:EUR|USD|CHF)\s?[0-9][0-9\.,\s]*)",
+    ):
+        match = re.search(pattern, title_text, flags=re.IGNORECASE)
+        if match:
+            return " ".join(str(match.group(1) or "").split()).strip(" ,")
+    return ""
+
+
+def _property_candidate_is_generic_listing_page(
+    *,
+    property_url: str,
+    title: str = "",
+    summary: str = "",
+    property_facts: dict[str, object] | None = None,
+) -> bool:
+    facts = dict(property_facts or {})
+    text = " ".join(
+        part
+        for part in (
+            str(title or "").strip(),
+            str(summary or "").strip(),
+            str(property_url or "").strip(),
+        )
+        if part
+    ).lower()
+    url = str(property_url or "").strip().lower()
+    parsed_url = urllib.parse.urlparse(url)
+    path = parsed_url.path.rstrip("/")
+    if any(marker in path for marker in ("/d/", "/expose/", "/detail/", "/objekt/")):
+        return False
+    concrete_signals = any(
+        str(facts.get(key) or "").strip()
+        for key in (
+            "price_display",
+            "purchase_price_display",
+            "rent_display",
+            "total_rent_display",
+            "buy_price_eur",
+            "purchase_price_eur",
+            "price_eur",
+            "rent_eur",
+            "total_rent_eur",
+            "warm_rent_eur",
+            "cold_rent_eur",
+            "monthly_rent_eur",
+            "exact_address",
+            "street_address",
+            "listing_id",
+            "listing_uuid",
+        )
+    )
+    if concrete_signals:
+        return False
+    generic_title_markers = (
+        "immobiliensuche",
+        "bestandsobjekte",
+        "projekte",
+        "gemeindewohnungen",
+        "angebote",
+        "overview",
+        "suche",
+        "projektdetail",
+        "immobilien",
+        "projektentwickler",
+        "architekturwettbewerbe",
+    )
+    generic_url_markers = (
+        "/suche",
+        "/projekte",
+        "/projekt/",
+        "/angebote",
+        "/immobilien/",
+        "/immobilien",
+        "/overview",
+        "/bestandsobjekte",
+        "/gemeindewohnungen",
+    )
+    generic_marker_hits = sum(1 for marker in generic_title_markers if marker in text)
+    has_area_signal = any(str(facts.get(key) or "").strip() for key in ("area_sqm", "living_area_sqm", "usable_area_sqm", "area_m2", "living_area_m2"))
+    has_rooms_signal = any(str(facts.get(key) or "").strip() for key in ("rooms", "room_count", "rooms_label"))
+    has_detail_signal = bool(concrete_signals or has_area_signal or has_rooms_signal)
+    return bool(
+        any(marker in url for marker in generic_url_markers)
+        or (generic_marker_hits >= 2 and not has_detail_signal)
+        or ("angebote" in text and "wohnung" not in text and not has_detail_signal)
+    )
+
+
+def _property_candidate_has_concrete_location(property_facts: dict[str, object] | None) -> bool:
+    facts = dict(property_facts or {})
+    exact_address = str(facts.get("exact_address") or "").strip()
+    street_address = str(facts.get("street_address") or "").strip()
+    district = str(facts.get("district") or "").strip()
+    postal_name = str(facts.get("postal_name") or "").strip()
+    location = str(facts.get("location") or "").strip()
+    if exact_address or street_address or district:
+        return True
+    for value in (postal_name, location):
+        lowered = value.lower()
+        if not lowered:
+            continue
+        if re.search(r"\b\d{4,5}\b", lowered):
+            return True
+        if any(token in lowered for token in ("gasse", "straße", "strasse", "weg", "platz", "allee", "lane", "road", "street", "avenue", "drive")):
+            return True
+        if lowered not in {"wien", "vienna", "österreich", "osterreich", "austria"}:
+            return True
+    return False
+
+
+def _property_candidate_has_concrete_area(property_facts: dict[str, object] | None) -> bool:
+    facts = dict(property_facts or {})
+    return isinstance(_property_investment_area_sqm(facts), float)
 
 
 def _property_candidate_google_maps_url(candidate: dict[str, object]) -> str:
@@ -6515,10 +6711,12 @@ _PROPERTY_SEARCH_FEEDBACK_PATCH_KEYS: frozenset[str] = frozenset(
     {
         "min_area_m2",
         "require_floorplan",
+        "require_barrier_free",
         "available_within_years",
         "max_distance_to_library_m",
         "max_distance_to_zoo_m",
         "max_distance_to_supermarket_m",
+        "max_distance_to_subway_m",
         "max_distance_to_playground_m",
         "max_distance_to_market_m",
         "max_distance_to_hardware_store_m",
@@ -6541,10 +6739,12 @@ def _property_search_filter_label(filter_key: str) -> str:
     labels = {
         "min_area_m2": "minimum area",
         "require_floorplan": "floor plan requirement",
+        "require_barrier_free": "barrier-free requirement",
         "available_within_years": "move-in horizon",
         "max_distance_to_library_m": "library radius",
         "max_distance_to_zoo_m": "zoo radius",
         "max_distance_to_supermarket_m": "supermarket radius",
+        "max_distance_to_subway_m": "underground radius",
         "max_distance_to_playground_m": "playground radius",
         "max_distance_to_market_m": "market radius",
         "max_distance_to_hardware_store_m": "Baumarkt radius",
@@ -6567,10 +6767,12 @@ def _property_search_filter_feedback_alias(filter_key: str) -> str:
     aliases = {
         "min_area_m2": "area",
         "require_floorplan": "plan",
+        "require_barrier_free": "access",
         "available_within_years": "movein",
         "max_distance_to_library_m": "lib",
         "max_distance_to_zoo_m": "zoo",
         "max_distance_to_supermarket_m": "super",
+        "max_distance_to_subway_m": "subway",
         "max_distance_to_playground_m": "play",
         "max_distance_to_market_m": "market",
         "max_distance_to_hardware_store_m": "bau",
@@ -6595,6 +6797,8 @@ def _property_search_filter_disable_patch(filter_key: str) -> dict[str, object]:
     if normalized not in _PROPERTY_SEARCH_FEEDBACK_PATCH_KEYS:
         return {}
     if normalized == "require_floorplan":
+        return {normalized: False}
+    if normalized == "require_barrier_free":
         return {normalized: False}
     if normalized == "available_within_years":
         return {normalized: 0}
@@ -6682,6 +6886,51 @@ def _is_invalid_property_scout_task_url(property_url: str, *, source_ref: str = 
             return True
         return not _property_scout_is_supported_listing_url(normalized_url)
     return False
+
+
+def _property_candidate_is_barrier_free(facts: dict[str, object] | None) -> bool:
+    payload = dict(facts or {})
+    for key in (
+        "barrier_free",
+        "is_barrier_free",
+        "wheelchair_accessible",
+        "accessible",
+        "step_free",
+        "is_step_free",
+        "has_accessible_entry",
+    ):
+        value = payload.get(key)
+        if value is True:
+            return True
+        normalized = str(value or "").strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on", "enabled"}:
+            return True
+    if payload.get("lift") is True or payload.get("has_lift") is True:
+        entry_floor = _float_or_none(payload.get("floor")) or _float_or_none(payload.get("level"))
+        if entry_floor is None or entry_floor <= 1.0:
+            return True
+    searchable_text = " ".join(
+        str(payload.get(key) or "")
+        for key in (
+            "title",
+            "summary",
+            "description",
+            "listing_body",
+            "features_text",
+            "amenities_text",
+        )
+    ).lower()
+    return any(
+        marker in searchable_text
+        for marker in (
+            "barrierefrei",
+            "rollstuhlgerecht",
+            "wheelchair accessible",
+            "step-free",
+            "stufenlos",
+            "behindertengerecht",
+        )
+    )
 
 
 _ATTACHMENT_FILENAME_SANITIZE_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -15768,6 +16017,152 @@ class ProductService:
             "persistence": {"available": True, "source": "postgres"},
         }
 
+    def _property_saved_shortlist_property_ref(self, candidate: dict[str, object]) -> str:
+        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        for value in (
+            candidate.get("property_ref"),
+            candidate.get("property_url"),
+            candidate.get("source_url"),
+            candidate.get("review_url"),
+            facts.get("listing_url"),
+            facts.get("canonical_url"),
+            candidate.get("source_ref"),
+            candidate.get("candidate_ref"),
+        ):
+            normalized = urllib.parse.urldefrag(str(value or "").strip())[0]
+            if normalized:
+                return normalized
+        return ""
+
+    def _property_saved_shortlist_decision_states(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 500,
+    ) -> dict[str, str]:
+        normalized_principal = str(principal_id or "").strip()
+        database_url = _property_search_run_database_url()
+        if not normalized_principal or not database_url:
+            return {}
+        try:
+            from app.repositories.property_decision_loop_postgres import PostgresPropertyDecisionLoopRepository
+
+            rows = PostgresPropertyDecisionLoopRepository(database_url).export_teable_projection_rows(
+                principal_id=normalized_principal,
+                limit=max(int(limit or 500), 100),
+            )
+        except Exception:
+            return {}
+        latest: dict[str, str] = {}
+        for row in list(rows.get("propertyquarry_decision_ledger") or []):
+            if not isinstance(row, dict):
+                continue
+            property_ref = str(row.get("property_ref") or "").strip()
+            if not property_ref or property_ref in latest:
+                continue
+            latest[property_ref] = str(row.get("decision_state") or "").strip().lower()
+        return latest
+
+    def list_property_saved_shortlist_candidates(
+        self,
+        *,
+        principal_id: str,
+    ) -> list[dict[str, object]]:
+        normalized_principal = str(principal_id or "").strip()
+        if not normalized_principal:
+            return []
+        status = self._container.onboarding.status(principal_id=normalized_principal)
+        preferences = dict(status.get("property_search_preferences") or {})
+        raw_candidates = list(preferences.get("saved_shortlist_candidates") or [])
+        decision_states = self._property_saved_shortlist_decision_states(principal_id=normalized_principal)
+        visible: list[dict[str, object]] = []
+        seen: set[str] = set()
+        for item in raw_candidates:
+            if not isinstance(item, dict):
+                continue
+            row = dict(item)
+            property_ref = str(row.get("property_ref") or self._property_saved_shortlist_property_ref(row)).strip()
+            if not property_ref or property_ref in seen:
+                continue
+            seen.add(property_ref)
+            state = decision_states.get(property_ref, "")
+            if state in {"archived", "rejected"}:
+                continue
+            row["property_ref"] = property_ref
+            visible.append(row)
+        return visible[:200]
+
+    def persist_property_saved_shortlist_candidates(
+        self,
+        *,
+        principal_id: str,
+        run_id: str = "",
+        candidates: list[dict[str, object]] | tuple[dict[str, object], ...],
+    ) -> list[dict[str, object]]:
+        normalized_principal = str(principal_id or "").strip()
+        if not normalized_principal:
+            return []
+        status = self._container.onboarding.status(principal_id=normalized_principal)
+        preferences = dict(status.get("property_search_preferences") or {})
+        existing_rows = [
+            dict(item)
+            for item in list(preferences.get("saved_shortlist_candidates") or [])
+            if isinstance(item, dict)
+        ]
+        decision_states = self._property_saved_shortlist_decision_states(principal_id=normalized_principal)
+        blocked_refs = {
+            property_ref
+            for property_ref, state in decision_states.items()
+            if state in {"archived", "rejected"}
+        }
+        by_ref: dict[str, dict[str, object]] = {}
+        for row in existing_rows:
+            property_ref = str(row.get("property_ref") or self._property_saved_shortlist_property_ref(row)).strip()
+            if not property_ref or property_ref in blocked_refs:
+                continue
+            normalized_row = dict(row)
+            normalized_row["property_ref"] = property_ref
+            by_ref[property_ref] = normalized_row
+        saved_at = _now_iso()
+        for candidate in list(candidates or []):
+            if not isinstance(candidate, dict):
+                continue
+            property_ref = str(candidate.get("property_ref") or self._property_saved_shortlist_property_ref(candidate)).strip()
+            if not property_ref or property_ref in blocked_refs:
+                continue
+            previous = dict(by_ref.get(property_ref) or {})
+            merged = {
+                **previous,
+                **dict(candidate),
+                "property_ref": property_ref,
+                "saved_from_run_id": str(run_id or previous.get("saved_from_run_id") or "").strip(),
+                "saved_at": saved_at,
+                "first_saved_at": str(previous.get("first_saved_at") or saved_at).strip() or saved_at,
+            }
+            by_ref[property_ref] = merged
+        merged_rows = sorted(
+            by_ref.values(),
+            key=lambda item: (
+                str(item.get("saved_at") or ""),
+                -(int(item.get("rank") or 9999) if str(item.get("rank") or "").strip() else 9999),
+            ),
+            reverse=True,
+        )[:200]
+        preferences["saved_shortlist_candidates"] = merged_rows
+        preferences["saved_shortlist_share_slug"] = str(
+            preferences.get("saved_shortlist_share_slug")
+            or f"shortlist-{hashlib.sha256(normalized_principal.encode('utf-8')).hexdigest()[:16]}"
+        ).strip()
+        saved = self._container.onboarding.upsert_property_search_preferences(
+            principal_id=normalized_principal,
+            property_search_preferences_json=preferences,
+        )
+        return [
+            dict(item)
+            for item in list(dict(saved.get("property_search_preferences") or {}).get("saved_shortlist_candidates") or [])
+            if isinstance(item, dict)
+        ]
+
     def update_property_agent_question_task(
         self,
         *,
@@ -22455,21 +22850,66 @@ class ProductService:
         principal_id: str,
         property_url: str,
         filter_key: str,
+        source_ref: str = "",
+        diagnostics: dict[str, object] | None = None,
     ) -> HumanTask | None:
         normalized_url = str(property_url or "").strip()
         normalized_filter_key = str(filter_key or "").strip().lower()
+        normalized_source_ref = str(source_ref or "").strip()
+        diagnostics_payload = dict(diagnostics or {})
         if not normalized_url or not normalized_filter_key:
             return None
-        for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=300):
+        wanted_subject_key = self._property_provider_repair_subject_key(
+            property_url=normalized_url,
+            source_ref=normalized_source_ref,
+            diagnostics=diagnostics_payload,
+        )
+        for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status=None, limit=300):
             if str(getattr(row, "task_type", "") or "").strip() != "property_provider_repair_ooda":
                 continue
             input_json = dict(getattr(row, "input_json", {}) or {})
-            if str(input_json.get("property_url") or "").strip() != normalized_url:
-                continue
             if str(input_json.get("filter_key") or "").strip().lower() != normalized_filter_key:
                 continue
-            return row
+            existing_subject_key = self._property_provider_repair_subject_key(
+                property_url=str(input_json.get("property_url") or "").strip(),
+                source_ref=str(input_json.get("source_ref") or "").strip(),
+                diagnostics=dict(input_json.get("diagnostics") or {}) if isinstance(input_json.get("diagnostics"), dict) else {},
+            )
+            if wanted_subject_key and existing_subject_key == wanted_subject_key:
+                return row
+            if str(input_json.get("property_url") or "").strip() == normalized_url:
+                return row
         return None
+
+    def _property_provider_repair_subject_key(
+        self,
+        *,
+        property_url: str,
+        source_ref: str = "",
+        diagnostics: dict[str, object] | None = None,
+    ) -> str:
+        payload = dict(diagnostics or {})
+        for key in ("listing_id", "external_id", "candidate_ref"):
+            value = str(payload.get(key) or "").strip()
+            if value:
+                return value.lower()
+        normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        if not normalized_url:
+            return ""
+        parsed = urllib.parse.urlparse(normalized_url)
+        params = urllib.parse.parse_qs(parsed.query)
+        ad_id = next(iter(params.get("adId") or []), "").strip()
+        if ad_id:
+            return f"{parsed.netloc.lower()}|adid:{ad_id}"
+        path = parsed.path.rstrip("/")
+        if path:
+            tail = path.rsplit("/", 1)[-1].strip().lower()
+            if tail:
+                return f"{parsed.netloc.lower()}|path:{tail}"
+        normalized_source_ref = str(source_ref or "").strip()
+        if normalized_source_ref:
+            return normalized_source_ref.lower()
+        return normalized_url.lower()
 
     def _open_property_provider_repair_task(
         self,
@@ -22483,24 +22923,50 @@ class ProductService:
         source_family: str,
         filter_key: str,
         diagnostics: dict[str, object],
+        source_ref: str = "",
     ) -> dict[str, object]:
         normalized_property_url = str(property_url or "").strip()
         normalized_filter_key = str(filter_key or "").strip().lower()
+        normalized_source_ref = str(source_ref or "").strip()
+        diagnostics_payload = dict(diagnostics or {})
         if not normalized_property_url or not normalized_filter_key:
             return {"status": "skipped", "reason": "property_provider_repair_key_missing"}
         existing = self._existing_property_provider_repair_task(
             principal_id=principal_id,
             property_url=normalized_property_url,
             filter_key=normalized_filter_key,
+            source_ref=normalized_source_ref,
+            diagnostics=diagnostics_payload,
         )
+        repair_operator_id = self._ensure_property_provider_repair_operator(principal_id=principal_id)
         if existing is not None:
+            existing = self._assign_property_provider_repair_task(
+                principal_id=principal_id,
+                task=existing,
+                actor="ea_one_manager",
+                operator_id=repair_operator_id,
+            )
             return {
                 "status": "existing",
                 "human_task_id": f"human_task:{existing.human_task_id}",
                 "queue_item_ref": f"human_task:{existing.human_task_id}",
                 "task_type": "property_provider_repair_ooda",
             }
-        provider_host = str(dict(diagnostics or {}).get("provider_host") or urllib.parse.urlparse(str(source_url or "")).netloc).strip()
+        urgent_filter_keys = {
+            "walkthrough_video",
+            "listing_mode",
+            "location_scope",
+            "missing_location",
+            "missing_price",
+            "source_fetch",
+        }
+        task_priority = "urgent" if normalized_filter_key in urgent_filter_keys else "high"
+        provider_host = str(diagnostics_payload.get("provider_host") or urllib.parse.urlparse(str(source_url or "")).netloc).strip()
+        subject_key = self._property_provider_repair_subject_key(
+            property_url=normalized_property_url,
+            source_ref=normalized_source_ref,
+            diagnostics=diagnostics_payload,
+        )
         session_id = self._start_product_review_session(
             principal_id=principal_id,
             goal=f"Repair property provider extraction for {source_label or provider_host or source_platform or 'provider'}",
@@ -22522,7 +22988,7 @@ class ProductService:
                 "EA must inspect the provider HTML/media/document structure, patch the extractor, add a regression test, "
                 "rerun release gates, and deploy without sending the repair task to OpenAI."
             ),
-            priority="high",
+            priority=task_priority,
             quality_rubric_json={
                 "must_not_use": ["openai_provider_fallback", "external_codex_session"],
                 "must_prove": [
@@ -22536,6 +23002,8 @@ class ProductService:
                 "repair_owner": "ea_one_manager",
                 "repair_workflow": "ea_provider_ooda",
                 "property_url": normalized_property_url,
+                "source_ref": normalized_source_ref,
+                "subject_key": subject_key,
                 "title": str(title or "").strip(),
                 "source_url": str(source_url or "").strip(),
                 "source_label": str(source_label or "").strip(),
@@ -22543,7 +23011,7 @@ class ProductService:
                 "source_family": str(source_family or "").strip().lower(),
                 "provider_host": provider_host,
                 "filter_key": normalized_filter_key,
-                "diagnostics": dict(diagnostics or {}),
+                "diagnostics": diagnostics_payload,
                 "next_action": "EA Provider OODA: inspect provider HTML/media/document shape, patch extractor, add regression test, rerun gates.",
             },
             desired_output_json={
@@ -22554,6 +23022,18 @@ class ProductService:
                 "deploy_status": "deployed",
             },
         )
+        task = self._assign_property_provider_repair_task(
+            principal_id=principal_id,
+            task=task,
+            actor="ea_one_manager",
+            operator_id=repair_operator_id,
+        )
+        if normalized_filter_key in {"source_fetch", "location_scope", "missing_location", "missing_price"}:
+            self._auto_resolve_property_provider_repair_task(
+                principal_id=principal_id,
+                task=task,
+                actor="ea_one_manager",
+            )
         payload = {
             "status": "opened",
             "human_task_id": f"human_task:{task.human_task_id}",
@@ -22562,6 +23042,7 @@ class ProductService:
             "repair_owner": "ea_one_manager",
             "repair_workflow": "ea_provider_ooda",
             "property_url": normalized_property_url,
+            "source_ref": normalized_source_ref,
             "source_url": str(source_url or "").strip(),
             "source_label": str(source_label or "").strip(),
             "source_platform": str(source_platform or "").strip().lower(),
@@ -22575,6 +23056,230 @@ class ProductService:
             dedupe_key=f"{principal_id}|{normalized_property_url}|{normalized_filter_key}|property-provider-repair-task-created",
         )
         return payload
+
+    def _ensure_property_provider_repair_operator(self, *, principal_id: str) -> str:
+        operator_id = "ea_one_manager"
+        try:
+            self._container.orchestrator.upsert_operator_profile(
+                principal_id=principal_id,
+                operator_id=operator_id,
+                display_name="EA One Manager",
+                roles=("operator", "automation"),
+                trust_tier="trusted",
+                status="active",
+                notes="Owns provider repair OODA tasks for PropertyQuarry.",
+            )
+        except Exception:
+            pass
+        return operator_id
+
+    def _assign_property_provider_repair_task(
+        self,
+        *,
+        principal_id: str,
+        task: HumanTask,
+        actor: str,
+        operator_id: str,
+    ) -> HumanTask:
+        if str(task.assigned_operator_id or "").strip():
+            return task
+        try:
+            assigned = self._container.orchestrator.assign_human_task(
+                task.human_task_id,
+                principal_id=principal_id,
+                operator_id=operator_id,
+                assignment_source="automation",
+                assigned_by_actor_id=str(actor or operator_id).strip() or operator_id,
+            )
+            if assigned is not None:
+                return assigned
+        except Exception:
+            pass
+        return task
+
+    def _fetch_property_provider_repair_snapshot(self, *, property_url: str) -> dict[str, object]:
+        normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        if not normalized_url:
+            return {}
+        try:
+            response = requests.get(
+                normalized_url,
+                timeout=20,
+                headers={"User-Agent": "Mozilla/5.0 PropertyQuarry Repair"},
+            )
+            html_text = response.text if response.ok else ""
+        except Exception:
+            return {}
+        title_match = re.search(r"<title[^>]*>(.*?)</title>", html_text, flags=re.IGNORECASE | re.DOTALL)
+        title = " ".join(str(title_match.group(1) or "").split()) if title_match else ""
+        text = re.sub(r"<script[\s\S]*?</script>", " ", html_text, flags=re.IGNORECASE)
+        text = re.sub(r"<style[\s\S]*?</style>", " ", text, flags=re.IGNORECASE)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = html.unescape(text)
+        text = " ".join(text.split())
+        postal_match = re.search(r"\b(1\d{3})\s+Wien\b", text, flags=re.IGNORECASE)
+        location_match = re.search(
+            r"(?:Lage|Adresse)\s*[:|]?\s*([0-9]{4}\s+Wien(?:\s*\|\s*[^|]{1,80})?)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        rooms_match = re.search(r"\b(\d+(?:[.,]\d+)?)\s*Zimmer\b", text, flags=re.IGNORECASE)
+        area_match = re.search(r"\b(\d+(?:[.,]\d+)?)\s*m(?:²|2)\b", text, flags=re.IGNORECASE)
+        price_match = re.search(
+            r"((?:EUR|€)\s?[0-9][0-9\.\s]*(?:,[0-9]{1,2})?)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        facts: dict[str, object] = {}
+        if postal_match:
+            facts["postal_name"] = f"{postal_match.group(1)} Wien"
+        if location_match:
+            facts["location"] = " ".join(str(location_match.group(1) or "").split())
+        if rooms_match:
+            facts["rooms"] = str(rooms_match.group(1) or "").replace(",", ".")
+        if area_match:
+            facts["area_sqm"] = str(area_match.group(1) or "").replace(",", ".")
+        if price_match:
+            facts["price_display"] = " ".join(str(price_match.group(1) or "").split())
+        return {
+            "property_url": normalized_url,
+            "title": title,
+            "text": text[:8000],
+            "property_facts": facts,
+            "http_ok": bool(html_text),
+        }
+
+    def _auto_resolve_property_provider_repair_task(
+        self,
+        *,
+        principal_id: str,
+        task: HumanTask,
+        actor: str,
+    ) -> dict[str, object]:
+        if str(task.task_type or "").strip() != "property_provider_repair_ooda":
+            return {"status": "skipped", "reason": "task_type_mismatch"}
+        if str(task.status or "").strip() != "pending":
+            return {"status": "skipped", "reason": "task_not_pending"}
+        input_json = dict(task.input_json or {})
+        property_url = str(input_json.get("property_url") or "").strip()
+        title = str(input_json.get("title") or "").strip()
+        filter_key = str(input_json.get("filter_key") or "").strip().lower()
+        diagnostics = dict(input_json.get("diagnostics") or {}) if isinstance(input_json.get("diagnostics"), dict) else {}
+        current_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
+        location_hints = _property_search_location_hints(current_preferences)
+        search_goal = str(current_preferences.get("search_goal") or "").strip().lower()
+        listing_mode = "buy" if search_goal == "investment" else normalize_listing_mode(current_preferences.get("listing_mode"))
+        snapshot = self._fetch_property_provider_repair_snapshot(property_url=property_url)
+        candidate_title = str(snapshot.get("title") or title).strip()
+        candidate_summary = str(snapshot.get("text") or diagnostics.get("summary") or "").strip()
+        candidate_facts = dict(snapshot.get("property_facts") or {})
+        resolution = ""
+        reason = ""
+        if _property_candidate_is_generic_listing_page(
+            property_url=property_url,
+            title=candidate_title,
+            summary=candidate_summary,
+            property_facts=candidate_facts,
+        ):
+            resolution = "suppressed_generic_listing_page"
+            reason = "provider page is a generic marketing or overview page"
+        elif location_hints and not _property_candidate_matches_requested_location(
+            location_hints=location_hints,
+            property_url=property_url,
+            title=candidate_title,
+            summary=candidate_summary,
+            property_facts=candidate_facts,
+            country_code=str(current_preferences.get("country_code") or "").strip(),
+            region_code=str(current_preferences.get("region_code") or "").strip(),
+        ):
+            resolution = "suppressed_location_scope"
+            reason = "provider listing conflicts with the active search location"
+        elif not _property_candidate_has_concrete_location(candidate_facts):
+            resolution = "suppressed_missing_location"
+            reason = "provider page still lacks a concrete location"
+        elif not _property_candidate_notification_price_signal(
+            candidate_facts,
+            listing_mode=listing_mode,
+            title=candidate_title,
+        ):
+            resolution = "suppressed_missing_price"
+            reason = "provider page still lacks a concrete price"
+        elif filter_key in {"location_scope", "missing_location", "missing_price"}:
+            resolution = f"suppressed_{filter_key}"
+            reason = "provider repair class resolved to suppression"
+        if not resolution:
+            return {"status": "deferred", "reason": "manual_provider_patch_required"}
+        updated = self._container.orchestrator.return_human_task(
+            task.human_task_id,
+            principal_id=principal_id,
+            operator_id=str(task.assigned_operator_id or "ea_one_manager").strip(),
+            resolution=resolution,
+            returned_payload_json={
+                "source": "property_provider_repair_executor",
+                "actor": str(actor or "ea_one_manager").strip() or "ea_one_manager",
+                "resolution": resolution,
+                "reason": reason,
+                "property_url": property_url,
+                "filter_key": filter_key,
+                "snapshot_title": candidate_title,
+                "snapshot_facts": candidate_facts,
+            },
+            provenance_json={"source": "property_provider_repair_executor"},
+        )
+        if updated is not None:
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_provider_repair_auto_resolved",
+                payload={
+                    "human_task_id": f"human_task:{updated.human_task_id}",
+                    "property_url": property_url,
+                    "filter_key": filter_key,
+                    "resolution": resolution,
+                    "reason": reason,
+                    "actor": str(actor or "ea_one_manager").strip() or "ea_one_manager",
+                },
+                source_id=updated.human_task_id,
+                dedupe_key=f"{principal_id}|{updated.human_task_id}|property-provider-repair-auto-resolved",
+            )
+        return {
+            "status": "resolved" if updated is not None else "failed",
+            "resolution": resolution,
+            "reason": reason,
+            "human_task_id": f"human_task:{task.human_task_id}",
+        }
+
+    def process_property_provider_repair_tasks(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        limit: int = 25,
+    ) -> dict[str, object]:
+        resolved: list[dict[str, object]] = []
+        deferred = 0
+        for task in self._container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status="pending",
+            assignment_state="assigned",
+            limit=max(1, int(limit or 25)),
+        ):
+            if str(task.task_type or "").strip() != "property_provider_repair_ooda":
+                continue
+            result = self._auto_resolve_property_provider_repair_task(
+                principal_id=principal_id,
+                task=task,
+                actor=actor,
+            )
+            if str(result.get("status") or "").strip() == "resolved":
+                resolved.append(dict(result))
+            elif str(result.get("status") or "").strip() == "deferred":
+                deferred += 1
+        return {
+            "generated_at": _now_iso(),
+            "resolved_total": len(resolved),
+            "deferred_total": deferred,
+            "resolved": resolved[:20],
+        }
 
     def _maybe_create_willhaben_property_tour_from_signal(
         self,
@@ -26302,7 +27007,7 @@ class ProductService:
         status_detail = ""
         if normalized_kind == "flythrough":
             if str(payload.get("tour_url") or payload.get("vendor_tour_url") or "").strip():
-                flythrough_result = self._maybe_render_property_scout_flythrough(
+                raw_flythrough_result = dict(self._maybe_render_property_scout_flythrough(
                     principal_id=principal_id,
                     actor=actor,
                     title=title,
@@ -26312,11 +27017,14 @@ class ProductService:
                     property_facts={},
                     fit_score=100.0,
                     allow_below_threshold=True,
-                )
+                ) or {})
+                flythrough_result = _normalize_property_flythrough_result(raw_flythrough_result)
                 flythrough_url = str(flythrough_result.get("video_url") or "").strip()
                 flythrough_status = str(flythrough_result.get("status") or "").strip().lower()
                 payload["flythrough_url"] = flythrough_url
                 payload["flythrough_status"] = flythrough_status
+                payload["flythrough_reason"] = str(flythrough_result.get("reason") or "").strip()
+                payload["flythrough_raw_status"] = str(raw_flythrough_result.get("status") or "").strip().lower()
                 if flythrough_url:
                     status_label = "Flythrough ready"
                     status_detail = "Flythrough is ready on this page."
@@ -26361,6 +27069,29 @@ class ProductService:
                 status_detail = "3D tour request recorded."
         payload["status_label"] = status_label
         payload["status_detail"] = status_detail
+        if normalized_kind == "flythrough":
+            normalized_flythrough_status = str(payload.get("flythrough_status") or "").strip().lower()
+            raw_flythrough_status = str(payload.get("flythrough_raw_status") or "").strip().lower()
+            if raw_flythrough_status == "failed" or (normalized_flythrough_status == "failed" and not str(payload.get("flythrough_url") or "").strip()):
+                provider_host = urllib.parse.urlparse(normalized_property_url).netloc.lower()
+                self._open_property_provider_repair_task(
+                    principal_id=principal_id,
+                    property_url=normalized_property_url,
+                    title=title,
+                    source_url=normalized_property_url,
+                    source_label=provider_host or "walkthrough provider",
+                    source_platform="walkthrough_video",
+                    source_family="walkthrough_video",
+                    filter_key="walkthrough_video",
+                    diagnostics={
+                        "provider_host": provider_host,
+                        "raw_status": raw_flythrough_status,
+                        "normalized_status": normalized_flythrough_status,
+                        "video_url_present": bool(str(payload.get("flythrough_url") or "").strip()),
+                        "failure_reason": str(payload.get("flythrough_reason") or payload.get("status_detail") or "").strip(),
+                        "request_kind": normalized_kind,
+                    },
+                )
         self._persist_property_search_visual_state(
             principal_id=principal_id,
             run_id=str(run_id or "").strip(),
@@ -26782,7 +27513,7 @@ class ProductService:
                     summary_updates=result,
                     force_status=final_status,
                 )
-                if final_status == "processed":
+                if final_status in {"processed", "completed_partial"}:
                     try:
                         threading.Thread(
                             target=self._await_property_search_results_delivery_ready,
@@ -26818,10 +27549,10 @@ class ProductService:
                                 if self._property_search_results_delivery_pending(result=refreshed_result)
                                 else "Results are fully ready."
                             ),
-                            status="processed",
+                            status=final_status,
                             steps_delta=0,
                             summary_updates=refreshed_result,
-                            force_status="processed",
+                            force_status=final_status,
                         )
                     except Exception as exc:
                         self._record_product_event(
@@ -26871,7 +27602,112 @@ class ProductService:
         principal_id: str,
         run_id: str,
     ) -> dict[str, object] | None:
-        return self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
+        snapshot = self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
+        if not isinstance(snapshot, dict):
+            return snapshot
+        summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
+        sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+        if sources:
+            repair_tasks = [
+                task
+                for task in self._container.orchestrator.list_human_tasks(
+                    principal_id=principal_id,
+                    status=None,
+                    limit=500,
+                )
+                if str(getattr(task, "task_type", "") or "").strip() == "property_provider_repair_ooda"
+            ]
+            latest_repair_by_source_key: dict[str, HumanTask] = {}
+
+            def _source_repair_key(source_url: object, source_label: object) -> str:
+                normalized_source_url = urllib.parse.urldefrag(str(source_url or "").strip())[0]
+                if normalized_source_url:
+                    return normalized_source_url.lower()
+                return str(source_label or "").strip().lower()
+
+            for task in repair_tasks:
+                input_json = dict(getattr(task, "input_json", {}) or {})
+                source_url = str(input_json.get("source_url") or input_json.get("property_url") or "").strip()
+                source_label = str(input_json.get("source_label") or "").strip()
+                source_key = _source_repair_key(source_url, source_label)
+                if not source_key:
+                    continue
+                existing = latest_repair_by_source_key.get(source_key)
+                existing_updated_at = str(getattr(existing, "updated_at", "") or "") if existing is not None else ""
+                task_updated_at = str(getattr(task, "updated_at", "") or "")
+                if existing is None or task_updated_at >= existing_updated_at:
+                    latest_repair_by_source_key[source_key] = task
+
+            for source in sources:
+                source_key = _source_repair_key(source.get("source_url"), source.get("source_label"))
+                task = latest_repair_by_source_key.get(source_key)
+                if task is None:
+                    continue
+                input_json = dict(getattr(task, "input_json", {}) or {})
+                returned_payload = dict(getattr(task, "returned_payload_json", {}) or {})
+                repair_status = str(getattr(task, "status", "") or "").strip().lower()
+                resolution = str(getattr(task, "resolution", "") or "").strip()
+                reason = str(returned_payload.get("reason") or "").strip()
+                source["provider_repair_task_opened_total"] = max(1, int(source.get("provider_repair_task_opened_total") or 0))
+                source["provider_repair_tasks"] = [
+                    {
+                        "status": repair_status or "pending",
+                        "filter_key": str(input_json.get("filter_key") or "").strip(),
+                        "human_task_id": str(getattr(task, "human_task_id", "") or "").strip(),
+                        "queue_item_ref": f"human_task:{str(getattr(task, 'human_task_id', '') or '').strip()}",
+                        "resolution": resolution,
+                        "reason": reason,
+                        "repair_owner": str(input_json.get("repair_owner") or "").strip() or "ea_one_manager",
+                        "repair_workflow": str(input_json.get("repair_workflow") or "").strip() or "ea_provider_ooda",
+                    }
+                ]
+                if repair_status == "returned":
+                    source["status"] = "repaired"
+                    source["repair_status"] = "returned"
+                    if resolution:
+                        source["repair_resolution"] = resolution
+                    if reason:
+                        source["repair_reason"] = reason
+                elif repair_status == "pending" and str(getattr(task, "assignment_state", "") or "").strip().lower() == "assigned":
+                    source["status"] = "repairing"
+                    source["repair_status"] = "assigned"
+        ranked_candidates = [
+            dict(row)
+            for row in list(summary.get("ranked_candidates") or [])
+            if isinstance(row, dict)
+        ]
+        if not ranked_candidates and sources:
+            ranked_candidates = _property_search_ranked_candidates_from_sources(sources)
+            if ranked_candidates:
+                summary["ranked_candidates"] = ranked_candidates
+        if sources:
+            summary["sources"] = sources
+        held_back_total = int(
+            summary.get("held_back_total")
+            or summary.get("filtered_total")
+            or (
+                int(summary.get("filtered_area_total") or 0)
+                + int(summary.get("filtered_floorplan_total") or 0)
+                + int(summary.get("filtered_low_fit_total") or 0)
+                + int(summary.get("notification_budget_suppressed_total") or 0)
+            )
+            or 0
+        )
+        if held_back_total > 0:
+            summary.setdefault("held_back_total", held_back_total)
+            summary.setdefault("filtered_total", held_back_total)
+        if summary:
+            snapshot["summary"] = summary
+        status_value = str(snapshot.get("status") or summary.get("status") or "").strip().lower()
+        if status_value in {"processed", "completed", "completed_partial"}:
+            if ranked_candidates:
+                with contextlib.suppress(Exception):
+                    self.persist_property_saved_shortlist_candidates(
+                        principal_id=principal_id,
+                        run_id=run_id,
+                        candidates=ranked_candidates,
+                    )
+        return snapshot
 
     def list_property_search_runs(
         self,
@@ -27156,10 +27992,11 @@ class ProductService:
             request_preferences.get("use_stored_feedback_preferences") is False
             or str(request_preferences.get("use_stored_feedback_preferences") or "").strip().lower() in {"0", "false", "no", "n", "off"}
         )
+        search_goal = _property_search_goal(request_preferences)
+        listing_mode = "buy" if search_goal == "investment" else normalize_listing_mode(request_preferences.get("listing_mode"))
+        request_preferences["listing_mode"] = listing_mode
         location_hints = _property_search_location_hints(request_preferences)
         requested_property_type = normalize_property_type_values(request_preferences.get("property_type"))
-        listing_mode = str(request_preferences.get("listing_mode") or "rent").strip().lower() or "rent"
-        search_goal = _property_search_goal(request_preferences)
         investment_research_mode = str(request_preferences.get("investment_research_mode") or "off").strip().lower() or "off"
         if listing_mode != "buy":
             investment_research_mode = "off"
@@ -27237,6 +28074,7 @@ class ProductService:
                 principal_id=principal_id,
                 max_results_per_source=resolved_max_results,
                 default_person_id=preference_person_id,
+                prefer_configured_only=property_search_preferences is None,
             )
             if (not str(spec.get("principal_id") or "").strip()
                 or str(spec.get("principal_id") or "").strip() == str(principal_id or "").strip())
@@ -27569,6 +28407,56 @@ class ProductService:
                 )
             except Exception as exc:
                 failed_total += 1
+                fetch_error = compact_text(str(exc or ""), fallback="property_scout_fetch_failed", limit=200)
+                provider_host = urllib.parse.urlparse(source_url).netloc.lower()
+                repair_task = self._open_property_provider_repair_task(
+                    principal_id=principal_id,
+                    property_url=source_url,
+                    title=source_label or source_url,
+                    source_url=source_url,
+                    source_label=source_label,
+                    source_platform=str(source_spec.get("platform") or "").strip().lower(),
+                    source_family=str(source_spec.get("provider_family") or "").strip().lower(),
+                    filter_key="source_fetch",
+                    diagnostics={
+                        "provider_host": provider_host,
+                        "error": fetch_error,
+                        "error_class": exc.__class__.__name__,
+                        "provider_cache_key": provider_cache_key,
+                        "provider_filter_pushdown": provider_filter_pushdown,
+                        "listing_mode": listing_mode,
+                        "search_goal": search_goal,
+                        "country_code": str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip().upper(),
+                        "region_code": str(request_preferences.get("region_code") or "").strip().lower(),
+                        "location_query": str(request_preferences.get("location_query") or "").strip(),
+                    },
+                    source_ref=f"property-source:{source_key[0]}:{source_url}",
+                )
+                repair_task_status = str(repair_task.get("status") or "").strip().lower()
+                if repair_task_status == "opened":
+                    provider_repair_task_opened_for_source += 1
+                    provider_repair_task_opened_total += 1
+                elif repair_task_status == "existing":
+                    provider_repair_task_existing_for_source += 1
+                    provider_repair_task_existing_total += 1
+                if str(repair_task.get("queue_item_ref") or "").strip():
+                    provider_repair_tasks_for_source.append(
+                        {
+                            "status": repair_task_status or "queued",
+                            "property_url": source_url,
+                            "title": source_label or source_url,
+                            "filter_key": "source_fetch",
+                            "diagnostics": {
+                                "provider_host": provider_host,
+                                "error": fetch_error,
+                                "error_class": exc.__class__.__name__,
+                            },
+                            "human_task_id": str(repair_task.get("human_task_id") or "").strip(),
+                            "queue_item_ref": str(repair_task.get("queue_item_ref") or "").strip(),
+                            "repair_owner": "ea_one_manager",
+                            "repair_workflow": "ea_provider_ooda",
+                        }
+                    )
                 source_summaries.append(
                     {
                         "source_url": source_url,
@@ -27583,7 +28471,10 @@ class ProductService:
                             "provider_fetch": round(provider_fetch_ms, 2),
                             "source_total": round((time.perf_counter() - source_started_at) * 1000.0, 2),
                         },
-                        "error": compact_text(str(exc or ""), fallback="property_scout_fetch_failed", limit=200),
+                        "provider_repair_task_opened_total": provider_repair_task_opened_for_source,
+                        "provider_repair_task_existing_total": provider_repair_task_existing_for_source,
+                        "provider_repair_tasks": provider_repair_tasks_for_source[:10],
+                        "error": fetch_error,
                     }
                 )
                 continue
@@ -27689,9 +28580,15 @@ class ProductService:
                     investment_research_mode=investment_research_mode,
                     available_within_years=available_within_years,
                 )
-                preview["property_facts_json"] = preview_facts
                 preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
                 preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
+                preview_facts = _property_enrich_facts_from_listing_text(
+                    facts=preview_facts,
+                    title=preview_title,
+                    summary=preview_summary,
+                    listing_mode=listing_mode,
+                )
+                preview["property_facts_json"] = preview_facts
                 if not _property_candidate_matches_requested_property_type(
                     property_type=requested_property_type,
                     property_url=property_url,
@@ -27753,9 +28650,15 @@ class ProductService:
                             preview_facts.setdefault("region_code", str(request_preferences.get("region_code") or "").strip().lower())
                             preview_facts["verification_required"] = bool(source_spec.get("verification_required"))
                             preview_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
-                            preview["property_facts_json"] = preview_facts
                             preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
                             preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
+                            preview_facts = _property_enrich_facts_from_listing_text(
+                                facts=preview_facts,
+                                title=preview_title,
+                                summary=preview_summary,
+                                listing_mode=listing_mode,
+                            )
+                            preview["property_facts_json"] = preview_facts
                     except Exception:
                         pass
                     area_filter_status = _property_candidate_min_area_status(
@@ -27868,9 +28771,15 @@ class ProductService:
                             preview_facts.setdefault("region_code", str(request_preferences.get("region_code") or "").strip().lower())
                             preview_facts["verification_required"] = bool(source_spec.get("verification_required"))
                             preview_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
-                            preview["property_facts_json"] = preview_facts
                             preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
                             preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
+                            preview_facts = _property_enrich_facts_from_listing_text(
+                                facts=preview_facts,
+                                title=preview_title,
+                                summary=preview_summary,
+                                listing_mode=listing_mode,
+                            )
+                            preview["property_facts_json"] = preview_facts
                     except Exception:
                         pass
                 has_preview_floorplan = _property_candidate_has_floorplan(
@@ -28212,6 +29121,13 @@ class ProductService:
                 preview["property_facts_json"] = detailed_facts
                 detailed_title = str(preview.get("title") or property_url).strip() or property_url
                 detailed_summary = str(preview.get("summary") or "").strip()
+                detailed_facts = _property_enrich_facts_from_listing_text(
+                    facts=detailed_facts,
+                    title=detailed_title,
+                    summary=detailed_summary,
+                    listing_mode=listing_mode,
+                )
+                preview["property_facts_json"] = detailed_facts
                 if location_hints and not _property_candidate_matches_search_area(
                     location_hints=location_hints,
                     request_preferences=request_preferences,
@@ -28568,6 +29484,7 @@ class ProductService:
                 distance_gate_failed = False
                 for preference_key, fact_key, label, report_step in (
                     ("max_distance_to_supermarket_m", "nearest_supermarket_m", "supermarket", "source_location_filter"),
+                    ("max_distance_to_subway_m", "nearest_subway_m", "underground", "source_location_filter"),
                     ("max_distance_to_playground_m", "nearest_playground_m", "playground", "source_family_filter"),
                     ("max_distance_to_market_m", "nearest_market_m", "market", "source_location_filter"),
                     ("max_distance_to_hardware_store_m", "nearest_hardware_store_m", "Baumarkt", "source_location_filter"),
@@ -28613,6 +29530,21 @@ class ProductService:
                             distance_gate_failed = True
                             break
                 if distance_gate_failed:
+                    continue
+                if _property_truthy_flag(request_preferences.get("require_barrier_free")) and not _property_candidate_is_barrier_free(detailed_facts):
+                    _remember_filter_near_miss(
+                        row=row,
+                        property_url=property_url,
+                        title=detailed_title,
+                        summary=detailed_summary,
+                        filter_key="require_barrier_free",
+                    )
+                    _report(
+                        step="source_location_filter",
+                        message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} without enough barrier-free evidence for {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                    )
                     continue
                 has_detailed_floorplan = _property_candidate_has_floorplan(
                     property_url=property_url,
@@ -28749,6 +29681,99 @@ class ProductService:
                     listing_id=str(preview.get("listing_id") or property_url).strip(),
                     use_profile_preferences=use_stored_feedback_preferences,
                 )
+                obvious_listing_mode_mismatch = False
+                if listing_mode == "buy":
+                    has_buy_price = isinstance(_property_investment_price_eur(detailed_facts), float)
+                    has_rent_signal = any(
+                        detailed_facts.get(key)
+                        for key in (
+                            "rent_display",
+                            "warm_rent_display",
+                            "cold_rent_display",
+                            "total_rent_display",
+                            "warm_rent_eur",
+                            "cold_rent_eur",
+                            "total_rent_eur",
+                            "rent_eur",
+                            "gesamtmiete_display",
+                        )
+                    )
+                    obvious_listing_mode_mismatch = bool(has_rent_signal and not has_buy_price)
+                elif listing_mode == "rent":
+                    has_buy_signal = isinstance(_property_investment_price_eur(detailed_facts), float)
+                    has_rent_price = any(
+                        detailed_facts.get(key)
+                        for key in ("rent_display", "warm_rent_display", "cold_rent_display", "total_rent_display", "rent_eur", "total_rent_eur")
+                    )
+                    obvious_listing_mode_mismatch = bool(has_buy_signal and not has_rent_price)
+                if obvious_listing_mode_mismatch:
+                    diagnostics = {
+                        "provider_host": urllib.parse.urlparse(str(source_url or property_url)).netloc,
+                        "expected_listing_mode": listing_mode,
+                        "observed_price_display": str(detailed_facts.get("price_display") or "").strip(),
+                        "observed_rent_display": str(detailed_facts.get("rent_display") or "").strip(),
+                        "observed_total_rent_display": str(detailed_facts.get("total_rent_display") or "").strip(),
+                        "postal_name": str(detailed_facts.get("postal_name") or "").strip(),
+                        "district": str(detailed_facts.get("district") or "").strip(),
+                    }
+                    repair_task = self._open_property_provider_repair_task(
+                        principal_id=principal_id,
+                        property_url=property_url,
+                        title=detailed_title,
+                        source_url=source_url,
+                        source_label=source_label,
+                        source_platform=str(source_spec.get("platform") or "").strip().lower(),
+                        source_family=str(source_spec.get("provider_family") or "").strip().lower(),
+                        filter_key="listing_mode",
+                        diagnostics=diagnostics,
+                    )
+                    repair_task_status = str(repair_task.get("status") or "").strip().lower()
+                    if repair_task_status == "opened":
+                        provider_repair_task_opened_for_source += 1
+                        provider_repair_task_opened_total += 1
+                    elif repair_task_status == "existing":
+                        provider_repair_task_existing_for_source += 1
+                        provider_repair_task_existing_total += 1
+                    if str(repair_task.get("queue_item_ref") or "").strip():
+                        provider_repair_tasks_for_source.append(
+                            {
+                                "status": repair_task_status or "queued",
+                                "property_url": property_url,
+                                "title": detailed_title,
+                                "filter_key": "listing_mode",
+                                "diagnostics": diagnostics,
+                                "human_task_id": str(repair_task.get("human_task_id") or "").strip(),
+                                "queue_item_ref": str(repair_task.get("queue_item_ref") or "").strip(),
+                                "repair_owner": "ea_one_manager",
+                                "repair_workflow": "ea_provider_ooda",
+                            }
+                        )
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="property_provider_listing_mode_mismatch",
+                        payload={
+                            "property_url": property_url,
+                            "title": detailed_title,
+                            "source_url": source_url,
+                            "source_label": source_label,
+                            "source_platform": str(source_spec.get("platform") or "").strip().lower(),
+                            "source_family": str(source_spec.get("provider_family") or "").strip().lower(),
+                            "filter_key": "listing_mode",
+                            "diagnostics": diagnostics,
+                            "repair_owner": "ea_one_manager",
+                            "repair_workflow": "ea_provider_ooda",
+                            "repair_task": dict(repair_task),
+                        },
+                        source_id=f"property-provider-listing-mode:{property_url}",
+                        dedupe_key=f"{principal_id}|{property_url}|property-provider-listing-mode-mismatch|{listing_mode}",
+                    )
+                    _report(
+                        step="source_listing_mode_filter",
+                        message=f"Suppressed listing-mode mismatch candidate for {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                    )
+                    continue
                 ranked_rows.append(
                     {
                         "property_url": property_url,
@@ -29522,7 +30547,7 @@ class ProductService:
                     for context_key in ("country_code", "region_code", "location_query"):
                         if request_preferences.get(context_key) not in (None, "", (), []):
                             best_facts.setdefault(context_key, request_preferences.get(context_key))
-                    best_flythrough_result = self._maybe_render_property_scout_flythrough(
+                    raw_best_flythrough_result = dict(self._maybe_render_property_scout_flythrough(
                         principal_id=principal_id,
                         actor=actor,
                         title=str(best_visual_candidate.get("title") or best_property_url).strip(),
@@ -29532,7 +30557,8 @@ class ProductService:
                         property_facts=best_facts,
                         fit_score=float(best_visual_candidate.get("assessment_fit_score") or best_visual_candidate.get("fit_score") or 0.0),
                         allow_below_threshold=True,
-                    )
+                    ) or {})
+                    best_flythrough_result = _normalize_property_flythrough_result(raw_best_flythrough_result)
                     best_visual_candidate["flythrough_url"] = str(best_flythrough_result.get("video_url") or "").strip()
                     best_visual_candidate["flythrough_status"] = str(best_flythrough_result.get("status") or "").strip()
                     best_visual_candidate["flythrough_provider"] = str(
@@ -29542,7 +30568,9 @@ class ProductService:
                         or ""
                     ).strip()
                     best_visual_candidate["flythrough_reason"] = str(best_flythrough_result.get("reason") or "").strip()
+                    best_visual_candidate["flythrough_raw_status"] = str(raw_best_flythrough_result.get("status") or "").strip()
                     best_flythrough_status = str(best_flythrough_result.get("status") or "").strip().lower()
+                    best_flythrough_raw_status = str(raw_best_flythrough_result.get("status") or "").strip().lower()
                     if best_flythrough_status == "rendered":
                         flythrough_rendered_total += 1
                         best_visual_source["flythrough_rendered_total"] = int(best_visual_source.get("flythrough_rendered_total") or 0) + 1
@@ -29552,6 +30580,40 @@ class ProductService:
                     elif best_flythrough_status == "failed":
                         flythrough_failed_total += 1
                         best_visual_source["flythrough_failed_total"] = int(best_visual_source.get("flythrough_failed_total") or 0) + 1
+                    if best_flythrough_raw_status == "failed":
+                        repair_task = self._open_property_provider_repair_task(
+                            principal_id=principal_id,
+                            property_url=best_property_url,
+                            title=str(best_visual_candidate.get("title") or best_property_url).strip(),
+                            source_url=best_property_url,
+                            source_label=str(best_visual_source.get("source_label") or best_source_ref or urllib.parse.urlparse(best_property_url).netloc).strip(),
+                            source_platform=str(best_visual_candidate.get("source_platform") or "").strip(),
+                            source_family=str(best_visual_candidate.get("source_family") or "").strip(),
+                            filter_key="walkthrough_video",
+                            diagnostics={
+                                "provider_host": urllib.parse.urlparse(best_property_url).netloc.lower(),
+                                "raw_status": best_flythrough_raw_status,
+                                "normalized_status": best_flythrough_status,
+                                "video_url_present": bool(str(best_visual_candidate.get("flythrough_url") or "").strip()),
+                                "failure_reason": str(best_visual_candidate.get("flythrough_reason") or "").strip(),
+                                "tour_url": str(best_visual_candidate.get("tour_url") or "").strip(),
+                            },
+                        )
+                        if str(repair_task.get("status") or "").strip() == "opened":
+                            provider_repair_task_opened_for_source += 1
+                            provider_repair_task_opened_total += 1
+                        elif str(repair_task.get("status") or "").strip() == "existing":
+                            provider_repair_task_existing_for_source += 1
+                            provider_repair_task_existing_total += 1
+                        if str(repair_task.get("status") or "").strip() in {"opened", "existing"}:
+                            provider_repair_tasks_for_source.append(
+                                {
+                                    "filter_key": "walkthrough_video",
+                                    "status": str(repair_task.get("status") or "").strip(),
+                                    "queue_item_ref": str(repair_task.get("queue_item_ref") or "").strip(),
+                                    "human_task_id": str(repair_task.get("human_task_id") or "").strip(),
+                                }
+                            )
                     for source_candidate in list(best_visual_source.get("research_candidates") or []):
                         if not isinstance(source_candidate, dict):
                             continue
@@ -29564,6 +30626,7 @@ class ProductService:
                         source_candidate["flythrough_status"] = str(best_visual_candidate.get("flythrough_status") or "").strip()
                         source_candidate["flythrough_provider"] = str(best_visual_candidate.get("flythrough_provider") or "").strip()
                         source_candidate["flythrough_reason"] = str(best_visual_candidate.get("flythrough_reason") or "").strip()
+                        source_candidate["flythrough_raw_status"] = str(best_visual_candidate.get("flythrough_raw_status") or "").strip()
                         break
                     for pending_notification in pending_telegram_notifications:
                         if str(pending_notification.get("source_ref") or "").strip() != best_source_ref:
@@ -29624,6 +30687,12 @@ class ProductService:
 
         stage_receipts = mark_property_search_stage_receipt(stage_receipts, "results_compiled_at")
         timing_ms["results_compiled"] = _run_elapsed_ms()
+        held_back_total = (
+            int(filtered_area_total or 0)
+            + int(filtered_floorplan_total or 0)
+            + int(filtered_low_fit_total or 0)
+            + int(notification_budget_suppressed_total or 0)
+        )
         payload = {
             "generated_at": _now_iso(),
             "status": "processed",
@@ -29636,6 +30705,8 @@ class ProductService:
             "filtered_availability_total": filtered_availability_total,
             "filtered_floorplan_total": filtered_floorplan_total,
             "filtered_low_fit_total": filtered_low_fit_total,
+            "held_back_total": held_back_total,
+            "filtered_total": held_back_total,
             "provider_repair_task_opened_total": provider_repair_task_opened_total,
             "provider_repair_task_existing_total": provider_repair_task_existing_total,
             "provider_cache_hit_total": provider_cache_hit_total,
@@ -29698,6 +30769,32 @@ class ProductService:
                 "run_total": round((time.perf_counter() - run_started_at) * 1000.0, 2),
             },
         }
+        successful_source_total = len(
+            [
+                summary
+                for summary in source_summaries
+                if isinstance(summary, dict) and not str(summary.get("error") or "").strip()
+            ]
+        )
+        payload["status"] = _state_property_search_run_terminal_outcome(
+            sources_total=len(specs),
+            failed_total=failed_total,
+            successful_source_total=successful_source_total,
+        )
+        if payload["status"] == "completed_partial":
+            payload["repair_status"] = "degraded"
+            payload["repair_status_label"] = "Partial coverage"
+            payload["can_auto_repair"] = True
+            payload["customer_status_message"] = (
+                "The shortlist is ready, but one or more sources degraded before the full market scan finished."
+            )
+        elif payload["status"] == "failed":
+            payload["repair_status"] = "failed"
+            payload["repair_status_label"] = "Repair failed"
+            payload["can_auto_repair"] = True
+            payload["customer_status_message"] = (
+                "No source completed cleanly enough to produce a usable shortlist."
+            )
         if not self._property_search_results_delivery_pending(result=payload):
             stage_receipts = mark_property_search_stage_receipt(stage_receipts, "results_delivery_ready_at")
             payload["timing_ms"]["results_delivery_ready"] = _run_elapsed_ms()
@@ -29730,7 +30827,7 @@ class ProductService:
         _report(
             step="completed",
             message="Property scouting run completed.",
-            status="processed",
+            status=str(payload.get("status") or "processed"),
             steps_delta=max(0, _PROPERTY_SEARCH_RUN_STAGES),
             summary_updates=payload,
         )
@@ -32938,6 +34035,134 @@ class ProductService:
         diorama_style_hint: str = "",
         render_dossier: bool = True,
     ) -> dict[str, object]:
+        current_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
+        location_hints = _property_search_location_hints(current_preferences)
+        search_goal = str(current_preferences.get("search_goal") or "").strip().lower()
+        listing_mode = "buy" if search_goal == "investment" else normalize_listing_mode(current_preferences.get("listing_mode"))
+        first_candidate = dict(candidate_properties[0] or {}) if candidate_properties else {}
+        candidate_facts = (
+            dict(first_candidate.get("property_facts_json") or {})
+            if isinstance(first_candidate.get("property_facts_json"), dict)
+            else dict(first_candidate.get("property_facts") or {})
+            if isinstance(first_candidate.get("property_facts"), dict)
+            else {}
+        )
+        candidate_property_url = str(first_candidate.get("property_url") or property_url or "").strip()
+        candidate_title = str(first_candidate.get("listing_title") or first_candidate.get("title") or title or "").strip()
+        candidate_summary = str(first_candidate.get("summary") or first_candidate.get("fit_summary") or summary or "").strip()
+        suppression_reason = ""
+        repair_filter_key = ""
+        candidate_semantic_probe_available = any(
+            str(candidate_facts.get(key) or "").strip()
+            for key in (
+                "postal_name",
+                "district",
+                "location",
+                "street_address",
+                "exact_address",
+                "price_display",
+                "purchase_price_display",
+                "rent_display",
+                "total_rent_display",
+                "price_eur",
+                "purchase_price_eur",
+                "rent_eur",
+                "total_rent_eur",
+                "buy_price_eur",
+            )
+        )
+        candidate_price_probe_available = any(
+            key in candidate_facts
+            for key in (
+                "price_display",
+                "purchase_price_display",
+                "rent_display",
+                "total_rent_display",
+                "price_eur",
+                "purchase_price_eur",
+                "rent_eur",
+                "total_rent_eur",
+                "buy_price_eur",
+            )
+        )
+        if candidate_semantic_probe_available and location_hints and not _property_candidate_matches_requested_location(
+            location_hints=location_hints,
+            property_url=candidate_property_url,
+            title=candidate_title,
+            summary=candidate_summary,
+            property_facts=candidate_facts,
+            country_code=str(current_preferences.get("country_code") or "").strip(),
+            region_code=str(current_preferences.get("region_code") or "").strip(),
+        ):
+            suppression_reason = "property_location_conflicts_with_active_search"
+            repair_filter_key = "location_scope"
+        elif _property_candidate_is_generic_listing_page(
+            property_url=candidate_property_url,
+            title=candidate_title,
+            summary=candidate_summary,
+            property_facts=candidate_facts,
+        ):
+            suppression_reason = "property_generic_listing_page"
+            repair_filter_key = "missing_price"
+        elif candidate_semantic_probe_available and not _property_candidate_has_concrete_location(candidate_facts):
+            suppression_reason = "property_missing_concrete_location"
+            repair_filter_key = "missing_location"
+        elif candidate_semantic_probe_available and candidate_price_probe_available and not _property_candidate_notification_price_signal(
+            candidate_facts,
+            listing_mode=listing_mode,
+            title=candidate_title,
+        ):
+            suppression_reason = "property_missing_concrete_price"
+            repair_filter_key = "missing_price"
+        if suppression_reason:
+            repair_task = self._open_property_provider_repair_task(
+                principal_id=principal_id,
+                property_url=candidate_property_url or property_url,
+                title=candidate_title or title or property_url,
+                source_url=candidate_property_url or property_url,
+                source_label=source_ref or counterparty or "Property scout",
+                source_platform=str(first_candidate.get("source_platform") or "").strip(),
+                source_family=str(first_candidate.get("source_family") or "").strip(),
+                filter_key=repair_filter_key,
+                source_ref=source_ref,
+                diagnostics={
+                    "listing_id": str(first_candidate.get("listing_id") or "").strip(),
+                    "candidate_ref": str(first_candidate.get("source_ref") or source_ref or "").strip(),
+                    "expected_listing_mode": listing_mode,
+                    "location_hints": list(location_hints),
+                    "postal_name": str(candidate_facts.get("postal_name") or "").strip(),
+                    "district": str(candidate_facts.get("district") or "").strip(),
+                    "location": str(candidate_facts.get("location") or "").strip(),
+                    "street_address": str(candidate_facts.get("street_address") or "").strip(),
+                    "exact_address": str(candidate_facts.get("exact_address") or "").strip(),
+                    "price_display": str(candidate_facts.get("price_display") or candidate_facts.get("rent_display") or "").strip(),
+                    "summary": compact_text(candidate_summary, fallback="", limit=240),
+                    "title": compact_text(candidate_title, fallback="", limit=200),
+                },
+            )
+            payload = {
+                "status": "suppressed",
+                "reason": suppression_reason,
+                "property_url": candidate_property_url or property_url,
+                "source_ref": source_ref,
+                "repair_task": dict(repair_task),
+                "queue_item_ref": str(repair_task.get("queue_item_ref") or "").strip(),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_scout_hit_telegram_suppressed_semantic_mismatch",
+                payload={
+                    **payload,
+                    "title": candidate_title,
+                    "summary": candidate_summary,
+                    "counterparty": str(counterparty or "").strip(),
+                    "location_hints": list(location_hints),
+                    "actor": str(actor or "").strip() or "property_scout",
+                },
+                source_id=str(source_ref or candidate_property_url or property_url).strip(),
+                dedupe_key=f"{principal_id}|{source_ref or candidate_property_url or property_url}|{suppression_reason}|property-scout-hit-telegram-suppressed",
+            )
+            return payload
         dedupe_suffix = datetime.now(timezone.utc).strftime("%Y%m%d")
         dedupe_key = f"{principal_id}|{source_ref}|property-scout-hit-telegram|{dedupe_suffix}"
         if self._recent_product_event_exists(

@@ -120,17 +120,36 @@ def _clean_property_candidate_copy(value: object) -> str:
     text = " ".join(str(value or "").split()).strip()
     if not text:
         return ""
+    if re.match(r"^Personal fit \d+/100(?:\s*·.*)?$", text, flags=re.IGNORECASE):
+        return ""
     noisy_exact = {
         "Provider-ranked fallback candidate kept because strict personal-fit scoring produced no shortlist.",
+        "The listing does not provide a live 360 source, so remote screening has higher uncertainty.",
     }
     if text in noisy_exact:
         return ""
     replacements = {
         "Provider-ranked fallback candidate kept because strict personal-fit scoring produced no shortlist.": "Fallback candidate because no stronger fit cleared the shortlist.",
+        "· ask for clarification": "",
+        "ask for clarification": "",
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
     return text.strip()
+
+
+def _property_type_selection_allows_land(property_types: list[str]) -> bool:
+    normalized = {str(item or "").strip().lower() for item in list(property_types or []) if str(item or "").strip()}
+    if not normalized or "any" in normalized:
+        return True
+    return bool(normalized.intersection({"land", "baugrund", "grundstück", "grundstueck"}))
+
+
+def _property_type_selection_is_land_only(property_types: list[str]) -> bool:
+    normalized = {str(item or "").strip().lower() for item in list(property_types or []) if str(item or "").strip()}
+    if not normalized or "any" in normalized:
+        return False
+    return normalized.issubset({"land", "baugrund", "grundstück", "grundstueck"})
 
 
 def _property_customer_source_summary(source: dict[str, object]) -> dict[str, object]:
@@ -1050,6 +1069,7 @@ def _property_keyword_options_cached() -> tuple[tuple[str, str, str], ...]:
         )
         for row in [
         {"value": "lift", "label": "Lift", "detail": "Elevator in the building"},
+        {"value": "barrier-free", "label": "Barrier-free", "detail": "Wheelchair accessible or step-free"},
         {"value": "balcony", "label": "Balcony", "detail": "Outdoor private space"},
         {"value": "terrace", "label": "Terrace", "detail": "Large outdoor space"},
         {"value": "baugrund", "label": "Baugrund", "detail": "Building plot / land"},
@@ -1057,6 +1077,10 @@ def _property_keyword_options_cached() -> tuple[tuple[str, str, str], ...]:
         {"value": "wasserzugang", "label": "Wasserzugang", "detail": "Access to water"},
         {"value": "family", "label": "Family-friendly", "detail": "Good fit for children"},
         {"value": "playground nearby", "label": "Playground nearby", "detail": "Walkable play options"},
+        {"value": "library nearby", "label": "Library nearby", "detail": "Books, study, and rainy-day backup nearby"},
+        {"value": "zoo nearby", "label": "Zoo nearby", "detail": "Family weekend-life signal nearby"},
+        {"value": "public pool nearby", "label": "Public pool nearby", "detail": "Swimming and sport access nearby"},
+        {"value": "medical care nearby", "label": "Medical care nearby", "detail": "Doctors, clinics, and hospitals nearby"},
         {"value": "supermarket nearby", "label": "Supermarket nearby", "detail": "Daily errands close by"},
         {"value": "pharmacy nearby", "label": "Pharmacy nearby", "detail": "Healthcare basics nearby"},
         {"value": "underground nearby", "label": "Underground nearby", "detail": "Fast transit access"},
@@ -1071,8 +1095,80 @@ def _property_keyword_options_cached() -> tuple[tuple[str, str, str], ...]:
 
 
 def _property_keyword_options() -> list[dict[str, str]]:
+    preference_options = {
+        "playground nearby": [
+            {"value": "any", "label": "No preference"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "library nearby": [
+            {"value": "any", "label": "No preference"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "zoo nearby": [
+            {"value": "any", "label": "No preference"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "public pool nearby": [
+            {"value": "any", "label": "No preference"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "medical care nearby": [
+            {"value": "any", "label": "No preference"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "supermarket nearby": [
+            {"value": "any", "label": "No preference"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "pharmacy nearby": [
+            {"value": "any", "label": "No preference"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "underground nearby": [
+            {"value": "any", "label": "No preference"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+    }
+    distance_options = [
+        {"value": "100", "label": "100 m"},
+        {"value": "250", "label": "250 m"},
+        {"value": "500", "label": "500 m"},
+        {"value": "1000", "label": "1 km"},
+        {"value": "2000", "label": "2 km"},
+        {"value": "5000", "label": "5 km"},
+    ]
     return [
-        {"value": value, "label": label, "detail": detail}
+        {
+            "value": value,
+            "label": label,
+            "detail": detail,
+            **({"preference_options": preference_options[value]} if value in preference_options else {}),
+            **({"distance_options": distance_options} if value in preference_options else {}),
+        }
         for value, label, detail in _property_keyword_options_cached()
     ]
 
@@ -1215,6 +1311,9 @@ def _compact_when(value: str | None, fallback: str) -> str:
 
 
 def _property_candidate_ref(candidate: dict[str, object]) -> str:
+    explicit_ref = str(candidate.get("candidate_ref") or candidate.get("research_candidate_ref") or "").strip()
+    if explicit_ref:
+        return explicit_ref
     raw = "|".join(
         str(candidate.get(key) or "").strip()
         for key in ("title", "property_url", "review_url", "source_ref", "source_label")
@@ -1417,6 +1516,49 @@ def app_section_payload(
         **property_run_preferences,
     }
     property_summary = dict(property_run.get("summary") or {})
+    saved_shortlist_candidates = [
+        dict(row)
+        for row in list(property_state.get("saved_shortlist_candidates") or [])
+        if isinstance(row, dict)
+    ]
+    if surface_scope.section == "shortlist" and saved_shortlist_candidates:
+        current_ranked = [
+            dict(row)
+            for row in list(property_summary.get("ranked_candidates") or [])
+            if isinstance(row, dict)
+        ]
+
+        def _saved_shortlist_ref(candidate: dict[str, object]) -> str:
+            facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+            for value in (
+                candidate.get("property_ref"),
+                candidate.get("property_url"),
+                candidate.get("source_url"),
+                facts.get("listing_url"),
+                candidate.get("source_ref"),
+                candidate.get("candidate_ref"),
+            ):
+                normalized = str(value or "").strip()
+                if normalized:
+                    return normalized
+            return ""
+
+        merged_ranked: list[dict[str, object]] = []
+        seen_refs: set[str] = set()
+        for candidate in [*current_ranked, *saved_shortlist_candidates]:
+            candidate_row = dict(candidate)
+            candidate_ref = _saved_shortlist_ref(candidate_row)
+            if candidate_ref and candidate_ref in seen_refs:
+                continue
+            if candidate_ref:
+                seen_refs.add(candidate_ref)
+                candidate_row["property_ref"] = candidate_ref
+            merged_ranked.append(candidate_row)
+        for index, candidate_row in enumerate(merged_ranked, start=1):
+            candidate_row["rank"] = index
+        if merged_ranked:
+            property_summary["ranked_candidates"] = merged_ranked[:50]
+            property_run["summary"] = property_summary
     property_country_label = str(property_state.get("country_label") or "Market")
     property_language_label = str(property_state.get("language_label") or "Deutsch")
     property_listing_mode_label = str(property_state.get("listing_mode_label") or "Rent")
@@ -1447,6 +1589,7 @@ def app_section_payload(
         for value in (property_state.get("selected_platforms") or [])
         if str(value or "").strip()
     }
+    selected_property_type_values = _normalize_property_type_values(property_preferences.get("property_type"))
     search_form_state = build_property_search_form_state_snapshot(
         property_preferences,
         selected_listing_mode=selected_listing_mode,
@@ -1527,8 +1670,18 @@ def app_section_payload(
             ]
         except Exception:
             evidence_source_rows = []
-    selected_location_values = _csv_values(property_preferences.get("location_query"))
+    raw_selected_location_values = property_preferences.get("selected_location_values")
+    if isinstance(raw_selected_location_values, (list, tuple, set)):
+        selected_location_values = [
+            str(item or "").strip()
+            for item in raw_selected_location_values
+            if str(item or "").strip()
+        ]
+    else:
+        selected_location_values = _csv_values(property_preferences.get("location_query"))
     selected_keyword_values = _csv_values(property_preferences.get("keywords"))
+    selected_avoid_keyword_values = _csv_values(property_preferences.get("avoid_keywords"))
+    raw_keyword_preference_map = dict(property_preferences.get("keyword_preferences") or {}) if isinstance(property_preferences.get("keyword_preferences"), dict) else {}
     region_options = _property_region_options(str(property_preferences.get("country_code") or "AT"))
     if not selected_region_code and region_options:
         selected_region_code = str(region_options[0].get("value") or "").strip().lower()
@@ -1551,6 +1704,118 @@ def app_section_payload(
     keyword_options = _property_keyword_options()
     selected_location_values, custom_location_values = _split_known_and_custom_values(location_options, selected_location_values)
     selected_keyword_values, custom_keyword_values = _split_known_and_custom_values(keyword_options, selected_keyword_values)
+    show_land_keywords = _property_type_selection_allows_land(selected_property_type_values)
+    land_only_search = _property_type_selection_is_land_only(selected_property_type_values)
+    dwelling_only_keywords = {"lift", "barrier-free", "balcony", "terrace", "no gas", "district heating", "bright"}
+    keyword_preference_options: list[dict[str, object]] = []
+    nearby_keyword_distance_fields = {
+        "playground nearby": "max_distance_to_playground_m",
+        "library nearby": "max_distance_to_library_m",
+        "zoo nearby": "max_distance_to_zoo_m",
+        "public pool nearby": "max_distance_to_public_pool_m",
+        "medical care nearby": "max_distance_to_medical_care_m",
+        "supermarket nearby": "max_distance_to_supermarket_m",
+        "pharmacy nearby": "max_distance_to_medical_care_m",
+        "underground nearby": "max_distance_to_subway_m",
+    }
+    nearby_keyword_importance_fields = {
+        "playground nearby": "max_distance_to_playground_importance",
+        "library nearby": "max_distance_to_library_importance",
+        "zoo nearby": "",
+        "public pool nearby": "",
+        "medical care nearby": "",
+        "supermarket nearby": "max_distance_to_supermarket_importance",
+        "pharmacy nearby": "",
+        "underground nearby": "",
+    }
+    for option in keyword_options:
+        option_value = str(option.get("value") or "").strip()
+        state = str(raw_keyword_preference_map.get(option_value) or "").strip().lower()
+        distance_state = "500"
+        if option_value == "playground nearby":
+            if state not in {"avoid", "nice_to_have", "important", "must_have"}:
+                playground_distance = property_preferences.get("max_distance_to_playground_m")
+                playground_importance = str(property_preferences.get("max_distance_to_playground_importance") or "").strip().lower()
+                try:
+                    playground_distance = int(float(playground_distance)) if playground_distance not in (None, "") else 0
+                except Exception:
+                    playground_distance = 0
+                if option_value in selected_avoid_keyword_values:
+                    state = "avoid"
+                elif raw_keyword_preference_map and playground_importance in {"must_have", "important", "nice_to_have"}:
+                    state = playground_importance
+                else:
+                    state = "any"
+        elif option_value == "underground nearby":
+            if state not in {"avoid", "nice_to_have", "important", "must_have"}:
+                subway_distance = property_preferences.get("max_distance_to_subway_m")
+                try:
+                    subway_distance = int(float(subway_distance)) if subway_distance not in (None, "") else 0
+                except Exception:
+                    subway_distance = 0
+                if option_value in selected_avoid_keyword_values:
+                    state = "avoid"
+                elif raw_keyword_preference_map and subway_distance:
+                    if subway_distance <= 250:
+                        state = "must_have"
+                    elif subway_distance <= 500:
+                        state = "important"
+                    else:
+                        state = "nice_to_have"
+                else:
+                    state = "any"
+        elif option_value in {"library nearby", "zoo nearby", "public pool nearby", "medical care nearby", "supermarket nearby", "pharmacy nearby"}:
+            if state not in {"avoid", "nice_to_have", "important", "must_have"}:
+                distance_field = nearby_keyword_distance_fields.get(option_value) or ""
+                importance_field = nearby_keyword_importance_fields.get(option_value) or ""
+                stored_distance = property_preferences.get(distance_field) if distance_field else None
+                try:
+                    stored_distance = int(float(stored_distance)) if stored_distance not in (None, "") else 0
+                except Exception:
+                    stored_distance = 0
+                stored_importance = str(property_preferences.get(importance_field) or "").strip().lower() if importance_field else ""
+                if option_value in selected_avoid_keyword_values:
+                    state = "avoid"
+                elif raw_keyword_preference_map and stored_importance in {"must_have", "important", "nice_to_have"}:
+                    state = stored_importance
+                elif raw_keyword_preference_map and stored_distance:
+                    if stored_distance <= 250:
+                        state = "must_have"
+                    elif stored_distance <= 500:
+                        state = "important"
+                    else:
+                        state = "nice_to_have"
+                else:
+                    state = "any"
+        elif option_value == "barrier-free":
+            if state not in {"avoid", "nice_to_have", "important", "must_have"}:
+                if option_value in selected_avoid_keyword_values:
+                    state = "avoid"
+                elif bool(property_preferences.get("require_barrier_free")):
+                    state = "must_have"
+                else:
+                    state = "any"
+        elif state not in {"avoid", "nice_to_have", "important", "must_have"}:
+            if option_value in selected_avoid_keyword_values:
+                state = "avoid"
+            else:
+                state = "any"
+        if option_value in nearby_keyword_distance_fields:
+            stored_distance = property_preferences.get(nearby_keyword_distance_fields[option_value])
+            try:
+                stored_distance = int(float(stored_distance)) if stored_distance not in (None, "") else 0
+            except Exception:
+                stored_distance = 0
+            if stored_distance in {100, 250, 500, 1000, 2000, 5000}:
+                distance_state = str(stored_distance)
+        keyword_preference_options.append(
+            {
+                **option,
+                "state": state,
+                "distance_state": distance_state,
+                "hidden": (option_value == "baugrund" and not show_land_keywords) or (option_value in dwelling_only_keywords and land_only_search),
+            }
+        )
     custom_location_query = str(property_preferences.get("custom_location_query") or ", ".join(custom_location_values)).strip()
     custom_keywords = str(property_preferences.get("custom_keywords") or ", ".join(custom_keyword_values)).strip()
     adjacent_area_radius_unit = str(property_preferences.get("adjacent_area_radius_unit") or "m").strip().lower()
@@ -1830,8 +2095,7 @@ def app_section_payload(
     property_search_mode_requested = str(property_preferences.get("search_mode") or "strict").strip().lower()
     if property_search_mode_requested not in {"strict", "discovery"}:
         property_search_mode_requested = "strict"
-    selected_property_type_values = _normalize_property_type_values(property_preferences.get("property_type"))
-    if surface_scope.wants_search_runs or surface_scope.wants_agent_views:
+    if surface_scope.section == "search" or surface_scope.wants_agent_views:
         property_search_agents, property_search_agent = build_property_search_agents(
             property_preferences,
             selected_platforms=selected_platforms,
@@ -1933,7 +2197,7 @@ def app_section_payload(
                 "label": "Property type",
                 "values": selected_property_type_values,
                 "options": property_type_options,
-                "step": "search",
+                "step": "what",
             },
             {
                 "type": "select",
@@ -2087,7 +2351,7 @@ def app_section_payload(
                 "label": f"Use all {selected_region_label}" if selected_region_label else "Use full area",
                 "value": "true",
                 "checked": selected_full_region_scope,
-                "step": "areas",
+                "step": "search",
             },
             {
                 "type": "checkbox_group",
@@ -2096,7 +2360,7 @@ def app_section_payload(
                 "options": location_options,
                 "values": selected_location_values,
                 "hidden": selected_full_region_scope,
-                "step": "areas",
+                "step": "search",
             },
             {
                 "type": "range",
@@ -2110,7 +2374,7 @@ def app_section_payload(
                 "empty_label": "District only",
                 "scale_min_label": "0",
                 "scale_max_label": f"1000 {adjacent_area_radius_unit}",
-                "step": "areas",
+                "step": "search",
                 "tooltip": "Allow homes just outside the selected districts or areas when they are still nearby.",
                 "unit_field": "adjacent_area_radius_unit",
                 "meter_step": 25,
@@ -2125,7 +2389,7 @@ def app_section_payload(
                     {"value": "m", "label": "Meters"},
                     {"value": "km", "label": "Kilometers"},
                 ],
-                "step": "areas",
+                "step": "search",
             },
             {
                 "type": "text",
@@ -2134,7 +2398,7 @@ def app_section_payload(
                 "value": custom_location_query,
                 "placeholder": "Free text for areas not covered by the checklist",
                 "tooltip": "Use this only when the district or area is not already available as a visible checkbox.",
-                "step": "areas",
+                "step": "search",
             },
             {
                 "type": "checkbox",
@@ -2144,7 +2408,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("investment_require_floorplan") or property_preferences.get("require_floorplan")),
                 "tooltip": "Use this for cleaner underwriting. Listings without a layout stay out of the final investment shortlist.",
                 "step": "areas",
-                "hidden": not show_investment_underwriting_controls,
+                "hidden": not show_investment_underwriting_controls or land_only_search,
             },
             {
                 "type": "checkbox",
@@ -2343,12 +2607,11 @@ def app_section_payload(
                 "hidden": selected_listing_mode != "buy",
             },
             {
-                "type": "checkbox_group",
+                "type": "keyword_priority_group",
                 "name": "keywords",
                 "label": "What matters",
-                "options": keyword_options,
-                "values": selected_keyword_values,
-                "step": "areas",
+                "options": keyword_preference_options,
+                "step": "children",
             },
             {
                 "type": "text",
@@ -2357,7 +2620,7 @@ def app_section_payload(
                 "value": custom_keywords,
                 "placeholder": "Free text for priorities not listed above",
                 "tooltip": "If the same custom preference is requested three times, it should be promoted into this user's default catalog. If many users request the same thing, it should become available for everyone.",
-                "step": "areas",
+                "step": "children",
             },
             {
                 "type": "select",
@@ -2367,8 +2630,8 @@ def app_section_payload(
                 "options": preference_profile_options,
                 "manage_href": profile_manage_href,
                 "manage_label": "Manage feedback preferences",
-                "step": "areas",
-                "hidden": not show_preference_profile_controls,
+                "step": "children",
+                "hidden": True,
             },
             {
                 "type": "checkbox",
@@ -2378,7 +2641,8 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("use_stored_feedback_preferences", True)),
                 "manage_href": profile_manage_href,
                 "manage_label": "Manage",
-                "step": "areas",
+                "step": "children",
+                "hidden": True,
             },
             {
                 "type": "checkbox",
@@ -2387,7 +2651,8 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("enable_building_risk_research")),
                 "tooltip": "Investigate reserve fund, renovation pressure, energy risk, special levies, and operating-cost exposure.",
-                "step": "areas",
+                "step": "research",
+                "advanced_panel": "research_scope",
             },
             {
                 "type": "checkbox",
@@ -2396,7 +2661,8 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("enable_market_supply_research")),
                 "tooltip": "Investigate developer pipeline, competing supply, target-demand depth, and exit liquidity.",
-                "step": "areas",
+                "step": "research",
+                "advanced_panel": "research_scope",
             },
             {
                 "type": "checkbox",
@@ -2405,7 +2671,8 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("enable_location_risk_research")),
                 "tooltip": "Investigate safety, schools, clinics, daily-life access, pollution, flood, heat, and nuisance burden.",
-                "step": "areas",
+                "step": "research",
+                "advanced_panel": "research_scope",
             },
             {
                 "type": "checkbox_group",
@@ -2422,7 +2689,6 @@ def app_section_payload(
                 ],
                 "values": list(property_preferences.get("school_stage_preferences") or []),
                 "step": "children",
-                "advanced_panel": "children",
             },
             {
                 "type": "select",
@@ -2435,7 +2701,6 @@ def app_section_payload(
                     {"value": "very_important", "label": "Very important"},
                 ],
                 "step": "children",
-                "advanced_panel": "children",
                 "hidden": not show_school_quality_priority_controls,
             },
             {
@@ -2446,7 +2711,6 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("require_school_evidence")),
                 "tooltip": "Keep school fit tied to official school-evidence rows instead of inferring too much from generic map proximity.",
                 "step": "children",
-                "advanced_panel": "children",
             },
             {
                 "type": "range",
@@ -2463,22 +2727,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Defines what nearby means for playground access. If good matches are scarce, PropertyQuarry relaxes this radius and marks the gap instead of returning nothing.",
                 "step": "children",
-                "advanced_panel": "children_distances",
-            },
-            {
-                "type": "select",
-                "name": "max_distance_to_playground_importance",
-                "label": "Playground importance",
-                "value": str(property_preferences.get("max_distance_to_playground_importance") or "important"),
-                "options": [
-                    {"value": "must_have", "label": "Must have"},
-                    {"value": "important", "label": "Important"},
-                    {"value": "nice_to_have", "label": "Nice to have"},
-                ],
-                "tooltip": "Controls how strongly playground distance affects ranking and how far the adaptive fallback may relax the radius.",
-                "step": "children",
-                "advanced_panel": "children_distances",
-                "hidden": not show_playground_importance_controls,
+                "hidden": True,
             },
             {
                 "type": "range",
@@ -2495,7 +2744,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Defines what nearby means for a public library or comparable Bücherei. Sparse searches relax this radius before returning an empty shortlist.",
                 "step": "children",
-                "advanced_panel": "children_distances",
+                "hidden": True,
             },
             {
                 "type": "select",
@@ -2509,8 +2758,7 @@ def app_section_payload(
                 ],
                 "tooltip": "Controls how strongly library distance affects ranking and adaptive radius relaxation.",
                 "step": "children",
-                "advanced_panel": "children_distances",
-                "hidden": not show_library_importance_controls,
+                "hidden": True,
             },
             {
                 "type": "range",
@@ -2527,9 +2775,9 @@ def app_section_payload(
                 "scale_max_label": "7 km",
                 "tooltip": "Optional family and weekend-life signal. Only keep listings within this distance of a zoo or Tiergarten.",
                 "step": "children",
-                "advanced_panel": "children_distances",
                 "availability_key": "family_zoo",
                 "disabled_reason": "No practical zoo or Tiergarten signal is configured for this market yet.",
+                "hidden": True,
             },
             {
                 "type": "checkbox",
@@ -2681,6 +2929,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("require_energy_certificate")),
                 "tooltip": "Treat missing Energieausweis evidence as a material gap, especially in Austrian buy and cooperative due diligence.",
                 "step": "research",
+                "hidden": land_only_search,
             },
             {
                 "type": "checkbox",
@@ -2690,6 +2939,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("require_operating_cost_statement")),
                 "tooltip": "Keep Betriebskosten and recurring-cost proof visible before a property is treated as ready for pursuit.",
                 "step": "research",
+                "hidden": land_only_search,
             },
             {
                 "type": "checkbox",
@@ -2708,7 +2958,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("enable_lifestyle_research")),
                 "tooltip": "Track lifestyle distance signals like Starbucks and fitness centers separately from hard investment or family-risk criteria.",
-                "step": "areas",
+                "step": "children",
             },
             {
                 "type": "text",
@@ -2716,7 +2966,7 @@ def app_section_payload(
                 "label": "University focus",
                 "value": str(property_preferences.get("university_name") or ""),
                 "placeholder": "University of Vienna, WU, TU Wien",
-                "step": "areas",
+                "step": "children",
                 "hidden": not show_lifestyle_research_controls,
             },
             {
@@ -2733,8 +2983,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Keep university proximity visible as a livability and investment signal. Use the university name above for a target campus or institution.",
-                "step": "areas",
-                "advanced_panel": "lifestyle_distances",
+                "step": "children",
                 "hidden": not show_lifestyle_research_controls,
             },
             {
@@ -2751,8 +3000,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest Starbucks.",
-                "step": "areas",
-                "advanced_panel": "lifestyle_distances",
+                "step": "children",
                 "hidden": not show_lifestyle_research_controls,
             },
             {
@@ -2769,8 +3017,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest fitness center or gym.",
-                "step": "areas",
-                "advanced_panel": "lifestyle_distances",
+                "step": "children",
                 "hidden": not show_lifestyle_research_controls,
             },
             {
@@ -2787,8 +3034,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest cinema.",
-                "step": "areas",
-                "advanced_panel": "lifestyle_distances",
+                "step": "children",
                 "hidden": not show_lifestyle_research_controls,
             },
             {
@@ -2805,8 +3051,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest bouldering or climbing gym.",
-                "step": "areas",
-                "advanced_panel": "lifestyle_distances",
+                "step": "children",
                 "hidden": not show_lifestyle_research_controls,
             },
             {
@@ -2823,8 +3068,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest dog park or dog exercise area.",
-                "step": "areas",
-                "advanced_panel": "lifestyle_distances",
+                "step": "children",
                 "hidden": not show_lifestyle_research_controls,
             },
             {
@@ -2841,8 +3085,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Optional fun filter. Only keep listings within this distance of the nearest cafe-quality proxy.",
-                "step": "areas",
-                "advanced_panel": "lifestyle_distances",
+                "step": "children",
                 "hidden": not show_lifestyle_research_controls,
             },
             {
@@ -2859,8 +3102,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Defines what nearby means for everyday groceries. If good matches are scarce, this radius is relaxed and reported instead of hiding every result.",
-                "step": "areas",
-                "advanced_panel": "shopping_distances",
+                "step": "children",
             },
             {
                 "type": "select",
@@ -2873,8 +3115,7 @@ def app_section_payload(
                     {"value": "nice_to_have", "label": "Nice to have"},
                 ],
                 "tooltip": "Controls how strongly supermarket distance affects ranking and adaptive radius relaxation.",
-                "step": "areas",
-                "advanced_panel": "shopping_distances",
+                "step": "children",
                 "hidden": not show_supermarket_importance_controls,
             },
             {
@@ -2891,8 +3132,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Optional district-life filter. Covers produce markets and flanier markets like Naschmarkt.",
-                "step": "areas",
-                "advanced_panel": "shopping_distances",
+                "step": "children",
             },
             {
                 "type": "range",
@@ -2908,8 +3148,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "7 km",
                 "tooltip": "Useful for renovation and everyday practical access. Tracks DIY and hardware-store distance.",
-                "step": "areas",
-                "advanced_panel": "shopping_distances",
+                "step": "children",
             },
             {
                 "type": "range",
@@ -2925,8 +3164,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "7 km",
                 "tooltip": "Tracks larger shopping centers for errands and bad-weather convenience.",
-                "step": "areas",
-                "advanced_panel": "shopping_distances",
+                "step": "children",
             },
             {
                 "type": "range",
@@ -2942,8 +3180,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "7 km",
                 "tooltip": "Tracks pedestrian-heavy shopping streets and promenade zones for strolling and city-life fit.",
-                "step": "areas",
-                "advanced_panel": "lifestyle_distances",
+                "step": "children",
             },
             {
                 "type": "range",
@@ -2959,8 +3196,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "7 km",
                 "tooltip": "Optional culture filter. Only keep listings within this distance of a theatre.",
-                "step": "areas",
-                "advanced_panel": "lifestyle_distances",
+                "step": "children",
             },
             {
                 "type": "range",
@@ -2977,7 +3213,7 @@ def app_section_payload(
                 "scale_max_label": "7 km",
                 "tooltip": "Useful for family leisure and everyday sport access. Tracks public swimming pools.",
                 "step": "children",
-                "advanced_panel": "children_wellbeing",
+                "hidden": True,
             },
             {
                 "type": "range",
@@ -2994,7 +3230,7 @@ def app_section_payload(
                 "scale_max_label": "7 km",
                 "tooltip": "Tracks proximity to doctors, health centers, clinics, and hospitals. Stronger signal when children or elder-care logistics matter.",
                 "step": "children",
-                "advanced_panel": "children_wellbeing",
+                "hidden": True,
             },
             {
                 "type": "checkbox",
@@ -3003,8 +3239,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("prefer_good_air_quality")),
                 "tooltip": "Treat poor air quality as a risk signal in deep research and ranking.",
-                "step": "areas",
-                "advanced_panel": "location_research",
+                "step": "children",
             },
             {
                 "type": "checkbox",
@@ -3013,8 +3248,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("avoid_noise_risk_area")),
                 "tooltip": "Use official Austrian noise maps and route exposure signals as ranking penalties or suppression reasons.",
-                "step": "areas",
-                "advanced_panel": "location_research",
+                "step": "children",
             },
             {
                 "type": "checkbox",
@@ -3023,8 +3257,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("require_high_speed_internet")),
                 "tooltip": "Promote listings backed by Austrian broadband coverage evidence when home-office viability matters.",
-                "step": "areas",
-                "advanced_panel": "location_research",
+                "step": "children",
             },
             {
                 "type": "checkbox",
@@ -3033,8 +3266,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("prefer_low_crime_area")),
                 "tooltip": "Treat crime burden and safety pattern as a genuine risk factor in deep research.",
-                "step": "areas",
-                "advanced_panel": "location_research",
+                "step": "children",
             },
             {
                 "type": "checkbox",
@@ -3043,8 +3275,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("require_drinking_water_quality_research")),
                 "tooltip": "Ask deep research to investigate Hochquellwasser versus groundwater dependency and any public burden signals.",
-                "step": "areas",
-                "advanced_panel": "location_research",
+                "step": "children",
             },
             {
                 "type": "checkbox",
@@ -3053,8 +3284,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("require_parking_pressure_check")),
                 "tooltip": "If the listing has no garage, deep research should investigate general street-parking pressure and paid-parking burden.",
-                "step": "areas",
-                "advanced_panel": "location_research",
+                "step": "children",
             },
             {
                 "type": "checkbox",
@@ -3063,8 +3293,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("avoid_cesspit_or_septic_risk")),
                 "tooltip": "Treat cesspit or septic dependence, costs, and smell burden as a risk that must be clarified.",
-                "step": "areas",
-                "advanced_panel": "location_research",
+                "step": "children",
             },
             {
                 "type": "checkbox",
@@ -3073,8 +3302,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("require_winter_access_research")),
                 "tooltip": "For more remote properties, deep research should investigate winter snow access, slope, and seasonal driving constraints.",
-                "step": "areas",
-                "advanced_panel": "location_research",
+                "step": "children",
             },
             {
                 "type": "checkbox",
@@ -3083,8 +3311,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("avoid_flood_risk_area")),
                 "tooltip": "Treat historic flooding, runoff, and river or drainage exposure as a serious location risk in deep research.",
-                "step": "areas",
-                "advanced_panel": "location_research",
+                "step": "children",
             },
             {
                 "type": "checkbox",
@@ -3093,7 +3320,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("enable_trust_risk_scoring")),
                 "tooltip": "Generate trust-verification work for duplicate, stale, and scam risk rather than treating all sources equally.",
-                "step": "areas",
+                "step": "children",
             },
             {
                 "type": "range",
@@ -3111,7 +3338,7 @@ def app_section_payload(
                 "tooltip": "Set a hard budget ceiling. Leave it at Any budget when you want PropertyQuarry to rank first and filter price later.",
                 "range_preset": "listing_mode_price",
                 "range_presets": property_price_range_presets,
-                "step": "search",
+                "step": "what",
             },
             {
                 "type": "range",
@@ -3127,7 +3354,8 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "8+ rooms",
                 "tooltip": "Minimum room count. Keep this open when layout quality matters more than the advertised room number.",
-                "step": "search",
+                "step": "what",
+                "hidden": land_only_search,
             },
             {
                 "type": "range",
@@ -3143,7 +3371,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "250+ m2",
                 "tooltip": "Minimum usable area. Larger minimums reduce weak matches but can make the crawl skip sparse auction or cooperative listings.",
-                "step": "search",
+                "step": "what",
             },
             {
                 "type": "range",
@@ -3159,7 +3387,7 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "10 years",
                 "tooltip": "Filter for listings or projects that should be ready within the selected number of years. Useful for cooperative and planned development sign-ups.",
-                "step": "search",
+                "step": "what",
             },
             {
                 "type": "range",
@@ -3259,6 +3487,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("require_floorplan")),
                 "step": "providers",
+                "hidden": land_only_search,
             },
             {
                 "type": "checkbox",
@@ -3299,38 +3528,33 @@ def app_section_payload(
             "wizard_steps": [
                 {
                     "key": "search",
-                    "label": "Market" if property_is_investment_search else "Where",
-                    "detail": "Market, listing mode, and budget."
-                    if property_is_investment_search
-                    else "Country, city, and the first budget line.",
+                    "label": "Where",
+                    "detail": "Country, market, and target areas.",
+                },
+                {
+                    "key": "what",
+                    "label": "What",
+                    "detail": "Property type, budget, size, and move-in guardrails.",
                 },
                 {
                     "key": "areas",
-                    "label": "Strategy" if property_is_investment_search else "Home shape",
-                    "detail": "Target areas, spillover distance, and investment guardrails."
-                    if property_is_investment_search
-                    else "Areas, spillover distance, and the home shape that should survive the cut.",
+                    "label": "Strategy",
+                    "detail": "Target areas, spillover distance, and investment guardrails.",
                 },
                 {
                     "key": "children",
-                    "label": "Guardrails" if property_is_investment_search else "Daily life",
-                    "detail": "Execution risk, legal posture, and which weak listings should be excluded."
-                    if property_is_investment_search
-                    else "Schools, childcare, and the everyday context that should stay explicit.",
+                    "label": "What matters",
+                    "detail": "Everyday preferences, schools, childcare, and local fit that should stay explicit.",
                 },
                 {
                     "key": "reachability",
-                    "label": "Evidence" if property_is_investment_search else "Reachability",
-                    "detail": "How much underwriting and supporting evidence the shortlist needs."
-                    if property_is_investment_search
-                    else "Destinations, travel modes, and time limits that change the ranking.",
+                    "label": "Reachability",
+                    "detail": "Destinations, travel modes, and time limits that change the ranking.",
                 },
                 {
                     "key": "research",
-                    "label": "Underwriting" if property_is_investment_search else "Research depth",
-                    "detail": "Return, risk, and external evidence depth."
-                    if property_is_investment_search
-                    else "Risk, supply, and how much evidence each strong match should carry.",
+                    "label": "Research depth",
+                    "detail": "Risk, supply, and how much evidence each strong match should carry.",
                 },
                 {
                     "key": "providers",

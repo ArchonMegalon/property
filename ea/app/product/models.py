@@ -406,6 +406,7 @@ class PropertyWorkbenchCandidateSnapshot:
     fit_label: str
     fit_summary: str
     tour: dict[str, object] = field(default_factory=dict)
+    flythrough: dict[str, object] = field(default_factory=dict)
     orientation_preview: dict[str, object] = field(default_factory=dict)
     ooda: dict[str, object] = field(default_factory=dict)
     risk: dict[str, object] = field(default_factory=dict)
@@ -418,6 +419,7 @@ class PropertyWorkbenchCandidateSnapshot:
     property_url: str = ""
     map_url: str = ""
     source_url: str = ""
+    floorplan_url: str = ""
     property_facts: dict[str, object] = field(default_factory=dict)
     assessment: dict[str, object] = field(default_factory=dict)
     objection_rows: list[dict[str, str]] = field(default_factory=list)
@@ -439,6 +441,8 @@ class PropertyWorkbenchCandidateSnapshot:
     recovered_by_filter: bool = False
     relaxed_filter_label: str = ""
     preview_image_url: str = ""
+    repair_flag_label: str = ""
+    repair_flag_detail: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -473,6 +477,22 @@ class PropertyRecurringWatchSnapshot:
     run_label: str = ""
     delivery_label: str = ""
     load_payload: dict[str, object] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class PropertyRunLiveBoardSnapshot:
+    provider_label: str
+    provider_full_label: str
+    fraction_label: str
+    phase_label: str
+    aggregate_label: str
+    summary_label: str
+    source_count_label: str
+    source_chips: list[dict[str, object]] = field(default_factory=list)
+    worker_lanes: list[dict[str, object]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)

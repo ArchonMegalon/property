@@ -1,12 +1,14 @@
   (() => {
     const root = document.querySelector('[data-property-decision-workbench]');
     if (!root) return;
+    const initialSurface = String(root.getAttribute('data-pqx-surface') || '').trim().toLowerCase();
     const payloadNode = root.querySelector('[data-property-workbench-json]');
     const metaNode = root.querySelector('[data-property-workspace-meta]');
     const data = JSON.parse(payloadNode?.textContent || '{}');
     const meta = JSON.parse(metaNode?.getAttribute('data-property-workspace-meta') || '{}');
-    const candidates = Array.isArray(data.results) ? data.results : [];
-    const terminalStates = new Set(['processed', 'failed', 'noop', 'cancelled', 'completed']);
+    let candidates = Array.isArray(data.results) ? data.results.slice() : [];
+    const terminalStates = new Set(['processed', 'completed_partial', 'failed', 'noop', 'cancelled', 'completed']);
+    const themeStorageKey = 'propertyquarry.theme';
     const notificationStorageKey = 'propertyquarry.browserNotifications.enabled';
     const notificationRunPrefix = 'propertyquarry.browserNotifications.run.';
     const escapeHtml = (value) => String(value || '')
@@ -71,7 +73,11 @@
       const title = status === 'failed' ? 'PropertyQuarry search failed' : 'PropertyQuarry results are ready';
       const body = status === 'failed'
         ? String(runPayload?.message || 'The search failed before ranking finished.')
-        : `${count} high-fit match${count === 1 ? '' : 'es'} ready to review.`;
+        : (
+          status === 'completed_partial'
+            ? String(runPayload?.message || `${count} high-fit match${count === 1 ? '' : 'es'} ready with partial coverage.`)
+            : `${count} high-fit match${count === 1 ? '' : 'es'} ready to review.`
+        );
       try {
         const notification = new window.Notification(title, {
           body,
@@ -89,6 +95,26 @@
     };
     browserNotificationButton?.addEventListener('click', requestBrowserNotifications);
     updateBrowserNotificationButton();
+    const themeToggleButton = root.querySelector('[data-pqx-theme-toggle]');
+    const currentTheme = () => String(document.documentElement.getAttribute('data-pq-theme') || 'light').trim() === 'dark' ? 'dark' : 'light';
+    const applyTheme = (theme) => {
+      const nextTheme = theme === 'dark' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-pq-theme', nextTheme);
+      try {
+        window.localStorage.setItem(themeStorageKey, nextTheme);
+      } catch (_error) {
+        // Ignore storage failures and still apply the in-memory theme.
+      }
+      if (themeToggleButton) {
+        const darkEnabled = nextTheme === 'dark';
+        themeToggleButton.textContent = darkEnabled ? 'Light mode' : 'Dark mode';
+        themeToggleButton.setAttribute('aria-pressed', darkEnabled ? 'true' : 'false');
+      }
+    };
+    themeToggleButton?.addEventListener('click', () => {
+      applyTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+    });
+    applyTheme(currentTheme());
 
     const setMode = (mode) => {
       const panel = mode === 'brief' ? 'brief' : (mode === 'property' ? 'property' : 'results');
@@ -108,7 +134,11 @@
       });
     });
 
-    const candidateByRef = new Map(candidates.map((candidate) => [String(candidate.candidate_ref || ''), candidate]));
+    let candidateByRef = new Map(candidates.map((candidate) => [String(candidate.candidate_ref || ''), candidate]));
+    const replaceCandidates = (nextCandidates) => {
+      candidates = Array.isArray(nextCandidates) ? nextCandidates.filter((row) => row && typeof row === 'object') : [];
+      candidateByRef = new Map(candidates.map((candidate) => [String(candidate.candidate_ref || ''), candidate]));
+    };
     const selectedCandidatePayload = data.selected && typeof data.selected === 'object' ? { ...data.selected } : null;
     const resolveCandidate = (candidateRef = '') => {
       const normalizedRef = String(candidateRef || '').trim();
@@ -172,15 +202,14 @@
       const candidateRef = escapeHtml(candidate.candidate_ref || '');
       const runId = escapeHtml(String(data.run?.run_id || meta.run_id || ''));
       return [
-        tour.url ? `<a class="pqx-link-button primary" href="${escapeHtml(tour.url)}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="${candidateRef}">Open 360</a>` : '',
-        candidate.packet_url ? `<a class="pqx-link-button${tour.url ? '' : ' primary'}" href="${escapeHtml(candidate.packet_url)}" data-rybbit-event="property_open_page" data-rybbit-prop-candidate="${candidateRef}">Open property page</a>` : '',
+        candidate.packet_url ? `<a class="pqx-link-button primary" href="${escapeHtml(candidate.packet_url)}" data-rybbit-event="property_open_page" data-rybbit-prop-candidate="${candidateRef}">Open property page</a>` : '',
         `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${candidateRef}" data-rybbit-event="property_share_home" data-rybbit-prop-candidate="${candidateRef}">Share this home</button>`,
         `<details class="pqx-decision-advanced" style="margin-top:12px;"><summary><strong>More actions</strong></summary><div class="pqx-note" style="margin-top:10px;">Open the source, share the shortlist, or request remote visuals only when you need them.</div><div class="pqx-actions" style="margin-top:14px;">${[
           candidate.source_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.source_url)}" target="_blank" rel="noreferrer" data-rybbit-event="property_open_listing" data-rybbit-prop-candidate="${candidateRef}">Open listing</a>` : '',
           !tour.url && candidate.property_url ? `<button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(candidate.property_url)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="${candidateRef}">Request 3D tour</button>` : '',
-          !tour.url && candidate.property_url ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(candidate.property_url)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="${candidateRef}">Request flythrough</button>` : '',
+          !tour.url && candidate.property_url ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(candidate.property_url)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="${candidateRef}">Request walkthrough</button>` : '',
           `<button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="property_share_results">Share results</button>`,
-        ].filter(Boolean).join('')}</div><div class="pqx-decision-status" data-pw-visual-request-status>${!tour.url ? 'Need a remote view? Request a 3D tour or flythrough from the available source material.' : ''}</div></details>`,
+        ].filter(Boolean).join('')}</div><div class="pqx-decision-status" data-pw-visual-request-status>${!tour.url ? 'Need a remote view? Request a 3D tour or walkthrough from the available source material.' : ''}</div></details>`,
       ].filter(Boolean).join('');
     };
     const feedbackPersonId = String(meta.feedback_person_id || 'self').trim() || 'self';
@@ -334,6 +363,47 @@
       if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not apply the broader search.'));
       return nextPreferences;
     };
+    const csvValues = (value) => String(value || '')
+      .split(',')
+      .map((item) => String(item || '').trim())
+      .filter(Boolean);
+    const uniqueValues = (...groups) => {
+      const ordered = [];
+      const seen = new Set();
+      groups.flat().forEach((item) => {
+        const value = String(item || '').trim();
+        const key = value.toLowerCase();
+        if (!value || seen.has(key)) return;
+        seen.add(key);
+        ordered.push(value);
+      });
+      return ordered;
+    };
+    const nextPreferencesForLiveHint = (hintKey) => {
+      const basePreferences = (data.brief_preferences && typeof data.brief_preferences === 'object') ? { ...data.brief_preferences } : {};
+      const existingKeywords = csvValues(basePreferences.keywords);
+      const existingCustomKeywords = csvValues(basePreferences.custom_keywords);
+      const addKeyword = (keyword) => {
+        const merged = uniqueValues(existingKeywords, existingCustomKeywords, [keyword]);
+        return {
+          ...basePreferences,
+          keywords: merged.join(', '),
+          custom_keywords: uniqueValues(existingCustomKeywords, [keyword]).join(', '),
+        };
+      };
+      switch (String(hintKey || '').trim().toLowerCase()) {
+        case 'balcony':
+          return addKeyword('balcony');
+        case 'bright':
+          return addKeyword('bright');
+        case 'quiet':
+          return addKeyword('quiet');
+        case 'lift':
+          return addKeyword('lift');
+        default:
+          return { ...basePreferences };
+      }
+    };
     const startSearchWithPreferences = async (nextPreferences, statusNode) => {
       const startEndpoint = String(meta.start_endpoint || data.endpoints?.start || '').trim();
       if (!startEndpoint) throw new Error('Search endpoint missing.');
@@ -392,9 +462,22 @@
           candidate_ref: String(candidate.candidate_ref || '').trim(),
         });
         if (statusNode) statusNode.textContent = `Decision state saved as ${String(decisionState || '').replaceAll('_', ' ')}.`;
+        return payload;
       } catch (error) {
         if (statusNode) statusNode.textContent = error instanceof Error ? error.message : 'Could not record the decision state.';
+        return null;
       }
+    };
+    const updateShortlistHeadlineCounts = () => {
+      const resultsList = root.querySelector('[data-workbench-results-table]');
+      const summaryRow = root.querySelector('.pqx-results-summary-row');
+      const rankedLink = summaryRow?.querySelector('.pqx-results-summary-link:not(.pqx-results-filter-link)');
+      if (!resultsList || !summaryRow || !rankedLink) return;
+      const remaining = resultsList.querySelectorAll('[data-workbench-row]').length;
+      const goal = String(meta.search_goal || data.brief?.search_goal || '').trim().toLowerCase();
+      rankedLink.innerHTML = goal === 'investment'
+        ? `<b>${remaining}</b> ranked opportunities`
+        : `<b>${remaining}</b> ranked homes`;
     };
     const createFlipLinkPacket = async (candidate, button) => {
       if (!candidate) return;
@@ -485,14 +568,14 @@
         return;
       }
       const requestKind = String(kind || 'tour').trim().toLowerCase();
-      const original = button?.textContent || (requestKind === 'flythrough' ? 'Request flythrough' : 'Request 3D tour');
+      const original = button?.textContent || (requestKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour');
       if (button) {
         button.disabled = true;
-        button.textContent = requestKind === 'flythrough' ? 'Requesting flythrough...' : 'Requesting 3D tour...';
+        button.textContent = requestKind === 'flythrough' ? 'Requesting walkthrough...' : 'Requesting 3D tour...';
       }
       if (visualRequestStatusNode) {
         visualRequestStatusNode.textContent = requestKind === 'flythrough'
-          ? 'Requesting a flythrough from the available source material...'
+          ? 'Requesting a walkthrough from the available source material...'
           : 'Requesting a 3D tour from the available source material...';
       }
       try {
@@ -529,6 +612,37 @@
         candidate.tour_status = nextTourStatus;
         candidate.flythrough_url = nextFlythroughUrl;
         candidate.flythrough_status = nextFlythroughStatus;
+        const flythroughEtaLabel = nextFlythroughStatus === 'queued' || nextFlythroughStatus === 'pending'
+          ? 'about 10 min'
+          : (['processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextFlythroughStatus) ? 'about 5 min' : '');
+        const flythroughDetail = nextFlythroughUrl
+          ? 'Walkthrough ready'
+          : (String(payload.status_detail || '').trim()
+            || (nextFlythroughStatus === 'queued' || nextFlythroughStatus === 'pending'
+              ? 'Queued. Processing will start automatically.'
+              : (['processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextFlythroughStatus)
+                ? 'Rendering from the top-ranked home.'
+                : '')));
+        const flythroughProgress = nextFlythroughUrl
+          ? 100
+          : ((nextFlythroughStatus === 'queued' || nextFlythroughStatus === 'pending')
+            ? 18
+            : (['processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextFlythroughStatus) ? 64 : 0));
+        candidate.flythrough = {
+          ...(candidate.flythrough && typeof candidate.flythrough === 'object' ? candidate.flythrough : {}),
+          url: nextFlythroughUrl,
+          status: nextFlythroughStatus,
+          label: nextFlythroughUrl
+            ? 'Open walkthrough'
+            : ((nextFlythroughStatus === 'queued' || nextFlythroughStatus === 'pending')
+              ? 'Walkthrough queued'
+              : (['processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextFlythroughStatus)
+                ? 'Walkthrough processing'
+                : '')),
+          detail: flythroughDetail,
+          eta_label: flythroughEtaLabel,
+          progress_pct: flythroughProgress,
+        };
         if (visualRequestStatusNode) {
           visualRequestStatusNode.textContent = String(payload.status_detail || 'Visual request recorded.').trim();
         }
@@ -549,11 +663,108 @@
 
 {% include "app/_property_workbench_brief_script.html" %}
 
+    const genericSourceFamilies = new Set([
+      'genossenschaften',
+      'genossenschaften at',
+      'community housing',
+      'community providers',
+      'developer projects',
+    ]);
+    const compactRunMessage = (value) => {
+      const text = String(value || '').trim();
+      if (!text) return 'Waiting for the first source update.';
+      const candidateMatch = text.match(/(?:Reviewing|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
+      if (candidateMatch) return `${candidateMatch[1]} / ${candidateMatch[2]}`;
+      const shortlistMatch = text.match(/^Built shortlist of\s+\d+\s+listing\(s\)\s+for\s+(.+)\.$/i);
+      if (shortlistMatch) return 'Shortlist ready';
+      return text;
+    };
+    const parseRunMessageInfo = (value) => {
+      const text = String(value || '').trim();
+      if (!text) return { raw: '', fraction: '', sourceLabel: '', phaseLabel: 'Waiting for the first source update.' };
+      const sourceMatch = text.match(/\sfor\s+(.+?)\.?$/i);
+      const candidateMatch = text.match(/^(Reviewing|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
+      if (candidateMatch) {
+        const verb = String(candidateMatch[1] || '').trim().toLowerCase();
+        const phaseLabel = verb.startsWith('review') ? 'Reviewing homes' : (verb.startsWith('scor') ? 'Scoring homes' : 'Updating shortlist');
+        return {
+          raw: text,
+          fraction: `${candidateMatch[2]} / ${candidateMatch[3]}`,
+          sourceLabel: sourceMatch ? String(sourceMatch[1] || '').trim() : '',
+          phaseLabel,
+        };
+      }
+      const shortlistMatch = text.match(/^Built shortlist of\s+(\d+)\s+listing\(s\)\s+for\s+(.+)\.$/i);
+      if (shortlistMatch) {
+        return {
+          raw: text,
+          fraction: '',
+          sourceLabel: String(shortlistMatch[2] || '').trim(),
+          phaseLabel: `Shortlist ready · ${shortlistMatch[1]} home${String(shortlistMatch[1]) === '1' ? '' : 's'}`,
+        };
+      }
+      if (/^Prepared property page for\s+.+\.$/i.test(text)) {
+        return {
+          raw: text,
+          fraction: '',
+          sourceLabel: '',
+          phaseLabel: 'Preparing property pages',
+        };
+      }
+      return {
+        raw: text,
+        fraction: '',
+        sourceLabel: sourceMatch ? String(sourceMatch[1] || '').trim() : '',
+        phaseLabel: compactRunMessage(text),
+      };
+    };
+    const latestFractionInfo = (runPayload) => {
+      const current = parseRunMessageInfo(runPayload?.message);
+      if (current.fraction) return current;
+      const events = Array.isArray(runPayload?.events) ? [...runPayload.events].reverse() : [];
+      for (const event of events) {
+        const parsed = parseRunMessageInfo(event?.message);
+        if (parsed.fraction) return parsed;
+      }
+      return current;
+    };
+    const compactProviderLabel = (value) => {
+      let text = String(value || '').replace(/\s+/g, ' ').trim();
+      if (!text) return 'Provider';
+      const segments = text.split('|').map((part) => String(part || '').trim()).filter(Boolean);
+      if (segments.length > 1 && genericSourceFamilies.has(String(segments[0] || '').trim().toLowerCase())) {
+        text = segments[segments.length - 1];
+      } else {
+        for (const marker of ['|', '·', ' — ', ' – ', ':', '(']) {
+          if (text.includes(marker)) {
+            text = text.split(marker)[0].trim();
+          }
+        }
+      }
+      const words = text.split(' ').filter(Boolean);
+      if (words.length > 3) text = words.slice(0, 3).join(' ').trim();
+      if (text.length > 20 && words.length >= 2) text = words.slice(0, 2).join(' ').trim();
+      if (text.length > 20) text = `${text.slice(0, 17).trimEnd()}...`;
+      return text || 'Provider';
+    };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
       const sources = Number(summary.sources_total || 0);
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
+      const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
+      const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
+      const shortlistReady = Number(summary.high_fit_total || 0);
+      const liveInfo = latestFractionInfo(runPayload);
+      if (liveInfo.sourceLabel && liveInfo.fraction) {
+        return `${sources} sources · ${compactProviderLabel(liveInfo.sourceLabel)} · ${liveInfo.fraction}`;
+      }
+      if (currentStep === 'source_review_packet' && packetPrepared > 0) {
+        return `${sources} sources · ${packetPrepared} property pages prepared`;
+      }
+      if (currentStep === 'source_shortlist' && shortlistReady > 0) {
+        return `${sources} sources · ${shortlistReady} shortlist home${shortlistReady === 1 ? '' : 's'} ready`;
+      }
       return `${sources} sources · ${reviewed} homes reviewed${noPlan > 0 ? ` · ${noPlan} still waiting on floorplans` : ''}`;
     };
     const renderRunEvents = (events) => {
@@ -659,7 +870,7 @@
         ? runPayload.route_previews
         : (Array.isArray(runPayload?.summary?.route_previews) ? runPayload.summary.route_previews : []);
       if (direct.length) return direct;
-      const ranked = Array.isArray(runPayload?.summary?.ranked_candidates) ? runPayload.summary.ranked_candidates : [];
+      const ranked = rankedCandidatesFromRunPayload(runPayload);
       const candidate = ranked[0];
       if (!candidate || typeof candidate !== 'object') return [];
       const facts = {
@@ -752,25 +963,56 @@
       }).join('');
       return `<div class="pqx-route-preview-strip" data-pqx-route-preview-strip>${cards}</div>`;
     };
+    let etaProjectionState = {
+      runId: '',
+      signature: '',
+      finishAtMs: 0,
+    };
+    const estimateRunEtaMinutes = (runPayload, summary, layout, nowMs = Date.now()) => {
+      const status = String(runPayload?.status || summary?.status || 'queued');
+      if (status === 'processed' || status === 'completed' || status === 'completed_partial') return 0;
+      if (status === 'failed' || status === 'cancelled') return null;
+      const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
+      const startedAt = parseUtcish(runPayload?.started_at || runPayload?.created_at);
+      const updatedAt = parseUtcish(runPayload?.updated_at || runPayload?.generated_at) || nowMs;
+      const sources = Math.max(0, Number(summary?.sources_total || 0));
+      if (progress >= 100) return 0;
+      if (progress >= 5 && startedAt && updatedAt > startedAt) {
+        const elapsedMinutes = (updatedAt - startedAt) / 60000;
+        return Math.min(Math.max(elapsedMinutes * ((100 - progress) / Math.max(progress, 1)), 1), 180);
+      }
+      if (progress > 0 && layout > 0) return Math.max(2, layout * 2);
+      if (progress > 0 && sources > 0) return Math.max(3, Math.ceil(sources * 1.5));
+      if (layout > 0) return Math.max(2, layout * 2);
+      if (sources > 0) return Math.max(3, Math.ceil(sources * 1.5));
+      return progress > 0 ? 1 : null;
+    };
     const estimateRunEtaLabel = (runPayload, summary, layout) => {
       const status = String(runPayload?.status || summary?.status || 'queued');
-      if (status === 'processed' || status === 'completed') return '100% · complete';
+      if (status === 'processed' || status === 'completed' || status === 'completed_partial') return '100% · complete';
       if (status === 'failed') return 'failed';
       if (status === 'cancelled') return 'stopped';
       const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
-      const startedAt = parseUtcish(runPayload?.started_at || runPayload?.created_at);
-      const updatedAt = parseUtcish(runPayload?.updated_at || runPayload?.generated_at) || Date.now();
-      const sources = Math.max(0, Number(summary?.sources_total || 0));
-      if (progress >= 100) return '100% · complete';
-      if (progress >= 5 && startedAt && updatedAt > startedAt) {
-        const elapsedMinutes = (updatedAt - startedAt) / 60000;
-        const remainingMinutes = elapsedMinutes * ((100 - progress) / Math.max(progress, 1));
-        return `${Math.round(progress)}% · ${formatEta(Math.min(Math.max(remainingMinutes, 1), 180))}`;
+      const nowMs = Date.now();
+      const runId = String(runPayload?.run_id || '').trim();
+      const signature = [
+        String(runPayload?.updated_at || runPayload?.generated_at || '').trim(),
+        String(runPayload?.current_step || '').trim(),
+        String(runPayload?.message || '').trim(),
+        String(progress),
+      ].join('|');
+      const estimatedMinutes = estimateRunEtaMinutes(runPayload, summary, layout, nowMs);
+      if (runId && etaProjectionState.runId === runId && etaProjectionState.signature === signature && etaProjectionState.finishAtMs > nowMs) {
+        return `${Math.round(progress)}% · ${formatEta((etaProjectionState.finishAtMs - nowMs) / 60000)}`;
       }
-      if (progress > 0 && layout > 0) return `${Math.round(progress)}% · ${formatEta(Math.max(2, layout * 2))}`;
-      if (progress > 0 && sources > 0) return `${Math.round(progress)}% · ${formatEta(Math.max(3, Math.ceil(sources * 1.5)))}`;
-      if (layout > 0) return `estimating · ${formatEta(Math.max(2, layout * 2))}`;
-      if (sources > 0) return `starting · ${formatEta(Math.max(3, Math.ceil(sources * 1.5)))}`;
+      if (estimatedMinutes !== null) {
+        etaProjectionState = {
+          runId,
+          signature,
+          finishAtMs: nowMs + (estimatedMinutes * 60000),
+        };
+        return `${Math.round(progress)}% · ${formatEta(estimatedMinutes)}`;
+      }
       return progress > 0 ? `${Math.round(progress)}% · estimating` : 'estimating';
     };
     const progressBoardHtml = (runPayload) => {
@@ -780,10 +1022,17 @@
       const completedSources = Array.isArray(summary.sources) ? summary.sources.length : 0;
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || summary.raw_listing_total || 0);
       const layout = Number(summary.filtered_floorplan_total || 0);
-      const title = status === 'processed' || status === 'completed' ? 'Results are ready' : (status === 'failed' ? 'Search failed' : 'Search in progress');
+      const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
+      const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
+      const shortlistReady = Number(summary.high_fit_total || 0);
+      const title = status === 'processed' || status === 'completed' || status === 'completed_partial'
+        ? 'Results are ready'
+        : (status === 'failed' ? 'Search failed' : 'Search in progress');
       const etaLabel = estimateRunEtaLabel(runPayload, summary, layout);
       const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
-      const progressFill = status === 'processed' || status === 'completed' ? 100 : (progress > 0 ? progress : 4);
+      const progressFill = status === 'processed' || status === 'completed' || status === 'completed_partial' ? 100 : (progress > 0 ? progress : 4);
+      const liveInfo = latestFractionInfo(runPayload);
+      const liveFraction = liveInfo.fraction;
       const planKey = String(meta?.commercial?.current_plan_key || runPayload?.brief?.plan_key || data?.brief?.plan_key || 'free').toLowerCase();
       const planCap = planKey === 'agent' ? 4 : (planKey === 'plus' ? 2 : 1);
       const configuredWorkers = Math.max(1, Number(summary?.provider_workers?.worker_concurrency || planCap));
@@ -794,22 +1043,15 @@
         return `<span class="pqx-source-chip ${state}">${escapeHtml(label)}</span>`;
       }).join('');
       const sourceMeta = `${reviewed} homes reviewed${layout > 0 ? ` · ${layout} still waiting on floorplans` : ''}`;
+      let phaseMeta = liveInfo.phaseLabel || 'Waiting for the first source update.';
+      if (!liveInfo.phaseLabel && currentStep === 'source_review_packet' && packetPrepared > 0) {
+        phaseMeta = `${packetPrepared} property pages prepared`;
+      } else if (!liveInfo.phaseLabel && currentStep === 'source_shortlist' && shortlistReady > 0) {
+        phaseMeta = `${shortlistReady} shortlist homes ready`;
+      }
       const sourceRows = Array.isArray(summary.sources) ? summary.sources : [];
       const runState = String(runPayload?.status || '').trim().toLowerCase();
-      const compactProviderLabel = (value) => {
-        let text = String(value || '').replace(/\s+/g, ' ').trim();
-        if (!text) return 'Provider';
-        for (const marker of ['|', '·', ' — ', ' – ', ':', '(']) {
-          if (text.includes(marker)) {
-            text = text.split(marker)[0].trim();
-          }
-        }
-        const words = text.split(' ').filter(Boolean);
-        if (words.length > 3) text = words.slice(0, 3).join(' ').trim();
-        if (text.length > 20 && words.length >= 2) text = words.slice(0, 2).join(' ').trim();
-        if (text.length > 20) text = `${text.slice(0, 17).trimEnd()}...`;
-        return text || 'Provider';
-      };
+      const activeSourceLabel = String(liveInfo.sourceLabel || parseRunMessageInfo(runPayload?.message).sourceLabel || '').trim();
       const sourceProviderGroup = (source) => {
         const family = String(source?.provider_family || '').trim().toLowerCase();
         if (family) return family;
@@ -818,9 +1060,33 @@
         const label = String(source?.source_label || source?.label || '').trim();
         return (label.split('|')[0] || label).trim().toLowerCase() || 'provider';
       };
-      const activeSources = sourceRows.filter((source) => !['completed', 'processed', 'done', 'success', 'failed', 'error', 'skipped'].includes(String(source?.status || source?.state || '').toLowerCase()));
-      const failedSources = sourceRows.filter((source) => ['failed', 'error', 'skipped'].includes(String(source?.status || source?.state || '').toLowerCase()) || source?.error);
-      const completedPool = sourceRows.filter((source) => ['completed', 'processed', 'done', 'success'].includes(String(source?.status || source?.state || '').toLowerCase()));
+      const normalizedSourceRows = sourceRows.map((source) => {
+        const row = { ...(source || {}) };
+        const rawStatus = String(row.status || row.state || '').trim().toLowerCase();
+        const rowLabel = String(row.source_label || row.label || '').trim();
+        const repairTasks = Array.isArray(row.provider_repair_tasks) ? row.provider_repair_tasks.filter((task) => task && typeof task === 'object') : [];
+        const repairTask = repairTasks[0] || null;
+        const repairStatus = String(repairTask?.status || row.repair_status || '').trim().toLowerCase();
+        if (rawStatus === 'repaired' || repairStatus === 'returned') {
+          row.status = 'repaired';
+        } else if (rawStatus === 'repairing' || ['pending', 'assigned'].includes(repairStatus)) {
+          row.status = 'repairing';
+        }
+        if (!rawStatus) {
+          row.status = row.error ? 'failed' : 'completed';
+        }
+        if (activeSourceLabel && rowLabel === activeSourceLabel && !String(runPayload?.message || '').trim().toLowerCase().startsWith('completed scanning ')) {
+          row.status = row.error ? 'failed' : 'running';
+        }
+        return row;
+      });
+      const syntheticActiveSource = activeSourceLabel && !normalizedSourceRows.some((source) => String(source?.source_label || source?.label || '').trim() === activeSourceLabel)
+        ? [{ source_label: activeSourceLabel, label: activeSourceLabel, status: 'running' }]
+        : [];
+      const laneSourceRows = [...syntheticActiveSource, ...normalizedSourceRows];
+      const activeSources = laneSourceRows.filter((source) => ['running', 'processing', 'in_progress', 'working', 'warming', 'queued', 'pending', 'starting', 'repairing'].includes(String(source?.status || source?.state || '').toLowerCase()));
+      const failedSources = laneSourceRows.filter((source) => ['failed', 'error', 'skipped'].includes(String(source?.status || source?.state || '').toLowerCase()) || (source?.error && !Array.isArray(source?.provider_repair_tasks)));
+      const completedPool = laneSourceRows.filter((source) => ['completed', 'processed', 'done', 'success', 'repaired'].includes(String(source?.status || source?.state || '').toLowerCase()));
       const rawWorkerQueue = [...activeSources, ...failedSources, ...completedPool];
       const seenWorkerGroups = new Set();
       const workerQueue = [];
@@ -834,6 +1100,7 @@
         if (workerQueue.includes(source)) return;
         workerQueue.push(source);
       });
+      const sourceLead = compactProviderLabel(liveInfo.sourceLabel || workerQueue[0]?.source_label || workerQueue[0]?.label || '');
       const runActive = progress > 0 || ['queued', 'in_progress', 'running', 'processing', 'starting'].includes(runState);
       const actualWorkerCount = Math.min(planCap, workerQueue.length);
       const workerCount = actualWorkerCount > 0 ? actualWorkerCount : (runActive ? 1 : 0);
@@ -841,22 +1108,39 @@
         const source = workerQueue[index] || null;
         const groupKey = sourceProviderGroup(source);
         const rawStatus = String(source?.status || source?.state || '').toLowerCase();
+        const repairTasks = Array.isArray(source?.provider_repair_tasks) ? source.provider_repair_tasks.filter((task) => task && typeof task === 'object') : [];
+        const repairTask = repairTasks[0] || null;
+        const repairStatus = String(repairTask?.status || source?.repair_status || '').toLowerCase();
         let progressPct = Number(source?.progress || 0);
         if (!(progressPct > 0)) {
-          if (['completed', 'processed', 'done', 'success', 'failed', 'error', 'skipped'].includes(rawStatus)) progressPct = 100;
+          if (rawStatus === 'repaired' || repairStatus === 'returned') progressPct = 100;
+          else if (rawStatus === 'repairing' || ['pending', 'assigned'].includes(repairStatus)) progressPct = 72;
+          else if (['completed', 'processed', 'done', 'success', 'failed', 'error', 'skipped'].includes(rawStatus)) progressPct = 100;
           else if (['running', 'processing', 'in_progress', 'working', 'warming'].includes(rawStatus)) progressPct = 58;
           else if (['queued', 'pending', 'starting'].includes(rawStatus)) progressPct = 18;
           else progressPct = 0;
         }
-        const statusLabel = !source ? ((progress > 0 || ['queued', 'in_progress', 'running', 'processing', 'starting'].includes(runState)) ? 'Starting' : 'Idle')
-          : (['completed', 'processed', 'done', 'success'].includes(rawStatus) ? 'Done'
-          : ((['failed', 'error'].includes(rawStatus) || source?.error) ? 'Fetch failed'
-          : (['running', 'processing', 'in_progress', 'working', 'warming'].includes(rawStatus) ? 'Running' : 'Up next')));
+        let statusLabel = 'Idle';
+        if (!source) {
+          statusLabel = (progress > 0 || ['queued', 'in_progress', 'running', 'processing', 'starting'].includes(runState)) ? 'Starting' : 'Idle';
+        } else if (rawStatus === 'repaired' || repairStatus === 'returned') {
+          statusLabel = 'Repaired';
+        } else if (rawStatus === 'repairing' || ['pending', 'assigned'].includes(repairStatus)) {
+          statusLabel = 'Repairing';
+        } else if (['completed', 'processed', 'done', 'success'].includes(rawStatus)) {
+          statusLabel = 'Done';
+        } else if (['failed', 'error'].includes(rawStatus) || source?.error) {
+          statusLabel = 'Fetch failed';
+        } else if (['running', 'processing', 'in_progress', 'working', 'warming'].includes(rawStatus)) {
+          statusLabel = 'Running';
+        } else {
+          statusLabel = 'Up next';
+        }
         const tone = !source
           ? (statusLabel === 'Starting' ? 'active' : 'idle')
-          : (progressPct >= 100 && statusLabel === 'Done'
+          : (progressPct >= 100 && ['Done', 'Repaired'].includes(statusLabel)
             ? 'done'
-            : ((statusLabel === 'Running' || statusLabel === 'Starting')
+            : ((statusLabel === 'Running' || statusLabel === 'Starting' || statusLabel === 'Repairing')
               ? 'active'
               : ((statusLabel === 'Fetch failed') ? 'warn' : 'queued')));
         const shardCount = source ? Math.max(0, rawWorkerQueue.filter((row) => sourceProviderGroup(row) === groupKey).length - 1) : 0;
@@ -896,14 +1180,15 @@
             <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>${escapeHtml(etaLabel)}</span>
           </div>
           <div class="pqx-pulse-line" aria-hidden="true"></div>
-          <div class="pqx-progress-meter" aria-hidden="true"><i class="pqx-progress-meter-fill" style="--progress: ${escapeHtml(progressFill)}"></i></div>
         </div>
         <div class="pqx-source-progress" data-pqx-source-progress>
           <div class="pqx-source-progress-head">
-            <strong data-pqx-radar-count>${escapeHtml(completedSources)}/${escapeHtml(sources)} sources checked</strong>
-            <span class="pqx-small">${escapeHtml(sourceMeta)}</span>
+            <strong data-pqx-radar-count>${escapeHtml(sourceLead || `${completedSources}/${sources} sources checked`)}</strong>
+            <span class="pqx-small">${escapeHtml(liveFraction || `${completedSources}/${sources} sources checked`)}</span>
           </div>
-          <span class="pqx-note">${escapeHtml(String(runPayload?.message || 'Waiting for the first source update.'))}</span>
+          <span class="pqx-small">${escapeHtml(sourceMeta)}</span>
+          <span class="pqx-note">${escapeHtml(phaseMeta)}</span>
+          <div class="pqx-progress-meter under-source" aria-hidden="true"><i class="pqx-progress-meter-fill" style="--progress: ${escapeHtml(progressFill)}"></i></div>
         </div>
         <div class="pqx-worker-strip" data-pqx-worker-strip>
           <div class="pqx-worker-strip-head">
@@ -924,30 +1209,181 @@
         bindTooltips(board);
       });
     };
-    const renderRankedCandidates = (candidates) => {
+    const renderRankedCandidates = (candidates, runPayload = null) => {
       const rows = Array.isArray(candidates) ? candidates.slice(0, 20) : [];
       const investmentSearch = String(briefPreferences.search_goal || '').trim().toLowerCase() === 'investment';
       if (!rows.length) return '<div class="pqx-empty" data-pqx-ranked-candidates>No matches are ready yet. Open search diagnostics if the results look wrong or too narrow.</div>';
+      const summary = runPayload?.summary && typeof runPayload.summary === 'object' ? runPayload.summary : {};
+      const filteredTotal = Number(
+        summary.filtered_total
+        || summary.held_back_total
+        || summary.filtered_out_total
+        || summary.filtered_low_fit_total
+        || 0
+      );
       const body = rows.map((candidate, index) => {
         const title = candidate?.title || 'Property candidate';
-        const source = candidate?.source_label || candidate?.source_platform || 'Source';
-        const reason = investmentSearch
-          ? (candidate?.investment?.headline || candidate?.compare_reason || candidate?.fit_summary || (Array.isArray(candidate?.match_reasons) ? candidate.match_reasons[0] : '') || 'Open the property page for more context')
-          : (candidate?.compare_reason || candidate?.fit_summary || (Array.isArray(candidate?.match_reasons) ? candidate.match_reasons[0] : '') || 'Open the property page for more context');
-        const previewUrl = String(candidate?.orientation_preview?.image_url || candidate?.preview_image_url || '').trim();
-        const thumb = previewUrl ? `<span class="pqx-thumb"><img src="${escapeHtml(previewUrl)}" alt=""></span>` : '';
-        const media = `<div class="pqx-result-media${previewUrl ? '' : ' no-thumb'}">${thumb}<span>${escapeHtml(title)}<br><span class="pqx-small">${escapeHtml(source)}</span></span></div>`;
-        const links = [
-          candidate?.packet_url ? `<a href="${escapeHtml(candidate.packet_url)}">Review</a>` : '',
-          candidate?.map_url ? `<a href="${escapeHtml(candidate.map_url)}" target="_blank" rel="noreferrer">Map</a>` : '',
-          candidate?.property_url ? `<a href="${escapeHtml(candidate.property_url)}">Listing</a>` : '',
+        const location = String(candidate?.location_label || '').trim();
+        const previewUrl = String(
+          candidate?.preview_image_url
+          || candidate?.orientation_preview?.thumb_image_url
+          || candidate?.orientation_preview?.image_url
+          || ''
+        ).trim();
+        const candidateRef = String(
+          candidate?.candidate_ref
+          || candidate?.listing_id
+          || candidate?.external_id
+          || candidate?.source_ref
+          || candidate?.property_url
+          || candidate?.source_url
+          || title
+        ).trim();
+        const packetUrl = String(candidate?.packet_url || candidate?.review_url || '').trim();
+        const propertyUrl = String(candidate?.property_url || candidate?.source_url || '').trim();
+        const primaryPrice = String(candidate?.price_display || candidate?.costs_display || 'No price published').trim();
+        const secondaryPrice = String(candidate?.costs_display || candidate?.price_per_sqm_display || '').trim();
+        const layout = String(candidate?.layout_display || '').trim();
+        const fitSummary = String(
+          candidate?.fit_summary
+          || (Array.isArray(candidate?.match_reasons) ? candidate.match_reasons[0] : '')
+          || candidate?.compare_reason
+          || 'Open the property page for more context.'
+        ).trim();
+        const thumb = previewUrl
+          ? (packetUrl
+            ? `<a class="pqx-thumb pqx-thumb-link" href="${escapeHtml(packetUrl)}" aria-label="Open ${escapeHtml(title)}"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"></a>`
+            : `<span class="pqx-thumb"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"></span>`)
+          : '';
+        const tourUrl = String(candidate?.tour?.url || candidate?.tour_url || '').trim();
+        const facts = [
+          layout ? `<span class="pqx-result-fact">${escapeHtml(layout)}</span>` : '',
+          tourUrl ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(tourUrl)}">360 ready</a>` : '',
         ].filter(Boolean).join('');
-        return `<tr><td>${escapeHtml(candidate?.rank || index + 1)}</td><td>${media}</td><td>${renderRouteEvidence(candidate?.route_evidence)}</td><td>${escapeHtml(candidate?.ranking_score || candidate?.investment_score || candidate?.fit_score || 0)}</td><td>${escapeHtml(reason)}</td><td>${links}</td></tr>`;
+        const actions = [
+          propertyUrl ? `<a class="pqx-result-open" href="${escapeHtml(propertyUrl)}" target="_blank" rel="noopener noreferrer">Open listing</a>` : '',
+          packetUrl ? `<a class="pqx-result-open" href="${escapeHtml(packetUrl)}">Open property</a>` : '',
+        ].filter(Boolean).join('');
+        return `
+          <article class="pqx-result pqx-card${index === 0 ? ' is-top-ranked' : ''}" role="button" tabindex="0" aria-selected="${index === 0 ? 'true' : 'false'}" data-candidate-ref="${escapeHtml(candidateRef)}" data-candidate-packet-url="${escapeHtml(packetUrl)}" data-workbench-row>
+            <span class="pqx-result-main">
+              <span class="pqx-result-media${previewUrl ? '' : ' no-thumb'}">
+                ${thumb}
+                <span class="pqx-result-summary">
+                  <span class="pqx-result-kicker"><span class="pqx-rank">#${escapeHtml(candidate?.rank || index + 1)}</span>${location ? `<span>${escapeHtml(location)}</span>` : ''}</span>
+                  <span class="pqx-result-title">${escapeHtml(title)}</span>
+                  <span class="pqx-result-facts">${facts}</span>
+                  <span class="pqx-note">${escapeHtml(fitSummary)}</span>
+                </span>
+              </span>
+            </span>
+            <span class="pqx-result-aside">
+              <span class="pqx-result-value-row">
+                <strong class="pqx-result-price">${escapeHtml(primaryPrice)}</strong>
+                <span class="pqx-result-fit-score">Score: ${escapeHtml(candidate?.ranking_score || candidate?.investment_score || candidate?.fit_score || 0)}</span>
+              </span>
+              ${secondaryPrice ? `<span class="pqx-result-secondary">${escapeHtml(secondaryPrice)}</span>` : ''}
+              <span class="pqx-result-actions">${actions}</span>
+            </span>
+          </article>
+        `;
       }).join('');
-      return `<div class="pqx-table-wrap" data-pqx-ranked-candidates><table class="pqx-table"><thead><tr><th>#</th><th>Property</th><th>Evidence</th><th>${investmentSearch ? 'Score' : 'Fit'}</th><th>${investmentSearch ? 'Why it ranked' : 'Why it matched'}</th><th>Open</th></tr></thead><tbody>${body}</tbody></table></div>`;
+      const summaryLabel = investmentSearch ? 'ranked opportunities' : 'ranked homes';
+      const filteredLabel = filteredTotal > 0 ? `<button class="pqx-results-summary-link pqx-results-filter-link" type="button" data-pqx-filtered-open aria-label="${escapeHtml(filteredTotal)} filtered">${escapeHtml(filteredTotal)} filtered</button>` : '';
+      return `
+        <section class="pqx-result-panel active" data-pqx-mobile-panel="results" data-pqx-ranked-candidates>
+          <div class="pqx-result-panel-head">
+            <div class="pqx-results-headline">
+              <div class="pqx-note pqx-results-summary-row">
+                <a class="pqx-results-summary-link" href="#results-list"><b>${rows.length}</b> ${summaryLabel}</a>
+                ${filteredLabel}
+              </div>
+            </div>
+          </div>
+          <div class="pqx-results-list" id="results-list" data-workbench-results-table>${body}</div>
+        </section>
+      `;
+    };
+    const rankedCandidatesFromRunPayload = (runPayload) => {
+      const direct = Array.isArray(runPayload?.summary?.ranked_candidates) ? runPayload.summary.ranked_candidates.filter((row) => row && typeof row === 'object') : [];
+      if (direct.length) return direct;
+      const sources = Array.isArray(runPayload?.summary?.sources) ? runPayload.summary.sources : [];
+      const collected = [];
+      sources.forEach((source) => {
+        const topCandidates = Array.isArray(source?.top_candidates) ? source.top_candidates : [];
+        topCandidates.forEach((candidate) => {
+          if (!candidate || typeof candidate !== 'object') return;
+          collected.push({ ...candidate, source_label: candidate.source_label || source?.source_label || source?.label || '' });
+        });
+      });
+      collected.sort((left, right) => Number(right?.fit_score || 0) - Number(left?.fit_score || 0));
+      return collected.slice(0, 50).map((candidate, index) => ({
+        rank: candidate.rank || index + 1,
+        ...candidate,
+      }));
+    };
+    const renderLiveBestMatch = (runPayload) => {
+      const candidates = rankedCandidatesFromRunPayload(runPayload);
+      const candidate = candidates[0];
+      if (!candidate || typeof candidate !== 'object') return '';
+      const fitScore = Number(candidate?.fit_score || candidate?.ranking_score || 0);
+      const price = String(candidate?.price_display || '').trim() || 'Not confirmed yet';
+      const layout = String(candidate?.layout_display || '').trim() || 'Still being verified';
+      const location = String(candidate?.location_label || candidate?.source_label || '').trim() || 'Source match';
+      const reason = String(candidate?.compare_reason || candidate?.fit_summary || candidate?.summary || '').trim() || 'Current best candidate in this run.';
+      const href = String(candidate?.packet_url || candidate?.property_url || '').trim();
+      const action = href
+        ? (String(candidate?.packet_url || '').trim()
+            ? `<a class="pqx-link-button primary" href="${escapeHtml(href)}">Open property</a>`
+            : `<a class="pqx-link-button primary" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">Open listing</a>`)
+        : '';
+      return `
+        <section class="pqx-card" style="margin-top:14px;">
+          <div class="pqx-section-head">
+            <div>
+              <h2>Current best so far</h2>
+              <div class="pqx-note">This can still change before the run finishes.</div>
+            </div>
+            ${fitScore > 0 ? `<span class="pqx-pill">${escapeHtml(Math.round(fitScore))}/100</span>` : ''}
+          </div>
+          <div class="pqx-pref-list">
+            <div class="pqx-pref-row">
+              <div>
+                <strong>${escapeHtml(candidate?.title || 'Property candidate')}</strong>
+                <small>${escapeHtml(reason)}</small>
+              </div>
+            </div>
+            <div class="pqx-pref-row">
+              <div><strong>Price</strong><small>${escapeHtml(price)}</small></div>
+              <div><strong>Layout</strong><small>${escapeHtml(layout)}</small></div>
+              <div><strong>Area</strong><small>${escapeHtml(location)}</small></div>
+            </div>
+          </div>
+          ${action ? `<div class="pqx-actions">${action}</div>` : ''}
+        </section>
+      `;
     };
     const renderRun = (runPayload) => {
       if (!runPayload || typeof runPayload !== 'object') return;
+      const normalizedSummary = runPayload.summary && typeof runPayload.summary === 'object'
+        ? { ...runPayload.summary }
+        : {};
+      const summaryRankedCandidates = Array.isArray(normalizedSummary.ranked_candidates)
+        ? normalizedSummary.ranked_candidates.filter((row) => row && typeof row === 'object')
+        : [];
+      if (!summaryRankedCandidates.length && Array.isArray(data.results) && data.results.length) {
+        normalizedSummary.ranked_candidates = data.results
+          .filter((row) => row && typeof row === 'object')
+          .map((row, index) => ({
+            ...row,
+            rank: row.rank || index + 1,
+            packet_url: row.packet_url || row.review_url || '',
+            preview_image_url: row.preview_image_url || row.orientation_preview?.thumb_image_url || row.orientation_preview?.image_url || '',
+          }));
+      }
+      if (Object.keys(normalizedSummary).length) {
+        runPayload = { ...runPayload, summary: normalizedSummary };
+      }
       const status = String(runPayload.status || 'queued');
       const progress = Math.max(0, Math.min(100, Number(runPayload.progress || 0)));
       const statusNode = root.querySelector('[data-pqx-run-status]');
@@ -959,13 +1395,43 @@
       const updatedNode = root.querySelector('[data-pqx-run-updated]');
       const rankedNode = root.querySelector('[data-pqx-ranked-candidates]');
       const sourceNode = root.querySelector('[data-pqx-source-breakdown]');
+      const liveBestMatchNode = root.querySelector('[data-pqx-live-best-match]');
       if (statusNode) statusNode.textContent = status.replaceAll('_', ' ');
       if (messageNode) messageNode.textContent = String(runPayload.message || 'Up next.');
       if (ring) ring.style.setProperty('--progress', String(terminalStates.has(status) ? progress : Math.min(progress, 95)));
       if (progressLabel) progressLabel.textContent = `${terminalStates.has(status) ? progress : Math.min(progress, 95)}%`;
       if (summaryNode && runPayload.summary) summaryNode.textContent = runSummaryText(runPayload);
-      if (rankedNode && runPayload.summary) rankedNode.outerHTML = renderRankedCandidates(runPayload.summary.ranked_candidates);
+      if (rankedNode && runPayload.summary) {
+        const rankedCandidates = rankedCandidatesFromRunPayload(runPayload);
+        rankedNode.outerHTML = renderRankedCandidates(rankedCandidates, runPayload);
+        if (rankedCandidates.length) {
+          replaceCandidates(rankedCandidates);
+          const panel = root.querySelector('[data-pqx-empty-results] .pqx-panel.pqx-command');
+          const helperHeading = panel?.querySelector('.pqx-section-head h2');
+          if (helperHeading && /ways to get more matches/i.test(String(helperHeading.textContent || ''))) {
+            panel.querySelector('.pqx-section-head')?.remove();
+          }
+          panel?.querySelector('[data-pqx-counterfactuals]')?.remove();
+          panel?.querySelectorAll('.pqx-note').forEach((node) => {
+            const text = String(node.textContent || '').trim().toLowerCase();
+            if (
+              text === 'try one small relaxation first, then rerun only if the current brief is clearly too narrow.'
+              || text === 'widen one rule first, then rerun.'
+            ) {
+              node.remove();
+            }
+          });
+          root.querySelectorAll('[data-pqx-empty-results] .pqx-pref-row').forEach((row) => {
+            const text = String(row.textContent || '').trim().toLowerCase();
+            if (text.includes('best next move') || text.includes('widen one rule first, then rerun.')) {
+              row.remove();
+            }
+          });
+        }
+        if (typeof bindWorkbenchRows === 'function') bindWorkbenchRows(root);
+      }
       if (sourceNode && runPayload.summary) sourceNode.innerHTML = renderSourceBreakdown(runPayload.summary.sources);
+      if (liveBestMatchNode) liveBestMatchNode.innerHTML = renderLiveBestMatch(runPayload);
       if (eventsNode) eventsNode.innerHTML = renderRunEvents(runPayload.events);
       if (updatedNode) updatedNode.textContent = `Last update ${runPayload.updated_at || runPayload.generated_at || new Date().toLocaleTimeString()}`;
       updateProgressBoards(runPayload);
@@ -995,7 +1461,7 @@
           let response;
           let body = {};
           try {
-            response = await fetch(statusUrl, { credentials: 'same-origin', headers: { accept: 'application/json' } });
+            response = await fetch(statusUrl, { credentials: 'same-origin' });
             body = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(String(body.detail || 'Could not load property search status.'));
             failedPolls = 0;
@@ -1013,7 +1479,11 @@
           }
           renderRun(body);
           if (terminalStates.has(String(body.status || ''))) {
-            window.location.href = `/app/properties?run_id=${encodeURIComponent(body.run_id || '')}`;
+            const completedRunId = encodeURIComponent(body.run_id || '');
+            const nextSurface = initialSurface === 'shortlist'
+              ? '/app/shortlist'
+              : (initialSurface === 'search' ? '/app/search' : '/app/properties');
+            window.location.href = `${nextSurface}?run_id=${completedRunId}`;
             return;
           }
           await new Promise((resolve) => window.setTimeout(resolve, 1400));
@@ -1030,13 +1500,12 @@
       const map = {
         search: isInvestment
           ? { label: 'Market', detail: 'Market, listing mode, and budget.' }
-          : { label: 'Where', detail: 'Country, city, and the first budget line.' },
-        areas: isInvestment
-          ? { label: 'Strategy', detail: 'Target areas, spillover distance, and investment guardrails.' }
-          : { label: 'Home shape', detail: 'Areas, spillover distance, and the home shape that should survive the cut.' },
+          : { label: 'Where', detail: 'Country, market, and target areas.' },
+        what: { label: 'What', detail: 'Property type, budget, size, and move-in guardrails.' },
+        areas: { label: 'Strategy', detail: 'Target areas, spillover distance, and investment guardrails.' },
         children: isInvestment
           ? { label: 'Guardrails', detail: 'Execution risk, legal posture, and which weak listings should be excluded.' }
-          : { label: 'Daily life', detail: 'Schools, childcare, and the everyday context that should stay explicit.' },
+          : { label: 'What matters', detail: 'Preferences, family setup, errands, and local-fit rules.' },
         reachability: isInvestment
           ? { label: 'Evidence', detail: 'How much underwriting and supporting evidence the shortlist needs.' }
           : { label: 'Reachability', detail: 'Destinations, travel modes, and time limits that change the ranking.' },
@@ -1076,7 +1545,8 @@
           if (strong) strong.textContent = presentation.label;
         });
       };
-      const applyStep = (index) => {
+      const applyStep = (index, options = {}) => {
+        const silent = Boolean(options && options.silent);
         const visibleSteps = activeSteps();
         if (!visibleSteps.length) return;
         current = Math.max(0, Math.min(visibleSteps.length - 1, index));
@@ -1085,7 +1555,12 @@
         const isInvestment = String(form.querySelector('select[name="search_goal"]')?.value || 'home').trim().toLowerCase() === 'investment';
         const presentation = wizardStepPresentation(step, isInvestment);
         form.dataset.propertyActiveStep = stepKey;
-        fieldNodes.forEach((node) => { node.hidden = String(node.getAttribute('data-property-field-step') || '') !== stepKey; });
+        fieldNodes.forEach((node) => {
+          const stepVisible = String(node.getAttribute('data-property-field-step') || '') === stepKey;
+          const semanticallyHidden = node.hasAttribute('aria-hidden');
+          node.dataset.propertyStepVisible = stepVisible ? 'true' : 'false';
+          node.hidden = !stepVisible || semanticallyHidden;
+        });
         triggers.forEach((node) => {
           const triggerStep = String(node.getAttribute('data-property-step-trigger') || '').trim();
           const isVisible = visibleSteps.some((candidateStep) => String(candidateStep?.key || '').trim() === triggerStep);
@@ -1101,7 +1576,9 @@
           next.textContent = current === visibleSteps.length - 2 ? 'Review launch' : 'Next';
         }
         if (actions) actions.hidden = current !== visibleSteps.length - 1;
-        form.dispatchEvent(new CustomEvent('propertyquarry:stepchange', { detail: { step: stepKey } }));
+        if (!silent) {
+          form.dispatchEvent(new CustomEvent('propertyquarry:stepchange', { detail: { step: stepKey } }));
+        }
       };
       triggers.forEach((node) => node.addEventListener('click', () => {
         const triggerStep = String(node.getAttribute('data-property-step-trigger') || '').trim();
@@ -1111,7 +1588,12 @@
       }));
       back?.addEventListener('click', () => applyStep(current - 1));
       next?.addEventListener('click', () => applyStep(current + 1));
-      form.addEventListener('propertyquarry:wizardrefresh', () => applyStep(current));
+      form.addEventListener('propertyquarry:wizardrefresh', () => applyStep(current, { silent: true }));
+      fieldNodes.forEach((node) => {
+        if (node.hidden && !node.hasAttribute('aria-hidden')) {
+          node.setAttribute('aria-hidden', 'true');
+        }
+      });
       refreshStepLabels();
       applyStep(0);
     };
@@ -1221,6 +1703,8 @@
       const useStoredFeedbackPreferencesField = form.querySelector('input[name="use_stored_feedback_preferences"]');
       const preferencePersonWrap = form.querySelector('[data-property-field-name="preference_person_id"]');
       const searchAgentEnabledField = form.querySelector('input[name="search_agent_enabled"]');
+      const saveWhatMattersButton = form.querySelector('[data-pqx-save-what-matters]');
+      const loadWhatMattersButton = form.querySelector('[data-pqx-load-what-matters]');
       const searchAgentDetailWraps = [
         form.querySelector('[data-property-field-name="search_agent_duration_days"]'),
         form.querySelector('[data-property-field-name="search_agent_notification_limit"]'),
@@ -1228,6 +1712,53 @@
       ].filter(Boolean);
       const fullRegionScopeFieldWrap = form.querySelector('[data-property-field-name="full_region_scope"]');
       const locationFieldWrap = form.querySelector('[data-property-field-name="location_query"]');
+      const whatMattersFieldSelector = '[data-property-field-step="children"]';
+      const captureWhatMattersSnapshot = () => {
+        const snapshot = {};
+        form.querySelectorAll(`${whatMattersFieldSelector} input, ${whatMattersFieldSelector} select, ${whatMattersFieldSelector} textarea`).forEach((field) => {
+          if (!(field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement)) return;
+          const name = String(field.name || '').trim();
+          if (!name) return;
+          if (field instanceof HTMLInputElement && field.type === 'checkbox') {
+            if (field.name === 'school_stage_preferences') {
+              snapshot[name] = checkedValues(form, name);
+              return;
+            }
+            snapshot[name] = Boolean(field.checked);
+            return;
+          }
+          snapshot[name] = String(field.value || '');
+        });
+        return snapshot;
+      };
+      const applyWhatMattersSnapshot = (snapshot) => {
+        if (!snapshot || typeof snapshot !== 'object') return;
+        Object.entries(snapshot).forEach(([name, value]) => {
+          const fields = [...form.querySelectorAll(`${whatMattersFieldSelector} [name="${CSS.escape(String(name))}"]`)];
+          if (!fields.length) return;
+          if (fields[0] instanceof HTMLInputElement && fields[0].type === 'checkbox') {
+            if (String(name) === 'school_stage_preferences') {
+              setCheckboxValues(form, name, Array.isArray(value) ? value : []);
+              return;
+            }
+            fields.forEach((field) => {
+              if (field instanceof HTMLInputElement) field.checked = Boolean(value);
+            });
+            return;
+          }
+          fields.forEach((field) => {
+            if (field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement) {
+              field.value = String(value ?? '');
+              field.dispatchEvent(new Event('input', { bubbles: true }));
+              field.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          });
+        });
+        syncKeywordDistanceSelects(form);
+        syncFamilyModeControls();
+        syncSearchGoalControls();
+      };
+      let savedWhatMattersSnapshot = captureWhatMattersSnapshot();
       const rawPlanPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
       const planPlatformCap = Number.isFinite(rawPlanPlatformCap) && rawPlanPlatformCap > 0 ? rawPlanPlatformCap : 0;
       const effectiveListingMode = () => {
@@ -1248,10 +1779,8 @@
       const syncAdvancedPanels = () => {
         form.querySelectorAll('details[data-property-advanced-panel]').forEach((panel) => {
           const panelKey = String(panel.getAttribute('data-property-advanced-panel') || '').trim();
-          const visibleFields = [...panel.querySelectorAll('.pqx-field')].filter((node) => !node.hidden && String(node.getAttribute('aria-hidden') || '').trim() !== 'true');
-          const shouldShow = panelKey === 'children' || panelKey === 'children_distances' || panelKey === 'children_wellbeing'
-            ? String(searchGoalField?.value || 'home').trim().toLowerCase() !== 'investment' && visibleFields.length > 0
-            : panelKey === 'commute'
+          const visibleFields = [...panel.querySelectorAll('.pqx-field')].filter((node) => !node.hidden && !node.hasAttribute('aria-hidden'));
+          const shouldShow = panelKey === 'commute'
               ? Boolean(commuteResearchField?.checked) && visibleFields.length > 0
               : visibleFields.length > 0;
           panel.hidden = !shouldShow;
@@ -1260,8 +1789,8 @@
         });
       };
       const syncListingModeControls = () => {
-        const isBuy = String(listingModeField?.value || 'rent').trim().toLowerCase() === 'buy';
         const isInvestment = String(searchGoalField?.value || 'home').trim().toLowerCase() === 'investment';
+        const isBuy = effectiveListingMode() === 'buy';
         if (investmentFieldWrap) {
           investmentFieldWrap.hidden = !isInvestment || !isBuy || String(form.dataset.propertyActiveStep || '').trim() !== 'search';
           investmentFieldWrap.toggleAttribute('aria-hidden', investmentFieldWrap.hidden);
@@ -1280,7 +1809,7 @@
         const investmentResearchEnabled = isInvestment && String(investmentField?.value || 'off').trim().toLowerCase() !== 'off';
         const communitySignalsEnabled = Boolean(form.querySelector('input[name="include_community_signals"]')?.checked);
         const developerProjectSignalsEnabled = Boolean(form.querySelector('input[name="include_developer_project_signals"]')?.checked);
-        const storedFeedbackPreferencesEnabled = Boolean(useStoredFeedbackPreferencesField?.checked);
+        const storedFeedbackPreferencesEnabled = false;
         const searchAgentEnabled = Boolean(searchAgentEnabledField?.checked);
         const publicHousingSignalsEnabled = rentMode && Boolean(form.querySelector('input[name="include_public_housing_signals"]')?.checked);
         const distressedSignalsEnabled = buyMode && Boolean(form.querySelector('input[name="include_distressed_sale_signals"]')?.checked);
@@ -1315,9 +1844,8 @@
           wrap.toggleAttribute('aria-hidden', wrap.hidden);
         });
         if (preferencePersonWrap) {
-          const shouldShow = storedFeedbackPreferencesEnabled && activeStep === 'areas';
-          preferencePersonWrap.hidden = !shouldShow;
-          preferencePersonWrap.toggleAttribute('aria-hidden', preferencePersonWrap.hidden);
+          preferencePersonWrap.hidden = true;
+          preferencePersonWrap.toggleAttribute('aria-hidden', true);
         }
         searchAgentDetailWraps.forEach((wrap) => {
           const shouldShow = searchAgentEnabled && activeStep === 'providers';
@@ -1344,7 +1872,7 @@
           commuteResearchWrap.toggleAttribute('aria-hidden', commuteResearchWrap.hidden);
         }
         if (lifestyleResearchWrap) {
-          lifestyleResearchWrap.hidden = isInvestment || activeStep !== 'areas';
+          lifestyleResearchWrap.hidden = isInvestment || activeStep !== 'children';
           lifestyleResearchWrap.toggleAttribute('aria-hidden', lifestyleResearchWrap.hidden);
         }
         const selectedSchoolStages = !isInvestment ? checkedValues(form, 'school_stage_preferences') : [];
@@ -1368,13 +1896,13 @@
           libraryImportanceWrap.toggleAttribute('aria-hidden', libraryImportanceWrap.hidden);
         }
         if (supermarketImportanceWrap) {
-          const shouldShow = integerValue(form, 'max_distance_to_supermarket_m') !== null && activeStep === 'areas';
+          const shouldShow = integerValue(form, 'max_distance_to_supermarket_m') !== null && activeStep === 'children';
           supermarketImportanceWrap.hidden = !shouldShow;
           supermarketImportanceWrap.toggleAttribute('aria-hidden', supermarketImportanceWrap.hidden);
         }
         const lifestyleEnabled = !isInvestment && Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked);
         lifestyleDetailWraps.forEach((wrap) => {
-          const shouldShow = lifestyleEnabled && activeStep === 'areas';
+          const shouldShow = lifestyleEnabled && activeStep === 'children';
           wrap.hidden = !shouldShow;
           wrap.toggleAttribute('aria-hidden', wrap.hidden);
         });
@@ -1382,10 +1910,10 @@
           if (commuteResearchField) commuteResearchField.checked = false;
           const lifestyleField = form.querySelector('input[name="enable_lifestyle_research"]');
           if (lifestyleField) lifestyleField.checked = false;
-          form.dataset.propertyExcludedSteps = 'children,reachability';
+          form.dataset.propertyExcludedSteps = 'what,children,reachability';
         } else {
           if (investmentField) investmentField.value = 'off';
-          form.dataset.propertyExcludedSteps = '';
+          form.dataset.propertyExcludedSteps = 'areas';
         }
         if (rentMode) {
           const distressedField = form.querySelector('input[name="include_distressed_sale_signals"]');
@@ -1469,7 +1997,7 @@
       };
       const syncAreaScopeControls = () => {
         const activeStep = String(form.dataset.propertyActiveStep || '').trim();
-        const isAreasStep = !activeStep || activeStep === 'areas';
+        const isSearchStep = !activeStep || activeStep === 'search' || activeStep === 'areas';
         const hasAreaOptions = form.querySelectorAll('input[name="location_query"]').length > 0;
         const selectedLocations = checkedValues(form, 'location_query');
         const allLocationsSelected = hasAreaOptions && selectedLocations.length > 0 && selectedLocations.length === form.querySelectorAll('input[name="location_query"]').length;
@@ -1480,7 +2008,7 @@
         if (!hasAreaOptions && fullRegionScopeField) fullRegionScopeField.checked = false;
         if (fullRegionScopeField) fullRegionScopeField.checked = allLocationsSelected;
         if (locationFieldWrap) {
-          locationFieldWrap.hidden = !isAreasStep || !hasAreaOptions;
+          locationFieldWrap.hidden = !isSearchStep || !hasAreaOptions;
           locationFieldWrap.toggleAttribute('aria-hidden', locationFieldWrap.hidden);
           locationFieldWrap.dataset.propertyCollapsedBy = '';
         }
@@ -1554,6 +2082,7 @@
         syncCommuteControls();
         syncFamilyModeControls();
         syncSearchGoalControls();
+        syncPropertyTypeDependentFilters(form);
         syncMarketAwareFields(form, meta);
       };
       const applyPreferenceProfile = () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncAreaScopeControls, {
@@ -1644,15 +2173,29 @@
         syncMarketAwareFields(form, meta);
       });
       form.querySelector('[name="custom_location_query"]')?.addEventListener('input', markManualGeographySelection);
+      form.querySelector('[name="custom_location_query"]')?.addEventListener('input', () => {
+        if (fullRegionScopeField && String(form.querySelector('[name="custom_location_query"]')?.value || '').trim()) {
+          fullRegionScopeField.checked = false;
+        }
+        syncAreaScopeControls();
+      });
       form.addEventListener('change', (event) => {
         const target = event.target;
         if (!(target instanceof HTMLElement)) return;
-        if (target.matches('input[name="location_query"]')) markManualGeographySelection();
+        if (target.matches('input[name="location_query"]')) {
+          markManualGeographySelection();
+          if (target instanceof HTMLInputElement && !target.checked && fullRegionScopeField) {
+            fullRegionScopeField.checked = false;
+          }
+        }
       });
       listingModeField?.addEventListener('change', () => {
         syncProviderOptionsForMarket();
         syncListingModeControls();
       });
+      form.querySelectorAll('input[name="property_type"]').forEach((node) => node.addEventListener('change', () => {
+        syncPropertyTypeDependentFilters(form);
+      }));
       commuteResearchField?.addEventListener('change', syncCommuteControls);
       form.querySelector('input[name="enable_lifestyle_research"]')?.addEventListener('change', syncSearchGoalControls);
       form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));
@@ -1713,7 +2256,13 @@
       });
       form.addEventListener('change', (event) => {
         const target = event.target;
-        if (target instanceof HTMLInputElement && target.name === 'location_query') syncAreaScopeControls();
+        if (target instanceof HTMLInputElement && target.name === 'location_query') {
+          if (!target.checked && fullRegionScopeField) fullRegionScopeField.checked = false;
+          syncAreaScopeControls();
+        }
+        if (target instanceof HTMLSelectElement && target.hasAttribute('data-keyword-preference-select')) {
+          syncKeywordDistanceSelects(form);
+        }
       });
       form.addEventListener('propertyquarry:stepchange', () => {
         syncAreaScopeControls();
@@ -1721,15 +2270,44 @@
         syncCommuteControls();
         syncFamilyModeControls();
         syncSearchGoalControls();
+        syncKeywordDistanceSelects(form);
       });
-      searchGoalField?.addEventListener('change', syncSearchGoalControls);
-      investmentField?.addEventListener('change', syncSearchGoalControls);
+      const refreshGoalDrivenState = () => {
+        syncListingModeControls();
+        syncCommuteControls();
+        syncFamilyModeControls();
+        syncSearchGoalControls();
+        form.dispatchEvent(new CustomEvent('propertyquarry:wizardrefresh'));
+      };
+      searchGoalField?.addEventListener('change', refreshGoalDrivenState);
+      investmentField?.addEventListener('change', refreshGoalDrivenState);
       form.querySelector('input[name="include_community_signals"]')?.addEventListener('change', syncSearchGoalControls);
       form.querySelector('input[name="include_developer_project_signals"]')?.addEventListener('change', syncSearchGoalControls);
       form.querySelector('input[name="include_public_housing_signals"]')?.addEventListener('change', syncSearchGoalControls);
       form.querySelector('input[name="include_distressed_sale_signals"]')?.addEventListener('change', syncSearchGoalControls);
       searchAgentEnabledField?.addEventListener('change', syncSearchGoalControls);
+      saveWhatMattersButton?.addEventListener('click', async () => {
+        const status = root.querySelector('[data-property-inline-status]');
+        const error = root.querySelector('[data-property-inline-error]');
+        try {
+          if (status) status.textContent = 'Saving what matters...';
+          if (error) error.textContent = '';
+          await savePreferences();
+          savedWhatMattersSnapshot = captureWhatMattersSnapshot();
+          if (status) status.textContent = 'Saved what matters.';
+        } catch (err) {
+          if (error) error.textContent = err instanceof Error ? err.message : 'Could not save what matters.';
+        }
+      });
+      loadWhatMattersButton?.addEventListener('click', () => {
+        applyWhatMattersSnapshot(savedWhatMattersSnapshot);
+        const status = root.querySelector('[data-property-inline-status]');
+        const error = root.querySelector('[data-property-inline-error]');
+        if (error) error.textContent = '';
+        if (status) status.textContent = 'Loaded saved what matters.';
+      });
       resyncSearchFormState();
+      syncKeywordDistanceSelects(form);
       syncSelectAllButtons(form, planPlatformCap);
       applyBrowserAndIpDefaults().finally(applyPreferenceProfile);
     }
@@ -1824,6 +2402,7 @@
       return {
         preferences_json: payload,
         location_query: payload.location_query || '',
+        selected_location_values: Array.isArray(payload.selected_location_values) ? payload.selected_location_values : [],
         country_code: payload.country_code || '',
         region_code: payload.region_code || '',
         listing_mode: payload.listing_mode || 'rent',
@@ -1915,6 +2494,8 @@
         }
         if (Object.prototype.hasOwnProperty.call(source, 'full_region_scope') && source.full_region_scope) {
           selectAllCheckboxValues(form, 'location_query', Infinity);
+        } else if (Array.isArray(source.selected_location_values) && source.selected_location_values.length) {
+          setFieldValue('location_query', source.selected_location_values);
         } else if (Object.prototype.hasOwnProperty.call(source, 'location_query')) {
           setFieldValue('location_query', source.location_query);
         }
@@ -2284,10 +2865,19 @@
     scopeLightboxOverlay?.addEventListener('mouseleave', () => {
       if (scopeLightboxTooltip) scopeLightboxTooltip.classList.remove('is-visible');
     });
-    root.querySelectorAll('[data-pqx-filtered-open]').forEach((button) => {
-      button.addEventListener('click', () => {
-        if (filteredDialog && typeof filteredDialog.showModal === 'function') filteredDialog.showModal();
-      });
+    root.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('[data-pqx-filtered-open]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (filteredDialog && typeof filteredDialog.showModal === 'function') {
+        filteredDialog.showModal();
+        return;
+      }
+      const fallbackPanel = root.querySelector('[data-pqx-empty-results] [data-pqx-counterfactuals], [data-pqx-suppression-summary]');
+      if (fallbackPanel && typeof fallbackPanel.scrollIntoView === 'function') {
+        fallbackPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     });
     root.querySelectorAll('[data-pqx-filter-radius]').forEach((slider) => {
       const card = slider.closest('.pqx-filtered-dialog-rule');
@@ -2342,18 +2932,40 @@
     });
     root.querySelectorAll('[data-pw-decision-state]').forEach((button) => {
       button.addEventListener('click', async () => {
-        const candidate = candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
+        const explicitCandidateRef = String(button.getAttribute('data-candidate-ref') || '').trim();
+        const candidate = (explicitCandidateRef ? candidateByRef.get(explicitCandidateRef) : null) || candidateByRef.get(selectedFeedbackCandidateRef) || candidates[0];
         const decisionState = String(button.getAttribute('data-pw-decision-state') || '').trim();
         if (!candidate || !decisionState) return;
-        await recordDecisionState(candidate, decisionState, decisionStateStatusNode);
+        const result = await recordDecisionState(candidate, decisionState, decisionStateStatusNode);
+        if (!result) return;
+        if (button.hasAttribute('data-pw-remove-row')) {
+          const row = button.closest('[data-workbench-row]');
+          if (row) {
+            const removedCandidateRef = String(row.getAttribute('data-candidate-ref') || explicitCandidateRef || '').trim();
+            row.remove();
+            if (removedCandidateRef && candidateByRef instanceof Map) candidateByRef.delete(removedCandidateRef);
+            updateShortlistHeadlineCounts();
+          } else {
+            window.location.reload();
+          }
+        }
       });
     });
     if (data.run && typeof data.run === 'object') {
       renderRun(data.run);
       const status = String(data.run.status || '').trim().toLowerCase();
       const statusUrl = String(data.run.status_url || '').trim();
-      if (statusUrl && status && !terminalStates.has(status)) {
-        pollRun(statusUrl);
+      if (statusUrl && status) {
+        if (terminalStates.has(status)) {
+          fetch(statusUrl, { credentials: 'same-origin' })
+            .then((response) => response.ok ? response.json() : null)
+            .then((payload) => {
+              if (payload && typeof payload === 'object') renderRun(payload);
+            })
+            .catch(() => {});
+        } else {
+          pollRun(statusUrl);
+        }
       }
     }
     const urlParams = new URL(window.location.href).searchParams;

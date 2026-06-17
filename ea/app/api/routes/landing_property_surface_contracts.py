@@ -35,7 +35,7 @@ class PropertySurfaceScope:
             normalized = "properties"
         return cls(
             section=normalized,  # type: ignore[arg-type]
-            wants_run_state=normalized in {"properties", "shortlist"},
+            wants_run_state=normalized in {"properties", "search", "shortlist"},
             wants_recent_runs=normalized in {"properties", "search", "shortlist", "agents"},
             wants_recent_matches=normalized in {"shortlist"},
             wants_preference_profile=normalized in {"search", "account"},
@@ -43,7 +43,7 @@ class PropertySurfaceScope:
             wants_search_runs=normalized in {"search", "shortlist", "agents"},
             wants_agent_views=normalized == "agents",
             wants_credit_digest=normalized in {"agents", "account", "billing"},
-            wants_run_views=normalized in {"properties", "shortlist"},
+            wants_run_views=normalized in {"properties", "search", "shortlist"},
         )
 
 
@@ -56,6 +56,8 @@ class PropertyDecisionWorkbenchRunContract:
     message: str
     status_url: str
     summary: dict[str, object]
+    filtered_total: int = 0
+    held_back_total: int = 0
     events: list[object] = field(default_factory=list)
     worker_state: list[object] = field(default_factory=list)
     reliability: dict[str, object] = field(default_factory=dict)

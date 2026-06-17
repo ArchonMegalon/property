@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import importlib
 import os
 import subprocess
+import sys
 import time
 import urllib.parse
 import uuid
@@ -29,7 +31,7 @@ def _poll_property_search_run_status(client, run_id: str) -> dict[str, object]:
         response = client.get(f"/app/api/signals/property/search/run/{run_id}")
         assert response.status_code == 200, response.text
         latest_status = response.json()
-        if str(latest_status.get("status") or "").strip() in {"processed", "failed", "noop", "cancelled"}:
+        if str(latest_status.get("status") or "").strip() in {"processed", "completed_partial", "failed", "noop", "cancelled"}:
             return latest_status
         time.sleep(0.02)
     return latest_status
@@ -88,6 +90,23 @@ def test_ranked_candidates_prefer_explicit_ranking_score_when_present() -> None:
     )
 
     assert [row["source_ref"] for row in ranked[:2]] == ["b", "a"]
+
+
+def test_property_requested_location_match_keeps_title_postal_match_even_when_scope_shares_same_postal() -> None:
+    assert _property_candidate_matches_requested_location(
+        location_hints=("8055 Graz",),
+        property_url="https://www.willhaben.at/example",
+        title="Erstbezugswohnung, 47,57 m², € 613,49, (8055 Graz) - willhaben",
+        summary="Modern rental apartment in Graz.",
+        property_facts={
+            "postal_name": "8055 Graz",
+            "source_scope_location": "8055 Graz",
+            "source_postal_code": "8055",
+            "country_code": "AT",
+        },
+        country_code="AT",
+        region_code="steiermark",
+    )
 
 
 def test_investment_underwriting_payload_exposes_dimensions_and_confidence() -> None:
@@ -1221,7 +1240,7 @@ def test_property_filter_feedback_patch_ignores_unsupported_keys() -> None:
     assert result["patched_keys"] == ["max_distance_to_playground_m"]
     updated = client.app.state.container.onboarding.status(principal_id=principal_id)["property_search_preferences"]
     assert updated["raw_preferences"]["max_distance_to_playground_m"] is None
-    assert "selected_platforms" not in updated["raw_preferences"]
+    assert "selected_platforms" in updated["raw_preferences"]
 
 
 def test_property_filter_near_miss_feedback_buttons_fit_telegram_callback_limit(monkeypatch) -> None:
@@ -1320,6 +1339,421 @@ def test_property_filter_near_miss_sender_suppresses_location_conflicts(monkeypa
     assert result["status"] == "suppressed"
     assert result["reason"] == "property_location_conflicts_with_active_search"
     assert sent == []
+
+
+def test_property_scout_hit_sender_suppresses_location_conflicts_and_opens_repair(monkeypatch) -> None:
+    principal_id = "exec-property-hit-location-gate"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Scout Hit Location Gate Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    service = ProductService(client.app.state.container)
+    sent: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: sent.append(dict(kwargs)) or SimpleNamespace(chat_id="1354554303", message_ids=("7",)),
+    )
+
+    result = service._send_property_scout_hit_telegram(
+        principal_id=principal_id,
+        actor="test",
+        title="WOHNEN NÄHE U4 HÜTTELDORF | Familienwohnbau",
+        summary="Generic project page surfaced from a 1010 scope.",
+        counterparty="Genossenschaften | Austria | Rent | 1010 Vienna | Familienwohnbau Angebote",
+        account_email="",
+        property_url="https://example.invalid/angebote/huetteldorf",
+        source_ref="property-scout:huetteldorf-mismatch",
+        assessment={"fit_score": 50.0, "recommendation": "review"},
+        fit_score=50.0,
+        preference_person_id="self",
+        candidate_properties=(
+            {
+                "property_url": "https://example.invalid/angebote/huetteldorf",
+                "listing_title": "WOHNEN NÄHE U4 HÜTTELDORF | Familienwohnbau",
+                "summary": "Scout update candidate",
+                "source_platform": "genossenschaften",
+                "source_family": "housing_coop",
+                "property_facts_json": {
+                    "postal_name": "1140 Vienna",
+                    "source_scope_location": "1010 Vienna",
+                    "district": "Hütteldorf",
+                },
+            },
+        ),
+        render_dossier=False,
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+    assert sent == []
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert repair_tasks
+    assert repair_tasks[0].priority == "urgent"
+    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "location_scope"
+    assert repair_tasks[0].assigned_operator_id == "ea_one_manager"
+    assert repair_tasks[0].status in {"pending", "returned"}
+
+
+def test_property_scout_hit_sender_suppresses_generic_pages_missing_concrete_facts(monkeypatch) -> None:
+    principal_id = "exec-property-hit-generic-gate"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Scout Hit Generic Gate Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    service = ProductService(client.app.state.container)
+    sent: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: sent.append(dict(kwargs)) or SimpleNamespace(chat_id="1354554303", message_ids=("7",)),
+    )
+
+    result = service._send_property_scout_hit_telegram(
+        principal_id=principal_id,
+        actor="test",
+        title="Familienwohnbau Angebote",
+        summary="Ihr Immobilienmakler für Wien. Verkauf, Vermietung, Preis-Check.",
+        counterparty="Genossenschaften | Austria | Rent | 1010 Vienna | Familienwohnbau Angebote",
+        account_email="",
+        property_url="https://example.invalid/immobilien/angebote",
+        source_ref="property-scout:generic-offer-page",
+        assessment={"fit_score": 50.0, "recommendation": "review"},
+        fit_score=50.0,
+        preference_person_id="self",
+        candidate_properties=(
+            {
+                "property_url": "https://example.invalid/immobilien/angebote",
+                "listing_title": "Familienwohnbau Angebote",
+                "summary": "Ihr Immobilienmakler für Wien. Verkauf, Vermietung, Preis-Check.",
+                "source_platform": "genossenschaften",
+                "source_family": "housing_coop",
+                "property_facts_json": {
+                    "source_scope_location": "1010 Vienna",
+                },
+            },
+        ),
+        render_dossier=False,
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_generic_listing_page"
+    assert sent == []
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert repair_tasks
+    assert repair_tasks[0].priority == "urgent"
+    assert repair_tasks[0].assigned_operator_id == "ea_one_manager"
+    assert repair_tasks[0].status in {"pending", "returned"}
+
+
+def test_property_provider_repair_task_dedupes_across_transient_source_refs() -> None:
+    principal_id = "exec-property-provider-repair-dedupe"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Provider Repair Dedupe Office")
+    service = ProductService(client.app.state.container)
+
+    first = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url="https://familienwohnbau.at/de/objekt/wohnen-naehe-u4-huetteldorf-e8fd5b2b",
+        title="WOHNEN NÄHE U4 HÜTTELDORF | Familienwohnbau",
+        source_url="https://familienwohnbau.at/de/objekt/wohnen-naehe-u4-huetteldorf-e8fd5b2b",
+        source_label="Familienwohnbau",
+        source_platform="familienwohnbau",
+        source_family="housing_coop",
+        filter_key="require_floorplan",
+        diagnostics={"provider_host": "familienwohnbau.at"},
+        source_ref="property-scout:run-a-candidate-1",
+    )
+    second = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url="https://familienwohnbau.at/de/objekt/wohnen-naehe-u4-huetteldorf-e8fd5b2b",
+        title="WOHNEN NÄHE U4 HÜTTELDORF | Familienwohnbau",
+        source_url="https://familienwohnbau.at/de/objekt/wohnen-naehe-u4-huetteldorf-e8fd5b2b",
+        source_label="Familienwohnbau",
+        source_platform="familienwohnbau",
+        source_family="housing_coop",
+        filter_key="require_floorplan",
+        diagnostics={"provider_host": "familienwohnbau.at"},
+        source_ref="property-scout:run-b-candidate-9",
+    )
+
+    assert first["status"] == "opened"
+    assert second["status"] == "existing"
+    assert second["human_task_id"] == first["human_task_id"]
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert len(repair_tasks) == 1
+    assert repair_tasks[0].assigned_operator_id == "ea_one_manager"
+
+
+def test_property_provider_repair_auto_resolves_generic_listing_pages(monkeypatch) -> None:
+    principal_id = "exec-property-provider-auto-resolve"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Provider Repair Auto Resolve Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    service = ProductService(client.app.state.container)
+
+    class _Resp:
+        ok = True
+        text = """
+        <html><head><title>Familienwohnbau Angebote</title></head>
+        <body>
+        Familienwohnbau Angebote
+        Ihr Immobilienmakler für Wien. Verkauf, Vermietung, Preis-Check.
+        </body></html>
+        """
+
+    monkeypatch.setattr(product_service.requests, "get", lambda *args, **kwargs: _Resp())
+
+    opened = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url="https://example.invalid/immobilien/angebote",
+        title="Familienwohnbau Angebote",
+        source_url="https://example.invalid/immobilien/angebote",
+        source_label="Familienwohnbau",
+        source_platform="familienwohnbau",
+        source_family="housing_coop",
+        filter_key="missing_price",
+        diagnostics={"provider_host": "example.invalid"},
+        source_ref="property-scout:generic-offer-page",
+    )
+
+    assert opened["status"] == "opened"
+    tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert len(tasks) == 1
+    assert tasks[0].status == "returned"
+    assert tasks[0].resolution == "suppressed_generic_listing_page"
+
+
+def test_property_search_source_fetch_failure_opens_provider_repair_task(monkeypatch) -> None:
+    principal_id = "exec-property-source-fetch-repair"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Source Fetch Repair Office")
+    service = ProductService(client.app.state.container)
+
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": "https://wohnberatung.example.invalid/search",
+                "label": "Wohnberatung Wien | Austria | Rent | Vienna",
+                "platform": "wohnberatung_wien",
+                "provider_family": "public_housing",
+                "country_code": "AT",
+                "max_results": 4,
+            }
+        ],
+    )
+    monkeypatch.setattr(product_service, "_property_search_interleave_by_provider_group", lambda specs: list(specs))
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_prefetch_listing_urls",
+        lambda **kwargs: {
+            ("wohnberatung_wien", "https://wohnberatung.example.invalid/search"): {
+                "error": "HTTP Error 403: Forbidden",
+                "listing_urls": [],
+                "provider_cache_state": {"status": "failed", "cache_key": "wohnberatung:vienna"},
+            }
+        },
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_warm_property_public_preview_cache_for_sources",
+        lambda self, **kwargs: {},
+    )
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("wohnberatung_wien",),
+        property_search_preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "Vienna",
+        },
+        max_results_per_source=2,
+        force_refresh=True,
+    )
+
+    assert result["failed_total"] == 1
+    assert result["provider_repair_task_opened_total"] == 1
+    assert result["sources"][0]["provider_repair_task_opened_total"] == 1
+    assert result["sources"][0]["error"] == "HTTP Error 403: Forbidden"
+    tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert len(tasks) == 1
+    assert tasks[0].priority == "urgent"
+    assert tasks[0].assigned_operator_id == "ea_one_manager"
+    repair_input = dict(tasks[0].input_json or {})
+    assert repair_input["filter_key"] == "source_fetch"
+    assert repair_input["diagnostics"]["error"] == "HTTP Error 403: Forbidden"
+
+
+def test_scheduler_property_results_finalize_processes_provider_repair_tasks(monkeypatch) -> None:
+    principal_id = "exec-property-provider-repair-scheduler"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Provider Repair Scheduler Office")
+    monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=lambda *args, **kwargs: None))
+    app_runner = importlib.import_module("app.runner")
+    monkeypatch.setattr(app_runner, "_scheduler_property_scout_principal_ids", lambda container: (principal_id,))
+    monkeypatch.setattr(
+        ProductService,
+        "reconcile_property_search_results_delivery",
+        lambda self, limit=40: {"attempted": 0, "finalized": 0, "emailed": 0, "pending": 0},
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "process_property_provider_repair_tasks",
+        lambda self, *, principal_id, actor, limit=40: {
+            "generated_at": product_service._now_iso(),
+            "resolved_total": 1 if principal_id == "exec-property-provider-repair-scheduler" else 0,
+            "deferred_total": 2 if principal_id == "exec-property-provider-repair-scheduler" else 0,
+            "resolved": [],
+        },
+    )
+
+    summary = app_runner._run_scheduler_property_results_finalize(client.app.state.container, SimpleNamespace(exception=lambda *a, **k: None))
+
+    assert summary["repair_resolved_total"] == 1
+    assert summary["repair_deferred_total"] == 2
+
+
+def test_property_search_run_status_enriches_source_fetch_repairs() -> None:
+    principal_id = "exec-property-run-status-repair-enrichment"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Run Status Repair Enrichment Office")
+    service = ProductService(client.app.state.container)
+    run_id = f"repair-status-{uuid.uuid4().hex}"
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(product_service.requests, "get", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("fetch blocked")))
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": product_service._now_iso(),
+            "updated_at": product_service._now_iso(),
+            "status": "in_progress",
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "selected_platforms": ["wohnberatung_wien"],
+            "progress": 36,
+            "message": "Fetching source page for Wohnberatung Wien.",
+            "summary": {
+                "status": "in_progress",
+                "sources_total": 1,
+                "reviewed_listing_total": 0,
+                "sources": [
+                    {
+                        "source_url": "https://wohnberatung.example.invalid/search",
+                        "source_label": "Wohnberatung Wien | Austria | Rent | Vienna",
+                        "error": "HTTP Error 403: Forbidden",
+                    }
+                ],
+            },
+        }
+    service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url="https://wohnberatung.example.invalid/search",
+        title="Wohnberatung Wien | Austria | Rent | Vienna",
+        source_url="https://wohnberatung.example.invalid/search",
+        source_label="Wohnberatung Wien | Austria | Rent | Vienna",
+        source_platform="wohnberatung_wien",
+        source_family="public_housing",
+        filter_key="source_fetch",
+        diagnostics={"provider_host": "wohnberatung.example.invalid", "error": "HTTP Error 403: Forbidden"},
+        source_ref="property-source:test",
+    )
+    tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert len(tasks) == 1
+    client.app.state.container.orchestrator.return_human_task(
+        tasks[0].human_task_id,
+        principal_id=principal_id,
+        operator_id="ea_one_manager",
+        resolution="suppressed_missing_location",
+        returned_payload_json={"reason": "provider page still lacks a concrete location"},
+        provenance_json={"source": "test"},
+    )
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+    source = status["summary"]["sources"][0]
+    assert source["status"] == "repaired"
+    assert source["repair_status"] == "returned"
+    assert source["provider_repair_tasks"][0]["resolution"] == "suppressed_missing_location"
+    monkeypatch.undo()
 
 
 def test_property_search_sparse_auction_floorplan_area_scores_above_review_threshold() -> None:
@@ -2061,6 +2495,107 @@ def test_property_search_run_progress_stays_monotonic_when_stage_totals_expand()
     assert str(status.get("eta_label") or "").startswith("about") or str(status.get("eta_label") or "").startswith("under")
 
 
+def test_property_search_run_status_synthesizes_ranked_candidates_and_filtered_totals_from_sources() -> None:
+    principal_id = "exec-property-search-synthesized-shortlist"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"synth-{uuid.uuid4().hex}"
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": product_service._now_iso(),
+            "updated_at": product_service._now_iso(),
+            "status": "processed",
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "selected_platforms": ["immoscout_de"],
+            "progress": 100,
+            "current_step": "completed",
+            "message": "Property scouting run completed.",
+            "stages_total": 4,
+            "steps_completed": 4,
+            "summary": {
+                "sources_total": 1,
+                "filtered_low_fit_total": 5,
+                "sources": [
+                    {
+                        "source_label": "ImmoScout24 Germany",
+                        "status": "processed",
+                        "top_candidates": [
+                            {
+                                "title": "Altbau near U6",
+                                "property_url": "https://www.immobilienscout24.de/expose/altbau-u6",
+                                "fit_score": 92,
+                                "fit_summary": "Personal fit 92/100",
+                                "property_facts": {
+                                    "price_display": "EUR 420,000",
+                                    "area_m2": 78,
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+            "events": [],
+            "property_search_preferences": {},
+        }
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    summary = dict(status.get("summary") or {})
+    assert int(summary.get("held_back_total") or 0) == 5
+    assert int(summary.get("filtered_total") or 0) == 5
+    ranked = [dict(row) for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
+    assert len(ranked) == 1
+    assert ranked[0]["title"] == "Altbau near U6"
+
+
+def test_property_search_run_status_api_synthesizes_ranked_candidates_from_source_rows(monkeypatch) -> None:
+    principal_id = "exec-property-search-status-api-synth"
+    client = build_property_client(principal_id=principal_id)
+
+    def _fake_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "exec-property-search-status-api-synth"
+        assert run_id == "run-42"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "progress": 100,
+            "summary": {
+                "sources_total": 1,
+                "filtered_low_fit_total": 7,
+                "sources": [
+                    {
+                        "source_label": "ImmoScout24 Germany",
+                        "status": "processed",
+                        "top_candidates": [
+                            {
+                                "title": "Altbau near U6",
+                                "property_url": "https://www.immobilienscout24.de/expose/altbau-u6",
+                                "fit_score": 92,
+                            }
+                        ],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_status)
+
+    response = client.get("/app/api/signals/property/search/run/run-42")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert int(payload["summary"]["held_back_total"]) == 7
+    assert int(payload["summary"]["filtered_total"]) == 7
+    ranked = [dict(row) for row in list(payload["summary"].get("ranked_candidates") or []) if isinstance(row, dict)]
+    assert len(ranked) == 1
+    assert ranked[0]["title"] == "Altbau near U6"
+
+
 def test_property_search_run_progress_records_sources_completed_and_eta_summary() -> None:
     principal_id = "exec-property-search-progress-eta"
     client = build_property_client(principal_id=principal_id)
@@ -2343,6 +2878,98 @@ def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(m
     assert observed["property_search_preferences"]["preference_person_id"] == "elisabeth"
     assert observed["property_search_preferences"]["min_match_score"] == 45.0
     assert observed["property_search_preferences"]["require_floorplan"] is True
+
+
+def test_property_search_run_api_passes_normalized_merged_preferences_to_worker(monkeypatch) -> None:
+    principal_id = "exec-property-search-run-normalized-merged"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Run Normalization Office")
+    seed_product_state(client, principal_id=principal_id)
+
+    saved = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "property_type": ["apartment"],
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben"],
+        },
+    )
+    assert saved.status_code == 200, saved.text
+
+    observed: dict[str, object] = {}
+
+    def _fake_sync_direct_property_scout(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...] = (),
+        property_search_preferences: dict[str, object] | None = None,
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+        progress_callback: callable | None = None,
+    ) -> dict[str, object]:
+        observed["selected_platforms"] = tuple(selected_platforms)
+        observed["property_search_preferences"] = dict(property_search_preferences or {})
+        return {
+            "generated_at": product_service._now_iso(),
+            "status": "processed",
+            "sources_total": 0,
+            "listing_total": 0,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [],
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    started = client.post(
+        "/app/api/property/search-runs",
+        json={
+            "selected_platforms": ["willhaben"],
+            "property_preferences": {
+                "property_type": ["land"],
+                "require_floorplan": True,
+                "require_energy_certificate": True,
+                "require_operating_cost_statement": True,
+                "investment_require_floorplan": True,
+                "require_barrier_free": True,
+                "min_rooms": 4,
+                "keywords": "lift, balcony, playground nearby",
+                "avoid_keywords": "barrier-free",
+                "keyword_preferences": {
+                    "lift": "must_have",
+                    "barrier-free": "avoid",
+                    "playground nearby": "nice_to_have_1km",
+                },
+            },
+            "max_results_per_source": 2,
+        },
+    )
+    assert started.status_code == 200, started.text
+
+    status = _poll_property_search_run_status(client, started.json()["run_id"])
+    assert status["status"] == "processed"
+
+    payload = dict(observed["property_search_preferences"])
+    assert observed["selected_platforms"] == ("willhaben",)
+    assert payload["property_type"] == ["land"]
+    assert payload["require_floorplan"] is False
+    assert payload["require_energy_certificate"] is False
+    assert payload["require_operating_cost_statement"] is False
+    assert payload["investment_require_floorplan"] is False
+    assert payload["require_barrier_free"] is False
+    assert "min_rooms" not in payload
+    assert payload["keywords"] == "playground nearby"
+    assert payload["avoid_keywords"] == ""
+    assert payload["keyword_preferences"] == {"playground nearby": "nice_to_have_1km"}
 
 
 def test_property_search_run_greenfield_api_wraps_legacy_signal_contract(monkeypatch) -> None:
@@ -2897,6 +3524,24 @@ def test_property_search_run_state_builds_stale_failure_event() -> None:
     assert event["force_status"] == "failed"
 
 
+def test_property_search_run_terminal_outcome_prefers_partial_success_for_mixed_sources() -> None:
+    assert product_service._state_property_search_run_terminal_outcome(
+        sources_total=5,
+        failed_total=2,
+        successful_source_total=3,
+    ) == "completed_partial"
+    assert product_service._state_property_search_run_terminal_outcome(
+        sources_total=5,
+        failed_total=0,
+        successful_source_total=5,
+    ) == "processed"
+    assert product_service._state_property_search_run_terminal_outcome(
+        sources_total=5,
+        failed_total=5,
+        successful_source_total=0,
+    ) == "failed"
+
+
 def test_property_search_run_state_syncs_summary_projection() -> None:
     summary = product_service._state_property_search_run_sync_summary(
         state={"status": "in_progress", "progress": 42},
@@ -3093,6 +3738,71 @@ def test_property_search_run_status_survives_registry_loss_via_persisted_record(
     reloaded = client.get(f"/app/api/signals/property/search/run/{run_id}")
     assert reloaded.status_code == 200, reloaded.text
     assert reloaded.json()["status"] == "processed"
+
+
+def test_property_search_run_can_finish_completed_partial(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-property-run-completed-partial"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Partial Run Office")
+
+    persisted: dict[str, dict[str, object]] = {}
+
+    def _fake_store(record: dict[str, object]) -> None:
+        persisted[str(record.get("run_id") or "")] = dict(record)
+
+    def _fake_load(*, run_id: str, principal_id: str = "") -> dict[str, object] | None:
+        row = persisted.get(run_id)
+        if principal_id and str(dict(row or {}).get("principal_id") or "").strip() != str(principal_id or "").strip():
+            return None
+        return dict(row) if isinstance(row, dict) else None
+
+    monkeypatch.setattr(product_service, "_store_property_search_run_record", _fake_store)
+    monkeypatch.setattr(product_service, "_load_property_search_run_record", _fake_load)
+
+    def _fake_sync_direct_property_scout(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...] = (),
+        property_search_preferences: dict[str, object] | None = None,
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+        progress_callback: callable | None = None,
+    ) -> dict[str, object]:
+        if callable(progress_callback):
+            progress_callback(
+                step="source_failed",
+                message="One provider degraded but others finished.",
+                status="in_progress",
+                steps_delta=1,
+                summary_updates={"sources_total": 3, "failed_total": 1},
+            )
+        return {
+            "generated_at": product_service._now_iso(),
+            "status": "completed_partial",
+            "sources_total": 3,
+            "listing_total": 12,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 2,
+            "watch_notified_total": 0,
+            "failed_total": 1,
+            "repair_status": "degraded",
+            "sources": [{"source_label": "Willhaben"}, {"source_label": "Gesiba", "error": "provider degraded"}],
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    started = client.post("/app/api/signals/property/search/run", json={"selected_platforms": ["willhaben"]})
+    assert started.status_code == 200, started.text
+    run_id = started.json()["run_id"]
+    status = _poll_property_search_run_status(client, run_id)
+    assert status["status"] == "completed_partial"
+    assert status["summary"]["failed_total"] == 1
 
 
 def test_property_search_preferences_persist_and_merge_into_run(monkeypatch) -> None:

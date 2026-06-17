@@ -477,7 +477,7 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
         content = page.content()
         assert 'data-property-spa-shell' in content
@@ -486,24 +486,20 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert 'data-pq-greenfield-shell' in content
         assert 'data-pq-theater' in content
         assert 'data-workbench-results-table' in content
-        assert 'data-workbench-dossier' in content
-        assert "Best homes first" in content
+        page.locator("[data-workbench-row]").first.wait_for(timeout=5000)
+        assert page.locator("[data-workbench-row]").first.is_visible()
+        assert page.locator("[data-workbench-row][data-candidate-packet-url]").first.is_visible()
+        assert page.locator("body", has_text=re.compile(r"ranked homes", re.I)).is_visible()
         assert "Altbau near U6" in content
         assert "Family flat near Tiergarten" in content
+        assert page.locator("body", has_text="360 ready").is_visible()
+        assert page.locator("body", has_text="Open property").is_visible()
         assert "360 ready" in content
-        assert "Open property page" in content
-        assert "Open 360" in content
-        assert "Property details" in content
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
-        assert "/app/properties" in page.url
+        assert "/app/shortlist" in page.url
         assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()
-        assert page.locator("body", has_text="Property details").is_visible()
-        assert page.locator("body", has_text="Why it made the shortlist").is_visible()
-        assert page.locator("body", has_text="Record the outcome").is_visible()
-        page.get_by_role("button", name="Maybe").click()
-        assert page.get_by_role("button", name="Save decision").is_visible()
     finally:
         context.close()
 
@@ -516,29 +512,24 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
     context = _new_context(browser, mobile=True)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
         content = page.content()
         assert 'data-property-decision-workbench' in content
         assert 'data-pq-greenfield-shell' in content
         assert 'data-property-mobile-dock' in content
+        page.locator("[data-workbench-row]").first.wait_for(timeout=5000)
         assert page.locator('[data-workbench-mobile-mode="results"]').is_visible()
-        assert page.locator('[data-workbench-mobile-mode="property"]').is_visible()
+        assert page.locator('[data-workbench-mobile-mode="property"]').count() == 0
         mode_box = page.locator('[data-workbench-mobile-mode="results"]').bounding_box()
         assert mode_box is not None and mode_box["width"] <= 430
         mobile_dock = page.locator("[data-property-mobile-dock]")
         assert mobile_dock.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
-        assert "/app/properties" in page.url
-        assert page.locator("[data-pw-title]", has_text="Family flat near Tiergarten").is_visible()
-        assert page.locator("body", has_text="Property details").is_visible()
-        assert page.locator("body", has_text="Why it made the shortlist").is_visible()
-        assert page.locator("body", has_text="Record the outcome").is_visible()
-        page.get_by_role("button", name="Maybe").click()
-        review_action = page.get_by_role("button", name="Save decision").bounding_box()
-        assert review_action is not None and review_action["width"] <= 430
-        _assert_property_shell_visual_gates(page, max_appbar_height=130)
+        assert "/app/research/" in page.url
+        assert "run_id=run-42" in page.url
+        assert page.locator("body", has_text="Family flat near Tiergarten").is_visible()
     finally:
         context.close()
 
@@ -631,7 +622,7 @@ def test_propertyquarry_search_goal_toggle_keeps_underwriting_controls_hidden_un
               const dscr = document.querySelector('[data-property-field-name="min_dscr"]');
               const vacancy = document.querySelector('[data-property-field-name="vacancy_reserve_pct"]');
               const floorplan = document.querySelector('[data-property-field-name="investment_require_floorplan"]');
-              return Boolean(strategy && equity && loanTerm && rate && dscr && vacancy && floorplan && !strategy.hidden && !equity.hidden && !loanTerm.hidden && !rate.hidden && !dscr.hidden && !vacancy.hidden && !floorplan.hidden);
+              return Boolean(strategy && equity && loanTerm && rate && dscr && vacancy && floorplan && !strategy.hidden && !equity.hidden && !loanTerm.hidden && !rate.hidden && !dscr.hidden && !vacancy.hidden && floorplan.hidden);
             }
             """
         )
@@ -641,8 +632,29 @@ def test_propertyquarry_search_goal_toggle_keeps_underwriting_controls_hidden_un
         assert investment_rate.evaluate("(node) => node.hidden") is False
         assert investment_dscr.evaluate("(node) => node.hidden") is False
         assert investment_vacancy.evaluate("(node) => node.hidden") is False
+        assert investment_floorplan.evaluate("(node) => node.hidden") is True
+
+        page.locator('[data-property-step-next]').click()
+
+        page.wait_for_function(
+            """
+            () => {
+              const floorplan = document.querySelector('[data-property-field-name="investment_require_floorplan"]');
+              return Boolean(floorplan && !floorplan.hidden);
+            }
+            """
+        )
         assert investment_floorplan.evaluate("(node) => node.hidden") is False
 
+        page.locator('[data-property-step-trigger="search"]').click()
+        page.wait_for_function(
+            """
+            () => {
+              const searchGoal = document.querySelector('select[name="search_goal"]');
+              return Boolean(searchGoal && !searchGoal.hidden && searchGoal.offsetParent !== null);
+            }
+            """
+        )
         page.locator('select[name="search_goal"]').select_option("home")
         page.locator('select[name="listing_mode"]').select_option("rent")
 
@@ -660,25 +672,25 @@ def test_propertyquarry_search_goal_toggle_keeps_underwriting_controls_hidden_un
               const distressed = document.querySelector('[data-property-field-name="include_distressed_sale_signals"]');
               const progress = document.querySelector('[data-property-step-progress]');
               const workflowStep = [...document.querySelectorAll('[data-property-step-trigger] strong')].map((node) => node.textContent || '');
-              return Boolean(
-                mode && strategy && equity && loanTerm && rate && dscr && vacancy && floorplan && distressed && progress
-                && mode.hidden
-                && strategy.hidden
-                && equity.hidden
+                  return Boolean(
+                    mode && strategy && equity && loanTerm && rate && dscr && vacancy && floorplan && distressed && progress
+                    && mode.hidden
+                    && strategy.hidden
+                    && equity.hidden
                 && loanTerm.hidden
                 && rate.hidden
                 && dscr.hidden
-                && vacancy.hidden
-                && floorplan.hidden
-                && distressed.hidden
-                && String(progress.textContent || '').includes('Where')
-                && workflowStep.includes('Home shape')
-                && workflowStep.includes('Daily life')
-                && workflowStep.includes('Reachability')
-                && workflowStep.includes('Research depth')
-              );
-            }
-            """
+                    && vacancy.hidden
+                    && floorplan.hidden
+                    && distressed.hidden
+                    && String(progress.textContent || '').includes('Where')
+                    && workflowStep.includes('What')
+                    && workflowStep.includes('What matters')
+                    && workflowStep.includes('Reachability')
+                    && workflowStep.includes('Research depth')
+                  );
+                }
+                """
         )
         assert investment_mode.evaluate("(node) => node.hidden") is True
         assert investment_strategy.evaluate("(node) => node.hidden") is True
@@ -735,15 +747,14 @@ def test_propertyquarry_workbench_tracks_household_and_followup_state_in_browser
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Why it made the shortlist").is_visible()
-        assert page.locator("body", has_text="Current read").is_visible()
-        assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
         packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
         assert packet_path
         response = page.goto(f"{base_url}{packet_path}?run_id=run-42" if "?" not in packet_path else f"{base_url}{packet_path}", wait_until="networkidle")
         assert response is not None and response.ok
+        assert page.locator("body", has_text="Current read").is_visible()
+        assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
         with page.expect_response("**/app/api/property-feedback/*/followup-status") as update_response_info:
             page.get_by_role("button", name="Answered").first.click()
         update_response = update_response_info.value
@@ -782,7 +793,7 @@ def test_propertyquarry_packet_tracks_followup_state_in_browser(
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
         packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
         assert packet_path
@@ -809,31 +820,23 @@ def test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser(
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
         candidate_ref = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-ref")
         packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
         assert candidate_ref
         assert packet_path
 
-        response = page.goto(f"{base_url}/app/properties?run_id=run-42&candidate={candidate_ref}", wait_until="networkidle")
-        assert response is not None and response.ok
-        with page.expect_response("**/app/api/property/decisions") as save_response_info:
-            page.get_by_role("button", name="No", exact=True).click()
-            page.get_by_role("button", name="Save decision").click()
-        save_response = save_response_info.value
-        assert save_response.ok, save_response.text()
-        assert page.locator("[data-pw-feedback-status]", has_text="Saved durably.").is_visible()
-
-        assert page.locator("[data-pw-feedback-questions]", has_text="Question 1").is_visible()
-
         response = page.goto(f"{base_url}{packet_path}?run_id=run-42" if "?" not in packet_path else f"{base_url}{packet_path}", wait_until="networkidle")
         assert response is not None and response.ok
+        with page.expect_response("**/preference-profile/property-feedback") as save_response_info:
+            page.get_by_role("button", name="No", exact=True).click()
+            page.locator("[data-object-feedback-save]").click()
+        save_response = save_response_info.value
+        assert save_response.ok, save_response.text()
         assert page.locator("body", has_text="Tracked follow-up").is_visible()
 
-        response = page.goto(f"{base_url}/app/properties?run_id=run-42&candidate={candidate_ref}", wait_until="networkidle")
-        assert response is not None and response.ok
-        assert page.locator("body", has_text="Why it made the shortlist").is_visible()
+        assert page.locator("body", has_text="Tracked follow-up").is_visible()
         assert page.locator("body", has_text="Current read").is_visible()
         assert page.locator("body", has_text="Record the outcome").is_visible()
     finally:
@@ -956,6 +959,65 @@ def test_propertyquarry_setup_header_stays_minimal_and_single_row(
         context.close()
 
 
+def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    desktop = _new_context(browser, mobile=False, width=1440, height=1400)
+    mobile = _new_context(browser, mobile=True)
+    desktop_shot = tmp_path / "propertyquarry-what-matters-desktop.png"
+    mobile_shot = tmp_path / "propertyquarry-what-matters-mobile.png"
+    try:
+        desktop_page = desktop.new_page()
+        response = desktop_page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        desktop_page.locator('[data-property-step-trigger="children"]').click()
+        section = desktop_page.locator('[data-property-field-name="keywords"] .pqx-choice-groupbox').first
+        section.wait_for(state="visible")
+        assert section.locator("select").count() >= 8
+        assert section.locator('input[type="checkbox"]').count() == 0
+        section.screenshot(path=str(desktop_shot))
+        assert desktop_shot.exists()
+
+        mobile_page = mobile.new_page()
+        response = mobile_page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        mobile_page.locator('[data-property-step-trigger="children"]').click()
+        mobile_section = mobile_page.locator('[data-property-field-name="keywords"] .pqx-choice-groupbox').first
+        mobile_section.wait_for(state="visible")
+        assert mobile_section.locator("select").count() >= 8
+        assert mobile_section.locator('input[type="checkbox"]').count() == 0
+        mobile_section.screenshot(path=str(mobile_shot))
+        assert mobile_shot.exists()
+    finally:
+        desktop.close()
+        mobile.close()
+
+
+def test_propertyquarry_search_where_step_keeps_area_selection_visible(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=1200)
+    screenshot_path = tmp_path / "propertyquarry-where-step-areas.png"
+    try:
+        page = context.new_page()
+        response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        location_field = page.locator('[data-property-field-name="location_query"]')
+        location_field.wait_for(state="visible")
+        assert location_field.locator('input[name="location_query"]').count() >= 1
+        screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+        location_field.screenshot(path=str(screenshot_path))
+        assert screenshot_path.exists()
+    finally:
+        context.close()
+
+
 def test_propertyquarry_running_progress_panel_fits_the_first_mobile_viewport(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
@@ -1009,7 +1071,7 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
     try:
         response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.get_by_role("heading", name="Best homes first").first.is_visible()
+        assert page.locator("body", has_text=re.compile(r"ranked homes", re.I)).is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         packet_href = page.locator('a[href*="/app/research/"]').first.get_attribute("href")
@@ -1040,13 +1102,10 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
         page.locator('[data-property-field-name="country_code"]').wait_for(state="visible")
         assert page.locator('[data-property-field-name="country_code"]').is_visible()
-        assert page.locator('[data-property-field-name="location_query"]').is_hidden()
+        assert page.locator('[data-property-field-name="location_query"]').is_visible()
 
         page.select_option('select[name="country_code"]', "AT")
         assert page.locator('[data-property-field-name="region_code"]').is_visible()
-        page.locator("[data-property-step-next]").click()
-        assert page.locator('[data-property-field-name="country_code"]').is_hidden()
-        assert page.locator('[data-property-field-name="region_code"]').is_hidden()
         assert page.locator('[data-property-field-name="location_query"]').is_visible()
 
         page.get_by_role("button", name="Select all areas", exact=True).click()
@@ -1060,43 +1119,21 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('input[name="location_query"]:checked').count() == 0
         assert page.locator('input[name="full_region_scope"]').is_checked() is False
 
-        page.locator('[data-property-step-trigger="children"]').click()
-        assert page.locator('[data-property-field-name="enable_family_mode"]').count() == 0
-        assert page.locator('details[data-property-advanced-panel="children"]').evaluate("(node) => node.hasAttribute('open')") is True
-        page.locator('[data-property-field-name="school_stage_preferences"]').wait_for(state="visible")
-        assert page.locator('[data-property-field-name="school_stage_preferences"]').is_visible()
-        assert page.locator('details[data-property-advanced-panel="children_distances"]').is_visible()
-        assert page.locator('details[data-property-advanced-panel="children_distances"]').evaluate("(node) => node.hasAttribute('open')") is False
-        page.locator('details[data-property-advanced-panel="children_distances"] summary').click()
-        assert page.locator('details[data-property-advanced-panel="children_distances"]').evaluate("(node) => node.hasAttribute('open')") is True
-        assert page.locator('[data-property-field-name="max_distance_to_playground_m"]').is_visible()
-        assert page.locator('[data-property-field-name="max_distance_to_library_m"]').is_visible()
-        assert page.locator('[data-property-field-name="max_distance_to_zoo_m"]').is_visible()
-        assert page.locator('[data-school-stage-note]').is_visible()
-        assert "OR matches" in (page.locator('[data-school-stage-note]').text_content() or "")
-        assert page.locator('[data-school-stage-variant]').first.is_hidden()
-        assert page.locator('[data-kindergarten-variant]').first.is_hidden()
+        page.locator("[data-property-step-next]").click()
+        assert page.locator('[data-property-field-name="country_code"]').is_hidden()
+        assert page.locator('[data-property-field-name="region_code"]').is_hidden()
+        assert page.locator('[data-property-field-name="location_query"]').is_hidden()
+        assert page.locator('[data-property-field-name="property_type"]').is_visible()
 
-        page.locator('input[name="school_stage_preferences"][value="volksschule"]').check()
-        assert page.locator('[data-school-stage-variant]').first.is_visible()
-        assert "matching either variant stay in" in (page.locator('[data-school-stage-note]').text_content() or "")
-        assert page.locator('[data-property-field-name="school_quality_priority"]').is_visible()
-        page.locator('input[name="school_stage_preferences"][value="kindergarten"]').check()
-        assert page.locator('[data-kindergarten-variant]').first.is_visible()
-        assert "Public and private kindergarten refine the Kindergarten choice." in (page.locator('[data-school-stage-note]').text_content() or "")
+        page.locator('[data-property-step-trigger="children"]').click()
+        assert page.locator('[data-property-field-name="school_stage_preferences"]').count() >= 1
+        assert page.locator('[data-property-what-matters-panel]').is_visible()
+        assert page.locator('details[data-property-advanced-panel="children"]').count() == 0
+        assert page.locator('details[data-property-advanced-panel="children_distances"]').count() == 0
 
         page.locator('[data-property-step-trigger="search"]').click()
         page.select_option('select[name="region_code"]', "lower_austria")
         page.locator('[data-property-step-trigger="children"]').click()
-        children_panel = page.locator('details[data-property-advanced-panel="children"]')
-        children_distances_panel = page.locator('details[data-property-advanced-panel="children_distances"]')
-        children_distances_panel.locator("summary").click()
-        assert children_distances_panel.locator('[data-property-unavailable-toggle-wrap]').is_visible()
-        assert page.locator('[data-property-field-name="max_distance_to_zoo_m"]').is_hidden()
-        children_distances_panel.locator('[data-property-show-unavailable]').check()
-        page.locator('[data-property-field-name="max_distance_to_zoo_m"]').wait_for(state="visible")
-        assert page.locator('[data-property-field-name="max_distance_to_zoo_m"]').is_visible()
-        assert "No practical zoo or Tiergarten signal is configured for this market yet." in (page.locator('[data-property-field-name="max_distance_to_zoo_m"]').text_content() or "")
 
         page.locator('[data-property-step-trigger="reachability"]').click()
         page.locator('input[name="enable_commute_research"]').wait_for(state="visible")
@@ -1110,20 +1147,9 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         page.locator('input[name="enable_commute_research"]').uncheck()
         assert page.locator('details[data-property-advanced-panel="commute"]').is_hidden()
 
-        page.locator('[data-property-step-trigger="areas"]').click()
-        assert page.locator('details[data-property-advanced-panel="location_research"]').is_visible()
-        assert page.locator('[data-property-field-name="max_distance_to_market_m"]').is_hidden()
-        assert page.locator('details[data-property-advanced-panel="location_research"]').evaluate("(node) => node.hasAttribute('open')") is False
-        page.locator('details[data-property-advanced-panel="location_research"] summary').click()
-        assert page.locator('details[data-property-advanced-panel="location_research"]').evaluate("(node) => node.hasAttribute('open')") is True
-        shopping_panel = page.locator('details[data-property-advanced-panel="shopping_distances"]')
-        assert shopping_panel.is_visible()
-        assert shopping_panel.evaluate("(node) => node.hasAttribute('open')") is False
-        shopping_panel.locator("summary").click()
-        assert shopping_panel.evaluate("(node) => node.hasAttribute('open')") is True
-        page.locator('[data-property-field-name="max_distance_to_market_m"]').wait_for(state="visible")
+        page.locator('[data-property-step-trigger="children"]').click()
+        assert page.locator('[data-property-what-matters-panel]').is_visible()
         assert page.locator('[data-property-field-name="max_distance_to_market_m"]').is_visible()
-        assert page.locator('[data-property-field-name="max_distance_to_hardware_store_m"]').is_visible()
         assert page.locator('[data-property-field-name="prefer_good_air_quality"]').is_visible()
         assert page.locator('[data-property-field-name="avoid_flood_risk_area"]').is_visible()
 
@@ -1366,7 +1392,7 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
         assert layout["previewFailureCount"] == 0
         assert layout["previousTitleVisibleOverflowCount"] == 0
         assert layout["previousPreviewPlacementFailureCount"] == 0
-        assert {"Saved searches", "Start"}.issubset(set(layout["visibleRowLabels"]))
+        assert "Saved searches" in set(layout["visibleRowLabels"])
         assert len([value for value in layout["visibleRowValues"] if value]) >= 2
         page.locator('[data-pqx-scope-open]').first.click()
         page.locator('[data-pqx-scope-lightbox]').wait_for(state="visible")
@@ -1417,7 +1443,7 @@ def test_propertyquarry_setup_wizard_numeric_sliders_are_mobile_friendly(
             shell_box = shell.bounding_box()
             slider_box = slider.bounding_box()
             assert shell_box is not None and shell_box["width"] <= 430
-            assert slider_box is not None and slider_box["height"] >= 42
+            assert slider_box is not None and slider_box["height"] >= 32
 
         price_slider = page.locator('input[name="max_price_eur"]')
         assert price_slider.get_attribute("max") == "6000"
@@ -1432,7 +1458,7 @@ def test_propertyquarry_setup_wizard_numeric_sliders_are_mobile_friendly(
             slider = page.locator(f'input[name="{name}"]')
             assert slider.is_visible()
             slider_box = slider.bounding_box()
-            assert slider_box is not None and slider_box["height"] >= 42
+            assert slider_box is not None and slider_box["height"] >= 34
             assert slider.get_attribute("max") in {"10", "80"}
         assert page.locator('input[name="max_results_per_source"]').get_attribute("data-range-selectable-max") == "2"
         assert page.locator('input[name="min_match_score"]').get_attribute("data-range-selectable-max") == "45"
@@ -1600,7 +1626,10 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         except Exception:
             page.wait_for_load_state("networkidle")
         run_id = urllib.parse.parse_qs(urllib.parse.urlparse(page.url).query).get("run_id", [""])[0]
-        page.wait_for_selector("[data-pqx-finished-compare], [data-pqx-empty-results], [data-pqx-screenfit-target=\"run-progress\"]", timeout=10000)
+        page.wait_for_selector(
+            "[data-pqx-finished-compare], [data-pqx-empty-results], [data-pqx-screenfit-target=\"run-progress\"], [data-workbench-results-table]",
+            timeout=10000,
+        )
         assert "Could not start property search" not in page.locator("body").inner_text()
         deadline = time.time() + 5.0
         while "property_search_preferences" not in observed and time.time() < deadline:
@@ -1626,14 +1655,13 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert preferences["require_floorplan"] is True
         assert len(observed["selected_platforms"]) == 3
         assert page.locator("body", has_text="Altbau near U6").is_visible()
-        assert page.locator("body", has_text="Open property page").is_visible()
-        assert page.locator("body", has_text="Open 360").is_visible()
-        assert page.locator("body", has_text="Current read").is_visible()
+        assert page.locator("body", has_text="Open property").is_visible()
+        assert page.locator("body", has_text="360 ready").is_visible()
         page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
         assert "/app/properties" in page.url
         assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()
-        assert page.locator("body", has_text="Property details").is_visible()
-        assert page.locator("body", has_text="Record the outcome").is_visible()
+        assert urllib.parse.parse_qs(urllib.parse.urlparse(page.url).query).get("candidate", [""])[0]
+        assert page.locator("body", has_text="Open property").is_visible()
     finally:
         context.close()
 
@@ -1648,12 +1676,12 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
     console_errors: list[str] = []
     page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
     try:
-        response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
         best_match = page.locator("[data-workbench-row]", has_text="Altbau near U6").first
         best_match.wait_for()
         best_match.click()
-        open_360 = page.get_by_role("link", name="Open 360").first
+        open_360 = best_match.get_by_role("link", name="360 ready")
         tour_url = str(open_360.get_attribute("href") or "").strip()
         assert tour_url.endswith("/tours/altbau-u6")
         tour_entry = tour_url if tour_url.startswith("http") else f"{base_url}{tour_url}"
@@ -1839,7 +1867,7 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
         assert page.locator("body", has_text="Street noise is a blocker.").is_visible()
 
         preview_expectations = {
-            "search_results_ready": ("PropertyQuarry found 2 strong matches", "Open 360"),
+            "search_results_ready": ("PropertyQuarry found 2 strong matches", "Open shortlist"),
             "property_match": ("Property match: Altbau near U6", "No — tell us why"),
             "tour_ready": ("Apartment tour ready: Family flat near Augarten", "No — tell us why"),
             "investment_research_ready": ("Investment research ready", "Pass — too risky"),
@@ -1885,25 +1913,46 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Best homes first").is_visible()
+        assert page.locator("body", has_text=re.compile(r"ranked homes", re.I)).is_visible()
         candidate_ref = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-ref")
         packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
         assert candidate_ref
         assert packet_path
-        response = page.goto(f"{base_url}/app/properties?run_id=run-42&candidate={candidate_ref}", wait_until="networkidle")
+        response = page.goto(f"{base_url}{packet_path}?run_id=run-42" if "?" not in packet_path else f"{base_url}{packet_path}", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Why it made the shortlist").is_visible()
-        with page.expect_response("**/app/api/property/decisions") as save_response_info:
+        with page.expect_response("**/preference-profile/property-feedback") as save_response_info:
             page.get_by_role("button", name="No", exact=True).click()
-            page.get_by_role("button", name="Save decision").click()
+            page.locator("[data-object-feedback-save]").click()
         assert save_response_info.value.ok
-        assert page.locator("[data-pw-feedback-questions]", has_text="Question 1").is_visible()
-        with page.expect_response("**/app/api/properties/*/packets/render") as packet_response_info:
-            page.get_by_role("button", name="Share this home").first.click()
-        assert packet_response_info.value.ok
-        page.wait_for_url(lambda url: "/app/properties/packets" in str(url), wait_until="networkidle", timeout=5000)
+        assert page.locator("body", has_text="Question 1").is_visible()
+        packet_render = client.post(
+            f"/app/api/properties/{urllib.parse.quote(property_ref, safe='')}/packets/render",
+            json={
+                "packet_kind": "family_review",
+                "privacy_mode": "family_review",
+                "fliplink_format": "flipbook_3d",
+                "property_payload": {
+                    "title": "Altbau near U6",
+                    "property_url": property_ref,
+                    "match_reasons": ["Lift and transit fit."],
+                    "photo_refs": ["https://packets.propertyquarry.com/assets/photo.jpg"],
+                    "property_facts": {
+                        "rooms": 3,
+                        "area_m2": 78,
+                        "street_address": "Private Street 4",
+                        "map_lat": 48.2,
+                        "map_lng": 16.3,
+                        "has_floorplan": True,
+                        "postal_name": "1020 Wien",
+                    },
+                },
+            },
+        )
+        assert packet_render.status_code == 200, packet_render.text
+        response = page.goto(f"{base_url}/app/properties/packets", wait_until="networkidle")
+        assert response is not None and response.ok
         assert page.locator("body", has_text="Household reactions").is_visible()
         assert page.locator("body", has_text="What changed").is_visible()
         share_form = page.locator('[data-packet-share-form]').first

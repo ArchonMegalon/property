@@ -441,7 +441,7 @@ def _property_search_results_ready_html(
             + "</table>"
         )
     results_link = (
-        f'<p style="margin:18px 0 0;">{_html_link(href=results_url, label="Open full results")}</p>'
+        f'<p style="margin:18px 0 0;">{_html_link(href=results_url, label="Open shortlist")}</p>'
         if str(results_url or "").strip()
         else ""
     )
@@ -1138,7 +1138,7 @@ def send_property_search_results_ready_email(
             if tour_url:
                 body.append("   Action: open the titled 360-view button.")
     if str(results_url or "").strip():
-        body.extend(["", "Open the full search desk with the titled button in this email."])
+        body.extend(["", "Open the shortlist with the titled button in this email."])
     cards = []
     for row in property_rows[:5]:
         title = html.escape(str(row.get("title") or "Property match").strip() or "Property match")
@@ -1208,7 +1208,7 @@ def send_property_search_results_ready_email(
                 {f'<div style="font-size:13px;line-height:1.5;color:#7d7468;margin-top:10px;">{html.escape(best_facts)}</div>' if best_facts else ''}
               </div>
               <div style="padding-top:18px;">
-                {_email_button(href=str(results_url or '').strip(), label="Open full search desk")}
+                {_email_button(href=str(results_url or '').strip(), label="Open shortlist")}
               </div>
             </div>
             <div style="padding:24px 28px 12px;">
@@ -1295,10 +1295,10 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                 f"- Assessment: {best_row['fit_summary']}\n"
                 f"- Why it won: {best_row['compare_reason']}\n"
                 "- Key facts: EUR 420,000 | 78 m2 | 3 rooms | Berlin Mitte\n\n"
-                "Open the full search desk with the titled button in this email.\n"
+                "Open the shortlist with the titled button in this email.\n"
             ),
             "html": _property_search_results_ready_html(
-                results_url="https://propertyquarry.com/app/properties?run_id=run-42",
+                results_url="https://propertyquarry.com/app/shortlist?run_id=run-42",
                 result_total=2,
                 hosted_tour_total=1,
                 property_rows=property_rows,

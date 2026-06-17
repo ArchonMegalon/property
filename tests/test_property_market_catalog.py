@@ -118,6 +118,44 @@ def test_normalize_property_search_preferences_investment_goal_forces_buy_withou
     assert payload["enable_family_mode"] is False
     assert payload["enable_commute_research"] is False
     assert payload["require_floorplan"] is True
+    assert payload["school_stage_preferences"] == []
+    assert payload["require_school_evidence"] is False
+    assert payload["preferred_reachability_modes"] == []
+    assert "commute_destination" not in payload
+
+
+def test_normalize_property_search_preferences_land_only_clears_dwelling_only_gates() -> None:
+    payload = normalize_property_search_preferences(
+        {
+            "search_goal": "home",
+            "listing_mode": "buy",
+            "property_type": ["land"],
+            "require_floorplan": True,
+            "require_energy_certificate": True,
+            "require_operating_cost_statement": True,
+            "investment_require_floorplan": True,
+            "require_barrier_free": True,
+            "min_rooms": 4,
+            "keywords": "lift, balcony, playground nearby",
+            "avoid_keywords": "barrier-free, bright",
+            "keyword_preferences": {
+                "lift": "must_have",
+                "balcony": "important",
+                "playground nearby": "nice_to_have_1km",
+            },
+        }
+    )
+
+    assert payload["property_type"] == ["land"]
+    assert payload["require_floorplan"] is False
+    assert payload["require_energy_certificate"] is False
+    assert payload["require_operating_cost_statement"] is False
+    assert payload["investment_require_floorplan"] is False
+    assert payload["require_barrier_free"] is False
+    assert "min_rooms" not in payload
+    assert payload["keywords"] == "playground nearby"
+    assert payload["avoid_keywords"] == ""
+    assert payload["keyword_preferences"] == {"playground nearby": "nice_to_have_1km"}
 
 
 def test_normalize_property_search_preferences_clamps_search_agent_controls() -> None:

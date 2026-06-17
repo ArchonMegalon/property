@@ -720,7 +720,6 @@ class PreferenceProfileService:
                 if bool(value):
                     if has_360:
                         score += 7.0 * weight
-                        match_reasons.append("A live 360 source is available, which matches the preferred remote review workflow.")
                     else:
                         score -= 6.0 * weight
                         mismatch_reasons.append("No live 360 source is available, which conflicts with the preferred remote review workflow.")
@@ -845,7 +844,6 @@ class PreferenceProfileService:
 
         if has_360:
             score += 4.0
-            match_reasons.append("A live 360 source is available, so layout and spatial feel are easier to verify.")
         elif not any("360" in entry.lower() for entry in mismatch_reasons):
             mismatch_reasons.append("The listing does not provide a live 360 source, so remote screening has higher uncertainty.")
 

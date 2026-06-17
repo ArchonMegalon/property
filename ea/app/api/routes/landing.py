@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import html
 import hmac
 import os
@@ -17,6 +18,7 @@ from markupsafe import Markup
 
 from app.api.dependencies import (
     RequestContext,
+    _resolved_principal_id,
     _workspace_session_payload,
     browser_principal_override_allowed,
     get_cloudflare_access_identity,
@@ -373,9 +375,21 @@ def _principal_for_page(
     *,
     container: AppContainer,
     access_identity: CloudflareAccessIdentity | None,
+    request: Request | None = None,
 ) -> str:
     if access_identity is not None:
         return access_identity.principal_id
+    if request is not None:
+        workspace_session = _workspace_session_payload(request, container)
+        if workspace_session is not None:
+            return str(workspace_session.get("principal_id") or "").strip()
+        if str(request.headers.get("x-ea-principal-id") or "").strip():
+            return _resolved_principal_id(
+                request,
+                container=container,
+                authenticated=False,
+                access_identity=None,
+            )
     return ""
 
 
@@ -402,8 +416,9 @@ def _load_status(
     *,
     container: AppContainer,
     access_identity: CloudflareAccessIdentity | None,
+    request: Request | None = None,
 ) -> tuple[str, dict[str, object]]:
-    principal_id = _principal_for_page(container=container, access_identity=access_identity)
+    principal_id = _principal_for_page(container=container, access_identity=access_identity, request=request)
     if not principal_id:
         return "", _anonymous_onboarding_status()
     return principal_id, container.onboarding.status(principal_id=principal_id)
@@ -1063,11 +1078,25 @@ def landing(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> Response:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     brand = request_brand(request)
     if brand["key"] == "propertyquarry" and (
         access_identity is not None or _workspace_session_payload(request, container) is not None
     ):
+        if principal_id:
+            with contextlib.suppress(Exception):
+                product = build_product_service(container)
+                terminal_statuses = {"processed", "completed", "completed_partial", "failed", "noop", "cancelled", "not started"}
+                for recent_run in product.list_property_search_runs(principal_id=principal_id, limit=8):
+                    if not isinstance(recent_run, dict):
+                        continue
+                    candidate_run_id = str(recent_run.get("run_id") or "").strip()
+                    if not candidate_run_id:
+                        continue
+                    recent_summary = dict(recent_run.get("summary") or {}) if isinstance(recent_run.get("summary"), dict) else {}
+                    candidate_status = str(recent_run.get("status") or recent_summary.get("status") or "").strip().lower()
+                    if candidate_status and candidate_status not in terminal_statuses:
+                        return RedirectResponse(f"/app/properties?run_id={urllib.parse.quote(candidate_run_id, safe='')}", status_code=307)
         return RedirectResponse(str(brand.get("app_home") or "/app/properties"), status_code=307)
     commercial = property_commercial_snapshot(None)
     return _render_public_template(
@@ -1121,7 +1150,7 @@ def integrations_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     return _render_public_template(
         request,
         "integrations_page.html",
@@ -1146,7 +1175,7 @@ def integration_detail(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     channels = dict(status.get("channels") or {})
     mapping = {
         "google": {
@@ -1224,7 +1253,7 @@ def security_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     return _render_public_template(
         request,
         "security_page.html",
@@ -1249,7 +1278,7 @@ def pricing_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     commercial = property_commercial_snapshot(None)
     checkout_enabled_plans: list[str] = []
     checkout_provider_labels_by_plan: dict[str, str] = {}
@@ -1322,7 +1351,7 @@ def docs_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     return _render_public_template(
         request,
         "docs_page.html",
@@ -1347,7 +1376,7 @@ def guide_wien_checklist_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     page = PUBLIC_GUIDE_WIEN
     return _render_public_template(
         request,
@@ -1393,7 +1422,7 @@ def market_vienna_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     page = PUBLIC_MARKET_VIENNA
     return _render_public_template(
         request,
@@ -1439,7 +1468,7 @@ def sign_in_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     link_status = str(request.query_params.get("link_status") or "").strip()
     link_email = str(request.query_params.get("link_email") or "").strip()
     link_error = str(request.query_params.get("link_error") or "").strip()
@@ -1545,7 +1574,7 @@ def register_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     if principal_id:
         build_product_service(container).record_surface_event(
             principal_id=principal_id,
@@ -2602,6 +2631,10 @@ def app_shell(
                 return RedirectResponse(target, status_code=307)
         if property_context is not None and property_brand:
             property_context["surface_mode"] = current_nav
+            with contextlib.suppress(Exception):
+                property_context["saved_shortlist_candidates"] = product.list_property_saved_shortlist_candidates(
+                    principal_id=context.principal_id,
+                )
             if PropertySurfaceScope.for_section(resolved_section).wants_credit_digest:
                 pack = product.channel_loop_pack(
                     principal_id=context.principal_id,

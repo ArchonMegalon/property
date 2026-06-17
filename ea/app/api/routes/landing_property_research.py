@@ -183,6 +183,9 @@ def _render_console_object_detail(
 
 
 def _property_candidate_ref(candidate: dict[str, object]) -> str:
+    explicit_ref = str(candidate.get("candidate_ref") or candidate.get("research_candidate_ref") or "").strip()
+    if explicit_ref:
+        return explicit_ref
     raw = "|".join(
         str(candidate.get(key) or "").strip()
         for key in ("title", "property_url", "review_url", "source_ref", "source_label")
@@ -195,6 +198,27 @@ def _property_shortlist_candidates_from_context(property_context: dict[str, obje
     run_summary = dict(run_payload.get("summary") or {})
     run_id = str(run_payload.get("run_id") or "").strip()
     packet_candidates: list[dict[str, object]] = []
+    for candidate in list(run_summary.get("ranked_candidates") or []):
+        if not isinstance(candidate, dict):
+            continue
+        candidate_row = dict(candidate)
+        source_label = str(candidate_row.get("source_label") or candidate_row.get("source_url") or "Source").strip()
+        candidate_row.setdefault("source_label", source_label)
+        candidate_row.setdefault("property_facts", dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {})
+        packet_ref = _property_candidate_ref(
+            {
+                "title": str(candidate_row.get("title") or "").strip(),
+                "property_url": str(candidate_row.get("property_url") or "").strip(),
+                "review_url": str(candidate_row.get("review_url") or "").strip(),
+                "source_ref": str(candidate_row.get("source_ref") or "").strip(),
+                "source_label": source_label,
+            }
+        )
+        packet_url = f"/app/research/{packet_ref}"
+        if run_id:
+            packet_url = f"{packet_url}?run_id={urllib.parse.quote(run_id, safe='')}"
+        candidate_row.setdefault("packet_url", packet_url)
+        packet_candidates.append(candidate_row)
     for source in list(run_summary.get("sources") or []):
         if not isinstance(source, dict):
             continue
@@ -231,6 +255,12 @@ def _property_lookup_candidate(
     if not normalized_ref:
         return None
     summary = dict(dict(property_context.get("run") or {}).get("summary") or {})
+    for candidate in list(summary.get("ranked_candidates") or []):
+        if not isinstance(candidate, dict):
+            continue
+        candidate_row = dict(candidate)
+        if _property_candidate_ref(candidate_row) == normalized_ref:
+            return candidate_row
     for source in list(summary.get("sources") or []):
         if not isinstance(source, dict):
             continue

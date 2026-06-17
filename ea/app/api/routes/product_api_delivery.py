@@ -62,6 +62,7 @@ from app.api.routes.product_api_contracts import (
     WebhookTestResultOut,
     now_iso,
 )
+from app.api.routes.landing_property_research import _property_candidate_ref
 from app.container import AppContainer
 from app.product.service import build_product_service
 from app.services.property_billing import (
@@ -174,6 +175,13 @@ def _property_search_status_url(run_id: object, *, canonical: bool) -> str:
 
 def _property_search_payload_with_status_url(payload: dict[str, object], *, canonical: bool) -> dict[str, object]:
     copied = dict(payload or {})
+    copied.setdefault("generated_at", now_iso())
+    copied.setdefault("updated_at", copied.get("generated_at") or now_iso())
+    copied.setdefault("status", "queued")
+    copied.setdefault("progress", 0)
+    copied.setdefault("message", "")
+    copied.setdefault("summary", dict(copied.get("summary") or {}))
+    copied.setdefault("events", list(copied.get("events") or []))
     run_id = str(copied.get("run_id") or "").strip()
     if not run_id:
         return copied
@@ -201,7 +209,7 @@ def _start_property_search_run_payload(
         principal_id=context.principal_id,
         actor=actor,
         selected_platforms=tuple(body.selected_platforms),
-        property_search_preferences=dict(body.property_preferences),
+        property_search_preferences=merged_preferences,
         force_refresh=bool(body.force_refresh),
         max_results_per_source=body.max_results_per_source,
     )
@@ -220,7 +228,66 @@ def _property_search_run_status_payload(
     )
     if not payload:
         raise HTTPException(status_code=404, detail="property_search_run_not_found")
-    return dict(payload)
+    normalized = dict(payload)
+    summary = dict(normalized.get("summary") or {}) if isinstance(normalized.get("summary"), dict) else {}
+    if summary:
+        ranked_candidates = [dict(row) for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
+        if not ranked_candidates:
+            synthesized: list[dict[str, object]] = []
+            for source in [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]:
+                for candidate in [dict(row) for row in list(source.get("top_candidates") or []) if isinstance(row, dict)]:
+                    candidate.setdefault("source_label", str(source.get("source_label") or source.get("label") or "").strip())
+                    synthesized.append(candidate)
+            synthesized.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
+            for index, candidate in enumerate(synthesized, start=1):
+                candidate.setdefault("rank", index)
+            if synthesized:
+                summary["ranked_candidates"] = synthesized[:50]
+        ranked_candidates = [dict(row) for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
+        for index, candidate in enumerate(ranked_candidates, start=1):
+            candidate_ref = str(candidate.get("candidate_ref") or "").strip()
+            if not candidate_ref:
+                candidate_ref = _property_candidate_ref(
+                    {
+                        "title": str(candidate.get("title") or "").strip(),
+                        "property_url": str(candidate.get("property_url") or "").strip(),
+                        "review_url": str(candidate.get("review_url") or "").strip(),
+                        "source_ref": str(candidate.get("source_ref") or "").strip(),
+                        "source_label": str(candidate.get("source_label") or candidate.get("source_url") or "").strip(),
+                    }
+                )
+            if not candidate_ref:
+                candidate_ref = f"candidate-{index}"
+            candidate["candidate_ref"] = candidate_ref
+            candidate.setdefault("rank", index)
+            packet_url = str(candidate.get("packet_url") or "").strip()
+            review_url = str(candidate.get("review_url") or "").strip()
+            if not packet_url and review_url.startswith("/app/research/"):
+                packet_url = review_url
+            if not packet_url and candidate_ref:
+                packet_url = f"/app/research/{urllib.parse.quote(candidate_ref, safe='')}"
+                if run_id:
+                    packet_url = f"{packet_url}?run_id={urllib.parse.quote(run_id, safe='')}"
+            if packet_url:
+                candidate["packet_url"] = packet_url
+        if ranked_candidates:
+            summary["ranked_candidates"] = ranked_candidates
+        held_back_total = int(
+            summary.get("held_back_total")
+            or summary.get("filtered_total")
+            or (
+                int(summary.get("filtered_area_total") or 0)
+                + int(summary.get("filtered_floorplan_total") or 0)
+                + int(summary.get("filtered_low_fit_total") or 0)
+                + int(summary.get("notification_budget_suppressed_total") or 0)
+            )
+            or 0
+        )
+        if held_back_total > 0:
+            summary.setdefault("held_back_total", held_back_total)
+            summary.setdefault("filtered_total", held_back_total)
+        normalized["summary"] = summary
+    return normalized
 
 
 def _update_property_search_research_task_payload(

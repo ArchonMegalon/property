@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 
 from app.domain.models import ConnectorBinding, OnboardingState
@@ -36,6 +37,7 @@ from app.services.property_market_catalog import (
     normalize_language_code,
     normalize_listing_mode,
     normalize_property_platform,
+    normalize_property_search_preferences as normalize_property_search_preferences_contract,
     normalize_property_type_values,
     provider_options,
 )
@@ -1378,6 +1380,10 @@ class OnboardingService(AssistantOnboardingService):
     @staticmethod
     def _normalize_property_search_preferences(value: dict[str, object] | None) -> dict[str, object]:
         raw = dict(value or {})
+        raw = {
+            **raw,
+            **normalize_property_search_preferences_contract(raw),
+        }
         selected_platforms: list[str] = []
         raw_selected_platforms = raw.get("selected_platforms")
         if isinstance(raw_selected_platforms, (list, tuple, set)):
@@ -1398,6 +1404,23 @@ class OnboardingService(AssistantOnboardingService):
             raw_full_region_scope is True
             or str(raw_full_region_scope or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
         )
+        raw_selected_location_values = raw.get("selected_location_values")
+        selected_location_values: list[str] = []
+        if isinstance(raw_selected_location_values, (list, tuple, set)):
+            for item in raw_selected_location_values:
+                normalized_value = str(item or "").strip()
+                if normalized_value and normalized_value not in selected_location_values:
+                    selected_location_values.append(normalized_value)
+        raw_saved_shortlist_candidates = raw.get("saved_shortlist_candidates")
+        saved_shortlist_candidates: list[dict[str, object]] = []
+        if isinstance(raw_saved_shortlist_candidates, (list, tuple)):
+            for item in raw_saved_shortlist_candidates:
+                if not isinstance(item, dict):
+                    continue
+                saved_shortlist_candidates.append(dict(item))
+                if len(saved_shortlist_candidates) >= 200:
+                    break
+        saved_shortlist_share_slug = str(raw.get("saved_shortlist_share_slug") or "").strip()
         location_query = str(raw.get("location_query") or "").strip()
         if full_region_scope and not location_query and region_code:
             try:
@@ -1405,6 +1428,8 @@ class OnboardingService(AssistantOnboardingService):
                 location_query = region_label_for_country_region(country_code, region_code)
             except Exception:
                 location_query = region_code.replace("_", " ").title()
+        elif not location_query and selected_location_values:
+            location_query = ", ".join(selected_location_values)
         language_code = normalize_language_code(raw.get("language_code"), country_code=country_code)
         listing_mode = normalize_listing_mode(raw.get("listing_mode"))
         property_type = normalize_property_type_values(raw.get("property_type"))
@@ -1460,6 +1485,7 @@ class OnboardingService(AssistantOnboardingService):
             "max_distance_to_library_m",
             "max_distance_to_university_m",
             "max_distance_to_supermarket_m",
+            "max_distance_to_subway_m",
             "max_distance_to_market_m",
             "max_distance_to_hardware_store_m",
             "max_distance_to_shopping_center_m",
@@ -1485,6 +1511,7 @@ class OnboardingService(AssistantOnboardingService):
             key: str(raw.get(key) or "").strip()
             for key in (
                 "keywords",
+                "avoid_keywords",
                 "custom_location_query",
                 "custom_keywords",
                 "investment_research_mode",
@@ -1497,9 +1524,19 @@ class OnboardingService(AssistantOnboardingService):
             )
             if str(raw.get(key) or "").strip()
         }
+        if isinstance(raw.get("keyword_preferences"), dict):
+            promoted_strings["keyword_preferences_json"] = json.dumps(
+                {
+                    str(key or "").strip(): str(value or "").strip()
+                    for key, value in dict(raw.get("keyword_preferences") or {}).items()
+                    if str(key or "").strip() and str(value or "").strip()
+                },
+                ensure_ascii=True,
+                sort_keys=True,
+            )
         promoted_lists = {
             key: [str(item or "").strip() for item in list(raw.get(key) or []) if str(item or "").strip()]
-            for key in ("keywords", "preferred_reachability_modes", "school_stage_preferences", "desired_project_stages")
+            for key in ("keywords", "avoid_keywords", "preferred_reachability_modes", "school_stage_preferences", "desired_project_stages")
             if isinstance(raw.get(key), (list, tuple, set))
         }
         promoted_flags = {
@@ -1532,6 +1569,7 @@ class OnboardingService(AssistantOnboardingService):
                 "require_winter_access_research",
                 "avoid_flood_risk_area",
                 "require_floorplan",
+                "require_barrier_free",
                 "use_flatbee_reputation_penalty",
             )
             if key in raw
@@ -1543,6 +1581,7 @@ class OnboardingService(AssistantOnboardingService):
             "listing_mode": listing_mode,
             "property_type": property_type,
             "location_query": location_query,
+            "selected_location_values": [] if full_region_scope else selected_location_values,
             "full_region_scope": full_region_scope,
             "search_mode": search_mode,
             "selected_platforms": selected_platforms,
@@ -1554,6 +1593,8 @@ class OnboardingService(AssistantOnboardingService):
             "search_agent_notification_limit": notification_limit,
             "search_agent_notification_period": notification_period,
             "property_commercial": property_commercial,
+            "saved_shortlist_candidates": saved_shortlist_candidates,
+            "saved_shortlist_share_slug": saved_shortlist_share_slug,
             "raw_preferences": dict(raw),
             **promoted_numeric,
             **promoted_strings,
@@ -1641,7 +1682,7 @@ class OnboardingService(AssistantOnboardingService):
         payload = {
             key: item
             for key, item in dict(value or {}).items()
-            if key not in {"search_agents", "active_search_agent_id", "raw_preferences", "property_commercial"}
+            if key not in {"search_agents", "active_search_agent_id", "raw_preferences", "property_commercial", "saved_shortlist_candidates", "saved_shortlist_share_slug"}
         }
         return payload
 
@@ -1658,6 +1699,16 @@ class OnboardingService(AssistantOnboardingService):
         location_query = str(raw.get("location_query") or base.get("location_query") or "").strip()
         listing_mode = normalize_listing_mode(raw.get("listing_mode") or base.get("listing_mode"))
         property_type = normalize_property_type_values(raw.get("property_type") or base.get("property_type"))
+        raw_selected_location_values = (
+            raw.get("selected_location_values")
+            if isinstance(raw.get("selected_location_values"), (list, tuple, set))
+            else base.get("selected_location_values")
+        )
+        selected_location_values = [
+            normalized
+            for normalized in dict.fromkeys(str(item or "").strip() for item in list(raw_selected_location_values or []))
+            if normalized
+        ]
         try:
             duration_days = max(7, min(365, int(float(str(raw.get("duration_days") or raw.get("search_agent_duration_days") or base.get("search_agent_duration_days") or 30).strip()))))
         except Exception:
@@ -1709,6 +1760,7 @@ class OnboardingService(AssistantOnboardingService):
                 "country_code": country_code,
                 "region_code": region_code,
                 "location_query": location_query,
+                "selected_location_values": selected_location_values,
                 "listing_mode": listing_mode,
                 "property_type": property_type,
                 "selected_platforms": selected_platforms,
@@ -1726,6 +1778,7 @@ class OnboardingService(AssistantOnboardingService):
             "country_code": country_code,
             "region_code": region_code,
             "location_query": location_query,
+            "selected_location_values": selected_location_values,
             "listing_mode": listing_mode,
             "property_type": property_type,
             "selected_platforms": selected_platforms,

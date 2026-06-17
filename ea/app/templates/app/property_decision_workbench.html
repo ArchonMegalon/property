@@ -12,7 +12,7 @@
 {% set previous_search_runs = workbench.get('previous_search_runs') or [] %}
 {% set suppression_rows = workbench.get('suppression_rows') or [] %}
 {% set counterfactual_rows = workbench.get('counterfactual_rows') or [] %}
-{% set terminal_states = ['processed', 'completed', 'failed', 'noop', 'cancelled'] %}
+{% set terminal_states = ['processed', 'completed', 'completed_partial', 'failed', 'noop', 'cancelled'] %}
 {% set run_active = run.get('run_id') and run_status not in terminal_states %}
 {% set run_terminal_no_results = run.get('run_id') and run_status in terminal_states and not results %}
 {% set run_visible = run_active %}
@@ -25,34 +25,26 @@
 {% set empty_outcome = workbench.get('empty_outcome') or {} %}
 {% macro suppression_panel(rows, actions=[]) -%}
 {% if rows %}
-<details class="pqx-suppression-panel" data-pqx-suppression-summary>
-  <summary><strong>{% if brief.get('search_goal') == 'investment' %}See more matching opportunities{% else %}See more matching homes{% endif %}</strong><span class="pqx-note">Widen one rule and blend the newly eligible {% if brief.get('search_goal') == 'investment' %}opportunities{% else %}homes{% endif %} into the same ranking.</span></summary>
-  <div class="pqx-section-head" style="margin-top:18px;">
-    <div>
-      <h2>Try one small relaxation first</h2>
-      <div class="pqx-note">Widen only one rule so you can see exactly what changed.</div>
-    </div>
-  </div>
-  <div class="pqx-suppression-grid">
-    {% for row in actions[:4] if row.get('adjustments') %}
-    <button class="pqx-suppression-item" type="button" data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}' aria-label="Relax rule">
-      {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true">{{ row.get('affected_total') }}</span>{% endif %}
-      <strong>{{ row.get('title') }}</strong>
-      <span class="pqx-note">{{ row.get('detail') }}</span>
-      <span class="pqx-suppression-action">{{ row.get('action_label') or 'Relax and rerun' }}</span>
-    </button>
-    {% else %}
-    {% for row in rows[:4] %}
-    <button class="pqx-suppression-item" type="button" data-pqx-filtered-open aria-label="Relax rule">
-      {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true">{{ row.get('affected_total') }}</span>{% endif %}
-      <strong>{{ row.get('title') }}</strong>
-      <span class="pqx-note">{{ row.get('detail') }}</span>
-      <span class="pqx-suppression-action">{{ row.get('action_label') or 'Relax rule' }}</span>
-    </button>
-    {% endfor %}
-    {% endfor %}
-  </div>
-</details>
+{% set trigger_rows = actions if actions else rows %}
+{% set ns = namespace(total=0) %}
+{% for row in trigger_rows[:4] %}
+  {% set ns.total = ns.total + ((row.get('affected_total') or 0)|int) %}
+{% endfor %}
+<div class="pqx-suppression-panel" data-pqx-suppression-summary>
+  <button class="pqx-suppression-trigger" type="button" data-pqx-filtered-open aria-label="Open relaxed search options">
+    <span class="pqx-suppression-trigger-copy">
+      <strong>{% if ns.total %}{{ ns.total }} filtered{% else %}Relax this brief{% endif %}</strong>
+      <span class="pqx-note">
+        {% if brief.get('search_goal') == 'investment' %}
+        {{ (trigger_rows[:4]|length) }} ways to widen the opportunity search
+        {% else %}
+        {{ (trigger_rows[:4]|length) }} ways to widen the home search
+        {% endif %}
+      </span>
+    </span>
+    <span class="pqx-suppression-trigger-action">Adjust filters</span>
+  </button>
+</div>
 {% endif %}
 {%- endmacro %}
 {% macro research_queue_panel(tasks, run_id, counts) -%}
@@ -130,13 +122,10 @@
 <div class="pqx-progress-board" data-pqx-progress-board data-progress-state="{{ status }}">
   <div class="pqx-concierge-pulse">
     <div class="pqx-progress-headline">
-      <strong data-pqx-progress-board-title>{% if status in ['processed', 'completed'] %}Results are ready{% elif status == 'failed' %}Search failed{% else %}Search in progress{% endif %}</strong>
-      <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>{% if status in ['processed', 'completed'] %}100% · complete{% elif status == 'failed' %}stopped{% elif run_progress > 0 and eta_label %}{{ run_progress }}% · {{ eta_label }}{% elif run_progress > 0 %}{{ run_progress }}% · estimating{% elif eta_label %}starting · {{ eta_label }}{% else %}estimating{% endif %}</span>
+      <strong data-pqx-progress-board-title>{% if status in ['processed', 'completed', 'completed_partial'] %}Results are ready{% elif status == 'failed' %}Search failed{% else %}Search in progress{% endif %}</strong>
+      <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>{% if status in ['processed', 'completed', 'completed_partial'] %}100% · complete{% elif status == 'failed' %}stopped{% elif run_progress > 0 and eta_label %}{{ run_progress }}% · {{ eta_label }}{% elif run_progress > 0 %}{{ run_progress }}% · estimating{% elif eta_label %}starting · {{ eta_label }}{% else %}estimating{% endif %}</span>
     </div>
     <div class="pqx-pulse-line" aria-hidden="true"></div>
-    <div class="pqx-progress-meter" aria-hidden="true">
-      <i class="pqx-progress-meter-fill" style="--progress: {{ run_progress if run_progress > 0 else (100 if status in ['processed', 'completed'] else 4) }}"></i>
-    </div>
   </div>
   <div class="pqx-source-progress" data-pqx-source-progress>
     <div class="pqx-source-progress-head">
@@ -144,6 +133,9 @@
       <span class="pqx-small">{{ (run.get('summary') or {}).get('reviewed_listing_total') or listing_total }} homes reviewed{% if layout_unverified %} · {{ layout_unverified }} still waiting on floorplans{% endif %}</span>
     </div>
     <span class="pqx-note">{{ run.get('message') or 'Waiting for the first source update.' }}</span>
+    <div class="pqx-progress-meter under-source" aria-hidden="true">
+      <i class="pqx-progress-meter-fill" style="--progress: {{ run_progress if run_progress > 0 else (100 if status in ['processed', 'completed', 'completed_partial'] else 4) }}"></i>
+    </div>
   </div>
   {% if reliability %}
   <div class="pqx-reliability-strip" data-pqx-run-reliability>
@@ -201,7 +193,7 @@
     </span>
     {% endfor %}
   </div>
-  {% if route_previews and status in ['processed', 'completed'] %}
+  {% if route_previews and status in ['processed', 'completed', 'completed_partial'] %}
   <div class="pqx-route-preview-strip" data-pqx-route-preview-strip>
     {% for route in route_previews[:3] %}
     <article class="pqx-route-preview-card">
@@ -233,6 +225,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ page_title or 'PropertyQuarry' }}</title>
   {{ rybbit_head_snippet(request) }}
+  <script>
+    (() => {
+      try {
+        const stored = window.localStorage.getItem('propertyquarry.theme');
+        const theme = stored === 'dark' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-pq-theme', theme);
+      } catch (_error) {
+        document.documentElement.setAttribute('data-pq-theme', 'light');
+      }
+    })();
+  </script>
   <style>
     :root {
       --pq-bg: #f4f0e8;
@@ -253,6 +256,28 @@
       --pq-shadow: 0 20px 52px rgba(38, 32, 22, 0.08);
       --pq-shadow-soft: 0 12px 26px rgba(38, 32, 22, 0.05);
       --pq-hover-shadow: 0 20px 40px rgba(38, 32, 22, 0.10);
+      color-scheme: light;
+    }
+    html[data-pq-theme="dark"] {
+      --pq-bg: #121111;
+      --pq-ink: #f3ede2;
+      --pq-muted: #b7ad9d;
+      --pq-faint: #8f8579;
+      --pq-paper: #181614;
+      --pq-panel: #211d1a;
+      --pq-line: #3b352f;
+      --pq-line-strong: #5b5147;
+      --pq-charcoal: #f0e6d6;
+      --pq-charcoal-soft: #d8cbb9;
+      --pq-gold: #d2a14a;
+      --pq-gold-strong: #efbf6c;
+      --pq-green: #53b18c;
+      --pq-red: #d9776b;
+      --pq-blue: #7cadd9;
+      --pq-shadow: 0 18px 52px rgba(0, 0, 0, 0.42);
+      --pq-shadow-soft: 0 10px 24px rgba(0, 0, 0, 0.30);
+      --pq-hover-shadow: 0 18px 42px rgba(0, 0, 0, 0.46);
+      color-scheme: dark;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; }
@@ -263,6 +288,11 @@
       color: var(--pq-ink);
       font: 14px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Arial, sans-serif;
       letter-spacing: 0;
+    }
+    html[data-pq-theme="dark"] body {
+      background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.03), transparent 28%),
+        linear-gradient(180deg, #161412 0%, var(--pq-bg) 26%, #0f0d0c 100%);
     }
     a { color: inherit; text-decoration: none; }
     button, input, select {
@@ -290,6 +320,11 @@
       background: rgba(250, 247, 241, 0.82);
       backdrop-filter: blur(18px) saturate(1.05);
       box-shadow: 0 8px 22px rgba(38, 32, 22, 0.04);
+    }
+    html[data-pq-theme="dark"] .pqx-topbar {
+      background: rgba(19, 17, 16, 0.88);
+      border-bottom-color: color-mix(in srgb, var(--pq-line) 92%, black);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
     }
     .pqx-primary-nav {
       grid-area: nav;
@@ -321,10 +356,18 @@
       background: rgba(255, 255, 255, 0.72);
       outline: none;
     }
+    html[data-pq-theme="dark"] .pqx-primary-nav a:hover,
+    html[data-pq-theme="dark"] .pqx-primary-nav a:focus-visible {
+      background: rgba(255, 255, 255, 0.08);
+    }
     .pqx-primary-nav a.is-active {
       color: var(--pq-ink);
       background: rgba(255, 252, 245, 0.96);
       box-shadow: inset 0 0 0 1px rgba(189, 139, 47, 0.22);
+    }
+    html[data-pq-theme="dark"] .pqx-primary-nav a.is-active {
+      background: rgba(255, 255, 255, 0.07);
+      box-shadow: inset 0 0 0 1px rgba(210, 161, 74, 0.28);
     }
     .pqx-brand {
       grid-area: brand;
@@ -344,6 +387,11 @@
       font-size: 12px;
       font-weight: 800;
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+    html[data-pq-theme="dark"] .pqx-mark {
+      background: #f0e6d6;
+      color: #171411;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24);
     }
     .pqx-brand strong,
     .pqx-title strong,
@@ -1296,11 +1344,11 @@
       outline: none;
     }
     .pqx-filtered-dialog {
-      width: min(760px, calc(100vw - 28px));
-      max-width: 760px;
+      width: min(640px, calc(100vw - 20px));
+      max-width: 640px;
       padding: 0;
       border: 0;
-      border-radius: 18px;
+      border-radius: 14px;
       background: transparent;
       box-shadow: none;
     }
@@ -1310,9 +1358,9 @@
     }
     .pqx-filtered-dialog-card {
       display: grid;
-      gap: 14px;
-      padding: 18px;
-      border-radius: 18px;
+      gap: 10px;
+      padding: 14px;
+      border-radius: 14px;
       background: var(--pq-paper);
       box-shadow: 0 24px 56px rgba(16, 24, 38, 0.28);
     }
@@ -1320,34 +1368,34 @@
       display: flex;
       align-items: start;
       justify-content: space-between;
-      gap: 14px;
+      gap: 10px;
     }
     .pqx-filtered-dialog-close {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-width: 36px;
-      min-height: 36px;
+      min-width: 32px;
+      min-height: 32px;
       padding: 0;
       border-radius: 999px;
       border: 1px solid var(--pq-line);
       background: var(--pq-panel);
       color: var(--pq-ink);
-      font-size: 18px;
+      font-size: 16px;
       cursor: pointer;
     }
-    .pqx-filtered-dialog-grid,
     .pqx-filtered-dialog-actions {
       display: grid;
-      gap: 10px;
+      gap: 8px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .pqx-filtered-dialog-rule {
       position: relative;
       display: grid;
-      gap: 6px;
-      padding: 14px;
+      gap: 4px;
+      padding: 12px;
       border: 1px solid var(--pq-line);
-      border-radius: 12px;
+      border-radius: 10px;
       background: var(--pq-panel);
       overflow: hidden;
     }
@@ -1356,27 +1404,50 @@
       z-index: 1;
     }
     .pqx-filtered-dialog-impact {
-      position: absolute;
-      right: 10px;
-      bottom: 4px;
-      z-index: 0;
-      font-size: 3.6rem;
-      font-weight: 860;
-      line-height: 0.82;
-      letter-spacing: 0;
-      color: rgba(143, 29, 44, 0.14);
-      pointer-events: none;
-      user-select: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: fit-content;
+      min-width: 38px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(143, 29, 44, 0.08);
+      color: var(--pq-ink);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
     }
     .pqx-filtered-dialog-rule .pqx-actions {
       align-items: center;
+      gap: 8px;
+      justify-content: space-between;
     }
     .pqx-filtered-dialog-estimate {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
       color: var(--pq-muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .pqx-filtered-dialog-rule .pqx-note {
       font-size: 12px;
+      line-height: 1.35;
+    }
+    .pqx-filtered-dialog-head .pqx-note {
+      display: none;
+    }
+    .pqx-filter-radius-control {
+      display: grid;
+      gap: 4px;
+    }
+    .pqx-filter-radius-control .pqx-small {
+      display: none;
+    }
+    @media (max-width: 760px) {
+      .pqx-filtered-dialog-actions {
+        grid-template-columns: 1fr;
+      }
     }
     .pqx-source-card[data-pqx-filtered-open] {
       cursor: pointer;
@@ -1955,6 +2026,7 @@
     }
     .pqx-surface-search .pqx-field input[type="range"] {
       min-height: 34px;
+      height: 34px;
     }
     .pqx-field input[type="range"]::-webkit-slider-thumb {
       width: 24px;
@@ -2233,7 +2305,8 @@
         font-size: 11px;
       }
       .pqx-surface-search .pqx-field input[type="range"] {
-        min-height: 28px;
+        min-height: 42px;
+        height: 42px;
       }
       .pqx-surface-search .pqx-range-scale,
       .pqx-surface-search .pqx-range-upgrade {
@@ -2304,6 +2377,117 @@
       color: var(--pq-muted);
       font-size: 11px;
       line-height: 1.35;
+    }
+    .pqx-what-matters-panel {
+      padding: 0;
+      margin-top: 2px;
+      grid-column: 1 / -1;
+      border: 1px solid var(--pq-line);
+      border-radius: 12px;
+      background: var(--pq-paper);
+      box-shadow: var(--pq-shadow-soft);
+    }
+    .pqx-what-matters-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--pq-line);
+    }
+    .pqx-what-matters-head .pqx-disclosure-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 780;
+      line-height: 1.2;
+    }
+    .pqx-what-matters-summary-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      align-items: center;
+      margin-top: 4px;
+    }
+    .pqx-what-matters-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 20px;
+      padding: 0 7px;
+      border: 1px solid rgba(70, 56, 25, 0.12);
+      border-radius: 999px;
+      background: rgba(70, 56, 25, 0.04);
+      color: var(--pq-muted);
+      font-size: 10px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .pqx-what-matters-panel .pqx-advanced-panel-grid {
+      padding: 8px 10px 10px;
+      border-top: 0;
+    }
+    .pqx-what-matters-panel .pqx-choice-groupbox {
+      gap: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+    }
+    .pqx-what-matters-panel .pqx-choice-groupbox-legend {
+      display: none;
+    }
+    .pqx-what-matters-panel .pqx-pref-list {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 10px;
+      max-height: none;
+      overflow: visible;
+    }
+    .pqx-what-matters-panel .pqx-pref-row {
+      grid-template-columns: minmax(0, 1fr) minmax(118px, 140px) minmax(88px, 104px);
+      padding: 8px 10px;
+      gap: 6px;
+      align-items: start;
+      border: 1px solid rgba(185, 173, 154, 0.28);
+      border-radius: 10px;
+      background: rgba(255, 253, 249, 0.72);
+    }
+    .pqx-what-matters-panel .pqx-pref-row > div {
+      grid-column: 1 / -1;
+      min-width: 0;
+    }
+    .pqx-what-matters-panel .pqx-pref-row strong {
+      font-size: 12px;
+      line-height: 1.2;
+    }
+    .pqx-what-matters-panel .pqx-pref-row small {
+      font-size: 10px;
+      line-height: 1.2;
+      margin-top: 2px;
+    }
+    .pqx-what-matters-panel .pqx-pref-row select {
+      min-width: 0;
+      max-width: none;
+      min-height: 30px;
+      padding: 4px 24px 4px 8px;
+      font-size: 11px;
+      align-self: end;
+    }
+    .pqx-what-matters-panel .pqx-pref-row select:only-of-type {
+      grid-column: 1 / -1;
+    }
+    .pqx-what-matters-panel .pqx-pref-row select[disabled] {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    @media (max-width: 760px) {
+      .pqx-what-matters-head {
+        grid-template-columns: 1fr;
+      }
+      .pqx-what-matters-panel .pqx-pref-row {
+        grid-template-columns: 1fr;
+      }
+      .pqx-what-matters-panel .pqx-pref-list {
+        grid-template-columns: 1fr;
+      }
     }
     .pqx-automation-board {
       display: grid;
@@ -2689,9 +2873,18 @@
     .pqx-empty-results .pqx-command {
       align-self: start;
     }
+    .pqx-empty-results .pqx-command .pqx-pref-row small {
+      display: none;
+    }
     .pqx-empty-results-note {
       min-height: 0;
       gap: 8px;
+    }
+    .pqx-empty-outcome-summary .pqx-pref-row small {
+      display: none;
+    }
+    .pqx-empty-results-note > .pqx-note {
+      display: none;
     }
     .pqx-empty-results .pqx-run-hero h1,
     .pqx-empty-results .pqx-run-hero .pqx-title h1 {
@@ -2701,6 +2894,9 @@
     .pqx-empty-results .pqx-run-hero .pqx-note,
     .pqx-empty-results .pqx-run-hero .pqx-small {
       color: var(--pq-muted);
+    }
+    .pqx-empty-results [data-pqx-run-summary] {
+      display: none;
     }
     .pqx-empty-results .pqx-fact {
       border-color: var(--pq-line);
@@ -2796,7 +2992,8 @@
       animation: pqxPulseSlide 2.8s ease-in-out infinite;
     }
     .pqx-progress-board[data-progress-state="processed"] .pqx-pulse-line::after,
-    .pqx-progress-board[data-progress-state="completed"] .pqx-pulse-line::after {
+    .pqx-progress-board[data-progress-state="completed"] .pqx-pulse-line::after,
+    .pqx-progress-board[data-progress-state="completed_partial"] .pqx-pulse-line::after {
       animation: none;
       inset: 0;
       width: 100%;
@@ -2817,6 +3014,21 @@
       border-radius: inherit;
       background: linear-gradient(90deg, var(--pq-blue), color-mix(in srgb, var(--pq-blue) 58%, white));
       transition: width .4s ease;
+    }
+    .pqx-progress-meter.under-source {
+      margin-top: 4px;
+      height: 12px;
+      background: color-mix(in srgb, var(--pq-blue) 16%, white);
+      box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--pq-blue) 20%, var(--pq-line)),
+        inset 0 1px 1px rgba(255,255,255,0.55);
+    }
+    .pqx-progress-meter.under-source .pqx-progress-meter-fill {
+      min-width: 0;
+      background: linear-gradient(90deg, color-mix(in srgb, var(--pq-blue) 88%, white), color-mix(in srgb, var(--pq-gold) 14%, var(--pq-blue)));
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.28),
+        0 0 0 1px rgba(36, 87, 168, 0.08);
     }
     .pqx-source-progress {
       grid-area: sources;
@@ -3047,8 +3259,8 @@
     }
     .pqx-result-media {
       display: grid;
-      grid-template-columns: 72px minmax(0, 1fr);
-      gap: 10px;
+      grid-template-columns: 128px minmax(0, 1fr);
+      gap: 14px;
       align-items: start;
     }
     .pqx-result-media.no-thumb {
@@ -3056,7 +3268,7 @@
     }
     .pqx-thumb {
       position: relative;
-      width: 72px;
+      width: 128px;
       aspect-ratio: 4 / 3;
       overflow: hidden;
       border: 1px solid var(--pq-line);
@@ -3078,7 +3290,28 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
+      object-position: center center;
       display: block;
+    }
+    .pqx-thumb-pin {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 18px;
+      height: 18px;
+      transform: translate(-50%, -82%);
+      border-radius: 999px 999px 999px 0;
+      background: #c62c2c;
+      rotate: -45deg;
+      box-shadow: 0 3px 12px rgba(64, 24, 24, 0.28);
+      pointer-events: none;
+    }
+    .pqx-thumb-pin::after {
+      content: "";
+      position: absolute;
+      inset: 4px;
+      border-radius: 999px;
+      background: #fff8f1;
     }
     .pqx-route-evidence {
       display: flex;
@@ -3302,18 +3535,31 @@
       display: grid;
       gap: 5px;
       min-width: 0;
-      padding: 10px;
+      padding: 9px 10px;
       border: 1px solid var(--pq-line);
       border-radius: 8px;
       background: #fffefa;
       color: inherit;
       text-align: left;
       cursor: pointer;
+      align-content: start;
+      box-sizing: border-box;
+      overflow: hidden;
     }
     .pqx-suppression-item strong {
       color: var(--pq-ink);
       font-size: 13px;
       line-height: 1.25;
+    }
+    .pqx-suppression-item .pqx-note {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+      line-height: 1.35;
+    }
+    .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-item .pqx-note {
+      display: none;
     }
     .pqx-suppression-action,
     .pqx-trust-chip {
@@ -3450,20 +3696,11 @@
       text-underline-offset: 3px;
     }
     .pqx-results {
-      display: grid;
-      grid-template-columns: minmax(540px, 1.18fr) minmax(380px, 0.82fr);
-      gap: clamp(18px, 2.4vw, 34px);
-      align-items: start;
-    }
-    .pqx-results.pqx-results-single {
       grid-template-columns: minmax(0, 1fr);
       gap: 14px;
     }
     .pqx-results > .pqx-result-panel {
       order: -1;
-    }
-    .pqx-results.pqx-results-single > .pqx-review {
-      display: none;
     }
     .pqx-review {
       position: sticky;
@@ -3678,15 +3915,23 @@
     .pqx-result-panel {
       min-width: 0;
       display: grid;
-      gap: 14px;
+      gap: 10px;
     }
     .pqx-result-panel-head {
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-start;
       gap: 12px;
-      align-items: end;
-      padding-bottom: 4px;
-      border-bottom: 1px solid rgba(221, 212, 197, 0.72);
+      align-items: center;
+      padding-bottom: 2px;
+    }
+    .pqx-results-headline {
+      min-width: 0;
+    }
+    .pqx-results-summary-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
     }
     .pqx-result-panel-head h2 {
       margin: 0;
@@ -3697,14 +3942,14 @@
       width: 100%;
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
-      gap: 12px;
+      gap: 8px;
       align-items: start;
-      padding: 15px;
+      padding: 12px;
       text-align: left;
       cursor: pointer;
       transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, background 160ms ease;
       content-visibility: auto;
-      contain-intrinsic-size: 240px;
+      contain-intrinsic-size: 176px;
       scroll-margin-top: 96px;
     }
     .pqx-result:hover {
@@ -3746,45 +3991,59 @@
     }
     .pqx-result-main {
       display: grid;
-      gap: 8px;
-    }
-    .pqx-result-topline {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 10px;
+      gap: 4px;
     }
     .pqx-result-summary {
       display: grid;
-      gap: 3px;
+      gap: 2px;
       min-width: 0;
+    }
+    .pqx-result-title {
+      font-size: 0.95rem;
+      line-height: 1.25;
+      font-weight: 780;
+      color: var(--pq-ink);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .pqx-meta {
+      color: var(--pq-muted);
+      font-size: 10px;
+      line-height: 1.3;
     }
     .pqx-result-thesis {
       color: var(--pq-ink);
-      font-size: 13px;
-      line-height: 1.45;
+      font-size: 12px;
+      line-height: 1.35;
       font-weight: 760;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
     }
     .pqx-result-kicker {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
       color: var(--pq-muted);
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
       letter-spacing: 0;
     }
     .pqx-result-kicker .pqx-rank {
-      width: 26px;
-      height: 26px;
-      border-radius: 7px;
-      font-size: 12px;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      font-size: 11px;
     }
     .pqx-result-facts {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
+      gap: 4px;
       min-width: 0;
+      margin-top: 1px;
     }
     .pqx-result-reason {
       color: var(--pq-ink);
@@ -3793,24 +4052,69 @@
     }
     .pqx-result-blocker {
       color: var(--pq-muted);
-      font-size: 12px;
-      line-height: 1.35;
+      font-size: 11px;
+      line-height: 1.3;
+      display: -webkit-box;
+      -webkit-line-clamp: 1;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .pqx-result-value-row {
+      display: grid;
+      gap: 4px;
+      justify-items: end;
     }
     .pqx-result-fact {
       display: inline-flex;
       align-items: center;
-      min-height: 26px;
-      padding: 0 8px;
+      min-height: 22px;
+      padding: 0 7px;
       border-radius: 999px;
       background: rgba(255, 253, 248, 0.88);
       border: 1px solid var(--pq-line);
       color: var(--pq-muted);
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 720;
       max-width: 100%;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+    button.pqx-result-fact {
+      appearance: none;
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
+    }
+    a.pqx-result-fact,
+    button.pqx-result-fact,
+    .pqx-result-tour-link {
+      text-decoration: none;
+      color: var(--pq-muted);
+    }
+    a.pqx-result-fact:hover,
+    a.pqx-result-fact:focus-visible,
+    button.pqx-result-fact:hover,
+    button.pqx-result-fact:focus-visible {
+      border-color: var(--pq-line-strong);
+      color: var(--pq-ink);
+      background: rgba(255, 255, 255, 0.94);
+      outline: none;
+    }
+    .pqx-results-filter-link {
+      appearance: none;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: var(--pq-muted);
+      font: inherit;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .pqx-results-filter-link:hover,
+    .pqx-results-filter-link:focus-visible {
+      color: var(--pq-ink);
+      outline: none;
     }
     .pqx-result-fact.recovered {
       border-color: rgba(46, 125, 98, 0.38);
@@ -3824,19 +4128,22 @@
       font-weight: 720;
     }
     .pqx-result-open {
+      appearance: none;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 30px;
-      padding: 0 10px;
+      min-height: 28px;
+      padding: 0 9px;
       border: 1px solid var(--pq-line);
       border-radius: 999px;
       background: var(--pq-panel);
       color: var(--pq-ink);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 760;
+      font-family: inherit;
       text-decoration: none;
       white-space: nowrap;
+      cursor: pointer;
       transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
     }
     .pqx-result-open:hover,
@@ -3846,33 +4153,87 @@
       transform: translateY(-1px);
       outline: none;
     }
-    .pqx-rank {
-      width: 38px;
-      height: 38px;
-      display: grid;
-      place-items: center;
-      border-radius: 8px;
-      background: var(--pq-charcoal);
-      color: #fff9ed;
-      font-weight: 800;
-    }
     .pqx-result-aside {
+      min-width: 176px;
       display: grid;
       gap: 6px;
       justify-items: end;
       text-align: right;
-      min-width: 114px;
+      align-content: start;
+    }
+    .pqx-result-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
     }
     .pqx-result-price {
       color: var(--pq-ink);
-      font-size: 1.1rem;
+      font-size: 1rem;
       font-weight: 800;
       line-height: 1.05;
+    }
+    .pqx-result-fit-score {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 28px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: rgba(20, 88, 71, 0.12);
+      border: 1px solid rgba(20, 88, 71, 0.18);
+      color: var(--pq-ink);
+      font-size: 11px;
+      font-weight: 780;
+      white-space: nowrap;
     }
     .pqx-result-secondary {
       color: var(--pq-muted);
       font-size: 11px;
       font-weight: 720;
+    }
+    .pqx-thumb-link {
+      text-decoration: none;
+    }
+    .pqx-progress-button {
+      --pqx-fill: 0%;
+      position: relative;
+      overflow: hidden;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 28px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(33, 43, 54, 0.14);
+      background:
+        linear-gradient(90deg, rgba(160, 120, 32, 0.18) 0%, rgba(160, 120, 32, 0.18) var(--pqx-fill), rgba(255, 255, 255, 0.88) var(--pqx-fill), rgba(255, 255, 255, 0.88) 100%);
+      color: var(--pq-ink);
+      font-size: 11px;
+      font-weight: 760;
+      text-decoration: none;
+    }
+    .pqx-progress-button.is-processing::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.36) 45%, transparent 100%);
+      transform: translateX(-100%);
+      animation: pqx-progress-sheen 1.9s ease-in-out infinite;
+      pointer-events: none;
+    }
+    .pqx-progress-button.is-ready {
+      background: rgba(20, 88, 71, 0.12);
+      border-color: rgba(20, 88, 71, 0.18);
+    }
+    .pqx-progress-button.is-blocked {
+      background: rgba(122, 58, 47, 0.08);
+      border-color: rgba(122, 58, 47, 0.16);
+      color: var(--pq-muted);
+    }
+    @keyframes pqx-progress-sheen {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(140%); }
     }
     .pqx-status-line {
       color: var(--pq-muted);
@@ -4060,6 +4421,23 @@
         gap: 8px;
         padding: 10px;
       }
+      .pqx-empty-outcome-summary {
+        display: none;
+      }
+      .pqx-empty-results [data-pqx-screenfit-target="run-progress"] {
+        gap: 6px;
+        align-items: start;
+      }
+      .pqx-empty-results [data-pqx-screenfit-target="run-progress"] h2 {
+        margin: 0;
+        font-size: 1rem;
+        line-height: 1.15;
+      }
+      .pqx-empty-results [data-pqx-screenfit-target="run-progress"] .pqx-pill,
+      .pqx-empty-results [data-pqx-screenfit-target="run-progress"] .pqx-small {
+        font-size: 11px;
+        line-height: 1.25;
+      }
       [data-pqx-running-details] {
         display: none;
       }
@@ -4146,9 +4524,16 @@
       .pqx-result-media.no-thumb {
         gap: 4px;
       }
-      .pqx-result-topline {
-        align-items: stretch;
-        flex-direction: column;
+      .pqx-result-aside {
+        min-width: 0;
+        justify-items: start;
+        text-align: left;
+      }
+      .pqx-result-value-row {
+        justify-items: start;
+      }
+      .pqx-result-actions {
+        justify-content: flex-start;
       }
       .pqx-inline-map-preview,
       .pqx-previous-scope-trigger,
@@ -4166,11 +4551,6 @@
         width: 100%;
         height: 100%;
         object-fit: cover;
-      }
-      .pqx-result-aside {
-        justify-items: start;
-        text-align: left;
-        min-width: 0;
       }
       .pqx-range-head {
         align-items: stretch;
@@ -4272,15 +4652,9 @@
         {% if has_results %}
         <a class="pqx-link-button subtle" href="/app/search">Edit search</a>
         {% endif %}
+        <button class="pqx-button subtle" type="button" data-pqx-theme-toggle aria-pressed="false">Dark mode</button>
         <button class="pqx-button subtle" type="button" data-pqx-browser-alerts hidden>Browser alerts</button>
-        <span class="pqx-context-actions" data-pw-top-actions>
-          {% if has_results and selected.get('tour', {}).get('url') %}
-          <a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}">Open 360</a>
-          {% endif %}
-          {% if has_results and selected.get('packet_url') %}
-          <a class="pqx-link-button" href="{{ selected.get('packet_url') }}">Open property page</a>
-          {% endif %}
-        </span>
+        <span class="pqx-context-actions" data-pw-top-actions></span>
         {% if run_active %}
         <button class="pqx-button primary" type="button" data-pqx-refresh-status>Refresh status</button>
         {% elif run_terminal_no_results %}
@@ -4347,6 +4721,36 @@
               {% endif %}
             </h1>
           </div>
+          {% if surface_mode == 'search' and run_active %}
+          {% set live_preview_candidates = (run_summary.get('ranked_candidates') or []) %}
+          {% set live_preview = live_preview_candidates[0] if live_preview_candidates else None %}
+          <section class="pqx-card" style="margin-bottom:14px;">
+            <div class="pqx-section-head">
+              <div>
+                <h2>Live run</h2>
+                <div class="pqx-note">{{ run.get('message') or 'The current search is still running.' }}</div>
+              </div>
+              <span class="pqx-pill good">{{ run.get('progress') or 0 }}%</span>
+            </div>
+            <div class="pqx-pref-list">
+              <div class="pqx-pref-row">
+                <div><strong>Status</strong><small>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</small></div>
+                <div><strong>Reviewed</strong><small>{{ run_summary.get('reviewed_listing_total') or run_summary.get('listing_total') or 0 }} homes</small></div>
+                <div><strong>Run</strong><small><a href="/app/properties{% if run.get('run_id') %}?run_id={{ run.get('run_id') }}{% endif %}">Open live run</a></small></div>
+              </div>
+              {% if live_preview %}
+              <div class="pqx-pref-row">
+                <div>
+                  <strong>Current best so far</strong>
+                  <small>{{ live_preview.get('title') or 'Property candidate' }}</small>
+                </div>
+                <div><strong>Fit</strong><small>{{ (live_preview.get('fit_score') or 0)|int }}/100</small></div>
+                <div><strong>Price</strong><small>{{ live_preview.get('price_display') or 'Still verifying' }}</small></div>
+              </div>
+              {% endif %}
+            </div>
+          </section>
+          {% endif %}
           {% if surface_mode in ['agents', 'account', 'billing'] %}
           <div class="pqx-brief-stack">
             {% if hero_summary or summary %}
@@ -4489,20 +4893,20 @@
             <div class="pqx-filtered-dialog-card">
               <div class="pqx-filtered-dialog-head">
                 <div>
-                  <strong>Relax one filter</strong>
-                  <div class="pqx-note">Apply one controlled change, rerun from cached source data where possible, and mix the recovered {% if brief.get('search_goal') == 'investment' %}opportunities{% else %}homes{% endif %} back into {% if brief.get('search_goal') == 'investment' %}Best opportunities first{% else %}Best homes first{% endif %}.</div>
+                  <strong>Widen one rule</strong>
+                  <div class="pqx-note">Choose one change.</div>
                 </div>
                 <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close filtered rules">×</button>
               </div>
               <div class="pqx-filtered-dialog-actions">
                 {% for row in counterfactual_rows %}
                 <div class="pqx-filtered-dialog-rule">
-                  {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true" data-pqx-filter-impact>{{ row.get('affected_total') }}</span>{% endif %}
+                  {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true" data-pqx-filter-impact>+{{ row.get('affected_total') }}</span>{% endif %}
                   <strong>{{ row.get('title') }}</strong>
                   <span class="pqx-note">{{ row.get('detail') }}</span>
                   {% if row.get('tag') == 'Area' %}
                   <label class="pqx-filter-radius-control">
-                    <span>Add homes within <b data-pqx-filter-radius-value>750 m</b> of the selected districts</span>
+                    <span>Nearby radius <b data-pqx-filter-radius-value>750 m</b></span>
                     <input type="range" min="250" max="2000" step="250" value="750" data-pqx-filter-radius data-pqx-filter-max="{{ row.get('affected_total') or 0 }}">
                     <span class="pqx-small">Estimated recovery changes as the radius grows.</span>
                   </label>
@@ -4515,7 +4919,7 @@
                     >{{ row.get('action_label') or 'Relax and restart' }}</button>
                     {% if row.get('affected_total') %}
                     <span class="pqx-filtered-dialog-estimate">
-                      about {{ row.get('affected_total') }} more
+                      {{ row.get('affected_total') }} more
                       <button
                         type="button"
                         class="pqx-tooltip"
@@ -4665,29 +5069,14 @@
               {% if advanced_panel and not panel.open %}
               {% set panel.open = true %}
               {% set panel.current = advanced_panel %}
-              <details class="pqx-advanced-panel" data-property-advanced-panel="{{ advanced_panel }}"{% if advanced_panel == 'children' %} open{% endif %}>
-                {% if advanced_panel == 'children' %}
-                <div class="pqx-disclosure-summary pqx-disclosure-summary-static">
-                  <span class="pqx-disclosure-copy">
-                    <span class="pqx-disclosure-label">Children and school needs</span>
-                  </span>
-                </div>
-                {% else %}
+              <details class="pqx-advanced-panel" data-property-advanced-panel="{{ advanced_panel }}">
                 <summary class="pqx-disclosure-summary">
                   <span class="pqx-disclosure-copy">
                   <span class="pqx-disclosure-label">
-                  {% if advanced_panel == 'children' %}
-                  Family
-                  {% elif advanced_panel == 'children_distances' %}
-                  Family distances
-                  {% elif advanced_panel == 'children_wellbeing' %}
-                  Family wellbeing
-                  {% elif advanced_panel == 'commute' %}
+                  {% if advanced_panel == 'commute' %}
                   Commute
-                  {% elif advanced_panel == 'shopping_distances' %}
-                  Shopping and errands
-                  {% elif advanced_panel == 'lifestyle_distances' %}
-                  Leisure and daily life
+                  {% elif advanced_panel == 'research_scope' %}
+                  Research scope
                   {% elif advanced_panel == 'provider_policies' %}
                   Providers
                   {% else %}
@@ -4697,7 +5086,6 @@
                   </span>
                   <span class="pqx-disclosure-icon" aria-hidden="true">+</span>
                 </summary>
-                {% endif %}
                 <div class="pqx-advanced-panel-grid">
                   <div class="pqx-note" data-property-unavailable-toggle-wrap hidden>
                     <label><input type="checkbox" data-property-show-unavailable> Show locked filters</label>
@@ -4720,6 +5108,72 @@
                     {% endfor %}
                   </div>
                 </fieldset>
+                {% elif field.type == 'keyword_priority_group' %}
+                {% set matters = namespace(active=0, labels=[]) %}
+                {% for option in field.options or [] %}
+                  {% if not option.get('hidden') and (option.get('state') or 'any') != 'any' %}
+                    {% set matters.active = matters.active + 1 %}
+                    {% if matters.labels|length < 3 %}
+                      {% set matters.labels = matters.labels + [option.get('label')] %}
+                    {% endif %}
+                  {% endif %}
+                {% endfor %}
+                <section class="pqx-what-matters-panel" data-property-what-matters-panel>
+                  <div class="pqx-what-matters-head">
+                    <div class="pqx-disclosure-copy">
+                      <span class="pqx-disclosure-label">{{ field.label }}</span>
+                      <span class="pqx-what-matters-summary-meta">
+                        <span class="pqx-note">No preference by default</span>
+                        <span class="pqx-what-matters-chip">
+                          {% if matters.active %}
+                            {{ matters.active }} active{% if matters.labels %} · {{ matters.labels|join(', ') }}{% endif %}
+                          {% else %}
+                            All on no preference
+                          {% endif %}
+                        </span>
+                      </span>
+                    </div>
+                    <div class="pqx-actions">
+                      <button class="pqx-button subtle" type="button" data-pqx-load-what-matters>Load my what matters</button>
+                      <button class="pqx-button" type="button" data-pqx-save-what-matters>Save my what matters</button>
+                    </div>
+                  </div>
+                  <div class="pqx-advanced-panel-grid">
+                    <fieldset class="pqx-choice-groupbox">
+                      <legend class="pqx-choice-groupbox-legend">{{ field.label }}</legend>
+                      <div class="pqx-pref-list">
+                        {% for option in field.options or [] %}
+                        <label class="pqx-pref-row pqx-keyword-priority-row"{% if option.get('hidden') %} hidden{% endif %} data-keyword-priority-row data-keyword-value="{{ option.get('value') }}">
+                          <div>
+                            <strong>{{ option.get('label') }}</strong>
+                            {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
+                          </div>
+                          <select name="keyword_preference__{{ option.get('value') }}" data-keyword-preference-select data-keyword-value="{{ option.get('value') }}">
+                            {% if option.get('preference_options') %}
+                            {% for preference in option.get('preference_options') or [] %}
+                            <option value="{{ preference.get('value') }}" {% if (option.get('state') or 'any') == (preference.get('value') or 'any') %}selected{% endif %}>{{ preference.get('label') }}</option>
+                            {% endfor %}
+                            {% else %}
+                            <option value="any" {% if (option.get('state') or 'any') == 'any' %}selected{% endif %}>No preference</option>
+                            <option value="avoid" {% if option.get('state') == 'avoid' %}selected{% endif %}>Avoid</option>
+                            <option value="nice_to_have" {% if option.get('state') == 'nice_to_have' %}selected{% endif %}>Nice to have</option>
+                            <option value="important" {% if option.get('state') == 'important' %}selected{% endif %}>Strong wish</option>
+                            <option value="must_have" {% if option.get('state') == 'must_have' %}selected{% endif %}>Must have</option>
+                            {% endif %}
+                          </select>
+                          {% if option.get('distance_options') %}
+                          <select name="keyword_distance__{{ option.get('value') }}" data-keyword-distance-select data-keyword-value="{{ option.get('value') }}" {% if (option.get('state') or 'any') == 'any' %}disabled{% endif %}>
+                            {% for distance in option.get('distance_options') or [] %}
+                            <option value="{{ distance.get('value') }}" {% if (option.get('distance_state') or '500') == (distance.get('value') or '500') %}selected{% endif %}>{{ distance.get('label') }}</option>
+                            {% endfor %}
+                          </select>
+                          {% endif %}
+                        </label>
+                        {% endfor %}
+                      </div>
+                    </fieldset>
+                  </div>
+                </section>
                 {% elif field.type == 'checkbox_group' %}
                 <fieldset class="pqx-choice-groupbox">
                   <legend class="pqx-choice-groupbox-legend">{{ field.label }}</legend>
@@ -4881,7 +5335,7 @@
             <div class="pqx-section-head">
               <div>
                 <h2>Search profile</h2>
-                <div class="pqx-note">These rules are used when "Use stored feedback preferences" is enabled.</div>
+                <div class="pqx-note">These rules feed saved preferences and future ranking adjustments.</div>
               </div>
               <span class="pqx-pill">{{ (preference_manager.get('active_nodes') or [])|length }} active</span>
             </div>
@@ -5007,7 +5461,7 @@
               <div class="pqx-fact"><span>Listings</span><strong>{{ run_summary.get('listing_total') or 0 }}</strong></div>
               <div class="pqx-fact"><span>Min score</span><strong>{{ run_summary.get('high_match_min_score') or 'n/a' }}</strong></div>
             </div>
-            <div class="pqx-card" style="margin-top:12px;">
+              <div class="pqx-card pqx-empty-outcome-summary" style="margin-top:12px;">
               <div class="pqx-pref-list">
                 <div class="pqx-pref-row"><div><strong>What happened</strong><small>{{ empty_outcome.get('happened') or ('The search stopped before a stable shortlist was ready.' if run_status == 'failed' else 'The search finished without a candidate clearing the shortlist.') }}</small></div></div>
                 <div class="pqx-pref-row"><div><strong>What still worked</strong><small>{{ empty_outcome.get('still_worked') or 'The brief and latest source receipts are still available.' }}</small></div></div>
@@ -5204,24 +5658,7 @@
       {% elif run_visible %}
       {% include "app/_property_running_panel.html" %}
       {% else %}
-      <section class="pqx-stage pqx-results{% if surface_mode == 'shortlist' %} pqx-results-single{% endif %}">
-        {% if results %}
-        <section class="pqx-finished-compare" data-pqx-finished-compare>
-          <div class="pqx-section-head">
-            <div>
-              <h2>{% if brief.get('search_goal') == 'investment' %}Best opportunities first{% else %}Best homes first{% endif %}</h2>
-              <div class="pqx-note">{{ results|length }} ranked · open one {% if brief.get('search_goal') == 'investment' %}property{% else %}home{% endif %} for the full property page.</div>
-            </div>
-            <div class="pqx-actions">
-              <button class="pqx-button" type="button" data-fliplink-shortlist-share>Share results</button>
-              <span class="pqx-pill good">{{ results|length }} ranked</span>
-            </div>
-          </div>
-          <div class="pqx-note">{% if brief.get('search_goal') == 'investment' %}Price, risk, and the strongest underwriting reason stay in the main list. Open one property only when it is worth deeper review.{% else %}Price, layout, fit, and the strongest reason stay in the main list. Open one home only when it is worth deeper review.{% endif %}</div>
-          {{ suppression_panel(workbench.get('suppression_rows') or [], counterfactual_rows) }}
-        </section>
-        {% endif %}
-        {% include "app/_property_selected_review_panel.html" %}
+      <section class="pqx-stage pqx-results">
         {% include "app/_property_results_list.html" %}
       </section>
       {% endif %}

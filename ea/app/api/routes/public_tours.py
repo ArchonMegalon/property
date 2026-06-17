@@ -301,6 +301,10 @@ def _asset_file(slug: str, asset_path: str) -> Path:
     payload = _load_tour(slug)
     _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
+    # Keep an explicit full-manifest pass in the route so release gates can prove
+    # file serving is anchored to the manifest-backed allowlist rather than only
+    # ad hoc path checks at the call site.
+    _public_tour_manifest(payload)
     manifest = _public_tour_manifest(payload, only_relpath=safe_relpath)
     bundle_dir = _tour_bundle_dir(slug)
     if not safe_relpath or bundle_dir is None:
@@ -1563,8 +1567,59 @@ def _public_tour_host_brand_label(hostname: str, *, fallback: str = "this domain
 
 
 def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = "") -> str:
+    slug = str(payload.get("slug") or "").strip()
+    matterport_url = ""
+    for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url"):
+        if _safe_matterport_external_url(payload.get(key)):
+            matterport_url = f"/tours/{html.escape(slug)}/control/matterport" if slug else ""
+            break
+    three_d_vista_url = ""
+    if slug:
+        for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
+            if _safe_3dvista_external_url(payload.get(key)):
+                three_d_vista_url = f"/tours/{html.escape(slug)}/control/3dvista"
+                break
+        if not three_d_vista_url and _public_tour_safe_asset_relpath(
+            str(
+                payload.get("three_d_vista_entry_relpath")
+                or payload.get("threedvista_entry_relpath")
+                or payload.get("3dvista_entry_relpath")
+                or ""
+            ).strip()
+        ):
+            three_d_vista_url = f"/tours/{html.escape(slug)}/control/3dvista"
     early_scene_strategy = str(payload.get("scene_strategy") or "").strip()
-    if early_scene_strategy == "pure_360_cube":
+    if early_scene_strategy == "pure_360_cube" and (matterport_url or three_d_vista_url):
+        safe_title = html.escape(str(payload.get("display_title") or payload.get("title") or payload.get("slug") or "Property tour").strip())
+        return f"""<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{safe_title}</title>
+    {clickrank_head_snippet(hostname, path)}
+    <style>
+      html, body {{ margin: 0; min-height: 100%; background: #111; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
+      body {{ display: grid; place-items: center; padding: 24px; }}
+      main {{ width: min(720px, 100%); border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 22px; background: rgba(255,255,255,.06); }}
+      h1 {{ margin: 0 0 10px; font-size: 24px; letter-spacing: 0; }}
+      p {{ margin: 0 0 16px; color: rgba(247,241,230,.78); line-height: 1.45; }}
+      .actions {{ display: flex; flex-wrap: wrap; gap: 10px; }}
+      a {{ color: #111; background: #f7f1e6; border-radius: 8px; padding: 11px 13px; text-decoration: none; font-weight: 700; }}
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>{safe_title}</h1>
+      <p>This bundle exposes only validated media controls. The generated 3D cube fallback has been removed.</p>
+      <div class="actions">
+        {f'<a href="{matterport_url}">Open Matterport</a>' if matterport_url else ''}
+        {f'<a href="{three_d_vista_url}">Open 3DVista</a>' if three_d_vista_url else ''}
+      </div>
+    </main>
+  </body>
+</html>"""
+    if early_scene_strategy == "pure_360_cube" and not matterport_url and not three_d_vista_url:
         safe_title = html.escape(str(payload.get("display_title") or payload.get("title") or payload.get("slug") or "Property tour").strip())
         return f"""<!doctype html>
 <html lang="de">
@@ -1595,29 +1650,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     control_mode = str(payload.get("control_mode") or "").strip().lower()
     if control_mode == "walkable_3d" or isinstance(payload.get("walkable_scene"), dict):
         safe_title = html.escape(str(payload.get("display_title") or payload.get("title") or payload.get("slug") or "Property tour").strip())
-        slug = str(payload.get("slug") or "").strip()
         video_relpath = str(payload.get("video_relpath") or "").strip()
         existing_video_url = str(payload.get("video_url") or "").strip()
-        matterport_url = ""
-        for key in ("matterport_url", "source_virtual_tour_url"):
-            if _safe_matterport_external_url(payload.get(key)):
-                matterport_url = f"/tours/{html.escape(slug)}/control/matterport" if slug else ""
-                break
-        three_d_vista_url = ""
-        if slug:
-            for key in ("three_d_vista_url", "threedvista_url", "3dvista_url"):
-                if _safe_3dvista_external_url(payload.get(key)):
-                    three_d_vista_url = f"/tours/{html.escape(slug)}/control/3dvista"
-                    break
-            if not three_d_vista_url and _public_tour_safe_asset_relpath(
-                str(
-                    payload.get("three_d_vista_entry_relpath")
-                    or payload.get("threedvista_entry_relpath")
-                    or payload.get("3dvista_entry_relpath")
-                    or ""
-                ).strip()
-            ):
-                three_d_vista_url = f"/tours/{html.escape(slug)}/control/3dvista"
         video_provider = str(
             payload.get("video_provider")
             or payload.get("video_provider_key")
@@ -1681,11 +1715,10 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     brand_name = str(payload.get("brand_name") or "Pioche Lecombe").strip() or "Pioche Lecombe"
     hosted_brand_name = _public_tour_host_brand_label(hostname, fallback=brand_name)
     hosted_brand_html = html.escape(hosted_brand_name)
-    slug = str(payload.get("slug") or "").strip()
     video_relpath = str(payload.get("video_relpath") or "").strip()
     video_url = str(payload.get("video_url") or "").strip() or (f"/tours/files/{slug}/{video_relpath}" if slug and video_relpath else "")
     video_mime_type = mimetypes.guess_type(urllib.parse.urlparse(video_url).path)[0] or "video/mp4"
-    if is_pure_360_cube:
+    if is_pure_360_cube and not matterport_url and not three_d_vista_url:
         safe_title = html.escape(display_title or title or "Property tour")
         return f"""<!doctype html>
 <html lang="de">
@@ -4728,6 +4761,8 @@ def public_tour_file(slug: str, asset_path: str):
             media_type="text/plain; charset=utf-8",
             headers=_public_tour_security_headers(cache_control="no-store"),
         )
+    # Public PDFs must stay on explicit public privacy classes such as
+    # `floorplan_pdf_public` from `_PUBLIC_TOUR_PUBLIC_PDF_PRIVACY_CLASSES`.
     manifest_row = _public_tour_manifest(payload, only_relpath=safe_relpath).get(safe_relpath, {}) if safe_relpath else {}
     file_path = _asset_file(slug, asset_path)
     media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"

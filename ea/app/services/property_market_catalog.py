@@ -3350,6 +3350,14 @@ def property_provider_access_level(platform_key: object) -> str:
 
 def normalize_property_search_preferences(preferences: dict[str, object] | None) -> dict[str, object]:
     payload = dict(preferences or {})
+    def _csv_without_blocked(raw_value: object, blocked: set[str]) -> str:
+        if isinstance(raw_value, (list, tuple, set)):
+            values = [str(item or "").strip() for item in raw_value if str(item or "").strip()]
+        else:
+            values = [part.strip() for part in str(raw_value or "").replace(";", ",").split(",") if part.strip()]
+        filtered = [value for value in values if str(value or "").strip().lower() not in blocked]
+        return ", ".join(dict.fromkeys(filtered))
+
     raw_search_mode = str(payload.get("search_mode") or "").strip().lower()
     payload["search_mode"] = raw_search_mode if raw_search_mode in {"strict", "discovery"} else "strict"
     search_goal = str(payload.get("search_goal") or "").strip().lower() or "home"
@@ -3364,6 +3372,10 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     if search_goal == "investment":
         payload["listing_mode"] = "buy"
     payload["property_type"] = normalize_property_type_values(payload.get("property_type"))
+    land_only_search = bool(payload["property_type"]) and "any" not in payload["property_type"] and all(
+        str(item or "").strip().lower() == "land"
+        for item in list(payload["property_type"] or [])
+    )
     investment_mode = str(payload.get("investment_research_mode") or "").strip().lower() or "off"
     if investment_mode not in INVESTMENT_RESEARCH_MODE_LABELS:
         investment_mode = "off"
@@ -3688,7 +3700,50 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         payload["enable_family_mode"] = False
         payload["enable_commute_research"] = False
         payload["enable_lifestyle_research"] = False
+        payload["school_stage_preferences"] = []
+        payload["require_school_evidence"] = False
+        payload["school_quality_priority"] = "any"
+        payload["preferred_reachability_modes"] = []
+        payload.pop("commute_destination", None)
+        payload.pop("additional_reachability_targets", None)
+        payload.pop("university_name", None)
+        for key in (
+            "max_commute_minutes_transit",
+            "max_commute_minutes_drive",
+            "max_commute_minutes_bike",
+            "max_commute_minutes_walk",
+            "max_distance_to_playground_m",
+            "max_distance_to_library_m",
+            "max_distance_to_zoo_m",
+            "max_distance_to_public_pool_m",
+            "max_distance_to_medical_care_m",
+            "max_distance_to_subway_m",
+            "max_distance_to_university_m",
+            "max_distance_to_starbucks_m",
+            "max_distance_to_fitness_center_m",
+            "max_distance_to_cinema_m",
+            "max_distance_to_bouldering_m",
+            "max_distance_to_dog_park_m",
+            "max_distance_to_good_cafe_m",
+        ):
+            payload.pop(key, None)
         payload["require_floorplan"] = bool(payload.get("require_floorplan")) or bool(payload.get("investment_require_floorplan"))
+    if land_only_search:
+        blocked_land_keywords = {"lift", "barrier-free", "balcony", "terrace", "no gas", "district heating", "bright"}
+        payload["require_floorplan"] = False
+        payload["require_energy_certificate"] = False
+        payload["require_operating_cost_statement"] = False
+        payload["investment_require_floorplan"] = False
+        payload["require_barrier_free"] = False
+        payload.pop("min_rooms", None)
+        payload["keywords"] = _csv_without_blocked(payload.get("keywords"), blocked_land_keywords)
+        payload["avoid_keywords"] = _csv_without_blocked(payload.get("avoid_keywords"), blocked_land_keywords)
+        if isinstance(payload.get("keyword_preferences"), dict):
+            payload["keyword_preferences"] = {
+                str(key or "").strip(): str(value or "").strip()
+                for key, value in dict(payload.get("keyword_preferences") or {}).items()
+                if str(key or "").strip() and str(key or "").strip().lower() not in blocked_land_keywords
+            }
     return payload
 
 

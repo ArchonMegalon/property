@@ -26,8 +26,7 @@
         </div>
       </div>
       <div class="pqx-context-actions" data-pw-actions>
-        {% if selected.get('tour', {}).get('url') %}<a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open 360</a>{% endif %}
-        {% if selected.get('packet_url') %}<a class="pqx-link-button{% if not selected.get('tour', {}).get('url') %} primary{% endif %}" href="{{ selected.get('packet_url') }}" data-rybbit-event="property_open_page" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open property page</a>{% endif %}
+        {% if selected.get('packet_url') %}<a class="pqx-link-button primary" href="{{ selected.get('packet_url') }}" data-rybbit-event="property_open_page" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open property page</a>{% endif %}
         <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}" data-rybbit-event="property_share_home" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Share this home</button>
       </div>
       <details class="pqx-decision-advanced" style="margin-top:12px;">
@@ -37,11 +36,11 @@
           {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}" target="_blank" rel="noreferrer" data-rybbit-event="property_open_listing" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open listing</a>{% endif %}
           {% if not selected.get('tour', {}).get('url') and selected.get('property_url') %}
           <button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="{{ selected.get('property_url') }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') or '' }}">Request 3D tour</button>
-          <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="{{ selected.get('property_url') }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') or '' }}">Request flythrough</button>
+          <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="{{ selected.get('property_url') }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') or '' }}">Request walkthrough</button>
           {% endif %}
           <button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="property_share_results">Share results</button>
         </div>
-        <div class="pqx-decision-status" data-pw-visual-request-status>{% if not selected.get('tour', {}).get('url') %}Need a remote view? Request a 3D tour or flythrough from the available source material.{% endif %}</div>
+        <div class="pqx-decision-status" data-pw-visual-request-status>{% if not selected.get('tour', {}).get('url') %}Need a remote view? Request a 3D tour or walkthrough from the available source material.{% endif %}</div>
       </details>
     </div>
   </div>

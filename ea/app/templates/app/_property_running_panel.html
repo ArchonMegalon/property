@@ -21,6 +21,43 @@
     </div>
     <div class="pqx-note" data-pqx-run-message>{{ run.get('message') or 'The search is queued.' }}</div>
     {{ progress_board(run, run_sources, research_task_counts) }}
+    <div data-pqx-live-best-match>
+      {% set provisional_candidates = (run.get('summary') or {}).get('ranked_candidates') or [] %}
+      {% set provisional = provisional_candidates[0] if provisional_candidates else None %}
+      {% if provisional %}
+      <section class="pqx-card" style="margin-top:14px;">
+        <div class="pqx-section-head">
+          <div>
+            <h2>Current best so far</h2>
+            <div class="pqx-note">This can still change before the run finishes.</div>
+          </div>
+          {% if provisional.get('fit_score') %}
+          <span class="pqx-pill">{{ provisional.get('fit_score')|int }}/100</span>
+          {% endif %}
+        </div>
+        <div class="pqx-pref-list">
+          <div class="pqx-pref-row">
+            <div>
+              <strong>{{ provisional.get('title') or 'Property candidate' }}</strong>
+              <small>{{ provisional.get('compare_reason') or provisional.get('fit_summary') or provisional.get('summary') or 'Current best candidate in this run.' }}</small>
+            </div>
+          </div>
+          <div class="pqx-pref-row">
+            <div><strong>Price</strong><small>{{ provisional.get('price_display') or 'Not confirmed yet' }}</small></div>
+            <div><strong>Layout</strong><small>{{ provisional.get('layout_display') or 'Still being verified' }}</small></div>
+            <div><strong>Area</strong><small>{{ provisional.get('location_label') or provisional.get('source_label') or 'Source match' }}</small></div>
+          </div>
+        </div>
+        <div class="pqx-actions">
+          {% if provisional.get('packet_url') %}
+          <a class="pqx-link-button primary" href="{{ provisional.get('packet_url') }}">Open property</a>
+          {% elif provisional.get('property_url') %}
+          <a class="pqx-link-button primary" href="{{ provisional.get('property_url') }}" target="_blank" rel="noreferrer">Open listing</a>
+          {% endif %}
+        </div>
+      </section>
+      {% endif %}
+    </div>
     <details class="pqx-card" data-pqx-running-details>
       <summary><strong>Search trail</strong></summary>
       {% if (research_task_counts.get('open') or 0) %}

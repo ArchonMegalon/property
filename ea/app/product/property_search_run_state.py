@@ -152,6 +152,24 @@ def property_search_run_stale_failure_event(
     }
 
 
+def property_search_run_terminal_outcome(
+    *,
+    sources_total: int,
+    failed_total: int,
+    successful_source_total: int,
+) -> str:
+    total_sources = max(0, int(sources_total or 0))
+    failed_sources = max(0, int(failed_total or 0))
+    successful_sources = max(0, int(successful_source_total or 0))
+    if failed_sources <= 0:
+        return "processed"
+    if successful_sources > 0:
+        return "completed_partial"
+    if total_sources > 0 and failed_sources >= total_sources:
+        return "failed"
+    return "completed_partial"
+
+
 def property_search_run_sync_summary(
     *,
     state: dict[str, object],
@@ -364,4 +382,7 @@ def new_property_search_run_record(
         "eta_seconds": 0,
         "eta_label": "",
         "eta_seconds_smoothed": 0,
+        "control_state": "active",
+        "pause_capable": True,
+        "pause_reason": "",
     }

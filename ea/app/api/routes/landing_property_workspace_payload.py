@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import urllib.parse
+import json
 
 from app.api.routes.landing_property_saved_searches import (
     build_agent_management_rows,
@@ -57,6 +59,7 @@ def property_workspace_payload(
         _csv_values,
         _normalize_property_type_values,
         _property_customer_run_summary,
+        _property_candidate_ref,
         _property_preference_schema,
         _property_result_title_display,
         _property_scope_preview,
@@ -104,8 +107,7 @@ def property_workspace_payload(
         break
     commercial = dict(property_state.get("commercial") or {})
     billing_truth = dict(property_state.get("billing_truth") or {})
-    property_preferences = dict(property_state.get("preferences") or {})
-    preference_person_id = str(property_state.get("preference_person_id") or property_preferences.get("preference_person_id") or "self").strip() or "self"
+    saved_property_preferences = dict(property_state.get("preferences") or {})
     preference_bundle = dict(property_state.get("preference_bundle") or {})
     raw_preference_nodes = (
         [
@@ -134,7 +136,11 @@ def property_workspace_payload(
     run_card = cards_by_eyebrow.get("run status", {})
     learning_card = cards_by_eyebrow.get("learning loop", {})
     recent_matches_card = cards_by_eyebrow.get("recent matches", {})
-    shortlist_candidates = list(property_meta.get("shortlist_candidates") or [])
+    shortlist_candidates = [
+        dict(candidate)
+        for candidate in list(property_meta.get("shortlist_candidates") or [])
+        if isinstance(candidate, dict)
+    ]
     if normalized_section == "properties":
         trimmed_meta = dict(property_meta)
         trimmed_meta.pop("search_agent", None)
@@ -143,11 +149,32 @@ def property_workspace_payload(
         property_form["meta"] = trimmed_meta
         property_meta = trimmed_meta
     run_payload = dict(property_state.get("run") or {})
+    run_property_preferences = dict(run_payload.get("property_search_preferences") or {}) if isinstance(run_payload.get("property_search_preferences"), dict) else {}
+    property_preferences = {**saved_property_preferences, **run_property_preferences}
+    preference_person_id = str(property_state.get("preference_person_id") or property_preferences.get("preference_person_id") or "self").strip() or "self"
     run_health = dict(property_state.get("run_health") or {})
     run_events = list(run_payload.get("events") or [])
     raw_run_summary = dict(run_payload.get("summary") or {})
     run_summary = _property_customer_run_summary(raw_run_summary)
     run_sources = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
+    raw_run_sources = [dict(row) for row in list(raw_run_summary.get("sources") or []) if isinstance(row, dict)]
+    if not shortlist_candidates:
+        ranked_candidates = [
+            dict(candidate)
+            for candidate in list(raw_run_summary.get("ranked_candidates") or [])
+            if isinstance(candidate, dict)
+        ]
+        if ranked_candidates:
+            shortlist_candidates = ranked_candidates
+        else:
+            synthesized_candidates: list[dict[str, object]] = []
+            for source in raw_run_sources:
+                source_label = str(source.get("source_label") or source.get("label") or "").strip()
+                for candidate in [dict(row) for row in list(source.get("top_candidates") or []) if isinstance(row, dict)]:
+                    candidate.setdefault("source_label", source_label)
+                    synthesized_candidates.append(candidate)
+            synthesized_candidates.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
+            shortlist_candidates = synthesized_candidates
     selected_locations = _csv_values(property_preferences.get("location_query"))
     selected_keywords = _csv_values(property_preferences.get("keywords"))
     selected_search_goal = normalized_property_search_goal(property_preferences.get("search_goal"))
@@ -179,6 +206,18 @@ def property_workspace_payload(
         else ""
     )
     selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
+    run_has_explicit_listing_context = bool(
+        run_property_preferences
+        or str(raw_run_summary.get("listing_mode") or "").strip()
+        or str(raw_run_summary.get("search_goal") or "").strip()
+    )
+    run_has_explicit_scope_context = bool(
+        run_property_preferences
+        or str(raw_run_summary.get("country_code") or "").strip()
+        or str(raw_run_summary.get("region_code") or "").strip()
+        or str(raw_run_summary.get("location_query") or "").strip()
+    )
+    review_scope_locations = selected_locations if run_has_explicit_scope_context else []
     suppression_rows = _property_suppression_rows(
         run_summary=run_summary,
         source_rows=run_sources,
@@ -354,14 +393,102 @@ def property_workspace_payload(
             or ""
         ).strip()
         rooms_value = str(facts.get("rooms") or facts.get("room_count") or "").strip()
-        area_value = str(facts.get("area_m2") or facts.get("living_area_m2") or "").strip()
+        area_value = str(
+            facts.get("area_display")
+            or facts.get("living_area_display")
+            or facts.get("usable_area_display")
+            or facts.get("area_m2")
+            or facts.get("living_area_m2")
+            or facts.get("area_sqm")
+            or ""
+        ).strip()
         if price_value:
             parts.append(price_value)
         if rooms_value:
             parts.append(f"{rooms_value} rooms")
         if area_value:
-            parts.append(f"{area_value} m2")
+            parts.append(area_value if "m2" in area_value.lower() or "m²" in area_value.lower() else f"{area_value} m2")
         return " | ".join(parts)
+
+    def _area_display(facts: dict[str, object]) -> str:
+        for key in (
+            "area_display",
+            "living_area_display",
+            "usable_area_display",
+            "wohnflaeche_display",
+            "wohnfläche_display",
+        ):
+            value = str(facts.get(key) or "").strip()
+            if value:
+                return value
+        for key in (
+            "area_m2",
+            "area_sqm",
+            "living_area_m2",
+            "living_area_sqm",
+            "usable_area_m2",
+            "wohnflaeche_m2",
+            "wohnfläche_m2",
+        ):
+            value = str(facts.get(key) or "").strip()
+            if value:
+                return f"{value} m2"
+        return ""
+
+    def _floorplan_url(facts: dict[str, object]) -> str:
+        for key in ("floorplan_preview_url", "floorplan_url", "floorplan_image_url"):
+            value = str(facts.get(key) or "").strip()
+            if value:
+                return value
+        for key in ("floorplan_urls_json", "floorplan_urls"):
+            raw = facts.get(key)
+            rows = raw if isinstance(raw, list) else []
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        rows = parsed
+                except Exception:
+                    rows = [raw]
+            for item in rows:
+                if isinstance(item, dict):
+                    for item_key in ("image_url", "url", "src", "href"):
+                        value = str(item.get(item_key) or "").strip()
+                        if value:
+                            return value
+                else:
+                    value = str(item or "").strip()
+                    if value:
+                        return value
+        return ""
+
+    def _obvious_listing_mode_mismatch(facts: dict[str, object], *, listing_mode: str) -> bool:
+        normalized_mode = str(listing_mode or "").strip().lower()
+        if normalized_mode == "buy":
+            has_buy_price = isinstance(_property_investment_price_eur(facts), float)
+            has_rent_signal = any(
+                facts.get(key)
+                for key in (
+                    "rent_display",
+                    "warm_rent_display",
+                    "cold_rent_display",
+                    "total_rent_display",
+                    "warm_rent_eur",
+                    "cold_rent_eur",
+                    "total_rent_eur",
+                    "rent_eur",
+                    "gesamtmiete_display",
+                )
+            )
+            return bool(has_rent_signal and not has_buy_price)
+        if normalized_mode == "rent":
+            has_buy_signal = isinstance(_property_investment_price_eur(facts), float)
+            has_rent_price = any(
+                facts.get(key)
+                for key in ("rent_display", "warm_rent_display", "cold_rent_display", "total_rent_display", "rent_eur", "total_rent_eur")
+            )
+            return bool(has_buy_signal and not has_rent_price)
+        return False
 
     compare_rows = []
     for candidate in shortlist_candidates[:3]:
@@ -746,6 +873,28 @@ def property_workspace_payload(
         status = str(candidate.get("tour_status") or "").strip().lower()
         eta_minutes = str(candidate.get("tour_eta_minutes") or "").strip()
         if tour_url:
+            blocked_fallback = False
+            try:
+                from app.product import property_tour_hosting
+
+                parsed_tour = urllib.parse.urlparse(tour_url)
+                path_parts = [part for part in str(parsed_tour.path or "").split("/") if part]
+                slug = path_parts[-1] if len(path_parts) >= 2 and path_parts[-2] == "tours" else ""
+                if slug:
+                    hosted_payload = property_tour_hosting._existing_hosted_property_tour_payload(slug)  # type: ignore[attr-defined]
+                    blocked_fallback = bool(
+                        hosted_payload and property_tour_hosting._property_tour_payload_is_disabled_fallback(hosted_payload)  # type: ignore[attr-defined]
+                    )
+            except Exception:
+                blocked_fallback = False
+            if blocked_fallback:
+                return {
+                    "status": "blocked",
+                    "label": "360 unavailable",
+                    "url": "",
+                    "embed_url": "",
+                    "eta_label": "A real hosted 3D tour is not available for this listing yet.",
+                }
             embed_url = "" if "myexternalbrain.com" in tour_url.lower() else tour_url
             return {"status": "ready", "label": "360 ready", "url": tour_url, "embed_url": embed_url, "eta_label": ""}
         if status in {"queued", "pending"}:
@@ -755,6 +904,49 @@ def property_workspace_payload(
         if status in {"blocked", "failed", "skipped", "not_applicable"}:
             return {"status": "blocked", "label": "360 unavailable", "url": "", "embed_url": "", "eta_label": _tour_source_gap_detail(candidate)}
         return {"status": "missing", "label": "360 unavailable", "url": "", "embed_url": "", "eta_label": _tour_source_gap_detail(candidate)}
+
+    def _flythrough_payload(candidate: dict[str, object]) -> dict[str, object]:
+        flythrough_url = str(candidate.get("flythrough_url") or "").strip()
+        status = str(candidate.get("flythrough_status") or "").strip().lower()
+        reason = str(candidate.get("flythrough_reason") or "").strip()
+        provider = str(candidate.get("flythrough_provider") or "").strip()
+        if flythrough_url:
+            return {
+                "status": "ready",
+                "label": "Open walkthrough",
+                "url": flythrough_url,
+                "detail": provider.replace("_", " ").title() if provider else "Walkthrough ready",
+                "progress_pct": 100,
+                "eta_label": "",
+            }
+        if status in {"queued", "pending"}:
+            return {
+                "status": "queued",
+                "label": "Walkthrough queued",
+                "url": "",
+                "detail": "Queued. Processing will start automatically.",
+                "progress_pct": 18,
+                "eta_label": "about 10 min",
+            }
+        if status in {"processing", "running", "in_progress", "started", "rendering"}:
+            return {
+                "status": "processing",
+                "label": "Walkthrough processing",
+                "url": "",
+                "detail": "Rendering from the top-ranked home.",
+                "progress_pct": 64,
+                "eta_label": "about 5 min",
+            }
+        if status in {"blocked", "failed", "skipped", "not_applicable"}:
+            return {
+                "status": "blocked",
+                "label": "Walkthrough unavailable",
+                "url": "",
+                "detail": reason or "Source material was not strong enough to render a walkthrough.",
+                "progress_pct": 0,
+                "eta_label": "",
+            }
+        return {"status": "missing", "label": "", "url": "", "detail": "", "progress_pct": 0, "eta_label": ""}
 
     def _fit_score_value(candidate: dict[str, object], facts: dict[str, object]) -> int:
         assessment = dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {}
@@ -838,26 +1030,42 @@ def property_workspace_payload(
             return None
         return amount if amount > 0.0 else None
 
+    def _property_investment_price_eur(facts: dict[str, object]) -> float | None:
+        for key in ("purchase_price_eur", "buy_price_eur", "price_eur", "price_numeric", "kaufpreis_eur"):
+            value = _money_numeric_value(facts.get(key))
+            if isinstance(value, float) and value > 0.0:
+                return value
+        return None
+
     def _candidate_costs_line(facts: dict[str, object], *, listing_mode: str, price_line: str) -> str:
         normalized_mode = str(listing_mode or "").strip().lower()
         for key in (
             "operating_costs_display",
             "operating_costs_monthly_display",
+            "betriebskosten_display",
+            "betriebskosten_monatlich_display",
             "service_charges_display",
             "additional_costs_display",
             "side_costs_display",
             "monthly_costs_display",
+            "warm_rent_display",
+            "cold_rent_display",
+            "total_rent_display",
+            "gesamtmiete_display",
         ):
             value = str(facts.get(key) or "").strip()
             if value:
                 return value
         for key in (
             "operating_costs_monthly",
+            "operating_costs_monthly_eur",
             "operating_costs",
             "service_charges_eur",
             "additional_costs_eur",
             "side_costs_eur",
             "betriebskosten_eur",
+            "betriebskosten_monatlich_eur",
+            "monthly_operating_costs_eur",
         ):
             value = _money_display(facts.get(key))
             if value:
@@ -874,11 +1082,11 @@ def property_workspace_payload(
                 return f"Warm rent {warm_rent}"
             if cold_rent and cold_rent != price_line:
                 return f"Cold rent {cold_rent}"
-            return "Additional costs not listed"
+            return "Operating costs not listed"
         price_per_sqm = _money_per_sqm_line(facts)
         if price_per_sqm:
             return price_per_sqm
-        return "Additional costs not listed"
+        return "Running costs not listed"
 
     def _title_price_fallback(title: object) -> str:
         text = " ".join(str(title or "").split()).strip()
@@ -895,8 +1103,216 @@ def property_workspace_payload(
                 return _normalized_money_text(raw) or raw
         return ""
 
+    def _candidate_price_signal(
+        facts: dict[str, object],
+        *,
+        listing_mode: str,
+        title: object,
+    ) -> str:
+        normalized_mode = str(listing_mode or "").strip().lower()
+        if normalized_mode == "buy":
+            for key in (
+                "price_display",
+                "purchase_price_display",
+                "buy_price_display",
+                "price_eur",
+                "purchase_price_eur",
+                "buy_price_eur",
+            ):
+                value = _money_display(facts.get(key)) if key.endswith("_eur") else str(facts.get(key) or "").strip()
+                if value:
+                    return value
+        else:
+            for key in (
+                "rent_display",
+                "monthly_rent_display",
+                "warm_rent_display",
+                "cold_rent_display",
+                "total_rent_display",
+                "rent_eur",
+                "monthly_rent_eur",
+                "warm_rent_eur",
+                "cold_rent_eur",
+                "total_rent_eur",
+            ):
+                value = _money_display(facts.get(key)) if key.endswith("_eur") else str(facts.get(key) or "").strip()
+                if value:
+                    return value
+        return _title_price_fallback(title)
+
+    def _candidate_is_generic_listing_page(
+        candidate: dict[str, object],
+        facts: dict[str, object],
+    ) -> bool:
+        title = " ".join(str(candidate.get("title") or "").split()).strip().lower()
+        url = str(candidate.get("property_url") or "").strip().lower()
+        concrete_signals = any(
+            (
+                facts.get("rooms"),
+                facts.get("living_area_sqm"),
+                facts.get("area_sqm"),
+                facts.get("usable_area_sqm"),
+                facts.get("price_eur"),
+                facts.get("purchase_price_eur"),
+                facts.get("buy_price_eur"),
+                facts.get("rent_eur"),
+                facts.get("monthly_rent_eur"),
+                facts.get("warm_rent_eur"),
+                facts.get("cold_rent_eur"),
+                facts.get("exact_address"),
+                facts.get("street_address"),
+            )
+        )
+        if concrete_signals:
+            return False
+        generic_title_markers = (
+            "immobiliensuche",
+            "bestandsobjekte",
+            "projekte",
+            "projekte in bau",
+            "projekte in planung",
+            "gemeindewohnungen",
+            "angebote",
+            "overview",
+            "suche",
+            "wohnungen",
+            "projektdetail",
+            "immobilien",
+            "projektentwickler",
+            "architekturwettbewerbe",
+        )
+        generic_url_markers = (
+            "/suche",
+            "/projekte",
+            "/projekt/",
+            "/angebote",
+            "/immobilien/",
+            "/immobilien",
+            "/overview",
+            "/bestandsobjekte",
+            "/gemeindewohnungen",
+        )
+        return any(marker in title for marker in generic_title_markers) or any(marker in url for marker in generic_url_markers)
+
+    def _candidate_is_non_residential(
+        candidate: dict[str, object],
+        facts: dict[str, object],
+    ) -> bool:
+        text = " ".join(
+            part for part in (
+                str(candidate.get("title") or "").strip(),
+                str(candidate.get("summary") or "").strip(),
+                str(candidate.get("property_url") or "").strip(),
+                str(facts.get("property_type") or "").strip(),
+            ) if part
+        ).lower()
+        non_res_markers = (
+            "lager",
+            "storage",
+            "garage",
+            "stellplatz",
+            "parkplatz",
+            "büro",
+            "buero",
+            "office",
+            "gewerbe",
+            "geschäftslokal",
+            "geschaeftslokal",
+            "retail",
+            "shop",
+            "local",
+        )
+        residential_markers = ("wohnung", "apartment", "flat", "haus", "house", "penthouse", "garden apartment")
+        return any(marker in text for marker in non_res_markers) and not any(marker in text for marker in residential_markers)
+
+    def _candidate_matches_selected_postal_scope(
+        candidate: dict[str, object],
+        facts: dict[str, object],
+        *,
+        selected_locations: list[str],
+    ) -> bool:
+        requested_postal_codes = {code for value in selected_locations for code in re.findall(r"\b\d{4}\b", str(value or ""))}
+        if not requested_postal_codes:
+            return True
+        concrete_text = " ".join(
+            part for part in (
+                str(candidate.get("title") or "").strip(),
+                str(candidate.get("property_url") or "").strip(),
+                str(facts.get("district") or "").strip(),
+                str(facts.get("postal_name") or "").strip(),
+                str(facts.get("street_address") or "").strip(),
+                str(facts.get("exact_address") or "").strip(),
+            ) if part
+        )
+        found_postal_codes = set(re.findall(r"\b\d{4}\b", concrete_text))
+        if not found_postal_codes:
+            return True
+        return bool(found_postal_codes & requested_postal_codes)
+
+    def _candidate_is_shortlist_admissible(
+        candidate: dict[str, object],
+        facts: dict[str, object],
+        *,
+        listing_mode: str,
+        selected_locations: list[str],
+    ) -> bool:
+        source_family = str(candidate.get("source_family") or facts.get("source_family") or "").strip().lower()
+        has_price_signal = bool(_candidate_price_signal(facts, listing_mode=listing_mode, title=candidate.get("title")))
+        has_area_signal = bool(
+            str(facts.get("living_area_sqm") or "").strip()
+            or str(facts.get("area_sqm") or "").strip()
+            or str(facts.get("usable_area_sqm") or "").strip()
+        )
+        if _candidate_is_non_residential(candidate, facts):
+            return False
+        if _candidate_is_generic_listing_page(candidate, facts):
+            return False
+        if not _candidate_matches_selected_postal_scope(candidate, facts, selected_locations=selected_locations):
+            return False
+        if source_family == "developer_projects" and not has_price_signal and not has_area_signal:
+            return False
+        has_core_signal = bool(
+            has_price_signal
+            or str(facts.get("rooms") or "").strip()
+            or has_area_signal
+            or str(candidate.get("tour_url") or "").strip()
+            or str(_floorplan_url(facts) or "").strip()
+        )
+        if not has_core_signal:
+            return False
+        return True
+
+    def _candidate_repair_flag(
+        candidate: dict[str, object],
+        facts: dict[str, object],
+        *,
+        listing_mode: str,
+        selected_locations: list[str],
+    ) -> tuple[str, str]:
+        if not _candidate_matches_selected_postal_scope(candidate, facts, selected_locations=selected_locations):
+            return ("Maybe false", "Flagged for repair: listing looks outside the selected districts.")
+        if not any(
+            str(facts.get(key) or "").strip()
+            for key in ("district", "postal_name", "street_address", "exact_address")
+        ):
+            return ("Maybe false", "Flagged for repair: provider extract did not produce a concrete location.")
+        if not _candidate_price_signal(facts, listing_mode=listing_mode, title=candidate.get("title")):
+            return ("Maybe false", "Flagged for repair: provider extract did not produce a concrete price.")
+        if str(candidate.get("flythrough_raw_status") or "").strip().lower() == "failed" and str(candidate.get("flythrough_url") or "").strip():
+            return ("Repair flagged", "Renderer reported failed even though a hosted walkthrough exists.")
+        return ("", "")
+
     for candidate in shortlist_candidates:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        if run_has_explicit_listing_context and _obvious_listing_mode_mismatch(facts, listing_mode=effective_listing_mode):
+            continue
+        if not _candidate_is_shortlist_admissible(
+            candidate,
+            facts,
+            listing_mode=effective_listing_mode,
+            selected_locations=review_scope_locations,
+        ):
+            continue
         price_line = str(
             facts.get("price_display")
             or facts.get("rent_display")
@@ -917,10 +1333,7 @@ def property_workspace_payload(
         if not price_line:
             price_line = "n/a"
         fit_score = _fit_score_value(candidate, facts)
-        layout_parts = [
-            _rooms_layout_part(facts),
-            f"{facts.get('area_m2') or facts.get('area_sqm')} m2" if (facts.get("area_m2") or facts.get("area_sqm")) else "",
-        ]
+        layout_parts = [_rooms_layout_part(facts), _area_display(facts)]
         layout_verified = bool(
             facts.get("has_floorplan")
             or facts.get("floorplan_count")
@@ -929,11 +1342,15 @@ def property_workspace_payload(
             or facts.get("floorplan_urls")
         )
         packet_url = str(candidate.get("packet_url") or candidate.get("review_url") or "").strip()
-        packet_label = "Property page" if packet_url else "Pending"
         map_url = str(candidate.get("map_url") or "").strip() or _property_candidate_maps_url(candidate)
         tour_status_line = _tour_status_line(candidate)
         ooda_detail = _distance_line(candidate)
         candidate_ref = str(packet_url or "").split("/app/research/", 1)[-1].split("?", 1)[0] if "/app/research/" in packet_url else _property_candidate_ref(candidate)
+        if not packet_url and candidate_ref:
+            packet_url = f"/app/research/{candidate_ref}"
+            if run_id:
+                packet_url = f"{packet_url}?run_id={urllib.parse.quote(run_id, safe='')}"
+        packet_label = "Property page" if packet_url else "Pending"
         tour_payload = _tour_payload(candidate)
         ooda_rows = _candidate_ooda_rows(candidate, facts)
         risk_payload = _risk_summary(candidate, facts)
@@ -969,6 +1386,12 @@ def property_workspace_payload(
             "blockers": [str(item).strip() for item in list(candidate_investment.get("blockers") or []) if str(item).strip()][:3],
         }
         orientation_preview = _property_candidate_orientation_preview(candidate)
+        repair_flag_label, repair_flag_detail = _candidate_repair_flag(
+            candidate,
+            facts,
+            listing_mode=effective_listing_mode,
+            selected_locations=review_scope_locations,
+        )
         workbench_results.append(
             build_property_workbench_candidate_snapshot(
                 candidate_ref=candidate_ref,
@@ -977,8 +1400,8 @@ def property_workspace_payload(
                 recovered_by_filter=bool(candidate.get("recovered_by_filter") or candidate.get("counterfactual_recovered")),
                 relaxed_filter_label=str(candidate.get("relaxed_filter_label") or candidate.get("counterfactual_label") or "").strip(),
                 preview_image_url=str(candidate.get("preview_image_url") or _property_candidate_preview_image(candidate) or "").strip(),
-                source_label=str(candidate.get("source_label") or "").strip(),
-                location_label=str(facts.get("postal_name") or facts.get("city") or facts.get("address") or "").strip(),
+                source_label=_compact_provider_label(candidate.get("source_label") or ""),
+                location_label=str(facts.get("district") or facts.get("postal_name") or facts.get("city") or facts.get("address") or "").strip(),
                 price_display=price_line,
                 costs_display=_candidate_costs_line(
                     facts,
@@ -992,6 +1415,7 @@ def property_workspace_payload(
                 fit_label=str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(),
                 fit_summary=_clean_property_candidate_copy(candidate.get("fit_summary") or ""),
                 tour=tour_payload,
+                flythrough=_flythrough_payload(candidate),
                 orientation_preview=orientation_preview,
                 ooda={
                     "summary": ooda_detail or (match_reasons[0] if match_reasons else "Open the property page to inspect the decision read."),
@@ -1007,6 +1431,7 @@ def property_workspace_payload(
                 property_url=str(candidate.get("property_url") or "").strip(),
                 map_url=map_url,
                 source_url=str(candidate.get("property_url") or "").strip(),
+                floorplan_url=_floorplan_url(facts),
                 property_facts=facts,
                 assessment=dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
                 objection_rows=_candidate_objection_rows(candidate, facts),
@@ -1053,12 +1478,14 @@ def property_workspace_payload(
                 energy_rows=detail_sections["energy_rows"],
                 household_alignment_score=int(dict(candidate.get("feedback_summary") or {}).get("household_alignment_score") or 0) if isinstance(candidate.get("feedback_summary"), dict) else 0,
                 household_alignment_label=str(dict(candidate.get("feedback_summary") or {}).get("family_alignment") or "waiting") if isinstance(candidate.get("feedback_summary"), dict) else "waiting",
+                repair_flag_label=repair_flag_label,
+                repair_flag_detail=repair_flag_detail,
             )
         )
         results_table_rows.append(
             {
                 "cells": [
-                    {"title": "Open 360" if str(candidate.get("tour_url") or "").strip() else tour_status_line, "detail": tour_status_line if str(candidate.get("tour_url") or "").strip() else "", "href": str(candidate.get("tour_url") or "").strip()},
+                    {"title": "Open 360" if str(candidate.get("tour_url") or "").strip() else tour_status_line, "detail": "Hosted 360 tour" if str(candidate.get("tour_url") or "").strip() else "", "href": str(candidate.get("tour_url") or "").strip()},
                     {"title": f"#{len(results_table_rows) + 1} {str(candidate.get('title') or 'Candidate').strip() or 'Candidate'}", "detail": str(candidate.get("source_label") or "").strip()},
                     {"title": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(), "detail": str(candidate.get("fit_summary") or "").strip()},
                     {"title": "Open Map" if map_url else "Map pending", "detail": "", "href": map_url},
@@ -1956,6 +2383,8 @@ def property_workspace_payload(
             progress=int(run_health.get("progress") or run_payload.get("progress") or 0),
             message=run_status_note or run_message,
             status_url=str(run_health.get("status_url") or run_payload.get("status_url") or "").strip(),
+            filtered_total=int(run_health.get("filtered_total") or 0),
+            held_back_total=int(run_health.get("held_back_total") or 0),
             summary=run_summary,
             events=run_events[-8:],
             worker_state=search_worker_state,

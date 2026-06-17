@@ -1,24 +1,37 @@
 <section class="pqx-result-panel active" data-pqx-mobile-panel="results">
+  {% set run_summary = run.get('summary') or {} %}
+  {% set filtered_total = run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or run_summary.get('filtered_out_total') or 0 %}
+  {% if not filtered_total %}
+    {% set filtered_total = (run_summary.get('filtered_area_total') or 0) + (run_summary.get('filtered_floorplan_total') or 0) + (run_summary.get('filtered_low_fit_total') or 0) + (run_summary.get('notification_budget_suppressed_total') or 0) %}
+  {% endif %}
+  {% if not filtered_total and suppression_rows %}
+    {% set filtered_total = suppression_rows|sum(attribute='affected_total') %}
+  {% endif %}
   <div class="pqx-result-panel-head">
-    <div>
-      <div class="pqx-note">
+    <div class="pqx-results-headline">
+      <div class="pqx-note pqx-results-summary-row">
         {% if brief.get('search_goal') == 'investment' %}
-        <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> ranked opportunities</a> · start with the strongest return and risk read, then open one property for the full underwriting page.
+        <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> ranked opportunities</a>
         {% else %}
-        <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> ranked homes</a> · start with the strongest short read, then open one home for the full property page.
+        <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> ranked homes</a>
+        {% endif %}
+        {% if filtered_total %}
+        <button class="pqx-results-summary-link pqx-results-filter-link" type="button" data-pqx-filtered-open aria-label="{{ filtered_total }} filtered">
+          {{ filtered_total }} filtered
+        </button>
         {% endif %}
       </div>
     </div>
-    <span class="pqx-pill good">{{ run.get('status_label') or 'Completed' }}</span>
   </div>
   <div class="pqx-results-list" id="results-list" data-workbench-results-table>
     {% for candidate in results %}
     <article class="pqx-result pqx-card{% if candidate.get('recovered_by_filter') %} is-filter-recovered{% endif %}{% if loop.first %} is-top-ranked{% endif %}" role="button" tabindex="0" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
       {% set orientation_preview = candidate.get('orientation_preview') or {} %}
-      {% set primary_preview_url = orientation_preview.get('image_url') or candidate.get('preview_image_url') or '' %}
+      {% set primary_preview_url = candidate.get('preview_image_url') or orientation_preview.get('thumb_image_url') or orientation_preview.get('image_url') or '' %}
       {% set primary_price = candidate.get('price_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('costs_display') or 'No price published') %}
       {% set secondary_price = candidate.get('costs_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('price_per_sqm_display') or candidate.get('costs_display') or '') %}
       {% set thesis_line = candidate.get('investment', {}).get('headline') if brief.get('search_goal') == 'investment' else '' %}
+      {% set fit_tooltip = candidate.get('fit_summary') or ((candidate.get('match_reasons') or [])[:2]|join(' · ')) or 'Personal fit score from the current shortlist pass.' %}
       {% if not thesis_line %}
       {% set thesis_line = (candidate.get('match_reasons') or [candidate.get('fit_summary') or ''])|first %}
       {% endif %}
@@ -26,77 +39,63 @@
       <span class="pqx-result-main">
         <span class="pqx-result-media{% if not primary_preview_url %} no-thumb{% endif %}">
           {% if primary_preview_url %}
+          {% if candidate.get('packet_url') %}
+          <a class="pqx-thumb pqx-thumb-link" href="{{ candidate.get('packet_url') }}" aria-label="Open {{ candidate.get('title') or 'property' }}">
+          {% else %}
           <span class="pqx-thumb">
+          {% endif %}
             <img src="{{ primary_preview_url }}" alt="" loading="lazy" decoding="async" fetchpriority="low">
-            {% if orientation_preview.get("district_rows") %}
-            <svg class="pqx-previous-district-hotspots" viewBox="0 0 640 368" preserveAspectRatio="none" aria-hidden="true">
-              {% for row in orientation_preview.get("district_rows") or [] %}
-              {% if row.get("path") %}
-              <path class="pqx-previous-district-hotspot{% if row.get('selected') %} is-selected{% endif %}" d="{{ row.get('path') }}"></path>
-              {% endif %}
-              {% endfor %}
-            </svg>
-            {% endif %}
+          {% if candidate.get('packet_url') %}
+          </a>
+          {% else %}
           </span>
+          {% endif %}
           {% endif %}
           <span class="pqx-result-summary">
             <span class="pqx-result-kicker"><span class="pqx-rank">#{{ candidate.get('rank') }}</span>{% if candidate.get('location_label') %}<span>{{ candidate.get('location_label') }}</span>{% endif %}</span>
             <span class="pqx-result-title">{{ candidate.get('title') }}</span>
-            <span class="pqx-meta">{{ candidate.get('source_label') or 'Source' }}</span>
+            <span class="pqx-result-facts">
+              {% if candidate.get('repair_flag_label') %}
+              <span class="pqx-result-fact warn" title="{{ candidate.get('repair_flag_detail') }}">{{ candidate.get('repair_flag_label') }}</span>
+              {% endif %}
+              {% if candidate.get('recovered_by_filter') %}<span class="pqx-result-fact recovered">Recovered</span>{% endif %}
+              {% if candidate.get('layout_display') and candidate.get('floorplan_url') %}
+              <button
+                class="pqx-result-fact pqx-result-fact-button"
+                type="button"
+                data-pqx-scope-open
+                data-pqx-scope-image="{{ candidate.get('floorplan_url') }}"
+                data-pqx-scope-alt="Floorplan for {{ candidate.get('title') or 'property' }}"
+                data-pqx-scope-title="Floorplan"
+                data-pqx-scope-caption="{{ candidate.get('title') or 'Property' }}"
+                data-pqx-scope-overlay="[]"
+              >{{ candidate.get('layout_display') }}</button>
+              {% elif candidate.get('layout_display') %}
+              <span class="pqx-result-fact">{{ candidate.get('layout_display') }}</span>
+              {% endif %}
+              {% if brief.get('search_goal') == 'investment' and candidate.get('investment', {}).get('gross_yield_display') %}
+              <span class="pqx-result-fact">{{ candidate.get('investment', {}).get('gross_yield_display') }}</span>
+              {% endif %}
+              {% if brief.get('search_goal') == 'investment' and candidate.get('investment', {}).get('net_yield_display') %}
+              <span class="pqx-result-fact">{{ candidate.get('investment', {}).get('net_yield_display') }}</span>
+              {% endif %}
+              {% if brief.get('search_goal') == 'investment' and candidate.get('investment', {}).get('market_delta_display') %}
+              <span class="pqx-result-fact">{{ candidate.get('investment', {}).get('market_delta_display') }}</span>
+              {% endif %}
+              {% if candidate.get('tour', {}).get('status') == 'ready' and candidate.get('tour', {}).get('url') %}
+              <a class="pqx-result-fact pqx-result-tour-link" href="{{ candidate.get('tour', {}).get('url') }}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') }}">360 ready</a>
+              {% elif candidate.get('tour', {}).get('status') in ['queued', 'processing'] and candidate.get('tour', {}).get('label') %}
+              <span class="pqx-result-fact">{{ candidate.get('tour', {}).get('label') }}</span>
+              {% endif %}
+            </span>
           </span>
         </span>
-        <span class="pqx-result-topline">
-          {% if candidate.get('packet_url') %}
-          <a class="pqx-result-open" href="{{ candidate.get('packet_url') }}">Open property</a>
-          {% endif %}
-        </span>
-        <span class="pqx-result-facts">
-          {% if candidate.get('recovered_by_filter') %}<span class="pqx-result-fact recovered">Recovered{% if candidate.get('relaxed_filter_label') %}: {{ candidate.get('relaxed_filter_label') }}{% endif %}</span>{% endif %}
-          {% if candidate.get('layout_display') %}<span class="pqx-result-fact">{{ candidate.get('layout_display') }}</span>{% endif %}
-          {% if brief.get('search_goal') == 'investment' and candidate.get('investment', {}).get('gross_yield_display') %}
-          <span class="pqx-result-fact">{{ candidate.get('investment', {}).get('gross_yield_display') }}</span>
-          {% endif %}
-          {% if brief.get('search_goal') == 'investment' and candidate.get('investment', {}).get('net_yield_display') %}
-          <span class="pqx-result-fact">{{ candidate.get('investment', {}).get('net_yield_display') }}</span>
-          {% endif %}
-          {% if brief.get('search_goal') == 'investment' and candidate.get('investment', {}).get('market_delta_display') %}
-          <span class="pqx-result-fact">{{ candidate.get('investment', {}).get('market_delta_display') }}</span>
-          {% endif %}
-          {% if brief.get('search_goal') == 'investment' and candidate.get('investment', {}).get('score_display') %}
-          <span class="pqx-result-fact">{{ candidate.get('investment', {}).get('score_display') }}</span>
-          {% endif %}
-          {% if candidate.get('tour', {}).get('status') == 'ready' %}
-          <span class="pqx-result-fact">360 ready</span>
-          {% elif candidate.get('tour', {}).get('status') in ['queued', 'processing'] and candidate.get('tour', {}).get('label') %}
-          <span class="pqx-result-fact">{{ candidate.get('tour', {}).get('label') }}</span>
-          {% endif %}
-        </span>
-        <span class="pqx-result-thesis">
-          {% if loop.first %}
-          <span class="pqx-pill good" style="margin-right:8px;">{% if brief.get('search_goal') == 'investment' %}Best current opportunity{% else %}Best current home{% endif %}</span>
-          {% endif %}
-          {{ thesis_line }}
-        </span>
-        <span class="pqx-result-reason">
-          {% if brief.get('search_goal') == 'investment' %}
-          Why it ranks: {{ candidate.get('investment', {}).get('underwriting_summary') or candidate.get('investment', {}).get('confidence_label') or 'This opportunity cleared the current return and risk screen.' }}
-          {% else %}
-          Why it ranks: {{ candidate.get('fit_summary') or 'This home cleared the current shortlist.' }}
-          {% endif %}
-        </span>
-        {% if blocker_line and blocker_line != thesis_line %}
-        <span class="pqx-result-blocker">Watch-out: {{ blocker_line }}</span>
-        {% endif %}
-        {% if brief.get('search_goal') == 'investment' and (candidate.get('investment', {}).get('confidence_label') or candidate.get('investment', {}).get('feed_status_label')) %}
-        <span class="pqx-result-blocker">Confidence: {{ candidate.get('investment', {}).get('confidence_label') or 'Partial' }}{% if candidate.get('investment', {}).get('feed_status_label') %} · {{ candidate.get('investment', {}).get('feed_status_label') }}{% endif %}</span>
-        {% endif %}
-        <span class="pqx-result-action">{% if brief.get('search_goal') == 'investment' %}Open the investment read.{% else %}Open property details.{% endif %}</span>
       </span>
       <span class="pqx-result-aside">
-        {% if candidate.get('tour', {}).get('status') in ['ready', 'queued', 'processing'] %}
-        <span class="pqx-pill{% if candidate.get('tour', {}).get('status') == 'ready' %} good{% else %} warn{% endif %}">{{ candidate.get('tour', {}).get('label') }}</span>
-        {% endif %}
-        <strong class="pqx-result-price">{{ primary_price }}</strong>
+        <span class="pqx-result-value-row">
+          <strong class="pqx-result-price">{{ primary_price }}</strong>
+          <span class="pqx-result-fit-score">Score: {{ candidate.get('fit_score') or 0 }} <button type="button" class="pqx-tooltip" title="{{ fit_tooltip }}" aria-label="{{ fit_tooltip }}" aria-expanded="false" data-tooltip-trigger>?</button></span>
+        </span>
         {% if brief.get('search_goal') == 'investment' and candidate.get('investment', {}).get('dscr_display') %}
         <span class="pqx-result-secondary">{{ candidate.get('investment', {}).get('dscr_display') }}</span>
         {% elif brief.get('search_goal') == 'investment' and candidate.get('investment', {}).get('expected_rent_display') %}
@@ -106,14 +105,52 @@
         {% elif secondary_price %}
         <span class="pqx-result-secondary">{{ secondary_price }}</span>
         {% endif %}
-        <span class="pqx-status-line">
-          {% if brief.get('search_goal') == 'investment' and candidate.get('investment', {}).get('confidence_label') %}
-          {{ candidate.get('investment', {}).get('feed_status_label') or candidate.get('investment', {}).get('confidence_label') }}
-          {% elif candidate.get('tour', {}).get('status') in ['queued', 'processing'] and candidate.get('tour', {}).get('eta_label') %}
-          {{ candidate.get('tour', {}).get('eta_label') }}
-          {% else %}
-          Open property
+        <span class="pqx-result-actions">
+          {% if candidate.get('map_url') %}
+          <a class="pqx-result-open" href="{{ candidate.get('map_url') }}" target="_blank" rel="noreferrer">Map</a>
           {% endif %}
+          {% if candidate.get('source_url') or candidate.get('property_url') %}
+          <a class="pqx-result-open" href="{{ candidate.get('source_url') or candidate.get('property_url') }}" target="_blank" rel="noopener noreferrer">Open listing</a>
+          {% endif %}
+          {% if loop.first and brief.get('plan_key') == 'agent' %}
+          {% set walkthrough = candidate.get('flythrough') or {} %}
+          {% set walkthrough_label = walkthrough.get('label') or ('Open walkthrough' if walkthrough.get('url') else 'Video processing') %}
+          {% set walkthrough_eta = walkthrough.get('eta_label') or '' %}
+          {% set walkthrough_detail = walkthrough.get('detail') or ('Walkthrough is being rendered for the top-ranked home.' if not walkthrough.get('url') else 'Walkthrough ready') %}
+          {% set walkthrough_tooltip = walkthrough_detail ~ ((' · ETA ' ~ walkthrough_eta) if walkthrough_eta else '') %}
+          {% set walkthrough_progress = walkthrough.get('progress_pct') or (100 if walkthrough.get('url') else 22) %}
+          {% if walkthrough.get('url') %}
+          <a class="pqx-progress-button is-ready" href="{{ walkthrough.get('url') }}" title="{{ walkthrough_tooltip }}" aria-label="{{ walkthrough_tooltip }}">Open walkthrough</a>
+          {% else %}
+          <button class="pqx-progress-button{% if walkthrough.get('status') == 'blocked' %} is-blocked{% else %} is-processing{% endif %}" type="button" disabled style="--pqx-fill: {{ walkthrough_progress }}%;" title="{{ walkthrough_tooltip }}" aria-label="{{ walkthrough_tooltip }}">{{ walkthrough_label }}</button>
+          {% endif %}
+          {% elif candidate.get('flythrough', {}).get('url') %}
+          <a class="pqx-result-open" href="{{ candidate.get('flythrough', {}).get('url') }}">Open walkthrough</a>
+          {% elif candidate.get('property_url') %}
+          <button
+            class="pqx-result-open pqx-result-open-button"
+            type="button"
+            data-pw-visual-request="flythrough"
+            data-property-url="{{ candidate.get('property_url') }}"
+            data-source-ref="{{ candidate.get('source_ref') or '' }}"
+            data-candidate-ref="{{ candidate.get('candidate_ref') or '' }}"
+            data-run-id="{{ run.get('run_id') or '' }}"
+            data-rybbit-event="property_request_flythrough"
+            data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') or '' }}"
+          >Render walkthrough</button>
+          {% endif %}
+        {% if candidate.get('packet_url') %}
+          <a class="pqx-result-open" href="{{ candidate.get('packet_url') }}">Open property</a>
+        {% endif %}
+        {% if surface_mode == 'shortlist' %}
+          <button
+            class="pqx-result-open pqx-result-open-button"
+            type="button"
+            data-pw-decision-state="archived"
+            data-candidate-ref="{{ candidate.get('candidate_ref') or '' }}"
+            data-pw-remove-row
+          >Remove</button>
+        {% endif %}
         </span>
       </span>
     </article>

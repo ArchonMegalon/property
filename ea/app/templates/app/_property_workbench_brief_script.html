@@ -42,8 +42,8 @@
         return null;
       }
     };
-    const csvValues = (value) => String(value || '').split(',').map((item) => String(item || '').trim()).filter(Boolean);
-    const uniqueValues = (...groups) => {
+    const briefCsvValues = (value) => String(value || '').split(',').map((item) => String(item || '').trim()).filter(Boolean);
+    const briefUniqueValues = (...groups) => {
       const seen = new Set();
       const values = [];
       groups.flat().forEach((value) => {
@@ -69,6 +69,123 @@
       form?.querySelectorAll(`input[name="${name}"]`).forEach((node) => {
         node.checked = selected.has(String(node.value || '').trim().toLowerCase());
       });
+    };
+    const keywordPreferenceValues = (form) => {
+      const positive = [];
+      const avoid = [];
+      const map = {};
+      form?.querySelectorAll('[data-keyword-preference-select]').forEach((node) => {
+        const keywordValue = String(node.getAttribute('data-keyword-value') || '').trim();
+        const state = String(node.value || 'any').trim().toLowerCase();
+        if (!keywordValue || !state || state === 'any') return;
+        map[keywordValue] = state;
+        if (state === 'avoid') avoid.push(keywordValue);
+        else positive.push(keywordValue);
+      });
+      return { positive, avoid, map };
+    };
+    const keywordDistanceValues = (form) => {
+      const map = {};
+      form?.querySelectorAll('[data-keyword-distance-select]').forEach((node) => {
+        const keywordValue = String(node.getAttribute('data-keyword-value') || '').trim();
+        const distanceValue = String(node.value || '').trim();
+        if (!keywordValue || !distanceValue) return;
+        map[keywordValue] = distanceValue;
+      });
+      return map;
+    };
+    const setKeywordPreferenceValues = (form, values, state = 'important') => {
+      const selected = new Set((values || []).map((item) => String(item || '').trim().toLowerCase()).filter(Boolean));
+      form?.querySelectorAll('[data-keyword-preference-select]').forEach((node) => {
+        const keywordValue = String(node.getAttribute('data-keyword-value') || '').trim().toLowerCase();
+        node.value = selected.has(keywordValue) ? state : 'any';
+      });
+    };
+    const syncKeywordDistanceSelects = (form) => {
+      form?.querySelectorAll('[data-keyword-priority-row]').forEach((row) => {
+        const preferenceSelect = row.querySelector('[data-keyword-preference-select]');
+        const distanceSelect = row.querySelector('[data-keyword-distance-select]');
+        if (!(preferenceSelect instanceof HTMLSelectElement) || !(distanceSelect instanceof HTMLSelectElement)) return;
+        const enabled = String(preferenceSelect.value || 'any').trim().toLowerCase() !== 'any';
+        distanceSelect.disabled = !enabled;
+        row.dataset.keywordDistanceEnabled = enabled ? 'true' : 'false';
+      });
+    };
+    const selectedPropertyTypes = (form) => {
+      const values = checkedValues(form, 'property_type').map((item) => String(item || '').trim().toLowerCase()).filter(Boolean);
+      return values.length ? values : ['any'];
+    };
+    const propertyTypesAllowLand = (values) => values.includes('any') || values.includes('land');
+    const propertyTypesLandOnly = (values) => values.length > 0 && !values.includes('any') && values.every((value) => value === 'land');
+    const syncPropertyTypeDependentFilters = (form) => {
+      const types = selectedPropertyTypes(form);
+      const allowLand = propertyTypesAllowLand(types);
+      const landOnly = propertyTypesLandOnly(types);
+      const landOnlyCheckboxFields = [
+        'investment_require_floorplan',
+        'require_floorplan',
+        'require_energy_certificate',
+        'require_operating_cost_statement',
+      ];
+      form?.querySelectorAll('[data-keyword-priority-row]').forEach((row) => {
+        const keywordValue = String(row.getAttribute('data-keyword-value') || '').trim().toLowerCase();
+        const shouldHide = (keywordValue === 'baugrund' && !allowLand)
+          || (landOnly && ['lift', 'barrier-free', 'balcony', 'terrace', 'no gas', 'district heating', 'bright'].includes(keywordValue));
+        row.hidden = shouldHide;
+        if (shouldHide) {
+          const select = row.querySelector('[data-keyword-preference-select]');
+          if (select) select.value = 'any';
+          const distanceSelect = row.querySelector('[data-keyword-distance-select]');
+          if (distanceSelect) distanceSelect.value = '500';
+        }
+      });
+      syncKeywordDistanceSelects(form);
+      const minRoomsField = form?.querySelector('[data-property-field-name="min_rooms"]');
+      if (minRoomsField) {
+        if (landOnly) {
+          minRoomsField.dataset.propertyCollapsedBy = 'property_type';
+        } else if (String(minRoomsField.dataset.propertyCollapsedBy || '').trim() === 'property_type') {
+          minRoomsField.dataset.propertyCollapsedBy = '';
+        }
+        const stepVisible = String(minRoomsField.dataset.propertyStepVisible || '').trim() !== 'false';
+        const semanticallyHidden = minRoomsField.hasAttribute('aria-hidden');
+        const collapsedBy = String(minRoomsField.dataset.propertyCollapsedBy || '').trim();
+        minRoomsField.hidden = !stepVisible || semanticallyHidden || Boolean(collapsedBy);
+        if (landOnly) {
+          const input = minRoomsField.querySelector('[name="min_rooms"]');
+          if (input) {
+            input.value = '0';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }
+      }
+      landOnlyCheckboxFields.forEach((name) => {
+        const fieldWrap = form?.querySelector(`[data-property-field-name="${name}"]`);
+        if (!fieldWrap) return;
+        if (landOnly) {
+          fieldWrap.dataset.propertyCollapsedBy = 'property_type';
+        } else if (String(fieldWrap.dataset.propertyCollapsedBy || '').trim() === 'property_type') {
+          fieldWrap.dataset.propertyCollapsedBy = '';
+        }
+        const stepVisible = String(fieldWrap.dataset.propertyStepVisible || '').trim() !== 'false';
+        const semanticallyHidden = fieldWrap.hasAttribute('aria-hidden');
+        const collapsedBy = String(fieldWrap.dataset.propertyCollapsedBy || '').trim();
+        fieldWrap.hidden = !stepVisible || semanticallyHidden || Boolean(collapsedBy);
+        if (landOnly) {
+          const input = fieldWrap.querySelector(`[name="${name}"]`);
+          if (input) input.checked = false;
+        }
+      });
+    };
+    const nearbyPreferenceConfig = (state, distanceValue, defaultDistance = 500) => {
+      const normalized = String(state || '').trim().toLowerCase();
+      const parsedDistance = Number.parseInt(String(distanceValue || ''), 10);
+      const effectiveDistance = Number.isFinite(parsedDistance) && parsedDistance > 0 ? parsedDistance : defaultDistance;
+      if (normalized === 'must_have') return { distance: effectiveDistance, importance: 'must_have' };
+      if (normalized === 'important') return { distance: effectiveDistance, importance: 'important' };
+      if (normalized === 'nice_to_have') return { distance: effectiveDistance, importance: 'nice_to_have' };
+      if (normalized === 'avoid') return { distance: effectiveDistance, importance: 'avoid' };
+      return { distance: null, importance: 'any' };
     };
     const preferenceProfileEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile`;
     const locationOptionRows = (form) => [...(form?.querySelectorAll('input[name="location_query"]') || [])].map((node) => {
@@ -148,8 +265,8 @@
     };
     const applyPreferenceProfileToForm = async (form, refreshRegionAndLocationChoices, syncAreaScopeControls, options = {}) => {
       const preserveGeography = options && options.preserveGeography === true;
-        const storedFeedbackPreferencesEnabled = Boolean(form.querySelector('input[name="use_stored_feedback_preferences"]')?.checked);
-        const personId = storedFeedbackPreferencesEnabled ? (fieldValue(form, 'preference_person_id') || 'self') : 'self';
+        const storedFeedbackPreferencesEnabled = false;
+        const personId = 'self';
       if (!personId) return;
       let bundle = {};
       try {
@@ -180,7 +297,7 @@
           regionField.value = inferredScope.regionCode;
           refreshRegionAndLocationChoices();
         }
-        const mappedAreas = uniqueValues(areaValues.map((value) => matchLocationValue(form, value)));
+        const mappedAreas = briefUniqueValues(areaValues.map((value) => matchLocationValue(form, value)));
         const availableAreas = new Set([...(form.querySelectorAll('input[name="location_query"]') || [])].map((node) => String(node.value || '').trim().toLowerCase()));
         const visibleAreas = mappedAreas.filter((value) => availableAreas.has(String(value || '').trim().toLowerCase()));
         const customAreas = mappedAreas.filter((value) => !availableAreas.has(String(value || '').trim().toLowerCase()));
@@ -224,15 +341,15 @@
       if (nodeValues.get('prefer_high_quality_drinking_water') === true) keywordValues.push('high quality drinking water');
       if (nodeValues.get('prefer_balcony') === true || nodeValues.get('prefer_outdoor_space') === true) keywordValues.push('balcony');
       if (nodeValues.get('prefer_lift') === true || nodeValues.get('require_lift') === true) keywordValues.push('lift');
-      setCheckboxValues(form, 'keywords', keywordValues);
+      setKeywordPreferenceValues(form, keywordValues, 'important');
       if (nodeValues.get('prefer_bike_infrastructure') === true) {
-        setCheckboxValues(form, 'preferred_reachability_modes', uniqueValues(checkedValues(form, 'preferred_reachability_modes'), ['bike']));
+        setCheckboxValues(form, 'preferred_reachability_modes', briefUniqueValues(checkedValues(form, 'preferred_reachability_modes'), ['bike']));
       }
       const customKeywordField = form.querySelector('[name="custom_keywords"]');
       const derivedCustomKeywords = [];
       if (nodeValues.get('prefer_running_green_space') === true) derivedCustomKeywords.push('running green space');
       if (nodeValues.get('prefer_bike_infrastructure') === true) derivedCustomKeywords.push('bike infrastructure');
-      if (customKeywordField) customKeywordField.value = uniqueValues(csvValues(customKeywordField.value), derivedCustomKeywords).join(', ');
+      if (customKeywordField) customKeywordField.value = briefUniqueValues(briefCsvValues(customKeywordField.value), derivedCustomKeywords).join(', ');
       const playgroundDistance = Number(nodeValues.get('max_distance_to_playground_m') || 0);
       if (playgroundDistance > 0) {
         const field = form.querySelector('[name="max_distance_to_playground_m"]');
@@ -249,6 +366,7 @@
           field.dispatchEvent(new Event('input', { bubbles: true }));
         }
       }
+      syncPropertyTypeDependentFilters(form);
     };
     const renderCheckboxOptions = (form, name, options, selectedValues = []) => {
       const grid = form?.querySelector(`[data-pqx-check-grid="${name}"]`);
@@ -612,6 +730,8 @@
       const selectedPlatforms = checkedValues(form, 'selected_platforms');
       const platformCap = Number.isFinite(rawPlatformCap) && rawPlatformCap > 0 ? rawPlatformCap : selectedPlatforms.length;
       const effectiveSelectedPlatforms = selectedPlatforms.slice(0, platformCap);
+      const storedFeedbackPreferencesEnabled = false;
+      const personId = 'self';
       const countryCode = fieldValue(form, 'country_code') || 'AT';
       const regionCode = fieldValue(form, 'region_code') || '';
       const searchGoal = fieldValue(form, 'search_goal') || 'home';
@@ -621,11 +741,17 @@
       const selectedLocations = checkedValues(form, 'location_query');
       const customLocationQuery = fieldValue(form, 'custom_location_query');
       const fullRegionScopeField = form.querySelector('input[name="full_region_scope"]');
-      const fullRegionScope = Boolean(fullRegionScopeField?.checked) || (
-        selectedLocations.length > 0
-        && selectedLocations.length === form.querySelectorAll('input[name="location_query"]').length
-        && !customLocationQuery
-      );
+      const availableLocationTotal = form.querySelectorAll('input[name="location_query"]').length;
+      const allLocationsSelected = selectedLocations.length > 0
+        && selectedLocations.length === availableLocationTotal
+        && !customLocationQuery;
+      const fullRegionScope = allLocationsSelected
+        || (
+          Boolean(fullRegionScopeField?.checked)
+          && availableLocationTotal > 0
+          && selectedLocations.length === availableLocationTotal
+          && !customLocationQuery
+        );
       const adjacentAreaRadiusUnit = fieldValue(form, 'adjacent_area_radius_unit') || 'm';
       const adjacentAreaRadiusValue = integerValue(form, 'adjacent_area_radius_value');
       const adjacentAreaRadiusMeters = adjacentAreaRadiusValue !== null
@@ -633,6 +759,19 @@
         : 0;
       const minDscrRaw = integerValue(form, 'min_dscr');
       const customKeywords = fieldValue(form, 'custom_keywords');
+      const keywordSelections = keywordPreferenceValues(form);
+      const keywordDistances = keywordDistanceValues(form);
+      const playgroundPreference = nearbyPreferenceConfig(keywordSelections.map['playground nearby'], keywordDistances['playground nearby'], 500);
+      const libraryPreference = nearbyPreferenceConfig(keywordSelections.map['library nearby'], keywordDistances['library nearby'], 500);
+      const zooPreference = nearbyPreferenceConfig(keywordSelections.map['zoo nearby'], keywordDistances['zoo nearby'], 1000);
+      const publicPoolPreference = nearbyPreferenceConfig(keywordSelections.map['public pool nearby'], keywordDistances['public pool nearby'], 1000);
+      const medicalCareNearbyPreference = nearbyPreferenceConfig(keywordSelections.map['medical care nearby'], keywordDistances['medical care nearby'], 500);
+      const supermarketPreference = nearbyPreferenceConfig(keywordSelections.map['supermarket nearby'], keywordDistances['supermarket nearby'], 500);
+      const medicalCarePreference = nearbyPreferenceConfig(keywordSelections.map['pharmacy nearby'], keywordDistances['pharmacy nearby'], 500);
+      const subwayPreference = nearbyPreferenceConfig(keywordSelections.map['underground nearby'], keywordDistances['underground nearby'], 500);
+      const requireBarrierFree = String(keywordSelections.map['barrier-free'] || '').trim().toLowerCase() === 'must_have';
+      const propertyTypes = selectedPropertyTypes(form);
+      const landOnly = propertyTypesLandOnly(propertyTypes);
       const regionLabel = String(form.querySelector('select[name="region_code"] option:checked')?.textContent || regionCode || '').trim();
         const selectedSchoolStages = searchGoal === 'investment' ? [] : checkedValues(form, 'school_stage_preferences');
         const familyEvidenceEnabled = searchGoal !== 'investment' && (
@@ -667,6 +806,7 @@
           listing_mode: listingMode,
           property_type: checkedValues(form, 'property_type').length ? checkedValues(form, 'property_type') : ['any'],
           search_mode: fieldValue(form, 'search_mode') || 'strict',
+          selected_location_values: fullRegionScope ? [] : selectedLocations,
           investment_research_mode: investmentResearchMode,
           investment_strategy: investmentResearchEnabled ? (fieldValue(form, 'investment_strategy') || 'best_overall') : 'best_overall',
           min_gross_yield_pct: investmentResearchEnabled ? integerValue(form, 'min_gross_yield_pct') : null,
@@ -677,12 +817,14 @@
           vacancy_reserve_pct: investmentResearchEnabled ? integerValue(form, 'vacancy_reserve_pct') : null,
           capex_reserve_pct: investmentResearchEnabled ? integerValue(form, 'capex_reserve_pct') : null,
           full_region_scope: fullRegionScope,
-          location_query: fullRegionScope && regionLabel ? regionLabel : uniqueValues(selectedLocations, csvValues(customLocationQuery)).join(', '),
+          location_query: fullRegionScope && regionLabel ? regionLabel : briefUniqueValues(selectedLocations, briefCsvValues(customLocationQuery)).join(', '),
           custom_location_query: customLocationQuery,
           adjacent_area_radius_value: adjacentAreaRadiusValue,
           adjacent_area_radius_unit: adjacentAreaRadiusUnit,
           adjacent_area_radius_m: adjacentAreaRadiusMeters,
-          keywords: uniqueValues(checkedValues(form, 'keywords'), csvValues(customKeywords)).join(', '),
+          keywords: briefUniqueValues(keywordSelections.positive, briefCsvValues(customKeywords)).join(', '),
+          avoid_keywords: keywordSelections.avoid.join(', '),
+          keyword_preferences: keywordSelections.map,
           custom_keywords: customKeywords,
           preference_person_id: personId,
           use_stored_feedback_preferences: storedFeedbackPreferencesEnabled,
@@ -697,7 +839,7 @@
           enable_location_risk_research: Boolean(form.querySelector('input[name="enable_location_risk_research"]')?.checked),
           enable_trust_risk_scoring: Boolean(form.querySelector('input[name="enable_trust_risk_scoring"]')?.checked),
           enable_family_mode: familyEvidenceEnabled,
-          investment_require_floorplan: investmentResearchEnabled ? Boolean(form.querySelector('input[name="investment_require_floorplan"]')?.checked) : false,
+          investment_require_floorplan: investmentResearchEnabled && !landOnly ? Boolean(form.querySelector('input[name="investment_require_floorplan"]')?.checked) : false,
           investment_require_legal_clarity: investmentResearchEnabled ? Boolean(form.querySelector('input[name="investment_require_legal_clarity"]')?.checked) : false,
           investment_require_tenant_clarity: investmentResearchEnabled ? Boolean(form.querySelector('input[name="investment_require_tenant_clarity"]')?.checked) : false,
           investment_avoid_major_renovation: investmentResearchEnabled ? Boolean(form.querySelector('input[name="investment_avoid_major_renovation"]')?.checked) : false,
@@ -714,18 +856,20 @@
           enable_action_readiness_research: Boolean(form.querySelector('input[name="enable_action_readiness_research"]')?.checked),
           enable_lifestyle_research: searchGoal === 'investment' ? false : Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked),
           max_price_eur: integerValue(form, 'max_price_eur'),
-          min_rooms: integerValue(form, 'min_rooms'),
+          min_rooms: landOnly ? null : integerValue(form, 'min_rooms'),
           min_area_m2: integerValue(form, 'min_area_m2'),
           available_within_years: integerValue(form, 'available_within_years'),
           max_commute_minutes_transit: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? integerValue(form, 'max_commute_minutes_transit') : null,
           max_commute_minutes_drive: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? integerValue(form, 'max_commute_minutes_drive') : null,
           max_commute_minutes_bike: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? integerValue(form, 'max_commute_minutes_bike') : null,
           max_commute_minutes_walk: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? integerValue(form, 'max_commute_minutes_walk') : null,
-          max_distance_to_playground_m: searchGoal === 'investment' ? null : integerValue(form, 'max_distance_to_playground_m'),
-          max_distance_to_playground_importance: searchGoal === 'investment' || integerValue(form, 'max_distance_to_playground_m') === null ? 'important' : (fieldValue(form, 'max_distance_to_playground_importance') || 'important'),
-          max_distance_to_library_m: searchGoal === 'investment' ? null : integerValue(form, 'max_distance_to_library_m'),
-          max_distance_to_library_importance: searchGoal === 'investment' || integerValue(form, 'max_distance_to_library_m') === null ? 'nice_to_have' : (fieldValue(form, 'max_distance_to_library_importance') || 'nice_to_have'),
-          max_distance_to_zoo_m: searchGoal === 'investment' ? null : integerValue(form, 'max_distance_to_zoo_m'),
+          max_distance_to_playground_m: searchGoal === 'investment' ? null : (playgroundPreference.distance !== null ? playgroundPreference.distance : integerValue(form, 'max_distance_to_playground_m')),
+          max_distance_to_playground_importance: searchGoal === 'investment' || playgroundPreference.importance === 'any' ? 'important' : (playgroundPreference.importance === 'avoid' ? 'important' : playgroundPreference.importance),
+          max_distance_to_library_m: searchGoal === 'investment' ? null : (libraryPreference.distance !== null ? libraryPreference.distance : integerValue(form, 'max_distance_to_library_m')),
+          max_distance_to_library_importance: searchGoal === 'investment' || libraryPreference.importance === 'any'
+            ? (integerValue(form, 'max_distance_to_library_m') === null ? 'nice_to_have' : (fieldValue(form, 'max_distance_to_library_importance') || 'nice_to_have'))
+            : (libraryPreference.importance === 'avoid' ? 'important' : libraryPreference.importance),
+          max_distance_to_zoo_m: searchGoal === 'investment' ? null : (zooPreference.distance !== null ? zooPreference.distance : integerValue(form, 'max_distance_to_zoo_m')),
           max_distance_to_university_m: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked) && searchGoal !== 'investment' ? integerValue(form, 'max_distance_to_university_m') : null,
           max_distance_to_starbucks_m: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked) && searchGoal !== 'investment' ? integerValue(form, 'max_distance_to_starbucks_m') : null,
           max_distance_to_fitness_center_m: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked) && searchGoal !== 'investment' ? integerValue(form, 'max_distance_to_fitness_center_m') : null,
@@ -733,15 +877,16 @@
           max_distance_to_bouldering_m: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked) && searchGoal !== 'investment' ? integerValue(form, 'max_distance_to_bouldering_m') : null,
           max_distance_to_dog_park_m: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked) && searchGoal !== 'investment' ? integerValue(form, 'max_distance_to_dog_park_m') : null,
           max_distance_to_good_cafe_m: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked) && searchGoal !== 'investment' ? integerValue(form, 'max_distance_to_good_cafe_m') : null,
-          max_distance_to_supermarket_m: integerValue(form, 'max_distance_to_supermarket_m'),
-          max_distance_to_supermarket_importance: integerValue(form, 'max_distance_to_supermarket_m') === null ? 'important' : (fieldValue(form, 'max_distance_to_supermarket_importance') || 'important'),
+          max_distance_to_supermarket_m: supermarketPreference.distance !== null ? supermarketPreference.distance : integerValue(form, 'max_distance_to_supermarket_m'),
+          max_distance_to_supermarket_importance: supermarketPreference.importance === 'any' ? (integerValue(form, 'max_distance_to_supermarket_m') === null ? 'important' : (fieldValue(form, 'max_distance_to_supermarket_importance') || 'important')) : (supermarketPreference.importance === 'avoid' ? 'important' : supermarketPreference.importance),
+          max_distance_to_subway_m: searchGoal === 'investment' ? null : subwayPreference.distance,
           max_distance_to_market_m: integerValue(form, 'max_distance_to_market_m'),
           max_distance_to_hardware_store_m: integerValue(form, 'max_distance_to_hardware_store_m'),
           max_distance_to_shopping_center_m: integerValue(form, 'max_distance_to_shopping_center_m'),
           max_distance_to_shopping_street_m: integerValue(form, 'max_distance_to_shopping_street_m'),
           max_distance_to_theatre_m: integerValue(form, 'max_distance_to_theatre_m'),
-          max_distance_to_public_pool_m: searchGoal === 'investment' ? null : integerValue(form, 'max_distance_to_public_pool_m'),
-          max_distance_to_medical_care_m: searchGoal === 'investment' ? null : integerValue(form, 'max_distance_to_medical_care_m'),
+          max_distance_to_public_pool_m: searchGoal === 'investment' ? null : (publicPoolPreference.distance !== null ? publicPoolPreference.distance : integerValue(form, 'max_distance_to_public_pool_m')),
+          max_distance_to_medical_care_m: searchGoal === 'investment' ? null : ((medicalCareNearbyPreference.distance !== null ? medicalCareNearbyPreference.distance : medicalCarePreference.distance) !== null ? (medicalCareNearbyPreference.distance !== null ? medicalCareNearbyPreference.distance : medicalCarePreference.distance) : integerValue(form, 'max_distance_to_medical_care_m')),
           prefer_good_air_quality: Boolean(form.querySelector('input[name="prefer_good_air_quality"]')?.checked),
           avoid_noise_risk_area: Boolean(form.querySelector('input[name="avoid_noise_risk_area"]')?.checked),
           require_high_speed_internet: Boolean(form.querySelector('input[name="require_high_speed_internet"]')?.checked),
@@ -762,9 +907,10 @@
           search_agent_duration_days: searchAgentEnabled ? integerValue(form, 'search_agent_duration_days') : null,
           search_agent_notification_limit: searchAgentEnabled ? integerValue(form, 'search_agent_notification_limit') : null,
           search_agent_notification_period: searchAgentEnabled ? (fieldValue(form, 'search_agent_notification_period') || 'day') : '',
-          require_floorplan: Boolean(form.querySelector('input[name="require_floorplan"]')?.checked),
-          require_energy_certificate: Boolean(form.querySelector('input[name="require_energy_certificate"]')?.checked),
-          require_operating_cost_statement: Boolean(form.querySelector('input[name="require_operating_cost_statement"]')?.checked),
+          require_floorplan: landOnly ? false : Boolean(form.querySelector('input[name="require_floorplan"]')?.checked),
+          require_barrier_free: requireBarrierFree,
+          require_energy_certificate: landOnly ? false : Boolean(form.querySelector('input[name="require_energy_certificate"]')?.checked),
+          require_operating_cost_statement: landOnly ? false : Boolean(form.querySelector('input[name="require_operating_cost_statement"]')?.checked),
           enable_auction_legal_review: distressedSignalsEnabled ? Boolean(form.querySelector('input[name="enable_auction_legal_review"]')?.checked) : false,
           use_flatbee_reputation_penalty: Boolean(form.querySelector('input[name="use_flatbee_reputation_penalty"]')?.checked),
         },
@@ -921,6 +1067,13 @@
       const byCountry = meta?.market_filter_capabilities_by_country_region || {};
       return byCountry?.[country]?.[region] || meta?.market_filter_capabilities || {};
     };
+    const syncFieldWrapVisibility = (wrap) => {
+      if (!wrap) return;
+      const stepVisible = String(wrap.dataset.propertyStepVisible || '').trim() !== 'false';
+      const semanticallyHidden = wrap.hasAttribute('aria-hidden');
+      const collapsedBy = String(wrap.dataset.propertyCollapsedBy || '').trim();
+      wrap.hidden = !stepVisible || semanticallyHidden || Boolean(collapsedBy);
+    };
     const syncMarketAwareFields = (form, meta) => {
       const countryCode = form?.querySelector('select[name="country_code"]')?.value || 'AT';
       const regionCode = form?.querySelector('select[name="region_code"]')?.value || '';
@@ -940,12 +1093,11 @@
           wrap.querySelectorAll('input, select, textarea, button').forEach((node) => { node.disabled = !showUnavailable; });
           if (reasonNode) reasonNode.hidden = !showUnavailable;
           if (!showUnavailable) {
-            wrap.hidden = true;
             if (!String(wrap.dataset.propertyCollapsedBy || '').trim()) wrap.dataset.propertyCollapsedBy = 'market_availability';
           } else if (String(wrap.dataset.propertyCollapsedBy || '').trim() === 'market_availability') {
-            wrap.hidden = false;
             wrap.dataset.propertyCollapsedBy = '';
           }
+          syncFieldWrapVisibility(wrap);
         });
         [...panel.querySelectorAll('[data-property-availability-key]')].filter((wrap) => {
           const key = String(wrap.getAttribute('data-property-availability-key') || '').trim();
@@ -956,6 +1108,7 @@
           if (String(wrap.dataset.propertyCollapsedBy || '').trim() === 'market_availability') wrap.dataset.propertyCollapsedBy = '';
           wrap.querySelectorAll('input, select, textarea, button').forEach((node) => { node.disabled = false; });
           if (reasonNode) reasonNode.hidden = true;
+          syncFieldWrapVisibility(wrap);
         });
       });
     };
