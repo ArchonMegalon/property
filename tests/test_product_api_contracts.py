@@ -18973,6 +18973,13 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert head_opened_access.status_code == 303
     assert head_opened_access.headers["location"] == "/app/properties"
     assert "ea_workspace_session=" in str(head_opened_access.headers.get("set-cookie") or "")
+    opened_access_localhost = client.get(
+        access_body["access_url"],
+        headers={"host": "localhost:8097"},
+        follow_redirects=False,
+    )
+    assert opened_access_localhost.status_code == 303
+    assert opened_access_localhost.headers["location"] == "/app/properties"
     session_drafts = client.get("/app/api/drafts")
     assert session_drafts.status_code == 200
     assert session_drafts.json()[0]["id"] == f"approval:{seeded['approval_id']}"

@@ -835,7 +835,8 @@ def _property_console_context(
     normalized_run_id = str(run_id or "").strip()
     recent_search_runs: list[dict[str, object]] = []
     should_load_recent_runs = wants_recent_runs and not (
-        normalized_run_id and surface_scope.section in {"properties", "shortlist"}
+        surface_scope.section == "properties"
+        or (normalized_run_id and surface_scope.section in {"properties", "shortlist"})
     )
     if should_load_recent_runs:
         try:

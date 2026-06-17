@@ -166,6 +166,14 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert '>Home shape<' not in html
 
 
+def test_propertyquarry_localhost_brand_uses_request_origin_for_public_base() -> None:
+    client = build_property_client(principal_id="pq-localhost-brand")
+    response = client.get("/sitemap.xml", headers={"host": "localhost:8097"})
+    assert response.status_code == 200
+    assert "localhost:8097/" in response.text
+    assert "https://propertyquarry.com/" not in response.text
+
+
 def test_propertyquarry_search_route_exposes_theme_toggle() -> None:
     client = build_property_client(principal_id="pq-theme-toggle")
     start_workspace(client, mode="personal", workspace_name="Property Office")
@@ -2259,6 +2267,20 @@ def test_property_workspace_sign_out_clears_workspace_session_cookie() -> None:
 
     signed_out_workspace = client.get("/app/properties")
     assert signed_out_workspace.status_code == 200
+
+
+def test_property_properties_surface_skips_recent_runs_load_without_explicit_run(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-fast-properties")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    def _explode(*args, **kwargs):
+        raise AssertionError("properties surface should not load recent runs on first visit")
+
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _explode)
+
+    response = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+    assert response.status_code == 200
+    assert 'data-property-decision-workbench' in response.text
 
 
 def test_property_search_form_defaults_to_discovery_after_thin_strict_run(monkeypatch) -> None:
