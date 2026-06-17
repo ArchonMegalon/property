@@ -3358,6 +3358,34 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         filtered = [value for value in values if str(value or "").strip().lower() not in blocked]
         return ", ".join(dict.fromkeys(filtered))
 
+    def _normalize_keyword_preferences(raw_value: object) -> dict[str, str]:
+        if not isinstance(raw_value, dict):
+            return {}
+        normalized: dict[str, str] = {}
+        for key, value in dict(raw_value or {}).items():
+            keyword = str(key or "").strip().lower()
+            state = str(value or "").strip().lower()
+            if not keyword or not state:
+                continue
+            normalized[keyword] = state
+        return normalized
+
+    def _csv_keep_states(raw_value: object, keyword_preferences: dict[str, str], allowed_states: set[str]) -> str:
+        if isinstance(raw_value, (list, tuple, set)):
+            values = [str(item or "").strip() for item in raw_value if str(item or "").strip()]
+        else:
+            values = [part.strip() for part in str(raw_value or "").replace(";", ",").split(",") if part.strip()]
+        filtered: list[str] = []
+        for value in values:
+            lowered = str(value or "").strip().lower()
+            if not lowered:
+                continue
+            state = keyword_preferences.get(lowered)
+            if state is not None and state not in allowed_states:
+                continue
+            filtered.append(value)
+        return ", ".join(dict.fromkeys(filtered))
+
     raw_search_mode = str(payload.get("search_mode") or "").strip().lower()
     payload["search_mode"] = raw_search_mode if raw_search_mode in {"strict", "discovery"} else "strict"
     search_goal = str(payload.get("search_goal") or "").strip().lower() or "home"
@@ -3424,6 +3452,19 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     if payload["full_region_scope"] and not payload["location_query"] and payload["region_code"]:
         payload["location_query"] = region_label_for_country_region(payload["country_code"], payload["region_code"])
     payload["keywords"] = str(payload.get("keywords") or "").strip()
+    payload["avoid_keywords"] = str(payload.get("avoid_keywords") or "").strip()
+    payload["keyword_preferences"] = _normalize_keyword_preferences(payload.get("keyword_preferences"))
+    if payload["keyword_preferences"]:
+        payload["keywords"] = _csv_keep_states(
+            payload.get("keywords"),
+            payload["keyword_preferences"],
+            {"must_have", "hard", "required", "strict"},
+        )
+        payload["avoid_keywords"] = _csv_keep_states(
+            payload.get("avoid_keywords"),
+            payload["keyword_preferences"],
+            {"avoid"},
+        )
     raw_require_floorplan = payload.get("require_floorplan")
     payload["require_floorplan"] = (
         raw_require_floorplan is True
@@ -3756,6 +3797,91 @@ def investment_research_mode_label(value: object) -> str:
     return INVESTMENT_RESEARCH_MODE_LABELS.get(normalized, INVESTMENT_RESEARCH_MODE_LABELS["off"])
 
 
+def _csv_tokens(raw_value: object) -> list[str]:
+    if isinstance(raw_value, (list, tuple, set)):
+        return [str(item or "").strip() for item in raw_value if str(item or "").strip()]
+    return [part.strip() for part in str(raw_value or "").replace(";", ",").split(",") if part.strip()]
+
+
+def _provider_discovery_keywords(preferences: dict[str, object] | None) -> str:
+    payload = dict(preferences or {})
+    managed_soft_keywords = {
+        "lift",
+        "barrier-free",
+        "balcony",
+        "terrace",
+        "baugrund",
+        "seezugang",
+        "wasserzugang",
+        "family",
+        "playground nearby",
+        "library nearby",
+        "zoo nearby",
+        "public pool nearby",
+        "medical care nearby",
+        "supermarket nearby",
+        "pharmacy nearby",
+        "underground nearby",
+        "no gas",
+        "district heating",
+        "parking",
+        "pets allowed",
+        "quiet",
+        "bright",
+    }
+    keyword_preferences = {
+        str(key or "").strip().lower(): str(value or "").strip().lower()
+        for key, value in dict(payload.get("keyword_preferences") or {}).items()
+        if str(key or "").strip() and str(value or "").strip()
+    }
+    hard_states = {"must_have", "hard", "required", "strict"}
+    avoid_states = {"avoid"}
+    hard_keywords = [
+        keyword
+        for keyword, state in keyword_preferences.items()
+        if state in hard_states
+    ]
+    raw_keywords = _csv_tokens(payload.get("keywords"))
+    custom_keywords = _csv_tokens(payload.get("custom_keywords"))
+    avoid_keywords = {
+        token.strip().lower()
+        for token in _csv_tokens(payload.get("avoid_keywords"))
+        if token.strip()
+    }
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: str) -> None:
+        normalized = str(value or "").strip()
+        lowered = normalized.lower()
+        if not normalized or lowered in seen or lowered in avoid_keywords:
+            return
+        seen.add(lowered)
+        ordered.append(normalized)
+
+    if keyword_preferences:
+        for value in hard_keywords:
+            _add(value)
+        for value in custom_keywords:
+            _add(value)
+        for value in raw_keywords:
+            lowered = str(value or "").strip().lower()
+            state = keyword_preferences.get(lowered)
+            if state and state not in hard_states:
+                continue
+            if state in avoid_states:
+                continue
+            _add(value)
+    else:
+        for value in raw_keywords:
+            if str(value or "").strip().lower() in managed_soft_keywords:
+                continue
+            _add(value)
+        for value in custom_keywords:
+            _add(value)
+    return ", ".join(ordered)
+
+
 def _append_query(url: str, query_items: dict[str, str]) -> str:
     if not query_items:
         return url
@@ -3839,6 +3965,10 @@ def _provider_filter_pushdown_payload(
         "costaricarealestateservice_cr",
         "twocostaricarealestate_cr",
     }
+    provider_query_blocklist = {
+        "wohnberatung_wien",
+        "wiener_wohnen",
+    }
     provider_side_area_keys = {
         "willhaben",
         "immmo",
@@ -3846,6 +3976,7 @@ def _provider_filter_pushdown_payload(
         "derstandard_at",
         "immowelt_at",
         "findmyhome_at",
+        "wohnberatung_wien",
         "remax_at",
         "kalandra",
         "flatbee",
@@ -3879,12 +4010,16 @@ def _provider_filter_pushdown_payload(
     }
     attempted: dict[str, object] = {}
     if requested.get("location_query"):
-        if provider.key in weak_search_query_providers:
+        if provider.key in provider_query_blocklist:
+            pass
+        elif provider.key in weak_search_query_providers:
             attempted["location_query"] = requested["location_query"]
         else:
             applied["location_query"] = requested["location_query"]
     if requested.get("keywords"):
-        if provider.key in weak_search_query_providers:
+        if provider.key in provider_query_blocklist:
+            pass
+        elif provider.key in weak_search_query_providers:
             attempted["keywords"] = requested["keywords"]
         else:
             applied["keywords"] = requested["keywords"]
@@ -4132,11 +4267,18 @@ def _build_provider_search_url(
         if min_area_m2:
             query_items["minArea"] = str(min_area_m2)
         return _append_query(target_url, query_items)
+    if provider.key in {"wohnberatung_wien", "wiener_wohnen"}:
+        query_items = {}
+        if max_price_eur:
+            query_items["maxPrice"] = str(max_price_eur)
+        if min_rooms:
+            query_items["minRooms"] = str(min_rooms)
+        if min_area_m2:
+            query_items["minArea"] = str(min_area_m2)
+        return _append_query(base_url, query_items)
     if provider.key in {
         "immowelt_at",
         "findmyhome_at",
-        "wohnberatung_wien",
-        "wiener_wohnen",
         "gesiba_at",
         "oesw_at",
         "egw_at",
@@ -4460,7 +4602,7 @@ def generated_source_specs(
     country_code = str(normalized_preferences.get("country_code") or "AT").strip().upper() or "AT"
     listing_mode = str(normalized_preferences.get("listing_mode") or "rent").strip().lower() or "rent"
     location_query = str(normalized_preferences.get("location_query") or "").strip()
-    keywords = str(normalized_preferences.get("keywords") or "").strip()
+    keywords = _provider_discovery_keywords(normalized_preferences)
     normalized_property_types = normalize_property_type_values(normalized_preferences.get("property_type"))
     property_type = normalize_property_type(normalized_property_types)
     max_price_eur = normalized_preferences.get("max_price_eur")

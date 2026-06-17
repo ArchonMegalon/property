@@ -1215,6 +1215,8 @@
       if (!rows.length) return '<div class="pqx-empty" data-pqx-ranked-candidates>No matches are ready yet. Open search diagnostics if the results look wrong or too narrow.</div>';
       const summary = runPayload?.summary && typeof runPayload.summary === 'object' ? runPayload.summary : {};
       const filteredTotal = Number(
+        runPayload?.filtered_total
+        || runPayload?.held_back_total
         summary.filtered_total
         || summary.held_back_total
         || summary.filtered_out_total
@@ -1557,9 +1559,10 @@
         form.dataset.propertyActiveStep = stepKey;
         fieldNodes.forEach((node) => {
           const stepVisible = String(node.getAttribute('data-property-field-step') || '') === stepKey;
-          const semanticallyHidden = node.hasAttribute('aria-hidden');
+          const semanticallyHidden = String(node.dataset.propertySemanticHidden || '').trim() === 'true';
           node.dataset.propertyStepVisible = stepVisible ? 'true' : 'false';
           node.hidden = !stepVisible || semanticallyHidden;
+          node.setAttribute('aria-hidden', stepVisible && !semanticallyHidden ? 'false' : 'true');
         });
         triggers.forEach((node) => {
           const triggerStep = String(node.getAttribute('data-property-step-trigger') || '').trim();
@@ -1580,7 +1583,9 @@
           form.dispatchEvent(new CustomEvent('propertyquarry:stepchange', { detail: { step: stepKey } }));
         }
       };
-      triggers.forEach((node) => node.addEventListener('click', () => {
+      triggers.forEach((node) => node.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         const triggerStep = String(node.getAttribute('data-property-step-trigger') || '').trim();
         const visibleSteps = activeSteps();
         const targetIndex = Math.max(0, visibleSteps.findIndex((step) => String(step?.key || '').trim() === triggerStep));
@@ -1590,9 +1595,8 @@
       next?.addEventListener('click', () => applyStep(current + 1));
       form.addEventListener('propertyquarry:wizardrefresh', () => applyStep(current, { silent: true }));
       fieldNodes.forEach((node) => {
-        if (node.hidden && !node.hasAttribute('aria-hidden')) {
-          node.setAttribute('aria-hidden', 'true');
-        }
+        if (node.hidden) node.dataset.propertySemanticHidden = 'true';
+        node.hidden = false;
       });
       refreshStepLabels();
       applyStep(0);
@@ -1713,6 +1717,24 @@
       const fullRegionScopeFieldWrap = form.querySelector('[data-property-field-name="full_region_scope"]');
       const locationFieldWrap = form.querySelector('[data-property-field-name="location_query"]');
       const whatMattersFieldSelector = '[data-property-field-step="children"]';
+      const syncSchoolPreferenceFields = () => {
+        const selectedStages = [];
+        let strongest = 'any';
+        form.querySelectorAll('[data-school-preference-select]').forEach((node) => {
+          if (!(node instanceof HTMLSelectElement)) return;
+          const schoolValue = String(node.getAttribute('data-school-value') || '').trim();
+          const state = String(node.value || 'any').trim().toLowerCase();
+          if (!schoolValue || state === 'any') return;
+          selectedStages.push(schoolValue);
+          if (state === 'must_have') strongest = 'very_important';
+          else if (state === 'important' && strongest !== 'very_important') strongest = 'important';
+        });
+        setCheckboxValues(form, 'school_stage_preferences', selectedStages);
+        const schoolEvidenceField = form.querySelector('input[name="require_school_evidence"]');
+        if (schoolEvidenceField instanceof HTMLInputElement) schoolEvidenceField.checked = selectedStages.length > 0;
+        const schoolPriorityField = form.querySelector('[name="school_quality_priority"]');
+        if (schoolPriorityField instanceof HTMLSelectElement) schoolPriorityField.value = strongest;
+      };
       const captureWhatMattersSnapshot = () => {
         const snapshot = {};
         form.querySelectorAll(`${whatMattersFieldSelector} input, ${whatMattersFieldSelector} select, ${whatMattersFieldSelector} textarea`).forEach((field) => {
@@ -1755,6 +1777,7 @@
           });
         });
         syncKeywordDistanceSelects(form);
+        syncSchoolPreferenceFields();
         syncFamilyModeControls();
         syncSearchGoalControls();
       };
@@ -1872,8 +1895,8 @@
           commuteResearchWrap.toggleAttribute('aria-hidden', commuteResearchWrap.hidden);
         }
         if (lifestyleResearchWrap) {
-          lifestyleResearchWrap.hidden = isInvestment || activeStep !== 'children';
-          lifestyleResearchWrap.toggleAttribute('aria-hidden', lifestyleResearchWrap.hidden);
+          lifestyleResearchWrap.hidden = true;
+          lifestyleResearchWrap.setAttribute('aria-hidden', 'true');
         }
         const selectedSchoolStages = !isInvestment ? checkedValues(form, 'school_stage_preferences') : [];
         const schoolEvidenceEnabled = !isInvestment && (
@@ -1881,24 +1904,20 @@
           || Boolean(form.querySelector('input[name="require_school_evidence"]')?.checked)
         );
         if (schoolQualityWrap) {
-          const shouldShow = schoolEvidenceEnabled && activeStep === 'children';
-          schoolQualityWrap.hidden = !shouldShow;
-          schoolQualityWrap.toggleAttribute('aria-hidden', schoolQualityWrap.hidden);
+          schoolQualityWrap.hidden = true;
+          schoolQualityWrap.setAttribute('aria-hidden', 'true');
         }
         if (playgroundImportanceWrap) {
-          const shouldShow = !isInvestment && integerValue(form, 'max_distance_to_playground_m') !== null && activeStep === 'children';
-          playgroundImportanceWrap.hidden = !shouldShow;
-          playgroundImportanceWrap.toggleAttribute('aria-hidden', playgroundImportanceWrap.hidden);
+          playgroundImportanceWrap.hidden = true;
+          playgroundImportanceWrap.setAttribute('aria-hidden', 'true');
         }
         if (libraryImportanceWrap) {
-          const shouldShow = !isInvestment && integerValue(form, 'max_distance_to_library_m') !== null && activeStep === 'children';
-          libraryImportanceWrap.hidden = !shouldShow;
-          libraryImportanceWrap.toggleAttribute('aria-hidden', libraryImportanceWrap.hidden);
+          libraryImportanceWrap.hidden = true;
+          libraryImportanceWrap.setAttribute('aria-hidden', 'true');
         }
         if (supermarketImportanceWrap) {
-          const shouldShow = integerValue(form, 'max_distance_to_supermarket_m') !== null && activeStep === 'children';
-          supermarketImportanceWrap.hidden = !shouldShow;
-          supermarketImportanceWrap.toggleAttribute('aria-hidden', supermarketImportanceWrap.hidden);
+          supermarketImportanceWrap.hidden = true;
+          supermarketImportanceWrap.setAttribute('aria-hidden', 'true');
         }
         const lifestyleEnabled = !isInvestment && Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked);
         lifestyleDetailWraps.forEach((wrap) => {
@@ -2031,43 +2050,43 @@
         const activeStep = String(form.dataset.propertyActiveStep || '').trim();
         const isChildrenStep = !activeStep || activeStep === 'children';
         const selectedSchoolStages = checkedValues(form, 'school_stage_preferences');
-        const showSchoolDetails = isChildrenStep;
-        const showSchoolPriority = showSchoolDetails && selectedSchoolStages.length > 0;
+        const showSchoolDetails = false;
+        const showSchoolPriority = false;
         syncSchoolStageVariantVisibility(form);
         if (schoolStageWrap) {
           schoolStageWrap.hidden = !showSchoolDetails;
           schoolStageWrap.toggleAttribute('aria-hidden', schoolStageWrap.hidden);
-          schoolStageWrap.dataset.propertyCollapsedBy = '';
+          schoolStageWrap.dataset.propertyCollapsedBy = 'what_matters';
         }
         if (playgroundDistanceWrap) {
-          playgroundDistanceWrap.hidden = !showSchoolDetails;
-          playgroundDistanceWrap.toggleAttribute('aria-hidden', playgroundDistanceWrap.hidden);
-          playgroundDistanceWrap.dataset.propertyCollapsedBy = '';
+          playgroundDistanceWrap.hidden = true;
+          playgroundDistanceWrap.setAttribute('aria-hidden', 'true');
+          playgroundDistanceWrap.dataset.propertyCollapsedBy = 'what_matters';
         }
         if (libraryDistanceWrap) {
-          libraryDistanceWrap.hidden = !showSchoolDetails;
-          libraryDistanceWrap.toggleAttribute('aria-hidden', libraryDistanceWrap.hidden);
-          libraryDistanceWrap.dataset.propertyCollapsedBy = '';
+          libraryDistanceWrap.hidden = true;
+          libraryDistanceWrap.setAttribute('aria-hidden', 'true');
+          libraryDistanceWrap.dataset.propertyCollapsedBy = 'what_matters';
         }
         if (zooDistanceWrap) {
-          zooDistanceWrap.hidden = !showSchoolDetails;
-          zooDistanceWrap.toggleAttribute('aria-hidden', zooDistanceWrap.hidden);
-          zooDistanceWrap.dataset.propertyCollapsedBy = '';
+          zooDistanceWrap.hidden = true;
+          zooDistanceWrap.setAttribute('aria-hidden', 'true');
+          zooDistanceWrap.dataset.propertyCollapsedBy = 'what_matters';
         }
         if (publicPoolDistanceWrap) {
-          publicPoolDistanceWrap.hidden = !showSchoolDetails;
-          publicPoolDistanceWrap.toggleAttribute('aria-hidden', publicPoolDistanceWrap.hidden);
-          publicPoolDistanceWrap.dataset.propertyCollapsedBy = '';
+          publicPoolDistanceWrap.hidden = true;
+          publicPoolDistanceWrap.setAttribute('aria-hidden', 'true');
+          publicPoolDistanceWrap.dataset.propertyCollapsedBy = 'what_matters';
         }
         if (medicalCareDistanceWrap) {
-          medicalCareDistanceWrap.hidden = !showSchoolDetails;
-          medicalCareDistanceWrap.toggleAttribute('aria-hidden', medicalCareDistanceWrap.hidden);
-          medicalCareDistanceWrap.dataset.propertyCollapsedBy = '';
+          medicalCareDistanceWrap.hidden = true;
+          medicalCareDistanceWrap.setAttribute('aria-hidden', 'true');
+          medicalCareDistanceWrap.dataset.propertyCollapsedBy = 'what_matters';
         }
         if (schoolQualityWrap) {
-          schoolQualityWrap.hidden = !showSchoolPriority;
-          schoolQualityWrap.toggleAttribute('aria-hidden', schoolQualityWrap.hidden);
-          schoolQualityWrap.dataset.propertyCollapsedBy = showSchoolPriority ? '' : 'school_stage_preferences';
+          schoolQualityWrap.hidden = true;
+          schoolQualityWrap.setAttribute('aria-hidden', 'true');
+          schoolQualityWrap.dataset.propertyCollapsedBy = 'what_matters';
         }
         syncAdvancedPanels();
         syncMarketAwareFields(form, meta);
@@ -2263,6 +2282,9 @@
         if (target instanceof HTMLSelectElement && target.hasAttribute('data-keyword-preference-select')) {
           syncKeywordDistanceSelects(form);
         }
+        if (target instanceof HTMLSelectElement && target.hasAttribute('data-school-preference-select')) {
+          syncSchoolPreferenceFields();
+        }
       });
       form.addEventListener('propertyquarry:stepchange', () => {
         syncAreaScopeControls();
@@ -2271,6 +2293,7 @@
         syncFamilyModeControls();
         syncSearchGoalControls();
         syncKeywordDistanceSelects(form);
+        syncSchoolPreferenceFields();
       });
       const refreshGoalDrivenState = () => {
         syncListingModeControls();
@@ -2283,6 +2306,7 @@
       investmentField?.addEventListener('change', refreshGoalDrivenState);
       form.querySelector('input[name="include_community_signals"]')?.addEventListener('change', syncSearchGoalControls);
       form.querySelector('input[name="include_developer_project_signals"]')?.addEventListener('change', syncSearchGoalControls);
+      syncSchoolPreferenceFields();
       form.querySelector('input[name="include_public_housing_signals"]')?.addEventListener('change', syncSearchGoalControls);
       form.querySelector('input[name="include_distressed_sale_signals"]')?.addEventListener('change', syncSearchGoalControls);
       searchAgentEnabledField?.addEventListener('change', syncSearchGoalControls);
@@ -2785,8 +2809,36 @@
       }
       if (scopeLightbox && typeof scopeLightbox.close === 'function' && scopeLightbox.open) scopeLightbox.close();
     };
+    const filteredDialogHasActions = () => Boolean(filteredDialog?.querySelector('.pqx-filtered-dialog-rule'));
+    const openFilteredDialog = () => {
+      if (!filteredDialog) return false;
+      if (!filteredDialogHasActions()) return false;
+      if (typeof filteredDialog.showModal === 'function') {
+        try {
+          if (!filteredDialog.open) filteredDialog.showModal();
+          return true;
+        } catch (_error) {
+          // Fall through to less strict dialog opening below.
+        }
+      }
+      if (typeof filteredDialog.show === 'function') {
+        try {
+          if (!filteredDialog.open) filteredDialog.show();
+          return true;
+        } catch (_error) {
+          // Fall through to attribute-based opening below.
+        }
+      }
+      filteredDialog.setAttribute('open', 'open');
+      return true;
+    };
     const closeFilteredDialog = () => {
-      if (filteredDialog && typeof filteredDialog.close === 'function' && filteredDialog.open) filteredDialog.close();
+      if (!filteredDialog) return;
+      if (typeof filteredDialog.close === 'function' && filteredDialog.open) {
+        filteredDialog.close();
+        return;
+      }
+      filteredDialog.removeAttribute('open');
     };
     scopeLightbox?.querySelector('[data-pqx-scope-lightbox-close]')?.addEventListener('click', closeScopeLightbox);
     filteredDialog?.querySelector('[data-pqx-filtered-close]')?.addEventListener('click', closeFilteredDialog);
@@ -2865,20 +2917,25 @@
     scopeLightboxOverlay?.addEventListener('mouseleave', () => {
       if (scopeLightboxTooltip) scopeLightboxTooltip.classList.remove('is-visible');
     });
-    root.addEventListener('click', (event) => {
+    const handleFilteredOpenClick = (event) => {
       const button = event.target?.closest?.('[data-pqx-filtered-open]');
       if (!button) return;
       event.preventDefault();
       event.stopPropagation();
-      if (filteredDialog && typeof filteredDialog.showModal === 'function') {
-        filteredDialog.showModal();
+      if (openFilteredDialog()) {
         return;
       }
-      const fallbackPanel = root.querySelector('[data-pqx-empty-results] [data-pqx-counterfactuals], [data-pqx-suppression-summary]');
+      const fallbackPanel = root.querySelector(
+        '[data-pqx-empty-results] [data-pqx-counterfactuals], [data-pqx-counterfactuals], [data-pqx-suppression-summary], [data-pqx-source-breakdown], details'
+      );
+      const details = fallbackPanel?.closest?.('details');
+      if (details) details.open = true;
       if (fallbackPanel && typeof fallbackPanel.scrollIntoView === 'function') {
         fallbackPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
-    });
+    };
+    root.addEventListener('click', handleFilteredOpenClick);
+    document.addEventListener('click', handleFilteredOpenClick);
     root.querySelectorAll('[data-pqx-filter-radius]').forEach((slider) => {
       const card = slider.closest('.pqx-filtered-dialog-rule');
       const radiusLabel = card?.querySelector('[data-pqx-filter-radius-value]');

@@ -264,9 +264,11 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
             "status": "processed",
             "progress": 100,
             "message": "Property scouting run completed.",
+            "held_back_total": 2,
             "summary": {
                 "sources_total": 2,
                 "listing_total": 7,
+                "held_back_total": 2,
                 "tour_created_total": 1,
                 "tour_existing_total": 1,
                 "sources": [
@@ -530,6 +532,26 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         assert "/app/research/" in page.url
         assert "run_id=run-42" in page.url
         assert page.locator("body", has_text="Family flat near Tiergarten").is_visible()
+    finally:
+        context.close()
+
+
+def test_propertyquarry_results_filtered_link_opens_filtered_breakdown_when_no_relax_dialog_rules(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        assert response is not None and response.ok
+        filtered_button = page.get_by_role("button", name=re.compile(r"2 filtered", re.I))
+        filtered_button.wait_for(timeout=5000)
+        filtered_button.click()
+        details = page.locator("details").filter(has_text=re.compile(r"How this search was filtered", re.I)).first
+        expect(details).to_have_js_property("open", True, timeout=5000)
+        expect(page.locator("[data-pqx-source-breakdown]").first).to_be_visible(timeout=5000)
     finally:
         context.close()
 

@@ -1173,6 +1173,68 @@ def _property_keyword_options() -> list[dict[str, str]]:
     ]
 
 
+def _property_school_preference_options(
+    *,
+    selected_school_stage_preferences: list[str],
+    require_school_evidence: bool,
+    school_quality_priority: str,
+) -> list[dict[str, str]]:
+    selected = {str(item or "").strip().lower() for item in selected_school_stage_preferences if str(item or "").strip()}
+    evidence_priority = str(school_quality_priority or "any").strip().lower()
+    if require_school_evidence and evidence_priority == "very_important":
+        selected_state = "must_have"
+    elif require_school_evidence and evidence_priority == "important":
+        selected_state = "important"
+    elif require_school_evidence:
+        selected_state = "important"
+    else:
+        selected_state = "nice_to_have"
+    return [
+        {
+            "value": "kindergarten",
+            "label": "Kindergarten",
+            "detail": "General kindergarten coverage nearby",
+            "state": selected_state if "kindergarten" in selected else "any",
+        },
+        {
+            "value": "public_kindergarten",
+            "label": "Public kindergarten",
+            "detail": "Municipal childcare nearby",
+            "state": selected_state if "public_kindergarten" in selected else "any",
+        },
+        {
+            "value": "private_kindergarten",
+            "label": "Private kindergarten",
+            "detail": "Private childcare nearby",
+            "state": selected_state if "private_kindergarten" in selected else "any",
+        },
+        {
+            "value": "volksschule",
+            "label": "Volksschule",
+            "detail": "Primary school nearby",
+            "state": selected_state if "volksschule" in selected else "any",
+        },
+        {
+            "value": "ganztags_volksschule",
+            "label": "Ganztagsvolksschule",
+            "detail": "Full-day primary school nearby",
+            "state": selected_state if "ganztags_volksschule" in selected else "any",
+        },
+        {
+            "value": "halbtags_volksschule",
+            "label": "Halbtagsvolksschule",
+            "detail": "Half-day primary school nearby",
+            "state": selected_state if "halbtags_volksschule" in selected else "any",
+        },
+        {
+            "value": "gymnasium",
+            "label": "Gymnasium",
+            "detail": "Secondary academic track nearby",
+            "state": selected_state if "gymnasium" in selected else "any",
+        },
+    ]
+
+
 @lru_cache(maxsize=8)
 def _property_region_catalog_by_country_cached(country_values: tuple[str, ...]) -> tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...]:
     return tuple(
@@ -1702,6 +1764,11 @@ def app_section_payload(
         selected_region_code,
     )
     keyword_options = _property_keyword_options()
+    school_preference_options = _property_school_preference_options(
+        selected_school_stage_preferences=selected_school_stage_preferences,
+        require_school_evidence=bool(property_preferences.get("require_school_evidence")),
+        school_quality_priority=str(property_preferences.get("school_quality_priority") or "any"),
+    )
     selected_location_values, custom_location_values = _split_known_and_custom_values(location_options, selected_location_values)
     selected_keyword_values, custom_keyword_values = _split_known_and_custom_values(keyword_options, selected_keyword_values)
     show_land_keywords = _property_type_selection_allows_land(selected_property_type_values)
@@ -2611,6 +2678,7 @@ def app_section_payload(
                 "name": "keywords",
                 "label": "What matters",
                 "options": keyword_preference_options,
+                "school_preference_options": school_preference_options,
                 "step": "children",
             },
             {
@@ -2689,6 +2757,7 @@ def app_section_payload(
                 ],
                 "values": list(property_preferences.get("school_stage_preferences") or []),
                 "step": "children",
+                "hidden": True,
             },
             {
                 "type": "select",
@@ -2701,7 +2770,7 @@ def app_section_payload(
                     {"value": "very_important", "label": "Very important"},
                 ],
                 "step": "children",
-                "hidden": not show_school_quality_priority_controls,
+                "hidden": True,
             },
             {
                 "type": "checkbox",
@@ -2711,6 +2780,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("require_school_evidence")),
                 "tooltip": "Keep school fit tied to official school-evidence rows instead of inferring too much from generic map proximity.",
                 "step": "children",
+                "hidden": True,
             },
             {
                 "type": "range",
@@ -2959,6 +3029,7 @@ def app_section_payload(
                 "checked": bool(property_preferences.get("enable_lifestyle_research")),
                 "tooltip": "Track lifestyle distance signals like Starbucks and fitness centers separately from hard investment or family-risk criteria.",
                 "step": "children",
+                "hidden": True,
             },
             {
                 "type": "text",
@@ -3103,6 +3174,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Defines what nearby means for everyday groceries. If good matches are scarce, this radius is relaxed and reported instead of hiding every result.",
                 "step": "children",
+                "hidden": True,
             },
             {
                 "type": "select",
@@ -3116,7 +3188,7 @@ def app_section_payload(
                 ],
                 "tooltip": "Controls how strongly supermarket distance affects ranking and adaptive radius relaxation.",
                 "step": "children",
-                "hidden": not show_supermarket_importance_controls,
+                "hidden": True,
             },
             {
                 "type": "range",
@@ -3133,6 +3205,7 @@ def app_section_payload(
                 "scale_max_label": "5 km",
                 "tooltip": "Optional district-life filter. Covers produce markets and flanier markets like Naschmarkt.",
                 "step": "children",
+                "hidden": True,
             },
             {
                 "type": "range",

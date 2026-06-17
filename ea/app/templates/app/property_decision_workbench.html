@@ -2390,9 +2390,9 @@
     .pqx-what-matters-head {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
-      gap: 10px;
-      align-items: center;
-      padding: 10px 12px;
+      gap: 12px;
+      align-items: start;
+      padding: 12px 14px;
       border-bottom: 1px solid var(--pq-line);
     }
     .pqx-what-matters-head .pqx-disclosure-label {
@@ -2422,37 +2422,48 @@
       white-space: nowrap;
     }
     .pqx-what-matters-panel .pqx-advanced-panel-grid {
-      padding: 8px 10px 10px;
+      padding: 12px 14px 14px;
       border-top: 0;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
     }
     .pqx-what-matters-panel .pqx-choice-groupbox {
-      gap: 0;
-      padding: 0;
-      border: 0;
-      border-radius: 0;
-      background: transparent;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid rgba(185, 173, 154, 0.22);
+      border-radius: 10px;
+      background: rgba(255, 253, 249, 0.72);
     }
     .pqx-what-matters-panel .pqx-choice-groupbox-legend {
-      display: none;
+      display: block;
+      padding: 0;
+      color: var(--pq-faint);
+      font-size: 11px;
+      font-weight: 760;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
     }
     .pqx-what-matters-panel .pqx-pref-list {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px 10px;
+      grid-template-columns: 1fr;
+      gap: 8px;
       max-height: none;
       overflow: visible;
     }
     .pqx-what-matters-panel .pqx-pref-row {
-      grid-template-columns: minmax(0, 1fr) minmax(118px, 140px) minmax(88px, 104px);
-      padding: 8px 10px;
-      gap: 6px;
-      align-items: start;
-      border: 1px solid rgba(185, 173, 154, 0.28);
+      grid-template-columns: minmax(0, 1fr) minmax(156px, 184px) minmax(110px, 132px);
+      padding: 10px 12px;
+      gap: 8px 10px;
+      align-items: center;
+      border: 1px solid rgba(185, 173, 154, 0.2);
       border-radius: 10px;
-      background: rgba(255, 253, 249, 0.72);
+      background: rgba(255, 253, 249, 0.88);
     }
     .pqx-what-matters-panel .pqx-pref-row > div {
-      grid-column: 1 / -1;
+      grid-column: 1;
       min-width: 0;
+      display: grid;
+      gap: 2px;
+      align-self: center;
     }
     .pqx-what-matters-panel .pqx-pref-row strong {
       font-size: 12px;
@@ -2460,33 +2471,46 @@
     }
     .pqx-what-matters-panel .pqx-pref-row small {
       font-size: 10px;
-      line-height: 1.2;
-      margin-top: 2px;
+      line-height: 1.3;
+      margin-top: 0;
     }
     .pqx-what-matters-panel .pqx-pref-row select {
       min-width: 0;
       max-width: none;
-      min-height: 30px;
-      padding: 4px 24px 4px 8px;
+      min-height: 34px;
+      padding: 6px 28px 6px 10px;
       font-size: 11px;
-      align-self: end;
+      align-self: center;
     }
-    .pqx-what-matters-panel .pqx-pref-row select:only-of-type {
-      grid-column: 1 / -1;
+    .pqx-what-matters-panel .pqx-keyword-priority-row select:only-of-type,
+    .pqx-what-matters-panel .pqx-school-priority-row select:only-of-type {
+      grid-column: 2 / span 2;
+      max-width: 184px;
     }
     .pqx-what-matters-panel .pqx-pref-row select[disabled] {
       opacity: 0.55;
       cursor: not-allowed;
     }
+    .pqx-what-matters-panel .pqx-actions {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
     @media (max-width: 760px) {
       .pqx-what-matters-head {
+        grid-template-columns: 1fr;
+      }
+      .pqx-what-matters-panel .pqx-advanced-panel-grid {
         grid-template-columns: 1fr;
       }
       .pqx-what-matters-panel .pqx-pref-row {
         grid-template-columns: 1fr;
       }
-      .pqx-what-matters-panel .pqx-pref-list {
-        grid-template-columns: 1fr;
+      .pqx-what-matters-panel .pqx-keyword-priority-row select:only-of-type,
+      .pqx-what-matters-panel .pqx-school-priority-row select:only-of-type {
+        grid-column: auto;
+        max-width: none;
       }
     }
     .pqx-automation-board {
@@ -4899,6 +4923,7 @@
                 <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close filtered rules">×</button>
               </div>
               <div class="pqx-filtered-dialog-actions">
+                {% if counterfactual_rows %}
                 {% for row in counterfactual_rows %}
                 <div class="pqx-filtered-dialog-rule">
                   {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true" data-pqx-filter-impact>+{{ row.get('affected_total') }}</span>{% endif %}
@@ -4933,6 +4958,20 @@
                   </div>
                 </div>
                 {% endfor %}
+                {% else %}
+                {% for row in suppression_rows %}
+                <div class="pqx-filtered-dialog-rule">
+                  {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true">{{ row.get('affected_total') }}</span>{% endif %}
+                  <strong>{{ row.get('title') or 'Filtered matches' }}</strong>
+                  <span class="pqx-note">{{ row.get('detail') or 'Some candidates stayed outside the shortlist because of the current brief or missing evidence.' }}</span>
+                  {% if row.get('action_label') %}
+                  <div class="pqx-actions">
+                    <button class="pqx-button subtle" type="button" data-pqx-filtered-close>{{ row.get('action_label') }}</button>
+                  </div>
+                  {% endif %}
+                </div>
+                {% endfor %}
+                {% endif %}
               </div>
               <div class="pqx-note" data-pqx-counterfactual-status></div>
             </div>
@@ -5140,7 +5179,7 @@
                   </div>
                   <div class="pqx-advanced-panel-grid">
                     <fieldset class="pqx-choice-groupbox">
-                      <legend class="pqx-choice-groupbox-legend">{{ field.label }}</legend>
+                      <legend class="pqx-choice-groupbox-legend">Home and daily life</legend>
                       <div class="pqx-pref-list">
                         {% for option in field.options or [] %}
                         <label class="pqx-pref-row pqx-keyword-priority-row"{% if option.get('hidden') %} hidden{% endif %} data-keyword-priority-row data-keyword-value="{{ option.get('value') }}">
@@ -5172,6 +5211,27 @@
                         {% endfor %}
                       </div>
                     </fieldset>
+                    {% if field.get('school_preference_options') %}
+                    <fieldset class="pqx-choice-groupbox">
+                      <legend class="pqx-choice-groupbox-legend">Schools and childcare</legend>
+                      <div class="pqx-pref-list">
+                        {% for option in field.get('school_preference_options') or [] %}
+                        <label class="pqx-pref-row pqx-school-priority-row" data-school-priority-row data-school-value="{{ option.get('value') }}">
+                          <div>
+                            <strong>{{ option.get('label') }}</strong>
+                            {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
+                          </div>
+                          <select name="school_preference__{{ option.get('value') }}" data-school-preference-select data-school-value="{{ option.get('value') }}">
+                            <option value="any" {% if (option.get('state') or 'any') == 'any' %}selected{% endif %}>No preference</option>
+                            <option value="nice_to_have" {% if option.get('state') == 'nice_to_have' %}selected{% endif %}>Nice to have</option>
+                            <option value="important" {% if option.get('state') == 'important' %}selected{% endif %}>Strong wish</option>
+                            <option value="must_have" {% if option.get('state') == 'must_have' %}selected{% endif %}>Must have</option>
+                          </select>
+                        </label>
+                        {% endfor %}
+                      </div>
+                    </fieldset>
+                    {% endif %}
                   </div>
                 </section>
                 {% elif field.type == 'checkbox_group' %}

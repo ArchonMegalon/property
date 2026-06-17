@@ -1036,6 +1036,16 @@ def _artifact_receipt_rows(run_summary: dict[str, object]) -> list[dict[str, str
             "tag": "Run proof",
         }
     )
+    repair_receipts = [dict(row) for row in list(run_summary.get("repair_receipts") or []) if isinstance(row, dict)]
+    if repair_receipts:
+        latest = repair_receipts[-1]
+        rows.append(
+            {
+                "title": "Repair receipts",
+                "detail": f"{len(repair_receipts)} repair receipt(s) recorded. Latest: {str(latest.get('resolution') or 'returned').replace('_', ' ')}.",
+                "tag": "Repair proof",
+            }
+        )
     return rows
 
 

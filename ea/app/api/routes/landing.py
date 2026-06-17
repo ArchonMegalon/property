@@ -42,6 +42,7 @@ from app.api.routes.landing_content import (
     TRUST_CARDS,
 )
 from app.api.routes.landing_property_surface_contracts import PropertySurfaceScope
+from app.api.routes.landing_property_workspace_helpers import _compact_provider_label
 from app.api.routes.landing_view_models import (
     app_section_payload as _app_section_payload,
     channel_cards as _channel_cards,
@@ -833,7 +834,10 @@ def _property_console_context(
     run_payload: dict[str, object] = {}
     normalized_run_id = str(run_id or "").strip()
     recent_search_runs: list[dict[str, object]] = []
-    if wants_recent_runs:
+    should_load_recent_runs = wants_recent_runs and not (
+        normalized_run_id and surface_scope.section in {"properties", "shortlist"}
+    )
+    if should_load_recent_runs:
         try:
             recent_search_runs = [
                 normalize_property_search_run_snapshot(dict(row))
@@ -890,42 +894,46 @@ def _property_console_context(
                     )
                 )
             country_provider_options = [dict(option) for option in property_provider_options(country_code=selected_country)]
-    enrich_run_candidates_with_feedback = wants_run_state and surface_scope.section == "shortlist"
+    run_status_value = str(run_payload.get("status") or "").strip().lower()
+    enrich_run_candidates_with_feedback = (
+        wants_run_state
+        and surface_scope.section == "shortlist"
+        and run_status_value not in {"processed", "completed", "completed_partial"}
+    )
     if run_payload and enrich_run_candidates_with_feedback:
         packet_service = build_fliplink_packet_service(container)
         summary = dict(run_payload.get("summary") or {}) if isinstance(run_payload.get("summary"), dict) else {}
-        sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
-        for source in sources:
-            source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
-            candidates = [dict(row) for row in list(source.get("top_candidates") or []) if isinstance(row, dict)]
-            enriched_candidates: list[dict[str, object]] = []
-            for candidate in candidates:
-                candidate.setdefault("source_label", source_label)
-                feedback_summary: dict[str, object] = {}
-                feedback_rows: list[dict[str, object]] = []
-                for feedback_ref in _property_feedback_reference_candidates(
-                    _property_candidate_ref(candidate),
-                    candidate,
-                ):
-                    try:
-                        summary_candidate = dict(packet_service.feedback_summary(principal_id=principal_id, property_ref=feedback_ref))
-                    except Exception:
-                        summary_candidate = {}
-                    try:
-                        rows_candidate = list(packet_service.list_structured_feedback(principal_id=principal_id, property_ref=feedback_ref))
-                    except Exception:
-                        rows_candidate = []
-                    if summary_candidate and not feedback_summary:
-                        feedback_summary = summary_candidate
-                    if rows_candidate and not feedback_rows:
-                        feedback_rows = rows_candidate
-                    if feedback_summary and feedback_rows:
-                        break
-                candidate["feedback_summary"] = feedback_summary
-                candidate["feedback_rows"] = feedback_rows[:12]
-                enriched_candidates.append(candidate)
-            source["top_candidates"] = enriched_candidates
-        summary["sources"] = sources
+        ranked_candidates = [
+            dict(row)
+            for row in list(summary.get("ranked_candidates") or [])
+            if isinstance(row, dict)
+        ]
+        if ranked_candidates:
+            summary["ranked_candidates"] = [
+                _property_enrich_candidate_feedback(
+                    packet_service=packet_service,
+                    principal_id=principal_id,
+                    candidate=candidate,
+                )
+                for candidate in ranked_candidates[:20]
+            ] + ranked_candidates[20:]
+        else:
+            sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+            for source in sources[:8]:
+                source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
+                candidates = [dict(row) for row in list(source.get("top_candidates") or []) if isinstance(row, dict)]
+                enriched_candidates: list[dict[str, object]] = []
+                for candidate in candidates[:3]:
+                    candidate.setdefault("source_label", source_label)
+                    enriched_candidates.append(
+                        _property_enrich_candidate_feedback(
+                            packet_service=packet_service,
+                            principal_id=principal_id,
+                            candidate=candidate,
+                        )
+                    )
+                source["top_candidates"] = enriched_candidates
+            summary["sources"] = sources
         run_payload["summary"] = summary
     run_health = build_property_run_health_snapshot(
         run_payload,
@@ -1070,6 +1078,62 @@ def _property_console_context(
         "billing_provider_labels_by_plan": dict(billing_truth.get("provider_labels_by_plan") or {}),
         "billing_truth": billing_truth,
     }
+
+
+def _property_run_payload_has_shortlist_results(run_payload: dict[str, object]) -> bool:
+    if not isinstance(run_payload, dict) or not run_payload:
+        return False
+    summary = dict(run_payload.get("summary") or {}) if isinstance(run_payload.get("summary"), dict) else {}
+    for key in ("ranked_candidates", "results", "top_candidates"):
+        candidates = run_payload.get(key)
+        if isinstance(candidates, list) and candidates:
+            return True
+        summary_candidates = summary.get(key)
+        if isinstance(summary_candidates, list) and summary_candidates:
+            return True
+    sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    if any(list(source.get("top_candidates") or []) for source in sources):
+        return True
+    for key in ("ranked_total", "ranked_candidate_total", "results_total", "survivor_total"):
+        raw_value = run_payload.get(key, summary.get(key))
+        try:
+            if int(raw_value or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _property_enrich_candidate_feedback(
+    *,
+    packet_service: Any,
+    principal_id: str,
+    candidate: dict[str, object],
+) -> dict[str, object]:
+    candidate_row = dict(candidate)
+    feedback_summary: dict[str, object] = {}
+    feedback_rows: list[dict[str, object]] = []
+    for feedback_ref in _property_feedback_reference_candidates(
+        _property_candidate_ref(candidate_row),
+        candidate_row,
+    ):
+        try:
+            summary_candidate = dict(packet_service.feedback_summary(principal_id=principal_id, property_ref=feedback_ref))
+        except Exception:
+            summary_candidate = {}
+        try:
+            rows_candidate = list(packet_service.list_structured_feedback(principal_id=principal_id, property_ref=feedback_ref))
+        except Exception:
+            rows_candidate = []
+        if summary_candidate and not feedback_summary:
+            feedback_summary = summary_candidate
+        if rows_candidate and not feedback_rows:
+            feedback_rows = rows_candidate
+        if feedback_summary and feedback_rows:
+            break
+    candidate_row["feedback_summary"] = feedback_summary
+    candidate_row["feedback_rows"] = feedback_rows[:12]
+    return candidate_row
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -1852,6 +1916,7 @@ def property_research_packet(
     tour_url = str(candidate.get("tour_url") or "").strip()
     property_url = str(candidate.get("property_url") or "").strip()
     source_label = str(candidate.get("source_label") or "Property scout").strip() or "Property scout"
+    display_source_label = _compact_provider_label(source_label) or source_label
     title = str(candidate.get("title") or property_url or "Research packet").strip() or "Research packet"
     display_title = _property_research_title_display(title)
     run_target = f"/app/research/{candidate_ref}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else "")
@@ -2103,9 +2168,10 @@ def property_research_packet(
     rooms_summary = str(facts.get("rooms_label") or facts.get("rooms") or facts.get("room_count") or "").strip()
     location_summary = str(
         candidate.get("location_label")
-        or facts.get("source_scope_location")
         or facts.get("district")
+        or facts.get("postal_name")
         or facts.get("address")
+        or facts.get("source_scope_location")
         or source_label
         or ""
     ).strip()
@@ -2119,7 +2185,7 @@ def property_research_packet(
         )
         if str(part or "").strip()
     ]
-    object_summary = " · ".join(headline_summary_parts) or source_label
+    object_summary = " · ".join(headline_summary_parts) or display_source_label
     if price_summary and not any(str(row.get("label") or "").strip().lower() == "rent / price" for row in list(detail_sections.get("cost_rows") or [])):
         detail_sections["cost_rows"] = [{"label": "Rent / price", "value": price_summary}] + list(detail_sections.get("cost_rows") or [])
     research_media = _property_tour_media_payload(candidate)
@@ -2136,7 +2202,7 @@ def property_research_packet(
         "map_url": str(orientation_preview.get("map_url") or "").strip(),
         "embed_url": _google_maps_embed_url(orientation_preview.get("map_url")),
         "title": str(orientation_preview.get("title") or location_summary or "Wider area").strip(),
-        "alt": str(orientation_preview.get("alt") or f"Map around {location_summary or source_label}").strip(),
+        "alt": str(orientation_preview.get("alt") or f"Map around {location_summary or display_source_label}").strip(),
         "caption": str(orientation_preview.get("caption") or "").strip(),
         "district_rows": list(orientation_preview.get("district_rows") or []),
     }
@@ -2182,7 +2248,7 @@ def property_research_packet(
         {"label": "Price", "value": price_summary or "Price on request"},
         {"label": "Area", "value": f"{area_summary} m²" if area_summary else "Not listed"},
         {"label": "Rooms", "value": rooms_summary or "Not listed"},
-        {"label": "Location", "value": location_summary or source_label},
+        {"label": "Location", "value": location_summary or display_source_label},
     ]
     if detail_sections.get("feature_values"):
         overview_rows.append({"label": "Highlights", "value": ", ".join(list(detail_sections.get("feature_values") or [])[:4])})
@@ -2289,11 +2355,11 @@ def property_research_packet(
     research_snapshot = build_property_research_packet_snapshot(
         title=display_title,
         summary=object_summary,
-        source_label=source_label,
+        source_label=display_source_label,
         price=price_summary or "Price on request",
         area=f"{area_summary} m²" if area_summary else "",
         rooms=rooms_summary,
-        location=location_summary or source_label,
+        location=location_summary or display_source_label,
         media=research_media,
         preview_image=preview_image,
         gallery_items=gallery_items,
@@ -2506,6 +2572,26 @@ def app_shell(
         "billing": "billing",
     }
     status = container.onboarding.status(principal_id=context.principal_id)
+    normalized_run_id = str(run_id or "").strip()
+    if property_brand and resolved_section == "properties" and normalized_run_id:
+        with contextlib.suppress(Exception):
+            product = build_product_service(container)
+            route_run = dict(
+                product.get_property_search_run_status(
+                    principal_id=context.principal_id,
+                    run_id=normalized_run_id,
+                )
+                or {}
+            )
+            route_run_status = str(route_run.get("status") or "").strip().lower()
+            if route_run_status in {"processed", "completed", "completed_partial"} and _property_run_payload_has_shortlist_results(route_run):
+                target = "/app/shortlist"
+                query = str(request.url.query or "").strip()
+                if query:
+                    target = f"{target}?{query}"
+                else:
+                    target = f"{target}?run_id={urllib.parse.quote(normalized_run_id, safe='')}"
+                return RedirectResponse(target, status_code=307)
     if resolved_section == "channel-loop":
         workspace = dict(status.get("workspace") or {})
         product = build_product_service(container)

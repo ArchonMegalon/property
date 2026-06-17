@@ -153,9 +153,76 @@ def test_normalize_property_search_preferences_land_only_clears_dwelling_only_ga
     assert payload["investment_require_floorplan"] is False
     assert payload["require_barrier_free"] is False
     assert "min_rooms" not in payload
-    assert payload["keywords"] == "playground nearby"
+    assert payload["keywords"] == ""
     assert payload["avoid_keywords"] == ""
     assert payload["keyword_preferences"] == {"playground nearby": "nice_to_have_1km"}
+
+
+def test_normalize_property_search_preferences_strips_soft_keyword_filters_from_discovery_keywords() -> None:
+    payload = normalize_property_search_preferences(
+        {
+            "keywords": "balcony, terrace, bright, custom term",
+            "avoid_keywords": "quiet, noisy street",
+            "keyword_preferences": {
+                "balcony": "nice_to_have",
+                "terrace": "strong_wish",
+                "bright": "must_have",
+                "quiet": "avoid",
+            },
+        }
+    )
+
+    assert payload["keywords"] == "bright, custom term"
+    assert payload["avoid_keywords"] == "quiet, noisy street"
+    assert payload["keyword_preferences"] == {
+        "balcony": "nice_to_have",
+        "terrace": "strong_wish",
+        "bright": "must_have",
+        "quiet": "avoid",
+    }
+
+
+def test_generated_source_specs_pushes_only_hard_keywords_to_provider_search() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "custom_keywords": "altbau",
+            "keywords": "balcony, bright, quiet, altbau",
+            "avoid_keywords": "quiet",
+            "keyword_preferences": {
+                "balcony": "nice_to_have",
+                "bright": "must_have",
+                "quiet": "avoid",
+            },
+        },
+        selected_platforms=("willhaben",),
+        principal_id="cf-email:tibor.girschele@gmail.com",
+    )
+
+    assert specs
+    pushdown = dict(specs[0].get("provider_filter_pushdown") or {})
+    requested = dict(pushdown.get("requested") or {})
+    assert requested.get("keywords") == "bright, altbau"
+
+
+def test_generated_source_specs_ignores_legacy_managed_soft_keywords_without_priority_map() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "keywords": "balcony, terrace, quiet, bright",
+        },
+        selected_platforms=("willhaben",),
+        principal_id="cf-email:tibor.girschele@gmail.com",
+    )
+
+    assert specs
+    pushdown = dict(specs[0].get("provider_filter_pushdown") or {})
+    requested = dict(pushdown.get("requested") or {})
+    assert requested.get("keywords") is None
 
 
 def test_normalize_property_search_preferences_clamps_search_agent_controls() -> None:
@@ -974,6 +1041,49 @@ def test_generated_source_specs_marks_weak_costa_rica_provider_filters_as_attemp
     assert "require_floorplan" in pushdown["post_filter_only"]
     assert pushdown["post_filter_reasons"]["location_query"] == "attempted_as_provider_search_query_then_verified_after_fetch"
     assert pushdown["post_filter_reasons"]["require_floorplan"] == "provider_has_no_reliable_dedicated_filter_or_parameter"
+
+
+def test_generated_source_specs_do_not_push_keyword_query_into_wohnberatung_wien() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "1010 Vienna",
+            "keywords": "balcony terrace family quiet bright",
+            "min_area_m2": 60,
+            "min_rooms": 2,
+            "max_price_eur": 1500,
+        },
+        selected_platforms=("wohnberatung_wien",),
+        principal_id="exec-property-wohnberatung-at",
+        default_person_id="self",
+        max_results=2,
+    )
+
+    assert len(specs) == 1
+    url = str(specs[0]["url"])
+    params = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+    assert "q" not in params
+    assert params["maxPrice"] == ["1500"]
+    assert params["minRooms"] == ["2"]
+    assert params["minArea"] == ["60"]
+    pushdown = dict(specs[0]["provider_filter_pushdown"])
+    assert pushdown["applied"]["max_price_eur"] == 1500
+    assert pushdown["applied"]["min_rooms"] == 2
+    assert pushdown["applied"]["min_area_m2"] == 60
+    assert "location_query" not in dict(pushdown["applied"])
+    assert "keywords" not in dict(pushdown["applied"])
+    assert "location_query" not in dict(pushdown["attempted"])
+    assert "keywords" not in dict(pushdown["attempted"])
+    assert "location_query" in set(pushdown["post_filter_only"])
+    assert "keywords" in set(pushdown["post_filter_only"])
+    assert "max_price_eur" not in set(pushdown["post_filter_only"])
+    assert "min_rooms" not in set(pushdown["post_filter_only"])
+    assert "min_area_m2" not in set(pushdown["post_filter_only"])
+    assert pushdown["post_filter_reasons"]["location_query"] == "provider_has_no_reliable_dedicated_filter_or_parameter"
+    assert pushdown["post_filter_reasons"]["keywords"] == "provider_has_no_reliable_dedicated_filter_or_parameter"
 
 
 def test_generated_source_specs_every_requested_filter_has_pushdown_receipt() -> None:

@@ -1249,6 +1249,25 @@ def property_workspace_payload(
             return True
         return bool(found_postal_codes & requested_postal_codes)
 
+    def _candidate_has_concrete_location_signal(
+        candidate: dict[str, object],
+        facts: dict[str, object],
+    ) -> bool:
+        if any(
+            str(facts.get(key) or "").strip()
+            for key in ("district", "postal_name", "street_address", "exact_address", "address")
+        ):
+            return True
+        text = " ".join(
+            part
+            for part in (
+                str(candidate.get("title") or "").strip(),
+                str(candidate.get("summary") or "").strip(),
+            )
+            if part
+        )
+        return bool(re.search(r"\b\d{4}\b", text))
+
     def _candidate_is_shortlist_admissible(
         candidate: dict[str, object],
         facts: dict[str, object],
@@ -1267,7 +1286,11 @@ def property_workspace_payload(
             return False
         if _candidate_is_generic_listing_page(candidate, facts):
             return False
+        if not _candidate_has_concrete_location_signal(candidate, facts):
+            return False
         if not _candidate_matches_selected_postal_scope(candidate, facts, selected_locations=selected_locations):
+            return False
+        if not has_price_signal:
             return False
         if source_family == "developer_projects" and not has_price_signal and not has_area_signal:
             return False
@@ -1289,15 +1312,6 @@ def property_workspace_payload(
         listing_mode: str,
         selected_locations: list[str],
     ) -> tuple[str, str]:
-        if not _candidate_matches_selected_postal_scope(candidate, facts, selected_locations=selected_locations):
-            return ("Maybe false", "Flagged for repair: listing looks outside the selected districts.")
-        if not any(
-            str(facts.get(key) or "").strip()
-            for key in ("district", "postal_name", "street_address", "exact_address")
-        ):
-            return ("Maybe false", "Flagged for repair: provider extract did not produce a concrete location.")
-        if not _candidate_price_signal(facts, listing_mode=listing_mode, title=candidate.get("title")):
-            return ("Maybe false", "Flagged for repair: provider extract did not produce a concrete price.")
         if str(candidate.get("flythrough_raw_status") or "").strip().lower() == "failed" and str(candidate.get("flythrough_url") or "").strip():
             return ("Repair flagged", "Renderer reported failed even though a hosted walkthrough exists.")
         return ("", "")
@@ -2375,6 +2389,25 @@ def property_workspace_payload(
     )
     workbench_results = [dict(row) for row in list(shortlist_snapshot.get("results") or []) if isinstance(row, dict)]
     selected_result = dict(shortlist_snapshot.get("selected") or {})
+    workbench_filtered_total = int(
+        run_health.get("filtered_total")
+        or run_health.get("held_back_total")
+        or run_summary.get("filtered_total")
+        or run_summary.get("held_back_total")
+        or 0
+    )
+    if workbench_filtered_total <= 0 and suppression_rows:
+        workbench_filtered_total = sum(
+            max(int(float((row or {}).get("affected_total") or 0)), 0)
+            for row in suppression_rows
+            if isinstance(row, dict)
+        )
+    workbench_held_back_total = int(
+        run_health.get("held_back_total")
+        or run_summary.get("held_back_total")
+        or workbench_filtered_total
+        or 0
+    )
     decision_workbench = PropertyDecisionWorkbenchContract(
         run=PropertyDecisionWorkbenchRunContract(
             run_id=run_id,
@@ -2383,8 +2416,8 @@ def property_workspace_payload(
             progress=int(run_health.get("progress") or run_payload.get("progress") or 0),
             message=run_status_note or run_message,
             status_url=str(run_health.get("status_url") or run_payload.get("status_url") or "").strip(),
-            filtered_total=int(run_health.get("filtered_total") or 0),
-            held_back_total=int(run_health.get("held_back_total") or 0),
+            filtered_total=workbench_filtered_total,
+            held_back_total=workbench_held_back_total,
             summary=run_summary,
             events=run_events[-8:],
             worker_state=search_worker_state,

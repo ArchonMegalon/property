@@ -1083,6 +1083,88 @@ def test_property_distance_gate_records_relaxed_and_unknown_distances() -> None:
     assert "distance_relaxations_json" not in outside_facts
 
 
+def test_property_distance_gate_treats_non_hard_preferences_as_score_only() -> None:
+    outside_facts = {"nearest_library_m": 1200}
+    assert product_service._property_apply_distance_gate(
+        outside_facts,
+        request_preferences={
+            "max_distance_to_library_m": 300,
+            "max_distance_to_library_importance": "important",
+        },
+        preference_key="max_distance_to_library_m",
+        fact_key="nearest_library_m",
+        label="Library",
+    ) is True
+    assert "distance_relaxations_json" not in outside_facts
+
+    soft_unknown_facts: dict[str, object] = {}
+    assert product_service._property_apply_distance_gate(
+        soft_unknown_facts,
+        request_preferences={
+            "max_distance_to_playground_m": 500,
+            "max_distance_to_playground_importance": "nice_to_have",
+        },
+        preference_key="max_distance_to_playground_m",
+        fact_key="nearest_playground_m",
+        label="playground",
+    ) is True
+    assert soft_unknown_facts["distance_unknowns_json"] == [
+        {"label": "playground", "requested_m": 500}
+    ]
+
+
+def test_property_distance_preference_score_adjustment_rewards_and_penalizes_soft_matches() -> None:
+    positive_adjustment, positive_notes = product_service._property_distance_preference_score_adjustment(
+        preferences={
+            "max_distance_to_library_m": 500,
+            "max_distance_to_library_importance": "important",
+            "max_distance_to_playground_m": 800,
+            "max_distance_to_playground_importance": "nice_to_have",
+        },
+        property_facts={
+            "nearest_library_m": 240,
+            "nearest_playground_m": 620,
+        },
+    )
+
+    assert positive_adjustment > 0
+    assert "library close by" in positive_notes
+    assert "playground nearby" in positive_notes
+
+    negative_adjustment, negative_notes = product_service._property_distance_preference_score_adjustment(
+        preferences={
+            "max_distance_to_library_m": 400,
+            "max_distance_to_library_importance": "important",
+            "max_distance_to_playground_m": 500,
+            "max_distance_to_playground_importance": "nice_to_have",
+        },
+        property_facts={
+            "nearest_library_m": 1800,
+        },
+    )
+
+    assert negative_adjustment < 0
+    assert "library farther away than wished" in negative_notes
+    assert "playground distance missing" in negative_notes
+
+
+def test_property_candidate_effective_fit_score_prefers_adjusted_rank_score() -> None:
+    assert (
+        product_service._property_candidate_effective_fit_score(
+            assessment_fit_score=38,
+            ranked_fit_score=51,
+        )
+        == 51.0
+    )
+    assert (
+        product_service._property_candidate_effective_fit_score(
+            assessment_fit_score=62,
+            ranked_fit_score=51,
+        )
+        == 62.0
+    )
+
+
 def test_property_distance_gate_can_avoid_nearby_locations() -> None:
     too_close_facts = {"nearest_shopping_center_m": 220}
     assert product_service._property_apply_distance_gate(
@@ -1584,6 +1666,87 @@ def test_property_provider_repair_auto_resolves_generic_listing_pages(monkeypatc
     assert tasks[0].resolution == "suppressed_generic_listing_page"
 
 
+def test_property_provider_repair_does_not_cross_resolve_floorplan_into_location_scope(monkeypatch) -> None:
+    principal_id = "exec-property-provider-floorplan-semantic-fence"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Provider Repair Semantic Fence Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_platforms": ["kalandra"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    service = ProductService(client.app.state.container)
+
+    class _Resp:
+        ok = True
+        text = """
+        <html><head><title>Wohnung in 1160 Wien</title></head>
+        <body>
+        Lage: 1160 Wien
+        2 Zimmer
+        58 m2
+        EUR 1.250
+        </body></html>
+        """
+
+    monkeypatch.setattr(product_service.requests, "get", lambda *args, **kwargs: _Resp())
+
+    opened = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url="https://example.invalid/listing/1160-no-floorplan",
+        title="Wohnung in 1160 Wien",
+        source_url="https://example.invalid/search",
+        source_label="Kalandra | Austria | Rent | 1010 Vienna",
+        source_platform="kalandra",
+        source_family="core_portal",
+        filter_key="require_floorplan",
+        diagnostics={"provider_host": "example.invalid"},
+        source_ref="property-scout:kalandra-floorplan",
+    )
+
+    assert opened["status"] == "opened"
+    tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert len(tasks) == 1
+    task = service._assign_property_provider_repair_task(
+        principal_id=principal_id,
+        task=tasks[0],
+        actor="ea_one_manager",
+        operator_id="ea_one_manager",
+    )
+    result = service._auto_resolve_property_provider_repair_task(
+        principal_id=principal_id,
+        task=task,
+        actor="ea_one_manager",
+    )
+
+    refreshed = [
+        row
+        for row in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if row.task_type == "property_provider_repair_ooda"
+    ][0]
+    assert result["status"] == "deferred"
+    assert refreshed.status == "pending"
+    assert refreshed.resolution == ""
+
+
 def test_property_search_source_fetch_failure_opens_provider_repair_task(monkeypatch) -> None:
     principal_id = "exec-property-source-fetch-repair"
     client = build_property_client(principal_id=principal_id)
@@ -1739,21 +1902,78 @@ def test_property_search_run_status_enriches_source_fetch_repairs() -> None:
         if task.task_type == "property_provider_repair_ooda"
     ]
     assert len(tasks) == 1
-    client.app.state.container.orchestrator.return_human_task(
-        tasks[0].human_task_id,
-        principal_id=principal_id,
-        operator_id="ea_one_manager",
-        resolution="suppressed_missing_location",
-        returned_payload_json={"reason": "provider page still lacks a concrete location"},
-        provenance_json={"source": "test"},
-    )
-
     status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
     source = status["summary"]["sources"][0]
     assert source["status"] == "repaired"
     assert source["repair_status"] == "returned"
-    assert source["provider_repair_tasks"][0]["resolution"] == "suppressed_missing_location"
+    assert source["provider_repair_tasks"][0]["resolution"] == "suppressed_source_fetch_forbidden"
     monkeypatch.undo()
+
+
+def test_property_search_run_terminal_receives_repair_receipt_without_task_scan(monkeypatch) -> None:
+    principal_id = "exec-property-run-terminal-repair-receipt"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Terminal Repair Receipt Office")
+    service = ProductService(client.app.state.container)
+    run_id = f"repair-receipt-{uuid.uuid4().hex}"
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": product_service._now_iso(),
+            "updated_at": product_service._now_iso(),
+            "status": "completed_partial",
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "selected_platforms": ["wohnberatung_wien"],
+            "progress": 100,
+            "message": "Current shortlist is still available.",
+            "summary": {
+                "status": "completed_partial",
+                "sources_total": 2,
+                "ranked_candidates": [{"candidate_ref": "cand-1", "title": "Recovered hit"}],
+                "sources": [
+                    {
+                        "source_url": "https://wohnberatung.example.invalid/search",
+                        "source_label": "Wohnberatung Wien | Austria | Rent | Vienna",
+                        "status": "failed",
+                        "error": "HTTP Error 403: Forbidden",
+                    }
+                ],
+            },
+        }
+    monkeypatch.setattr(product_service.requests, "get", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("fetch blocked")))
+    opened = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url="https://wohnberatung.example.invalid/search",
+        title="Wohnberatung Wien | Austria | Rent | Vienna",
+        source_url="https://wohnberatung.example.invalid/search",
+        source_label="Wohnberatung Wien | Austria | Rent | Vienna",
+        source_platform="wohnberatung_wien",
+        source_family="public_housing",
+        filter_key="source_fetch",
+        diagnostics={"provider_host": "wohnberatung.example.invalid", "error": "HTTP Error 403: Forbidden"},
+        source_ref="property-source:test",
+        run_id=run_id,
+    )
+    assert opened["status"] in {"opened", "existing"}
+
+    monkeypatch.setattr(
+        client.app.state.container.orchestrator,
+        "list_human_tasks",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("terminal status should not scan repair tasks")),
+    )
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    summary = dict(status.get("summary") or {})
+    source = dict((summary.get("sources") or [])[0])
+    assert source["status"] == "repaired"
+    assert source["repair_status"] == "returned"
+    assert source["repair_resolution"] == "suppressed_source_fetch_forbidden"
+    receipts = [dict(row) for row in list(summary.get("repair_receipts") or []) if isinstance(row, dict)]
+    assert len(receipts) == 1
+    assert receipts[0]["run_id"] == run_id
+    assert receipts[0]["resolution"] == "suppressed_source_fetch_forbidden"
 
 
 def test_property_search_sparse_auction_floorplan_area_scores_above_review_threshold() -> None:
@@ -2238,6 +2458,8 @@ def test_hosted_property_tour_bundle_splits_public_manifest_from_private_receipt
     assert "recipient_email" not in public_manifest
     assert "source_ref" not in public_manifest
     assert "external_id" not in public_manifest
+    assert "listing_url" not in public_manifest
+    assert "property_url" not in public_manifest
     serialized_public_manifest = json.dumps(public_manifest, sort_keys=True)
     for private_marker in (
         "exec-private-tour",
@@ -2245,6 +2467,9 @@ def test_hosted_property_tour_bundle_splits_public_manifest_from_private_receipt
         "property-scout:private-floorplan-1",
         "ext-private-floorplan-1",
         "Private Street 1",
+        "source_url",
+        "listing_url",
+        "property_url",
         "map_lat",
         "map_lng",
         "public_preference_snapshot",
@@ -2255,6 +2480,29 @@ def test_hosted_property_tour_bundle_splits_public_manifest_from_private_receipt
     assert private_manifest["recipient_email"] == "anna@example.com"
     assert private_manifest["source_ref"] == "property-scout:private-floorplan-1"
     assert private_manifest["external_id"] == "ext-private-floorplan-1"
+
+
+def test_hosted_property_tour_bundle_rejects_post_download_invalid_asset_suffix(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
+
+    def _fake_download(url: str, target) -> str:
+        target.write_text("<html>not a floorplan</html>", encoding="utf-8")
+        return "application/octet-stream"
+
+    monkeypatch.setattr("app.product.property_tour_hosting._download_public_tour_asset_with_type", _fake_download)
+
+    with pytest.raises(RuntimeError, match="floorplan_assets_unavailable"):
+        product_service._write_hosted_floorplan_property_tour_bundle(
+            principal_id="exec-invalid-floorplan-suffix",
+            title="Bad floorplan asset",
+            listing_id="bad-floorplan-1",
+            property_url="https://www.willhaben.at/iad/object?adId=bad-floorplan-1",
+            variant_key="layout_first",
+            floorplan_urls=("https://cdn.example.com/floorplan.html",),
+            property_facts_json={},
+            source_host="willhaben.at",
+        )
 
 
 def test_public_tour_asset_download_enforces_max_bytes(monkeypatch, tmp_path) -> None:
@@ -2549,6 +2797,62 @@ def test_property_search_run_status_synthesizes_ranked_candidates_and_filtered_t
     ranked = [dict(row) for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
     assert len(ranked) == 1
     assert ranked[0]["title"] == "Altbau near U6"
+
+
+def test_property_search_run_status_skips_provider_repair_task_scan_for_terminal_runs(monkeypatch) -> None:
+    principal_id = "exec-property-search-terminal-skip-repairs"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"terminal-skip-{uuid.uuid4().hex}"
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": product_service._now_iso(),
+            "updated_at": product_service._now_iso(),
+            "status": "completed_partial",
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "selected_platforms": ["kalandra"],
+            "progress": 100,
+            "current_step": "run_interrupted",
+            "message": "Current shortlist is still available.",
+            "stages_total": 10,
+            "steps_completed": 10,
+            "summary": {
+                "sources_total": 2,
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "cand-1",
+                        "title": "Ranked One",
+                        "property_url": "https://example.test/listing/1",
+                        "fit_score": 61,
+                    }
+                ],
+                "sources": [
+                    {
+                        "source_label": "Source One",
+                        "status": "failed",
+                        "source_url": "https://example.test/source/1",
+                        "top_candidates": [],
+                    }
+                ],
+            },
+            "events": [],
+            "property_search_preferences": {},
+        }
+
+    monkeypatch.setattr(
+        client.app.state.container.orchestrator,
+        "list_human_tasks",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("terminal runs should not scan provider repair tasks")),
+    )
+    monkeypatch.setattr(service, "persist_property_saved_shortlist_candidates", lambda **kwargs: None)
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    assert status["status"] == "completed_partial"
+    assert len(list((status.get("summary") or {}).get("ranked_candidates") or [])) == 1
 
 
 def test_property_search_run_status_api_synthesizes_ranked_candidates_from_source_rows(monkeypatch) -> None:
@@ -3522,6 +3826,61 @@ def test_property_search_run_state_builds_stale_failure_event() -> None:
         "last_known_status": "in_progress",
     }
     assert event["force_status"] == "failed"
+
+
+def test_property_search_run_state_builds_stale_partial_event_when_shortlist_exists() -> None:
+    event = product_service._state_property_search_run_stale_failure_event(
+        {
+            "status": "in_progress",
+            "summary": {
+                "listing_total": 26,
+                "ranked_candidates": [{"title": "Recovered hit"}],
+            },
+        },
+        stale_seconds=20 * 60,
+    )
+
+    assert event["step"] == "run_interrupted"
+    assert event["status"] == "completed_partial"
+    assert "current shortlist is still available" in str(event["message"])
+    assert dict(event["summary_updates"])["repair_status"] == "degraded"
+    assert dict(event["summary_updates"])["repair_status_label"] == "Partial coverage"
+    assert event["force_status"] == "completed_partial"
+
+
+def test_property_search_run_status_marks_stale_partial_run_completed_partial(monkeypatch) -> None:
+    principal_id = "cf-email:stale.partial@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Stale Partial Run Office")
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_RUN_STALE_SECONDS", "60")
+
+    container = client.app.state.container
+    service = product_service.build_product_service(container)
+    run_id = "run-stale-partial-1"
+    state = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "Vienna"},
+        force_refresh=False,
+    )
+    state["status"] = "in_progress"
+    state["progress"] = 86
+    state["summary"] = {
+        "listing_total": 26,
+        "ranked_candidates": [{"title": "Recovered hit"}],
+    }
+    state["updated_at"] = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    assert status["status"] == "completed_partial"
+    assert status["progress"] == 100
+    assert status["summary"]["interrupted"] is True
+    assert status["summary"]["repair_status"] == "degraded"
+    assert any(event["step"] == "run_interrupted" for event in status["events"])
 
 
 def test_property_search_run_terminal_outcome_prefers_partial_success_for_mixed_sources() -> None:

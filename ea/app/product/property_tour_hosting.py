@@ -406,6 +406,9 @@ def _write_hosted_floorplan_property_tour_bundle(
                 relpath = f"floorplan-{ordinal:02d}{suffix}"
                 content_type = _download_public_tour_asset_with_type(asset_url, staging_dir / relpath)
                 suffix = _hosted_property_tour_asset_suffix(url=asset_url, content_type=content_type)
+                if suffix.lower() not in _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS:
+                    (staging_dir / relpath).unlink(missing_ok=True)
+                    continue
                 if suffix and not relpath.endswith(suffix):
                     corrected_relpath = f"floorplan-{ordinal:02d}{suffix}"
                     (staging_dir / relpath).rename(staging_dir / corrected_relpath)

@@ -10,6 +10,7 @@ from app.api.routes import landing_property_workspace_helpers
 from app.api.routes import landing_property_research
 from app.api.routes import landing_property_saved_searches
 from app.api.routes import landing_property_shortlist_panel
+from app.api.routes import landing_property_workspace_payload
 from app.api.routes import public_tours
 from app.api.routes import landing_view_models
 from app.services import property_market_catalog
@@ -135,20 +136,26 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     section_html = section_match.group("section")
     assert "What matters" in section_html
     assert "No preference by default" in section_html
+    assert "Home and daily life" in section_html
+    assert "Schools and childcare" in section_html
     assert '<select name="keyword_preference__lift"' in section_html
     assert '<select name="keyword_preference__barrier-free"' in section_html
     assert '<select name="keyword_distance__playground nearby"' in section_html
     assert '<select name="keyword_preference__library nearby"' in section_html
     assert '<select name="keyword_preference__public pool nearby"' in section_html
     assert '<select name="keyword_preference__medical care nearby"' in section_html
+    assert '<select name="school_preference__kindergarten"' in section_html
+    assert '<select name="school_preference__volksschule"' in section_html
+    assert '<select name="school_preference__gymnasium"' in section_html
     assert 'data-keyword-distance-select' in section_html
     assert 'name="keyword_distance__playground nearby" data-keyword-distance-select data-keyword-value="playground nearby" disabled' in section_html
     assert 'type="checkbox"' not in section_html
     assert 'data-property-advanced-panel="children"' not in html
     assert 'data-property-advanced-panel="location_research"' not in html
     assert 'data-property-field-step="children" data-property-field-name="keywords"' in html
-    assert 'data-property-field-step="children" data-property-field-name="enable_lifestyle_research"' in html
-    assert 'data-property-field-step="children" data-property-field-name="max_distance_to_supermarket_m"' in html
+    assert 'data-property-field-name="enable_lifestyle_research" hidden' in html
+    assert 'data-property-field-name="max_distance_to_supermarket_m" hidden' in html
+    assert 'data-property-field-name="school_stage_preferences" hidden' in html
     assert 'data-property-field-name="max_distance_to_library_m" hidden' in html
     assert 'data-property-field-name="use_stored_feedback_preferences"' in html
     assert 'data-property-field-name="use_stored_feedback_preferences" hidden' in html
@@ -613,7 +620,100 @@ def test_property_console_context_keeps_preference_profile_hydration_on_search(m
     )
 
     assert seen["profile"] == 1
-    assert context["preference_bundle"]["preference_nodes"][0]["node_id"] == "node-1"
+
+
+def test_property_console_context_shortlist_skips_feedback_hydration_for_terminal_runs(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-shortlist-feedback-cap")
+    seen: list[str] = []
+
+    class _Product:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 8):
+            return []
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str):
+            return {
+                "run_id": run_id,
+                "status": "completed_partial",
+                "summary": {
+                    "status": "completed_partial",
+                    "ranked_candidates": [
+                        {"candidate_ref": "ranked-1", "title": "Ranked One"},
+                        {"candidate_ref": "ranked-2", "title": "Ranked Two"},
+                    ],
+                    "sources": [
+                        {
+                            "source_label": f"Source {index}",
+                            "top_candidates": [
+                                {"candidate_ref": f"source-{index}-cand-{candidate_index}", "title": "Source Lead"}
+                                for candidate_index in range(4)
+                            ],
+                        }
+                        for index in range(12)
+                    ],
+                },
+            }
+
+        def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
+            return {}
+
+        def property_feedback_learning_summary(self, *, principal_id: str, person_id: str = "self", domain: str = "willhaben"):
+            return {}
+
+    class _PacketService:
+        def feedback_summary(self, *, principal_id: str, property_ref: str):
+            seen.append(property_ref)
+            return {"clusters": []}
+
+        def list_structured_feedback(self, *, principal_id: str, property_ref: str):
+            return []
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+    monkeypatch.setattr(landing_routes, "build_fliplink_packet_service", lambda container: _PacketService())
+
+    context = landing_routes._property_console_context(
+        container=client.app.state.container,
+        principal_id="pq-shortlist-feedback-cap",
+        status={"property_search_preferences": {"country_code": "AT"}},
+        run_id="run-1",
+        surface_mode="shortlist",
+    )
+
+    ranked = context["run"]["summary"]["ranked_candidates"]
+    assert len(ranked) == 2
+    assert all("feedback_summary" not in candidate for candidate in ranked)
+    assert seen == []
+
+
+def test_property_console_context_skips_recent_run_hydration_for_explicit_shortlist_run(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-shortlist-no-recent-runs")
+
+    class _Product:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 8):
+            raise AssertionError("explicit shortlist run should not hydrate recent runs")
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str):
+            return {
+                "run_id": run_id,
+                "status": "completed_partial",
+                "summary": {
+                    "status": "completed_partial",
+                    "ranked_candidates": [{"candidate_ref": "cand-1", "title": "Ranked One"}],
+                    "sources": [],
+                },
+            }
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    context = landing_routes._property_console_context(
+        container=client.app.state.container,
+        principal_id="pq-shortlist-no-recent-runs",
+        status={"property_search_preferences": {"country_code": "AT"}},
+        run_id="run-1",
+        surface_mode="shortlist",
+    )
+
+    assert context["recent_search_runs"] == []
+    assert context["run"]["run_id"] == "run-1"
 
 
 def test_property_console_context_keeps_preference_profile_hydration_on_account(monkeypatch) -> None:
@@ -902,11 +1002,80 @@ def test_property_lookup_candidate_prefers_stable_candidate_ref_over_recomputed_
     assert found["property_url"] == "https://example.com/listing/stable"
 
 
+def test_property_shortlist_candidates_preserve_stable_candidate_ref_in_packet_url() -> None:
+    property_context = {
+        "run": {
+            "run_id": "run-stable-packet",
+            "summary": {
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "cand-stable-22",
+                        "title": "Stable packet candidate",
+                        "property_url": "https://example.com/listing/stable-22",
+                        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                    }
+                ],
+                "sources": [],
+            },
+        }
+    }
+
+    candidates = landing_property_research._property_shortlist_candidates_from_context(property_context)
+
+    assert candidates[0]["packet_url"].endswith("/app/research/cand-stable-22?run_id=run-stable-packet")
+
+
+def test_property_workspace_payload_excludes_ranked_candidates_without_concrete_location_or_price() -> None:
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "shortlist",
+        status={},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "listing_mode": "buy",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+            },
+            "run": {
+                "run_id": "run-weak-candidate",
+                "property_search_preferences": {
+                    "listing_mode": "buy",
+                    "search_goal": "home",
+                    "location_query": "1010 Vienna",
+                },
+                "summary": {
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "candidate-weak",
+                            "title": "Project launch with no concrete facts",
+                            "property_url": "https://example.com/project-launch",
+                            "source_label": "Provider | Austria | Buy | 1010 Vienna",
+                            "property_facts": {},
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    assert payload["decision_workbench"]["results"] == []
+
+
 def test_property_workbench_no_longer_embeds_vienna_district_mapping_js() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
     body = template_path.read_text(encoding="utf-8")
     assert "const districtMap = {" not in body
     assert "syncViennaScopeControls" not in body
+
+
+def test_property_workbench_step_triggers_prevent_default_and_use_semantic_hidden_state() -> None:
+    body = _read_workbench_bundle()
+    assert "node.dataset.propertySemanticHidden = 'true'" in body
+    assert "node.hidden = false;" in body
+    assert "event.preventDefault();" in body
+    assert "event.stopPropagation();" in body
 
 
 def test_property_research_detail_uses_user_facing_visual_and_decision_copy() -> None:
@@ -2541,6 +2710,10 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert "data-pqx-filtered-open" in body
     assert "pqx-results-filter-link" in body
     assert "filtered" in body
+    assert "const filteredDialogHasActions = () => Boolean(filteredDialog?.querySelector('.pqx-filtered-dialog-rule'));" in body
+    assert "const openFilteredDialog = () => {" in body
+    assert "[data-pqx-source-breakdown]" in body
+    assert "document.addEventListener('click', handleFilteredOpenClick);" in body
     assert "Best homes first" not in body
 
 
@@ -2798,6 +2971,50 @@ def test_propertyquarry_properties_auto_opens_latest_active_run_when_run_id_miss
     assert "Checking fresh rental listings for Vienna." in live.text
     assert "Open a saved search or launch a new brief" not in live.text
     assert "run-active-42" in live.text
+
+
+def test_propertyquarry_properties_route_redirects_terminal_partial_run_to_shortlist(monkeypatch) -> None:
+    principal_id = "pq-terminal-partial-shortlist"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Terminal Partial Redirect")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-terminal-partial-shortlist"
+        assert run_id == "run-partial-42"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "completed_partial",
+            "progress": 100,
+            "message": "Search interrupted after more than 20 minutes without updates. The current shortlist is still available.",
+            "summary": {
+                "status": "completed_partial",
+                "sources_total": 4,
+                "listing_total": 18,
+                "filtered_total": 2,
+                "held_back_total": 2,
+                "ranked_candidates": [
+                    {"candidate_ref": "cand-1", "title": "Candidate One"},
+                ],
+                "sources": [],
+            },
+            "events": [
+                {"step": "run_interrupted", "message": "Search interrupted after more than 20 minutes without updates.", "status": "completed_partial"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get(
+        "/app/properties",
+        params={"run_id": "run-partial-42"},
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert response.status_code == 307
+    assert response.headers["location"] == "/app/shortlist?run_id=run-partial-42"
 
 
 def test_propertyquarry_suppression_rows_use_summary_fallback_and_show_active_rule() -> None:
@@ -3502,6 +3719,8 @@ def test_propertyquarry_run_script_prefers_concrete_provider_labels_for_grouped_
 
 def test_propertyquarry_results_header_uses_held_back_total_for_filtered_count() -> None:
     bundle = _read_workbench_bundle()
+    assert "runPayload?.filtered_total" in bundle
+    assert "runPayload?.held_back_total" in bundle
     assert "run.get('held_back_total')" in bundle
     assert "run_summary.get('held_back_total')" in bundle
 
@@ -4018,6 +4237,7 @@ def test_propertyquarry_research_packet_shows_cooperative_investment_context_whe
     assert "No hosted 3D tour yet" in packet.text
     assert "Floorplan missing" in packet.text
     assert "not scheduled yet" not in packet.text
+    assert "1210 Wien" in packet.text
 
 
 def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:

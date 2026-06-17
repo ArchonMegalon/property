@@ -599,7 +599,7 @@ _PROPERTY_SEARCH_RESULTS_NOTIFY_TIMEOUT_SECONDS = 6 * 60 * 60
 _PROPERTY_SEARCH_RESULTS_NOTIFY_POLL_SECONDS = 20.0
 _PROPERTY_SEARCH_DEFAULT_HIGH_MATCH_MIN_SCORE = 65.0
 _PROPERTY_SEARCH_DEFAULT_SCAN_CAP_PER_SOURCE = 80
-_PROPERTY_SEARCH_TERMINAL_STATUSES = {"processed", "completed", "failed", "cancelled", "noop"}
+_PROPERTY_SEARCH_TERMINAL_STATUSES = {"processed", "completed", "completed_partial", "failed", "cancelled", "noop"}
 _PROPERTY_MARKET_BOOTSTRAP_OPERATOR_ID = "property-market-codex"
 _PROPERTY_SCHOOLATLAS_SOURCE_URL = "https://www.statistik.at/atlas/schulen/"
 
@@ -867,6 +867,18 @@ def _property_search_effective_min_match_score(preferences: dict[str, object] | 
     if requested_score <= 0.0:
         requested_score = default_score
     return float(max(1.0, min(requested_score, float(cap))))
+
+
+def _property_candidate_effective_fit_score(*, assessment_fit_score: object, ranked_fit_score: object) -> float:
+    try:
+        assessment_value = max(0.0, float(assessment_fit_score or 0.0))
+    except Exception:
+        assessment_value = 0.0
+    try:
+        ranked_value = max(0.0, float(ranked_fit_score or 0.0))
+    except Exception:
+        ranked_value = 0.0
+    return max(assessment_value, ranked_value)
 
 
 def _property_search_execution_preferences(preferences: dict[str, object] | None) -> tuple[dict[str, object], dict[str, object]]:
@@ -6629,6 +6641,11 @@ def _property_distance_is_avoid_mode(value: object) -> bool:
     return normalized in {"avoid", "avoid_nearby", "avoid-nearby", "avoid_in_vicinity", "avoid-vicinity"}
 
 
+def _property_distance_is_hard_mode(value: object) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized in {"hard", "must_have", "must-have", "strict"}
+
+
 def _property_append_distance_relaxation(
     facts: dict[str, object],
     *,
@@ -6704,7 +6721,95 @@ def _property_apply_distance_gate(
         _property_append_distance_unknown(facts, label=label, requested_m=limit_m)
     elif distance_mode == "relaxed":
         _property_append_distance_relaxation(facts, label=label, requested_m=limit_m, actual_m=actual_m)
-    return distance_ok
+    if _property_distance_is_hard_mode(importance_mode):
+        return distance_ok
+    return True
+
+
+def _property_distance_preference_score_adjustment(
+    *,
+    preferences: dict[str, object] | None,
+    property_facts: dict[str, object] | None,
+) -> tuple[float, tuple[str, ...]]:
+    payload = dict(preferences or {})
+    facts = dict(property_facts or {})
+    rows = (
+        ("max_distance_to_supermarket_m", "nearest_supermarket_m", "supermarket"),
+        ("max_distance_to_subway_m", "nearest_subway_m", "underground"),
+        ("max_distance_to_playground_m", "nearest_playground_m", "playground"),
+        ("max_distance_to_market_m", "nearest_market_m", "market"),
+        ("max_distance_to_hardware_store_m", "nearest_hardware_store_m", "Baumarkt"),
+        ("max_distance_to_shopping_center_m", "nearest_shopping_center_m", "shopping center"),
+        ("max_distance_to_shopping_street_m", "nearest_shopping_street_m", "shopping street"),
+        ("max_distance_to_theatre_m", "nearest_theatre_m", "theatre"),
+        ("max_distance_to_public_pool_m", "nearest_public_pool_m", "public pool"),
+        ("max_distance_to_medical_care_m", "nearest_medical_care_m", "medical care"),
+        ("max_distance_to_library_m", "nearest_library_m", "library"),
+        ("max_distance_to_zoo_m", "nearest_zoo_m", "zoo"),
+        ("max_distance_to_starbucks_m", "nearest_starbucks_m", "Starbucks"),
+        ("max_distance_to_fitness_center_m", "nearest_fitness_center_m", "fitness"),
+        ("max_distance_to_cinema_m", "nearest_cinema_m", "cinema"),
+        ("max_distance_to_bouldering_m", "nearest_bouldering_m", "bouldering"),
+        ("max_distance_to_dog_park_m", "nearest_dog_park_m", "dog park"),
+        ("max_distance_to_good_cafe_m", "nearest_good_cafe_m", "good cafe"),
+    )
+    adjustment = 0.0
+    notes: list[str] = []
+    for preference_key, fact_key, label in rows:
+        try:
+            limit_m = int(payload.get(preference_key) or 0)
+        except Exception:
+            limit_m = 0
+        if limit_m <= 0:
+            continue
+        importance_mode = str(payload.get(preference_key.replace("_m", "_importance")) or "").strip().lower()
+        if importance_mode in {"", "any", "neutral", "no_preference", "no-preference"}:
+            continue
+        if _property_distance_is_avoid_mode(importance_mode):
+            continue
+        distance_ok, distance_mode, _actual_m = _property_distance_within_relaxed_radius(
+            actual_m=facts.get(fact_key),
+            requested_limit_m=limit_m,
+            relaxation_factor=_property_distance_relaxation_factor(importance_mode),
+        )
+        if _property_distance_is_hard_mode(importance_mode):
+            if distance_mode == "strict":
+                adjustment += 2.0
+                notes.append(f"{label} matched")
+            elif distance_mode == "relaxed":
+                adjustment += 0.5
+                notes.append(f"{label} slightly farther than requested")
+            elif distance_mode == "unknown":
+                notes.append(f"{label} distance unknown")
+            continue
+        if importance_mode in {"important", "high", "strong"}:
+            if distance_mode == "strict":
+                adjustment += 6.0
+                notes.append(f"{label} close by")
+            elif distance_mode == "relaxed":
+                adjustment += 2.0
+                notes.append(f"{label} within wider radius")
+            elif distance_mode == "unknown":
+                adjustment -= 2.0
+                notes.append(f"{label} distance missing")
+            elif not distance_ok:
+                adjustment -= 6.0
+                notes.append(f"{label} farther away than wished")
+            continue
+        if importance_mode in {"nice_to_have", "nice-to-have", "soft", "low"}:
+            if distance_mode == "strict":
+                adjustment += 3.0
+                notes.append(f"{label} nearby")
+            elif distance_mode == "relaxed":
+                adjustment += 1.0
+                notes.append(f"{label} reasonably nearby")
+            elif distance_mode == "unknown":
+                adjustment -= 0.5
+                notes.append(f"{label} distance missing")
+            elif not distance_ok:
+                adjustment -= 3.0
+                notes.append(f"{label} less convenient")
+    return adjustment, tuple(notes[:8])
 
 
 _PROPERTY_SEARCH_FEEDBACK_PATCH_KEYS: frozenset[str] = frozenset(
@@ -22924,6 +23029,7 @@ class ProductService:
         filter_key: str,
         diagnostics: dict[str, object],
         source_ref: str = "",
+        run_id: str = "",
     ) -> dict[str, object]:
         normalized_property_url = str(property_url or "").strip()
         normalized_filter_key = str(filter_key or "").strip().lower()
@@ -23003,6 +23109,7 @@ class ProductService:
                 "repair_workflow": "ea_provider_ooda",
                 "property_url": normalized_property_url,
                 "source_ref": normalized_source_ref,
+                "run_id": str(run_id or "").strip(),
                 "subject_key": subject_key,
                 "title": str(title or "").strip(),
                 "source_url": str(source_url or "").strip(),
@@ -23043,6 +23150,7 @@ class ProductService:
             "repair_workflow": "ea_provider_ooda",
             "property_url": normalized_property_url,
             "source_ref": normalized_source_ref,
+            "run_id": str(run_id or "").strip(),
             "source_url": str(source_url or "").strip(),
             "source_label": str(source_label or "").strip(),
             "source_platform": str(source_platform or "").strip().lower(),
@@ -23149,6 +23257,107 @@ class ProductService:
             "http_ok": bool(html_text),
         }
 
+    def _record_property_search_run_repair_receipt(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        task: HumanTask,
+        resolution: str,
+        reason: str,
+        actor: str,
+    ) -> None:
+        normalized_run_id = str(run_id or "").strip()
+        if not normalized_run_id:
+            return
+        normalized_principal = str(principal_id or "").strip()
+        if not normalized_principal:
+            return
+        input_json = dict(task.input_json or {})
+        source_url = str(input_json.get("source_url") or input_json.get("property_url") or "").strip()
+        source_label = str(input_json.get("source_label") or input_json.get("title") or source_url or "Source").strip()
+        filter_key = str(input_json.get("filter_key") or "").strip().lower()
+        human_task_ref = f"human_task:{str(task.human_task_id or '').strip()}"
+        receipt = {
+            "at": _now_iso(),
+            "run_id": normalized_run_id,
+            "source_url": source_url,
+            "source_label": source_label,
+            "filter_key": filter_key,
+            "resolution": str(resolution or "").strip(),
+            "reason": str(reason or "").strip(),
+            "actor": str(actor or "ea_one_manager").strip() or "ea_one_manager",
+            "human_task_id": human_task_ref,
+            "repair_workflow": str(input_json.get("repair_workflow") or "ea_provider_ooda").strip() or "ea_provider_ooda",
+        }
+        with _PROPERTY_SEARCH_RUN_LOCK:
+            state = _PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id)
+            if not isinstance(state, dict):
+                persisted = _load_property_search_run_record(
+                    run_id=normalized_run_id,
+                    principal_id=normalized_principal,
+                )
+                state = dict(persisted or {}) if isinstance(persisted, dict) else {}
+                if state:
+                    _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = state
+            if not isinstance(state, dict) or str(state.get("principal_id") or "").strip() != normalized_principal:
+                return
+            summary = dict(state.get("summary") or {})
+            sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+            for source in sources:
+                row_source_url = str(source.get("source_url") or "").strip()
+                row_source_label = str(source.get("source_label") or "").strip()
+                if source_url and row_source_url and urllib.parse.urldefrag(row_source_url)[0] != urllib.parse.urldefrag(source_url)[0]:
+                    continue
+                if source_url:
+                    pass
+                elif source_label and row_source_label.lower() != source_label.lower():
+                    continue
+                source["provider_repair_task_opened_total"] = max(1, int(source.get("provider_repair_task_opened_total") or 0))
+                source["provider_repair_tasks"] = [
+                    {
+                        "status": "returned",
+                        "filter_key": filter_key,
+                        "human_task_id": human_task_ref,
+                        "queue_item_ref": human_task_ref,
+                        "resolution": str(resolution or "").strip(),
+                        "reason": str(reason or "").strip(),
+                        "repair_owner": str(input_json.get("repair_owner") or "ea_one_manager").strip() or "ea_one_manager",
+                        "repair_workflow": str(input_json.get("repair_workflow") or "ea_provider_ooda").strip() or "ea_provider_ooda",
+                    }
+                ]
+                source["repair_status"] = "returned"
+                source["repair_resolution"] = str(resolution or "").strip()
+                source["repair_reason"] = str(reason or "").strip()
+                source["status"] = "repaired"
+                if str(source.get("error") or "").strip():
+                    source["original_error"] = str(source.get("error") or "").strip()
+                    source["error"] = ""
+                break
+            summary["sources"] = sources
+            receipts = [dict(row) for row in list(summary.get("repair_receipts") or []) if isinstance(row, dict)]
+            receipts = [row for row in receipts if str(row.get("human_task_id") or "").strip() != human_task_ref]
+            receipts.append(receipt)
+            summary["repair_receipts"] = receipts[-25:]
+            summary["repair_resolved_total"] = max(int(summary.get("repair_resolved_total") or 0), len(summary["repair_receipts"]))
+            summary["repair_last_updated_at"] = receipt["at"]
+            if str(state.get("status") or "").strip().lower() == "failed" and list(summary.get("ranked_candidates") or []):
+                state["status"] = "completed_partial"
+                state["progress"] = 100
+                state["current_step"] = "repair_resolved"
+                state["message"] = "Repair receipts are recorded and the current shortlist remains available."
+                summary["repair_status"] = "degraded"
+                summary["repair_status_label"] = "Partial coverage"
+                summary["customer_status_message"] = "Repair receipts are recorded and the current shortlist remains available."
+            state["summary"] = summary
+            state["updated_at"] = receipt["at"]
+            _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = dict(state)
+            persisted_state = dict(state)
+        try:
+            _store_property_search_run_record(persisted_state)
+        except Exception:
+            pass
+
     def _auto_resolve_property_provider_repair_task(
         self,
         *,
@@ -23165,6 +23374,7 @@ class ProductService:
         title = str(input_json.get("title") or "").strip()
         filter_key = str(input_json.get("filter_key") or "").strip().lower()
         diagnostics = dict(input_json.get("diagnostics") or {}) if isinstance(input_json.get("diagnostics"), dict) else {}
+        diagnostics_error = str(diagnostics.get("error") or "").strip().lower()
         current_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
         location_hints = _property_search_location_hints(current_preferences)
         search_goal = str(current_preferences.get("search_goal") or "").strip().lower()
@@ -23175,7 +23385,19 @@ class ProductService:
         candidate_facts = dict(snapshot.get("property_facts") or {})
         resolution = ""
         reason = ""
-        if _property_candidate_is_generic_listing_page(
+        if filter_key == "source_fetch":
+            if "403" in diagnostics_error or "forbidden" in diagnostics_error:
+                resolution = "suppressed_source_fetch_forbidden"
+                reason = "provider blocked or rejected automated source fetch"
+            elif "404" in diagnostics_error or "not found" in diagnostics_error:
+                resolution = "suppressed_source_fetch_missing"
+                reason = "provider source endpoint no longer exists"
+            elif "410" in diagnostics_error or "gone" in diagnostics_error:
+                resolution = "suppressed_source_fetch_gone"
+                reason = "provider source endpoint was removed"
+            elif not bool(snapshot.get("http_ok")):
+                return {"status": "deferred", "reason": "manual_provider_patch_required"}
+        elif _property_candidate_is_generic_listing_page(
             property_url=property_url,
             title=candidate_title,
             summary=candidate_summary,
@@ -23183,7 +23405,7 @@ class ProductService:
         ):
             resolution = "suppressed_generic_listing_page"
             reason = "provider page is a generic marketing or overview page"
-        elif location_hints and not _property_candidate_matches_requested_location(
+        elif filter_key in {"location_scope", "missing_location", "missing_price"} and location_hints and not _property_candidate_matches_requested_location(
             location_hints=location_hints,
             property_url=property_url,
             title=candidate_title,
@@ -23194,10 +23416,10 @@ class ProductService:
         ):
             resolution = "suppressed_location_scope"
             reason = "provider listing conflicts with the active search location"
-        elif not _property_candidate_has_concrete_location(candidate_facts):
+        elif filter_key in {"location_scope", "missing_location", "missing_price"} and not _property_candidate_has_concrete_location(candidate_facts):
             resolution = "suppressed_missing_location"
             reason = "provider page still lacks a concrete location"
-        elif not _property_candidate_notification_price_signal(
+        elif filter_key == "missing_price" and not _property_candidate_notification_price_signal(
             candidate_facts,
             listing_mode=listing_mode,
             title=candidate_title,
@@ -23227,6 +23449,14 @@ class ProductService:
             provenance_json={"source": "property_provider_repair_executor"},
         )
         if updated is not None:
+            self._record_property_search_run_repair_receipt(
+                principal_id=principal_id,
+                run_id=str(input_json.get("run_id") or "").strip(),
+                task=updated,
+                resolution=resolution,
+                reason=reason,
+                actor=actor,
+            )
             self._record_product_event(
                 principal_id=principal_id,
                 event_type="property_provider_repair_auto_resolved",
@@ -27495,6 +27725,7 @@ class ProductService:
                     property_search_preferences={
                         **dict(run_preferences or {}),
                         "__premerged_preferences__": True,
+                        "__property_search_run_id__": run_id,
                     },
                     max_results_per_source=run_max_results,
                     force_refresh=bool(force_refresh),
@@ -27607,7 +27838,8 @@ class ProductService:
             return snapshot
         summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
         sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
-        if sources:
+        status_value = str(snapshot.get("status") or summary.get("status") or "").strip().lower()
+        if sources and status_value not in {"processed", "completed", "completed_partial"}:
             repair_tasks = [
                 task
                 for task in self._container.orchestrator.list_human_tasks(
@@ -27698,7 +27930,6 @@ class ProductService:
             summary.setdefault("filtered_total", held_back_total)
         if summary:
             snapshot["summary"] = summary
-        status_value = str(snapshot.get("status") or summary.get("status") or "").strip().lower()
         if status_value in {"processed", "completed", "completed_partial"}:
             if ranked_candidates:
                 with contextlib.suppress(Exception):
@@ -27942,6 +28173,7 @@ class ProductService:
             principal_id=principal_id,
             property_preferences=property_search_preferences,
         )
+        property_search_run_id = str(request_preferences.pop("__property_search_run_id__", "") or "").strip()
         public_preview_cache = self._property_public_preview_cache_index()
         if (
             request_preferences.get("property_search_enabled") is False
@@ -28431,6 +28663,7 @@ class ProductService:
                         "location_query": str(request_preferences.get("location_query") or "").strip(),
                     },
                     source_ref=f"property-source:{source_key[0]}:{source_url}",
+                    run_id=property_search_run_id,
                 )
                 repair_task_status = str(repair_task.get("status") or "").strip().lower()
                 if repair_task_status == "opened":
@@ -28841,6 +29074,7 @@ class ProductService:
                         source_family=str(source_spec.get("provider_family") or "").strip().lower(),
                         filter_key="require_floorplan",
                         diagnostics=recovery_diagnostics,
+                        run_id=property_search_run_id,
                     )
                     repair_task_status = str(repair_task.get("status") or "").strip().lower()
                     if repair_task_status == "opened":
@@ -29229,263 +29463,13 @@ class ProductService:
                         },
                     )
                     continue
-                max_distance_to_starbucks_m = int(request_preferences.get("max_distance_to_starbucks_m") or 0) if enable_lifestyle_research else 0
-                if enable_lifestyle_research and max_distance_to_starbucks_m > 0:
-                    distance_ok, distance_mode, nearest_starbucks_m = _property_distance_within_relaxed_radius(
-                        actual_m=detailed_facts.get("nearest_starbucks_m"),
-                        requested_limit_m=max_distance_to_starbucks_m,
-                    )
-                    if not distance_ok:
-                        if discovery_mode:
-                            _record_discovery_distance_soft_miss(
-                                facts=detailed_facts,
-                                preference_key="max_distance_to_starbucks_m",
-                                label="Starbucks",
-                                requested_limit_m=max_distance_to_starbucks_m,
-                                actual_m=_float_or_none(detailed_facts.get("nearest_starbucks_m")),
-                                source_label=source_label,
-                                ordinal=ordinal,
-                                analysis_limit=analysis_limit,
-                            )
-                        else:
-                            _report(
-                                step="source_lifestyle_filter",
-                                message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the relaxed Starbucks radius for {source_label}.",
-                                status="in_progress",
-                                steps_delta=0,
-                            )
-                            continue
-                    if distance_mode == "relaxed":
-                        detailed_facts.setdefault("distance_relaxations_json", []).append(
-                            {"label": "Starbucks", "requested_m": max_distance_to_starbucks_m, "actual_m": int(nearest_starbucks_m)}
-                        )
-                max_distance_to_fitness_center_m = int(request_preferences.get("max_distance_to_fitness_center_m") or 0) if enable_lifestyle_research else 0
-                if enable_lifestyle_research and max_distance_to_fitness_center_m > 0:
-                    distance_ok, distance_mode, nearest_fitness_center_m = _property_distance_within_relaxed_radius(
-                        actual_m=detailed_facts.get("nearest_fitness_center_m"),
-                        requested_limit_m=max_distance_to_fitness_center_m,
-                    )
-                    if not distance_ok:
-                        if discovery_mode:
-                            _record_discovery_distance_soft_miss(
-                                facts=detailed_facts,
-                                preference_key="max_distance_to_fitness_center_m",
-                                label="Fitness",
-                                requested_limit_m=max_distance_to_fitness_center_m,
-                                actual_m=_float_or_none(detailed_facts.get("nearest_fitness_center_m")),
-                                source_label=source_label,
-                                ordinal=ordinal,
-                                analysis_limit=analysis_limit,
-                            )
-                        else:
-                            _report(
-                                step="source_lifestyle_filter",
-                                message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the relaxed fitness radius for {source_label}.",
-                                status="in_progress",
-                                steps_delta=0,
-                            )
-                            continue
-                    if distance_mode == "relaxed":
-                        detailed_facts.setdefault("distance_relaxations_json", []).append(
-                            {"label": "Fitness", "requested_m": max_distance_to_fitness_center_m, "actual_m": int(nearest_fitness_center_m)}
-                        )
-                max_distance_to_cinema_m = int(request_preferences.get("max_distance_to_cinema_m") or 0) if enable_lifestyle_research else 0
-                if enable_lifestyle_research and max_distance_to_cinema_m > 0:
-                    distance_ok, distance_mode, nearest_cinema_m = _property_distance_within_relaxed_radius(
-                        actual_m=detailed_facts.get("nearest_cinema_m"),
-                        requested_limit_m=max_distance_to_cinema_m,
-                    )
-                    if not distance_ok:
-                        if discovery_mode:
-                            _record_discovery_distance_soft_miss(
-                                facts=detailed_facts,
-                                preference_key="max_distance_to_cinema_m",
-                                label="Cinema",
-                                requested_limit_m=max_distance_to_cinema_m,
-                                actual_m=_float_or_none(detailed_facts.get("nearest_cinema_m")),
-                                source_label=source_label,
-                                ordinal=ordinal,
-                                analysis_limit=analysis_limit,
-                            )
-                        else:
-                            _report(
-                                step="source_lifestyle_filter",
-                                message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the relaxed cinema radius for {source_label}.",
-                                status="in_progress",
-                                steps_delta=0,
-                            )
-                            continue
-                    if distance_mode == "relaxed":
-                        detailed_facts.setdefault("distance_relaxations_json", []).append(
-                            {"label": "Cinema", "requested_m": max_distance_to_cinema_m, "actual_m": int(nearest_cinema_m)}
-                        )
-                max_distance_to_bouldering_m = int(request_preferences.get("max_distance_to_bouldering_m") or 0) if enable_lifestyle_research else 0
-                if enable_lifestyle_research and max_distance_to_bouldering_m > 0:
-                    distance_ok, distance_mode, nearest_bouldering_m = _property_distance_within_relaxed_radius(
-                        actual_m=detailed_facts.get("nearest_bouldering_m"),
-                        requested_limit_m=max_distance_to_bouldering_m,
-                    )
-                    if not distance_ok:
-                        if discovery_mode:
-                            _record_discovery_distance_soft_miss(
-                                facts=detailed_facts,
-                                preference_key="max_distance_to_bouldering_m",
-                                label="Bouldering",
-                                requested_limit_m=max_distance_to_bouldering_m,
-                                actual_m=_float_or_none(detailed_facts.get("nearest_bouldering_m")),
-                                source_label=source_label,
-                                ordinal=ordinal,
-                                analysis_limit=analysis_limit,
-                            )
-                        else:
-                            _report(
-                                step="source_lifestyle_filter",
-                                message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the relaxed bouldering radius for {source_label}.",
-                                status="in_progress",
-                                steps_delta=0,
-                            )
-                            continue
-                    if distance_mode == "relaxed":
-                        detailed_facts.setdefault("distance_relaxations_json", []).append(
-                            {"label": "Bouldering", "requested_m": max_distance_to_bouldering_m, "actual_m": int(nearest_bouldering_m)}
-                        )
-                max_distance_to_dog_park_m = int(request_preferences.get("max_distance_to_dog_park_m") or 0) if enable_lifestyle_research else 0
-                if enable_lifestyle_research and max_distance_to_dog_park_m > 0:
-                    distance_ok, distance_mode, nearest_dog_park_m = _property_distance_within_relaxed_radius(
-                        actual_m=detailed_facts.get("nearest_dog_park_m"),
-                        requested_limit_m=max_distance_to_dog_park_m,
-                    )
-                    if not distance_ok:
-                        if discovery_mode:
-                            _record_discovery_distance_soft_miss(
-                                facts=detailed_facts,
-                                preference_key="max_distance_to_dog_park_m",
-                                label="Dog park",
-                                requested_limit_m=max_distance_to_dog_park_m,
-                                actual_m=_float_or_none(detailed_facts.get("nearest_dog_park_m")),
-                                source_label=source_label,
-                                ordinal=ordinal,
-                                analysis_limit=analysis_limit,
-                            )
-                        else:
-                            _report(
-                                step="source_lifestyle_filter",
-                                message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the relaxed dog park radius for {source_label}.",
-                                status="in_progress",
-                                steps_delta=0,
-                            )
-                            continue
-                    if distance_mode == "relaxed":
-                        detailed_facts.setdefault("distance_relaxations_json", []).append(
-                            {"label": "Dog park", "requested_m": max_distance_to_dog_park_m, "actual_m": int(nearest_dog_park_m)}
-                        )
-                max_distance_to_good_cafe_m = int(request_preferences.get("max_distance_to_good_cafe_m") or 0) if enable_lifestyle_research else 0
-                if enable_lifestyle_research and max_distance_to_good_cafe_m > 0:
-                    distance_ok, distance_mode, nearest_good_cafe_m = _property_distance_within_relaxed_radius(
-                        actual_m=detailed_facts.get("nearest_good_cafe_m"),
-                        requested_limit_m=max_distance_to_good_cafe_m,
-                    )
-                    if not distance_ok:
-                        if discovery_mode:
-                            _record_discovery_distance_soft_miss(
-                                facts=detailed_facts,
-                                preference_key="max_distance_to_good_cafe_m",
-                                label="Cafe",
-                                requested_limit_m=max_distance_to_good_cafe_m,
-                                actual_m=_float_or_none(detailed_facts.get("nearest_good_cafe_m")),
-                                source_label=source_label,
-                                ordinal=ordinal,
-                                analysis_limit=analysis_limit,
-                            )
-                        else:
-                            _report(
-                                step="source_lifestyle_filter",
-                                message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the relaxed cafe radius for {source_label}.",
-                                status="in_progress",
-                                steps_delta=0,
-                            )
-                            continue
-                    if distance_mode == "relaxed":
-                        detailed_facts.setdefault("distance_relaxations_json", []).append(
-                            {"label": "Cafe", "requested_m": max_distance_to_good_cafe_m, "actual_m": int(nearest_good_cafe_m)}
-                        )
-                max_distance_to_library_m = int(request_preferences.get("max_distance_to_library_m") or 0) if enable_family_mode else 0
-                if enable_family_mode and max_distance_to_library_m > 0:
-                    if not _property_apply_distance_gate(
-                        detailed_facts,
-                        request_preferences=request_preferences,
-                        preference_key="max_distance_to_library_m",
-                        fact_key="nearest_library_m",
-                        label="Library",
-                    ):
-                        if discovery_mode:
-                            _record_discovery_distance_soft_miss(
-                                facts=detailed_facts,
-                                preference_key="max_distance_to_library_m",
-                                label="Library",
-                                requested_limit_m=max_distance_to_library_m,
-                                actual_m=_float_or_none(detailed_facts.get("nearest_library_m")),
-                                source_label=source_label,
-                                ordinal=ordinal,
-                                analysis_limit=analysis_limit,
-                            )
-                        else:
-                            _remember_filter_near_miss(
-                                row=row,
-                                property_url=property_url,
-                                title=detailed_title,
-                                summary=detailed_summary,
-                                filter_key="max_distance_to_library_m",
-                            )
-                            _report(
-                                step="source_family_filter",
-                                message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the relaxed library radius for {source_label}.",
-                                status="in_progress",
-                                steps_delta=0,
-                            )
-                            continue
-                max_distance_to_zoo_m = int(request_preferences.get("max_distance_to_zoo_m") or 0) if enable_family_mode else 0
-                if enable_family_mode and max_distance_to_zoo_m > 0:
-                    distance_ok, distance_mode, nearest_zoo_m = _property_distance_within_relaxed_radius(
-                        actual_m=detailed_facts.get("nearest_zoo_m"),
-                        requested_limit_m=max_distance_to_zoo_m,
-                    )
-                    if not distance_ok:
-                        if discovery_mode:
-                            _record_discovery_distance_soft_miss(
-                                facts=detailed_facts,
-                                preference_key="max_distance_to_zoo_m",
-                                label="Zoo",
-                                requested_limit_m=max_distance_to_zoo_m,
-                                actual_m=_float_or_none(detailed_facts.get("nearest_zoo_m")),
-                                source_label=source_label,
-                                ordinal=ordinal,
-                                analysis_limit=analysis_limit,
-                            )
-                        else:
-                            _remember_filter_near_miss(
-                                row=row,
-                                property_url=property_url,
-                                title=detailed_title,
-                                summary=detailed_summary,
-                                filter_key="max_distance_to_zoo_m",
-                            )
-                            _report(
-                                step="source_family_filter",
-                                message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the relaxed zoo radius for {source_label}.",
-                                status="in_progress",
-                                steps_delta=0,
-                            )
-                            continue
-                    if distance_mode == "relaxed":
-                        detailed_facts.setdefault("distance_relaxations_json", []).append(
-                            {"label": "Zoo", "requested_m": max_distance_to_zoo_m, "actual_m": int(nearest_zoo_m)}
-                        )
                 distance_gate_failed = False
                 for preference_key, fact_key, label, report_step in (
                     ("max_distance_to_supermarket_m", "nearest_supermarket_m", "supermarket", "source_location_filter"),
                     ("max_distance_to_subway_m", "nearest_subway_m", "underground", "source_location_filter"),
                     ("max_distance_to_playground_m", "nearest_playground_m", "playground", "source_family_filter"),
+                    ("max_distance_to_library_m", "nearest_library_m", "library", "source_family_filter"),
+                    ("max_distance_to_zoo_m", "nearest_zoo_m", "zoo", "source_family_filter"),
                     ("max_distance_to_market_m", "nearest_market_m", "market", "source_location_filter"),
                     ("max_distance_to_hardware_store_m", "nearest_hardware_store_m", "Baumarkt", "source_location_filter"),
                     ("max_distance_to_shopping_center_m", "nearest_shopping_center_m", "shopping-center", "source_location_filter"),
@@ -29493,6 +29477,12 @@ class ProductService:
                     ("max_distance_to_theatre_m", "nearest_theatre_m", "theatre", "source_location_filter"),
                     ("max_distance_to_public_pool_m", "nearest_public_pool_m", "public-pool", "source_location_filter"),
                     ("max_distance_to_medical_care_m", "nearest_medical_care_m", "medical-care", "source_location_filter"),
+                    ("max_distance_to_starbucks_m", "nearest_starbucks_m", "starbucks", "source_lifestyle_filter"),
+                    ("max_distance_to_fitness_center_m", "nearest_fitness_center_m", "fitness", "source_lifestyle_filter"),
+                    ("max_distance_to_cinema_m", "nearest_cinema_m", "cinema", "source_lifestyle_filter"),
+                    ("max_distance_to_bouldering_m", "nearest_bouldering_m", "bouldering", "source_lifestyle_filter"),
+                    ("max_distance_to_dog_park_m", "nearest_dog_park_m", "dog-park", "source_lifestyle_filter"),
+                    ("max_distance_to_good_cafe_m", "nearest_good_cafe_m", "cafe", "source_lifestyle_filter"),
                 ):
                     if not _property_apply_distance_gate(
                         detailed_facts,
@@ -29607,6 +29597,7 @@ class ProductService:
                         source_family=str(source_spec.get("provider_family") or "").strip().lower(),
                         filter_key="require_floorplan",
                         diagnostics=recovery_diagnostics,
+                        run_id=property_search_run_id,
                     )
                     repair_task_status = str(repair_task.get("status") or "").strip().lower()
                     if repair_task_status == "opened":
@@ -29726,6 +29717,7 @@ class ProductService:
                         source_family=str(source_spec.get("provider_family") or "").strip().lower(),
                         filter_key="listing_mode",
                         diagnostics=diagnostics,
+                        run_id=property_search_run_id,
                     )
                     repair_task_status = str(repair_task.get("status") or "").strip().lower()
                     if repair_task_status == "opened":
@@ -29813,6 +29805,18 @@ class ProductService:
                         float(ranked_rows[-1].get("fit_score") or 0.0)
                         - _property_candidate_unknowns_penalty(assessment=assessment, property_facts=detailed_facts),
                     )
+                distance_adjustment, distance_notes = _property_distance_preference_score_adjustment(
+                    preferences=request_preferences,
+                    property_facts=detailed_facts,
+                )
+                if distance_adjustment:
+                    ranked_rows[-1]["fit_score"] = max(
+                        0.0,
+                        float(ranked_rows[-1].get("fit_score") or 0.0) + float(distance_adjustment),
+                    )
+                if distance_notes:
+                    detailed_facts["distance_preference_adjustment_points"] = round(float(distance_adjustment), 2)
+                    detailed_facts["distance_preference_notes"] = list(distance_notes)
                 austria_adjustment, austria_notes = _property_austria_preference_score_adjustment(
                     preferences=request_preferences,
                     property_facts=detailed_facts,
@@ -29833,14 +29837,19 @@ class ProductService:
                     - float(detailed_facts.get("discovery_soft_penalty_points") or 0.0),
                 )
                 ranked_rows[-1]["assessment_fit_score"] = assessment_fit_score
-                score_below_min = assessment_fit_score < float(min_match_score)
+                adjusted_fit_score = _property_candidate_effective_fit_score(
+                    assessment_fit_score=assessment_fit_score,
+                    ranked_fit_score=ranked_rows[-1].get("fit_score"),
+                )
+                ranked_rows[-1]["adjusted_fit_score"] = adjusted_fit_score
+                score_below_min = adjusted_fit_score < float(min_match_score)
                 is_watch_fit = _property_alert_is_watch_fit(assessment, policy=policy)
                 if score_below_min:
                     if bool(policy.get("notify_top_watch_hit_when_no_good_fit")) and is_watch_fit:
                         candidate_source_ref = (
                             f"property-scout:{str(preview.get('listing_id') or property_url).strip() or property_url}"
                         )
-                        if top_watch_candidate_for_source is None or assessment_fit_score > float(
+                        if top_watch_candidate_for_source is None or adjusted_fit_score > float(
                             top_watch_candidate_for_source.get("fit_score") or 0.0
                         ):
                             top_watch_candidate_for_source = {
@@ -29849,7 +29858,7 @@ class ProductService:
                                 "property_url": property_url,
                                 "source_ref": candidate_source_ref,
                                 "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
-                                "fit_score": assessment_fit_score,
+                                "fit_score": adjusted_fit_score,
                             }
                     filtered_low_fit_total += 1
                     filtered_low_fit_for_source += 1
@@ -30598,6 +30607,7 @@ class ProductService:
                                 "failure_reason": str(best_visual_candidate.get("flythrough_reason") or "").strip(),
                                 "tour_url": str(best_visual_candidate.get("tour_url") or "").strip(),
                             },
+                            run_id=property_search_run_id,
                         )
                         if str(repair_task.get("status") or "").strip() == "opened":
                             provider_repair_task_opened_for_source += 1

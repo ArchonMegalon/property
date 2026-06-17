@@ -19,6 +19,11 @@ from tests.product_test_helpers import build_property_client, start_workspace
 
 TERMINAL_RUN_STATUSES = {"processed", "completed_partial", "failed", "cancelled"}
 MATCH_TIERS = ("external_id", "property_url", "source_ref", "title_scope")
+INVALID_SOURCE_FETCH_REPAIR_RESOLUTIONS = {
+    "suppressed_missing_location",
+    "suppressed_location_scope",
+    "suppressed_missing_price",
+}
 GENERATED_MEDIA_COUNTER_KEYS = (
     "tour_created_total",
     "pending_tour_total",
@@ -988,6 +993,15 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
             if repair_trace.repair_needed:
                 assert repair_trace.repair_triggered, f"{case.title}: repair was needed but no Fleet repair task opened"
                 assert repair_trace.repair_executed, f"{case.title}: Fleet repair task never executed"
+                bad_source_fetch_resolutions = [
+                    resolution
+                    for resolution in repair_trace.resolutions
+                    if str(resolution or "").strip().lower() in INVALID_SOURCE_FETCH_REPAIR_RESOLUTIONS
+                ]
+                assert not bad_source_fetch_resolutions, (
+                    f"{case.title}: Fleet returned a semantically wrong source-fetch repair resolution: "
+                    f"{bad_source_fetch_resolutions}"
+                )
 
             if first_target_match.matched and first_target_match.tier in MATCH_TIERS and not forbidden_hits and 0 < first_target_match.rank <= rank_threshold:
                 break

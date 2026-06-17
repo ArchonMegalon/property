@@ -220,8 +220,6 @@ _PUBLIC_TOUR_TOP_LEVEL_KEYS = frozenset(
         "scene_strategy",
         "creation_mode",
         "brand_name",
-        "listing_url",
-        "property_url",
         "hosted_url",
         "public_url",
         "crezlo_public_url",

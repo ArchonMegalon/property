@@ -207,6 +207,7 @@ def _property_shortlist_candidates_from_context(property_context: dict[str, obje
         candidate_row.setdefault("property_facts", dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {})
         packet_ref = _property_candidate_ref(
             {
+                "candidate_ref": str(candidate_row.get("candidate_ref") or candidate_row.get("research_candidate_ref") or "").strip(),
                 "title": str(candidate_row.get("title") or "").strip(),
                 "property_url": str(candidate_row.get("property_url") or "").strip(),
                 "review_url": str(candidate_row.get("review_url") or "").strip(),
@@ -231,6 +232,7 @@ def _property_shortlist_candidates_from_context(property_context: dict[str, obje
             candidate_row.setdefault("property_facts", dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {})
             packet_ref = _property_candidate_ref(
                 {
+                    "candidate_ref": str(candidate_row.get("candidate_ref") or candidate_row.get("research_candidate_ref") or "").strip(),
                     "title": str(candidate_row.get("title") or "").strip(),
                     "property_url": str(candidate_row.get("property_url") or "").strip(),
                     "review_url": str(candidate_row.get("review_url") or "").strip(),

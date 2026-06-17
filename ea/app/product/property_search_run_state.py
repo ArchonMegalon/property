@@ -136,19 +136,62 @@ def property_search_run_stale_failure_event(
     stale_seconds: int,
 ) -> dict[str, object]:
     minutes = max(1, int(float(stale_seconds) / 60.0))
-    return {
-        "step": "run_interrupted",
-        "message": (
+    summary = dict(state.get("summary") or {})
+    source_rows = [dict(item) for item in list(summary.get("sources") or []) if isinstance(item, dict)]
+    successful_source_total = len([row for row in source_rows if not str(row.get("error") or "").strip()])
+    failed_source_total = len([row for row in source_rows if str(row.get("error") or "").strip()])
+    ranked_candidate_total = len(list(summary.get("ranked_candidates") or []))
+    listing_total = max(0, int(summary.get("listing_total") or 0))
+    review_total = max(0, int(summary.get("review_created_total") or 0) + int(summary.get("review_existing_total") or 0))
+    recovered_partial = (
+        ranked_candidate_total > 0
+        or listing_total > 0
+        or review_total > 0
+        or successful_source_total > 0
+    )
+    outcome = (
+        property_search_run_terminal_outcome(
+            sources_total=max(0, int(summary.get("sources_total") or len(source_rows))),
+            failed_total=max(0, int(summary.get("failed_total") or failed_source_total)),
+            successful_source_total=successful_source_total,
+        )
+        if source_rows
+        else ("completed_partial" if recovered_partial else "failed")
+    )
+    if outcome == "processed" and recovered_partial:
+        outcome = "completed_partial"
+    if recovered_partial:
+        message = (
+            f"Search interrupted after more than {minutes} minutes without updates. "
+            "The current shortlist is still available, but full market coverage did not finish."
+        )
+    else:
+        message = (
             f"Search interrupted. This run stopped updating for more than {minutes} minutes and is now marked failed. "
             "Start a new search to retry the same brief."
-        ),
-        "status": "failed",
-        "summary_updates": {
-            "interrupted": True,
-            "stale_after_seconds": stale_seconds,
-            "last_known_status": str(state.get("status") or "").strip().lower(),
-        },
-        "force_status": "failed",
+        )
+    summary_updates = {
+        "interrupted": True,
+        "stale_after_seconds": stale_seconds,
+        "last_known_status": str(state.get("status") or "").strip().lower(),
+    }
+    if recovered_partial:
+        summary_updates.update(
+            {
+                "repair_status": "degraded",
+                "repair_status_label": "Partial coverage",
+                "can_auto_repair": True,
+                "customer_status_message": (
+                    "The shortlist is ready, but one or more sources stopped before the full market scan finished."
+                ),
+            }
+        )
+    return {
+        "step": "run_interrupted",
+        "message": message,
+        "status": outcome,
+        "summary_updates": summary_updates,
+        "force_status": outcome,
     }
 
 

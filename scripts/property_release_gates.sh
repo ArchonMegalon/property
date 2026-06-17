@@ -42,6 +42,7 @@ cd "${EA_ROOT}"
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_docs_links.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_security_posture.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_repo_isolation.py
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_release_hygiene.py
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_deploy_operator_contracts.py \
   tests/test_property_notification_email_templates.py \

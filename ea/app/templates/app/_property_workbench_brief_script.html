@@ -72,6 +72,7 @@
     };
     const keywordPreferenceValues = (form) => {
       const positive = [];
+      const hardPositive = [];
       const avoid = [];
       const map = {};
       form?.querySelectorAll('[data-keyword-preference-select]').forEach((node) => {
@@ -80,9 +81,14 @@
         if (!keywordValue || !state || state === 'any') return;
         map[keywordValue] = state;
         if (state === 'avoid') avoid.push(keywordValue);
-        else positive.push(keywordValue);
+        else {
+          positive.push(keywordValue);
+          if (state === 'must_have' || state === 'hard' || state === 'required' || state === 'strict') {
+            hardPositive.push(keywordValue);
+          }
+        }
       });
-      return { positive, avoid, map };
+      return { positive, hardPositive, avoid, map };
     };
     const keywordDistanceValues = (form) => {
       const map = {};
@@ -110,6 +116,24 @@
         distanceSelect.disabled = !enabled;
         row.dataset.keywordDistanceEnabled = enabled ? 'true' : 'false';
       });
+    };
+    const syncSchoolPreferenceFields = (form) => {
+      const selectedStages = [];
+      let strongest = 'any';
+      form?.querySelectorAll('[data-school-preference-select]').forEach((node) => {
+        if (!(node instanceof HTMLSelectElement)) return;
+        const schoolValue = String(node.getAttribute('data-school-value') || '').trim();
+        const state = String(node.value || 'any').trim().toLowerCase();
+        if (!schoolValue || state === 'any') return;
+        selectedStages.push(schoolValue);
+        if (state === 'must_have') strongest = 'very_important';
+        else if (state === 'important' && strongest !== 'very_important') strongest = 'important';
+      });
+      setCheckboxValues(form, 'school_stage_preferences', selectedStages);
+      const schoolEvidenceField = form?.querySelector('input[name="require_school_evidence"]');
+      if (schoolEvidenceField instanceof HTMLInputElement) schoolEvidenceField.checked = selectedStages.length > 0;
+      const schoolPriorityField = form?.querySelector('[name="school_quality_priority"]');
+      if (schoolPriorityField instanceof HTMLSelectElement) schoolPriorityField.value = strongest;
     };
     const selectedPropertyTypes = (form) => {
       const values = checkedValues(form, 'property_type').map((item) => String(item || '').trim().toLowerCase()).filter(Boolean);
@@ -761,6 +785,7 @@
       const customKeywords = fieldValue(form, 'custom_keywords');
       const keywordSelections = keywordPreferenceValues(form);
       const keywordDistances = keywordDistanceValues(form);
+      syncSchoolPreferenceFields(form);
       const playgroundPreference = nearbyPreferenceConfig(keywordSelections.map['playground nearby'], keywordDistances['playground nearby'], 500);
       const libraryPreference = nearbyPreferenceConfig(keywordSelections.map['library nearby'], keywordDistances['library nearby'], 500);
       const zooPreference = nearbyPreferenceConfig(keywordSelections.map['zoo nearby'], keywordDistances['zoo nearby'], 1000);
@@ -822,7 +847,7 @@
           adjacent_area_radius_value: adjacentAreaRadiusValue,
           adjacent_area_radius_unit: adjacentAreaRadiusUnit,
           adjacent_area_radius_m: adjacentAreaRadiusMeters,
-          keywords: briefUniqueValues(keywordSelections.positive, briefCsvValues(customKeywords)).join(', '),
+          keywords: briefUniqueValues(keywordSelections.hardPositive, briefCsvValues(customKeywords)).join(', '),
           avoid_keywords: keywordSelections.avoid.join(', '),
           keyword_preferences: keywordSelections.map,
           custom_keywords: customKeywords,
