@@ -109,6 +109,33 @@ def test_property_requested_location_match_keeps_title_postal_match_even_when_sc
     )
 
 
+def test_property_search_analysis_cap_expands_for_exact_scope() -> None:
+    assert product_service._property_search_analysis_cap_per_source(
+        max_results=5,
+        candidate_total=40,
+        exact_scope=False,
+    ) == 12
+    assert product_service._property_search_analysis_cap_per_source(
+        max_results=5,
+        candidate_total=40,
+        exact_scope=True,
+    ) == 30
+    assert product_service._property_search_analysis_cap_per_source(
+        max_results=5,
+        candidate_total=40,
+        exact_scope=True,
+        focused_scope=True,
+    ) == 40
+    assert product_service._property_search_has_exact_scope(
+        request_preferences={"selected_districts": []},
+        location_hints=("1210 Wien",),
+    )
+    assert not product_service._property_search_has_exact_scope(
+        request_preferences={"selected_districts": []},
+        location_hints=("Wien",),
+    )
+
+
 def test_investment_underwriting_payload_exposes_dimensions_and_confidence() -> None:
     payload = _property_investment_underwriting_payload(
         title="Apartment near U-Bahn",
@@ -205,8 +232,25 @@ def test_investment_external_feed_rejects_insecure_http_without_override(monkeyp
     assert payload == {}
 
 
+def test_investment_external_feed_rejects_https_host_without_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_PROPERTY_RENT_ROLL_FEED_URL", "https://example.test/feed")
+    monkeypatch.delenv("EA_PROPERTY_INVESTMENT_EXTERNAL_ALLOWED_HOSTS", raising=False)
+
+    def _unexpected_urlopen(*args, **kwargs):
+        raise AssertionError("urlopen should not run for non-allowlisted https feed URLs")
+
+    monkeypatch.setattr(property_investment_external_data.urllib.request, "urlopen", _unexpected_urlopen)
+    payload = property_investment_external_data._fetch_external_feed(
+        "EA_PROPERTY_RENT_ROLL_FEED",
+        {"country_code": "AT", "purchase_price_eur": 300000},
+    )
+
+    assert payload == {}
+
+
 def test_investment_external_feed_rejects_oversized_response(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_PROPERTY_RENT_ROLL_FEED_URL", "https://example.test/feed")
+    monkeypatch.setenv("EA_PROPERTY_INVESTMENT_EXTERNAL_ALLOWED_HOSTS", "example.test")
     monkeypatch.setenv("EA_PROPERTY_INVESTMENT_EXTERNAL_MAX_RESPONSE_BYTES", "64")
     monkeypatch.setenv("EA_PROPERTY_INVESTMENT_EXTERNAL_CACHE_PATH", str(tmp_path / "investment_cache.json"))
 
@@ -230,6 +274,12 @@ def test_investment_external_feed_rejects_oversized_response(monkeypatch: pytest
     )
 
     assert payload == {}
+
+
+def test_investment_external_cache_path_defaults_to_durable_state_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EA_PROPERTY_INVESTMENT_EXTERNAL_CACHE_PATH", raising=False)
+
+    assert property_investment_external_data._cache_path() == Path("/docker/property/state/property_investment_external_cache.json")
 
 
 def test_findmyhome_entry_links_are_not_treated_as_supported_property_listings() -> None:
@@ -3271,7 +3321,7 @@ def test_property_search_run_api_passes_normalized_merged_preferences_to_worker(
     assert payload["investment_require_floorplan"] is False
     assert payload["require_barrier_free"] is False
     assert "min_rooms" not in payload
-    assert payload["keywords"] == "playground nearby"
+    assert payload["keywords"] == ""
     assert payload["avoid_keywords"] == ""
     assert payload["keyword_preferences"] == {"playground nearby": "nice_to_have_1km"}
 

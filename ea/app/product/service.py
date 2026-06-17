@@ -1841,7 +1841,13 @@ def _property_search_browser_provider_concurrency() -> int:
     return max(1, min(parsed, 4))
 
 
-def _property_search_analysis_cap_per_source(*, max_results: int, candidate_total: int) -> int:
+def _property_search_analysis_cap_per_source(
+    *,
+    max_results: int,
+    candidate_total: int,
+    exact_scope: bool = False,
+    focused_scope: bool = False,
+) -> int:
     raw_value = str(os.getenv("PROPERTYQUARRY_SEARCH_ANALYSIS_CAP_PER_SOURCE") or "").strip()
     if raw_value:
         try:
@@ -1850,8 +1856,27 @@ def _property_search_analysis_cap_per_source(*, max_results: int, candidate_tota
             parsed = 0
         if parsed > 0:
             return max(1, min(parsed, max(1, candidate_total)))
-    derived = max(max_results, min(max(3, max_results * 3), 12))
+    if focused_scope and exact_scope:
+        return max(1, candidate_total)
+    if exact_scope:
+        derived = max(max_results, min(max(8, max_results * 6), 30))
+    else:
+        derived = max(max_results, min(max(3, max_results * 3), 12))
     return max(1, min(derived, max(1, candidate_total)))
+
+
+def _property_search_has_exact_scope(
+    *,
+    request_preferences: dict[str, object],
+    location_hints: tuple[str, ...],
+) -> bool:
+    if any(str(value or "").strip() for value in list(request_preferences.get("selected_districts") or [])):
+        return True
+    for value in location_hints:
+        normalized = str(value or "").strip()
+        if re.search(r"\b\d{4}\b", normalized):
+            return True
+    return False
 
 
 def _property_search_official_evidence_concurrency() -> int:
@@ -28751,6 +28776,11 @@ class ProductService:
                         + _property_search_analysis_cap_per_source(
                             max_results=max_results,
                             candidate_total=max(1, len(listing_urls)),
+                            exact_scope=_property_search_has_exact_scope(
+                                request_preferences=request_preferences,
+                                location_hints=location_hints,
+                            ),
+                            focused_scope=len(specs) == 1,
                         )
                         + 6,
                     )
@@ -29278,6 +29308,11 @@ class ProductService:
             enrichment_limit = _property_search_analysis_cap_per_source(
                 max_results=max_results,
                 candidate_total=analysis_limit,
+                exact_scope=_property_search_has_exact_scope(
+                    request_preferences=request_preferences,
+                    location_hints=location_hints,
+                ),
+                focused_scope=len(specs) == 1,
             )
             if analysis_limit > 0:
                 _report(

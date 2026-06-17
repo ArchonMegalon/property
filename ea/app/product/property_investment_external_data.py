@@ -47,7 +47,7 @@ def _cache_path() -> Path:
     explicit = str(os.getenv("EA_PROPERTY_INVESTMENT_EXTERNAL_CACHE_PATH") or "").strip()
     if explicit:
         return Path(explicit).expanduser()
-    return Path("/tmp/propertyquarry/state/property_investment_external_cache.json")
+    return Path("/docker/property/state/property_investment_external_cache.json")
 
 
 def _cache_ttl_seconds() -> int:
@@ -122,6 +122,8 @@ def _store_cache(payload: dict[str, object]) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, ensure_ascii=True, sort_keys=True), encoding="utf-8")
+        with contextlib.suppress(OSError):
+            path.chmod(0o600)
     except OSError:
         return
 
@@ -241,12 +243,22 @@ def _feed_content_type_allowed(content_type: str) -> bool:
     )
 
 
+def _feed_allowed_hosts() -> set[str]:
+    raw = str(os.getenv("EA_PROPERTY_INVESTMENT_EXTERNAL_ALLOWED_HOSTS") or "").strip()
+    return {
+        host.strip().lower()
+        for host in raw.split(",")
+        if host.strip()
+    }
+
+
 def _feed_url_allowed(url: str) -> bool:
     parsed = urllib.parse.urlparse(str(url or "").strip())
     scheme = str(parsed.scheme or "").strip().lower()
     host = str(parsed.hostname or "").strip().lower()
     if scheme == "https":
-        return bool(host)
+        allowed_hosts = _feed_allowed_hosts()
+        return bool(host) and host in allowed_hosts
     if scheme == "http" and _truthy(os.getenv("EA_PROPERTY_INVESTMENT_EXTERNAL_ALLOW_INSECURE_HTTP")):
         return host in {"127.0.0.1", "localhost"}
     return False

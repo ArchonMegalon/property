@@ -117,6 +117,7 @@ class RecoveryReport:
     source_count: int
     event_count: int
     synthesized_brief: dict[str, object]
+    provider_volatility: bool = False
 
 
 def _manifest_path() -> Path:
@@ -830,6 +831,41 @@ def _discover_cases_from_catalog(client) -> tuple[list[TargetListing], list[str]
     return discovered, skipped
 
 
+def _provider_still_lists_target(service: ProductService, case: TargetListing) -> bool:
+    spec = next(
+        (
+            item
+            for item in PROVIDERS
+            if str(item.key or "").strip().lower() == str(case.provider or "").strip().lower()
+            and str(item.country_code or "").strip().upper() == str(case.country_code or "").strip().upper()
+        ),
+        None,
+    )
+    if spec is None:
+        return True
+    source_spec = _provider_source_spec(spec, listing_mode=case.listing_mode or _provider_listing_mode(spec))
+    source_url = str(source_spec.get("url") or "").strip()
+    if not source_url:
+        return True
+    try:
+        listing_urls, _cache_state = property_service_module._property_scout_listing_urls_for_source(
+            source_url=source_url,
+            source_spec=source_spec,
+            force_refresh=True,
+        )
+    except Exception:
+        return True
+    normalized_target_url = _normalize_url(case.canonical_url)
+    target_willhaben_ad_id = _willhaben_ad_id(case.canonical_url)
+    for item in listing_urls:
+        current_url = _normalize_url(item)
+        if normalized_target_url and current_url and normalized_target_url == current_url:
+            return True
+        if target_willhaben_ad_id and _willhaben_ad_id(current_url) == target_willhaben_ad_id:
+            return True
+    return False
+
+
 def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     principal = PrincipalContext(
         principal_id=str(
@@ -871,6 +907,9 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
         actor="target_recovery_canary",
         auto_generate_tour_for_good_fit=False,
     )
+    service = ProductService(client.app.state.container)
+    successful_case_total = 0
+    volatility_skipped_total = 0
 
     for case in cases:
         final_report: RecoveryReport | None = None
@@ -1004,8 +1043,18 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                 )
 
             if first_target_match.matched and first_target_match.tier in MATCH_TIERS and not forbidden_hits and 0 < first_target_match.rank <= rank_threshold:
+                successful_case_total += 1
                 break
         assert final_report is not None
+        if not final_report.target_found and not _provider_still_lists_target(service, case):
+            final_report.provider_volatility = True
+            _write_report(tmp_path, final_report)
+            volatility_skipped_total += 1
+            sys.stderr.write(
+                f"[target-recovery] skipped volatile target for {case.provider}: {case.title}\n"
+            )
+            sys.stderr.flush()
+            continue
         assert final_report.target_found, f"{case.title}: target listing not recovered after adaptive retries"
         assert final_report.target_match_tier in MATCH_TIERS, f"{case.title}: unsupported target match tier"
         assert 0 < final_report.target_rank <= rank_threshold, (
@@ -1014,3 +1063,6 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
         )
         forbidden_hits = [row for row in final_report.negative_hits if bool(row.get('must_not_rank', True))]
         assert not forbidden_hits, f"{case.title}: near-miss impostors survived ranking: {forbidden_hits}"
+    if successful_case_total <= 0 and volatility_skipped_total > 0:
+        pytest.skip("all target-recovery cases became provider-volatile before recovery validation")
+    assert successful_case_total > 0, "no target-recovery case completed successfully"
