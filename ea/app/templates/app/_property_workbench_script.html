@@ -1075,7 +1075,13 @@
         if (!rawStatus) {
           row.status = row.error ? 'failed' : 'completed';
         }
-        if (activeSourceLabel && rowLabel === activeSourceLabel && !String(runPayload?.message || '').trim().toLowerCase().startsWith('completed scanning ')) {
+        const terminalRow = ['repaired', 'completed', 'processed', 'done', 'success', 'failed', 'error', 'skipped'].includes(String(row.status || row.state || '').trim().toLowerCase());
+        if (
+          activeSourceLabel
+          && rowLabel === activeSourceLabel
+          && !terminalRow
+          && !String(runPayload?.message || '').trim().toLowerCase().startsWith('completed scanning ')
+        ) {
           row.status = row.error ? 'failed' : 'running';
         }
         return row;
@@ -1217,7 +1223,7 @@
       const filteredTotal = Number(
         runPayload?.filtered_total
         || runPayload?.held_back_total
-        summary.filtered_total
+        || summary.filtered_total
         || summary.held_back_total
         || summary.filtered_out_total
         || summary.filtered_low_fit_total
@@ -1528,6 +1534,14 @@
       const next = root.querySelector('[data-property-step-next]');
       const actions = root.querySelector('[data-property-actions]');
       let current = 0;
+      const goToStepByKey = (stepKey) => {
+        const normalizedKey = String(stepKey || '').trim();
+        if (!normalizedKey) return;
+        const visibleSteps = activeSteps();
+        const targetIndex = visibleSteps.findIndex((step) => String(step?.key || '').trim() === normalizedKey);
+        if (targetIndex < 0) return;
+        applyStep(targetIndex);
+      };
       const activeSteps = () => {
         const excluded = new Set(
           String(form.dataset.propertyExcludedSteps || '')
@@ -1586,11 +1600,15 @@
       triggers.forEach((node) => node.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        const triggerStep = String(node.getAttribute('data-property-step-trigger') || '').trim();
-        const visibleSteps = activeSteps();
-        const targetIndex = Math.max(0, visibleSteps.findIndex((step) => String(step?.key || '').trim() === triggerStep));
-        applyStep(targetIndex);
+        goToStepByKey(node.getAttribute('data-property-step-trigger') || '');
       }));
+      root.addEventListener('click', (event) => {
+        const trigger = event.target?.closest?.('[data-property-step-trigger]');
+        if (!trigger || !form.contains(trigger)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        goToStepByKey(trigger.getAttribute('data-property-step-trigger') || '');
+      }, true);
       back?.addEventListener('click', () => applyStep(current - 1));
       next?.addEventListener('click', () => applyStep(current + 1));
       form.addEventListener('propertyquarry:wizardrefresh', () => applyStep(current, { silent: true }));
@@ -1735,6 +1753,20 @@
         const schoolPriorityField = form.querySelector('[name="school_quality_priority"]');
         if (schoolPriorityField instanceof HTMLSelectElement) schoolPriorityField.value = strongest;
       };
+      const syncSchoolPreferenceDetailRows = () => {
+        form.querySelectorAll('[data-school-priority-row]').forEach((row) => {
+          const parentValue = String(row.getAttribute('data-school-parent-value') || '').trim();
+          if (!parentValue) return;
+          const parentSelect = form.querySelector(`[data-school-preference-select][data-school-value="${CSS.escape(parentValue)}"]`);
+          const detailSelect = row.querySelector('[data-school-preference-select]');
+          const parentEnabled = parentSelect instanceof HTMLSelectElement
+            && String(parentSelect.value || 'any').trim().toLowerCase() !== 'any';
+          row.hidden = !parentEnabled;
+          row.toggleAttribute('aria-hidden', !parentEnabled);
+          if (!parentEnabled && detailSelect instanceof HTMLSelectElement) detailSelect.value = 'any';
+        });
+        syncSchoolPreferenceFields();
+      };
       const captureWhatMattersSnapshot = () => {
         const snapshot = {};
         form.querySelectorAll(`${whatMattersFieldSelector} input, ${whatMattersFieldSelector} select, ${whatMattersFieldSelector} textarea`).forEach((field) => {
@@ -1777,7 +1809,7 @@
           });
         });
         syncKeywordDistanceSelects(form);
-        syncSchoolPreferenceFields();
+        syncSchoolPreferenceDetailRows();
         syncFamilyModeControls();
         syncSearchGoalControls();
       };
@@ -1793,7 +1825,12 @@
         const catalog = meta.platform_catalog_by_country || {};
         const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
         const currentSelection = checkedValues(form, 'selected_platforms');
-        const availableValues = new Set(options.map((option) => String(option?.value || '').trim()).filter(Boolean));
+        const availableValues = new Set(
+          options
+            .filter((option) => option?.search_ready !== false)
+            .map((option) => String(option?.value || '').trim())
+            .filter(Boolean)
+        );
         const preservedSelection = currentSelection.filter((value) => availableValues.has(String(value || '').trim()));
         const defaultSelection = defaultPlatformsForCountryMode(meta, selectedCountry, effectiveListingMode(), options);
         renderCheckboxOptions(form, 'selected_platforms', options, preservedSelection.length ? preservedSelection : defaultSelection);
@@ -2218,6 +2255,7 @@
       commuteResearchField?.addEventListener('change', syncCommuteControls);
       form.querySelector('input[name="enable_lifestyle_research"]')?.addEventListener('change', syncSearchGoalControls);
       form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));
+      form.querySelectorAll('[data-school-preference-select]').forEach((node) => node.addEventListener('change', syncSchoolPreferenceDetailRows));
       form.querySelectorAll('[data-property-show-unavailable]').forEach((node) => node.addEventListener('change', () => syncMarketAwareFields(form, meta)));
       form.querySelectorAll('[data-checkbox-group-select-all]').forEach((button) => {
         button.addEventListener('click', (event) => {
@@ -2243,8 +2281,8 @@
         if (groupSelect || groupClear) {
           event.preventDefault();
           const section = (groupSelect || groupClear).closest('[data-provider-group-panel]') || form;
-          const allInputs = [...form.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')];
-          const sectionInputs = [...section.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')];
+          const allInputs = [...form.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')].filter((node) => !node.disabled);
+          const sectionInputs = [...section.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')].filter((node) => !node.disabled);
           const rawPlanPlatformCap = Number(planPlatformCap);
           const normalizedMax = Number.isFinite(rawPlanPlatformCap) && rawPlanPlatformCap > 0 ? rawPlanPlatformCap : allInputs.length;
           if (groupSelect) {

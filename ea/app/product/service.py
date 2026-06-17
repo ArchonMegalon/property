@@ -6052,6 +6052,8 @@ def _property_candidate_is_generic_listing_page(
         "projekte",
         "gemeindewohnungen",
         "angebote",
+        "ausschreibungen",
+        "wettbewerbe",
         "overview",
         "suche",
         "projektdetail",
@@ -6064,6 +6066,8 @@ def _property_candidate_is_generic_listing_page(
         "/projekte",
         "/projekt/",
         "/angebote",
+        "/ausschreibungen",
+        "/wettbewerbe",
         "/immobilien/",
         "/immobilien",
         "/overview",
@@ -6074,8 +6078,38 @@ def _property_candidate_is_generic_listing_page(
     has_area_signal = any(str(facts.get(key) or "").strip() for key in ("area_sqm", "living_area_sqm", "usable_area_sqm", "area_m2", "living_area_m2"))
     has_rooms_signal = any(str(facts.get(key) or "").strip() for key in ("rooms", "room_count", "rooms_label"))
     has_detail_signal = bool(concrete_signals or has_area_signal or has_rooms_signal)
+    non_listing_page_markers = (
+        "architekturwettbewerb",
+        "architekturwettbewerbe",
+        "ausschreibung",
+        "ausschreibungen",
+        "wettbewerb",
+        "wettbewerbe",
+        "presseaussendung",
+        "pressemitteilung",
+        "newsroom",
+        "news",
+        "karriere",
+        "jobs",
+        "blog",
+    )
+    residential_listing_signals = (
+        "wohnung",
+        "mietwohnung",
+        "eigentumswohnung",
+        "haus",
+        "zimmer",
+        "balkon",
+        "terrasse",
+        "garten",
+    )
     return bool(
         any(marker in url for marker in generic_url_markers)
+        or (
+            any(marker in text for marker in non_listing_page_markers)
+            and not any(signal in text for signal in residential_listing_signals)
+            and not has_detail_signal
+        )
         or (generic_marker_hits >= 2 and not has_detail_signal)
         or ("angebote" in text and "wohnung" not in text and not has_detail_signal)
     )
@@ -23230,6 +23264,68 @@ class ProductService:
             pass
         return task
 
+    def _property_source_repair_memory_key(self, *, source_url: object, source_label: object) -> str:
+        normalized_url = urllib.parse.urldefrag(str(source_url or "").strip())[0].lower()
+        if normalized_url:
+            return normalized_url
+        return str(source_label or "").strip().lower()
+
+    def _recent_property_source_fetch_repair_memory(
+        self,
+        *,
+        principal_id: str,
+        max_age_hours: float = 24.0,
+    ) -> dict[str, dict[str, object]]:
+        normalized_principal = str(principal_id or "").strip()
+        if not normalized_principal:
+            return {}
+        cutoff_at = datetime.now(timezone.utc) - timedelta(hours=max(1.0, float(max_age_hours or 24.0)))
+        accepted_resolutions = {
+            "suppressed_source_fetch_forbidden",
+            "suppressed_source_fetch_missing",
+            "suppressed_source_fetch_gone",
+        }
+        latest_by_key: dict[str, dict[str, object]] = {}
+        try:
+            tasks = self._container.orchestrator.list_human_tasks(
+                principal_id=normalized_principal,
+                status=None,
+                limit=300,
+            )
+        except Exception:
+            return {}
+        for task in tasks:
+            if str(getattr(task, "task_type", "") or "").strip() != "property_provider_repair_ooda":
+                continue
+            if str(getattr(task, "status", "") or "").strip().lower() != "returned":
+                continue
+            resolution = str(getattr(task, "resolution", "") or "").strip()
+            if resolution not in accepted_resolutions:
+                continue
+            input_json = dict(getattr(task, "input_json", {}) or {})
+            if str(input_json.get("filter_key") or "").strip().lower() != "source_fetch":
+                continue
+            updated_at = _parse_utcish(str(getattr(task, "updated_at", "") or getattr(task, "created_at", "") or ""))
+            if updated_at is None or updated_at < cutoff_at:
+                continue
+            source_url = str(input_json.get("source_url") or input_json.get("property_url") or "").strip()
+            source_label = str(input_json.get("source_label") or input_json.get("title") or source_url or "").strip()
+            source_key = self._property_source_repair_memory_key(source_url=source_url, source_label=source_label)
+            if not source_key:
+                continue
+            current = latest_by_key.get(source_key)
+            current_updated_at = _parse_utcish(str((current or {}).get("updated_at") or ""))
+            if current is None or current_updated_at is None or updated_at >= current_updated_at:
+                latest_by_key[source_key] = {
+                    "updated_at": str(getattr(task, "updated_at", "") or getattr(task, "created_at", "") or ""),
+                    "source_url": source_url,
+                    "source_label": source_label,
+                    "resolution": resolution,
+                    "reason": str(dict(getattr(task, "returned_payload_json", {}) or {}).get("reason") or "").strip(),
+                    "human_task_id": str(getattr(task, "human_task_id", "") or "").strip(),
+                }
+        return latest_by_key
+
     def _fetch_property_provider_repair_snapshot(self, *, property_url: str) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         if not normalized_url:
@@ -27996,6 +28092,40 @@ class ProductService:
                 break
         return runs
 
+    def find_active_property_search_run(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 8,
+    ) -> dict[str, object] | None:
+        normalized_principal = str(principal_id or "").strip()
+        if not normalized_principal:
+            return None
+        records = _list_property_search_run_records(
+            limit=max(int(limit or 0) * 2, int(limit or 0), 1),
+            principal_id=normalized_principal,
+        )
+        terminal_statuses = set(_PROPERTY_SEARCH_TERMINAL_STATUSES) | {"not started"}
+        for record in records:
+            if str(record.get("principal_id") or "").strip() != normalized_principal:
+                continue
+            run_id = str(record.get("run_id") or "").strip()
+            if not run_id:
+                continue
+            summary = dict(record.get("summary") or {}) if isinstance(record.get("summary"), dict) else {}
+            status_value = str(record.get("status") or summary.get("status") or "").strip().lower()
+            if status_value and status_value in terminal_statuses:
+                continue
+            with contextlib.suppress(Exception):
+                snapshot = self.get_property_search_run_status(
+                    principal_id=normalized_principal,
+                    run_id=run_id,
+                )
+                if isinstance(snapshot, dict) and snapshot:
+                    return dict(snapshot)
+            return dict(record)
+        return None
+
     def delete_property_search_run(
         self,
         *,
@@ -28485,6 +28615,9 @@ class ProductService:
             return round((time.perf_counter() - run_started_at) * 1000.0, 2)
         policy = self.property_alert_policy(principal_id=principal_id)
         auto_visual_exception_enabled = paid_plan or bool(policy.get("auto_generate_tour_for_good_fit"))
+        recent_source_fetch_repair_memory = self._recent_property_source_fetch_repair_memory(
+            principal_id=principal_id,
+        )
         source_summaries: list[dict[str, object]] = []
         pending_telegram_notifications: list[dict[str, object]] = []
         seen_listing_urls: set[str] = set()
@@ -28506,6 +28639,9 @@ class ProductService:
             source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
             source_key = (str(source_spec.get("platform") or "").strip().lower(), source_url)
             source_label = compact_text(str(source_spec.get("label") or "").strip(), fallback="", limit=120) or urllib.parse.urlparse(source_url).netloc
+            source_repair_memory = recent_source_fetch_repair_memory.get(
+                self._property_source_repair_memory_key(source_url=source_url, source_label=source_label)
+            )
             provider_filter_pushdown = (
                 dict(source_spec.get("provider_filter_pushdown") or {})
                 if isinstance(source_spec.get("provider_filter_pushdown"), dict)
@@ -28537,6 +28673,47 @@ class ProductService:
             filter_near_misses_for_source: list[dict[str, object]] = []
             provider_cache_state: dict[str, object] = {"status": "not_started", "cache_key": provider_cache_key}
             detailed_location_miss_count = 0
+
+            if source_repair_memory:
+                failed_total += 1
+                provider_repair_task_existing_for_source += 1
+                provider_repair_task_existing_total += 1
+                source_summaries.append(
+                    {
+                        "source_url": source_url,
+                        "source_label": source_label,
+                        "preference_person_id": source_preference_person_id,
+                        "provider_filter_pushdown": provider_filter_pushdown,
+                        "provider_cache": {**provider_cache_state, "status": "suppressed"},
+                        "listing_total": 0,
+                        "review_created_total": 0,
+                        "review_existing_total": 0,
+                        "timing_ms": {
+                            "provider_fetch": 0.0,
+                            "source_total": round((time.perf_counter() - source_started_at) * 1000.0, 2),
+                        },
+                        "provider_repair_task_opened_total": 0,
+                        "provider_repair_task_existing_total": 1,
+                        "provider_repair_tasks": [],
+                        "repair_resolution": str(source_repair_memory.get("resolution") or "").strip(),
+                        "repair_reason": str(source_repair_memory.get("reason") or "").strip(),
+                        "repair_memory_applied": True,
+                        "repair_human_task_id": str(source_repair_memory.get("human_task_id") or "").strip(),
+                        "status": "completed",
+                    }
+                )
+                _report(
+                    step="source_repair_reuse",
+                    message=f"Skipped source fetch for {source_label} because a recent provider repair already suppressed this source.",
+                    status="in_progress",
+                    steps_delta=0,
+                    summary_updates={
+                        "sources": source_summaries,
+                        "failed_total": failed_total,
+                        "provider_repair_task_existing_total": provider_repair_task_existing_total,
+                    },
+                )
+                continue
 
             def _remember_filter_near_miss(
                 *,

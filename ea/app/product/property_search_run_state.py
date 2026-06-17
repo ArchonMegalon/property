@@ -355,6 +355,16 @@ def property_search_run_progress_projection(
     eta_seconds = 0
     eta_label = ""
     if sources_total > 0:
+        # Do not show fabricated early progress before the run has produced any
+        # concrete source summary row or listing/review work.
+        if (
+            source_completed <= 0
+            and max(0, int(summary.get("listing_total") or 0)) <= 0
+            and max(0, int(summary.get("review_created_total") or 0)) <= 0
+            and max(0, int(summary.get("review_existing_total") or 0)) <= 0
+            and str(step or "").strip().lower() in {"queued", "starting", "sources_resolved", "source_started", "source_fetching"}
+        ):
+            return 0, 0, ""
         phase_fraction = property_search_run_step_source_fraction(step)
         if phase_fraction >= 1.0:
             effective_completed_sources = float(min(sources_total, source_completed))

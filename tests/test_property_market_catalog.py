@@ -1154,6 +1154,23 @@ def test_generated_source_specs_expand_austria_cooperative_provider_group() -> N
     assert all("Vienna" in str(row["label"]) for row in specs)
 
 
+def test_generated_source_specs_skip_unimplemented_provider_lanes() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Vienna",
+        },
+        selected_platforms=("community_signals_at",),
+        principal_id="exec-property-community-coming-soon",
+        default_person_id="self",
+        max_results=3,
+    )
+
+    assert specs == ()
+
+
 def test_generated_source_specs_build_justiz_edikte_result_search_url() -> None:
     specs = generated_source_specs(
         preferences={

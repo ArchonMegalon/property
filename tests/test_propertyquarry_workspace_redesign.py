@@ -147,6 +147,12 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert '<select name="school_preference__kindergarten"' in section_html
     assert '<select name="school_preference__volksschule"' in section_html
     assert '<select name="school_preference__gymnasium"' in section_html
+    assert 'data-school-parent-value="kindergarten"' in section_html
+    assert 'data-school-parent-value="volksschule"' in section_html
+    assert 'name="school_preference__public_kindergarten"' in section_html
+    assert 'name="school_preference__private_kindergarten"' in section_html
+    assert 'name="school_preference__ganztags_volksschule"' in section_html
+    assert 'name="school_preference__halbtags_volksschule"' in section_html
     assert 'data-keyword-distance-select' in section_html
     assert 'name="keyword_distance__playground nearby" data-keyword-distance-select data-keyword-value="playground nearby" disabled' in section_html
     assert 'type="checkbox"' not in section_html
@@ -166,11 +172,95 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert '>Home shape<' not in html
 
 
+def test_propertyquarry_search_route_disables_unimplemented_providers() -> None:
+    client = build_property_client(principal_id="pq-provider-coming-soon")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    response = client.get("/app/search", headers={"host": "propertyquarry.com"})
+    assert response.status_code == 200
+    html = response.text
+
+    assert 'value="community_signals_at"' in html
+    assert re.search(r'value="community_signals_at"\s+disabled', html)
+    assert 'Coming soon' in html
+
+
 def test_propertyquarry_localhost_brand_uses_request_origin_for_public_base() -> None:
     client = build_property_client(principal_id="pq-localhost-brand")
     response = client.get("/sitemap.xml", headers={"host": "localhost:8097"})
     assert response.status_code == 200
     assert "localhost:8097/" in response.text
+
+
+def test_propertyquarry_search_route_skips_heavy_run_status_hydration() -> None:
+    from app.product.service import ProductService
+
+    client = build_property_client(principal_id="pq-search-lightweight")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+        },
+    )
+
+    original_find_active = ProductService.find_active_property_search_run
+    original_get_status = ProductService.get_property_search_run_status
+
+    def fake_find_active(self, *, principal_id: str, limit: int = 8):
+        return {
+            "run_id": "run-active-lightweight",
+            "status": "in_progress",
+            "message": "Scanning providers.",
+            "progress": 18,
+            "status_url": "/app/api/signals/property/search/run/run-active-lightweight",
+            "summary": {"sources_total": 2},
+        }
+
+    def fail_get_status(self, *, principal_id: str, run_id: str):
+        raise AssertionError("search route should not hydrate full run status without explicit run_id")
+
+    ProductService.find_active_property_search_run = fake_find_active
+    ProductService.get_property_search_run_status = fail_get_status
+    try:
+        response = client.get("/app/search")
+    finally:
+        ProductService.find_active_property_search_run = original_find_active
+        ProductService.get_property_search_run_status = original_get_status
+
+    assert response.status_code == 200
+    assert "run-active-lightweight" in response.text
+
+
+def test_propertyquarry_search_route_trims_heavy_workbench_state() -> None:
+    client = build_property_client(principal_id="pq-search-trimmed")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "saved_shortlist_candidates": [
+                {"candidate_ref": "candidate-1", "title": "Huge saved candidate", "detail": "x" * 5000}
+            ],
+        },
+    )
+    assert stored.status_code == 200
+
+    response = client.get("/app/search")
+    assert response.status_code == 200
+    match = re.search(r'<script type="application/json" data-property-workbench-json>(.*?)</script>', response.text, re.S)
+    assert match, "workbench JSON should render"
+    payload = json.loads(match.group(1))
+    assert payload["brief_preferences"].get("saved_shortlist_candidates") in (None, [])
+    assert "raw_preferences" not in payload["brief_preferences"]
+    assert "search_agents" not in payload["brief_preferences"]
+    assert payload.get("search_agents") == []
+    assert payload.get("search_agent") == {}
+    assert payload.get("previous_search_runs") == []
     assert "https://propertyquarry.com/" not in response.text
 
 
@@ -193,9 +283,13 @@ def test_propertyquarry_search_route_shows_live_run_banner_when_active_run_exist
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
 
-    def _fake_list_runs(self, *, principal_id: str, limit: int = 8):
+    def _explode(self, *, principal_id: str, limit: int = 8):
         assert principal_id == "pq-search-live-run-banner"
-        return [{"run_id": "run-live-42", "status": "in_progress", "summary": {"status": "in_progress"}}]
+        raise AssertionError("search route should not hydrate the recent run list")
+
+    def _fake_active_run(self, *, principal_id: str, limit: int = 8):
+        assert principal_id == "pq-search-live-run-banner"
+        return {"run_id": "run-live-42", "status": "in_progress", "summary": {"status": "in_progress"}}
 
     def _fake_run_status(self, *, principal_id: str, run_id: str):
         assert principal_id == "pq-search-live-run-banner"
@@ -222,7 +316,8 @@ def test_propertyquarry_search_route_shows_live_run_banner_when_active_run_exist
             },
         }
 
-    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_list_runs)
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _explode)
+    monkeypatch.setattr(ProductService, "find_active_property_search_run", _fake_active_run)
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
 
     response = client.get("/app/search", headers={"host": "propertyquarry.com"})
@@ -241,31 +336,47 @@ def test_propertyquarry_properties_route_redirects_to_search_without_a_run() -> 
     assert response.headers["location"] == "/app/search"
 
 
-def test_propertyquarry_root_redirects_to_active_run_when_signed_in(monkeypatch) -> None:
-    principal_id = "pq-root-active-run"
+def test_propertyquarry_root_renders_fast_landing_when_signed_in(monkeypatch) -> None:
+    principal_id = "pq-root-fast-landing"
     client = build_property_client(principal_id=principal_id)
-    start_workspace(client, mode="personal", workspace_name="Root Active Run Office")
+    start_workspace(client, mode="personal", workspace_name="Root Fast Landing Office")
 
-    def _fake_list_runs(self, *, principal_id: str, limit: int = 8):
-        assert principal_id == "pq-root-active-run"
-        return [
-            {"run_id": "run-live-99", "status": "in_progress", "summary": {"status": "in_progress"}},
-            {"run_id": "run-finished", "status": "processed", "summary": {"status": "processed"}},
-        ]
-
-    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_list_runs)
+    monkeypatch.setattr(
+        landing_routes,
+        "build_product_service",
+        lambda container: (_ for _ in ()).throw(AssertionError("propertyquarry root should not build the product service when rendering the fast landing")),
+    )
     monkeypatch.setattr(landing_routes, "_workspace_session_payload", lambda request, container: {"principal_id": principal_id})
     monkeypatch.setattr(landing_routes, "_load_status", lambda container, access_identity, request=None: (principal_id, {}))
 
-    response = client.get("/", headers={"host": "propertyquarry.com"}, follow_redirects=False)
-    assert response.status_code == 307
-    assert response.headers["location"] == "/app/properties?run_id=run-live-99"
+    response = client.get("/", headers={"host": "propertyquarry.com"})
+    assert response.status_code == 200
+    assert "Open search" in response.text
+    assert "Open run" in response.text
+
+
+def test_propertyquarry_root_localhost_signed_in_does_not_redirect_to_public_host(monkeypatch) -> None:
+    principal_id = "pq-root-localhost-fast-landing"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Root Localhost Landing Office")
+
+    monkeypatch.setattr(landing_routes, "_workspace_session_payload", lambda request, container: {"principal_id": principal_id})
+    monkeypatch.setattr(landing_routes, "_load_status", lambda container, access_identity, request=None: (principal_id, {}))
+
+    response = client.get("/", headers={"host": "localhost:8097"}, follow_redirects=False)
+    assert response.status_code == 200
+    assert "https://propertyquarry.com/app/search" not in response.text
+    assert 'href="/app/search"' in response.text
 
 
 def test_property_provider_options_expose_homepage_links() -> None:
     options = property_market_catalog.provider_options(country_code="AT")
     willhaben = next(option for option in options if option["value"] == "willhaben")
     assert willhaben["homepage_url"] == "https://www.willhaben.at"
+    community_signals = next(option for option in options if option["value"] == "community_signals_at")
+    assert community_signals["search_ready"] is False
+    assert community_signals["coming_soon"] is True
+    assert community_signals["availability_note"] == "Coming soon"
 
 
 def test_property_surface_state_normalizes_search_run_snapshot() -> None:
@@ -2283,6 +2394,40 @@ def test_property_properties_surface_skips_recent_runs_load_without_explicit_run
     assert 'data-property-decision-workbench' in response.text
 
 
+def test_property_properties_surface_uses_active_run_lookup_without_recent_run_list(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-properties-active-run-lookup")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    def _explode(self, *, principal_id: str, limit: int = 8):
+        raise AssertionError("properties surface should not hydrate the recent run list")
+
+    def _fake_active_run(self, *, principal_id: str, limit: int = 8):
+        assert principal_id == "pq-properties-active-run-lookup"
+        return {"run_id": "run-live-lookup", "status": "in_progress", "summary": {"status": "in_progress"}}
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-properties-active-run-lookup"
+        assert run_id == "run-live-lookup"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "in_progress",
+            "status_label": "Search in progress",
+            "progress": 17,
+            "message": "Reviewing candidate 3 of 12.",
+            "summary": {"status": "in_progress", "sources": [], "ranked_candidates": []},
+        }
+
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _explode)
+    monkeypatch.setattr(ProductService, "find_active_property_search_run", _fake_active_run)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+    assert response.status_code == 200
+    assert "run-live-lookup" in response.text
+
+
 def test_property_search_form_defaults_to_discovery_after_thin_strict_run(monkeypatch) -> None:
     payload = landing_routes._property_workspace_payload(
         "properties",
@@ -3127,6 +3272,68 @@ def test_propertyquarry_shortlist_uses_run_search_goal_over_saved_defaults(monke
     assert "Find a home" in shortlist.text
     assert "Why this ranks" not in shortlist.text
     assert "Open the investment read." not in shortlist.text
+
+
+def test_propertyquarry_shortlist_excludes_saved_candidates_outside_active_run_area(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-shortlist-hard-area")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+                "selected_districts": ["1010 Vienna"],
+            },
+            "summary": {
+                "status": "processed",
+                "ranked_candidates": [
+                    {
+                        "title": "Vienna inner-district flat",
+                        "property_url": "https://example.test/vienna-1010-flat",
+                        "fit_summary": "Inside the selected district.",
+                        "match_reasons": ["1010 Vienna"],
+                        "property_facts": {
+                            "rent_display": "EUR 1,250",
+                            "postal_name": "1010 Wien",
+                        },
+                    }
+                ],
+                "sources": [],
+            },
+            "events": [{"step": "completed", "message": "Property scouting run completed.", "status": "processed"}],
+        }
+
+    def _fake_saved_shortlist_candidates(self, *, principal_id: str):
+        return [
+            {
+                "title": "Schardenberg rental",
+                "property_url": "https://example.test/schardenberg-rental",
+                "fit_summary": "Saved from an older run.",
+                "match_reasons": ["Older shortlist survivor"],
+                "location_label": "4784 Schardenberg",
+                "property_facts": {
+                    "postal_name": "4784 Schardenberg",
+                    "rent_display": "€ 524,60",
+                },
+            }
+        ]
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(ProductService, "list_property_saved_shortlist_candidates", _fake_saved_shortlist_candidates)
+
+    shortlist = client.get("/app/shortlist", params={"run_id": "run-area-42"}, headers={"host": "propertyquarry.com"})
+    assert shortlist.status_code == 200
+    assert "Vienna inner-district flat" in shortlist.text
+    assert "Schardenberg rental" not in shortlist.text
 
 
 def test_propertyquarry_shortlist_panel_builds_cards_and_actions() -> None:

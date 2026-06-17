@@ -1584,11 +1584,20 @@ def app_section_payload(
         if isinstance(row, dict)
     ]
     if surface_scope.section == "shortlist" and saved_shortlist_candidates:
+        from app.product.service import (
+            _property_candidate_matches_requested_location,
+            _property_search_location_hints,
+        )
+
         current_ranked = [
             dict(row)
             for row in list(property_summary.get("ranked_candidates") or [])
             if isinstance(row, dict)
         ]
+        location_hints = _property_search_location_hints(property_run_preferences)
+        hard_scope_country = str(property_run_preferences.get("country_code") or "").strip()
+        hard_scope_region = str(property_run_preferences.get("region_code") or "").strip()
+        enforce_saved_location_scope = bool(location_hints)
 
         def _saved_shortlist_ref(candidate: dict[str, object]) -> str:
             facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
@@ -1605,10 +1614,30 @@ def app_section_payload(
                     return normalized
             return ""
 
+        def _saved_shortlist_in_scope(candidate: dict[str, object]) -> bool:
+            if not enforce_saved_location_scope:
+                return True
+            facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+            for key in ("location", "postal_name", "district", "exact_address", "street_address"):
+                if not facts.get(key) and candidate.get("location_label"):
+                    facts[key] = candidate.get("location_label")
+            return _property_candidate_matches_requested_location(
+                location_hints=location_hints,
+                property_url=str(candidate.get("property_url") or candidate.get("source_url") or "").strip(),
+                title=str(candidate.get("title") or "").strip(),
+                summary=str(candidate.get("summary") or candidate.get("fit_summary") or "").strip(),
+                property_facts=facts,
+                country_code=hard_scope_country,
+                region_code=hard_scope_region,
+            )
+
         merged_ranked: list[dict[str, object]] = []
         seen_refs: set[str] = set()
-        for candidate in [*current_ranked, *saved_shortlist_candidates]:
+        merged_input = [*(("current", row) for row in current_ranked), *(("saved", row) for row in saved_shortlist_candidates)]
+        for origin, candidate in merged_input:
             candidate_row = dict(candidate)
+            if origin == "saved" and not _saved_shortlist_in_scope(candidate_row):
+                continue
             candidate_ref = _saved_shortlist_ref(candidate_row)
             if candidate_ref and candidate_ref in seen_refs:
                 continue
@@ -1721,6 +1750,16 @@ def app_section_payload(
             known_values.add(value.lower())
     except Exception:
         pass
+    available_platform_values = {
+        str(option.get("value") or "").strip()
+        for option in platform_options
+        if str(option.get("value") or "").strip() and bool(option.get("search_ready", True))
+    }
+    selected_platforms = {
+        value
+        for value in selected_platforms
+        if value in available_platform_values
+    }
     if not evidence_source_rows:
         try:
             from app.services.property_market_catalog import evidence_source_options as property_evidence_source_options

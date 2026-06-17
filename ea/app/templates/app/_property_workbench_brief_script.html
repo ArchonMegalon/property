@@ -135,6 +135,20 @@
       const schoolPriorityField = form?.querySelector('[name="school_quality_priority"]');
       if (schoolPriorityField instanceof HTMLSelectElement) schoolPriorityField.value = strongest;
     };
+    const syncSchoolPreferenceDetailRows = (form) => {
+      form?.querySelectorAll('[data-school-priority-row]').forEach((row) => {
+        const parentValue = String(row.getAttribute('data-school-parent-value') || '').trim();
+        if (!parentValue) return;
+        const parentSelect = form.querySelector(`[data-school-preference-select][data-school-value="${CSS.escape(parentValue)}"]`);
+        const detailSelect = row.querySelector('[data-school-preference-select]');
+        const parentEnabled = parentSelect instanceof HTMLSelectElement
+          && String(parentSelect.value || 'any').trim().toLowerCase() !== 'any';
+        row.hidden = !parentEnabled;
+        row.toggleAttribute('aria-hidden', !parentEnabled);
+        if (!parentEnabled && detailSelect instanceof HTMLSelectElement) detailSelect.value = 'any';
+      });
+      syncSchoolPreferenceDetailRows(form);
+    };
     const selectedPropertyTypes = (form) => {
       const values = checkedValues(form, 'property_type').map((item) => String(item || '').trim().toLowerCase()).filter(Boolean);
       return values.length ? values : ['any'];
@@ -416,10 +430,12 @@
         const label = String(option.label || optionValue || 'Provider').trim();
         const detail = String(option.detail || option.description || '').trim();
         const homepageUrl = String(option.homepage_url || '').trim();
+        const searchReady = option.search_ready !== false;
+        const availabilityNote = String(option.availability_note || '').trim();
         const homepageLink = homepageUrl
           ? `<a class="pqx-provider-link" href="${escapeHtml(homepageUrl)}" target="_blank" rel="noopener noreferrer" data-provider-homepage-link onclick="event.stopPropagation();">Homepage</a>`
           : '';
-        return `<label class="pqx-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${selected.has(optionValue) ? 'checked' : ''}><span><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}${homepageLink}</span></label>`;
+        return `<label class="pqx-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${searchReady && selected.has(optionValue) ? 'checked' : ''} ${searchReady ? '' : 'disabled'}><span><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}${availabilityNote ? `<small>${escapeHtml(availabilityNote)}</small>` : ''}${homepageLink}</span></label>`;
       };
       const optionRows = Array.isArray(options) ? options : [];
       if (name === 'selected_platforms' && optionRows.some((option) => String(option?.family || '').trim())) {
@@ -459,12 +475,12 @@
     const revealSelectedProviderGroups = (form, selectedInputs) => {
       const selectedSet = new Set(selectedInputs);
       form.querySelectorAll('[data-provider-group-panel]').forEach((panel) => {
-        const panelInputs = [...panel.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')];
+        const panelInputs = [...panel.querySelectorAll('input[type="checkbox"][name="selected_platforms"]')].filter((node) => !node.disabled);
         panel.open = panelInputs.some((node) => selectedSet.has(node));
       });
     };
     const selectAllCheckboxValues = (form, name, maxCount) => {
-      const inputs = [...(form?.querySelectorAll(`input[name="${name}"]`) || [])];
+      const inputs = [...(form?.querySelectorAll(`input[name="${name}"]`) || [])].filter((node) => !node.disabled);
       if (!inputs.length) return;
       const rawMax = Number(maxCount);
       const normalizedMax = Number.isFinite(rawMax) && rawMax > 0 ? rawMax : inputs.length;
@@ -495,7 +511,7 @@
         const name = String(button.getAttribute('data-checkbox-group-select-all') || '').trim();
         if (!name) return;
         if (name !== 'selected_platforms') return;
-        const total = form.querySelectorAll(`input[name="${name}"]`).length;
+        const total = [...form.querySelectorAll(`input[name="${name}"]`)].filter((node) => !node.disabled).length;
         if (!total) {
           button.textContent = 'Select sources';
           button.removeAttribute('title');

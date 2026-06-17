@@ -2390,9 +2390,9 @@
     .pqx-what-matters-head {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
-      gap: 12px;
+      gap: 10px;
       align-items: start;
-      padding: 12px 14px;
+      padding: 10px 12px;
       border-bottom: 1px solid var(--pq-line);
     }
     .pqx-what-matters-head .pqx-disclosure-label {
@@ -2422,14 +2422,14 @@
       white-space: nowrap;
     }
     .pqx-what-matters-panel .pqx-advanced-panel-grid {
-      padding: 12px 14px 14px;
+      padding: 10px 12px 12px;
       border-top: 0;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
+      gap: 10px;
     }
     .pqx-what-matters-panel .pqx-choice-groupbox {
-      gap: 10px;
-      padding: 12px;
+      gap: 8px;
+      padding: 10px;
       border: 1px solid rgba(185, 173, 154, 0.22);
       border-radius: 10px;
       background: rgba(255, 253, 249, 0.72);
@@ -2445,21 +2445,23 @@
     }
     .pqx-what-matters-panel .pqx-pref-list {
       grid-template-columns: 1fr;
-      gap: 8px;
+      gap: 6px;
       max-height: none;
       overflow: visible;
+      align-items: start;
     }
     .pqx-what-matters-panel .pqx-pref-row {
-      grid-template-columns: minmax(0, 1fr) minmax(156px, 184px) minmax(110px, 132px);
-      padding: 10px 12px;
-      gap: 8px 10px;
+      grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(120px, 0.8fr));
+      padding: 7px 8px;
+      gap: 8px;
       align-items: center;
       border: 1px solid rgba(185, 173, 154, 0.2);
-      border-radius: 10px;
-      background: rgba(255, 253, 249, 0.88);
+      border-radius: 8px;
+      background: rgba(255, 253, 249, 0.82);
+      min-height: 0;
     }
     .pqx-what-matters-panel .pqx-pref-row > div {
-      grid-column: 1;
+      grid-column: auto;
       min-width: 0;
       display: grid;
       gap: 2px;
@@ -2471,21 +2473,22 @@
     }
     .pqx-what-matters-panel .pqx-pref-row small {
       font-size: 10px;
-      line-height: 1.3;
+      line-height: 1.2;
       margin-top: 0;
     }
     .pqx-what-matters-panel .pqx-pref-row select {
       min-width: 0;
       max-width: none;
-      min-height: 34px;
-      padding: 6px 28px 6px 10px;
+      min-height: 32px;
+      padding: 5px 26px 5px 8px;
       font-size: 11px;
       align-self: center;
+      width: 100%;
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row select:only-of-type,
     .pqx-what-matters-panel .pqx-school-priority-row select:only-of-type {
-      grid-column: 2 / span 2;
-      max-width: 184px;
+      grid-column: 2 / 4;
+      max-width: none;
     }
     .pqx-what-matters-panel .pqx-pref-row select[disabled] {
       opacity: 0.55;
@@ -2506,6 +2509,9 @@
       }
       .pqx-what-matters-panel .pqx-pref-row {
         grid-template-columns: 1fr;
+      }
+      .pqx-what-matters-panel .pqx-pref-row > div {
+        grid-column: 1 / -1;
       }
       .pqx-what-matters-panel .pqx-keyword-priority-row select:only-of-type,
       .pqx-what-matters-panel .pqx-school-priority-row select:only-of-type {
@@ -5216,7 +5222,14 @@
                       <legend class="pqx-choice-groupbox-legend">Schools and childcare</legend>
                       <div class="pqx-pref-list">
                         {% for option in field.get('school_preference_options') or [] %}
-                        <label class="pqx-pref-row pqx-school-priority-row" data-school-priority-row data-school-value="{{ option.get('value') }}">
+                        <label
+                          class="pqx-pref-row pqx-school-priority-row"
+                          data-school-priority-row
+                          data-school-value="{{ option.get('value') }}"
+                          {% if option.get('value') in ('public_kindergarten', 'private_kindergarten') %}data-school-parent-value="kindergarten"{% endif %}
+                          {% if option.get('value') in ('ganztags_volksschule', 'halbtags_volksschule') %}data-school-parent-value="volksschule"{% endif %}
+                          {% if option.get('value') in ('public_kindergarten', 'private_kindergarten', 'ganztags_volksschule', 'halbtags_volksschule') and (option.get('state') or 'any') == 'any' %} hidden aria-hidden="true"{% endif %}
+                        >
                           <div>
                             <strong>{{ option.get('label') }}</strong>
                             {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
@@ -5268,10 +5281,11 @@
                       {% for option in group.get('options') or [] %}
                       {% set option_value = option.get('value') or '' %}
                       <label class="pqx-check">
-                        <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}>
+                        <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}{% if not option.get('search_ready', true) %} disabled{% endif %}>
                         <span>
                           <span>{{ option.get('label') }}</span>
                           {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
+                          {% if option.get('coming_soon') %}<small>Coming soon</small>{% endif %}
                           {% if option.get('homepage_url') %}<a class="pqx-provider-link" href="{{ option.get('homepage_url') }}" target="_blank" rel="noopener noreferrer" data-provider-homepage-link onclick="event.stopPropagation();">Homepage</a>{% endif %}
                         </span>
                       </label>
@@ -5285,10 +5299,11 @@
                     {% for option in field.options or [] %}
                     {% set option_value = option.get('value') or '' %}
                     <label class="pqx-check"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}{% if field.name == 'school_stage_preferences' and option_value == 'kindergarten' %} data-kindergarten-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('public_kindergarten', 'private_kindergarten') %} data-kindergarten-variant{% endif %}>
-                      <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}>
+                      <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}{% if not option.get('search_ready', true) %} disabled{% endif %}>
                       <span>
                         <span>{{ option.get('label') }}</span>
                         {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
+                        {% if option.get('coming_soon') %}<small>Coming soon</small>{% endif %}
                         {% if option.get('homepage_url') %}<a class="pqx-provider-link" href="{{ option.get('homepage_url') }}" target="_blank" rel="noopener noreferrer" data-provider-homepage-link onclick="event.stopPropagation();">Homepage</a>{% endif %}
                       </span>
                     </label>

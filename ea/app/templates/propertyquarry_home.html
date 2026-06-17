@@ -235,8 +235,13 @@
       </div>
       <div>
         <div class="cta-row">
+          {% if access_identity or principal_id %}
+          <a class="btn primary" href="/app/search" data-analytics-event="home_open_search" data-rybbit-event="home_open_search" data-rybbit-prop-surface="hero">Open search</a>
+          <a class="btn" href="/app/properties" data-analytics-event="home_open_run" data-rybbit-event="home_open_run" data-rybbit-prop-surface="hero">Open run</a>
+          {% else %}
           <a class="btn primary" href="/register" data-analytics-event="home_create_account" data-rybbit-event="home_create_account" data-rybbit-prop-surface="hero">Create account</a>
           <a class="btn" href="/sign-in" data-analytics-event="home_sign_in" data-rybbit-event="home_sign_in" data-rybbit-prop-surface="hero">Sign in</a>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -337,8 +342,13 @@
       <p>PropertyQuarry is strongest when the first session ends with fewer tabs and clearer reasons.</p>
     </div>
     <div class="cta-row">
+      {% if access_identity or principal_id %}
+      <a class="btn primary" href="/app/search" data-analytics-event="home_open_search_footer" data-rybbit-event="home_open_search" data-rybbit-prop-surface="footer">Open search</a>
+      <a class="btn ghost" href="/app/properties" data-analytics-event="home_open_run_footer" data-rybbit-event="home_open_run" data-rybbit-prop-surface="footer">Open run</a>
+      {% else %}
       <a class="btn primary" href="/register" data-analytics-event="home_create_account_footer" data-rybbit-event="home_create_account" data-rybbit-prop-surface="footer">Create account</a>
       <a class="btn ghost" href="/pricing" data-analytics-event="home_view_plans" data-rybbit-event="home_view_plans" data-rybbit-prop-surface="footer">View plans</a>
+      {% endif %}
     </div>
   </section>
 </main>

@@ -141,7 +141,7 @@ def property_workspace_payload(
         for candidate in list(property_meta.get("shortlist_candidates") or [])
         if isinstance(candidate, dict)
     ]
-    if normalized_section == "properties":
+    if normalized_section in {"properties", "search"}:
         trimmed_meta = dict(property_meta)
         trimmed_meta.pop("search_agent", None)
         trimmed_meta.pop("search_agents", None)
@@ -152,6 +152,12 @@ def property_workspace_payload(
     run_property_preferences = dict(run_payload.get("property_search_preferences") or {}) if isinstance(run_payload.get("property_search_preferences"), dict) else {}
     property_preferences = {**saved_property_preferences, **run_property_preferences}
     preference_person_id = str(property_state.get("preference_person_id") or property_preferences.get("preference_person_id") or "self").strip() or "self"
+    brief_preferences_payload = dict(property_preferences)
+    if normalized_section == "search":
+        brief_preferences_payload.pop("saved_shortlist_candidates", None)
+        brief_preferences_payload.pop("raw_preferences", None)
+        brief_preferences_payload.pop("search_agents", None)
+        brief_preferences_payload.pop("property_commercial", None)
     run_health = dict(property_state.get("run_health") or {})
     run_events = list(run_payload.get("events") or [])
     raw_run_summary = dict(run_payload.get("summary") or {})
@@ -2451,7 +2457,7 @@ def property_workspace_payload(
             plan_key=str(commercial.get("current_plan_key") or "free").strip().lower() or "free",
             research_depth=str(commercial.get("research_depth") or "deep").strip(),
         ),
-        brief_preferences=dict(property_preferences),
+        brief_preferences=brief_preferences_payload,
         endpoints={
             "preferences": str(property_meta.get("preferences_endpoint") or "").strip(),
             "start": str(property_meta.get("start_endpoint") or "").strip(),
@@ -2469,9 +2475,9 @@ def property_workspace_payload(
             for item in list(recent_matches_card.get("items") or [])[:5]
             if isinstance(item, dict)
         ],
-        previous_search_runs=previous_search_runs,
-        search_agents=property_search_agents,
-        search_agent=property_search_agent,
+        previous_search_runs=[] if normalized_section == "search" else previous_search_runs,
+        search_agents=[] if normalized_section == "search" else property_search_agents,
+        search_agent={} if normalized_section == "search" else property_search_agent,
         results=workbench_results,
         search_guard_rows=[],
         suppression_rows=suppression_rows,

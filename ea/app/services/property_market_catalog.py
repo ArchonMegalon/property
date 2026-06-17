@@ -41,6 +41,8 @@ class PropertyProviderSpec:
     filter_pushdown_strength: str = "partial"
     official_source_quality: str = "provider_only"
     last_verified: str = "2026-06-13"
+    search_ready: bool = True
+    availability_note: str = ""
 
 
 @dataclass(frozen=True)
@@ -751,6 +753,8 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         description="Austria Facebook groups, Telegram leads, Flatbee-style community surfaces, and other weakly verified off-market sources that require stronger manual validation.",
         family="community_signals",
         trust_tier="watch",
+        search_ready=False,
+        availability_note="Coming soon",
     ),
     PropertyProviderSpec(
         key="flatbee",
@@ -3056,9 +3060,9 @@ def _provider_homepage_url(provider: PropertyProviderSpec) -> str:
     return ""
 
 
-def provider_options(*, country_code: str | None = None) -> list[dict[str, str]]:
+def provider_options(*, country_code: str | None = None) -> list[dict[str, object]]:
     normalized_country = normalize_country_code(country_code, default="AT") if country_code else ""
-    rows: list[dict[str, str]] = []
+    rows: list[dict[str, object]] = []
     for provider in PROVIDERS:
         if normalized_country and provider.country_code != normalized_country:
             continue
@@ -3089,9 +3093,19 @@ def provider_options(*, country_code: str | None = None) -> list[dict[str, str]]
                 "official_source_quality": provider.official_source_quality,
                 "last_verified": provider.last_verified,
                 "homepage_url": _provider_homepage_url(provider),
+                "search_ready": bool(provider.search_ready),
+                "coming_soon": not bool(provider.search_ready),
+                "availability_note": str(provider.availability_note or "").strip(),
             }
         )
     return rows
+
+
+def property_provider_search_ready(platform_key: object) -> bool:
+    provider = _PROVIDER_INDEX.get(normalize_property_platform(platform_key))
+    if provider is None:
+        return False
+    return bool(provider.search_ready)
 
 
 def evidence_source_options(*, country_code: str | None = None) -> list[dict[str, str]]:
@@ -4624,6 +4638,8 @@ def generated_source_specs(
     for provider_key in effective_platforms:
         provider = _PROVIDER_INDEX.get(provider_key)
         if provider is None or provider.country_code != country_code:
+            continue
+        if not provider.search_ready:
             continue
         if listing_mode not in provider.supported_listing_modes:
             if not bool(normalized_preferences.get("include_distressed_sale_signals")):

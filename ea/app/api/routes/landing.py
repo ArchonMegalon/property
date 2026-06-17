@@ -834,6 +834,7 @@ def _property_console_context(
     run_payload: dict[str, object] = {}
     normalized_run_id = str(run_id or "").strip()
     recent_search_runs: list[dict[str, object]] = []
+    lightweight_active_run: dict[str, object] = {}
     should_load_recent_runs = wants_recent_runs and not (
         surface_scope.section == "properties"
         or (normalized_run_id and surface_scope.section in {"properties", "shortlist"})
@@ -847,19 +848,33 @@ def _property_console_context(
             ]
         except Exception:
             recent_search_runs = []
+    if surface_scope.section == "search" and not normalized_run_id:
+        with contextlib.suppress(Exception):
+            lightweight_active_run = normalize_property_search_run_snapshot(
+                dict(product.find_active_property_search_run(principal_id=principal_id, limit=8) or {})
+            )
     if wants_run_state and not normalized_run_id:
-        terminal_statuses = {"processed", "completed", "failed", "noop", "cancelled", "not started"}
-        for recent_run in recent_search_runs:
-            if not isinstance(recent_run, dict):
-                continue
-            candidate_run_id = str(recent_run.get("run_id") or "").strip()
-            if not candidate_run_id:
-                continue
-            recent_summary = dict(recent_run.get("summary") or {}) if isinstance(recent_run.get("summary"), dict) else {}
-            candidate_status = str(recent_run.get("status") or recent_summary.get("status") or "").strip().lower()
-            if candidate_status and candidate_status not in terminal_statuses:
-                normalized_run_id = candidate_run_id
-                break
+        terminal_statuses = {"processed", "completed", "completed_partial", "failed", "noop", "cancelled", "not started"}
+        active_run = next(
+            (
+                row
+                for row in recent_search_runs
+                if isinstance(row, dict)
+                and str(row.get("run_id") or "").strip()
+                and str(
+                    row.get("status")
+                    or (dict(row.get("summary") or {}) if isinstance(row.get("summary"), dict) else {}).get("status")
+                    or ""
+                ).strip().lower()
+                not in terminal_statuses
+            ),
+            None,
+        )
+        if active_run is None and surface_scope.section in {"properties", "search"}:
+            with contextlib.suppress(Exception):
+                active_run = dict(product.find_active_property_search_run(principal_id=principal_id, limit=8) or {})
+        if isinstance(active_run, dict):
+            normalized_run_id = str(active_run.get("run_id") or "").strip()
     if wants_run_state and normalized_run_id:
         try:
             run_payload = dict(
@@ -1059,7 +1074,7 @@ def _property_console_context(
         "preferences": preferences,
         "raw_preferences": raw_property_preferences,
         "selected_platforms": list(selected_platforms),
-        "run": run_payload,
+        "run": run_payload if wants_run_state else lightweight_active_run,
         "run_health": run_health,
         "recent_search_runs": recent_search_runs,
         "selected_agent_id": str(selected_agent_id or "").strip(),
@@ -1145,24 +1160,6 @@ def landing(
 ) -> Response:
     principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     brand = request_brand(request)
-    if brand["key"] == "propertyquarry" and (
-        access_identity is not None or _workspace_session_payload(request, container) is not None
-    ):
-        if principal_id:
-            with contextlib.suppress(Exception):
-                product = build_product_service(container)
-                terminal_statuses = {"processed", "completed", "completed_partial", "failed", "noop", "cancelled", "not started"}
-                for recent_run in product.list_property_search_runs(principal_id=principal_id, limit=8):
-                    if not isinstance(recent_run, dict):
-                        continue
-                    candidate_run_id = str(recent_run.get("run_id") or "").strip()
-                    if not candidate_run_id:
-                        continue
-                    recent_summary = dict(recent_run.get("summary") or {}) if isinstance(recent_run.get("summary"), dict) else {}
-                    candidate_status = str(recent_run.get("status") or recent_summary.get("status") or "").strip().lower()
-                    if candidate_status and candidate_status not in terminal_statuses:
-                        return RedirectResponse(f"/app/properties?run_id={urllib.parse.quote(candidate_run_id, safe='')}", status_code=307)
-        return RedirectResponse(str(brand.get("app_home") or "/app/properties"), status_code=307)
     commercial = property_commercial_snapshot(None)
     return _render_public_template(
         request,
@@ -2566,7 +2563,7 @@ def app_shell(
     current_nav = section
     property_surface_aliases = {
         "properties": "properties",
-        "search": "properties",
+        "search": "search",
         "shortlist": "shortlist",
         "agents": "agents",
         "account": "account",

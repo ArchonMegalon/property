@@ -1612,6 +1612,74 @@ def test_property_scout_hit_sender_suppresses_generic_pages_missing_concrete_fac
     assert repair_tasks[0].status in {"pending", "returned"}
 
 
+def test_property_scout_hit_sender_suppresses_architecture_competition_pages(monkeypatch) -> None:
+    principal_id = "exec-property-hit-architecture-competition-gate"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Scout Hit Architecture Competition Gate Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_platforms": ["genossenschaften"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    service = ProductService(client.app.state.container)
+    sent: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: sent.append(dict(kwargs)) or SimpleNamespace(chat_id="1354554303", message_ids=("7",)),
+    )
+
+    result = service._send_property_scout_hit_telegram(
+        principal_id=principal_id,
+        actor="test",
+        title="Ausschreibungen Architekturwettbewerbe",
+        summary="Erhalten Sie alle Informationen zu den neuesten Architekturwettbewerben der Heimat Österreich!",
+        counterparty="Genossenschaften | Austria | Rent | 1010 Vienna | Heimat Österreich",
+        account_email="",
+        property_url="https://example.invalid/ausschreibungen/architekturwettbewerbe",
+        source_ref="property-scout:heimat-oesterreich-architecture-competition",
+        assessment={"fit_score": 50.0, "recommendation": "review"},
+        fit_score=50.0,
+        preference_person_id="self",
+        candidate_properties=(
+            {
+                "property_url": "https://example.invalid/ausschreibungen/architekturwettbewerbe",
+                "listing_title": "Ausschreibungen Architekturwettbewerbe",
+                "summary": "Erhalten Sie alle Informationen zu den neuesten Architekturwettbewerben der Heimat Österreich!",
+                "source_platform": "genossenschaften",
+                "source_family": "housing_coop",
+                "property_facts_json": {
+                    "source_scope_location": "1010 Vienna",
+                },
+            },
+        ),
+        render_dossier=False,
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_generic_listing_page"
+    assert sent == []
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert repair_tasks
+    assert repair_tasks[0].priority == "urgent"
+    assert repair_tasks[0].assigned_operator_id == "ea_one_manager"
+    assert repair_tasks[0].status in {"pending", "returned"}
+
+
 def test_property_provider_repair_task_dedupes_across_transient_source_refs() -> None:
     principal_id = "exec-property-provider-repair-dedupe"
     client = build_property_client(principal_id=principal_id)
@@ -2024,6 +2092,56 @@ def test_property_search_run_terminal_receives_repair_receipt_without_task_scan(
     assert len(receipts) == 1
     assert receipts[0]["run_id"] == run_id
     assert receipts[0]["resolution"] == "suppressed_source_fetch_forbidden"
+
+
+def test_recent_property_source_fetch_repair_memory_returns_latest_returned_source_fetch_resolution(monkeypatch) -> None:
+    principal_id = "exec-property-repair-memory"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Repair Memory Office")
+    service = ProductService(client.app.state.container)
+    older = SimpleNamespace(
+        task_type="property_provider_repair_ooda",
+        status="returned",
+        resolution="suppressed_source_fetch_missing",
+        updated_at="2026-06-16T09:00:00Z",
+        created_at="2026-06-16T08:00:00Z",
+        human_task_id="older-task",
+        input_json={
+            "filter_key": "source_fetch",
+            "source_url": "https://www.kalandra.at/search",
+            "source_label": "Kalandra | Austria | Rent | 1010 Vienna",
+        },
+        returned_payload_json={"reason": "older"},
+    )
+    latest = SimpleNamespace(
+        task_type="property_provider_repair_ooda",
+        status="returned",
+        resolution="suppressed_source_fetch_forbidden",
+        updated_at=product_service._now_iso(),
+        created_at=product_service._now_iso(),
+        human_task_id="latest-task",
+        input_json={
+            "filter_key": "source_fetch",
+            "source_url": "https://www.kalandra.at/search",
+            "source_label": "Kalandra | Austria | Rent | 1010 Vienna",
+        },
+        returned_payload_json={"reason": "provider blocked"},
+    )
+    monkeypatch.setattr(
+        client.app.state.container.orchestrator,
+        "list_human_tasks",
+        lambda **kwargs: [older, latest],
+    )
+
+    memory = service._recent_property_source_fetch_repair_memory(principal_id=principal_id)
+    key = service._property_source_repair_memory_key(
+        source_url="https://www.kalandra.at/search",
+        source_label="Kalandra | Austria | Rent | 1010 Vienna",
+    )
+
+    assert memory[key]["resolution"] == "suppressed_source_fetch_forbidden"
+    assert memory[key]["reason"] == "provider blocked"
+    assert memory[key]["human_task_id"] == "latest-task"
 
 
 def test_property_search_sparse_auction_floorplan_area_scores_above_review_threshold() -> None:
@@ -3965,6 +4083,54 @@ def test_property_search_run_state_syncs_summary_projection() -> None:
     assert summary["progress_percent"] == 42
     assert summary["eta_seconds"] == 360
     assert summary["eta_label"] == "about 6 min"
+
+
+def test_property_search_run_progress_stays_zero_during_early_bootstrap_without_real_source_output() -> None:
+    progress, eta_seconds, eta_label = product_service._property_search_run_progress_projection(
+        state={
+            "created_at": "2026-01-01T00:00:00Z",
+            "progress": 0,
+        },
+        step="source_fetching",
+        status="in_progress",
+        summary={
+            "sources_total": 8,
+            "sources": [],
+            "listing_total": 0,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+        },
+        stages_total=120,
+        steps_completed=14,
+    )
+
+    assert progress == 0
+    assert eta_seconds == 0
+    assert eta_label == ""
+
+
+def test_property_search_run_progress_advances_once_real_source_output_exists() -> None:
+    progress, eta_seconds, eta_label = product_service._property_search_run_progress_projection(
+        state={
+            "created_at": "2026-01-01T00:00:00Z",
+            "progress": 0,
+        },
+        step="source_extracting",
+        status="in_progress",
+        summary={
+            "sources_total": 8,
+            "sources": [{"source_label": "Willhaben"}],
+            "listing_total": 0,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+        },
+        stages_total=120,
+        steps_completed=15,
+    )
+
+    assert progress > 0
+    assert isinstance(eta_seconds, int)
+    assert isinstance(eta_label, str)
 
 
 def test_property_search_run_state_applies_event_and_caps_history() -> None:
