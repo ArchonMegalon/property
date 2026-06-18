@@ -1,12 +1,10 @@
 {% set account_cards = (primary_cards or []) + (secondary_cards or []) %}
 {% set profile_card = namespace(value={}) %}
 {% set plan_card = namespace(value={}) %}
-{% set delivery_card = namespace(value={}) %}
 {% set public_card = namespace(value={}) %}
 {% for card in account_cards %}
   {% if card.get('id') == 'profile' %}{% set profile_card.value = card %}{% endif %}
   {% if card.get('id') == 'plans' %}{% set plan_card.value = card %}{% endif %}
-  {% if card.get('id') == 'delivery' %}{% set delivery_card.value = card %}{% endif %}
   {% if card.get('title') == 'Product-facing controls' %}{% set public_card.value = card %}{% endif %}
 {% endfor %}
 {% set profile_item = (profile_card.value.get('items') or [{}])[0] if profile_card.value else {} %}
@@ -32,15 +30,6 @@
         <p>{{ profile_item.get('detail') or 'Market, areas, providers, budget, and what matters are edited in the Search workflow.' }}</p>
       </div>
       <a class="pqx-link-button primary" href="{{ profile_item.get('action_href') or '/app/search' }}">{{ profile_item.get('action_label') or 'Edit search' }}</a>
-    </section>
-
-    <section class="pqx-account-action-card" id="delivery">
-      <div>
-        <span class="pqx-small">Automation</span>
-        <h2>Saved searches</h2>
-        <p>Manage recurring watches, pauses, reruns, and delivery limits where the controls actually live.</p>
-      </div>
-      <a class="pqx-link-button" href="/app/agents">Open automation</a>
     </section>
 
     <section class="pqx-account-action-card" id="plans">

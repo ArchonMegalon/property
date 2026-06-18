@@ -2445,16 +2445,7 @@ def property_workspace_payload(
                     ],
                 },
             ],
-            "secondary_cards": [billing_rows and {
-                "eyebrow": "Automation and reports",
-                "title": "Recurring intelligence leaving this account",
-                "body": "",
-                "items": [
-                    row_item("Recurring searches", f"{len(property_search_agents)} saved searches ready to rerun or edit.", "Automation"),
-                    row_item("Delivery lane", "Email digests, repair notes, and recurring market watches leave through Automation.", "Reports"),
-                    row_item("Repair activity", repair_truth_rows[0].get("detail") if repair_truth_rows else "Automation shows whether a recurring watch needed repair work.", "Repair"),
-                ],
-            } or {}, {
+            "secondary_cards": [{
                 "eyebrow": "Public surfaces",
                 "title": "Product-facing controls",
                 "body": "",

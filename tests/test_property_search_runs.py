@@ -197,6 +197,20 @@ def test_property_scout_notification_source_hides_search_scope_metadata() -> Non
     assert "1010 Vienna" not in willhaben
     assert "Austria | Rent" not in willhaben
 
+    willhaben_german_scope = product_service._property_alert_review_telegram_text(
+        title="#W2 Moderne Schöne Zwei-Zimmer Wohnung mit Terrasse",
+        summary="Penthouse-Charakter in Stadt Salzburg.",
+        counterparty="Willhaben | AT | Miete | 1010 Wien, Innere Stadt",
+        account_email="",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/demo-1631373932/",
+        personal_fit_assessment={"fit_score": 54.0, "recommendation": "ask_for_clarification"},
+    )
+
+    assert "Source: Willhaben" in willhaben_german_scope
+    assert "1010" not in willhaben_german_scope
+    assert "Innere Stadt" not in willhaben_german_scope
+    assert "Miete" not in willhaben_german_scope
+
     cooperative = product_service._property_alert_review_telegram_text(
         title="Geförderte Wohnung",
         summary="Review candidate.",

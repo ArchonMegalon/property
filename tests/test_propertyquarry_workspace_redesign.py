@@ -3736,9 +3736,9 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert ".pqx-automation-delete" in template
     assert ".pqx-automation-card" in template
     assert 'pqx-automation-scope-empty--fallback' in template
-    assert "object-position: center 46%;" in template
-    assert 'transform: scale(1.62);' in template
-    assert 'transform: scale(2.18);' in template
+    assert "object-position: center 44%;" in template
+    assert 'transform: scale(1.78);' in template
+    assert 'transform: scale(2.42);' in template
     assert ".pqx-automation-scope-empty::after" in template
     assert "linear-gradient(90deg, rgba(96, 78, 61, 0.08) 1px, transparent 1px)" in template
     script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
@@ -5973,9 +5973,12 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Search defaults" in account.text
     assert "Edit search" in account.text
     assert account.text.count("Edit search") == 1
-    assert account.text.count("Open automation") == 1
+    assert "Open automation" not in account.text
     assert account.text.count("Open pricing") == 1
     assert "Useful account controls" in account.text
+    assert "Automation and reports" not in account.text
+    assert "Recurring intelligence leaving this account" not in account.text
+    assert "Delivery lane" not in account.text
     assert 'href="/app/search' in account.text
     assert "Operating posture" not in account.text
     assert 'id="settings"' in account.text

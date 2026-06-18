@@ -9270,10 +9270,11 @@ def _property_source_display_label(value: object) -> str:
         return raw
     metadata_re = re.compile(
         r"^(?:"
+        r"at|de|ch|cr|uk|us|"
         r"austria|germany|switzerland|costa rica|united kingdom|united states|"
-        r"rent|buy|auction|rent to own|"
+        r"rent|buy|auction|rent to own|miete|kauf|mietwohnungen|eigentumswohnungen|"
         r"wien|vienna|all austria|österreich|osterreich|"
-        r"\d{4,5}(?:\s+[A-Za-zÄÖÜäöüß .'-]+)?"
+        r"\d{4,5}(?:[\s,/-]+[A-Za-zÄÖÜäöüß .,'/-]+)?"
         r")$",
         flags=re.IGNORECASE,
     )
