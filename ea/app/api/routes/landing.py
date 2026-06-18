@@ -3009,7 +3009,7 @@ def app_shell(
                 payload["summary"] = "Build the brief, run the sweep, compare the results, and open the property that deserves a decision."
             elif current_nav == "account":
                 payload["title"] = "Account"
-                payload["summary"] = "Keep plan, profile, settings, and sign-out narrow and product-specific."
+                payload["summary"] = "Identity, plan, delivery, and editable defaults."
             elif current_nav == "billing":
                 payload["title"] = "Billing"
                 payload["summary"] = "Make plan, limits, checkout, and entitlement truth visible in one place."

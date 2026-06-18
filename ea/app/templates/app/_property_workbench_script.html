@@ -2679,7 +2679,7 @@
           }
           if (action === 'load') {
             if (!form) {
-              window.location.href = `/app/properties?load_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
+              window.location.href = `/app/search?load_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
               return;
             }
             await loadSearchAgentRow(row, false);
@@ -2688,14 +2688,14 @@
           if (action === 'run') {
             if (!form) {
               await updateSearchAgent(agentId, 'resume', {});
-              window.location.href = `/app/properties?load_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
+              window.location.href = `/app/search?run_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
               return;
             }
             await loadSearchAgentRow(row, true);
             return;
           }
           if (action === 'save' && !form) {
-            window.location.href = `/app/properties?load_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
+            window.location.href = `/app/search?load_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
             return;
           }
           await updateSearchAgent(agentId, action, action === 'save' ? currentSearchAgentPatch() : {});
@@ -2721,11 +2721,13 @@
         }
       });
     });
-    const requestedAgentId = String(new URL(window.location.href).searchParams.get('load_agent') || '').trim();
+    const urlSearchParams = new URL(window.location.href).searchParams;
+    const requestedRunAgentId = String(urlSearchParams.get('run_agent') || '').trim();
+    const requestedAgentId = String(urlSearchParams.get('load_agent') || requestedRunAgentId || '').trim();
     if (requestedAgentId) {
       const requestedRow = root.querySelector(`[data-property-search-agent-row][data-search-agent-id="${CSS.escape(requestedAgentId)}"]`);
       if (requestedRow) {
-        loadSearchAgentRow(requestedRow, false).catch((error) => {
+        loadSearchAgentRow(requestedRow, Boolean(requestedRunAgentId)).catch((error) => {
           const status = root.querySelector('[data-search-agent-status]');
           if (status) status.textContent = error instanceof Error ? error.message : 'Could not load the saved search.';
         });

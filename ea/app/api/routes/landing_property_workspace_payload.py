@@ -64,6 +64,7 @@ def property_workspace_payload(
         _property_preference_schema,
         _property_result_title_display,
         _property_scope_preview,
+        _property_scope_preview_fast,
         _sanitize_platform_catalog_for_client,
         app_section_payload,
         humanize,
@@ -317,11 +318,12 @@ def property_workspace_payload(
     dismissed_research_task_total = _run_count(run_health.get("dismissed_research_task_total") or run_payload.get("dismissed_research_task_total") or raw_run_summary.get("dismissed_research_task_total"))
     research_task_total = _run_count(run_health.get("research_task_total") or run_payload.get("research_task_total") or raw_run_summary.get("research_task_total"))
 
+    scope_preview_builder = _property_scope_preview_fast if normalized_section == "agents" else _property_scope_preview
     previous_search_runs = [
         build_property_previous_run_summary(
             dict(row),
             include_scope_preview=index < 6,
-            scope_preview_builder=_property_scope_preview,
+            scope_preview_builder=scope_preview_builder,
             compact_provider_label=_compact_provider_label,
             candidate_maps_url_builder=_property_candidate_maps_url,
         )
@@ -1685,8 +1687,8 @@ def property_workspace_payload(
             {"href": f"/app/settings{run_suffix}", "label": "Notifications"},
         ],
         "agents": [
-            {"href": f"/app/search{run_suffix}", "label": "Edit brief", "tone": "primary"},
-            {"href": f"/app/properties{run_suffix}", "label": "Open run"},
+            {"href": f"/app/search{run_suffix}", "label": "New watch", "tone": "primary"},
+            {"href": f"/app/search{run_suffix}", "label": "Edit brief"},
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
         ],
         "billing": [
@@ -1992,6 +1994,16 @@ def property_workspace_payload(
                 "First search",
             )
         ]
+    editable_search_defaults_items = [
+        {
+            "title": "Search defaults",
+            "detail": "Market, areas, providers, budget, and what matters are edited in the Search workflow.",
+            "tag": "Editable",
+            "action_href": f"/app/search{run_suffix}",
+            "action_method": "get",
+            "action_label": "Edit search",
+        }
+    ]
 
     sections: dict[str, dict[str, object]] = {
         "properties": {
@@ -2145,14 +2157,10 @@ def property_workspace_payload(
         },
         "agents": {
             "title": "Automation",
-            "summary": "Run recurring market watches, reports, delivery limits, and repair policy from one automation control plane.",
+            "summary": "Edit saved searches, start a fresh sweep, and open recent outcomes.",
             "hero_kicker": "Automation",
-            "hero_title": str((selected_agent or {}).get("name") or "Control recurring market watches and delivery."),
-            "hero_summary": (
-                f"{str((selected_agent or {}).get('scope_label') or '').strip()} | {str((selected_agent or {}).get('delivery_label') or '').strip()} | {str((selected_agent_latest_run or {}).get('held_back_total') or 0)} filtered"
-                if selected_agent
-                else "Recurring watches."
-            ),
+            "hero_title": "Saved searches.",
+            "hero_summary": f"{sum(1 for agent in property_search_agents if agent.get('enabled'))} active | {len(property_search_agents)} saved.",
             "hero_actions": hero_actions["agents"],
             "hero_highlights": hero_highlights["agents"],
             "primary_cards": [
@@ -2349,12 +2357,12 @@ def property_workspace_payload(
         },
         "account": {
             "title": "Account",
-            "summary": "Keep identity, plan, entitlements, saved defaults, and account truth in one narrow product console.",
+            "summary": "Identity, plan, delivery, and editable defaults.",
             "hero_kicker": "Account",
-            "hero_title": "Identity, defaults, delivery.",
-            "hero_summary": "Identity, defaults, delivery.",
+            "hero_title": "Account.",
+            "hero_summary": "Identity, plan, delivery, and editable defaults.",
             "hero_actions": [
-                {"href": f"/app/properties{run_suffix}", "label": "Open run", "tone": "primary"},
+                {"href": f"/app/search{run_suffix}", "label": "Edit search", "tone": "primary"},
                 {"href": f"/app/agents{run_suffix}", "label": "Open automation"},
                 {"href": "/pricing", "label": "Open pricing"},
             ],
@@ -2362,7 +2370,7 @@ def property_workspace_payload(
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account#settings"},
                 {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": "/app/account#plans"},
                 {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
-                {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": "/app/account#profile"},
+                {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/search{run_suffix}"},
             ],
             "primary_cards": [
                 {
@@ -2385,9 +2393,9 @@ def property_workspace_payload(
                 {
                     "id": "profile",
                     "eyebrow": "Saved defaults",
-                    "title": "Current search brief state",
+                    "title": "Search defaults",
                     "body": "",
-                    "items": list(search_posture_card.get("items") or []),
+                    "items": editable_search_defaults_items,
                 },
                 {
                     "id": "delivery",
@@ -2443,18 +2451,18 @@ def property_workspace_payload(
                     },
                 ],
             }],
-            "console_form": property_form,
+            "console_form": {},
             "show_brief_form": False,
             "show_shortlist_cards": False,
         },
         "settings": {
             "title": "Account",
-            "summary": "Keep plan, profile, settings, and sign-out narrow and product-specific.",
+            "summary": "Identity, plan, delivery, and editable defaults.",
             "hero_kicker": "Account",
-            "hero_title": "Identity, defaults, delivery.",
-            "hero_summary": "Identity, defaults, delivery.",
+            "hero_title": "Account.",
+            "hero_summary": "Identity, plan, delivery, and editable defaults.",
             "hero_actions": [
-                {"href": f"/app/properties{run_suffix}", "label": "Back to Home", "tone": "primary"},
+                {"href": f"/app/search{run_suffix}", "label": "Edit search", "tone": "primary"},
                 {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
                 {"href": "/pricing", "label": "Open pricing"},
             ],
@@ -2462,7 +2470,7 @@ def property_workspace_payload(
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account#settings"},
                 {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": "/app/account#plans"},
                 {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
-                {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": "/app/account#profile"},
+                {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/search{run_suffix}"},
             ],
             "primary_cards": [
                 {
@@ -2475,9 +2483,9 @@ def property_workspace_payload(
                 {
                     "id": "profile",
                     "eyebrow": "Saved defaults",
-                    "title": "Current search brief state",
+                    "title": "Search defaults",
                     "body": "",
-                    "items": list(search_posture_card.get("items") or []),
+                    "items": editable_search_defaults_items,
                 },
                 {
                     "eyebrow": "Operating posture",
@@ -2519,7 +2527,7 @@ def property_workspace_payload(
                     },
                 ],
             }],
-            "console_form": property_form,
+            "console_form": {},
             "show_brief_form": False,
             "show_shortlist_cards": False,
         },

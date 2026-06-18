@@ -1,255 +1,104 @@
 {% set automation_cards = (primary_cards or []) + (secondary_cards or []) %}
-{% set selected_watch_card = namespace(value={}) %}
-{% set watchlist_card = namespace(value={}) %}
-{% set delivery_card = namespace(value={}) %}
-{% set repair_card = namespace(value={}) %}
-{% set limits_card = namespace(value={}) %}
 {% set outcomes_card = namespace(value={}) %}
 {% for card in automation_cards %}
-  {% if card.get('eyebrow') == 'Selected watch' %}{% set selected_watch_card.value = card %}{% endif %}
-  {% if card.get('eyebrow') == 'Watchlist' %}{% set watchlist_card.value = card %}{% endif %}
-  {% if card.get('eyebrow') == 'Delivery' %}{% set delivery_card.value = card %}{% endif %}
-  {% if card.get('eyebrow') == 'Repair' %}{% set repair_card.value = card %}{% endif %}
-  {% if card.get('eyebrow') == 'Limits' %}{% set limits_card.value = card %}{% endif %}
   {% if card.get('eyebrow') == 'Latest outcomes' %}{% set outcomes_card.value = card %}{% endif %}
 {% endfor %}
+{% set run = workbench.get('run') or {} %}
+{% set run_suffix = ('?run_id=' ~ run.get('run_id')) if run.get('run_id') else '' %}
+{% set active_total = (search_agents|selectattr('enabled')|list)|length %}
 {% if surface_mode == 'agents' %}
-<section class="pqx-card pqx-automation-board" data-property-search-agent-management>
+<section class="pqx-card pqx-automation-board is-compact" data-property-search-agent-management>
   <div class="pqx-section-head">
     <div>
       <div class="pqx-small">Recurring watches</div>
-      <h2>Watches</h2>
+      <h2>Saved searches</h2>
     </div>
-    <span class="pqx-pill">{{ (search_agents|selectattr('enabled')|list)|length }} active</span>
-  </div>
-  <div class="pqx-automation-summary">
-    <div class="pqx-automation-summary-card">
-      <span class="pqx-small">Saved searches</span>
-      <strong>{{ search_agents|length }}</strong>
-      <small>Configured</small>
-    </div>
-    <div class="pqx-automation-summary-card">
-      <span class="pqx-small">Active</span>
-      <strong>{{ (search_agents|selectattr('enabled')|list)|length }}</strong>
-      <small>Scheduled</small>
-    </div>
-    <div class="pqx-automation-summary-card">
-      <span class="pqx-small">Reports</span>
-      <strong>Email + digests</strong>
-      <small>Delivery</small>
-    </div>
-    <div class="pqx-automation-summary-card">
-      <span class="pqx-small">Current focus</span>
-      <strong>{{ (search_agents|selectattr('is_active')|list|first or {}).get('name') or (search_agents[0].get('name') if search_agents else 'No selected watch') }}</strong>
-      <small>Selected</small>
+    <div class="pqx-actions">
+      <span class="pqx-pill">{{ active_total }} active</span>
+      <a class="pqx-link-button primary" href="/app/search{{ run_suffix }}">New watch</a>
     </div>
   </div>
-  {% if selected_watch_card.value %}
-  <section class="pqx-automation-focus">
-    <div class="pqx-section-head">
-      <div>
-        <div class="pqx-small">{{ selected_watch_card.value.get('eyebrow') }}</div>
-        <h2>{{ selected_watch_card.value.get('title') }}</h2>
-        {% if selected_watch_card.value.get('body') %}<div class="pqx-note">{{ selected_watch_card.value.get('body') }}</div>{% endif %}
-      </div>
-    </div>
-    <div class="pqx-pref-list">
-      {% for item in selected_watch_card.value.get('items') or [] %}
-      <div class="pqx-pref-row">
-        <div>
-          <strong>{{ item.get('title') }}</strong>
-          {% if item.get('detail') %}<small>{{ item.get('detail') }}</small>{% endif %}
-        </div>
-        <div class="pqx-actions">
-          {% if item.get('tag') %}<span class="pqx-pill">{{ item.get('tag') }}</span>{% endif %}
-          {% if item.get('action_href') and item.get('action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('action_href') }}">{{ item.get('action_label') }}</a>{% endif %}
-          {% if item.get('secondary_action_href') and item.get('secondary_action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('secondary_action_href') }}">{{ item.get('secondary_action_label') }}</a>{% endif %}
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-  </section>
+
+  <div class="pqx-automation-kpis">
+    <span><strong>{{ search_agents|length }}</strong> saved</span>
+    <span><strong>{{ active_total }}</strong> scheduled</span>
+    <span><strong>{{ (outcomes_card.value.get('items') or [])|length }}</strong> recent runs</span>
+  </div>
+
+  <div class="pqx-automation-table-wrap">
+    <table class="pqx-automation-table">
+      <thead>
+        <tr>
+          <th>Watch</th>
+          <th>Scope</th>
+          <th>Cadence</th>
+          <th>Delivery</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for agent in search_agents %}
+        <tr class="{% if agent.get('is_active') %}is-selected{% endif %}" data-property-search-agent-row data-search-agent-id="{{ agent.get('agent_id') or 'current' }}" data-search-agent-payload='{{ (agent.get("load_payload") or {})|tojson|safe }}'>
+          <td>
+            <strong>{{ agent.get('name') or 'Saved search' }}</strong>
+            <div class="pqx-automation-row-meta">
+              <span class="pqx-pill">{{ agent.get('status_label') or ('Active' if agent.get('enabled') else 'Paused') }}</span>
+              {% if agent.get('is_active') %}<span class="pqx-pill good">Selected</span>{% endif %}
+            </div>
+          </td>
+          <td>
+            <span>{{ agent.get('scope_label') or 'No scope saved' }}</span>
+            <small>{{ agent.get('provider_count') or 0 }} provider{{ '' if agent.get('provider_count') == 1 else 's' }}</small>
+          </td>
+          <td>
+            <span>{{ agent.get('run_label') or 'Waiting' }}</span>
+            <small>{{ agent.get('duration_label') or 'No window set' }}</small>
+          </td>
+          <td>
+            <span>{{ agent.get('delivery_label') or 'Delivery not set' }}</span>
+            <small>{{ agent.get('notification_label') or 'No cap set' }}</small>
+          </td>
+          <td>
+            <div class="pqx-actions">
+              <button class="pqx-button primary" type="button" data-search-agent-action="run">Run</button>
+              <button class="pqx-button" type="button" data-search-agent-action="load">Edit</button>
+              {% if agent.get('enabled') %}
+              <button class="pqx-button subtle" type="button" data-search-agent-action="pause">Pause</button>
+              {% else %}
+              <button class="pqx-button" type="button" data-search-agent-action="resume">Resume</button>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr data-property-search-agent-row data-search-agent-id="current" data-search-agent-payload="{}">
+          <td colspan="5">
+            <div class="pqx-empty">
+              <strong>No saved search yet</strong>
+              <span>Save a search brief to create the first recurring watch.</span>
+              <div class="pqx-actions">
+                <a class="pqx-link-button primary" href="/app/search{{ run_suffix }}">Create saved search</a>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if outcomes_card.value and outcomes_card.value.get('items') %}
+  <div class="pqx-automation-history-strip">
+    {% for item in (outcomes_card.value.get('items') or [])[:4] %}
+    <a class="pqx-automation-history-link" href="{{ item.get('action_href') or '/app/agents' }}">
+      <span>{{ item.get('title') or 'Saved search' }}</span>
+      <strong>{{ item.get('detail') or 'No finished run yet.' }}</strong>
+      {% if item.get('tag') %}<small>{{ item.get('tag') }}</small>{% endif %}
+    </a>
+    {% endfor %}
+  </div>
   {% endif %}
 
-  <div class="pqx-automation-layout">
-    <div class="pqx-automation-main">
-      <section class="pqx-automation-section">
-        <div class="pqx-section-head">
-          <div>
-            <div class="pqx-small">{{ watchlist_card.value.get('eyebrow') or 'Watchlist' }}</div>
-            <h2>{{ watchlist_card.value.get('title') or 'Watchlist' }}</h2>
-            {% if watchlist_card.value.get('body') %}<div class="pqx-note">{{ watchlist_card.value.get('body') }}</div>{% endif %}
-          </div>
-        </div>
-        <div class="pqx-automation-grid">
-          {% for agent in search_agents %}
-          <article class="pqx-automation-card{% if agent.get('is_active') %} is-selected{% endif %}" data-property-search-agent-row data-search-agent-id="{{ agent.get('agent_id') or 'current' }}" data-search-agent-payload='{{ (agent.get("load_payload") or {})|tojson|safe }}'>
-      {% set agent_scope_preview = agent.get('scope_preview') or {} %}
-      <div class="pqx-automation-card-top">
-        {% if agent_scope_preview.get('image_url') %}
-        <button
-          class="pqx-scope-button pqx-automation-scope"
-          type="button"
-          data-pqx-scope-open
-          data-pqx-scope-image="{{ agent_scope_preview.get('image_url') }}"
-          data-pqx-scope-alt="{{ agent_scope_preview.get('alt') or 'Search area preview' }}"
-          data-pqx-scope-title="{{ agent_scope_preview.get('summary') or agent.get('scope_label') or agent.get('name') }}"
-          data-pqx-scope-overlay='{{ (agent_scope_preview.get("district_rows") or [])|tojson }}'
-          aria-label="Open saved search area preview"
-        >
-          <img
-            src="{{ agent_scope_preview.get('image_url') }}"
-            alt="{{ agent_scope_preview.get('alt') or 'Search area preview' }}"
-            loading="lazy"
-          >
-          {% if agent_scope_preview.get("district_rows") %}
-          <svg class="pqx-scope-overlay" viewBox="0 0 640 368" preserveAspectRatio="none" aria-hidden="true">
-            {% for row in agent_scope_preview.get("district_rows") or [] %}
-            {% if row.get('path') %}
-            <path class="{% if row.get('selected') %}is-selected{% endif %}" d="{{ row.get('path') }}"></path>
-            {% endif %}
-            {% endfor %}
-          </svg>
-          {% endif %}
-        </button>
-        {% else %}
-        <div class="pqx-automation-scope-empty">
-          <strong>Scope saved</strong>
-          <small>Preview rebuilds on the next run.</small>
-        </div>
-        {% endif %}
-        <div class="pqx-automation-meta">
-          <div class="pqx-automation-headline">
-            <strong>{{ agent.get('name') or 'Saved search' }}</strong>
-            <div class="pqx-actions">
-              <span class="pqx-pill">{{ agent.get('status_label') }}</span>
-              {% if agent.get('is_active') %}<span class="pqx-pill">Selected</span>{% endif %}
-            </div>
-          </div>
-          <div class="pqx-automation-subhead">{{ agent.get('scope_label') }}</div>
-          <div class="pqx-automation-metrics">
-            <span><b>{{ agent.get('provider_count') }}</b> provider{{ '' if agent.get('provider_count') == 1 else 's' }}</span>
-            <span>{{ agent.get('duration_label') }}</span>
-            <span>{{ agent.get('notification_label') }}</span>
-          </div>
-          <div class="pqx-automation-metrics">
-            <span>{{ agent.get('delivery_label') }}</span>
-            <span>{{ agent.get('run_label') }}</span>
-          </div>
-        </div>
-      </div>
-      <div class="pqx-automation-actions">
-        <div class="pqx-actions">
-          <button class="pqx-button primary" type="button" data-search-agent-action="run">Run now</button>
-          <button class="pqx-button" type="button" data-search-agent-action="load">Edit</button>
-          <button class="pqx-button" type="button" data-search-agent-action="save">Save limits</button>
-        </div>
-        <div class="pqx-actions">
-          {% if agent.get('enabled') %}
-          <button class="pqx-button subtle" type="button" data-search-agent-action="pause">Pause</button>
-          {% else %}
-          <button class="pqx-button" type="button" data-search-agent-action="resume">Resume</button>
-          {% endif %}
-          <button class="pqx-button subtle" type="button" data-search-agent-action="duplicate">Duplicate</button>
-          <button class="pqx-button subtle" type="button" data-search-agent-action="delete">Delete</button>
-        </div>
-      </div>
-          </article>
-          {% else %}
-          <article class="pqx-automation-card" data-property-search-agent-row data-search-agent-id="current">
-      <div class="pqx-automation-scope-empty">
-        <strong>No saved search yet</strong>
-        <small>Save one to start a recurring watch.</small>
-      </div>
-      <div class="pqx-automation-actions">
-        <div class="pqx-actions">
-        <button class="pqx-button" type="button" data-search-agent-action="resume">Resume</button>
-        <button class="pqx-button" type="button" data-search-agent-action="save">Save limits</button>
-        <button class="pqx-button primary" type="button" data-search-agent-action="run">Run now</button>
-        </div>
-      </div>
-          </article>
-          {% endfor %}
-        </div>
-      </section>
-      {% if outcomes_card.value %}
-      <section class="pqx-automation-section">
-        <div class="pqx-section-head">
-          <div>
-            <div class="pqx-small">{{ outcomes_card.value.get('eyebrow') or 'Latest outcomes' }}</div>
-            <h2>{{ outcomes_card.value.get('title') or 'Recent watch history' }}</h2>
-            <div class="pqx-note">{{ outcomes_card.value.get('body') or 'Use the most recent finished sweeps to inspect coverage, ranking, delivery, and held-back volume.' }}</div>
-          </div>
-        </div>
-        <div class="pqx-automation-history-wrap">
-          <table class="pqx-automation-history-table">
-            <thead>
-              <tr>
-                <th>Watch</th>
-                <th>Outcome</th>
-                <th>Best</th>
-                <th>Open</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for item in outcomes_card.value.get('items') or [] %}
-              <tr>
-                <td><strong>{{ item.get('title') }}</strong></td>
-                <td>{{ item.get('detail') or 'No finished run yet.' }}</td>
-                <td>
-                  {% if item.get('tag') %}
-                  <span class="pqx-pill">{{ item.get('tag') }}</span>
-                  {% else %}
-                  <span class="pqx-small">Waiting</span>
-                  {% endif %}
-                </td>
-                <td>
-                  {% if item.get('action_href') and item.get('action_label') %}
-                  <a class="pqx-link-button subtle" href="{{ item.get('action_href') }}">{{ item.get('action_label') }}</a>
-                  {% else %}
-                  <span class="pqx-small">No run</span>
-                  {% endif %}
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </section>
-      {% endif %}
-    </div>
-    <div class="pqx-automation-side">
-      {% for card in [delivery_card.value, repair_card.value, limits_card.value] if card %}
-      <section class="pqx-automation-side-card"{% if card.get('id') %} id="{{ card.get('id') }}"{% endif %}>
-        <div class="pqx-section-head">
-          <div>
-            {% if card.get('eyebrow') %}<div class="pqx-small">{{ card.get('eyebrow') }}</div>{% endif %}
-            <h2>{{ card.get('title') }}</h2>
-            {% if card.get('body') %}<div class="pqx-note">{{ card.get('body') }}</div>{% endif %}
-          </div>
-        </div>
-        {% if card.get('items') %}
-        <div class="pqx-pref-list">
-          {% for item in card.get('items') or [] %}
-          <div class="pqx-pref-row">
-            <div>
-              <strong>{{ item.get('title') }}</strong>
-              {% if item.get('detail') %}<small>{{ item.get('detail') }}</small>{% endif %}
-            </div>
-            <div class="pqx-actions">
-              {% if item.get('tag') %}<span class="pqx-pill">{{ item.get('tag') }}</span>{% endif %}
-              {% if item.get('action_href') and item.get('action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('action_href') }}">{{ item.get('action_label') }}</a>{% endif %}
-              {% if item.get('secondary_action_href') and item.get('secondary_action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('secondary_action_href') }}">{{ item.get('secondary_action_label') }}</a>{% endif %}
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-        {% endif %}
-      </section>
-      {% endfor %}
-    </div>
-  </div>
-  <div class="pqx-note">Change cadence, delivery budget, and reset window from the selected watch, then save the limits. Reports and repair digests stay in this lane.</div>
   <div class="pqx-inline-status" data-search-agent-status></div>
 </section>
 {% else %}
@@ -259,7 +108,7 @@
       <h2>Automation</h2>
       <div class="pqx-note">Recurring searches, delivery, reports, and repair policy live in the dedicated automation view.</div>
     </div>
-    <span class="pqx-pill">{{ (search_agents|selectattr('enabled')|list)|length }} active</span>
+    <span class="pqx-pill">{{ active_total }} active</span>
   </div>
   <div class="pqx-actions">
     <a class="pqx-link-button" href="/app/agents">Open automation</a>

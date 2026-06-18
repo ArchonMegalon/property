@@ -836,6 +836,64 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
     }
 
 
+def _property_scope_preview_fast(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
+    normalized_country = str(country_code or "").strip().upper()
+    normalized_region = str(region_code or "").strip().lower()
+    normalized_query = str(location_query or "").strip()
+    option_rows = _property_location_options(normalized_country, normalized_region)
+    selected_values = _csv_values(normalized_query)
+    option_lookup = {
+        str(option.get("value") or "").strip().lower(): str(option.get("label") or option.get("value") or "").strip()
+        for option in option_rows
+        if str(option.get("value") or "").strip()
+    }
+    selected_lookup = {value.lower() for value in selected_values}
+    if normalized_country == "AT" and normalized_region == "vienna" and normalized_query.lower() in {"vienna", "wien"}:
+        selected_lookup = {
+            str(row.get("value") or "").strip().lower()
+            for row in _scope_preview_layout(normalized_country, normalized_region, option_rows)
+            if str(row.get("value") or "").strip()
+        }
+    fallback_rows = _merge_option_catalog(option_rows, selected_values)
+    fallback_layout = _scope_preview_layout(normalized_country, normalized_region, fallback_rows)
+    market_label_parts = [part for part in (normalized_region.replace("_", " ").title(), normalized_country) if part]
+    market_label = " | ".join(market_label_parts) or "Search area"
+    selected_labels = [option_lookup.get(value.lower(), value) for value in selected_values if str(value or "").strip()]
+    if fallback_layout:
+        return {
+            "image_url": _scope_layout_preview_data_url(
+                country_code=normalized_country,
+                region_code=normalized_region,
+                normalized_query=normalized_query,
+                market_label=market_label,
+                layout_rows=fallback_layout,
+                selected_lookup=selected_lookup,
+            ),
+            "alt": f"Search area preview for {normalized_query or market_label}",
+            "summary": ", ".join(selected_labels[:2]) if selected_labels else (normalized_query or market_label),
+            "count_label": "",
+            "market_label": market_label,
+            "district_rows": [
+                {
+                    "label": str(row.get("label") or row.get("value") or "").strip(),
+                    "selected": str(row.get("value") or "").strip().lower() in selected_lookup,
+                }
+                for row in fallback_layout
+                if str(row.get("label") or row.get("value") or "").strip()
+            ],
+            "district_overlay_svg": "",
+        }
+    return {
+        "image_url": "",
+        "alt": f"Search area preview for {normalized_query or market_label}",
+        "summary": normalized_query or market_label,
+        "count_label": "",
+        "market_label": market_label,
+        "district_rows": [],
+        "district_overlay_svg": "",
+    }
+
+
 def _property_preference_schema() -> dict[str, object]:
     from app.api.routes.product_api_contracts import _PROPERTY_PREFERENCE_VALUE_SPECS
 
@@ -2360,7 +2418,7 @@ def app_section_payload(
             default_notification_limit=property_search_agent_notification_limit,
             default_notification_period=property_search_agent_notification_period,
             normalize_property_type_values=_normalize_property_type_values,
-            scope_preview_builder=_property_scope_preview,
+            scope_preview_builder=_property_scope_preview_fast,
         )
     else:
         property_search_agents, property_search_agent = [], {}

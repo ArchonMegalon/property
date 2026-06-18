@@ -2422,12 +2422,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     profile = client.get("/app/profile", params={"run_id": "run-42"}, headers=headers)
     assert profile.status_code == 200
     assert "Account" in profile.text
-    assert "Identity, defaults, delivery." in profile.text
+    assert "Identity, plan, delivery, and editable defaults." in profile.text
 
     alerts = client.get("/app/alerts", params={"run_id": "run-42"}, headers=headers)
     assert alerts.status_code == 200
     assert "Account" in alerts.text
-    assert "Identity, defaults, delivery." in alerts.text
+    assert "Identity, plan, delivery, and editable defaults." in alerts.text
 
     notifications_preview = client.get("/app/properties/notifications/preview", params={"template": "property_match"}, headers=headers)
     assert notifications_preview.status_code == 200
@@ -3088,15 +3088,102 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "Automation" in page.text
     assert "Vienna apartments" in page.text
     assert "Monteverde land" in page.text
-    assert "Selected watch" in page.text
-    assert "Limits" in page.text
-    assert "Free" in page.text
-    assert "Plus" in page.text
-    assert "Agent" in page.text
+    assert "Saved searches" in page.text
+    assert "pqx-automation-table" in page.text
+    assert "Selected watch, delivery, repair" not in page.text
+    assert "Limits" not in page.text
     assert 'href="/app/agents"' in page.text
-    assert "Delete</button>" in page.text
-    assert "Run now</button>" in page.text
-    assert "load_agent=agent-vienna" in page.text or "load_agent=agent-monteverde" in page.text
+    assert 'href="/app/search' in page.text
+    assert "Run</button>" in page.text
+    assert "Edit</button>" in page.text
+    assert "Pause</button>" in page.text
+    assert "Delete</button>" not in page.text
+    assert "/app/search?load_agent=" in page.text
+    assert "/app/search?run_agent=" in page.text
+
+
+def test_property_agents_surface_uses_fast_scope_preview(monkeypatch) -> None:
+    principal_id = "pq-agent-fast-first-paint"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Search Agent Fast")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "1020 Vienna",
+            "active_search_agent_id": "agent-vienna",
+            "search_agents": [
+                {
+                    "agent_id": "agent-vienna",
+                    "name": "Vienna rent watch",
+                    "enabled": True,
+                    "country_code": "AT",
+                    "region_code": "vienna",
+                    "location_query": "1020 Vienna",
+                    "listing_mode": "rent",
+                    "property_type": "apartment",
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "location_query": "1020 Vienna",
+                        "listing_mode": "rent",
+                    },
+                }
+            ],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fail_slow_preview(*args, **kwargs):
+        raise AssertionError("agents first paint must not call the slow boundary preview builder")
+
+    def _fake_runs(self, *, principal_id: str, limit: int = 8):
+        return [
+            {
+                "run_id": "agent-run-fast",
+                "principal_id": principal_id,
+                "active_search_agent_id": "agent-vienna",
+                "status": "completed",
+                "updated_at": "2026-06-13T09:10:00+00:00",
+                "property_search_preferences": {
+                    "active_search_agent_id": "agent-vienna",
+                    "country_code": "AT",
+                    "region_code": "vienna",
+                    "location_query": "1020 Vienna",
+                    "listing_mode": "rent",
+                },
+                "summary": {"sources_total": 1, "listing_total": 1, "ranked_candidates": []},
+            }
+        ]
+
+    monkeypatch.setattr(landing_view_models, "_property_scope_preview", _fail_slow_preview)
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_runs)
+
+    page = client.get("/app/agents", headers={"host": "propertyquarry.com"})
+
+    assert page.status_code == 200
+    assert "Vienna rent watch" in page.text
+    assert "agent-run-fast" in page.text
+
+
+def test_property_agents_and_account_skip_fleet_digest_on_first_paint(monkeypatch) -> None:
+    principal_id = "pq-agent-account-fast-first-paint"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Static Surface Fast")
+
+    def _fail_channel_loop_pack(self, *args, **kwargs):
+        raise AssertionError("agents/account first paint must not block on fleet digest generation")
+
+    monkeypatch.setattr(ProductService, "channel_loop_pack", _fail_channel_loop_pack)
+
+    agents = client.get("/app/agents", headers={"host": "propertyquarry.com"})
+    account = client.get("/app/account#profile", headers={"host": "propertyquarry.com"})
+
+    assert agents.status_code == 200
+    assert account.status_code == 200
 
 
 def test_property_search_agents_can_open_focused_cockpit_view(monkeypatch) -> None:
@@ -3179,9 +3266,9 @@ def test_property_search_agents_can_open_focused_cockpit_view(monkeypatch) -> No
 
     assert page.status_code == 200
     assert "Vienna rent watch" in page.text
-    assert "Latest finished run" in page.text
     assert "Ranked 1 | Sent 2 | Filtered 8" in page.text
-    assert "load_agent=agent-vienna" in page.text
+    assert "run-agent-1" in page.text
+    assert "/app/search?load_agent=" in page.text
 
 
 def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
@@ -5057,10 +5144,12 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
 
     account = client.get("/app/account", headers={"host": "propertyquarry.com"})
     assert account.status_code == 200
-    assert "Identity, defaults, delivery." in account.text
-    assert "Identity and return access" in account.text
-    assert "Current search brief state" in account.text
-    assert "Operating posture" in account.text
+    assert "Identity, plan, delivery, and editable defaults." in account.text
+    assert "Search defaults" in account.text
+    assert "Edit search" in account.text
+    assert "Useful account controls" in account.text
+    assert 'href="/app/search' in account.text
+    assert "Operating posture" not in account.text
     assert 'id="settings"' in account.text
     assert 'id="plans"' in account.text
     assert 'id="profile"' in account.text
@@ -5069,6 +5158,58 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Sync runs" not in account.text
     assert "Last Google sync" not in account.text
     assert "Office signals ingested" not in account.text
+
+
+def test_property_workspace_primary_internal_links_resolve() -> None:
+    principal_id = "pq-primary-link-audit"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Link Audit")
+    headers = {"host": "propertyquarry.com"}
+    pages = [
+        "/app/search",
+        "/app/properties",
+        "/app/shortlist",
+        "/app/agents",
+        "/app/account",
+        "/app/account#profile",
+    ]
+    checked: set[str] = set()
+    failures: list[str] = []
+    button_failures: list[str] = []
+    for page_path in pages:
+        page = client.get(page_path, headers=headers, follow_redirects=True)
+        assert page.status_code == 200, page.text[:500]
+        for href in re.findall(r'href="([^"]+)"', page.text):
+            if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
+                continue
+            if href.startswith(("http://", "https://", "//")):
+                continue
+            if "__" in href or href.startswith("/app/api/"):
+                continue
+            target = href.split("#", 1)[0] or page_path.split("#", 1)[0]
+            if not target.startswith("/"):
+                continue
+            if target in checked:
+                continue
+            checked.add(target)
+            response = client.get(target, headers=headers, follow_redirects=True)
+            if response.status_code >= 400:
+                failures.append(f"{page_path} offers {href} -> {response.status_code}")
+        for button_attrs, button_label in re.findall(r"<button([^>]*)>(.*?)</button>", page.text, flags=re.DOTALL):
+            attrs = button_attrs.strip()
+            if "disabled" in attrs:
+                continue
+            if 'type="submit"' in attrs or "type='submit'" in attrs:
+                continue
+            if "data-" in attrs or "popovertarget=" in attrs or "aria-controls=" in attrs:
+                continue
+            label = re.sub(r"<[^>]+>", " ", button_label)
+            label = re.sub(r"\s+", " ", label).strip()
+            button_failures.append(f"{page_path} renders inert button {label!r} attrs={attrs!r}")
+    assert not failures
+    assert not button_failures
+    assert "/app/account" in checked
+    assert "/app/search" in checked
 
 
 def test_propertyquarry_shell_uses_the_new_surface_navigation() -> None:

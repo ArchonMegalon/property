@@ -2538,6 +2538,137 @@
       display: grid;
       gap: 14px;
     }
+    .pqx-automation-board.is-compact {
+      gap: 12px;
+    }
+    .pqx-automation-kpis {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .pqx-automation-kpis span {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 5px;
+      min-height: 28px;
+      padding: 0 10px;
+      border: 1px solid var(--pq-line);
+      border-radius: 999px;
+      background: rgba(255, 253, 248, 0.86);
+    }
+    .pqx-automation-kpis strong {
+      color: var(--pq-ink);
+      font-size: 13px;
+    }
+    .pqx-automation-table-wrap {
+      overflow: auto;
+      border: 1px solid var(--pq-line);
+      border-radius: 10px;
+      background: #fffefa;
+    }
+    .pqx-automation-table {
+      width: 100%;
+      min-width: 700px;
+      border-collapse: collapse;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .pqx-automation-table th,
+    .pqx-automation-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--pq-line);
+      text-align: left;
+      vertical-align: middle;
+    }
+    .pqx-automation-table th {
+      color: var(--pq-muted);
+      font-size: 10px;
+      font-weight: 780;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: rgba(244, 239, 230, 0.78);
+    }
+    .pqx-automation-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    .pqx-automation-table tbody tr.is-selected {
+      background: rgba(255, 248, 234, 0.72);
+      box-shadow: inset 3px 0 0 #c79c48;
+    }
+    .pqx-automation-table td {
+      min-width: 0;
+    }
+    .pqx-automation-table td > strong,
+    .pqx-automation-table td > span {
+      display: block;
+      color: var(--pq-ink);
+      max-width: 320px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pqx-automation-table td small {
+      display: block;
+      margin-top: 3px;
+      color: var(--pq-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .pqx-automation-row-meta,
+    .pqx-automation-table .pqx-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .pqx-automation-table .pqx-actions {
+      min-width: 172px;
+      margin-top: 0;
+    }
+    .pqx-automation-table .pqx-button {
+      min-height: 34px;
+      padding-inline: 10px;
+    }
+    .pqx-automation-history-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .pqx-automation-history-link {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid var(--pq-line);
+      border-radius: 10px;
+      background: rgba(255, 253, 248, 0.86);
+      color: var(--pq-ink);
+      text-decoration: none;
+    }
+    .pqx-automation-history-link:hover,
+    .pqx-automation-history-link:focus-visible {
+      border-color: var(--pq-line-strong);
+      outline: none;
+    }
+    .pqx-automation-history-link span,
+    .pqx-automation-history-link strong,
+    .pqx-automation-history-link small {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pqx-automation-history-link span,
+    .pqx-automation-history-link small {
+      color: var(--pq-muted);
+      font-size: 11px;
+    }
+    .pqx-automation-history-link strong {
+      font-size: 12px;
+      line-height: 1.35;
+    }
     .pqx-automation-summary {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2722,6 +2853,41 @@
     .pqx-account-board {
       display: grid;
       gap: 14px;
+    }
+    .pqx-account-board.is-compact {
+      gap: 12px;
+    }
+    .pqx-account-action-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .pqx-account-action-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: end;
+      gap: 14px;
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid var(--pq-line);
+      border-radius: 10px;
+      background: #fffefa;
+    }
+    .pqx-account-action-card.primary {
+      border-color: rgba(189, 139, 47, 0.30);
+      background: #fff8ea;
+    }
+    .pqx-account-action-card h2 {
+      margin: 2px 0 0;
+      color: var(--pq-ink);
+      font-size: 1.05rem;
+      line-height: 1.18;
+    }
+    .pqx-account-action-card p {
+      margin: 6px 0 0;
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.42;
     }
     .pqx-account-summary {
       display: grid;
@@ -4543,9 +4709,11 @@
         flex-direction: column;
       }
       .pqx-automation-summary,
+      .pqx-automation-history-strip,
       .pqx-automation-layout,
       .pqx-automation-card-top,
       .pqx-account-summary,
+      .pqx-account-action-grid,
       .pqx-account-grid,
       .pqx-billing-metric-strip,
       .pqx-billing-summary,
@@ -4556,6 +4724,10 @@
       .pqx-billing-note-rail {
         align-items: flex-start;
         flex-direction: column;
+      }
+      .pqx-account-action-card {
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch;
       }
       .pqx-result {
         grid-template-columns: minmax(0, 1fr);
@@ -5057,7 +5229,7 @@
               </h2>
               <div class="pqx-note" data-property-step-summary>
                 {% if surface_mode == 'agents' %}
-                Selected watch, delivery, repair, outcomes, and limits live here.
+                Edit saved searches, start a fresh sweep, and open recent outcomes.
                 {% elif surface_mode == 'billing' %}
                 Plan, entitlements, limits, and checkout truth stay here.
                 {% elif surface_mode == 'account' %}
@@ -5092,7 +5264,7 @@
           {% endif %}
           {% for card in (primary_cards or []) + (secondary_cards or []) %}
           {% if card and card.get('title') %}
-          {% if not ((surface_mode == 'agents' and card.get('title') == 'Recurring briefs') or surface_mode in ['account', 'billing']) %}
+          {% if surface_mode not in ['agents', 'account', 'billing'] %}
           <section class="pqx-card"{% if card.get('id') %} id="{{ card.get('id') }}"{% endif %}>
             <div class="pqx-section-head">
               <div>
@@ -5584,7 +5756,7 @@
             </div>
           </section>
           {% endif %}
-          {% else %}
+          {% elif not static_surface %}
           <div class="pqx-empty">Search settings are locked while this search is running or already completed.</div>
           {% endif %}
         </section>

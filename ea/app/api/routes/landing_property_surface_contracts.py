@@ -42,7 +42,7 @@ class PropertySurfaceScope:
             wants_learning_summary=False,
             wants_search_runs=normalized in {"search", "shortlist", "agents"},
             wants_agent_views=normalized == "agents",
-            wants_credit_digest=normalized in {"agents", "account", "billing"},
+            wants_credit_digest=normalized in {"billing"},
             wants_run_views=normalized in {"properties", "search", "shortlist", "agents"},
         )
 
