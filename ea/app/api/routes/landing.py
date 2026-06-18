@@ -3340,12 +3340,26 @@ def app_shell(
                     recovery_query["run_id"] = normalized_run_id
                 if missing_ref:
                     recovery_query["missing_candidate_ref"] = missing_ref
+                recovery_href = f"/app/shortlist?{urllib.parse.urlencode(recovery_query)}#results-list"
+                repair_task_ref = _property_queue_missing_research_packet_repair(
+                    container=container,
+                    principal_id=context.principal_id,
+                    run_id=normalized_run_id,
+                    candidate_ref=missing_ref,
+                    recovery_url=recovery_href,
+                )
                 property_context["packet_recovery"] = {
                     "title": "Property page is being rebuilt",
-                    "detail": "That property page is not available from the current packet. The shortlist below remains usable while the run can be refreshed.",
+                    "detail": (
+                        "Repair queued for the missing property page. The shortlist below remains usable while "
+                        "PropertyQuarry rebuilds or preserves a recovery receipt."
+                        if repair_task_ref
+                        else "That property page is not available from the current packet. The shortlist below remains usable while the run can be refreshed."
+                    ),
                     "candidate_ref": missing_ref,
                     "run_id": normalized_run_id,
-                    "action_href": f"/app/shortlist?{urllib.parse.urlencode(recovery_query)}#results-list",
+                    "queue_item_ref": repair_task_ref,
+                    "action_href": recovery_href,
                     "action_label": "Stay on shortlist",
                     "tone": "warn",
                 }

@@ -5782,6 +5782,8 @@ def test_property_research_packet_missing_candidate_redirects_to_shortlist(monke
     shortlist = client.get(packet.headers["location"], headers={"host": "propertyquarry.com"})
     assert shortlist.status_code == 200
     assert "Property page is being rebuilt" in shortlist.text
+    assert "Repair queued for the missing property page" in shortlist.text
+    assert "Repair queued" in shortlist.text
     assert "missing-packet-ref" in shortlist.text
     repair_tasks = [
         task
