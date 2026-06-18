@@ -8560,7 +8560,9 @@ def test_property_alert_review_telegram_text_includes_top_candidate_summary() ->
     )
 
     assert "Title: Bright Waehring apartment with balcony" in text
-    assert "EA found 2 concrete listings in this alert." in text
+    assert "PropertyQuarry found 2 concrete listings in this alert." in text
+    assert "EA found" not in text
+    assert "EA queued" not in text
     assert "Top candidate: Personal fit 91/100" in text
     assert "Top listing: use the button below." in text
     assert "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/top-fit-1" not in text

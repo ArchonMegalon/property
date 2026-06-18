@@ -2651,9 +2651,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'No practical zoo or Tiergarten signal is configured for this market yet.' in setup.text
     assert 'data-property-pulse-strip' not in setup.text
     assert "Min area" in setup.text
-    assert 'data-property-search-utility-strip' in setup.text
-    assert 'data-property-search-utility="automation"' in setup.text
-    assert 'data-property-search-utility="preferences"' in setup.text
+    assert 'data-property-search-utility-strip' not in setup.text
+    assert 'data-property-search-utility="automation"' not in setup.text
+    assert 'data-property-search-utility="preferences"' not in setup.text
+    assert "Saved preferences" not in setup.text
     assert "Recurring searches, delivery, reports, and repair policy live in the dedicated automation view." not in setup.text
     assert "Manage durable rules in Account." not in setup.text
     assert "Open automation" not in setup.text
@@ -2672,9 +2673,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     search_surface = client.get("/app/search", headers=headers)
     assert search_surface.status_code == 200
     assert 'data-property-decision-workbench' in search_surface.text
-    assert search_surface.text.count('data-property-search-utility-strip') == 1
-    assert search_surface.text.count('data-property-search-utility="automation"') == 1
-    assert search_surface.text.count('data-property-search-utility="preferences"') == 1
+    assert 'data-property-search-utility-strip' not in search_surface.text
+    assert 'data-property-search-utility="automation"' not in search_surface.text
+    assert 'data-property-search-utility="preferences"' not in search_surface.text
+    assert "Saved preferences" not in search_surface.text
     assert "Recurring searches, delivery, reports, and repair policy live in the dedicated automation view." not in search_surface.text
     assert "Manage durable rules in Account." not in search_surface.text
     assert "Open automation" not in search_surface.text
@@ -4511,8 +4513,9 @@ def test_propertyquarry_workspace_supports_area_select_all_actions() -> None:
     assert search.status_code == 200
     assert 'data-workbench-brief-drawer' in search.text
     assert "<h2>Search profile</h2>" not in search.text
-    assert 'data-property-search-utility="preferences"' in search.text
-    assert 'href="/app/account#profile"' in search.text
+    assert 'data-property-search-utility="preferences"' not in search.text
+    assert 'data-property-search-utility-strip' not in search.text
+    assert "Saved preferences" not in search.text
     assert "Prefer Outdoor Space (Soft Preference)" not in search.text
     assert 'data-checkbox-group-select-all="location_query"' in search.text
     assert 'data-checkbox-group-clear-all="location_query"' in search.text

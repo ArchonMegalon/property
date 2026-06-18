@@ -10542,7 +10542,7 @@ def _property_alert_review_telegram_text(
         top = candidate_properties[0]
         total = len(candidate_properties)
         if total > 1:
-            extra_lines.append(f"EA found {total} concrete listings in this alert.")
+            extra_lines.append(f"PropertyQuarry found {total} concrete listings in this alert.")
         top_summary = str(top.get('fit_summary') or '').strip()
         compare_reason = str(top.get("compare_reason") or "").strip()
         top_url = str(top.get('property_url') or '').strip()
@@ -10567,7 +10567,7 @@ def _property_alert_review_telegram_text(
             extra_lines.append(f"Second conflict: {compact_text(learned_conflicts[1], fallback='', limit=160)}")
     elif learned_matches:
         extra_lines.append(f"Why this fits you: {compact_text(learned_matches[0], fallback='', limit=160)}")
-    extra_lines.append("EA queued a property review and can score it, compare it, request a 3D tour or walkthrough, or ignore it.")
+    extra_lines.append("PropertyQuarry saved this review so you can compare it, request a tour, or dismiss it.")
     if str(preference_person_id or "").strip() and str(preference_person_id or "").strip() != "self":
         extra_lines.append(f"Preference profile: {str(preference_person_id or '').strip()}")
     visible_property_url = (

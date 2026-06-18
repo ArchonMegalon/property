@@ -1677,50 +1677,6 @@
     .pqx-loaded-agent[data-visible="true"] {
       display: grid;
     }
-    .pqx-search-utility-strip {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-      padding: 6px;
-      border: 1px solid var(--pq-line);
-      border-radius: 8px;
-      background: rgba(255, 253, 248, 0.72);
-    }
-    .pqx-search-utility-link {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      min-height: 34px;
-      padding: 7px 9px;
-      border: 1px solid transparent;
-      border-radius: 7px;
-      color: var(--pq-ink);
-      text-decoration: none;
-      transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
-    }
-    .pqx-search-utility-link:hover,
-    .pqx-search-utility-link:focus-visible {
-      border-color: var(--pq-line-strong);
-      background: #fff8ea;
-      outline: none;
-      transform: translateY(-1px);
-    }
-    .pqx-search-utility-link strong {
-      min-width: 0;
-      font-size: 12px;
-      line-height: 1.15;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .pqx-search-utility-link span {
-      flex: 0 0 auto;
-      color: var(--pq-muted);
-      font-size: 11px;
-      font-weight: 720;
-      white-space: nowrap;
-    }
     .pqx-fact {
       display: grid;
       gap: 2px;
@@ -2346,14 +2302,6 @@
       }
       .pqx-surface-search .pqx-loaded-agent .pqx-actions {
         gap: 6px;
-      }
-      .pqx-surface-search .pqx-search-utility-strip {
-        gap: 5px;
-        padding: 4px;
-      }
-      .pqx-surface-search .pqx-search-utility-link {
-        min-height: 30px;
-        padding: 5px 7px;
       }
       .pqx-surface-search .pqx-form {
         gap: 8px;
@@ -4950,9 +4898,6 @@
         overflow-wrap: break-word;
         hyphens: auto;
       }
-      .pqx-search-utility-strip {
-        grid-template-columns: minmax(0, 1fr);
-      }
       .pqx-setup,
       .pqx-setup.pqx-surface-search {
         grid-template-columns: minmax(0, 1fr);
@@ -5708,21 +5653,7 @@
           {% endif %}
           {% if console_form and show_form_controls and surface_mode != 'agents' %}
           {% set search_agents = property_meta.get('search_agents') or [] %}
-          {% set active_search_agent_total = (search_agents|selectattr('enabled')|list)|length %}
           {% set preference_manager = preference_manager or {} %}
-          {% set preference_rule_total = (preference_manager.get('active_nodes') or [])|length %}
-          {% if surface_mode not in ['agents', 'account', 'billing'] %}
-          <nav class="pqx-search-utility-strip" data-property-search-utility-strip aria-label="Search utilities">
-            <a class="pqx-search-utility-link" href="/app/agents" data-property-search-utility="automation">
-              <strong>Automation</strong>
-              <span>{{ active_search_agent_total }} active</span>
-            </a>
-            <a class="pqx-search-utility-link" href="/app/account#profile" data-property-search-utility="preferences">
-              <strong>Saved preferences</strong>
-              <span>{{ preference_rule_total }} rules</span>
-            </a>
-          </nav>
-          {% endif %}
           <div class="pqx-loaded-agent" data-search-agent-loaded-state>
             <strong data-search-agent-loaded-label>Saved search loaded</strong>
             <span class="pqx-note" data-search-agent-dirty-label>Edit, run, save, or duplicate.</span>
