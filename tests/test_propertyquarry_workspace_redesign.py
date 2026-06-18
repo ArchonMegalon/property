@@ -3736,8 +3736,9 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert ".pqx-automation-delete" in template
     assert ".pqx-automation-card" in template
     assert 'pqx-automation-scope-empty--fallback' in template
-    assert 'transform: scale(1.45);' in template
-    assert 'transform: scale(1.92);' in template
+    assert "object-position: center 46%;" in template
+    assert 'transform: scale(1.62);' in template
+    assert 'transform: scale(2.18);' in template
     assert ".pqx-automation-scope-empty::after" in template
     assert "linear-gradient(90deg, rgba(96, 78, 61, 0.08) 1px, transparent 1px)" in template
     script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
@@ -3810,7 +3811,7 @@ def test_property_agents_surface_uses_osm_scope_preview_for_cards_and_fast_previ
     def _fake_runs(self, *, principal_id: str, limit: int = 8):
         return [
             {
-                "run_id": "agent-run-fast",
+                "run_id": f"agent-run-fast-{index}",
                 "principal_id": principal_id,
                 "active_search_agent_id": "agent-vienna",
                 "status": "completed",
@@ -3824,6 +3825,7 @@ def test_property_agents_surface_uses_osm_scope_preview_for_cards_and_fast_previ
                 },
                 "summary": {"sources_total": 1, "listing_total": 1, "ranked_candidates": []},
             }
+            for index in range(8)
         ]
 
     monkeypatch.setattr(landing_view_models, "_property_scope_preview", _rich_scope_preview)
@@ -3834,11 +3836,11 @@ def test_property_agents_surface_uses_osm_scope_preview_for_cards_and_fast_previ
 
     assert page.status_code == 200
     assert "Vienna rent watch" in page.text
-    assert "agent-run-fast" in page.text
+    assert "agent-run-fast-0" in page.text
     assert 'data-scope-preview-kind="osm_district_overlay"' in page.text
     assert 'data-scope-overlay="true"' in page.text
     assert preview_calls == [("AT", "vienna", "1020 Vienna")]
-    assert fast_preview_calls == [("AT", "vienna", "1020 Vienna")]
+    assert fast_preview_calls == [("AT", "vienna", "1020 Vienna")] * 8
 
 
 def test_static_property_surfaces_skip_full_fleet_digest_on_first_paint(monkeypatch) -> None:

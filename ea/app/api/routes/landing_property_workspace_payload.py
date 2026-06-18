@@ -341,7 +341,7 @@ def property_workspace_payload(
     previous_search_runs = [
         build_property_previous_run_summary(
             dict(row),
-            include_scope_preview=index < 6,
+            include_scope_preview=normalized_section == "agents" or index < 6,
             scope_preview_builder=scope_preview_builder,
             compact_provider_label=_compact_provider_label,
             candidate_maps_url_builder=_property_candidate_maps_url,
