@@ -2029,17 +2029,17 @@ def app_section_payload(
     nearby_keyword_importance_fields = {
         "playground nearby": "max_distance_to_playground_importance",
         "library nearby": "max_distance_to_library_importance",
-        "zoo nearby": "",
-        "public pool nearby": "",
-        "medical care nearby": "",
+        "zoo nearby": "max_distance_to_zoo_importance",
+        "public pool nearby": "max_distance_to_public_pool_importance",
+        "medical care nearby": "max_distance_to_medical_care_importance",
         "supermarket nearby": "max_distance_to_supermarket_importance",
-        "market nearby": "",
-        "Baumarkt nearby": "",
-        "shopping center nearby": "",
-        "flaniermeile nearby": "",
-        "theatre nearby": "",
-        "pharmacy nearby": "",
-        "underground nearby": "",
+        "market nearby": "max_distance_to_market_importance",
+        "Baumarkt nearby": "max_distance_to_hardware_store_importance",
+        "shopping center nearby": "max_distance_to_shopping_center_importance",
+        "flaniermeile nearby": "max_distance_to_shopping_street_importance",
+        "theatre nearby": "max_distance_to_theatre_importance",
+        "pharmacy nearby": "max_distance_to_medical_care_importance",
+        "underground nearby": "max_distance_to_subway_importance",
     }
     for option in keyword_options:
         option_value = str(option.get("value") or "").strip()

@@ -6896,7 +6896,7 @@ def _property_distance_relaxation_factor(value: object) -> float:
     normalized = str(value or "").strip().lower()
     if normalized in {"hard", "must_have", "must-have", "strict"}:
         return 2.0
-    if normalized in {"important", "high", "strong"}:
+    if normalized in {"important", "high", "strong", "strong_wish", "strong-wish", "strong wish"}:
         return 3.0
     if normalized in {"nice_to_have", "nice-to-have", "soft", "low"}:
         return 5.0
@@ -6911,6 +6911,16 @@ def _property_distance_is_avoid_mode(value: object) -> bool:
 def _property_distance_is_hard_mode(value: object) -> bool:
     normalized = str(value or "").strip().lower()
     return normalized in {"hard", "must_have", "must-have", "strict"}
+
+
+def _property_distance_is_strong_mode(value: object) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized in {"important", "high", "strong", "strong_wish", "strong-wish", "strong wish"}
+
+
+def _property_distance_is_nice_mode(value: object) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized in {"nice_to_have", "nice-to-have", "soft", "low"}
 
 
 def _property_append_distance_relaxation(
@@ -6977,7 +6987,6 @@ def _property_apply_distance_gate(
             return True
         if actual <= float(limit_m):
             _property_append_distance_avoidance(facts, label=label, requested_m=limit_m, actual_m=actual)
-            return False
         return True
     distance_ok, distance_mode, actual_m = _property_distance_within_relaxed_radius(
         actual_m=facts.get(fact_key),
@@ -7033,6 +7042,19 @@ def _property_distance_preference_score_adjustment(
         if importance_mode in {"", "any", "neutral", "no_preference", "no-preference"}:
             continue
         if _property_distance_is_avoid_mode(importance_mode):
+            try:
+                actual_m = float(facts.get(fact_key) or 0.0)
+            except Exception:
+                actual_m = 0.0
+            if actual_m <= 0.0:
+                adjustment -= 0.5
+                notes.append(f"{label} distance missing")
+            elif actual_m <= float(limit_m):
+                adjustment -= 6.0
+                notes.append(f"{label} too close for avoid preference")
+            else:
+                adjustment += 1.0
+                notes.append(f"{label} avoided")
             continue
         distance_ok, distance_mode, _actual_m = _property_distance_within_relaxed_radius(
             actual_m=facts.get(fact_key),
@@ -7049,7 +7071,7 @@ def _property_distance_preference_score_adjustment(
             elif distance_mode == "unknown":
                 notes.append(f"{label} distance unknown")
             continue
-        if importance_mode in {"important", "high", "strong"}:
+        if _property_distance_is_strong_mode(importance_mode):
             if distance_mode == "strict":
                 adjustment += 6.0
                 notes.append(f"{label} close by")
@@ -7063,7 +7085,7 @@ def _property_distance_preference_score_adjustment(
                 adjustment -= 6.0
                 notes.append(f"{label} farther away than wished")
             continue
-        if importance_mode in {"nice_to_have", "nice-to-have", "soft", "low"}:
+        if _property_distance_is_nice_mode(importance_mode):
             if distance_mode == "strict":
                 adjustment += 3.0
                 notes.append(f"{label} nearby")
@@ -7086,23 +7108,41 @@ _PROPERTY_SEARCH_FEEDBACK_PATCH_KEYS: frozenset[str] = frozenset(
         "require_barrier_free",
         "available_within_years",
         "max_distance_to_library_m",
+        "max_distance_to_library_importance",
         "max_distance_to_zoo_m",
+        "max_distance_to_zoo_importance",
         "max_distance_to_supermarket_m",
+        "max_distance_to_supermarket_importance",
         "max_distance_to_subway_m",
+        "max_distance_to_subway_importance",
         "max_distance_to_playground_m",
+        "max_distance_to_playground_importance",
         "max_distance_to_market_m",
+        "max_distance_to_market_importance",
         "max_distance_to_hardware_store_m",
+        "max_distance_to_hardware_store_importance",
         "max_distance_to_shopping_center_m",
+        "max_distance_to_shopping_center_importance",
         "max_distance_to_shopping_street_m",
+        "max_distance_to_shopping_street_importance",
         "max_distance_to_theatre_m",
+        "max_distance_to_theatre_importance",
         "max_distance_to_public_pool_m",
+        "max_distance_to_public_pool_importance",
         "max_distance_to_medical_care_m",
+        "max_distance_to_medical_care_importance",
         "max_distance_to_starbucks_m",
+        "max_distance_to_starbucks_importance",
         "max_distance_to_fitness_center_m",
+        "max_distance_to_fitness_center_importance",
         "max_distance_to_cinema_m",
+        "max_distance_to_cinema_importance",
         "max_distance_to_bouldering_m",
+        "max_distance_to_bouldering_importance",
         "max_distance_to_dog_park_m",
+        "max_distance_to_dog_park_importance",
         "max_distance_to_good_cafe_m",
+        "max_distance_to_good_cafe_importance",
     }
 )
 

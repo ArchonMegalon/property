@@ -1760,6 +1760,8 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.locator('[data-keyword-priority-row][data-keyword-value="market nearby"] [data-keyword-distance-select]').select_option("1000")
         page.locator('[data-keyword-priority-row][data-keyword-value="Baumarkt nearby"] [data-keyword-preference-select]').select_option("important")
         page.locator('[data-keyword-priority-row][data-keyword-value="Baumarkt nearby"] [data-keyword-distance-select]').select_option("2000")
+        page.locator('[data-keyword-priority-row][data-keyword-value="shopping center nearby"] [data-keyword-preference-select]').select_option("avoid")
+        page.locator('[data-keyword-priority-row][data-keyword-value="shopping center nearby"] [data-keyword-distance-select]').select_option("500")
         page.locator('[data-keyword-priority-row][data-keyword-value="library nearby"] [data-keyword-preference-select]').select_option("nice_to_have")
         page.locator('[data-keyword-priority-row][data-keyword-value="library nearby"] [data-keyword-distance-select]').select_option("1000")
         page.locator('[data-keyword-priority-row][data-keyword-value="medical care nearby"] [data-keyword-preference-select]').select_option("important")
@@ -1832,9 +1834,15 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert preferences["require_winter_access_research"] is True
         assert preferences["avoid_flood_risk_area"] is True
         assert preferences["max_distance_to_market_m"] == 1000
+        assert preferences["max_distance_to_market_importance"] == "important"
         assert preferences["max_distance_to_hardware_store_m"] == 2000
+        assert preferences["max_distance_to_hardware_store_importance"] == "important"
+        assert preferences["max_distance_to_shopping_center_m"] == 500
+        assert preferences["max_distance_to_shopping_center_importance"] == "avoid"
         assert preferences["max_distance_to_medical_care_m"] == 1000
+        assert preferences["max_distance_to_medical_care_importance"] == "important"
         assert preferences["max_distance_to_library_m"] == 1000
+        assert preferences["max_distance_to_library_importance"] == "nice_to_have"
         assert preferences["min_match_score"] == 45
         assert preferences["require_floorplan"] is True
         assert len(observed["selected_platforms"]) == 3

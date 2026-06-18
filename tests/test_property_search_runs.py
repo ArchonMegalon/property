@@ -1369,6 +1369,23 @@ def test_property_distance_preference_score_adjustment_rewards_and_penalizes_sof
     assert "library farther away than wished" in negative_notes
     assert "playground distance missing" in negative_notes
 
+    avoid_adjustment, avoid_notes = product_service._property_distance_preference_score_adjustment(
+        preferences={
+            "max_distance_to_shopping_center_m": 500,
+            "max_distance_to_shopping_center_importance": "avoid",
+            "max_distance_to_theatre_m": 700,
+            "max_distance_to_theatre_importance": "strong_wish",
+        },
+        property_facts={
+            "nearest_shopping_center_m": 220,
+            "nearest_theatre_m": 360,
+        },
+    )
+
+    assert avoid_adjustment == 0
+    assert "shopping center too close for avoid preference" in avoid_notes
+    assert "theatre close by" in avoid_notes
+
 
 def test_property_candidate_effective_fit_score_prefers_adjusted_rank_score() -> None:
     assert (
@@ -1398,7 +1415,7 @@ def test_property_distance_gate_can_avoid_nearby_locations() -> None:
         preference_key="max_distance_to_shopping_center_m",
         fact_key="nearest_shopping_center_m",
         label="shopping center",
-    ) is False
+    ) is True
     assert too_close_facts["distance_avoidances_json"] == [
         {"label": "shopping center", "requested_m": 500, "actual_m": 220}
     ]
