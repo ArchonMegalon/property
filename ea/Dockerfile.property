@@ -11,44 +11,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-RUN mkdir -p /app/scripts
+COPY ea/requirements.txt /app/requirements.txt
+COPY ea/requirements.lock /app/requirements.lock
+
+RUN python -m pip install --no-cache-dir --upgrade pip==26.1.2 && \
+    pip install --no-cache-dir -r requirements.txt -c requirements.lock && \
+    python -m playwright install --with-deps chromium && \
+    chown -R ea:ea /ms-playwright
+
+RUN mkdir -p /app/scripts /data/artifacts /data/public_property_tours /data/provider-ledger /home/ea
 COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py
 COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py
 COPY scripts/render_onemin_property_i2v_segment.py /app/scripts/render_onemin_property_i2v_segment.py
-
-COPY . /tmp/src
+COPY ea/app /app/app
+COPY ea/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY LTDs.md /app/LTDs.md
 
 RUN set -eu; \
-    if [ -f /tmp/src/ea/requirements.txt ] && [ -d /tmp/src/ea/app ]; then \
-      APP_SRC=/tmp/src/ea; \
-    elif [ -f /tmp/src/requirements.txt ] && [ -d /tmp/src/app ]; then \
-      APP_SRC=/tmp/src; \
-    else \
-      echo "application source not found in build context" >&2; \
-      exit 1; \
-    fi; \
-    cp "$APP_SRC/requirements.txt" /app/requirements.txt; \
-    if [ -f "$APP_SRC/requirements.lock" ]; then cp "$APP_SRC/requirements.lock" /app/requirements.lock; fi; \
-    cp -r "$APP_SRC/app" /app/; \
-    cp "$APP_SRC/docker-entrypoint.sh" /usr/local/bin/docker-entrypoint.sh; \
-    if [ -f "$APP_SRC/LTDs.md" ]; then \
-      cp "$APP_SRC/LTDs.md" /app/LTDs.md; \
-    elif [ -f /tmp/src/LTDs.md ]; then \
-      cp /tmp/src/LTDs.md /app/LTDs.md; \
-    fi; \
     mkdir -p /data/artifacts /data/public_property_tours /data/provider-ledger /home/ea; \
     chown -R ea:ea /app /data /home/ea /usr/local/bin/docker-entrypoint.sh; \
-    chmod +x /usr/local/bin/docker-entrypoint.sh; \
-    rm -rf /tmp/src
-
-RUN python -m pip install --no-cache-dir --upgrade pip==26.1.2 && \
-    if [ -f requirements.lock ]; then \
-      pip install --no-cache-dir -r requirements.txt -c requirements.lock; \
-    else \
-      pip install --no-cache-dir -r requirements.txt; \
-    fi && \
-    python -m playwright install --with-deps chromium && \
-    chown -R ea:ea /ms-playwright
+    chmod +x /usr/local/bin/docker-entrypoint.sh
 
 USER ea
 

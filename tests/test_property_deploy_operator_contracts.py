@@ -92,6 +92,11 @@ def test_readme_documents_hardened_deploy_and_port_override() -> None:
 def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     dockerfile = _read("ea/Dockerfile.property")
 
+    assert "COPY . /tmp/src" not in dockerfile
+    assert "COPY ea/requirements.txt /app/requirements.txt" in dockerfile
+    assert "COPY ea/requirements.lock /app/requirements.lock" in dockerfile
+    assert dockerfile.index("COPY ea/requirements.txt /app/requirements.txt") < dockerfile.index("pip install --no-cache-dir")
+    assert dockerfile.index("pip install --no-cache-dir") < dockerfile.index("COPY ea/app /app/app")
     assert "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" in dockerfile
     assert "COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py" in dockerfile
     assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
