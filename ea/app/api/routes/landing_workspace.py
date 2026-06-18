@@ -17,6 +17,7 @@ from app.api.routes.landing import (
 from app.api.routes.landing_content import app_nav_groups_for_brand
 from app.api.routes.landing_property_research import _object_detail_row, _render_console_object_detail
 from app.container import AppContainer
+from app.product.property_surface_state import normalize_property_search_run_snapshot
 from app.product.service import build_product_service
 from app.services import google_oauth as google_oauth_service
 from app.services.public_branding import request_brand
@@ -141,6 +142,149 @@ def _google_account_verification_detail(verification: dict[str, object] | None) 
     if state == "failed":
         return f"send check failed {verified_at[:19]}" if verified_at else "send check failed"
     return "send not yet verified"
+
+
+def _positive_int(value: object) -> int:
+    try:
+        parsed = int(float(value or 0))
+    except Exception:
+        parsed = 0
+    return parsed if parsed > 0 else 0
+
+
+def _propertyquarry_copy(value: object, *, fallback: str = "") -> str:
+    text = str(value or fallback or "").strip()
+    replacements = {
+        "office loop": "property workflow",
+        "Office loop": "Property workflow",
+        "memo": "update",
+        "Memo": "Update",
+        "commitment": "follow-up",
+        "Commitment": "Follow-up",
+        "handoff": "support task",
+        "Handoff": "Support task",
+        "operator seats": "collaborator seats",
+        "Operator seats": "Collaborator seats",
+        "operator": "collaborator",
+        "Operator": "Collaborator",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
+
+
+def _propertyquarry_href(value: object) -> str:
+    href = str(value or "").strip()
+    if not href:
+        return ""
+    if href.startswith("/contact"):
+        return "/support"
+    if href == "/now":
+        return "/product"
+    if href == "/app/api/support":
+        return "/app/settings/support"
+    if href.startswith("/app/api/diagnostics/export"):
+        return "/app/settings/support"
+    return href
+
+
+def _property_search_usage_state(product: object, *, principal_id: str, limit: int = 12) -> dict[str, object]:
+    try:
+        raw_runs = [
+            normalize_property_search_run_snapshot(dict(row))
+            for row in list(product.list_property_search_runs(principal_id=principal_id, limit=limit) or [])  # type: ignore[attr-defined]
+            if isinstance(row, dict)
+        ]
+    except Exception:
+        raw_runs = []
+    terminal_statuses = {"processed", "completed", "completed_partial", "failed", "noop", "cancelled", "not started", "not_started"}
+    ranked_total = 0
+    filtered_total = 0
+    listing_total = 0
+    source_total = 0
+    failed_source_total = 0
+    repairing_source_total = 0
+    tour_ready_total = 0
+    packet_ready_total = 0
+    latest_rows: list[dict[str, str]] = []
+    active_total = 0
+    completed_total = 0
+    partial_total = 0
+    failed_run_total = 0
+    for run in raw_runs:
+        summary = dict(run.get("summary") or {}) if isinstance(run.get("summary"), dict) else {}
+        sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+        ranked = [dict(row) for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
+        status = str(run.get("status") or summary.get("status") or "queued").strip().lower() or "queued"
+        if status not in terminal_statuses:
+            active_total += 1
+        if status in {"processed", "completed", "completed_partial"}:
+            completed_total += 1
+        if status == "completed_partial":
+            partial_total += 1
+        if status == "failed":
+            failed_run_total += 1
+        ranked_total += len(ranked)
+        filtered_total += (
+            _positive_int(summary.get("filtered_total"))
+            or _positive_int(summary.get("held_back_total"))
+            or _positive_int(summary.get("filtered_out_total"))
+        )
+        listing_total += _positive_int(summary.get("listing_total") or summary.get("raw_listing_total"))
+        source_total += _positive_int(summary.get("sources_total")) or len(sources)
+        for source in sources:
+            source_status = str(source.get("status") or source.get("state") or "").strip().lower()
+            repair_status = str(source.get("repair_status") or "").strip().lower()
+            if source_status in {"failed", "fetch_failed", "error", "timeout"}:
+                failed_source_total += 1
+            if repair_status in {"queued", "repairing", "retrying"} or source_status in {"repairing", "retrying"}:
+                repairing_source_total += 1
+        for candidate in ranked:
+            if str(candidate.get("tour_url") or "").strip():
+                tour_ready_total += 1
+            if str(candidate.get("packet_url") or candidate.get("review_url") or "").strip():
+                packet_ready_total += 1
+        if len(latest_rows) < 6:
+            run_id = str(run.get("run_id") or "").strip()
+            latest_rows.append(
+                {
+                    "run_id": run_id,
+                    "status": status.replace("_", " ") or "queued",
+                    "ranked": str(len(ranked)),
+                    "filtered": str(
+                        _positive_int(summary.get("filtered_total"))
+                        or _positive_int(summary.get("held_back_total"))
+                        or _positive_int(summary.get("filtered_out_total"))
+                    ),
+                    "href": f"/app/shortlist?run_id={urllib.parse.quote(run_id)}" if run_id else "/app/search",
+                }
+            )
+    latest = raw_runs[0] if raw_runs else {}
+    latest_summary = dict(latest.get("summary") or {}) if isinstance(latest.get("summary"), dict) else {}
+    latest_run_id = str(latest.get("run_id") or "").strip()
+    latest_status = str(latest.get("status") or latest_summary.get("status") or "no run yet").strip().replace("_", " ")
+    repair_status = "Repairing" if repairing_source_total else ("Needs attention" if failed_source_total or failed_run_total else "Stable")
+    return {
+        "runs": raw_runs,
+        "run_total": len(raw_runs),
+        "active_total": active_total,
+        "completed_total": completed_total,
+        "partial_total": partial_total,
+        "failed_run_total": failed_run_total,
+        "ranked_total": ranked_total,
+        "filtered_total": filtered_total,
+        "listing_total": listing_total,
+        "source_total": source_total,
+        "failed_source_total": failed_source_total,
+        "repairing_source_total": repairing_source_total,
+        "tour_ready_total": tour_ready_total,
+        "packet_ready_total": packet_ready_total,
+        "latest_rows": latest_rows,
+        "latest_run_id": latest_run_id,
+        "latest_status": latest_status or "no run yet",
+        "latest_href": f"/app/shortlist?run_id={urllib.parse.quote(latest_run_id)}" if latest_run_id else "/app/search",
+        "repair_status": repair_status,
+    }
 
 
 def _google_account_sync_detail(sync_row: dict[str, object] | None) -> str:
@@ -355,6 +499,7 @@ def settings_usage_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    is_property_brand = request_brand(request)["key"] == "propertyquarry"
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -368,11 +513,93 @@ def settings_usage_detail(
     usage = {str(key): int(value or 0) for key, value in dict(diagnostics.get("usage") or {}).items()}
     analytics = dict(diagnostics.get("analytics") or {})
     reliability = dict(analytics.get("reliability") or {})
+    billing = dict(diagnostics.get("billing") or {})
     operators = dict(diagnostics.get("operators") or {})
     readiness = dict(diagnostics.get("readiness") or {})
     queue_health = dict(diagnostics.get("queue_health") or {})
     providers = dict(diagnostics.get("providers") or {})
     counts = {str(key): int(value or 0) for key, value in dict(analytics.get("counts") or {}).items()}
+    if is_property_brand:
+        property_usage = _property_search_usage_state(product, principal_id=context.principal_id)
+        return _render_console_object_detail(
+            request=request,
+            context=context,
+            workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
+            page_title="PropertyQuarry usage",
+            current_nav="settings",
+            console_title="Usage and activation",
+            console_summary="Search runs, provider coverage, ranked homes, filtered homes, repair status, and generated artifacts stay visible in one account view.",
+            object_kind="Property usage",
+            object_title=f"{property_usage['run_total']} recent search runs",
+            object_summary=(
+                f"{property_usage['ranked_total']} ranked homes · "
+                f"{property_usage['filtered_total']} filtered · "
+                f"{property_usage['repair_status']}"
+            ),
+            object_meta=[
+                {"label": "Search runs", "value": str(property_usage["run_total"])},
+                {"label": "Ranked homes", "value": str(property_usage["ranked_total"])},
+                {"label": "Filtered homes", "value": str(property_usage["filtered_total"])},
+                {"label": "Repair status", "value": str(property_usage["repair_status"])},
+            ],
+            object_sidebar_title="What usage means here",
+            object_sidebar_copy="PropertyQuarry usage is measured by searches completed, sources checked, homes ranked, artifacts prepared, and whether repair work is still open.",
+            object_sidebar_rows=[
+                _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
+                _object_detail_row("Active searches", str(property_usage["active_total"]), "Search"),
+                _object_detail_row("Completed searches", str(property_usage["completed_total"]), "Search"),
+                _object_detail_row("Partial searches", str(property_usage["partial_total"]), "Coverage"),
+                _object_detail_row("Failed searches", str(property_usage["failed_run_total"]), "Coverage"),
+                _object_detail_row("Provider sources checked", str(property_usage["source_total"]), "Sources"),
+                _object_detail_row("Provider failures", str(property_usage["failed_source_total"]), "Sources"),
+            ],
+            object_sections=[
+                {
+                    "eyebrow": "Search runs",
+                    "title": "Recent run outcomes",
+                    "items": [
+                        _object_detail_row(
+                            f"Run {row['run_id'][:8] or 'latest'}",
+                            f"{row['status']} · {row['ranked']} ranked · {row['filtered']} filtered",
+                            "Search",
+                            href=row["href"],
+                        )
+                        for row in list(property_usage["latest_rows"])
+                    ] or [_object_detail_row("No searches yet", "Launch a search to create the first usage record.", "Search", href="/app/search")],
+                },
+                {
+                    "eyebrow": "Results",
+                    "title": "Shortlist and filtering volume",
+                    "items": [
+                        _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
+                        _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
+                        _object_detail_row("Listings scanned", str(property_usage["listing_total"]), "Sources"),
+                        _object_detail_row("Provider sources checked", str(property_usage["source_total"]), "Sources"),
+                    ],
+                },
+                {
+                    "eyebrow": "Artifacts",
+                    "title": "Dossiers, pages, and 360 tours",
+                    "items": [
+                        _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"),
+                        _object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), "Tour"),
+                        _object_detail_row("Support bundle opened", str(counts.get("support_bundle_opened") or 0), "Support"),
+                        _object_detail_row("Current plan", str(billing.get("current_plan_key") or "free").replace("_", " ").title(), "Plan"),
+                    ],
+                },
+                {
+                    "eyebrow": "Reliability",
+                    "title": "Repair and delivery posture",
+                    "items": [
+                        _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
+                        _object_detail_row("Provider failures", str(property_usage["failed_source_total"]), "Sources"),
+                        _object_detail_row("Repairing sources", str(property_usage["repairing_source_total"]), "Repair"),
+                        _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Provider"),
+                        _object_detail_row("Delivery reliability", str(reliability.get("delivery_reliability_state") or "watch"), "Delivery"),
+                    ],
+                },
+            ],
+        )
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -471,6 +698,7 @@ def settings_support_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    is_property_brand = request_brand(request)["key"] == "propertyquarry"
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -501,6 +729,93 @@ def settings_support_detail(
     public_guide_freshness = dict(product_control.get("public_guide_freshness") or {})
     route_stewardship = dict(product_control.get("provider_route_stewardship") or {})
     journey_highlights = [dict(value) for value in list(product_control.get("journey_highlights") or [])]
+    if is_property_brand:
+        property_usage = _property_search_usage_state(product, principal_id=context.principal_id)
+        return _render_console_object_detail(
+            request=request,
+            context=context,
+            workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
+            page_title="PropertyQuarry support",
+            current_nav="settings",
+            console_title="Support and recovery",
+            console_summary="Support focuses on provider failures, repair status, delivery health, billing posture, and an exportable bundle for this account.",
+            object_kind="Support posture",
+            object_title=str(property_usage["repair_status"]),
+            object_summary=(
+                f"{property_usage['failed_source_total']} provider failures · "
+                f"{property_usage['ranked_total']} ranked homes · "
+                f"{str(billing.get('support_tier') or 'standard').title()} support"
+            ),
+            object_meta=[
+                {"label": "Provider failures", "value": str(property_usage["failed_source_total"])},
+                {"label": "Repairing sources", "value": str(property_usage["repairing_source_total"])},
+                {"label": "Partial runs", "value": str(property_usage["partial_total"])},
+                {"label": "Support tier", "value": str(billing.get("support_tier") or "standard").title()},
+            ],
+            object_sidebar_title="What support answers",
+            object_sidebar_copy="This view answers whether sources failed, whether repair work is active, what results are already usable, and which account bundle support can inspect.",
+            object_sidebar_rows=[
+                _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
+                _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Provider"),
+                _object_detail_row("Health score", str(readiness.get("health_score") or 0), "Runtime"),
+                _object_detail_row("Billing state", str(billing.get("billing_state") or "unknown"), "Billing"),
+                _object_detail_row("Invoice status", str(billing.get("invoice_status") or "unknown"), "Billing"),
+                _object_detail_row("Product status", "No active product advisory.", "Product"),
+                _object_detail_row(
+                    "Support center",
+                    "Open the public support path, or use this page for account-specific provider and repair diagnostics.",
+                    "Support",
+                    action_href="/support",
+                    action_label="Open support",
+                    action_method="get",
+                ),
+            ],
+            object_sections=[
+                {
+                    "eyebrow": "Repair",
+                    "title": "Provider repair and run health",
+                    "items": [
+                        _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
+                        _object_detail_row("Provider failures", str(property_usage["failed_source_total"]), "Sources"),
+                        _object_detail_row("Repairing sources", str(property_usage["repairing_source_total"]), "Repair"),
+                        _object_detail_row("Failed runs", str(property_usage["failed_run_total"]), "Search"),
+                        _object_detail_row("Partial runs", str(property_usage["partial_total"]), "Coverage"),
+                        _object_detail_row("Provider review", "No provider review is currently due." if not str(route_stewardship.get("review_due") or "").strip() else "Provider review is due.", "Provider"),
+                    ],
+                },
+                {
+                    "eyebrow": "Usable results",
+                    "title": "What is ready while support works",
+                    "items": [
+                        _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
+                        _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
+                        _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"),
+                        _object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), "Tour"),
+                    ],
+                },
+                {
+                    "eyebrow": "Account",
+                    "title": "Billing and plan support",
+                    "items": [
+                        _object_detail_row("Support tier", str(billing.get("support_tier") or "standard").title(), "Support"),
+                        _object_detail_row("Billing portal", str(billing.get("billing_portal_state") or "guided").replace("_", " "), "Billing"),
+                        _object_detail_row("Invoice window", str(billing.get("invoice_window_label") or "Not recorded"), "Billing"),
+                        _object_detail_row("Upgrade path", str(commercial.get("upgrade_path_label") or "Stay on current plan"), "Upgrade"),
+                        _object_detail_row("Blocked action message", _propertyquarry_copy(commercial.get("blocked_action_message"), fallback="No current commercial blocks."), "Support"),
+                    ],
+                },
+                {
+                    "eyebrow": "Support checks",
+                    "title": "Account-specific quality checks",
+                    "items": [
+                        _object_detail_row("Fix verification", str(support_verification.get("state") or "not requested").replace("_", " "), "Support"),
+                        _object_detail_row("Product check", str(journey_gate.get("state") or "watch").replace("_", " "), "Product"),
+                        _object_detail_row("Support blocker", "No active support blocker.", "Support"),
+                        _object_detail_row("Provider review", "No provider review is currently due." if not str(route_stewardship.get("review_due") or "").strip() else "Provider review is due.", "Provider"),
+                    ],
+                },
+            ],
+        )
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -610,10 +925,10 @@ def settings_support_detail(
                     + [
                         _object_detail_row(
                             str(action.get("label") or "Action"),
-                            str(action.get("href") or ""),
+                            _propertyquarry_href(action.get("href")) if is_property_brand else str(action.get("href") or ""),
                             "Action",
-                            href=str(action.get("href") or ""),
-                            action_href=str(action.get("href") or ""),
+                            href=_propertyquarry_href(action.get("href")) if is_property_brand else str(action.get("href") or ""),
+                            action_href=_propertyquarry_href(action.get("href")) if is_property_brand else str(action.get("href") or ""),
                             action_label=str(action.get("label") or ""),
                             action_method=str(action.get("method") or "get"),
                         )
@@ -798,6 +1113,7 @@ def settings_outcomes_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    is_property_brand = request_brand(request)["key"] == "propertyquarry"
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -819,6 +1135,82 @@ def settings_outcomes_detail(
     public_guide_freshness = dict(product_control.get("public_guide_freshness") or {})
     route_stewardship = dict(product_control.get("provider_route_stewardship") or {})
     proof_checks = [dict(value) for value in list(office_loop_proof.get("checks") or [])]
+    if is_property_brand:
+        property_usage = _property_search_usage_state(product, principal_id=context.principal_id)
+        return _render_console_object_detail(
+            request=request,
+            context=context,
+            workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
+            page_title="PropertyQuarry outcomes",
+            current_nav="settings",
+            console_title="Outcomes",
+            console_summary="Outcomes track whether searches produced usable ranked homes, whether repair work stayed bounded, and what follow-up artifacts are ready.",
+            object_kind="Outcome posture",
+            object_title=f"{property_usage['ranked_total']} ranked homes",
+            object_summary=(
+                f"{property_usage['completed_total']} completed searches · "
+                f"{property_usage['partial_total']} partial · "
+                f"{property_usage['failed_run_total']} failed"
+            ),
+            object_meta=[
+                {"label": "Ranked homes", "value": str(property_usage["ranked_total"])},
+                {"label": "Completed searches", "value": str(property_usage["completed_total"])},
+                {"label": "Partial searches", "value": str(property_usage["partial_total"])},
+                {"label": "Repair status", "value": str(property_usage["repair_status"])},
+            ],
+            object_sidebar_title="What a healthy search shows",
+            object_sidebar_copy="A healthy PropertyQuarry loop returns ranked homes quickly, keeps hard filters explainable, preserves usable partial results, and makes missing evidence visible.",
+            object_sidebar_rows=[
+                _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
+                _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
+                _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
+                _object_detail_row("Provider failures", str(property_usage["failed_source_total"]), "Sources"),
+                _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
+                _object_detail_row("Churn risk", str(outcomes.get("churn_risk") or "watch").replace("_", " "), "Account"),
+            ],
+            object_sections=[
+                {
+                    "eyebrow": "Search outcomes",
+                    "title": "What the recent searches produced",
+                    "items": [
+                        _object_detail_row("Search runs", str(property_usage["run_total"]), "Search"),
+                        _object_detail_row("Completed searches", str(property_usage["completed_total"]), "Search"),
+                        _object_detail_row("Active searches", str(property_usage["active_total"]), "Search"),
+                        _object_detail_row("Failed searches", str(property_usage["failed_run_total"]), "Search"),
+                    ],
+                },
+                {
+                    "eyebrow": "Result quality",
+                    "title": "Shortlist and rule pressure",
+                    "items": [
+                        _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
+                        _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
+                        _object_detail_row("Listings scanned", str(property_usage["listing_total"]), "Sources"),
+                        _object_detail_row("Provider sources checked", str(property_usage["source_total"]), "Sources"),
+                    ],
+                },
+                {
+                    "eyebrow": "Follow-up",
+                    "title": "Artifacts ready for decisions",
+                    "items": [
+                        _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"),
+                        _object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), "Tour"),
+                        _object_detail_row("Correction rate", str(outcomes.get("correction_rate") or 0), "Learning"),
+                        _object_detail_row("First value event", str(outcomes.get("first_value_event") or "pending").replace("_", " "), "Activation"),
+                    ],
+                },
+                {
+                    "eyebrow": "Quality checks",
+                    "title": "Current product quality signals",
+                    "items": [
+                        _object_detail_row("Product check", str(journey_gate.get("state") or "watch").replace("_", " "), "Product"),
+                        _object_detail_row("Support blocker", "No active support blocker.", "Support"),
+                        _object_detail_row("Provider review", "No provider review is currently due." if not str(route_stewardship.get("review_due") or "").strip() else "Provider review is due.", "Provider"),
+                        _object_detail_row("Search evidence", "Recent search and support events are available for review.", "Evidence"),
+                    ],
+                },
+            ],
+        )
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -1109,12 +1501,18 @@ def settings_google_detail(
         email_link_detail = f"Sent {bundle_label} link to {email_link_email}"
     else:
         email_link_detail = "Google email links are disabled on this product surface. Use direct connect from this device."
-    sync_summary = (
-        f"{connected_account_total} connected inbox{'es' if connected_account_total != 1 else ''} · "
-        f"{str(sync.get('freshness_state') or 'watch').replace('_', ' ')} freshness · "
-        f"{int(sync.get('pending_commitment_candidates') or 0)} pending candidates"
-    )
-    if covered_sync_candidates:
+    if is_property_brand:
+        sync_summary = (
+            f"{connected_account_total} connected Google account{'s' if connected_account_total != 1 else ''} · "
+            f"token {str(sync.get('token_status') or 'missing').replace('_', ' ')}"
+        )
+    else:
+        sync_summary = (
+            f"{connected_account_total} connected inbox{'es' if connected_account_total != 1 else ''} · "
+            f"{str(sync.get('freshness_state') or 'watch').replace('_', ' ')} freshness · "
+            f"{int(sync.get('pending_commitment_candidates') or 0)} pending candidates"
+        )
+    if covered_sync_candidates and not is_property_brand:
         sync_summary = f"{sync_summary} · {covered_sync_candidates} covered by drafts"
     if sync_error:
         last_manual_sync_detail = sync_error
@@ -1233,11 +1631,15 @@ def settings_google_detail(
                 ]
                 or [
                     _object_detail_row(
-                        "No connected inboxes",
-                        "Attach a Google inbox before the memo, queue, and approval loop can use live workspace signals.",
+                        "No connected Google account",
+                        (
+                            "Connect Google when you want account sign-in and verified delivery from this device."
+                            if is_property_brand
+                            else "Attach a Google inbox before the memo, queue, and approval loop can use live workspace signals."
+                        ),
                         "Empty",
                         action_href=connect_another_href,
-                        action_label="Connect inbox",
+                        action_label="Connect Google" if is_property_brand else "Connect inbox",
                         action_method="get",
                     )
                 ],
@@ -1278,6 +1680,7 @@ def settings_trust_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    is_property_brand = request_brand(request)["key"] == "propertyquarry"
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -1293,6 +1696,9 @@ def settings_trust_detail(
     reliability = dict(trust.get("reliability") or {})
     public_help_grounding = dict(trust.get("public_help_grounding") or {})
     recent_events = [dict(item) for item in (trust.get("recent_events") or [])]
+    workspace_summary = str(trust.get("workspace_summary") or "Trust")
+    if is_property_brand and "office loop" in workspace_summary.lower():
+        workspace_summary = "Review support diagnostics before the next property search."
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -1300,9 +1706,13 @@ def settings_trust_detail(
         page_title="PropertyQuarry trust",
         current_nav="settings",
         console_title="Trust",
-        console_summary="Evidence, rules, readiness, provider posture, and recent product events make the assistant legible when the office asks why something happened.",
+        console_summary=(
+            "Evidence, rules, readiness, provider posture, and recent product events make PropertyQuarry legible when a search needs explanation."
+            if is_property_brand
+            else "Evidence, rules, readiness, provider posture, and recent product events make the assistant legible when the office asks why something happened."
+        ),
         object_kind="Trust posture",
-        object_title=str(trust.get("workspace_summary") or "Trust"),
+        object_title=workspace_summary,
         object_summary=f"Health score {trust.get('health_score') or 0} · {trust.get('evidence_count') or 0} evidence items · {trust.get('rule_count') or 0} rules",
         object_meta=[
             {"label": "Health score", "value": str(trust.get("health_score") or 0)},
@@ -1313,7 +1723,7 @@ def settings_trust_detail(
         object_sidebar_title="What makes this trustworthy",
         object_sidebar_copy="Trust is the product of clear readiness, understandable provider posture, reliable delivery, visible rules, and recent evidence of what the system actually did.",
         object_sidebar_rows=[
-            _object_detail_row("Summary", str(trust.get("workspace_summary") or "No trust summary yet."), "Summary"),
+            _object_detail_row("Summary", workspace_summary if workspace_summary != "Trust" else "No trust summary yet.", "Summary"),
             _object_detail_row("Readiness", str(readiness.get("detail") or "No readiness detail recorded."), "Runtime"),
             _object_detail_row("Provider risk", str(provider_posture.get("risk_state") or "unknown"), "Provider"),
             _object_detail_row("Delivery reliability", str(reliability.get("delivery") or "watch"), "Runtime"),
@@ -1362,23 +1772,27 @@ def settings_trust_detail(
                     + [
                         _object_detail_row(
                             str(action.get("label") or "Action"),
-                            str(action.get("href") or ""),
+                            _propertyquarry_href(action.get("href")) if is_property_brand else str(action.get("href") or ""),
                             "Action",
-                            href=str(action.get("href") or ""),
-                            action_href=str(action.get("href") or ""),
+                            href=_propertyquarry_href(action.get("href")) if is_property_brand else str(action.get("href") or ""),
+                            action_href=_propertyquarry_href(action.get("href")) if is_property_brand else str(action.get("href") or ""),
                             action_label=str(action.get("label") or ""),
                             action_method=str(action.get("method") or "get"),
                         )
                         for action in list(public_help_grounding.get("actions") or [])[:2]
                     ]
-                    + [
-                        _object_detail_row(
-                            str(source.get("label") or "Source"),
-                            str(source.get("path") or ""),
-                            str(source.get("as_of") or "Source"),
-                        )
-                        for source in list(public_help_grounding.get("sources") or [])[:2]
-                    ]
+                    + (
+                        []
+                        if is_property_brand
+                        else [
+                            _object_detail_row(
+                                str(source.get("label") or "Source"),
+                                str(source.get("path") or ""),
+                                str(source.get("as_of") or "Source"),
+                            )
+                            for source in list(public_help_grounding.get("sources") or [])[:2]
+                        ]
+                    )
                 ),
             },
             {
@@ -1403,6 +1817,7 @@ def settings_access_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    is_property_brand = request_brand(request)["key"] == "propertyquarry"
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -1447,7 +1862,18 @@ def settings_access_detail(
             {"label": "Active sessions", "value": str(len(active_sessions))},
             {"label": "Access opens", "value": str(total_opens)},
             {"label": "Revoked sessions", "value": str(len(revoked_sessions))},
-            {"label": "Role mix", "value": ", ".join(sorted({str(item.get('role') or 'principal') for item in active_sessions} or {'principal'}))},
+            {
+                "label": "Role mix",
+                "value": ", ".join(
+                    sorted(
+                        {
+                            ("collaborator" if is_property_brand and str(item.get("role") or "principal") == "operator" else str(item.get("role") or "principal"))
+                            for item in active_sessions
+                        }
+                        or {"account owner" if is_property_brand else "principal"}
+                    )
+                ),
+            },
         ],
         object_sidebar_title="What this makes easy",
         object_sidebar_copy="Access stays reviewable in product language: who still has a live link, where it lands, and whether an old session has been revoked cleanly.",
@@ -1455,8 +1881,8 @@ def settings_access_detail(
             _object_detail_row("Active sessions", str(len(active_sessions)), "Access"),
             _object_detail_row("Access opens", str(total_opens), "Telemetry"),
             _object_detail_row("Revoked sessions", str(len(revoked_sessions)), "Access"),
-            _object_detail_row("Default operator target", "/admin/office", "Operators"),
-            _object_detail_row("Default principal target", "/app/properties", "Principal"),
+            _object_detail_row("Default collaborator target" if is_property_brand else "Default operator target", "/app/agents" if is_property_brand else "/admin/office", "Access"),
+            _object_detail_row("Default account target" if is_property_brand else "Default principal target", "/app/properties", "Access"),
             _object_detail_row("Latest access action", access_detail, "Access"),
             _object_detail_row(
                 "Latest revocation",
@@ -1471,7 +1897,14 @@ def settings_access_detail(
                 "items": [
                     _object_detail_row(
                         str(item.get("email") or "unknown"),
-                        f"{str(item.get('role') or 'principal').replace('_', ' ')} · {str(item.get('default_target') or '/app/properties')} · expires {str(item.get('expires_at') or '')[:19] or 'n/a'}",
+                        (
+                            (
+                                "collaborator"
+                                if is_property_brand and str(item.get("role") or "principal").strip() == "operator"
+                                else ("account owner" if is_property_brand else str(item.get("role") or "principal").replace("_", " "))
+                            )
+                            + f" · {('/app/agents' if is_property_brand and str(item.get('default_target') or '') == '/admin/office' else str(item.get('default_target') or '/app/properties'))} · expires {str(item.get('expires_at') or '')[:19] or 'n/a'}"
+                        ),
                         str(item.get("source_kind") or "workspace_access").replace("_", " ").title(),
                         action_href=f"/app/actions/access-sessions/{urllib.parse.quote(str(item.get('session_id') or '').strip(), safe='')}/revoke",
                         action_label="Revoke",
@@ -1482,7 +1915,7 @@ def settings_access_detail(
                         secondary_action_method="get",
                     )
                     for item in active_sessions[:12]
-                ] or [_object_detail_row("No active access sessions", "Issue a workspace access link when someone needs direct entry into the workspace.", "Clear")],
+                ] or [_object_detail_row("No active access sessions", "Issue an account access link when someone needs direct entry into PropertyQuarry.", "Clear")],
             },
             {
                 "eyebrow": "Recently revoked",
@@ -1502,7 +1935,7 @@ def settings_access_detail(
             "method": "post",
             "eyebrow": "Issue access",
             "title": "Create an access link",
-            "copy": "Issue a direct principal or operator access link without dropping into the API.",
+            "copy": "Issue a direct account or collaborator access link without dropping into the API.",
             "submit_label": "Issue access link",
             "fields": [
                 {"type": "hidden", "name": "return_to", "value": "/app/settings/access"},
@@ -1513,8 +1946,8 @@ def settings_access_detail(
                     "type": "select",
                     "value": "principal",
                     "options": [
-                        {"label": "Principal", "value": "principal", "selected": True},
-                        {"label": "Operator", "value": "operator"},
+                        {"label": "Account owner" if is_property_brand else "Principal", "value": "principal", "selected": True},
+                        {"label": "Collaborator" if is_property_brand else "Operator", "value": "operator"},
                     ],
                 },
                 {"label": "Display name", "name": "display_name", "type": "text", "value": "", "placeholder": "Workspace entry"},
@@ -1529,6 +1962,7 @@ def settings_invitations_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    is_property_brand = request_brand(request)["key"] == "propertyquarry"
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -1563,7 +1997,11 @@ def settings_invitations_detail(
         page_title="PropertyQuarry invitations",
         current_nav="settings",
         console_title="Invitations",
-        console_summary="Pending invites, accepted roles, and revoked access stay visible where the workspace decides who joins the office loop.",
+        console_summary=(
+            "Pending invites, accepted collaborators, and revoked access stay visible where PropertyQuarry manages shared searches."
+            if is_property_brand
+            else "Pending invites, accepted roles, and revoked access stay visible where the workspace decides who joins the office loop."
+        ),
         object_kind="Invitation posture",
         object_title=f"{len(pending)} pending invitations",
         object_summary=f"{len(accepted)} accepted · {len(revoked)} revoked",
@@ -1581,7 +2019,11 @@ def settings_invitations_detail(
             _object_detail_row("Revoked invitations", str(len(revoked)), "Invites"),
             _object_detail_row("Invite emails sent", str(delivery_sent), "Delivery"),
             _object_detail_row("Invite email failures", str(delivery_failed), "Delivery"),
-            _object_detail_row("Operator seat policy", "Operator seats are enforced at acceptance time.", "Seats"),
+            _object_detail_row(
+                "Collaborator access policy" if is_property_brand else "Operator seat policy",
+                "Collaborator limits are enforced at acceptance time." if is_property_brand else "Operator seats are enforced at acceptance time.",
+                "Access" if is_property_brand else "Seats",
+            ),
             _object_detail_row("Latest invite action", invite_action_detail, "Invites"),
             _object_detail_row(
                 "Latest revoke action",

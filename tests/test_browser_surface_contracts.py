@@ -63,6 +63,20 @@ def _internal_links(html: str) -> list[str]:
     return [ref for ref in refs if ref.startswith("/") and not ref.startswith("//")]
 
 
+def _visible_text(html: str) -> str:
+    without_script = re.sub(r"<(script|style)[\s\S]*?</\1>", " ", html, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", without_script)).strip().lower()
+
+
+def _assert_internal_links_resolve(client: TestClient, *, source_path: str, html: str) -> None:
+    for href in _internal_links(html):
+        if href.startswith("/app/actions/") or href.startswith("/sign-out"):
+            continue
+        request_href = href.split("#", 1)[0] or "/"
+        linked = client.get(request_href, headers={"host": "propertyquarry.com", "accept": "text/html"}, follow_redirects=False)
+        assert linked.status_code in {200, 303, 307}, f"{source_path} links to {href} -> {linked.status_code}"
+
+
 def test_public_surface_routes_render_and_keep_product_language() -> None:
     client = _client()
     for path in PUBLIC_ROUTES:
@@ -121,6 +135,69 @@ def test_app_surface_routes_render_without_product_drift() -> None:
     assert str(settings.url).endswith("/app/account")
     assert "Useful account controls" in settings.text
     assert "Identity, plan, delivery, and editable defaults." in settings.text
+
+
+def test_propertyquarry_management_settings_use_property_language() -> None:
+    client = _client(principal_id="exec-property-settings-language")
+    banned_terms = (
+        "office loop",
+        "memo",
+        "commitment",
+        "handoff",
+        "draft",
+        "operator load",
+        "queue items",
+        "operator seats",
+        "principal seats",
+    )
+    paths = (
+        "/app/settings/usage",
+        "/app/settings/support",
+        "/app/settings/trust",
+        "/app/settings/google",
+        "/app/settings/access",
+        "/app/settings/invitations",
+        "/app/settings/outcomes",
+    )
+    for path in paths:
+        response = client.get(path, headers={"host": "propertyquarry.com", "accept": "text/html"})
+        assert response.status_code == 200, path
+        text = _visible_text(response.text)
+        for term in banned_terms:
+            assert term not in text, f"{path} leaked {term!r}"
+        _assert_internal_links_resolve(client, source_path=path, html=response.text)
+
+    usage = client.get("/app/settings/usage", headers={"host": "propertyquarry.com", "accept": "text/html"})
+    assert "Ranked homes" in usage.text
+    assert "Provider sources checked" in usage.text
+    assert "Repair status" in usage.text
+
+
+def test_propertyquarry_core_surface_internal_links_resolve() -> None:
+    client = _client(principal_id="exec-property-core-link-contract")
+    paths = (
+        "/",
+        "/product",
+        "/pricing",
+        "/security",
+        "/support",
+        "/privacy",
+        "/terms",
+        "/imprint",
+        "/cookies",
+        "/register",
+        "/sign-in",
+        "/app/search",
+        "/app/properties",
+        "/app/shortlist",
+        "/app/agents",
+        "/app/account",
+        "/app/billing",
+    )
+    for path in paths:
+        response = client.get(path, headers={"host": "propertyquarry.com", "accept": "text/html"}, follow_redirects=True)
+        assert response.status_code == 200, path
+        _assert_internal_links_resolve(client, source_path=path, html=response.text)
 
 
 def test_legacy_app_aliases_redirect_to_canonical_routes() -> None:
