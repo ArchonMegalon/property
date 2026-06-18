@@ -16,8 +16,6 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
         top_level_facts = {**top_level_facts, **dict(candidate.get("property_facts_json") or {})}
     snapshot = dict(top_level_facts.get("listing_research_snapshot") or {}) if isinstance(top_level_facts.get("listing_research_snapshot"), dict) else {}
     merged = {**snapshot, **top_level_facts}
-    if not snapshot:
-        return merged
 
     def _normalized(value: object) -> str:
         return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
@@ -32,6 +30,46 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
     if source_postal_code and source_city:
         source_scope_candidates.add(_normalized(f"{source_postal_code} {source_city}"))
     source_scope_candidates.discard("")
+
+    listing_text = " ".join(
+        part
+        for part in (
+            str(candidate.get("title") or "").strip(),
+            str(candidate.get("listing_title") or "").strip(),
+            str(candidate.get("summary") or "").strip(),
+        )
+        if part
+    )
+    listing_postal_name = ""
+    listing_postal_code = ""
+    postal_match = re.search(
+        r"\b(?P<code>[1-9]\d{3})\s+(?P<locality>[A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-/]{1,60})",
+        listing_text,
+        flags=re.IGNORECASE,
+    )
+    if postal_match:
+        listing_postal_code = str(postal_match.group("code") or "").strip()
+        locality = re.sub(
+            r"\s+(?:m(?:²|2)|sqm|zimmer|rooms?|eur|€|usd|der\s+standard|willhaben|immobilien)\b.*$",
+            "",
+            str(postal_match.group("locality") or "").strip(),
+            flags=re.IGNORECASE,
+        ).strip(" ,.;:-")
+        if locality:
+            listing_postal_name = f"{listing_postal_code} {locality}"
+    if listing_postal_name and (
+        not str(merged.get("postal_name") or "").strip()
+        or _normalized(merged.get("postal_name")) in source_scope_candidates
+        or (source_postal_code and listing_postal_code and source_postal_code != listing_postal_code)
+    ):
+        merged["postal_name"] = listing_postal_name
+        for key in ("district", "location", "address", "city"):
+            current = str(merged.get(key) or "").strip()
+            if not current or _normalized(current) in source_scope_candidates or (source_postal_code and listing_postal_code and source_postal_code != listing_postal_code):
+                merged[key] = listing_postal_name
+
+    if not snapshot:
+        return merged
 
     def _is_scope_placeholder(value: object) -> bool:
         normalized_value = _normalized(value)

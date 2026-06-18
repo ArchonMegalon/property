@@ -110,6 +110,26 @@ def test_property_candidate_google_maps_url_prefers_listing_snapshot_locality_ov
     assert "Brunnthalgasse%201B%2C%201020%20Wien" in url
 
 
+def test_property_candidate_google_maps_url_uses_listing_text_postal_over_dirty_source_scope() -> None:
+    candidate = {
+        "title": "Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | € 1.090 | DER STANDARD",
+        "summary": "2-Zimmer Wohnung mit Traumblick / UNO und U-Bahn ums Eck in 1220 Wien.",
+        "property_facts": {
+            "postal_name": "1010 Vienna",
+            "district": "1010 Vienna",
+            "address": "1010 Vienna",
+            "source_scope_location": "1010 Vienna",
+            "source_postal_code": "1010",
+            "source_city": "Vienna",
+        },
+    }
+
+    url = _property_candidate_google_maps_url(candidate)
+
+    assert "1220%20Wien" in url
+    assert "1010%20Vienna" not in url
+
+
 def test_property_worker_caps_follow_plan() -> None:
     assert property_worker_cap("free") == 1
     assert property_worker_cap("plus") == 2
@@ -3564,9 +3584,9 @@ def test_hosted_live_provider_tour_manifest_keeps_safe_embed_without_private_lis
     public_manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
     private_manifest = json.loads((bundle_dir / "tour.private.json").read_text(encoding="utf-8"))
 
-    assert public_manifest["source_virtual_tour_url"] == live_url
-    assert public_manifest["source_virtual_tour_origin"] == live_url
-    assert public_manifest["matterport_url"] == live_url
+    assert "source_virtual_tour_url" not in public_manifest
+    assert "source_virtual_tour_origin" not in public_manifest
+    assert "matterport_url" not in public_manifest
     assert public_manifest["control_mode"] == "matterport"
     assert public_manifest["scenes"][0]["role"] == "live_360"
     serialized_public_manifest = json.dumps(public_manifest, sort_keys=True)
@@ -3587,6 +3607,9 @@ def test_hosted_live_provider_tour_manifest_keeps_safe_embed_without_private_lis
     ):
         assert private_marker not in serialized_public_manifest
     assert private_manifest["property_url"].endswith("adId=matterport-writer-1")
+    assert private_manifest["source_virtual_tour_url"] == live_url
+    assert private_manifest["source_virtual_tour_origin"] == live_url
+    assert private_manifest["matterport_url"] == live_url
 
     client = build_property_client(principal_id="exec-live-provider-page")
     page = client.get(f"/tours/{payload['slug']}", headers={"host": "propertyquarry.com"})

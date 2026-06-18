@@ -106,6 +106,27 @@ def test_propertyquarry_candidate_display_facts_prefer_listing_locality_over_sou
     assert facts["address"] == "1020 Wien"
 
 
+def test_propertyquarry_candidate_display_facts_use_listing_postal_over_dirty_source_scope_without_snapshot() -> None:
+    candidate = {
+        "title": "Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | € 1.090 | DER STANDARD",
+        "summary": "2-Zimmer Wohnung mit Traumblick / UNO und U-Bahn ums Eck in 1220 Wien.",
+        "property_facts": {
+            "postal_name": "1010 Vienna",
+            "district": "1010 Vienna",
+            "address": "1010 Vienna",
+            "source_scope_location": "1010 Vienna",
+            "source_postal_code": "1010",
+            "source_city": "Vienna",
+        },
+    }
+
+    facts = landing_property_workspace_helpers._property_candidate_display_facts(candidate)
+
+    assert facts["postal_name"] == "1220 Wien"
+    assert facts["district"] == "1220 Wien"
+    assert facts["address"] == "1220 Wien"
+
+
 def test_propertyquarry_shortlist_does_not_surface_willhaben_tracking_endpoint_as_provider_360() -> None:
     body = _read_workbench_bundle()
     assert "api.willhaben.at/restapi/v2/logevent" not in body
@@ -1929,6 +1950,55 @@ def test_property_workspace_payload_excludes_ranked_candidates_without_concrete_
     assert payload["decision_workbench"]["results"] == []
 
 
+def test_property_workspace_payload_excludes_dirty_source_scope_when_listing_text_has_other_postal() -> None:
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "shortlist",
+        status={},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+            },
+            "run": {
+                "run_id": "run-dirty-source-scope",
+                "property_search_preferences": {
+                    "listing_mode": "rent",
+                    "search_goal": "home",
+                    "location_query": "1010 Vienna",
+                },
+                "summary": {
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "candidate-1220",
+                            "title": "Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | € 1.090 | DER STANDARD",
+                            "summary": "2-Zimmer Wohnung mit Traumblick / UNO und U-Bahn ums Eck in 1220 Wien.",
+                            "property_url": "https://immobilien.derstandard.at/detail/wohnung-mieten-in-1220-wien",
+                            "source_label": "DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
+                            "fit_score": 82,
+                            "property_facts": {
+                                "postal_name": "1010 Vienna",
+                                "district": "1010 Vienna",
+                                "source_scope_location": "1010 Vienna",
+                                "source_postal_code": "1010",
+                                "source_city": "Vienna",
+                                "rent_display": "€ 1.090",
+                                "area_m2": 60,
+                                "rooms": 2,
+                            },
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    assert payload["decision_workbench"]["results"] == []
+
+
 def test_property_workbench_no_longer_embeds_vienna_district_mapping_js() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
     body = template_path.read_text(encoding="utf-8")
@@ -3551,6 +3621,8 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert ".pqx-automation-thumbnail" in template
     assert ".pqx-automation-delete" in template
     assert ".pqx-automation-card" in template
+    assert 'pqx-automation-scope-empty--fallback' in template
+    assert 'transform: scale(1.56);' in template
     assert "grid-template-columns: minmax(150px, 0.38fr) minmax(0, 1fr);" in template
     assert ".pqx-automation-table" not in template
     assert '.pqx-shell[data-pqx-surface="agents"] .pqx-mobile-switch' in template

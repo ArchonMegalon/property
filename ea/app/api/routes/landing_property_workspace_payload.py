@@ -1399,9 +1399,19 @@ def property_workspace_payload(
         requested_postal_codes = {code for value in selected_locations for code in re.findall(r"\b\d{4}\b", str(value or ""))}
         if not requested_postal_codes:
             return True
+        listing_text = " ".join(
+            part for part in (
+                str(candidate.get("title") or "").strip(),
+                str(candidate.get("summary") or "").strip(),
+            ) if part
+        )
+        listing_postal_codes = set(re.findall(r"\b\d{4}\b", listing_text))
+        if listing_postal_codes:
+            return bool(listing_postal_codes & requested_postal_codes)
         concrete_text = " ".join(
             part for part in (
                 str(candidate.get("title") or "").strip(),
+                str(candidate.get("summary") or "").strip(),
                 str(candidate.get("property_url") or "").strip(),
                 str(facts.get("district") or "").strip(),
                 str(facts.get("postal_name") or "").strip(),

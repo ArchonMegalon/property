@@ -4913,7 +4913,7 @@ def public_tour_page(
 ) -> HTMLResponse:
     hostname = request_hostname(request)
     try:
-        payload = _load_tour(slug)
+        payload = _load_tour_with_private_receipt(slug)
         _require_public_tour_viewable(payload)
         if _tour_payload_is_disabled_fallback(payload):
             raise HTTPException(status_code=404, detail="tour_disabled_fallback")
