@@ -60,5 +60,23 @@
       </div>
       <a class="pqx-link-button" href="{{ security_item.value.get('action_href') or '/security' }}">{{ security_item.value.get('action_label') or 'Open security' }}</a>
     </section>
+
+    <section class="pqx-account-action-card" id="data-export">
+      <div>
+        <span class="pqx-small">Data</span>
+        <h2>Export account data</h2>
+        <p>Download the saved search preferences, recent run summaries, delivery posture, and access-session receipts held for this account.</p>
+      </div>
+      <a class="pqx-link-button" href="/app/api/property/account/export?download=1">Export data</a>
+    </section>
+
+    <section class="pqx-account-action-card" id="access-links">
+      <div>
+        <span class="pqx-small">Access</span>
+        <h2>Access links</h2>
+        <p>Issue or revoke workspace access links from a product page instead of using support tooling.</p>
+      </div>
+      <a class="pqx-link-button" href="/app/settings/access">Manage access links</a>
+    </section>
   </div>
 </section>

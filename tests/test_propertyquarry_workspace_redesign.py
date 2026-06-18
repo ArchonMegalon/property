@@ -5176,6 +5176,38 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Office signals ingested" not in account.text
 
 
+def test_propertyquarry_account_exposes_working_lifecycle_controls() -> None:
+    principal_id = "pq-account-lifecycle-controls"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Lifecycle Controls")
+    headers = {"host": "propertyquarry.com"}
+
+    account = client.get("/app/account", headers=headers)
+    assert account.status_code == 200
+    assert "Export account data" in account.text
+    assert 'href="/app/api/property/account/export?download=1"' in account.text
+    assert "Manage access links" in account.text
+    assert 'href="/app/settings/access"' in account.text
+
+    export = client.get("/app/api/property/account/export", headers=headers)
+    assert export.status_code == 200
+    payload = export.json()
+    assert payload["export_type"] == "propertyquarry_account_data"
+    assert payload["principal_id"] == principal_id
+    assert isinstance(payload["property_search_preferences"], dict)
+    assert isinstance(payload["recent_property_search_runs"], list)
+    assert "access_token" not in json.dumps(payload)
+
+    download = client.get("/app/api/property/account/export?download=1", headers=headers)
+    assert download.status_code == 200
+    assert download.headers["cache-control"] == "no-store"
+    assert "propertyquarry-account-export" in download.headers["content-disposition"]
+
+    access = client.get("/app/settings/access", headers=headers)
+    assert access.status_code == 200
+    assert "Access" in access.text
+
+
 def test_propertyquarry_account_does_not_embed_full_raw_preference_payload() -> None:
     large_note = "oversized-preference-payload-" + ("x" * 250_000)
     payload = landing_property_workspace_payload.property_workspace_payload(

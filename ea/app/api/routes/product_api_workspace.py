@@ -33,6 +33,45 @@ def _support_bundle_download_filename(bundle: dict[str, object]) -> str:
     return f"{slug}-support-bundle-{stamp}.json"
 
 
+def _property_account_export_filename(bundle: dict[str, object]) -> str:
+    workspace = dict(bundle.get("workspace") or {})
+    raw_name = str(workspace.get("name") or "propertyquarry").strip().lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", raw_name).strip("-") or "propertyquarry"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return f"{slug}-propertyquarry-account-export-{stamp}.json"
+
+
+def _property_account_export_run(row: dict[str, object]) -> dict[str, object]:
+    summary = dict(row.get("summary") or {}) if isinstance(row.get("summary"), dict) else {}
+    return {
+        "run_id": str(row.get("run_id") or "").strip(),
+        "status": str(row.get("status") or summary.get("status") or "").strip(),
+        "status_label": str(row.get("status_label") or summary.get("status_label") or "").strip(),
+        "created_at": str(row.get("created_at") or "").strip(),
+        "updated_at": str(row.get("updated_at") or "").strip(),
+        "progress": row.get("progress"),
+        "message": str(row.get("message") or "").strip(),
+        "summary": summary,
+        "property_search_preferences": dict(row.get("property_search_preferences") or {})
+        if isinstance(row.get("property_search_preferences"), dict)
+        else {},
+    }
+
+
+def _property_account_export_session(row: dict[str, object]) -> dict[str, object]:
+    return {
+        "session_id": str(row.get("session_id") or "").strip(),
+        "email": str(row.get("email") or "").strip(),
+        "role": str(row.get("role") or "").strip(),
+        "status": str(row.get("status") or "").strip(),
+        "source_kind": str(row.get("source_kind") or "").strip(),
+        "default_target": str(row.get("default_target") or "").strip(),
+        "expires_at": str(row.get("expires_at") or "").strip(),
+        "issued_at": str(row.get("issued_at") or "").strip(),
+        "revoked_at": str(row.get("revoked_at") or "").strip(),
+    }
+
+
 @router.post("/settings/morning-memo", response_model=WorkspaceDiagnosticsOut)
 def update_workspace_morning_memo_settings(
     body: WorkspaceMorningMemoSettingsIn,
@@ -75,6 +114,53 @@ def update_workspace_morning_memo_settings(
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
     return WorkspaceDiagnosticsOut(**service.workspace_diagnostics(principal_id=context.principal_id))
+
+
+@router.get("/property/account/export")
+def export_property_account_data(
+    download: bool = Query(False),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> JSONResponse:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    service.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="property_account_export_downloaded" if download else "property_account_export_opened",
+        surface="property_account_export",
+        actor=actor,
+    )
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {}) if isinstance(status.get("workspace"), dict) else {}
+    recent_runs = [
+        _property_account_export_run(dict(row))
+        for row in service.list_property_search_runs(principal_id=context.principal_id, limit=100)
+        if isinstance(row, dict)
+    ]
+    access_sessions = [
+        _property_account_export_session(dict(row))
+        for row in service.list_workspace_access_sessions(principal_id=context.principal_id, status="", limit=100)
+        if isinstance(row, dict)
+    ]
+    bundle: dict[str, object] = {
+        "export_type": "propertyquarry_account_data",
+        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "principal_id": str(context.principal_id or "").strip(),
+        "workspace": workspace,
+        "selected_channels": list(status.get("selected_channels") or []),
+        "privacy": dict(status.get("privacy") or {}) if isinstance(status.get("privacy"), dict) else {},
+        "delivery_preferences": dict(status.get("delivery_preferences") or {}) if isinstance(status.get("delivery_preferences"), dict) else {},
+        "property_search_preferences": dict(status.get("property_search_preferences") or {}) if isinstance(status.get("property_search_preferences"), dict) else {},
+        "recent_property_search_runs": recent_runs,
+        "workspace_access_sessions": access_sessions,
+    }
+    headers = {
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+    }
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{_property_account_export_filename(bundle)}"'
+    return JSONResponse(content=bundle, headers=headers)
 
 
 @router.get("/diagnostics", response_model=WorkspaceDiagnosticsOut)
