@@ -1247,7 +1247,7 @@
         || 0
       );
       const summaryLabel = investmentSearch ? 'ranked opportunities' : 'ranked homes';
-      const filteredLabel = filteredTotal > 0 ? `<button class="pqx-results-summary-link pqx-results-filter-link" type="button" data-pqx-filtered-open aria-label="${escapeHtml(filteredTotal)} filtered">${escapeHtml(filteredTotal)} filtered</button>` : '';
+      const filteredLabel = filteredTotal > 0 ? `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="${escapeHtml(filteredTotal)} filtered">${escapeHtml(filteredTotal)} filtered</a>` : '';
       const filteredBreakdown = filteredTotal > 0 ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
             <summary><strong>Filtered by rules: How this search was filtered</strong></summary>

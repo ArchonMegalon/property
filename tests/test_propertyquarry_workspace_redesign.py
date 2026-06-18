@@ -3993,6 +3993,8 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
 
     assert "data-pqx-filtered-open" in body
     assert 'href="#pqx-filtered-breakdown"' in body
+    assert '<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open' in body
+    assert '<button class="pqx-results-summary-link pqx-results-filter-link" type="button" data-pqx-filtered-open' not in body
     assert "pqx-results-filter-link" in body
     assert "filtered" in body
     assert "const filteredDialogHasActions = () => Boolean(filteredDialog?.querySelector('.pqx-filtered-dialog-rule'));" in body
