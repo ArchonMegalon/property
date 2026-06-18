@@ -151,6 +151,16 @@ def test_unauthenticated_browser_app_navigation_redirects_to_sign_in() -> None:
     assert response.status_code == 303
     assert response.headers["location"] == "/sign-in?return_to=%2Fapp%2Fproperties"
 
+    deep_link = client.get(
+        "/app/properties?run_id=5139bf4532e64edb95534684bf8b620a",
+        headers={"accept": "text/html"},
+        follow_redirects=False,
+    )
+    assert deep_link.status_code == 303
+    assert deep_link.headers["location"] == (
+        "/sign-in?return_to=%2Fapp%2Fproperties%3Frun_id%3D5139bf4532e64edb95534684bf8b620a"
+    )
+
 
 def test_unauthenticated_api_calls_still_return_json_auth_error() -> None:
     os.environ["EA_STORAGE_BACKEND"] = "memory"

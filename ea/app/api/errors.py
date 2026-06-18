@@ -109,7 +109,9 @@ def _browser_auth_redirect(request: Request, *, code: str) -> RedirectResponse |
     wants_html = "text/html" in accept or sec_fetch_dest == "document"
     if not wants_html:
         return None
-    target = "/sign-in?" + urllib.parse.urlencode({"return_to": path})
+    query = str(request.url.query or "").strip()
+    return_to = f"{path}?{query}" if query else path
+    target = "/sign-in?" + urllib.parse.urlencode({"return_to": return_to})
     response = RedirectResponse(target, status_code=303)
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
     return response
