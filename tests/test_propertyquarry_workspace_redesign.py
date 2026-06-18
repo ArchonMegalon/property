@@ -5160,6 +5160,100 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Office signals ingested" not in account.text
 
 
+def test_propertyquarry_account_does_not_embed_full_raw_preference_payload() -> None:
+    large_note = "oversized-preference-payload-" + ("x" * 250_000)
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "account",
+        status={
+            "workspace": {"name": "Property Office", "timezone": "Europe/Vienna"},
+            "channels": {},
+        },
+        property_state={
+            "country_label": "Austria",
+            "region_label": "Vienna",
+            "preferences": {
+                "country_code": "AT",
+                "region_code": "vienna",
+                "location_query": "1020 Vienna",
+                "listing_mode": "rent",
+                "property_type": "apartment",
+                "raw_preferences": {"notes": large_note},
+                "search_agents": [
+                    {
+                        "agent_id": "agent-large",
+                        "name": "Large saved search",
+                        "preferences_json": {"notes": large_note},
+                    }
+                ],
+                "property_commercial": {"debug": large_note},
+            },
+            "preference_bundle": {},
+            "commercial": {},
+            "billing_truth": {},
+            "selected_platforms": ["willhaben"],
+            "run": {},
+            "run_health": {},
+        },
+    )
+
+    workbench = dict(payload.get("decision_workbench") or {})
+    brief_preferences = dict(workbench.get("brief_preferences") or {})
+    encoded = json.dumps(brief_preferences, sort_keys=True)
+    assert "oversized-preference-payload" not in encoded
+    assert set(brief_preferences) <= {
+        "country_code",
+        "region_code",
+        "location_query",
+        "listing_mode",
+        "property_type",
+        "property_types",
+        "search_goal",
+        "investment_strategy",
+        "keywords",
+        "selected_platforms",
+    }
+
+
+def test_propertyquarry_agents_page_trims_saved_search_edit_payloads() -> None:
+    large_note = "oversized-agent-payload-" + ("x" * 250_000)
+    client = build_property_client(principal_id="pq-agent-payload-trim")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    response = client.post(
+        "/v1/onboarding/property-search/preferences",
+        headers={"host": "propertyquarry.com"},
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1020 Vienna",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "search_agents": [
+                {
+                    "agent_id": "agent-large",
+                    "name": "Large saved search",
+                    "enabled": True,
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "location_query": "1020 Vienna",
+                        "listing_mode": "rent",
+                        "property_type": "apartment",
+                        "notes": large_note,
+                        "raw_preferences": {"notes": large_note},
+                    },
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200
+
+    agents = client.get("/app/agents", headers={"host": "propertyquarry.com"})
+    assert agents.status_code == 200
+    assert "Large saved search" in agents.text
+    assert "oversized-agent-payload" not in agents.text
+    assert len(agents.text) < 900_000
+
+
 def test_property_workspace_primary_internal_links_resolve() -> None:
     principal_id = "pq-primary-link-audit"
     client = build_property_client(principal_id=principal_id)

@@ -160,6 +160,24 @@ def property_workspace_payload(
         brief_preferences_payload.pop("raw_preferences", None)
         brief_preferences_payload.pop("search_agents", None)
         brief_preferences_payload.pop("property_commercial", None)
+    elif normalized_section in {"agents", "account", "settings", "billing"}:
+        static_brief_keys = {
+            "country_code",
+            "region_code",
+            "location_query",
+            "listing_mode",
+            "property_type",
+            "property_types",
+            "search_goal",
+            "investment_strategy",
+            "keywords",
+            "selected_platforms",
+        }
+        brief_preferences_payload = {
+            key: value
+            for key, value in brief_preferences_payload.items()
+            if key in static_brief_keys
+        }
     run_health = dict(property_state.get("run_health") or {})
     run_events = list(run_payload.get("events") or [])
     raw_run_summary = dict(run_payload.get("summary") or {})

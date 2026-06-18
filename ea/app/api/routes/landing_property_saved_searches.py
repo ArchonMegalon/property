@@ -18,10 +18,43 @@ def _positive_int(value: object, *, default: int = 0) -> int:
 
 
 def _safe_agent_load_payload(value: dict[str, object]) -> dict[str, object]:
+    blocked_keys = {
+        "active_search_agent_id",
+        "property_commercial",
+        "raw_preferences",
+        "saved_shortlist_candidates",
+        "search_agents",
+        "preferences_json",
+    }
+
+    def _safe_value(item: object, *, depth: int = 0) -> object:
+        if item is None or isinstance(item, (bool, int, float)):
+            return item
+        if isinstance(item, str):
+            text = item.strip()
+            return text if len(text) <= 2048 else ""
+        if isinstance(item, list):
+            return [
+                safe_item
+                for safe_item in (_safe_value(child, depth=depth + 1) for child in item[:100])
+                if safe_item not in ("", [], {})
+            ]
+        if isinstance(item, dict) and depth < 2:
+            return {
+                str(key): safe_child
+                for key, child in item.items()
+                if str(key).strip() and str(key).strip() not in blocked_keys and len(str(key).strip()) <= 80
+                for safe_child in [_safe_value(child, depth=depth + 1)]
+                if safe_child not in ("", [], {})
+            }
+        return ""
+
     return {
-        key: item
+        str(key): safe_item
         for key, item in dict(value or {}).items()
-        if key not in {"search_agents", "active_search_agent_id", "raw_preferences", "property_commercial"}
+        if str(key).strip() and str(key).strip() not in blocked_keys and len(str(key).strip()) <= 80
+        for safe_item in [_safe_value(item)]
+        if safe_item not in ("", [], {})
     }
 
 
