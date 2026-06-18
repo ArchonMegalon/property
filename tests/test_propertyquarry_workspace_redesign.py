@@ -5783,6 +5783,21 @@ def test_property_research_packet_missing_candidate_redirects_to_shortlist(monke
     assert shortlist.status_code == 200
     assert "Property page is being rebuilt" in shortlist.text
     assert "missing-packet-ref" in shortlist.text
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_research_packet_repair"
+    ]
+    assert len(repair_tasks) == 1
+    assert repair_tasks[0].priority == "high"
+    repair_payload = dict(repair_tasks[0].input_json or {})
+    assert repair_payload["repair_workflow"] == "property_research_packet_rebuild"
+    assert repair_payload["run_id"] == "run-missing"
+    assert repair_payload["candidate_ref"] == "missing-packet-ref"
 
 
 def test_property_research_packet_missing_candidate_returns_recovery_json(monkeypatch) -> None:
@@ -5820,10 +5835,29 @@ def test_property_research_packet_missing_candidate_returns_recovery_json(monkey
     assert payload["status"] == "recovery_available"
     assert payload["repair_status"] == "needs_rebuild"
     assert payload["candidate_ref"] == "missing-json-ref"
+    assert payload["queue_item_ref"].startswith("human_task:")
     assert payload["redirect_url"] == (
         "/app/shortlist?packet_missing=1&run_id=run-json&missing_candidate_ref=missing-json-ref#results-list"
     )
     assert "property_research_packet_not_found" not in packet.text
+    repeated = client.get(
+        "/app/research/missing-json-ref",
+        params={"run_id": "run-json"},
+        headers={"host": "propertyquarry.com", "accept": "application/json"},
+        follow_redirects=False,
+    )
+    assert repeated.status_code == 202
+    assert repeated.json()["queue_item_ref"] == payload["queue_item_ref"]
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_research_packet_repair"
+    ]
+    assert len(repair_tasks) == 1
 
 def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     client = build_property_client(principal_id="pq-redesign-settings")

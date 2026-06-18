@@ -92,6 +92,7 @@ from app.api.routes.landing_property_research import (
 from app.api.routes.admin_view_models import build_admin_section_payload as _build_admin_section_payload
 from app.api.routes.workspace_view_models import workspace_section_payload as _workspace_section_payload
 from app.container import AppContainer
+from app.domain.models import IntentSpecV3
 from app.product.commercial import workspace_plan_for_mode
 from app.product.property_surface_state import (
     build_property_billing_truth_snapshot,
@@ -99,6 +100,7 @@ from app.product.property_surface_state import (
     build_property_run_health_snapshot,
     normalize_property_search_run_snapshot,
 )
+from app.product.projections.common import compact_text
 from app.product.service import build_product_service
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import complete_google_oauth_callback
@@ -556,6 +558,8 @@ def _property_missing_packet_target(*, run_id: str = "", candidate_ref: str = ""
 def _property_missing_packet_response(
     request: Request,
     *,
+    container: AppContainer | None = None,
+    principal_id: str = "",
     run_id: str = "",
     candidate_ref: str = "",
 ) -> JSONResponse | RedirectResponse:
@@ -564,6 +568,13 @@ def _property_missing_packet_response(
     target = _property_missing_packet_target(
         run_id=normalized_run_id,
         candidate_ref=normalized_candidate_ref,
+    )
+    repair_task_ref = _property_queue_missing_research_packet_repair(
+        container=container,
+        principal_id=principal_id,
+        run_id=normalized_run_id,
+        candidate_ref=normalized_candidate_ref,
+        recovery_url=target,
     )
     accept_header = str(request.headers.get("accept") or "").lower()
     requested_with = str(request.headers.get("x-requested-with") or "").lower()
@@ -577,11 +588,95 @@ def _property_missing_packet_response(
                 "candidate_ref": normalized_candidate_ref,
                 "redirect_url": target,
                 "repair_status": "needs_rebuild",
+                "queue_item_ref": repair_task_ref,
                 "action_label": "Open shortlist",
             },
             status_code=202,
         )
     return RedirectResponse(url=target, status_code=307)
+
+
+def _property_queue_missing_research_packet_repair(
+    *,
+    container: AppContainer | None,
+    principal_id: str,
+    run_id: str,
+    candidate_ref: str,
+    recovery_url: str,
+) -> str:
+    normalized_principal = str(principal_id or "").strip()
+    normalized_run_id = str(run_id or "").strip()
+    normalized_candidate_ref = str(candidate_ref or "").strip()
+    if container is None or not normalized_principal or not normalized_candidate_ref:
+        return ""
+    try:
+        for task in container.orchestrator.list_human_tasks(principal_id=normalized_principal, status=None, limit=200):
+            if str(getattr(task, "task_type", "") or "").strip() != "property_research_packet_repair":
+                continue
+            payload = dict(getattr(task, "input_json", {}) or {})
+            if (
+                str(payload.get("candidate_ref") or "").strip() == normalized_candidate_ref
+                and str(payload.get("run_id") or "").strip() == normalized_run_id
+            ):
+                return f"human_task:{task.human_task_id}"
+    except Exception:
+        return ""
+    try:
+        session = container.orchestrator._ledger.start_session(  # type: ignore[attr-defined]
+            IntentSpecV3(
+                principal_id=normalized_principal,
+                goal=f"Rebuild missing property research packet {normalized_candidate_ref}",
+                task_type="property_research",
+                deliverable_type="property_research_packet_repair",
+                risk_class="medium",
+                approval_class="draft",
+                budget_class="standard",
+            )
+        )
+        task = container.orchestrator.create_human_task(
+            session_id=session.session_id,
+            principal_id=normalized_principal,
+            task_type="property_research_packet_repair",
+            role_required="operator",
+            authority_required="ea_one_manager",
+            brief=compact_text(
+                f"Rebuild missing property research packet {normalized_candidate_ref}",
+                fallback="Rebuild missing property research packet",
+                limit=140,
+            ),
+            why_human=(
+                "A user opened a property research page that could not be reconstructed from the active run, "
+                "cross-run lookup, or saved shortlist. Repair must rebuild the packet from persisted search evidence "
+                "or preserve the shortlist recovery path with a clear receipt."
+            ),
+            priority="high",
+            quality_rubric_json={
+                "must_prove": [
+                    "candidate lookup path inspected",
+                    "persisted run or shortlist evidence checked",
+                    "packet rebuild or durable recovery receipt created",
+                    "regression test covers the missing packet shape",
+                ],
+                "must_not_use": ["manual_customer_copy_only", "silent_redirect_without_repair_receipt"],
+            },
+            input_json={
+                "repair_owner": "ea_one_manager",
+                "repair_workflow": "property_research_packet_rebuild",
+                "run_id": normalized_run_id,
+                "candidate_ref": normalized_candidate_ref,
+                "recovery_url": str(recovery_url or "").strip(),
+                "next_action": "Rebuild the property research packet from persisted run/shortlist evidence or store a durable recovery receipt.",
+            },
+            desired_output_json={
+                "status": "completed",
+                "packet_rebuilt": False,
+                "recovery_receipt_stored": False,
+                "tests_added": [],
+            },
+        )
+        return f"human_task:{task.human_task_id}"
+    except Exception:
+        return ""
 
 
 def _principal_for_page(
@@ -2411,6 +2506,8 @@ def property_research_packet(
     if candidate is None:
         return _property_missing_packet_response(
             request,
+            container=container,
+            principal_id=context.principal_id,
             run_id=resolved_run_id,
             candidate_ref=normalized_candidate_ref,
         )
