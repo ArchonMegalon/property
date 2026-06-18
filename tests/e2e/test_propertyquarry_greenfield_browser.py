@@ -1135,6 +1135,7 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
         expect(school_child).to_have_attribute("data-school-parent-active", "true")
         expect(school_parent).to_have_attribute("data-school-family-active", "true")
         section = page.locator('[data-what-matters-group="daily_life"]')
+        expect(section).to_have_attribute("data-active-distance-rows", "true")
         section.scroll_into_view_if_needed()
         section.screenshot(path=str(screenshot_path))
         assert screenshot_path.exists()
@@ -1165,7 +1166,7 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
         inner_width = int(page.evaluate("window.innerWidth"))
         group_width = float(section.bounding_box()["width"] or 0)
         if inner_width >= 900:
-            assert 320.0 <= group_width <= 620.0
+            assert group_width >= 680.0
         for row in rows:
             assert float(row["rowScrollWidth"]) <= float(row["rowWidth"]) + 1.0, row
             if inner_width >= 900:

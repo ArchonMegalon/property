@@ -108,12 +108,13 @@
       });
     };
     const syncKeywordDistanceSelects = (form) => {
+      const activeGroups = new Map();
       form?.querySelectorAll('[data-keyword-priority-row]').forEach((row) => {
         const preferenceSelect = row.querySelector('[data-keyword-preference-select]');
         const distanceSelect = row.querySelector('[data-keyword-distance-select]');
         if (!(preferenceSelect instanceof HTMLSelectElement)) return;
         const state = String(preferenceSelect.value || 'any').trim().toLowerCase() || 'any';
-        const enabled = state !== 'any';
+        const enabled = state !== 'any' && distanceSelect instanceof HTMLSelectElement;
         row.dataset.preferenceState = state;
         row.dataset.keywordDistanceEnabled = enabled ? 'true' : 'false';
         row.classList.toggle('is-active', enabled);
@@ -122,6 +123,11 @@
         if (distanceSelect instanceof HTMLSelectElement) {
           distanceSelect.disabled = !enabled;
         }
+        const group = row.closest('[data-what-matters-group]');
+        if (group) activeGroups.set(group, Boolean(activeGroups.get(group) || enabled));
+      });
+      form?.querySelectorAll('[data-what-matters-group]').forEach((group) => {
+        group.dataset.activeDistanceRows = activeGroups.get(group) ? 'true' : 'false';
       });
     };
     const syncSchoolPreferenceFields = (form) => {
