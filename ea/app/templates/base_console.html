@@ -1158,7 +1158,7 @@
 </style>
 </head>
 <body>
-  {% set brand_home_href = brand.app_home or '/app/properties' %}
+  {% set brand_home_href = '/?home=1' if brand.key == 'propertyquarry' else (brand.app_home or '/app/properties') %}
   {% set property_app_nav = brand.key == 'propertyquarry' and current_nav in ['properties', 'search', 'agents', 'account'] %}
   {% if property_app_nav %}
   {% set mobile_nav = namespace(items=[]) %}

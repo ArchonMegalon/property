@@ -73,9 +73,9 @@ def test_propertyquarry_brand_marks_route_to_public_or_dashboard_home() -> None:
     console_shell = (ROOT / "ea/app/templates/base_console.html").read_text(encoding="utf-8")
     workbench = (ROOT / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
 
-    assert "{% set brand_home_href = (brand.app_home or '/app/properties') if access_identity else (brand.public_base_url or '/') %}" in public_shell
+    assert "{% set brand_home_href = '/?home=1' if (brand.key == 'propertyquarry' and access_identity) else ((brand.app_home or '/app/properties') if access_identity else (brand.public_base_url or '/')) %}" in public_shell
     assert '<a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} home">' in public_shell
-    assert "{% set brand_home_href = brand.app_home or '/app/properties' %}" in console_shell
+    assert "{% set brand_home_href = '/?home=1' if brand.key == 'propertyquarry' else (brand.app_home or '/app/properties') %}" in console_shell
     assert '<a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} home">' in console_shell
     assert "run.get('run_id')" not in workbench.split('<a class="pqx-brand"', 1)[1].split(">", 1)[0]
     assert '<a class="pqx-brand" href="/?home=1" aria-label="PropertyQuarry public home">' in workbench

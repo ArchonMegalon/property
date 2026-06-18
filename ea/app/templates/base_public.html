@@ -689,7 +689,7 @@
 </style>
 </head>
 <body>
-  {% set brand_home_href = (brand.app_home or '/app/properties') if access_identity else (brand.public_base_url or '/') %}
+  {% set brand_home_href = '/?home=1' if (brand.key == 'propertyquarry' and access_identity) else ((brand.app_home or '/app/properties') if access_identity else (brand.public_base_url or '/')) %}
   <header class="topbar">
     <div class="wrap topbar-inner">
       <a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} home">
