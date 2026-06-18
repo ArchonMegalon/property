@@ -1165,11 +1165,13 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
         inner_width = int(page.evaluate("window.innerWidth"))
         group_width = float(section.bounding_box()["width"] or 0)
         if inner_width >= 900:
-            assert group_width >= 640.0
+            assert 320.0 <= group_width <= 620.0
         for row in rows:
             assert float(row["rowScrollWidth"]) <= float(row["rowWidth"]) + 1.0, row
+            if inner_width >= 900:
+                assert float(row["rowWidth"]) >= 320.0, row
             for control in row["controls"]:
-                assert float(control["width"]) >= 96.0, row
+                assert float(control["width"]) >= 104.0, row
                 assert float(control["left"]) >= -1.0, row
                 assert float(control["right"]) >= -1.0, row
 

@@ -461,7 +461,7 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert ">Neutral</option>" in section_html
     assert '.pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group="home_basics"]' in html
     assert 'grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));' in html
-    assert '.pqx-what-matters-panel .pqx-choice-groupbox:has(.pqx-keyword-priority-row[data-keyword-distance-enabled="true"])' in html
+    assert '.pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] > div' in html
     assert "overflow-wrap: break-word;" in html
     assert ".pqx-what-matters-panel .pqx-school-priority-row {" in html
     template_source = (
