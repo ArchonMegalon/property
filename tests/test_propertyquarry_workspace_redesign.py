@@ -459,7 +459,7 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert 'data-keyword-distance-enabled="false"' in section_html
     assert 'name="keyword_distance__playground nearby" data-keyword-distance-select data-keyword-value="playground nearby" disabled' in section_html
     assert ">Neutral</option>" in section_html
-    assert '.pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group="home_basics"]' in html
+    assert '.pqx-what-matters-panel .pqx-choice-groupbox {\n      grid-column: 1 / -1;' in html
     assert 'grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));' in html
     assert 'grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));' in html
     assert '.pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] > div' in html
