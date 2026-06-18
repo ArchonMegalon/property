@@ -184,7 +184,14 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         key="account",
         group="authenticated_app",
         label="Account, profile, data, and delivery settings",
-        routes=("/app/account", "/app/account#profile", "/app/account#delivery", "/app/profile", "/app/alerts"),
+        routes=(
+            "/app/account",
+            "/app/account#profile",
+            "/app/account#delivery",
+            "/app/profile",
+            "/app/alerts",
+            "/app/settings/access",
+        ),
         templates=("app/property_decision_workbench.html", "app/_property_account_panel.html"),
     ),
     PropertySurface(
