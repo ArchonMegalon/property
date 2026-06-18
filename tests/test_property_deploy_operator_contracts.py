@@ -107,6 +107,21 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert "build_propertyquarry_magicfit_promo.py" not in dockerfile
 
 
+def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
+    dockerfile = _read("ea/Dockerfile.property")
+    copied_scripts = re.findall(r"COPY\s+scripts/([^\s]+)\s+/app/scripts/", dockerfile)
+
+    assert copied_scripts == [
+        "willhaben_property_packet.py",
+        "render_magicfit_property_flythrough.py",
+        "render_onemin_property_i2v_segment.py",
+    ]
+    for script_name in copied_scripts:
+        body = _read(f"scripts/{script_name}")
+        assert "/docker/fleet" not in body, script_name
+        assert "/tmp/propertyquarry" not in body, script_name
+
+
 def test_property_compose_container_names_are_recoverable() -> None:
     compose = _read("docker-compose.property.yml")
 
