@@ -71,10 +71,11 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         _assert_no_drift(response.text)
 
     landing = client.get("/")
-    assert "Search once. Rank hard. Research the shortlist." in landing.text
-    assert "Create account" in landing.text
+    assert "Search once. Rank the right homes. Decide with evidence." in landing.text
+    assert "research the shortlist" in landing.text
+    assert "Open search" in landing.text
     assert "Built for focused private search first" in landing.text
-    assert "Pricing now mirrors the real runtime contract." in landing.text
+    assert "Pricing mirrors the runtime contract" in landing.text
 
     pricing = client.get("/pricing")
     assert "The public pricing page now renders from the runtime contract." in pricing.text

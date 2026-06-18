@@ -9,8 +9,8 @@
   .access-panel,
   .access-card {
     border: 1px solid var(--line);
-    border-radius: 16px;
-    background: rgba(255,255,255,0.03);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.84);
     box-shadow: var(--shadow);
   }
   .access-panel,
@@ -33,10 +33,9 @@
   }
   .access-form label {
     display: block;
-    font-size: 0.85rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
+    font-size: 0.9rem;
+    font-weight: 650;
+    color: var(--text-soft);
   }
   .access-form input {
     width: 100%;
@@ -44,9 +43,9 @@
   .access-feedback {
     margin-top: 18px;
     padding: 14px 16px;
-    border-radius: 14px;
+    border-radius: 8px;
     border: 1px solid var(--line);
-    background: rgba(255,255,255,0.03);
+    background: var(--panel-2);
   }
   .access-feedback strong {
     display: block;
@@ -81,7 +80,7 @@
   <section class="access-panel">
     <div class="kicker">Sign in</div>
     <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have account access.{% endif %}</h1>
-    <p class="lead">Use your session, email link, invite, or Google.</p>
+    <p class="lead">Use the path that matches how you joined: current session, secure email link, workspace invite, or optional Google identity.</p>
     <div class="cta-row">
       <a class="btn primary" href="{% if brand.key == 'propertyquarry' %}/app/properties{% else %}/app/today{% endif %}">Open current session</a>
       <a class="btn" href="/register">{{ brand.create_label }}</a>
@@ -132,23 +131,23 @@
 
   <section class="access-panel">
     <div class="kicker">Access</div>
-    <h2>Choose a sign-in path.</h2>
+    <h2>Choose the narrowest sign-in path that works.</h2>
     <div class="access-card-grid">
       <section class="access-card">
-        <strong>SSO</strong>
-        <p class="copy">Use your company sign-in if available.</p>
+        <strong>Current session</strong>
+        <p class="copy">Return directly when this browser is already trusted.</p>
       </section>
       <section class="access-card">
         <strong>Email link</strong>
-        <p class="copy">Open the latest secure link.</p>
+        <p class="copy">Use the latest secure link from the inbox that owns access.</p>
       </section>
       <section class="access-card">
-        <strong>New account</strong>
-        <p class="copy">Use /register.</p>
+        <strong>Shared review when needed</strong>
+        <p class="copy">Open an invite when a partner, advisor, or client has added you to a search.</p>
       </section>
       <section class="access-card">
         <strong>Google</strong>
-        <p class="copy">Optional.</p>
+        <p class="copy">Use identity-only return access by default, without widening product permissions.</p>
       </section>
     </div>
   </section>

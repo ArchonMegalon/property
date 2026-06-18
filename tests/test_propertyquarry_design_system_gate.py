@@ -37,12 +37,87 @@ def test_propertyquarry_customer_templates_avoid_internal_operator_language() ->
 def test_propertyquarry_layout_guide_is_the_design_contract() -> None:
     gate = (ROOT / "docs/PROPERTYQUARRY_DESIGN_SYSTEM_GATE.md").read_text(encoding="utf-8")
     guide = (ROOT / "docs/PROPERTYQUARRY_APP_LAYOUT_GUIDE.md").read_text(encoding="utf-8")
+    registry = (ROOT / "docs/PROPERTYQUARRY_SURFACE_REGISTRY.md").read_text(encoding="utf-8")
 
     assert "docs/PROPERTYQUARRY_APP_LAYOUT_GUIDE.md" in gate
     assert "No decision wizard inside result cards." in guide
     assert "Progress card dimensions" in guide
     assert "panel width desktop: 360-420px" in guide
     assert "Table columns" in guide
+    assert "This file defines \"all surfaces\"" in registry
+    assert "Public Acquisition" in registry
+    assert "Authenticated App" in registry
+    assert "Generated Artifacts" in registry
+
+
+def test_propertyquarry_surface_registry_defines_all_product_surfaces() -> None:
+    from app.product.property_surface_registry import (
+        AUDIT_AXES,
+        clickrank_property_surface_keys,
+        neuronwriter_property_surface_keys,
+        property_surface_keys,
+        property_surfaces_by_group,
+    )
+
+    keys = set(property_surface_keys())
+    grouped = property_surfaces_by_group()
+
+    assert len(keys) >= 25
+    assert len(keys) == len(property_surface_keys())
+    assert set(grouped) == {
+        "public_acquisition",
+        "auth_handoff",
+        "authenticated_app",
+        "results_research",
+        "shared_public_artifacts",
+        "generated_artifacts",
+        "delivery",
+        "management",
+        "system_states",
+    }
+    for group, rows in grouped.items():
+        assert rows, group
+
+    required_keys = {
+        "public_home",
+        "public_pricing",
+        "public_docs_guides",
+        "registration",
+        "sign_in",
+        "app_shell",
+        "search_wizard",
+        "what_matters",
+        "run_home",
+        "shortlist",
+        "property_research_detail",
+        "agents",
+        "account",
+        "billing",
+        "public_packet",
+        "public_tour",
+        "premium_dossier",
+        "video_walkthrough",
+        "email_delivery",
+        "telegram_delivery",
+        "whatsapp_delivery",
+        "provider_management",
+        "fleet_repair",
+        "ltd_runtime",
+        "loading_empty_error_states",
+    }
+    assert required_keys.issubset(keys)
+
+    assert {"navigation", "clickability", "accessibility", "performance", "privacy"}.issubset(set(AUDIT_AXES))
+    assert set(clickrank_property_surface_keys()) == {
+        "public_home",
+        "public_pricing",
+        "public_trust",
+        "public_docs_guides",
+    }
+    assert "app_shell" not in clickrank_property_surface_keys()
+    assert "public_tour" not in clickrank_property_surface_keys()
+    assert "property_research_detail" in neuronwriter_property_surface_keys()
+    assert "app_shell" not in neuronwriter_property_surface_keys()
 
 
 def test_propertyquarry_clickable_looking_recent_reviews_are_real_links_or_plain_rows() -> None:

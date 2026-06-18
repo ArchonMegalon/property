@@ -3,27 +3,27 @@
 <style>
   .pq-home {
     display: grid;
-    gap: 28px;
+    gap: 20px;
   }
   .pq-hero {
-    min-height: 560px;
+    min-height: 520px;
     display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
-    gap: 24px;
+    grid-template-columns: minmax(0, 0.92fr) minmax(360px, 1.08fr);
+    gap: 18px;
     align-items: stretch;
   }
   .pq-hero-copy,
-  .pq-preview,
-  .pq-band,
-  .pq-detail,
+  .pq-desk,
+  .pq-proof,
+  .pq-section,
   .pq-final {
     border: 1px solid var(--line);
-    border-radius: 12px;
-    background: rgba(255,253,248,0.92);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.86);
     box-shadow: var(--shadow);
   }
   .pq-hero-copy {
-    padding: 34px;
+    padding: 30px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -33,168 +33,269 @@
     margin: 0 0 12px;
     color: var(--text-dim);
     font-size: 12px;
-    font-weight: 650;
-    letter-spacing: 0.06em;
+    font-weight: 700;
     text-transform: uppercase;
   }
   .pq-hero h1 {
-    max-width: 13ch;
+    max-width: 12.5ch;
     margin: 0 0 16px;
-    font-size: clamp(2.2rem, 4.8vw, 4.5rem);
-    line-height: 0.98;
+    font-size: clamp(2.15rem, 4.2vw, 4.1rem);
+    line-height: 1.01;
     letter-spacing: 0;
   }
   .pq-lead {
-    max-width: 44rem;
+    max-width: 42rem;
     color: var(--text-soft);
-    font-size: 1.06rem;
+    font-size: 1.04rem;
   }
+  .pq-signed-in-handoff {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: fit-content;
+    margin-top: 18px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-2);
+    color: var(--text-soft);
+    font-size: 13px;
+    font-weight: 650;
+  }
+  .pq-signed-in-handoff[hidden] { display: none; }
+  .pq-spinner {
+    width: 15px;
+    height: 15px;
+    border: 2px solid rgba(95, 103, 97, 0.24);
+    border-top-color: #17211c;
+    border-radius: 999px;
+    animation: pq-spin 0.9s linear infinite;
+    flex: 0 0 auto;
+  }
+  @keyframes pq-spin { to { transform: rotate(360deg); } }
   .pq-loop {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
     margin-top: 22px;
   }
-  .pq-loop span {
+  .pq-loop span,
+  .pq-tag {
     border: 1px solid var(--line);
     border-radius: 999px;
     padding: 7px 10px;
-    background: var(--panel);
+    background: var(--panel-2);
     color: var(--text-soft);
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 650;
+    white-space: nowrap;
   }
-  .pq-preview {
-    padding: 22px;
+  .pq-tag.good {
+    border-color: rgba(33, 107, 88, 0.28);
+    background: rgba(33, 107, 88, 0.09);
+    color: var(--good);
+  }
+  .pq-desk {
+    position: relative;
+    overflow: hidden;
+    padding: 18px;
     display: grid;
+    grid-template-rows: auto 1fr auto;
     gap: 14px;
     background:
-      linear-gradient(180deg, rgba(255,253,248,0.94), rgba(244,236,223,0.92)),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 247, 0.86)),
       var(--panel);
   }
-  .pq-result {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 12px;
-    align-items: start;
-    padding: 14px 0;
-    border-bottom: 1px solid var(--line);
+  .pq-desk::before {
+    content: "";
+    position: absolute;
+    inset: 18px 18px auto auto;
+    width: 190px;
+    height: 190px;
+    border: 1px solid rgba(33, 107, 88, 0.14);
+    border-radius: 999px;
+    background:
+      linear-gradient(90deg, transparent 49%, rgba(33, 107, 88, 0.10) 50%, transparent 51%),
+      linear-gradient(0deg, transparent 49%, rgba(33, 107, 88, 0.10) 50%, transparent 51%);
+    opacity: 0.44;
+    transform: rotate(-10deg);
+    pointer-events: none;
   }
-  .pq-result:last-child { border-bottom: 0; }
-  .pq-signed-in-handoff {
+  .pq-desk-head,
+  .pq-board-head,
+  .pq-row,
+  .pq-review-head,
+  .pq-change-row,
+  .pq-final {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-top: 18px;
-    padding: 10px 12px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--panel);
-    color: var(--text-soft);
-    font-size: 13px;
-    font-weight: 600;
+    justify-content: space-between;
+    gap: 12px;
   }
-  .pq-signed-in-handoff[hidden] { display: none; }
-  .pq-spinner {
-    width: 15px;
-    height: 15px;
-    border: 2px solid rgba(108, 103, 95, 0.24);
-    border-top-color: #242321;
-    border-radius: 999px;
-    animation: pq-spin 0.9s linear infinite;
-    flex: 0 0 auto;
+  .pq-desk-head {
+    position: relative;
+    z-index: 1;
   }
-  @keyframes pq-spin {
-    to { transform: rotate(360deg); }
-  }
-  .pq-rank {
-    width: 34px;
-    height: 34px;
-    display: grid;
-    place-items: center;
-    border-radius: 9px;
-    background: #242321;
-    color: #fff9ed;
-    font-weight: 700;
-  }
-  .pq-result strong,
-  .pq-band strong,
-  .pq-detail strong {
+  .pq-desk-title strong,
+  .pq-row strong,
+  .pq-section strong,
+  .pq-final strong {
     display: block;
   }
-  .pq-result p,
-  .pq-band p,
-  .pq-detail p,
-  .pq-final p {
+  .pq-desk-title span,
+  .pq-row span,
+  .pq-section p,
+  .pq-final p,
+  .pq-note {
     color: var(--text-soft);
+  }
+  .pq-desk-grid {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(240px, 0.92fr);
+    gap: 12px;
+    min-height: 360px;
+  }
+  .pq-board,
+  .pq-review,
+  .pq-map {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.82);
+  }
+  .pq-board {
+    padding: 12px;
+    display: grid;
+    gap: 10px;
+    align-content: start;
+  }
+  .pq-row {
+    align-items: start;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .pq-row:last-child { border-bottom: 0; }
+  .pq-rank {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    background: #17211c;
+    color: #f8faf7;
+    font-weight: 750;
+    flex: 0 0 auto;
   }
   .pq-score {
     color: var(--good);
-    font-weight: 700;
+    font-weight: 750;
     white-space: nowrap;
   }
-  .pq-band {
-    padding: 22px;
+  .pq-desk-side {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 16px;
+    gap: 12px;
+    grid-template-rows: 1fr auto;
   }
-  .pq-band article {
-    min-width: 0;
+  .pq-map {
+    position: relative;
+    min-height: 170px;
+    overflow: hidden;
+    background:
+      linear-gradient(90deg, rgba(214, 222, 213, 0.58) 1px, transparent 1px),
+      linear-gradient(0deg, rgba(214, 222, 213, 0.58) 1px, transparent 1px),
+      #f8faf7;
+    background-size: 38px 38px;
   }
-  .pq-details {
+  .pq-map-line {
+    position: absolute;
+    left: 26px;
+    right: 30px;
+    top: 88px;
+    height: 2px;
+    background: var(--good);
+    transform: rotate(-12deg);
+    transform-origin: left center;
+  }
+  .pq-map-pin {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border: 2px solid #ffffff;
+    border-radius: 999px;
+    background: var(--good);
+    box-shadow: 0 6px 14px rgba(27, 38, 30, 0.22);
+  }
+  .pq-map-pin.one { left: 44px; top: 104px; }
+  .pq-map-pin.two { right: 46px; top: 66px; background: var(--accent); }
+  .pq-review {
+    padding: 12px;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
+    gap: 10px;
   }
-  .pq-detail {
-    padding: 20px;
+  .pq-review-head {
+    align-items: start;
   }
-  .pq-detail summary {
-    cursor: pointer;
-    font-weight: 700;
+  .pq-change-row {
+    align-items: start;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
   }
-  .pq-detail ul {
-    margin: 14px 0 0;
+  .pq-change-row:first-of-type {
+    border-top: 0;
+    padding-top: 0;
+  }
+  .pq-proof {
+    position: relative;
+    z-index: 1;
+    padding: 12px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .pq-proof strong {
+    display: block;
+    font-size: 0.92rem;
+  }
+  .pq-proof span {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .pq-section-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .pq-section {
+    padding: 18px;
+    display: grid;
+    gap: 10px;
+  }
+  .pq-section ul {
+    margin: 0;
     padding-left: 18px;
     color: var(--text-soft);
   }
-  .pq-plan-row {
-    display: grid;
-    gap: 10px;
-    margin-top: 14px;
-  }
-  .pq-plan {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 12px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--panel);
-  }
-  .pq-plan span {
-    color: var(--text-dim);
-    font-size: 13px;
+  .pq-section li + li {
+    margin-top: 7px;
   }
   .pq-final {
-    padding: 28px;
-    display: flex;
-    justify-content: space-between;
-    gap: 18px;
-    align-items: center;
-    background: #242321;
-    color: #fff9ed;
+    padding: 24px;
+    background: #17211c;
+    color: #f8faf7;
   }
-  .pq-final p { color: rgba(255,249,237,0.74); }
+  .pq-final p {
+    color: rgba(248, 250, 247, 0.76);
+  }
   .pq-final .btn.ghost {
-    color: #fff9ed;
-    border-color: rgba(255,249,237,0.34);
+    color: #f8faf7;
+    border-color: rgba(248, 250, 247, 0.34);
   }
-  @media (max-width: 920px) {
+  @media (max-width: 980px) {
     .pq-hero,
-    .pq-band,
-    .pq-details,
+    .pq-desk-grid,
+    .pq-proof,
+    .pq-section-grid,
     .pq-final {
       grid-template-columns: 1fr;
     }
@@ -203,28 +304,22 @@
     }
   }
   @media (max-width: 760px) {
-    .pq-home {
-      gap: 18px;
-    }
-    .pq-hero {
-      min-height: 0;
-      gap: 16px;
-    }
+    .pq-home { gap: 16px; }
+    .pq-hero { min-height: 0; gap: 14px; }
     .pq-hero-copy,
-    .pq-preview,
-    .pq-band,
-    .pq-detail,
+    .pq-desk,
+    .pq-section,
     .pq-final {
-      padding: 20px;
+      padding: 18px;
     }
     .pq-hero h1 {
       max-width: none;
-      font-size: clamp(1.9rem, 10vw, 2.9rem);
-      line-height: 1.02;
+      font-size: clamp(2rem, 10vw, 3rem);
+      line-height: 1.03;
     }
-    .pq-result {
+    .pq-row {
+      display: grid;
       grid-template-columns: auto minmax(0, 1fr);
-      gap: 10px 12px;
     }
     .pq-score {
       grid-column: 2;
@@ -247,136 +342,160 @@
     <div class="pq-hero-copy">
       <div>
         <div class="pq-kicker">PropertyQuarry</div>
-        <h1>Find the right properties. Compare them clearly. Decide with evidence.</h1>
-        <p class="pq-lead">A focused property desk for serious apartment decisions. Define the brief, sweep the market, compare the best matches, open the dossier and tour, then save the decision so the next search gets smarter.</p>
+        <h1>Search once. Rank the right homes. Decide with evidence.</h1>
+        <p class="pq-lead">A private property desk for serious searches. Build the brief, scan the market, research the shortlist, and keep every decision tied to the facts that support it.</p>
         <div class="pq-loop" aria-label="PropertyQuarry product loop">
           <span>Brief</span>
-          <span>Search</span>
-          <span>Compare</span>
+          <span>Provider sweep</span>
+          <span>Hard filters</span>
+          <span>Ranked shortlist</span>
           <span>Dossier</span>
           <span>Tour</span>
-          <span>Decide</span>
-          <span>Learn</span>
+          <span>Decision memory</span>
         </div>
         {% if signing_in_progress %}
         <div class="pq-signed-in-handoff" data-propertyquarry-signed-in-handoff data-target-endpoint="/app/api/property/landing-handoff">
           <span class="pq-spinner" aria-hidden="true"></span>
-          <span>Signing you in…</span>
+          <span>Signing you in...</span>
         </div>
         {% endif %}
       </div>
-      <div>
-        <div class="cta-row">
-          {% if public_signed_in or signing_in_progress %}
-          <a class="btn primary" href="/app/search" data-analytics-event="home_open_search" data-rybbit-event="home_open_search" data-rybbit-prop-surface="hero">Open search</a>
-          <a class="btn" href="/app/properties" data-analytics-event="home_open_run" data-rybbit-event="home_open_run" data-rybbit-prop-surface="hero">Open run</a>
-          {% else %}
-          <a class="btn primary" href="/register" data-analytics-event="home_create_account" data-rybbit-event="home_create_account" data-rybbit-prop-surface="hero">Create account</a>
-          <a class="btn" href="/sign-in?signing_in=1" data-analytics-event="home_sign_in" data-rybbit-event="home_sign_in" data-rybbit-prop-surface="hero">Sign in</a>
-          {% endif %}
-        </div>
+      <div class="cta-row">
+        {% if public_signed_in or signing_in_progress %}
+        <a class="btn primary" href="/app/search" data-analytics-event="home_open_search" data-rybbit-event="home_open_search" data-rybbit-prop-surface="hero">Open search</a>
+        <a class="btn" href="/app/properties" data-analytics-event="home_open_run" data-rybbit-event="home_open_run" data-rybbit-prop-surface="hero">Open latest run</a>
+        {% else %}
+        <a class="btn primary" href="/register" data-analytics-event="home_create_account" data-rybbit-event="home_create_account" data-rybbit-prop-surface="hero">Create account</a>
+        <a class="btn" href="/sign-in?signing_in=1" data-analytics-event="home_sign_in" data-rybbit-event="home_sign_in" data-rybbit-prop-surface="hero">Sign in</a>
+        {% endif %}
       </div>
     </div>
 
-    <aside class="pq-preview" aria-label="Example ranked shortlist">
-      <div>
-        <div class="pq-kicker">What you review</div>
-        <h2>One ranked table, not another portal wall.</h2>
+    <aside class="pq-desk" aria-label="Example property decision desk">
+      <div class="pq-desk-head">
+        <div class="pq-desk-title">
+          <strong>Vienna family search</strong>
+          <span>Ranked after hard filters, then scored by what matters.</span>
+        </div>
+        <span class="pq-tag good">Live brief</span>
       </div>
-      <article class="pq-result">
-        <div class="pq-rank">1</div>
-        <div>
-          <strong>Bright 3-room apartment near daily needs</strong>
-          <p>Floorplan present. Supermarket and transit checked. Open questions stay visible.</p>
+      <div class="pq-desk-grid">
+        <section class="pq-board" aria-label="Example ranked homes">
+          <div class="pq-board-head">
+            <strong>Ranked homes</strong>
+            <span class="pq-tag">5 ranked · 22 filtered</span>
+          </div>
+          <article class="pq-row">
+            <div class="pq-rank">1</div>
+            <div>
+              <strong>3-room apartment with clear floorplan</strong>
+              <span>Inside selected districts. Balcony is a plus. Operating costs still need proof.</span>
+            </div>
+            <div class="pq-score">84</div>
+          </article>
+          <article class="pq-row">
+            <div class="pq-rank">2</div>
+            <div>
+              <strong>Quiet layout near U-Bahn and daily errands</strong>
+              <span>Good fit, but parking evidence is missing. Open question is ready for the agent.</span>
+            </div>
+            <div class="pq-score">78</div>
+          </article>
+          <article class="pq-row">
+            <div class="pq-rank">3</div>
+            <div>
+              <strong>Strong price, weaker light evidence</strong>
+              <span>Kept in review because the hard rules pass and the tradeoff is explicit.</span>
+            </div>
+            <div class="pq-score">72</div>
+          </article>
+        </section>
+        <div class="pq-desk-side">
+          <section class="pq-map" aria-label="Simplified route and area check">
+            <span class="pq-map-line"></span>
+            <span class="pq-map-pin one"></span>
+            <span class="pq-map-pin two"></span>
+          </section>
+          <section class="pq-review" aria-label="Example evidence review">
+            <div class="pq-review-head">
+              <strong>Review notes</strong>
+              <span class="pq-tag">Dossier ready</span>
+            </div>
+            <div class="pq-change-row">
+              <span class="pq-note">Missing</span>
+              <strong>Operating-cost proof</strong>
+            </div>
+            <div class="pq-change-row">
+              <span class="pq-note">Confirmed</span>
+              <strong>Floorplan and room count</strong>
+            </div>
+            <div class="pq-change-row">
+              <span class="pq-note">Next</span>
+              <strong>Book viewing or dismiss with reason</strong>
+            </div>
+          </section>
         </div>
-        <div class="pq-score">82</div>
-      </article>
-      <article class="pq-result">
-        <div class="pq-rank">2</div>
-        <div>
-          <strong>Quiet layout with balcony</strong>
-          <p>Good shortlist candidate. Dossier flags operating-cost proof as missing.</p>
-        </div>
-        <div class="pq-score">74</div>
-      </article>
-      <article class="pq-result">
-        <div class="pq-rank">3</div>
-        <div>
-          <strong>Interesting but held back</strong>
-          <p>Outside one preference. The system explains the rule instead of hiding the result.</p>
-        </div>
-        <div class="pq-score">61</div>
-      </article>
+      </div>
+      <div class="pq-proof">
+        <div><strong>Hard rules stay hard</strong><span>Area and rent/buy mode filter before ranking.</span></div>
+        <div><strong>Soft wishes score</strong><span>Balcony, schools, errands, and noise adjust rank.</span></div>
+        <div><strong>Decisions persist</strong><span>Saved feedback sharpens the next run.</span></div>
+      </div>
     </aside>
   </section>
 
-  <section class="pq-band" aria-label="Core outcomes">
-    <article>
-      <strong>Search with intent</strong>
-      <p>Country, area, mode, property type, budget, and provider groups stay readable.</p>
+  <section class="pq-section-grid" aria-label="Core outcomes">
+    <article class="pq-section">
+      <strong>One brief, not ten portal rituals</strong>
+      <p>Country, district, transaction mode, budget, home type, and provider readiness stay in one readable search setup.</p>
     </article>
-    <article>
-      <strong>Rank before sending</strong>
-      <p>Saved searches respect notification budgets and send only the strongest matches.</p>
+    <article class="pq-section">
+      <strong>Useful ranking before deep work</strong>
+      <p>The shortlist separates hard-rule failures from soft-preference tradeoffs, so good homes are not hidden for the wrong reason.</p>
     </article>
-    <article>
-      <strong>Research what matters</strong>
-      <p>Floorplans, location facts, missing documents, and open risks are claim-bound.</p>
-    </article>
-    <article>
-      <strong>Decide once</strong>
-      <p>Every yes, maybe, and no writes back into the decision loop.</p>
+    <article class="pq-section">
+      <strong>Research that changes a decision</strong>
+      <p>Floorplans, costs, official context, tours, missing documents, and agent questions sit next to the property they affect.</p>
     </article>
   </section>
 
-  <section class="pq-details">
-    <details class="pq-detail">
-      <summary>What the dossier contains</summary>
+  <section class="pq-section-grid" aria-label="Product proof">
+    <article class="pq-section">
+      <strong>Built for focused private search first</strong>
       <ul>
-        <li>Core facts, route and map context, and only useful links.</li>
-        <li>Compact deep research with missing facts and agent questions.</li>
-        <li>3D tour and walkthrough status when real media exists.</li>
+        <li>Start with a single account and a real shortlist.</li>
+        <li>Add shared review only when the decision needs it.</li>
+        <li>Keep internal repair detail out of customer copy.</li>
       </ul>
-    </details>
-    <details class="pq-detail">
-      <summary>How the system stays trustworthy</summary>
+    </article>
+    <article class="pq-section">
+      <strong>Pricing mirrors the runtime contract</strong>
       <ul>
-        <li>Outside-area matches are suppressed before user notifications.</li>
-        <li>Internal provider failures stay operator-side unless they are useful to the user.</li>
-        <li>Feedback updates a decision ledger, evidence claims, and future search rules.</li>
+        <li>Plans map to provider breadth, shortlist volume, score ceiling, and research depth.</li>
+        <li>Heavy media generation is requested explicitly.</li>
+        <li>Saved runs stay available until the user deletes them.</li>
       </ul>
-    </details>
-    <details class="pq-detail">
-      <summary>Who it is for</summary>
+    </article>
+    <article class="pq-section">
+      <strong>Trust is a product surface</strong>
       <ul>
-        {% for persona in personas[:3] %}
-        <li><strong>{{ persona.title }}</strong> {{ persona.body }}</li>
-        {% endfor %}
+        <li>Public shares use redacted manifests.</li>
+        <li>Notifications respect hard filters before sending.</li>
+        <li>Failed sources should repair or degrade visibly.</li>
       </ul>
-    </details>
-    <details class="pq-detail">
-      <summary>Plans</summary>
-      <div class="pq-plan-row">
-        {% for plan in plan_catalog[:3] %}
-        <div class="pq-plan">
-          <strong>{{ plan.display_name }}</strong>
-          <span>{% if plan.max_platforms > 0 %}{{ plan.max_platforms }} providers{% else %}All sources{% endif %} · {{ plan.research_depth }} research</span>
-        </div>
-        {% endfor %}
-      </div>
-    </details>
+    </article>
   </section>
 
   <section class="pq-final">
     <div>
       <div class="pq-kicker">Start with one real search</div>
-      <h2>Run the brief, inspect the ranked shortlist, and decide from evidence.</h2>
-      <p>PropertyQuarry is strongest when the first session ends with fewer tabs and clearer reasons.</p>
+      <strong>Run the brief, inspect the ranked shortlist, and keep the decision trail.</strong>
+      <p>The first useful session should end with fewer tabs, clearer tradeoffs, and a next action you trust.</p>
     </div>
     <div class="cta-row">
       {% if public_signed_in or signing_in_progress %}
       <a class="btn primary" href="/app/search" data-analytics-event="home_open_search_footer" data-rybbit-event="home_open_search" data-rybbit-prop-surface="footer">Open search</a>
-      <a class="btn ghost" href="/app/properties" data-analytics-event="home_open_run_footer" data-rybbit-event="home_open_run" data-rybbit-prop-surface="footer">Open run</a>
+      <a class="btn ghost" href="/app/properties" data-analytics-event="home_open_run_footer" data-rybbit-event="home_open_run" data-rybbit-prop-surface="footer">Open latest run</a>
       {% else %}
       <a class="btn primary" href="/register" data-analytics-event="home_create_account_footer" data-rybbit-event="home_create_account" data-rybbit-prop-surface="footer">Create account</a>
       <a class="btn ghost" href="/pricing" data-analytics-event="home_view_plans" data-rybbit-event="home_view_plans" data-rybbit-prop-surface="footer">View plans</a>
@@ -384,7 +503,7 @@
     </div>
   </section>
 </main>
-      {% if signing_in_progress %}
+{% if signing_in_progress %}
 <script>
   (() => {
     const handoff = document.querySelector('[data-propertyquarry-signed-in-handoff]');

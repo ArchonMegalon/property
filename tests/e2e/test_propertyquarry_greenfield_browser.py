@@ -415,6 +415,75 @@ def _new_context(
     )
 
 
+def _new_public_context(
+    browser: Browser,
+    *,
+    mobile: bool = False,
+    width: int | None = None,
+    height: int | None = None,
+) -> BrowserContext:
+    return browser.new_context(
+        viewport={
+            "width": width if width is not None else (430 if mobile else 1440),
+            "height": height if height is not None else (932 if mobile else 1000),
+        },
+    )
+
+
+def _assert_no_horizontal_overflow(page: Page) -> None:
+    overflow = page.evaluate(
+        """() => ({
+            innerWidth: window.innerWidth,
+            scrollWidth: document.documentElement.scrollWidth,
+            bodyScrollWidth: document.body ? document.body.scrollWidth : 0,
+        })"""
+    )
+    assert overflow["scrollWidth"] <= overflow["innerWidth"] + 1
+    assert overflow["bodyScrollWidth"] <= overflow["innerWidth"] + 1
+
+
+def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    desktop = _new_public_context(browser, mobile=False, width=1440, height=1050)
+    mobile = _new_public_context(browser, mobile=True)
+    try:
+        desktop_page = desktop.new_page()
+        response = desktop_page.goto(f"{base_url}/?home=1", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(desktop_page.get_by_role("heading", name="Search once. Rank the right homes. Decide with evidence.")).to_be_visible()
+        expect(desktop_page.get_by_text("Vienna family search")).to_be_visible()
+        _assert_no_horizontal_overflow(desktop_page)
+        desktop_home = tmp_path / "propertyquarry-public-home-desktop.png"
+        desktop_page.screenshot(path=str(desktop_home), full_page=True)
+        assert desktop_home.exists()
+
+        mobile_page = mobile.new_page()
+        response = mobile_page.goto(f"{base_url}/?home=1", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(mobile_page.get_by_role("heading", name="Search once. Rank the right homes. Decide with evidence.")).to_be_visible()
+        expect(mobile_page.locator(".pq-hero-copy .btn.primary", has_text="Create account")).to_be_visible()
+        _assert_no_horizontal_overflow(mobile_page)
+        mobile_home = tmp_path / "propertyquarry-public-home-mobile.png"
+        mobile_page.screenshot(path=str(mobile_home), full_page=True)
+        assert mobile_home.exists()
+
+        response = desktop_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(desktop_page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
+        expect(desktop_page.get_by_text("Shared review when needed")).to_be_visible()
+        _assert_no_horizontal_overflow(desktop_page)
+        sign_in_shot = tmp_path / "propertyquarry-sign-in-desktop.png"
+        desktop_page.screenshot(path=str(sign_in_shot), full_page=True)
+        assert sign_in_shot.exists()
+    finally:
+        desktop.close()
+        mobile.close()
+
+
 def _assert_property_shell_visual_gates(page: Page, *, max_appbar_height: int) -> None:
     appbar = page.locator(".pq-appbar, .pqx-topbar").first
     if appbar.count() == 0:

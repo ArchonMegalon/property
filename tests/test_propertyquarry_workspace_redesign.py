@@ -729,7 +729,7 @@ def test_propertyquarry_root_redirects_token_authenticated_users_but_keeps_home_
 
     public_home = client.get("/?home=1", headers=headers, follow_redirects=False)
     assert public_home.status_code == 200
-    assert "Find the right properties. Compare them clearly. Decide with evidence." in public_home.text
+    assert "Search once. Rank the right homes. Decide with evidence." in public_home.text
     assert 'href="/?home=1" aria-label="PropertyQuarry home"' in public_home.text
     assert 'href="/app/search"' in public_home.text
     assert 'href="/app/properties"' in public_home.text
@@ -756,7 +756,7 @@ def test_propertyquarry_root_home_query_renders_public_home_when_signed_in(monke
 
     response = client.get("/?home=1", headers={"host": "propertyquarry.com"}, follow_redirects=False)
     assert response.status_code == 200
-    assert "Find the right properties. Compare them clearly. Decide with evidence." in response.text
+    assert "Search once. Rank the right homes. Decide with evidence." in response.text
     assert 'href="/app/search"' in response.text
     assert 'href="/app/properties"' in response.text
     assert 'href="/sign-in?signing_in=1"' not in response.text
