@@ -661,6 +661,8 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         scan_reliability="standard",
         filter_pushdown_strength="partial",
         official_source_quality="developer_primary",
+        search_ready=False,
+        availability_note="Coming soon - target recovery canary must pass before this provider is enabled.",
     ),
     PropertyProviderSpec(
         key="raiffeisen_wohnbau_at",

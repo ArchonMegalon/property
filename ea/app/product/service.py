@@ -23804,11 +23804,29 @@ class ProductService:
                 actor="ea_one_manager",
                 operator_id=repair_operator_id,
             )
+            existing_status = str(getattr(existing, "status", "") or "").strip().lower()
+            existing_resolution = str(getattr(existing, "resolution", "") or "").strip()
+            returned_payload = (
+                dict(getattr(existing, "returned_payload_json", {}) or {})
+                if isinstance(getattr(existing, "returned_payload_json", None), dict)
+                else {}
+            )
+            if existing_status in {"returned", "completed"} and str(run_id or "").strip() and existing_resolution:
+                self._record_property_search_run_repair_receipt(
+                    principal_id=principal_id,
+                    run_id=str(run_id or "").strip(),
+                    task=existing,
+                    resolution=existing_resolution,
+                    reason=str(returned_payload.get("reason") or returned_payload.get("detail") or existing_resolution).strip(),
+                    actor="ea_one_manager",
+                )
             return {
                 "status": "existing",
                 "human_task_id": f"human_task:{existing.human_task_id}",
                 "queue_item_ref": f"human_task:{existing.human_task_id}",
                 "task_type": "property_provider_repair_ooda",
+                "repair_status": "returned" if existing_status in {"returned", "completed"} else existing_status,
+                "resolution": existing_resolution,
             }
         urgent_filter_keys = {
             "walkthrough_video",
@@ -24191,22 +24209,20 @@ class ProductService:
         sources = [dict(row) for row in list(normalized_summary.get("sources") or []) if isinstance(row, dict)]
         if not receipts or not sources:
             return normalized_summary
-        latest_source_fetch_receipt_by_key: dict[str, dict[str, object]] = {}
+        latest_receipt_by_key: dict[str, dict[str, object]] = {}
         for receipt in receipts:
-            if str(receipt.get("filter_key") or "").strip().lower() != "source_fetch":
-                continue
             source_key = self._property_source_repair_memory_key(
                 source_url=receipt.get("source_url"),
                 source_label=receipt.get("source_label"),
             )
             if not source_key:
                 continue
-            current = latest_source_fetch_receipt_by_key.get(source_key)
+            current = latest_receipt_by_key.get(source_key)
             current_at = str((current or {}).get("at") or "")
             receipt_at = str(receipt.get("at") or "")
             if current is None or receipt_at >= current_at:
-                latest_source_fetch_receipt_by_key[source_key] = receipt
-        if not latest_source_fetch_receipt_by_key:
+                latest_receipt_by_key[source_key] = receipt
+        if not latest_receipt_by_key:
             return normalized_summary
         changed = False
         for source in sources:
@@ -24214,17 +24230,18 @@ class ProductService:
                 source_url=source.get("source_url"),
                 source_label=source.get("source_label"),
             )
-            receipt = latest_source_fetch_receipt_by_key.get(source_key)
+            receipt = latest_receipt_by_key.get(source_key)
             if not receipt:
                 continue
             resolution = str(receipt.get("resolution") or "").strip()
             reason = str(receipt.get("reason") or "").strip()
             human_task_id = str(receipt.get("human_task_id") or "").strip()
+            filter_key = str(receipt.get("filter_key") or "").strip().lower() or "provider_repair"
             source["provider_repair_task_opened_total"] = max(1, int(source.get("provider_repair_task_opened_total") or 0))
             source["provider_repair_tasks"] = [
                 {
                     "status": "returned",
-                    "filter_key": "source_fetch",
+                    "filter_key": filter_key,
                     "human_task_id": human_task_id,
                     "queue_item_ref": human_task_id,
                     "resolution": resolution,
@@ -28608,6 +28625,47 @@ class ProductService:
                 final_status = str(result.get("status") or "processed").strip().lower() or "processed"
                 if final_status == "noop":
                     final_status = "processed"
+                repair_summary: dict[str, object] = {}
+                try:
+                    repair_summary = self.process_property_provider_repair_tasks(
+                        principal_id=normalized_principal,
+                        actor="property_search_run_worker",
+                        limit=40,
+                    )
+                except Exception as exc:
+                    self._record_product_event(
+                        principal_id=normalized_principal,
+                        event_type="property_provider_repair_worker_failed",
+                        payload={
+                            "run_id": run_id,
+                            "error": compact_text(str(exc or "property provider repair worker failed"), fallback="property provider repair worker failed", limit=280),
+                        },
+                        source_id=run_id,
+                        dedupe_key=f"{normalized_principal}|{run_id}|property-provider-repair-worker-failed",
+                    )
+                if repair_summary:
+                    try:
+                        pre_final_snapshot = self._snapshot_property_search_run(run_id=run_id, principal_id=normalized_principal) or {}
+                        pre_final_summary = dict(pre_final_snapshot.get("summary") or {}) if isinstance(pre_final_snapshot, dict) else {}
+                        repair_receipts = [
+                            dict(row)
+                            for row in list(pre_final_summary.get("repair_receipts") or [])
+                            if isinstance(row, dict)
+                        ]
+                        if repair_receipts:
+                            result["repair_receipts"] = repair_receipts[-25:]
+                            result["repair_resolved_total"] = max(
+                                int(result.get("repair_resolved_total") or 0),
+                                int(pre_final_summary.get("repair_resolved_total") or 0),
+                                len(repair_receipts),
+                            )
+                            result["repair_last_updated_at"] = str(pre_final_summary.get("repair_last_updated_at") or "")
+                            result = self._apply_property_search_run_repair_receipts(summary=dict(result or {}))
+                        if int(repair_summary.get("deferred_total") or 0) > 0 and not str(result.get("repair_status") or "").strip():
+                            result["repair_status"] = "degraded"
+                            result["repair_status_label"] = "Partial coverage"
+                    except Exception:
+                        pass
                 self._record_property_search_run_event(
                     run_id=run_id,
                     principal_id=normalized_principal,

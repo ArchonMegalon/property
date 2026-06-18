@@ -2391,6 +2391,66 @@ def test_property_provider_repair_task_dedupes_across_transient_source_refs() ->
     assert repair_tasks[0].assigned_operator_id == "ea_one_manager"
 
 
+def test_existing_returned_provider_repair_records_receipt_for_new_run() -> None:
+    principal_id = "exec-property-provider-repair-existing-receipt"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Provider Repair Existing Receipt Office")
+    service = ProductService(client.app.state.container)
+    property_url = "https://wohnberatung.example.invalid/search"
+
+    first = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url=property_url,
+        title="Wohnberatung Wien",
+        source_url=property_url,
+        source_label="Wohnberatung Wien | Austria | Rent | Vienna",
+        source_platform="wohnberatung_wien",
+        source_family="public_housing",
+        filter_key="source_fetch",
+        diagnostics={"provider_host": "wohnberatung.example.invalid", "error": "HTTP Error 403: Forbidden"},
+        run_id="first-repair-run",
+    )
+    assert first["repair_status"] == "returned"
+
+    run_id = f"existing-repair-{uuid.uuid4().hex}"
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "summary": {
+                "sources": [
+                    {
+                        "source_url": property_url,
+                        "source_label": "Wohnberatung Wien | Austria | Rent | Vienna",
+                        "provider_repair_task_opened_total": 1,
+                    }
+                ]
+            },
+        }
+
+    second = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url=property_url,
+        title="Wohnberatung Wien",
+        source_url=property_url,
+        source_label="Wohnberatung Wien | Austria | Rent | Vienna",
+        source_platform="wohnberatung_wien",
+        source_family="public_housing",
+        filter_key="source_fetch",
+        diagnostics={"provider_host": "wohnberatung.example.invalid", "error": "HTTP Error 403: Forbidden"},
+        run_id=run_id,
+    )
+
+    assert second["status"] == "existing"
+    assert second["repair_status"] == "returned"
+    snapshot = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+    summary = dict(dict(snapshot or {}).get("summary") or {})
+    assert summary["repair_resolved_total"] == 1
+    assert summary["repair_receipts"][0]["run_id"] == run_id
+    assert summary["sources"][0]["repair_status"] == "returned"
+
+
 def test_property_provider_repair_auto_resolves_generic_listing_pages(monkeypatch) -> None:
     principal_id = "exec-property-provider-auto-resolve"
     client = build_property_client(principal_id=principal_id)
@@ -4795,6 +4855,113 @@ def test_property_search_run_greenfield_api_wraps_legacy_signal_contract(monkeyp
     legacy_status = client.get(f"/app/api/signals/property/search/run/{run_id}")
     assert legacy_status.status_code == 200, legacy_status.text
     assert legacy_status.json()["status_url"] == f"/app/api/signals/property/search/run/{run_id}"
+
+
+def test_property_search_run_worker_preserves_provider_repair_receipts_before_terminal(monkeypatch) -> None:
+    principal_id = "exec-property-search-run-repair-before-terminal"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Repair Worker Office")
+
+    def _fake_sync_direct_property_scout(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...] = (),
+        property_search_preferences: dict[str, object] | None = None,
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+        progress_callback: callable | None = None,
+    ) -> dict[str, object]:
+        if callable(progress_callback):
+            progress_callback(
+                step="source_repair_needed",
+                message="Provider returned a repairable extraction issue.",
+                status="in_progress",
+                steps_delta=1,
+                summary_updates={
+                    "sources_total": 1,
+                    "sources": [
+                        {
+                            "source_url": "https://provider.example/search",
+                            "source_label": "Provider Example",
+                            "provider_repair_task_opened_total": 1,
+                            "provider_repair_tasks": [{"status": "pending", "filter_key": "missing_price"}],
+                        }
+                    ],
+                },
+            )
+        return {
+            "generated_at": product_service._now_iso(),
+            "status": "processed",
+            "sources_total": 1,
+            "listing_total": 1,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "email_notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [
+                {
+                    "source_url": "https://provider.example/search",
+                    "source_label": "Provider Example",
+                    "provider_repair_task_opened_total": 1,
+                    "provider_repair_tasks": [{"status": "pending", "filter_key": "missing_price"}],
+                }
+            ],
+        }
+
+    def _fake_process_property_provider_repair_tasks(self, *, principal_id: str, actor: str, limit: int = 40) -> dict[str, object]:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            active = [
+                state
+                for state in product_service._PROPERTY_SEARCH_RUN_REGISTRY.values()
+                if isinstance(state, dict)
+                and str(state.get("principal_id") or "").strip() == principal_id
+                and str(state.get("status") or "").strip().lower() == "in_progress"
+            ]
+            assert active
+            state = active[-1]
+            summary = dict(state.get("summary") or {})
+            summary["repair_receipts"] = [
+                {
+                    "at": product_service._now_iso(),
+                    "run_id": state["run_id"],
+                    "source_url": "https://provider.example/search",
+                    "source_label": "Provider Example",
+                    "filter_key": "missing_price",
+                    "resolution": "suppressed_missing_price",
+                    "reason": "provider page still lacks a concrete price",
+                    "actor": actor,
+                    "human_task_id": "human_task:repair-before-terminal",
+                    "repair_workflow": "ea_provider_ooda",
+                }
+            ]
+            summary["repair_resolved_total"] = 1
+            state["summary"] = summary
+        return {"generated_at": product_service._now_iso(), "resolved_total": 1, "deferred_total": 0, "resolved": []}
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+    monkeypatch.setattr(ProductService, "process_property_provider_repair_tasks", _fake_process_property_provider_repair_tasks)
+
+    started = client.post(
+        "/app/api/property/search-runs",
+        json={"selected_platforms": ["willhaben"], "property_preferences": {"country_code": "AT"}},
+    )
+    assert started.status_code == 200, started.text
+    run_id = started.json()["run_id"]
+    status = _poll_property_search_run_status(client, run_id)
+
+    assert status["status"] == "processed"
+    summary = dict(status["summary"])
+    assert summary["repair_resolved_total"] == 1
+    source = dict(summary["sources"][0])
+    assert source["repair_status"] == "returned"
+    assert source["provider_repair_tasks"][0]["status"] == "returned"
+    assert source["provider_repair_tasks"][0]["resolution"] == "suppressed_missing_price"
 
 
 def test_property_provider_greenfield_api_returns_country_scoped_catalog() -> None:

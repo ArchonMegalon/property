@@ -577,6 +577,31 @@ def _repair_needed(status_payload: dict[str, object]) -> bool:
     return False
 
 
+def _apply_repair_receipts_to_trace(repair_trace: RepairTrace, summary: dict[str, object], *, run_id: str) -> None:
+    receipts = [
+        dict(row)
+        for row in list(summary.get("repair_receipts") or [])
+        if isinstance(row, dict)
+        and (not str(run_id or "").strip() or str(row.get("run_id") or "").strip() == str(run_id or "").strip())
+    ]
+    if not receipts:
+        return
+    repair_trace.repair_needed = True
+    repair_trace.repair_triggered = True
+    repair_trace.repair_executed = True
+    repair_trace.task_ids = [
+        str(row.get("human_task_id") or "").strip()
+        for row in receipts
+        if str(row.get("human_task_id") or "").strip()
+    ] or repair_trace.task_ids
+    repair_trace.statuses = ["returned" for _ in receipts]
+    repair_trace.resolutions = [
+        str(row.get("resolution") or "").strip()
+        for row in receipts
+        if str(row.get("resolution") or "").strip()
+    ] or repair_trace.resolutions
+
+
 def _write_report(tmp_path: Path, report: RecoveryReport) -> None:
     artifact_dir = tmp_path / "target_recovery_reports"
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -642,7 +667,7 @@ def _provider_include_filter() -> set[str]:
 def _provider_specs() -> list[PropertyProviderSpec]:
     countries = set(_country_codes())
     include = _provider_include_filter()
-    rows = [spec for spec in PROVIDERS if spec.country_code in countries]
+    rows = [spec for spec in PROVIDERS if spec.country_code in countries and bool(spec.search_ready)]
     if include:
         rows = [spec for spec in rows if spec.key in include]
     return rows
@@ -998,6 +1023,7 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                 summary = dict(last_status.get("summary") or {}) if isinstance(last_status.get("summary"), dict) else {}
                 media_counters = _assert_no_generated_media(summary)
                 repair_trace.repair_needed = repair_trace.repair_needed or _repair_needed(last_status)
+                _apply_repair_receipts_to_trace(repair_trace, summary, run_id=run_id)
 
                 candidates = _candidate_rows(last_status)
                 if not first_target_match.matched:
@@ -1033,6 +1059,7 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
 
             summary = dict(last_status.get("summary") or {}) if isinstance(last_status.get("summary"), dict) else {}
             media_counters = _assert_no_generated_media(summary)
+            _apply_repair_receipts_to_trace(repair_trace, summary, run_id=run_id)
             candidates = _candidate_rows(last_status)
             if not first_target_match.matched:
                 for candidate in candidates:

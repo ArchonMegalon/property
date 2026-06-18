@@ -633,8 +633,7 @@ def test_generated_source_specs_include_new_austrian_developer_providers() -> No
     )
 
     by_platform = {row["platform"]: row for row in specs}
-    assert set(by_platform) == {"arwag_at", "raiffeisen_wohnbau_at", "leitgoeb_wohnbau_at", "viktoria_wohnbau_at"}
-    assert "arwag.at" in by_platform["arwag_at"]["url"]
+    assert set(by_platform) == {"raiffeisen_wohnbau_at", "leitgoeb_wohnbau_at", "viktoria_wohnbau_at"}
     assert "raiffeisen-wohnbau.at" in by_platform["raiffeisen_wohnbau_at"]["url"]
     assert "leitgoeb-wohnbau.at" in by_platform["leitgoeb_wohnbau_at"]["url"]
     assert "viktoria-wohnbau.at" in by_platform["viktoria_wohnbau_at"]["url"]
