@@ -18,7 +18,7 @@ import app.product.service as product_service
 import app.product.property_search_storage as property_search_storage
 import app.product.property_investment_external_data as property_investment_external_data
 from app.product.service import ProductService
-from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_matches_requested_location, _property_search_location_hints
+from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_google_maps_url, _property_candidate_matches_requested_location, _property_search_location_hints
 from app.product.service import _property_investment_underwriting_payload
 from app.services.property_billing import property_commercial_snapshot, property_worker_cap
 from app.services import property_market_catalog
@@ -68,6 +68,46 @@ def test_property_plan_investment_research_levels_follow_tier() -> None:
     assert agent["max_match_score"] == 80
     assert agent["magic_fit_scene_period"] == "none"
     assert agent["magic_fit_video_period"] == "none"
+
+
+def test_property_search_preferences_use_school_evidence_priority_with_legacy_alias() -> None:
+    normalized = property_market_catalog.normalize_property_search_preferences(
+        {
+            "school_evidence_priority": "very_important",
+            "school_quality_priority": "important",
+            "school_stage_preferences": ["volksschule"],
+        }
+    )
+    legacy = property_market_catalog.normalize_property_search_preferences(
+        {
+            "school_quality_priority": "important",
+            "school_stage_preferences": ["volksschule"],
+        }
+    )
+
+    assert normalized["school_evidence_priority"] == "very_important"
+    assert legacy["school_evidence_priority"] == "important"
+    assert "school_quality_priority" not in normalized
+    assert "school_quality_priority" not in legacy
+
+
+def test_property_candidate_google_maps_url_prefers_listing_snapshot_locality_over_source_scope_placeholder() -> None:
+    candidate = {
+        "title": "expat flat",
+        "property_facts": {
+            "postal_name": "1010 Vienna",
+            "source_scope_location": "1010 Vienna",
+            "source_postal_code": "1010",
+            "listing_research_snapshot": {
+                "address": "Brunnthalgasse 1B, 1020 Wien",
+                "postal_name": "1020 Wien",
+            },
+        },
+    }
+
+    url = _property_candidate_google_maps_url(candidate)
+
+    assert "Brunnthalgasse%201B%2C%201020%20Wien" in url
 
 
 def test_property_worker_caps_follow_plan() -> None:
@@ -327,13 +367,15 @@ def test_findmyhome_result_cards_extract_short_detail_urls() -> None:
     assert urls == ("https://www.findmyhome.at/5620769?tl=1",)
 
 
-def test_free_property_plan_uses_daily_visual_generation_caps() -> None:
+def test_free_property_plan_uses_declared_visual_generation_caps() -> None:
     snapshot = property_commercial_snapshot({})
 
     assert snapshot["magic_fit_scene_limit"] == 1
     assert snapshot["magic_fit_video_limit"] == 1
     assert snapshot["magic_fit_scene_period"] == "week"
     assert snapshot["magic_fit_video_period"] == "day"
+    free_plan = next(plan for plan in snapshot["plan_catalog"] if plan["plan_key"] == "free")
+    assert "one 3D reconstruction floor plan per week and one interior flythrough per day" in free_plan["features"]
 
 
 class _QuotaRow:
@@ -745,6 +787,22 @@ def test_property_search_location_matching_rejects_unselected_vienna_districts()
         summary="Provider result page was queried from a selected Vienna source scope.",
         property_facts={"source_scope_location": "1020 Vienna", "source_city": "Vienna"},
     ) is True
+
+
+def test_property_search_location_hints_prefer_selected_districts_over_broad_location_query() -> None:
+    assert _property_search_location_hints(
+        {
+            "location_query": "Wien",
+            "selected_districts": ["1010 Vienna"],
+        }
+    ) == ("1010 Vienna",)
+
+    assert _property_search_location_hints(
+        {
+            "location_query": "Wien",
+            "raw_preferences": {"selected_districts": ["1010 Vienna"]},
+        }
+    ) == ("1010 Vienna",)
 
 
 def test_property_search_location_matching_rejects_explicit_non_vienna_marker() -> None:
@@ -2650,6 +2708,57 @@ def test_hosted_property_tour_bundle_splits_public_manifest_from_private_receipt
     assert private_manifest["external_id"] == "ext-private-floorplan-1"
 
 
+def test_hosted_property_tour_public_manifest_has_no_private_fields(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
+
+    def _fake_download(url: str, target) -> str:
+        target.write_bytes(b"%PDF-1.4\n")
+        return "application/pdf"
+
+    monkeypatch.setattr("app.product.property_tour_hosting._download_public_tour_asset_with_type", _fake_download)
+
+    payload = product_service._write_hosted_floorplan_property_tour_bundle(
+        principal_id="exec-manifest-safety",
+        title="Manifest-safe floorplan tour",
+        listing_id="safety-floorplan-1",
+        property_url="https://www.willhaben.at/iad/object?adId=private-floorplan-2",
+        variant_key="layout_first",
+        floorplan_urls=("https://cdn.example.com/floorplan.pdf",),
+        property_facts_json={
+            "address_lines": ["1200 Wien"],
+            "map_lat": 48.2,
+            "map_lng": 16.3,
+            "exact_address": "Private Street 12, 1200 Wien",
+            "source_url": "https://www.willhaben.at/iad/object?adId=private-floorplan-2",
+        },
+        source_host="willhaben.at",
+        source_ref="property-scout:private-floorplan-2",
+        external_id="ext-private-floorplan-2",
+        recipient_email="private@example.com",
+    )
+
+    bundle_dir = tmp_path / str(payload["slug"])
+    public_manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    serialized_public_manifest = json.dumps(public_manifest, sort_keys=True)
+    for private_key in (
+        "map_lat",
+        "map_lng",
+        "listing_url",
+        "property_url",
+        "source_url",
+        "exact_address",
+        "principal_id",
+        "source_ref",
+        "external_id",
+        "private_recipient_email",
+        "recipient_email",
+        "public_preference_snapshot",
+        "preference_nodes",
+    ):
+        assert private_key not in serialized_public_manifest
+
+
 def test_hosted_property_tour_bundle_rejects_post_download_invalid_asset_suffix(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
@@ -2668,6 +2777,39 @@ def test_hosted_property_tour_bundle_rejects_post_download_invalid_asset_suffix(
             property_url="https://www.willhaben.at/iad/object?adId=bad-floorplan-1",
             variant_key="layout_first",
             floorplan_urls=("https://cdn.example.com/floorplan.html",),
+            property_facts_json={},
+            source_host="willhaben.at",
+        )
+
+
+@pytest.mark.parametrize(
+    ("asset_url", "content_type"),
+    (
+        ("https://cdn.example.com/floorplan.html", "text/html"),
+        ("https://cdn.example.com/floorplan.zip", "application/octet-stream"),
+        ("https://cdn.example.com/floorplan.json", "application/octet-stream"),
+    ),
+)
+def test_hosted_property_tour_bundle_rejects_hostile_asset_suffix_after_content_type_detection(
+    monkeypatch, tmp_path, asset_url, content_type
+) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
+
+    def _fake_download(url: str, target) -> str:
+        target.write_text("<html>not a floorplan</html>", encoding="utf-8")
+        return content_type
+
+    monkeypatch.setattr("app.product.property_tour_hosting._download_public_tour_asset_with_type", _fake_download)
+
+    with pytest.raises(RuntimeError, match="floorplan_assets_unavailable"):
+        product_service._write_hosted_floorplan_property_tour_bundle(
+            principal_id="exec-invalid-floorplan-suffix",
+            title="Bad floorplan asset",
+            listing_id="bad-floorplan-2",
+            property_url="https://www.willhaben.at/iad/object?adId=bad-floorplan-2",
+            variant_key="layout_first",
+            floorplan_urls=(asset_url,),
             property_facts_json={},
             source_host="willhaben.at",
         )
@@ -2833,6 +2975,56 @@ def test_property_alert_review_suppresses_candidate_outside_active_location() ->
     assert any("Gmunden" in str(item["payload"]) for item in events.json()["items"])
 
 
+def test_property_alert_review_suppresses_candidate_outside_selected_district_even_when_location_query_is_broad() -> None:
+    principal_id = "exec-property-alert-selected-district-gate"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Review District Gate Office")
+    seed_product_state(client, principal_id=principal_id)
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "selected_districts": ["1010 Vienna"],
+            "selected_platforms": ["derstandard_at"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service._open_property_alert_review(
+        principal_id=principal_id,
+        title="Wohnung mieten in 1200 Wien, Brigittenau | 81.98 m² | 3 Zimmer | EUR 1.649",
+        summary="Provider result was queried from a selected 1010 source scope.",
+        source_ref="property-scout:https://immobilien.derstandard.at/detail/1200-brigittenau",
+        external_id="derstandard-1200",
+        counterparty="DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
+        account_email="",
+        property_url="https://immobilien.derstandard.at/detail/1200-brigittenau",
+        actor="test",
+        notify_telegram=True,
+        candidate_properties=(
+            {
+                "property_url": "https://immobilien.derstandard.at/detail/1200-brigittenau",
+                "listing_title": "Wohnung mieten in 1200 Wien, Brigittenau | 81.98 m² | 3 Zimmer | EUR 1.649",
+                "summary": "Stilvolle 3-Zimmer-Wohnung mit Garten & Terrasse im 20. Bezirk.",
+                "property_facts_json": {
+                    "postal_name": "1200 Wien",
+                    "source_scope_location": "1010 Vienna",
+                    "source_city": "Vienna",
+                },
+            },
+        ),
+        personal_fit_assessment={"fit_score": 92.0, "recommendation": "shortlist"},
+        preference_person_id="self",
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+
+
 def test_property_search_run_status_reconstructs_missing_status_url() -> None:
     principal_id = "exec-property-search-missing-status-url"
     client = build_property_client(principal_id=principal_id)
@@ -2960,8 +3152,9 @@ def test_property_search_run_status_synthesizes_ranked_candidates_and_filtered_t
 
     assert status is not None
     summary = dict(status.get("summary") or {})
-    assert int(summary.get("held_back_total") or 0) == 5
-    assert int(summary.get("filtered_total") or 0) == 5
+    assert int(summary.get("held_back_total") or 0) == 0
+    assert int(summary.get("filtered_total") or 0) == 0
+    assert int(summary.get("filtered_low_fit_total") or 0) == 5
     ranked = [dict(row) for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
     assert len(ranked) == 1
     assert ranked[0]["title"] == "Altbau near U6"
@@ -3061,8 +3254,9 @@ def test_property_search_run_status_api_synthesizes_ranked_candidates_from_sourc
 
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert int(payload["summary"]["held_back_total"]) == 7
-    assert int(payload["summary"]["filtered_total"]) == 7
+    assert int(payload["summary"].get("held_back_total") or 0) == 0
+    assert int(payload["summary"].get("filtered_total") or 0) == 0
+    assert int(payload["summary"].get("filtered_low_fit_total") or 0) == 7
     ranked = [dict(row) for row in list(payload["summary"].get("ranked_candidates") or []) if isinstance(row, dict)]
     assert len(ranked) == 1
     assert ranked[0]["title"] == "Altbau near U6"
@@ -3239,6 +3433,20 @@ def test_property_candidate_supports_live_tour_detects_360() -> None:
     ) is False
 
 
+def test_property_candidate_supports_live_tour_rejects_willhaben_tracking_endpoint() -> None:
+    assert product_service._property_candidate_supports_live_tour(
+        {
+            "property_facts": {
+                "has_360": True,
+                "source_virtual_tour_url": "https://api.willhaben.at/restapi/v2/logevent/atz/1134225012/virtual-tour-link-clicked",
+            }
+        }
+    ) is True
+    assert product_service._safe_provider_live_360_url(
+        "https://api.willhaben.at/restapi/v2/logevent/atz/1134225012/virtual-tour-link-clicked"
+    ) == ""
+
+
 def test_willhaben_packet_source_virtual_tour_url_falls_back_to_attribute_map_links() -> None:
     packet = {
         "property_facts_json": {
@@ -3254,6 +3462,17 @@ def test_willhaben_packet_source_virtual_tour_url_falls_back_to_attribute_map_li
         product_service._willhaben_packet_source_virtual_tour_url(packet)
         == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
     )
+
+
+def test_willhaben_packet_source_virtual_tour_url_rejects_tracking_link() -> None:
+    packet = {
+        "source_virtual_tour_url": "https://api.willhaben.at/restapi/v2/logevent/atz/1134225012/virtual-tour-link-clicked",
+        "property_facts_json": {
+            "source_virtual_tour_url": "https://api.willhaben.at/restapi/v2/logevent/atz/1134225012/virtual-tour-link-clicked",
+        },
+    }
+
+    assert product_service._willhaben_packet_source_virtual_tour_url(packet) == ""
 
 
 def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(monkeypatch) -> None:
@@ -4102,6 +4321,30 @@ def test_property_search_run_progress_stays_zero_during_early_bootstrap_without_
         },
         stages_total=120,
         steps_completed=14,
+    )
+
+    assert progress == 0
+    assert eta_seconds == 0
+    assert eta_label == ""
+
+
+def test_property_search_run_progress_stays_zero_during_bootstrap_before_sources_are_materialized() -> None:
+    progress, eta_seconds, eta_label = product_service._property_search_run_progress_projection(
+        state={
+            "created_at": "2026-01-01T00:00:00Z",
+            "progress": 0,
+        },
+        step="starting",
+        status="in_progress",
+        summary={
+            "sources_total": 0,
+            "sources": [],
+            "listing_total": 0,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+        },
+        stages_total=12,
+        steps_completed=1,
     )
 
     assert progress == 0
@@ -4962,7 +5205,7 @@ def test_property_search_execution_preferences_relax_only_floorplan_for_discover
     assert execution_policy["search_mode"] == "discovery"
     assert execution_policy["require_floorplan"] is True
     assert execution_policy["enforce_floorplan_filter"] is False
-    assert execution_policy["discovery_relaxed_filters"] == ["require_floorplan"]
+    assert execution_policy["discovery_relaxed_filters"] == ["require_floorplan", "min_area_m2"]
 
 
 def test_property_search_effective_min_match_score_uses_discovery_floor() -> None:
@@ -5214,13 +5457,47 @@ def test_property_search_run_postgres_round_trip(monkeypatch: pytest.MonkeyPatch
         run_id=run_id,
         principal_id="exec-property-postgres-round-trip",
     )
-    listed = product_service._list_property_search_run_records(limit=5, statuses=("processed",))
+    listed = product_service._list_property_search_run_records(
+        limit=5,
+        statuses=("processed",),
+        principal_id="exec-property-postgres-round-trip",
+    )
 
     assert loaded is not None
     assert loaded["run_id"] == run_id
     assert loaded["principal_id"] == "exec-property-postgres-round-trip"
     assert loaded["property_search_preferences"]["country_code"] == "AT"
     assert any(row.get("run_id") == run_id for row in listed)
+
+
+def test_property_search_run_listing_requires_principal_unless_admin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    registry = {
+        "run-1": {"run_id": "run-1", "principal_id": "principal-a", "status": "processed", "updated_at": "2026-06-18T00:00:00+00:00"},
+        "run-2": {"run_id": "run-2", "principal_id": "principal-b", "status": "processed", "updated_at": "2026-06-18T00:01:00+00:00"},
+    }
+
+    assert property_search_storage._list_property_search_run_records(limit=10, registry=registry) == ()
+    principal_rows = property_search_storage._list_property_search_run_records(
+        limit=10,
+        principal_id="principal-a",
+        registry=registry,
+    )
+    admin_rows = property_search_storage._list_property_search_run_records(
+        limit=10,
+        admin=True,
+        registry=registry,
+    )
+
+    assert [row["run_id"] for row in principal_rows] == ["run-1"]
+    assert [row["run_id"] for row in admin_rows] == ["run-2", "run-1"]
+
+
+def test_property_search_run_upsert_does_not_change_existing_owner() -> None:
+    source = Path(property_search_storage.__file__).read_text(encoding="utf-8")
+
+    assert "SET principal_id = EXCLUDED.principal_id" not in source
+    assert "WHERE property_search_runs.principal_id = EXCLUDED.principal_id" in source
 
 
 def test_property_source_listing_cache_postgres_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:

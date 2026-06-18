@@ -277,9 +277,9 @@ def _property_search_run_status_payload(
             or summary.get("filtered_total")
             or (
                 int(summary.get("filtered_area_total") or 0)
+                + int(summary.get("filtered_property_type_total") or 0)
                 + int(summary.get("filtered_floorplan_total") or 0)
-                + int(summary.get("filtered_low_fit_total") or 0)
-                + int(summary.get("notification_budget_suppressed_total") or 0)
+                + int(summary.get("filtered_availability_total") or 0)
             )
             or 0
         )

@@ -81,7 +81,7 @@ _FREE_PLAN = PropertyPlanSpec(
         "up to 2 results per source",
         "match threshold up to 45/100",
         "standard research on the shortlisted results",
-        "one 3D reconstruction floor plan and one interior flythrough per day",
+        "one 3D reconstruction floor plan per week and one interior flythrough per day",
     ),
 )
 

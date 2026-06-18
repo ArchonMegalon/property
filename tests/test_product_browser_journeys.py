@@ -245,7 +245,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert 'data-pq-theater' in response.text
     assert 'data-workbench-results-table' in response.text
     assert 'data-workbench-dossier' in response.text
-    assert "Best homes first" in response.text
+    assert "Best matches" in response.text
     assert "choose one to update the tour and review panel" in response.text
     assert "Open 360" in response.text
     assert "Open property page" in response.text

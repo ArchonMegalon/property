@@ -81,6 +81,32 @@
     border-bottom: 1px solid var(--line);
   }
   .pq-result:last-child { border-bottom: 0; }
+  .pq-signed-in-handoff {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 18px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+    color: var(--text-soft);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .pq-signed-in-handoff[hidden] { display: none; }
+  .pq-spinner {
+    width: 15px;
+    height: 15px;
+    border: 2px solid rgba(108, 103, 95, 0.24);
+    border-top-color: #242321;
+    border-radius: 999px;
+    animation: pq-spin 0.9s linear infinite;
+    flex: 0 0 auto;
+  }
+  @keyframes pq-spin {
+    to { transform: rotate(360deg); }
+  }
   .pq-rank {
     width: 34px;
     height: 34px;
@@ -232,15 +258,21 @@
           <span>Decide</span>
           <span>Learn</span>
         </div>
+        {% if signing_in_progress %}
+        <div class="pq-signed-in-handoff" data-propertyquarry-signed-in-handoff data-target-endpoint="/app/api/property/landing-handoff">
+          <span class="pq-spinner" aria-hidden="true"></span>
+          <span>Signing you in…</span>
+        </div>
+        {% endif %}
       </div>
       <div>
         <div class="cta-row">
-          {% if access_identity or principal_id %}
+          {% if signing_in_progress %}
           <a class="btn primary" href="/app/search" data-analytics-event="home_open_search" data-rybbit-event="home_open_search" data-rybbit-prop-surface="hero">Open search</a>
           <a class="btn" href="/app/properties" data-analytics-event="home_open_run" data-rybbit-event="home_open_run" data-rybbit-prop-surface="hero">Open run</a>
           {% else %}
           <a class="btn primary" href="/register" data-analytics-event="home_create_account" data-rybbit-event="home_create_account" data-rybbit-prop-surface="hero">Create account</a>
-          <a class="btn" href="/sign-in" data-analytics-event="home_sign_in" data-rybbit-event="home_sign_in" data-rybbit-prop-surface="hero">Sign in</a>
+          <a class="btn" href="/sign-in?signing_in=1" data-analytics-event="home_sign_in" data-rybbit-event="home_sign_in" data-rybbit-prop-surface="hero">Sign in</a>
           {% endif %}
         </div>
       </div>
@@ -342,7 +374,7 @@
       <p>PropertyQuarry is strongest when the first session ends with fewer tabs and clearer reasons.</p>
     </div>
     <div class="cta-row">
-      {% if access_identity or principal_id %}
+      {% if signing_in_progress %}
       <a class="btn primary" href="/app/search" data-analytics-event="home_open_search_footer" data-rybbit-event="home_open_search" data-rybbit-prop-surface="footer">Open search</a>
       <a class="btn ghost" href="/app/properties" data-analytics-event="home_open_run_footer" data-rybbit-event="home_open_run" data-rybbit-prop-surface="footer">Open run</a>
       {% else %}
@@ -352,4 +384,48 @@
     </div>
   </section>
 </main>
+      {% if signing_in_progress %}
+<script>
+  (() => {
+    const handoff = document.querySelector('[data-propertyquarry-signed-in-handoff]');
+    if (!handoff) return;
+    const endpoint = String(handoff.getAttribute('data-target-endpoint') || '').trim();
+    if (!endpoint) return;
+    let redirected = false;
+    let attempts = 0;
+    const maxAttempts = 18;
+    const intervalMs = 700;
+    const tick = async () => {
+      attempts += 1;
+      try {
+        const response = await fetch(endpoint, {
+          credentials: 'same-origin',
+          headers: { 'Accept': 'application/json' },
+        });
+        if (response.ok) {
+          const body = await response.json();
+          if (body && body.signed_in) {
+            const target = String(body && body.target || '').trim();
+            if (!target || redirected) {
+              return;
+            }
+            redirected = true;
+            window.location.assign(target);
+          }
+        }
+      } catch (_err) {
+        // Keep the landing visible. Explicit buttons remain usable.
+      }
+      if (!redirected && attempts < maxAttempts) {
+        window.setTimeout(tick, intervalMs);
+      }
+    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => tick(), { once: true });
+    } else {
+      tick();
+    }
+  })();
+</script>
+{% endif %}
 {% endblock %}

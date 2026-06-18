@@ -4,7 +4,7 @@ PUBLIC_NAV = (
     {"href": "/", "label": "Product", "key": "product"},
     {"href": "/security", "label": "Security", "key": "security"},
     {"href": "/pricing", "label": "Pricing", "key": "pricing"},
-    {"href": "/sign-in", "label": "Sign in", "key": "sign-in"},
+    {"href": "/sign-in?signing_in=1", "label": "Sign in", "key": "sign-in"},
 )
 
 EA_APP_NAV_GROUPS = (

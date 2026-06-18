@@ -9,7 +9,7 @@ import pytest
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.fliplink.pdf_renderer import _resolve_pdf_flythrough_url
 from app.services.premium_dossier import render_property_packet_pdf_via_premium_pipeline
-from app.services.premium_dossier.compiler import compile_premium_dossier
+from app.services.premium_dossier.compiler import _google_maps_url, compile_premium_dossier
 from app.services.premium_dossier.html import render_premium_dossier_html
 from app.services.premium_dossier.markupgo_adapter import render_pdf_with_markupgo
 from app.services.premium_dossier.models import PremiumDossierRenderRequest, PremiumDossierRenderResult
@@ -86,6 +86,25 @@ def _sample_source() -> dict[str, object]:
             "recording_url": "https://app.dadan.io/recording/demo",
         },
     }
+
+
+def test_premium_dossier_google_maps_url_prefers_listing_snapshot_locality_over_source_scope_placeholder() -> None:
+    url = _google_maps_url(
+        {
+            "title": "expat flat",
+            "property_facts": {
+                "postal_name": "1010 Vienna",
+                "source_scope_location": "1010 Vienna",
+                "source_postal_code": "1010",
+                "listing_research_snapshot": {
+                    "address": "Brunnthalgasse 1B, 1020 Wien",
+                    "postal_name": "1020 Wien",
+                },
+            },
+        }
+    )
+
+    assert "Brunnthalgasse%201B%2C%201020%20Wien" in url
 
 
 class _FakeUrlopenResponse:

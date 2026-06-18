@@ -110,8 +110,8 @@ def _property_summary_held_back_total(summary: dict[str, object]) -> int:
         or (
             _positive_int(summary.get("filtered_floorplan_total"))
             + _positive_int(summary.get("filtered_area_total"))
-            + _positive_int(summary.get("filtered_low_fit_total"))
-            + _positive_int(summary.get("notification_budget_suppressed_total"))
+            + _positive_int(summary.get("filtered_property_type_total"))
+            + _positive_int(summary.get("filtered_availability_total"))
         ),
     )
 
@@ -178,8 +178,8 @@ def build_property_run_health_snapshot(
         held_back_total = (
             _positive_int(summary.get("filtered_floorplan_total"))
             + _positive_int(summary.get("filtered_area_total"))
-            + _positive_int(summary.get("filtered_low_fit_total"))
-            + _positive_int(summary.get("notification_budget_suppressed_total"))
+            + _positive_int(summary.get("filtered_property_type_total"))
+            + _positive_int(summary.get("filtered_availability_total"))
         )
     filtered_total = _positive_int(summary.get("filtered_total"), default=held_back_total or 0)
     return PropertyRunHealthSnapshot(
@@ -595,7 +595,7 @@ def build_property_run_live_board_snapshot(
                 "provider": provider,
                 "shard_count": shard_count,
                 "status_label": status_label,
-                "progress_pct": progress_pct if source else (max(8, min(progress or 12, 24)) if status_label == "Starting" else progress_pct),
+                "progress_pct": progress_pct if source else (max(4, min(progress or 4, 12)) if status_label == "Starting" else progress_pct),
                 "tone": tone,
             }
         )
@@ -800,7 +800,7 @@ def build_property_search_form_state_snapshot(
         show_distressed_review_controls=show_distressed_review_controls,
         show_search_agent_detail_controls=show_search_agent_detail_controls,
         show_preference_profile_controls=show_preference_profile_controls,
-        show_school_quality_priority_controls=school_evidence_controls_enabled,
+        show_school_evidence_priority_controls=school_evidence_controls_enabled,
         show_playground_importance_controls=show_playground_importance_controls,
         show_library_importance_controls=show_library_importance_controls,
         show_supermarket_importance_controls=show_supermarket_importance_controls,
@@ -901,8 +901,8 @@ def build_property_previous_run_summary(
         0,
         _previous_run_int(summary.get("filtered_floorplan_total"))
         + _previous_run_int(summary.get("filtered_area_total"))
-        + _previous_run_int(summary.get("filtered_low_fit_total"))
-        + _previous_run_int(summary.get("notification_budget_suppressed_total")),
+        + _previous_run_int(summary.get("filtered_property_type_total"))
+        + _previous_run_int(summary.get("filtered_availability_total"))
     )
     status_label, status_note = property_run_status_copy(
         raw_run.get("status") or summary.get("status"),

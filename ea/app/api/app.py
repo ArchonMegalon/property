@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from functools import lru_cache
 from importlib import import_module
 
@@ -12,12 +13,33 @@ from app.container import build_container
 from app.settings import get_settings, validate_startup_settings
 
 
+_PROPERTY_SEARCH_PREWARM_CONTAINER = None
+
+
 async def _prewarm_provider_health_cache() -> None:
     try:
         from app.api.routes.responses import prewarm_provider_health_snapshot_cache
 
         await prewarm_provider_health_snapshot_cache(lightweight=True)
     except Exception:
+        return
+
+
+async def _prewarm_property_search_surface_cache() -> None:
+    container = _PROPERTY_SEARCH_PREWARM_CONTAINER
+    try:
+        from app.api.routes.landing import (
+            prewarm_property_search_shell_cache,
+            prewarm_property_search_surface_cache,
+        )
+
+        await asyncio.to_thread(prewarm_property_search_surface_cache)
+        if container is not None:
+            await asyncio.to_thread(prewarm_property_search_shell_cache, container=container)
+            container.readiness.mark_startup_gate_ready("property_search_shell_prewarm")
+    except Exception:
+        if container is not None:
+            container.readiness.mark_startup_gate_failed("property_search_shell_prewarm")
         return
 
 
@@ -235,6 +257,10 @@ def create_app() -> FastAPI:
     app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
+    app.state.container.readiness.register_startup_gate("property_search_shell_prewarm")
+    global _PROPERTY_SEARCH_PREWARM_CONTAINER
+    _PROPERTY_SEARCH_PREWARM_CONTAINER = app.state.container
+    app.router.on_startup.append(_prewarm_property_search_surface_cache)
     if s.legacy_runtime_surfaces_enabled:
         app.router.on_startup.append(_prewarm_provider_health_cache)
     _include_public_routes(

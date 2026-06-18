@@ -3,11 +3,13 @@ from __future__ import annotations
 import contextlib
 import html
 import hmac
+import json
 import os
 import hashlib
 import re
 import urllib.parse
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -135,6 +137,96 @@ from app.services.fliplink import build_fliplink_packet_service
 
 router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
+
+
+@lru_cache(maxsize=1)
+def _property_country_catalog_snapshot_json() -> str:
+    country_rows = [dict(row) for row in property_country_options()]
+    country_codes = [
+        str(row.get("value") or "").strip()
+        for row in country_rows
+        if str(row.get("value") or "").strip()
+    ]
+    payload = {
+        "platform_catalog_by_country": {
+            country_code: property_provider_options(country_code=country_code)
+            for country_code in country_codes
+        },
+        "platform_defaults_by_country_mode": {
+            country_code: {
+                mode: list(default_platforms_for_country_listing_mode(country_code, mode))
+                for mode in ("rent", "buy")
+            }
+            for country_code in country_codes
+        },
+        "evidence_source_catalog_by_country": {
+            country_code: property_evidence_source_options(country_code=country_code)
+            for country_code in country_codes
+        },
+        "default_language_by_country": {
+            country_code: default_language_for_country(country_code)
+            for country_code in country_codes
+        },
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _property_country_catalog_snapshot() -> dict[str, object]:
+    return dict(json.loads(_property_country_catalog_snapshot_json()))
+
+
+@lru_cache(maxsize=1)
+def prewarm_property_search_surface_cache() -> bool:
+    template_names = (
+        "propertyquarry_home.html",
+        "app/property_decision_workbench.html",
+        "app/_property_results_list.html",
+        "app/_property_running_panel.html",
+        "app/_property_search_agents_panel.html",
+        "app/_property_selected_review_panel.html",
+    )
+    for template_name in template_names:
+        with contextlib.suppress(Exception):
+            templates.env.get_template(template_name)
+
+    _property_country_catalog_snapshot_json()
+    country_rows = [dict(row) for row in property_country_options()]
+    country_codes = tuple(
+        str(row.get("value") or "").strip()
+        for row in country_rows
+        if str(row.get("value") or "").strip()
+    )
+    with contextlib.suppress(Exception):
+        from app.api.routes import landing_view_models
+
+        landing_view_models._property_region_catalog_by_country(country_codes)
+        landing_view_models._property_market_filter_capabilities_catalog(country_codes)
+        landing_view_models._property_location_catalog_by_country_region(country_codes)
+    return True
+
+
+def prewarm_property_search_shell_cache(*, container: AppContainer, principal_id: str = "") -> bool:
+    auth_settings = getattr(getattr(container, "settings", None), "auth", None)
+    normalized_principal = (
+        str(principal_id or "").strip()
+        or str(getattr(auth_settings, "default_principal_id", "") or "").strip()
+        or "local-user"
+    )
+    status = container.onboarding.status(principal_id=normalized_principal)
+    property_context = _property_console_context(
+        container=container,
+        principal_id=normalized_principal,
+        status=status,
+        surface_mode="search",
+    )
+    property_context["surface_mode"] = "search"
+    payload = _property_workspace_payload(
+        "search",
+        status=status,
+        property_state=property_context,
+    )
+    templates.env.get_template("app/property_decision_workbench.html")
+    return bool(payload)
 
 
 def _faq_structured_data(rows: tuple[dict[str, str], ...]) -> dict[str, object]:
@@ -372,6 +464,82 @@ def _property_feedback_reference_candidates(candidate_ref: str, candidate: dict[
 
 
 
+def _property_lookup_candidate_across_runs(
+    product: Any,
+    *,
+    principal_id: str,
+    candidate_ref: str,
+    run_id: str = "",
+    max_runs: int = 12,
+) -> tuple[dict[str, object] | None, str]:
+    normalized_run_id = str(run_id or "").strip()
+    normalized_candidate_ref = str(candidate_ref or "").strip()
+    if not normalized_candidate_ref:
+        return None, ""
+    run_ids: list[str] = []
+    if normalized_run_id:
+        run_ids.append(normalized_run_id)
+    try:
+        for row in list(product.list_property_search_runs(principal_id=principal_id, limit=max_runs) or []):
+            if not isinstance(row, dict):
+                continue
+            recent_run_id = str(row.get("run_id") or "").strip()
+            if recent_run_id and recent_run_id not in run_ids:
+                run_ids.append(recent_run_id)
+    except Exception:
+        pass
+    for row_run_id in run_ids[: max(int(max_runs or 0), 1)]:
+        try:
+            run_payload = dict(
+                product.get_property_search_run_status(
+                    principal_id=principal_id,
+                    run_id=row_run_id,
+                )
+                or {}
+            )
+        except Exception:
+            continue
+        if not isinstance(run_payload, dict):
+            continue
+        candidate = _property_lookup_candidate(
+            property_context={"run": run_payload},
+            candidate_ref=normalized_candidate_ref,
+        )
+        if candidate:
+            return candidate, row_run_id
+    return None, ""
+
+
+def _property_lookup_candidate_in_saved_shortlist(
+    product: Any,
+    *,
+    principal_id: str,
+    candidate_ref: str,
+) -> dict[str, object] | None:
+    normalized_candidate_ref = str(candidate_ref or "").strip()
+    if not normalized_candidate_ref:
+        return None
+    try:
+        candidates = list(product.list_property_saved_shortlist_candidates(principal_id=principal_id) or [])
+    except Exception:
+        candidates = []
+    for row in candidates:
+        if not isinstance(row, dict):
+            continue
+        candidate = dict(row)
+        if _property_candidate_ref(candidate) == normalized_candidate_ref:
+            return candidate
+    return None
+
+
+def _property_missing_packet_redirect(run_id: str = "") -> RedirectResponse:
+    normalized_run_id = str(run_id or "").strip()
+    target = "/app/shortlist"
+    if normalized_run_id:
+        target = f"{target}?run_id={urllib.parse.quote(normalized_run_id, safe='')}"
+    return RedirectResponse(url=target, status_code=307)
+
+
 def _principal_for_page(
     *,
     container: AppContainer,
@@ -560,6 +728,14 @@ def _public_context(
     extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
     brand = request_brand(request)
+    query = request.query_params
+    signing_in_progress = False
+    if access_identity is not None or principal_id:
+        signing_in_progress = True
+    elif str(query.get("signing_in") or query.get("signing") or "").strip().lower() in {"1", "true", "yes"}:
+        signing_in_progress = True
+    elif str(query.get("code") or "").strip() and str(query.get("state") or "").strip():
+        signing_in_progress = True
     public_base_url = str(brand.get("public_base_url") or "").strip().rstrip("/")
     request_path = str(getattr(request.url, "path", "") or "").strip() or "/"
     canonical_path = str((extra or {}).get("canonical_path") or request_path).strip() or "/"
@@ -600,6 +776,7 @@ def _public_context(
         "channels": channels,
         "channel_cards": _channel_cards(channels),
         "selected_channels_label": ", ".join(selected_channels) if selected_channels else "Google sign-in recommended",
+        "signing_in_progress": signing_in_progress,
         "workspace_mode_label": _humanize(str(workspace.get("mode") or "personal")),
         "brief_headline": str(preview.get("headline") or "Turn your channels into a prioritized day."),
         "first_brief_items": _list_rows(
@@ -833,11 +1010,22 @@ def _property_console_context(
     country_provider_options = [dict(option) for option in property_provider_options(country_code=selected_country)]
     run_payload: dict[str, object] = {}
     normalized_run_id = str(run_id or "").strip()
+    has_persisted_brief = bool(
+        str(preferences.get("country_code") or raw_property_preferences.get("country_code") or "").strip()
+        or str(preferences.get("region_code") or raw_property_preferences.get("region_code") or "").strip()
+        or str(preferences.get("location_query") or raw_property_preferences.get("location_query") or "").strip()
+        or str(preferences.get("search_goal") or raw_property_preferences.get("search_goal") or "").strip()
+    )
     recent_search_runs: list[dict[str, object]] = []
     lightweight_active_run: dict[str, object] = {}
-    should_load_recent_runs = wants_recent_runs and not (
-        surface_scope.section == "properties"
-        or (normalized_run_id and surface_scope.section in {"properties", "shortlist"})
+    should_load_recent_runs = (
+        wants_recent_runs
+        and not (normalized_run_id and surface_scope.section in {"properties", "shortlist"})
+        and surface_scope.section != "search"
+        and (
+            surface_scope.section != "properties"
+            or has_persisted_brief
+        )
     )
     if should_load_recent_runs:
         try:
@@ -848,11 +1036,6 @@ def _property_console_context(
             ]
         except Exception:
             recent_search_runs = []
-    if surface_scope.section == "search" and not normalized_run_id:
-        with contextlib.suppress(Exception):
-            lightweight_active_run = normalize_property_search_run_snapshot(
-                dict(product.find_active_property_search_run(principal_id=principal_id, limit=8) or {})
-            )
     if wants_run_state and not normalized_run_id:
         terminal_statuses = {"processed", "completed", "completed_partial", "failed", "noop", "cancelled", "not started"}
         active_run = next(
@@ -870,22 +1053,45 @@ def _property_console_context(
             ),
             None,
         )
-        if active_run is None and surface_scope.section in {"properties", "search"}:
+        if active_run is None and surface_scope.section == "shortlist":
+            active_run = next(
+                (
+                    row
+                    for row in recent_search_runs
+                    if isinstance(row, dict)
+                    and str(row.get("run_id") or "").strip()
+                    and _property_run_payload_has_shortlist_results(row)
+                ),
+                None,
+            )
+        if active_run is None and surface_scope.section == "properties":
             with contextlib.suppress(Exception):
                 active_run = dict(product.find_active_property_search_run(principal_id=principal_id, limit=8) or {})
         if isinstance(active_run, dict):
             normalized_run_id = str(active_run.get("run_id") or "").strip()
     if wants_run_state and normalized_run_id:
-        try:
-            run_payload = dict(
-                product.get_property_search_run_status(
-                    principal_id=principal_id,
-                    run_id=normalized_run_id,
-                )
-                or {}
+        active_summary = dict(run_payload.get("summary") or {})
+        should_hydrate_run_status = True
+        if surface_scope.section == "search" and not active_summary.get("ranked_candidates"):
+            should_hydrate_run_status = (
+                not active_summary.get("sources")
+                and not active_summary.get("sources_total")
+                and not active_summary.get("reviewed_listing_total")
+                and not active_summary.get("listing_total")
             )
-        except Exception:
-            run_payload = {}
+        if should_hydrate_run_status:
+            try:
+                run_payload = dict(
+                    product.get_property_search_run_status(
+                        principal_id=principal_id,
+                        run_id=normalized_run_id,
+                    )
+                    or {}
+                )
+            except Exception:
+                run_payload = active_run if isinstance(active_run, dict) else {}
+        else:
+            run_payload = dict(active_run or run_payload or {})
     if run_payload:
         run_preferences_payload = (
             dict(run_payload.get("property_search_preferences") or run_payload.get("preferences") or {})
@@ -1029,33 +1235,14 @@ def _property_console_context(
         billing_order_endpoints_by_plan=billing_order_endpoints_by_plan,
         billing_provider_labels_by_plan=billing_provider_labels_by_plan,
     )
+    country_catalog_snapshot = _property_country_catalog_snapshot()
 
     return {
         "platform_options": country_provider_options,
-        "platform_catalog_by_country": {
-            str(option.get("value") or "").strip(): property_provider_options(country_code=str(option.get("value") or "").strip())
-            for option in property_country_options()
-        },
-        "platform_defaults_by_country_mode": {
-            str(option.get("value") or "").strip(): {
-                mode: list(
-                    default_platforms_for_country_listing_mode(
-                        str(option.get("value") or "").strip(),
-                        mode,
-                    )
-                )
-                for mode in ("rent", "buy")
-            }
-            for option in property_country_options()
-        },
-        "evidence_source_catalog_by_country": {
-            str(option.get("value") or "").strip(): property_evidence_source_options(country_code=str(option.get("value") or "").strip())
-            for option in property_country_options()
-        },
-        "default_language_by_country": {
-            str(option.get("value") or "").strip(): default_language_for_country(str(option.get("value") or "").strip())
-            for option in property_country_options()
-        },
+        "platform_catalog_by_country": dict(country_catalog_snapshot.get("platform_catalog_by_country") or {}),
+        "platform_defaults_by_country_mode": dict(country_catalog_snapshot.get("platform_defaults_by_country_mode") or {}),
+        "evidence_source_catalog_by_country": dict(country_catalog_snapshot.get("evidence_source_catalog_by_country") or {}),
+        "default_language_by_country": dict(country_catalog_snapshot.get("default_language_by_country") or {}),
         "country_options": property_country_options(),
         "language_options": property_language_options(),
         "listing_mode_options": property_listing_mode_options(),
@@ -1158,7 +1345,17 @@ def landing(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> Response:
-    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
+    principal_id = _principal_for_page(container=container, access_identity=access_identity, request=request)
+    status = _anonymous_onboarding_status()
+    if principal_id:
+        status["workspace"] = {
+            "name": (
+                str(getattr(access_identity, "display_name", "") or "").strip()
+                or "PropertyQuarry"
+            ),
+        }
+    else:
+        principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     brand = request_brand(request)
     commercial = property_commercial_snapshot(None)
     return _render_public_template(
@@ -1204,6 +1401,28 @@ def landing(
 @router.get("/product", response_class=HTMLResponse)
 def product_page() -> RedirectResponse:
     return RedirectResponse("/", status_code=307)
+
+
+@router.get("/app/api/property/landing-handoff", include_in_schema=False)
+def propertyquarry_landing_handoff(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> dict[str, object]:
+    principal_id = _principal_for_page(container=container, access_identity=access_identity, request=request)
+    if not principal_id:
+        return {"target": "/app/search", "signed_in": False}
+    product = build_product_service(container)
+    active_run = dict(product.find_active_property_search_run(principal_id=principal_id, limit=8) or {})
+    candidate_run_id = str(active_run.get("run_id") or "").strip()
+    if candidate_run_id:
+        return {
+            "target": f"/app/properties?run_id={urllib.parse.quote(candidate_run_id, safe='')}",
+            "signed_in": True,
+            "run_id": candidate_run_id,
+            "status": str(active_run.get("status") or "").strip(),
+        }
+    return {"target": "/app/search", "signed_in": True}
 
 
 @router.get("/integrations", response_class=HTMLResponse)
@@ -1899,9 +2118,39 @@ def property_research_packet(
         status=status,
         run_id=run_id,
     )
-    candidate = _property_lookup_candidate(property_context=property_context, candidate_ref=str(candidate_ref or "").strip())
+    normalized_candidate_ref = str(candidate_ref or "").strip()
+    resolved_run_id = str(run_id or "").strip()
+    candidate = _property_lookup_candidate(
+        property_context=property_context,
+        candidate_ref=normalized_candidate_ref,
+    )
     if candidate is None:
-        raise HTTPException(status_code=404, detail="property_research_packet_not_found")
+        candidate, matched_run_id = _property_lookup_candidate_across_runs(
+            product,
+            principal_id=context.principal_id,
+            candidate_ref=normalized_candidate_ref,
+            run_id=resolved_run_id,
+        )
+        if candidate is not None and matched_run_id and matched_run_id != resolved_run_id:
+            resolved_run_id = matched_run_id
+            with contextlib.suppress(Exception):
+                property_context["run"] = dict(
+                    product.get_property_search_run_status(
+                        principal_id=context.principal_id,
+                        run_id=resolved_run_id,
+                    )
+                    or {}
+                )
+    if candidate is None:
+        candidate = _property_lookup_candidate_in_saved_shortlist(
+            product,
+            principal_id=context.principal_id,
+            candidate_ref=normalized_candidate_ref,
+        )
+    if candidate is not None and not resolved_run_id:
+        resolved_run_id = str(candidate.get("saved_from_run_id") or "").strip()
+    if candidate is None:
+        return _property_missing_packet_redirect(resolved_run_id)
     workspace = dict(status.get("workspace") or {})
     assessment = dict(candidate.get("assessment") or {})
     facts = _property_enriched_candidate_facts(candidate=candidate)
@@ -1917,7 +2166,10 @@ def property_research_packet(
     display_source_label = _compact_provider_label(source_label) or source_label
     title = str(candidate.get("title") or property_url or "Research packet").strip() or "Research packet"
     display_title = _property_research_title_display(title)
-    run_target = f"/app/research/{candidate_ref}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else "")
+    run_target = (
+        f"/app/research/{candidate_ref}"
+        + (f"?run_id={urllib.parse.quote(resolved_run_id, safe='')}" if str(resolved_run_id or "").strip() else "")
+    )
     preference_person_id = str(preferences.get("preference_person_id") or "self").strip() or "self"
     packet_score_rows = _property_packet_score_rows(
         facts=facts,
@@ -1949,12 +2201,12 @@ def property_research_packet(
     future_research_rows = _property_packet_future_research_rows(facts)
     compare_rows = _property_packet_compare_rows(
         property_context=property_context,
-        current_candidate_ref=str(candidate_ref or "").strip(),
+        current_candidate_ref=normalized_candidate_ref,
     )
     compare_table_rows = _property_packet_compare_table(
         property_context=property_context,
         current_candidate=candidate,
-        current_candidate_ref=str(candidate_ref or "").strip(),
+        current_candidate_ref=normalized_candidate_ref,
     )
     investment_rows, investment_risk_rows = _property_investment_research_rows(
         property_url=property_url,
@@ -2571,16 +2823,18 @@ def app_shell(
     }
     status = container.onboarding.status(principal_id=context.principal_id)
     normalized_run_id = str(run_id or "").strip()
-    if property_brand and resolved_section == "properties" and normalized_run_id:
-        with contextlib.suppress(Exception):
-            product = build_product_service(container)
-            route_run = dict(
-                product.get_property_search_run_status(
-                    principal_id=context.principal_id,
-                    run_id=normalized_run_id,
-                )
-                or {}
+    if property_brand and resolved_section in {"properties", "shortlist"} and normalized_run_id:
+        product = build_product_service(container)
+        route_run = dict(
+            product.get_property_search_run_status(
+                principal_id=context.principal_id,
+                run_id=normalized_run_id,
             )
+            or {}
+        )
+        if not route_run:
+            raise HTTPException(status_code=404, detail="property_search_run_not_found")
+        if resolved_section == "properties":
             route_run_status = str(route_run.get("status") or "").strip().lower()
             if route_run_status in {"processed", "completed", "completed_partial"} and _property_run_payload_has_shortlist_results(route_run):
                 target = "/app/shortlist"
@@ -2715,10 +2969,11 @@ def app_shell(
                 return RedirectResponse(target, status_code=307)
         if property_context is not None and property_brand:
             property_context["surface_mode"] = current_nav
-            with contextlib.suppress(Exception):
-                property_context["saved_shortlist_candidates"] = product.list_property_saved_shortlist_candidates(
-                    principal_id=context.principal_id,
-                )
+            if PropertySurfaceScope.for_section(resolved_section).section == "shortlist":
+                with contextlib.suppress(Exception):
+                    property_context["saved_shortlist_candidates"] = product.list_property_saved_shortlist_candidates(
+                        principal_id=context.principal_id,
+                    )
             if PropertySurfaceScope.for_section(resolved_section).wants_credit_digest:
                 pack = product.channel_loop_pack(
                     principal_id=context.principal_id,
@@ -2734,7 +2989,7 @@ def app_shell(
                 if billing_truth:
                     billing_truth["fleet_digest"] = dict(property_context.get("fleet_digest") or {})
                     property_context["billing_truth"] = billing_truth
-        if resolved_section in property_sections or resolved_section == "properties":
+        if (resolved_section in property_sections or resolved_section == "properties") and current_nav != "search":
             product.record_surface_event(
                 principal_id=context.principal_id,
                 event_type=f"{current_nav}_opened",

@@ -26,6 +26,9 @@
       {% set provisional = provisional_candidates[0] if provisional_candidates else None %}
       {% if provisional %}
       <section class="pqx-card" style="margin-top:14px;">
+        {% set provisional_facts = provisional.get('property_facts') or {} %}
+        {% set provisional_snapshot = provisional_facts.get('listing_research_snapshot') if provisional_facts.get('listing_research_snapshot') is mapping else {} %}
+        {% set provisional_location = provisional.get('location_label') or provisional_snapshot.get('district') or provisional_snapshot.get('postal_name') or provisional_snapshot.get('city') or provisional_snapshot.get('address') or provisional_facts.get('district') or provisional_facts.get('postal_name') or provisional_facts.get('city') or provisional_facts.get('address') or provisional.get('source_label') or 'Source match' %}
         <div class="pqx-section-head">
           <div>
             <h2>Current best so far</h2>
@@ -45,7 +48,7 @@
           <div class="pqx-pref-row">
             <div><strong>Price</strong><small>{{ provisional.get('price_display') or 'Not confirmed yet' }}</small></div>
             <div><strong>Layout</strong><small>{{ provisional.get('layout_display') or 'Still being verified' }}</small></div>
-            <div><strong>Area</strong><small>{{ provisional.get('location_label') or provisional.get('source_label') or 'Source match' }}</small></div>
+            <div><strong>Area</strong><small>{{ provisional_location }}</small></div>
           </div>
         </div>
         <div class="pqx-actions">

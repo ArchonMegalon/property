@@ -1539,8 +1539,20 @@
       }
     };
 
-    triggerNodes.forEach((node, index) => {
-      node.addEventListener('click', () => applyStep(index));
+    const goToStepByKey = (stepKey) => {
+      const normalizedKey = String(stepKey || '').trim();
+      if (!normalizedKey) return;
+      const targetIndex = steps.findIndex((step) => String(step?.key || '').trim() === normalizedKey);
+      if (targetIndex < 0) return;
+      applyStep(targetIndex);
+    };
+
+    triggerNodes.forEach((node) => {
+      node.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        goToStepByKey(node.getAttribute('data-property-step-trigger') || '');
+      });
     });
     backNode?.addEventListener('click', () => applyStep(currentIndex - 1));
     nextNode?.addEventListener('click', () => applyStep(currentIndex + 1));
@@ -1635,6 +1647,9 @@
     const selectedLocations = selectedValuesForForm(form, 'location_query');
     const selectedKeywords = selectedValuesForForm(form, 'keywords');
     const parsedMaxResults = integerValue(form, 'max_results_per_source');
+    const schoolEvidencePriority = Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) && selectedValuesForForm(form, 'school_stage_preferences').length > 0
+      ? (fieldValue(form, 'school_evidence_priority') || 'any')
+      : 'any';
     return {
       selected_platforms: selectedPlatforms,
       property_preferences: {
@@ -1650,7 +1665,7 @@
         preference_person_id: fieldValue(form, 'preference_person_id') || 'self',
         enable_family_mode: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked),
         school_stage_preferences: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) ? selectedValuesForForm(form, 'school_stage_preferences') : [],
-        school_quality_priority: Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) && selectedValuesForForm(form, 'school_stage_preferences').length > 0 ? (fieldValue(form, 'school_quality_priority') || 'any') : 'any',
+        school_evidence_priority: schoolEvidencePriority,
         enable_commute_research: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked),
         commute_destination: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? (fieldValue(form, 'commute_destination') || '') : '',
         additional_reachability_targets: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? (fieldValue(form, 'additional_reachability_targets') || '') : '',
@@ -1964,7 +1979,7 @@
     const familyModeField = form.querySelector('input[name="enable_family_mode"]');
     const commuteResearchField = form.querySelector('input[name="enable_commute_research"]');
     const schoolStageWrap = form.querySelector('input[name="school_stage_preferences"]')?.closest('.console-field');
-    const schoolQualityWrap = form.querySelector('[name="school_quality_priority"]')?.closest('.console-field');
+    const schoolQualityWrap = form.querySelector('[name="school_evidence_priority"]')?.closest('.console-field');
     const playgroundDistanceWrap = form.querySelector('[name="max_distance_to_playground_m"]')?.closest('.console-field');
     const libraryDistanceWrap = form.querySelector('[name="max_distance_to_library_m"]')?.closest('.console-field');
     const zooDistanceWrap = form.querySelector('[name="max_distance_to_zoo_m"]')?.closest('.console-field');

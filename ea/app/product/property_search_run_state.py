@@ -77,6 +77,8 @@ def property_search_run_default_summary(
         "tour_existing_total": 0,
         "high_fit_total": 0,
         "filtered_area_total": 0,
+        "filtered_property_type_total": 0,
+        "filtered_availability_total": 0,
         "filtered_floorplan_total": 0,
         "filtered_low_fit_total": 0,
         "provider_cache_hit_total": 0,
@@ -102,7 +104,7 @@ def property_search_run_step_source_fraction(step: str) -> float:
         "starting": 0.01,
         "sources_resolved": 0.03,
         "source_started": 0.06,
-        "source_fetching": 0.12,
+        "source_fetching": 0.04,
         "source_extracting": 0.18,
         "source_rank_prep": 0.24,
         "source_previewing": 0.38,
@@ -350,6 +352,16 @@ def property_search_run_progress_projection(
     source_rows = list(summary.get("sources") or [])
     source_completed = len([row for row in source_rows if isinstance(row, dict)])
     summary["sources_completed"] = source_completed
+    normalized_step = str(step or "").strip().lower()
+
+    bootstrap_without_output = (
+        max(0, int(summary.get("listing_total") or 0)) <= 0
+        and max(0, int(summary.get("review_created_total") or 0)) <= 0
+        and max(0, int(summary.get("review_existing_total") or 0)) <= 0
+    )
+    if bootstrap_without_output and normalized_step in {"queued", "starting", "sources_resolved", "source_started", "source_fetching"}:
+        if sources_total <= 0 or source_completed <= 0:
+            return 0, 0, ""
 
     progress_candidate = raw_progress
     eta_seconds = 0
@@ -359,10 +371,8 @@ def property_search_run_progress_projection(
         # concrete source summary row or listing/review work.
         if (
             source_completed <= 0
-            and max(0, int(summary.get("listing_total") or 0)) <= 0
-            and max(0, int(summary.get("review_created_total") or 0)) <= 0
-            and max(0, int(summary.get("review_existing_total") or 0)) <= 0
-            and str(step or "").strip().lower() in {"queued", "starting", "sources_resolved", "source_started", "source_fetching"}
+            and bootstrap_without_output
+            and normalized_step in {"queued", "starting", "sources_resolved", "source_started", "source_fetching"}
         ):
             return 0, 0, ""
         phase_fraction = property_search_run_step_source_fraction(step)

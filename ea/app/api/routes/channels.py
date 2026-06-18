@@ -2335,7 +2335,7 @@ def _telegram_property_alert_policy_reply(
         actor="telegram",
         auto_score=True,
         auto_compare=True,
-        auto_generate_tour_for_good_fit=True,
+        auto_generate_tour_for_good_fit=False,
         notify_only_if_good=True,
         good_fit_min_score=80.0,
         good_fit_recommendations=("shortlist",),
@@ -2343,7 +2343,7 @@ def _telegram_property_alert_policy_reply(
     )
     threshold = int(float(policy.get("good_fit_min_score") or 80.0))
     return (
-        "Understood. EA will now score and compare property alerts automatically, generate a tour for strong fits when it can, "
+        "Understood. EA will now score and compare property alerts automatically, "
         f"and only notify you here when the fit looks genuinely good, around {threshold}/100 or shortlist-level."
     )
 

@@ -1012,7 +1012,7 @@
           const interactiveTarget = event.target?.closest?.('a, button, [data-pqx-scope-open]');
           if (interactiveTarget && interactiveTarget !== row) return;
           selectCandidate(row.getAttribute('data-candidate-ref'));
-          if (root.querySelector('[data-workbench-mobile-mode="property"]')) setMode('property');
+          if (root.querySelector('[data-pqx-mobile-panel="property"]')) setMode('property');
         });
         row.addEventListener('keydown', (event) => {
           if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -1020,7 +1020,7 @@
           if (interactiveTarget && interactiveTarget !== row) return;
           event.preventDefault();
           selectCandidate(row.getAttribute('data-candidate-ref'));
-          if (root.querySelector('[data-workbench-mobile-mode="property"]')) setMode('property');
+          if (root.querySelector('[data-pqx-mobile-panel="property"]')) setMode('property');
         });
       });
     }

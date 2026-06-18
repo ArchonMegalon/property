@@ -322,7 +322,11 @@ def test_app_startup_prewarms_provider_health_cache(monkeypatch: pytest.MonkeyPa
     async def fake_prewarm() -> None:
         calls.append("prewarm")
 
+    async def fake_property_prewarm() -> None:
+        return None
+
     monkeypatch.setattr(app_module, "_prewarm_provider_health_cache", fake_prewarm)
+    monkeypatch.setattr(app_module, "_prewarm_property_search_surface_cache", fake_property_prewarm)
 
     app = app_module.create_app()
     app.state.container = _FakeContainer()
@@ -344,7 +348,11 @@ def test_app_startup_skips_provider_health_prewarm_when_legacy_surfaces_disabled
     async def fake_prewarm() -> None:
         calls.append("prewarm")
 
+    async def fake_property_prewarm() -> None:
+        return None
+
     monkeypatch.setattr(app_module, "_prewarm_provider_health_cache", fake_prewarm)
+    monkeypatch.setattr(app_module, "_prewarm_property_search_surface_cache", fake_property_prewarm)
 
     app = app_module.create_app()
     app.state.container = _FakeContainer()
@@ -353,6 +361,17 @@ def test_app_startup_skips_provider_health_prewarm_when_legacy_surfaces_disabled
         pass
 
     assert calls == []
+
+
+def test_app_startup_prewarms_propertyquarry_search_surface() -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ["EA_API_TOKEN"] = ""
+    from app.api import app as app_module
+
+    app = app_module.create_app()
+    callback_names = {str(getattr(callback, "__name__", "")) for callback in app.router.on_startup}
+
+    assert "_prewarm_property_search_surface_cache" in callback_names
 
 
 def test_non_prod_mode_allows_default_principal_fallback() -> None:

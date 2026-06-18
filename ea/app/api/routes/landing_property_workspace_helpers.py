@@ -10,12 +10,45 @@ from app.product.property_surface_state import build_property_run_reliability_sn
 from app.services.property_artifact_contracts import required_artifact_receipt_rows
 
 
-def _property_candidate_maps_url(candidate: dict[str, object]) -> str:
-    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str, object]:
+    top_level_facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
     if isinstance(candidate.get("property_facts_json"), dict):
-        facts = {**facts, **dict(candidate.get("property_facts_json") or {})}
-    if isinstance(facts.get("listing_research_snapshot"), dict):
-        facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
+        top_level_facts = {**top_level_facts, **dict(candidate.get("property_facts_json") or {})}
+    snapshot = dict(top_level_facts.get("listing_research_snapshot") or {}) if isinstance(top_level_facts.get("listing_research_snapshot"), dict) else {}
+    merged = {**snapshot, **top_level_facts}
+    if not snapshot:
+        return merged
+
+    def _normalized(value: object) -> str:
+        return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
+
+    source_scope_location = str(top_level_facts.get("source_scope_location") or merged.get("source_scope_location") or "").strip()
+    source_city = str(top_level_facts.get("source_city") or merged.get("source_city") or "").strip()
+    source_postal_code = str(top_level_facts.get("source_postal_code") or merged.get("source_postal_code") or "").strip()
+    source_scope_candidates = {
+        _normalized(source_scope_location),
+        _normalized(source_city),
+    }
+    if source_postal_code and source_city:
+        source_scope_candidates.add(_normalized(f"{source_postal_code} {source_city}"))
+    source_scope_candidates.discard("")
+
+    def _is_scope_placeholder(value: object) -> bool:
+        normalized_value = _normalized(value)
+        if not normalized_value:
+            return False
+        return normalized_value in source_scope_candidates
+
+    for key in ("district", "location", "postal_name", "address", "street_address", "exact_address", "city"):
+        snapshot_value = str(snapshot.get(key) or "").strip()
+        top_value = str(top_level_facts.get(key) or "").strip()
+        if snapshot_value and (not top_value or _is_scope_placeholder(top_value)):
+            merged[key] = snapshot_value
+    return merged
+
+
+def _property_candidate_maps_url(candidate: dict[str, object]) -> str:
+    facts = _property_candidate_display_facts(candidate)
 
     def _text(*values: object) -> str:
         return next((str(value or "").strip() for value in values if str(value or "").strip()), "")
@@ -208,11 +241,7 @@ def _property_candidate_directions_url(
     target_query: object = "",
     mode: str = "walking",
 ) -> str:
-    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-    if isinstance(candidate.get("property_facts_json"), dict):
-        facts = {**facts, **dict(candidate.get("property_facts_json") or {})}
-    if isinstance(facts.get("listing_research_snapshot"), dict):
-        facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
+    facts = _property_candidate_display_facts(candidate)
 
     def _text(*values: object) -> str:
         return next((str(value or "").strip() for value in values if str(value or "").strip()), "")
@@ -257,11 +286,7 @@ def _property_candidate_route_evidence(
     candidate: dict[str, object],
     property_preferences: dict[str, object] | None = None,
 ) -> list[dict[str, str]]:
-    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-    if isinstance(candidate.get("property_facts_json"), dict):
-        facts = {**facts, **dict(candidate.get("property_facts_json") or {})}
-    if isinstance(facts.get("listing_research_snapshot"), dict):
-        facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
+    facts = _property_candidate_display_facts(candidate)
 
     family_filters_active = _property_family_filters_active(property_preferences or {})
     specs = (
@@ -354,11 +379,7 @@ def _property_progress_route_preview_rows(
     if not ranked_candidates:
         return []
     candidate = ranked_candidates[0]
-    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-    if isinstance(candidate.get("property_facts_json"), dict):
-        facts = {**facts, **dict(candidate.get("property_facts_json") or {})}
-    if isinstance(facts.get("listing_research_snapshot"), dict):
-        facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
+    facts = _property_candidate_display_facts(candidate)
 
     origin_lat = facts.get("map_lat") or facts.get("lat") or facts.get("latitude")
     origin_lng = facts.get("map_lng") or facts.get("lng") or facts.get("lon") or facts.get("longitude")
@@ -473,7 +494,7 @@ def _property_candidate_preview_image(candidate: dict[str, object]) -> str:
 def _property_candidate_orientation_preview(candidate: dict[str, object]) -> dict[str, object]:
     from app.api.routes import landing_view_models
 
-    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    facts = _property_candidate_display_facts(candidate)
     title = str(candidate.get("title") or "").strip()
     summary = str(candidate.get("summary") or "").strip()
     combined_text = " | ".join(part for part in (title, summary) if part)
@@ -834,6 +855,7 @@ def _property_suppression_rows(
     effective_preferences = dict(preferences or {})
     counters = {
         "Outside selected area": 0,
+        "Property type mismatch": 0,
         "Missing floorplan evidence": 0,
         "Below fit threshold": 0,
         "Outside area/size rule": 0,
@@ -843,6 +865,7 @@ def _property_suppression_rows(
     source_labels: dict[str, set[str]] = {key: set() for key in counters}
     field_map = (
         ("Outside selected area", "location_mismatch_candidate_total"),
+        ("Property type mismatch", "filtered_property_type_total"),
         ("Missing floorplan evidence", "filtered_floorplan_total"),
         ("Below fit threshold", "filtered_low_fit_total"),
         ("Outside area/size rule", "filtered_area_total"),
@@ -867,6 +890,7 @@ def _property_suppression_rows(
         counters["Alert budget"] = summary_budget
     summary_field_map = (
         ("Outside selected area", "filtered_location_total"),
+        ("Property type mismatch", "filtered_property_type_total"),
         ("Missing floorplan evidence", "filtered_floorplan_total"),
         ("Below fit threshold", "filtered_low_fit_total"),
         ("Outside area/size rule", "filtered_area_total"),
@@ -881,6 +905,7 @@ def _property_suppression_rows(
             counters[label] = 0
     action_map = {
         "Outside selected area": "Add nearby districts first instead of opening the full market.",
+        "Property type mismatch": "Allow this property type temporarily if you want mixed options in this round.",
         "Missing floorplan evidence": "These homes are still being checked for a floorplan in photos, PDFs, downloads, and 360 media.",
         "Below fit threshold": "Lower the match bar a little if you want to see more borderline homes.",
         "Outside area/size rule": "Stretch the size or area rule only if the shortlist feels too thin.",
@@ -889,6 +914,7 @@ def _property_suppression_rows(
     }
     title_map = {
         "Outside selected area": "Include nearby districts",
+        "Property type mismatch": "Widen property-type rule",
         "Missing floorplan evidence": "Include homes while floorplans are still being checked",
         "Below fit threshold": "Lower the match bar",
         "Outside area/size rule": "Stretch the size rule",
@@ -897,6 +923,7 @@ def _property_suppression_rows(
     }
     action_label_map = {
         "Outside selected area": "Set nearby radius",
+        "Property type mismatch": "Relax property type",
         "Missing floorplan evidence": "Show held-back homes",
         "Below fit threshold": "See lower-fit homes",
         "Outside area/size rule": "Relax size",
@@ -953,6 +980,24 @@ def _property_suppression_rows(
                 "action_label": action_label_map.get(label, "Review rule"),
             }
         )
+    if not rows:
+        aggregate_filtered_total = 0
+        for field_name in ("filtered_total", "held_back_total", "filtered_out_total"):
+            try:
+                aggregate_filtered_total = max(aggregate_filtered_total, int(float(run_summary.get(field_name) or 0)))
+            except Exception:
+                continue
+        if aggregate_filtered_total > 0:
+            rows.append(
+                {
+                    "title": "Filtered by the current brief",
+                    "rule_key": "Aggregate filtered",
+                    "detail": f"{aggregate_filtered_total} candidates were held back by the current brief. Open the active filters to inspect what is still strict.",
+                    "tag": "Search rule",
+                    "affected_total": aggregate_filtered_total,
+                    "action_label": "Adjust filters",
+                }
+            )
     return rows[:8]
 
 

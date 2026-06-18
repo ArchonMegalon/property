@@ -23,6 +23,9 @@ ALLOWED_17217_HOST_PATHS = {
     "docker-compose.yml",
 }
 
+LOCAL_API_TOKEN_MARKER = "propertyquarry-" + "local-api-token"
+LOCAL_BRIDGE_HOST = ".".join(("172", "17", "0", "1"))
+
 TEXT_SUFFIXES = {
     ".py",
     ".sh",
@@ -77,10 +80,10 @@ def main() -> int:
             text = path.read_text(encoding="utf-8")
         except Exception:
             continue
-        if "propertyquarry-local-api-token" in text:
+        if LOCAL_API_TOKEN_MARKER in text:
             failures.append(f"hardcoded local API token marker forbidden in tracked file: {normalized}")
-        if "172.17.0.1" in text and normalized not in ALLOWED_17217_HOST_PATHS:
-            failures.append(f"raw 172.17.0.1 host reference forbidden in tracked file: {normalized}")
+        if LOCAL_BRIDGE_HOST in text and normalized not in ALLOWED_17217_HOST_PATHS:
+            failures.append(f"raw {LOCAL_BRIDGE_HOST} host reference forbidden in tracked file: {normalized}")
         if BEARER_LITERAL_RE.search(text):
             failures.append(f"hardcoded bearer authorization forbidden in tracked file: {normalized}")
     if failures:

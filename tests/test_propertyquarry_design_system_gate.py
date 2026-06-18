@@ -65,7 +65,7 @@ def test_propertyquarry_search_results_explain_suppression_and_provider_quality(
     assert "data-pqx-counterfactual" in body
     assert "How this search was filtered" in body
     assert "Floorplans {{ provider_quality.get('floorplan_reliability')" in body
-    assert "Best homes first" in body
+    assert "Best matches" in body
 
 
 def test_propertyquarry_brand_marks_route_to_public_or_dashboard_home() -> None:

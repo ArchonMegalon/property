@@ -70,6 +70,12 @@ def _ensure_property_search_run_schema() -> None:
                     ON property_search_runs(updated_at DESC)
                     """
                 )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_property_search_runs_principal_updated
+                    ON property_search_runs(principal_id, updated_at DESC)
+                    """
+                )
         _PROPERTY_SEARCH_RUN_SCHEMA_READY = True
 
 
@@ -90,9 +96,9 @@ def _store_property_search_run_record(record: dict[str, object]) -> None:
                 INSERT INTO property_search_runs (run_id, principal_id, payload_json, created_at, updated_at)
                 VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (run_id) DO UPDATE
-                SET principal_id = EXCLUDED.principal_id,
-                    payload_json = EXCLUDED.payload_json,
+                SET payload_json = EXCLUDED.payload_json,
                     updated_at = EXCLUDED.updated_at
+                WHERE property_search_runs.principal_id = EXCLUDED.principal_id
                 """,
                 (
                     run_id,
@@ -129,6 +135,7 @@ def _list_property_search_run_records(
     limit: int = 20,
     statuses: tuple[str, ...] = (),
     principal_id: str = "",
+    admin: bool = False,
     registry: dict[str, dict[str, object]] | None = None,
 ) -> tuple[dict[str, object], ...]:
     normalized_limit = max(int(limit or 0), 1)
@@ -136,6 +143,8 @@ def _list_property_search_run_records(
         sorted({str(value or "").strip().lower() for value in statuses if str(value or "").strip()})
     )
     normalized_principal_id = str(principal_id or "").strip()
+    if not normalized_principal_id and not admin:
+        return ()
     if not _property_search_run_database_url():
         rows = [dict(value) for value in (registry or {}).values() if isinstance(value, dict)]
         if normalized_principal_id:

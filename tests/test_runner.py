@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import importlib
+import json
 import logging
 import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -14,6 +16,28 @@ from app.domain.models import ConnectorBinding
 def _load_runner_module(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=lambda *args, **kwargs: None))
     return importlib.import_module("app.runner")
+
+
+def test_scheduler_heartbeat_file_is_healthchecked(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    runner = _load_runner_module(monkeypatch)
+    from app import scheduler_healthcheck
+
+    heartbeat_path = tmp_path / "scheduler-heartbeat.json"
+    monkeypatch.setenv("EA_ROLE", "scheduler")
+    monkeypatch.setenv("PROPERTYQUARRY_SCHEDULER_PROFILE", "property_only")
+    monkeypatch.setenv("EA_SCHEDULER_HEARTBEAT_PATH", str(heartbeat_path))
+    monkeypatch.setenv("EA_SCHEDULER_HEARTBEAT_MAX_AGE_SECONDS", "60")
+
+    runner._write_scheduler_heartbeat(role="scheduler", status="idle")
+
+    payload = json.loads(heartbeat_path.read_text(encoding="utf-8"))
+    assert payload["role"] == "scheduler"
+    assert payload["status"] == "idle"
+    assert payload["profile"] == "property_only"
+    assert scheduler_healthcheck.main() == 0
+
+    heartbeat_path.write_text(json.dumps({"epoch": time.time() - 120, "role": "scheduler"}), encoding="utf-8")
+    assert scheduler_healthcheck.main() == 1
 
 
 def test_scheduler_onemin_billing_refresh_runs_browseract_and_provider_api_sweep(
@@ -988,5 +1012,7 @@ def test_scheduler_property_results_finalize_reconciles_ready_runs(monkeypatch: 
         "emailed": 1,
         "pending": 1,
         "errors": 0,
+        "repair_resolved_total": 0,
+        "repair_deferred_total": 0,
     }
     assert observed == [40]

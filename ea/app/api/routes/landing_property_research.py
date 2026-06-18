@@ -8,6 +8,7 @@ from typing import Any
 from app.api.routes.landing_property_workspace_helpers import (
     _candidate_detail_sections,
     _official_risk_posture_rows,
+    _property_candidate_display_facts,
     _property_candidate_orientation_preview,
     _property_candidate_preview_image,
 )
@@ -284,7 +285,7 @@ def _property_lookup_candidate(
 
 
 def _property_enriched_candidate_facts(*, candidate: dict[str, object]) -> dict[str, object]:
-    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    facts = _property_candidate_display_facts(candidate)
     title = str(candidate.get("title") or "").strip()
     summary = str(candidate.get("summary") or "").strip()
     text = " | ".join(part for part in (title, summary) if part)

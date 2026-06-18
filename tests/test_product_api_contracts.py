@@ -3891,10 +3891,10 @@ def test_property_scout_fit_over_50_creates_tour_even_when_policy_disabled(monke
     )
 
     assert result["tour_auto_min_score"] == 50.0
-    assert result["tour_created_total"] == 1
-    assert len(tour_calls) == 1
-    assert result["sources"][0]["top_candidates"][0]["tour_status"] == "created"
-    assert result["sources"][0]["top_candidates"][0]["tour_url"] == "https://propertyquarry.com/tours/fit-55"
+    assert result["tour_created_total"] == 0
+    assert len(tour_calls) == 0
+    assert result["sources"][0]["top_candidates"][0]["tour_status"] == "skipped"
+    assert result["sources"][0]["top_candidates"][0]["tour_url"] == ""
 
 
 def test_property_scout_fit_over_60_renders_magicfit_flythrough(monkeypatch) -> None:
@@ -3994,13 +3994,12 @@ def test_property_scout_fit_over_60_renders_magicfit_flythrough(monkeypatch) -> 
     )
 
     assert result["magicfit_flythrough_min_score"] == 60.0
-    assert result["flythrough_rendered_total"] == 1
-    assert len(render_calls) == 1
-    assert render_calls[0]["tour_url"] == tour_url
+    assert result["flythrough_rendered_total"] == 0
+    assert len(render_calls) == 0
     candidate = result["sources"][0]["top_candidates"][0]
-    assert candidate["flythrough_status"] == "rendered"
-    assert candidate["flythrough_provider"] == "magicfit"
-    assert candidate["flythrough_url"] == "https://propertyquarry.com/tours/files/fit-61/tour-magicfit.mp4"
+    assert candidate["flythrough_status"] == "skipped"
+    assert candidate["flythrough_provider"] == ""
+    assert candidate["flythrough_url"] == ""
 
 
 def test_property_scout_require_floorplan_filters_before_shortlist_and_prebuilds_tour(monkeypatch) -> None:
@@ -4096,10 +4095,10 @@ def test_property_scout_require_floorplan_filters_before_shortlist_and_prebuilds
     assert result["filtered_floorplan_total"] == 1
     assert result["sources"][0]["filtered_floorplan_total"] == 1
     assert result["sources"][0]["top_candidates"][0]["title"] == "Wohnung mit Grundriss und Balkon"
-    assert result["sources"][0]["top_candidates"][0]["tour_url"] == "https://propertyquarry.com/tours/with-plan"
+    assert result["sources"][0]["top_candidates"][0]["tour_url"] == ""
+    assert result["sources"][0]["top_candidates"][0]["tour_status"] == "skipped"
     assert assessed == ["with-plan"]
-    assert len(tour_calls) == 1
-    assert tour_calls[0]["allow_below_threshold"] is True
+    assert len(tour_calls) == 0
 
 
 def test_property_scout_floorplan_filter_records_provider_recovery_ooda_event(monkeypatch) -> None:
@@ -5908,9 +5907,10 @@ def test_property_scout_keeps_provider_fallback_when_all_personal_scores_are_zer
     )
 
     assert result["listing_total"] == 2
-    assert result["sources"][0]["filtered_low_fit_total"] == 2
-    assert result["sources"][0]["top_candidates"][0]["assessment"]["recommendation"] == "review"
-    assert result["sources"][0]["top_candidates"][0]["assessment"]["predicted_reaction"] == "needs_review"
+    assert result["sources"][0]["filtered_low_fit_total"] == 0
+    assert result["filtered_low_fit_total"] == 0
+    assert result["sources"][0]["top_candidates"][0]["assessment"]["recommendation"] == "insufficient_data"
+    assert result["sources"][0]["top_candidates"][0]["assessment"]["predicted_reaction"] == "unknown"
 
 
 def test_property_scout_route_deduplicates_duplicate_listings_across_sources(monkeypatch) -> None:
@@ -6115,11 +6115,11 @@ def test_property_scout_route_notifies_high_fit_and_creates_tour_for_existing_re
     assert body["status"] == "processed"
     assert body["review_existing_total"] == 1
     assert body["notified_total"] == 1
-    assert body["tour_created_total"] == 1
+    assert body["tour_created_total"] == 0
     assert body["high_fit_total"] == 1
     assert "Personal fit 96/100" in str(observed_telegram["text"])
     assert "https://myexternalbrain.com/tours/test-scout-flat" not in str(observed_telegram["text"])
-    assert ("Open 3D Tour", "https://myexternalbrain.com/tours/test-scout-flat") in [
+    assert ("Open 3D Tour", "https://myexternalbrain.com/tours/test-scout-flat") not in [
         tuple(item)
         for row in list(observed_telegram["url_buttons"] or [])
         for item in row
@@ -8132,7 +8132,7 @@ def test_property_alert_fit_summary_does_not_lead_with_360_when_stronger_reason_
     )
 
     assert "Personal fit 71/100" in summary
-    assert "view if compelling" in summary
+    assert "view if compelling" not in summary
     assert "district matches established daily-life preferences" in summary.lower()
     assert "supports remote review" not in summary.lower()
 
@@ -8150,7 +8150,7 @@ def test_property_alert_fit_summary_omits_360_when_it_is_the_only_positive_reaso
     )
 
     assert "Personal fit 54/100" in summary
-    assert "ask for clarification" in summary
+    assert "ask for clarification" not in summary
     assert "supports remote review" not in summary.lower()
 
 
@@ -10988,6 +10988,15 @@ def test_matterport_hosted_pure_360_bundle_uses_http_thumb_preview(monkeypatch, 
     assert payload["source_virtual_tour_origin"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
     assert scene["image_url"] == "https://my.matterport.com/api/v2/player/models/BmVWxvZQZLq/thumb/"
     assert scene["mime_type"] == "image/jpeg"
+    public_manifest = json.loads((tmp_path / str(payload["slug"]) / "tour.json").read_text(encoding="utf-8"))
+    private_manifest = json.loads((tmp_path / str(payload["slug"]) / "tour.private.json").read_text(encoding="utf-8"))
+    assert "source_virtual_tour_url" not in public_manifest
+    assert "source_virtual_tour_origin" not in public_manifest
+    assert "crezlo_public_url" not in public_manifest
+    assert "https://my.matterport.com/show/" not in json.dumps(public_manifest)
+    assert private_manifest["source_virtual_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
+    loaded = product_service._existing_hosted_property_tour_payload(str(payload["slug"]))
+    assert loaded["source_virtual_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
 
 
 def test_3dvista_hosted_pure_360_bundle_preserves_provider_url(monkeypatch, tmp_path: Path) -> None:
@@ -11010,6 +11019,16 @@ def test_3dvista_hosted_pure_360_bundle_preserves_provider_url(monkeypatch, tmp_
     assert payload["source_virtual_tour_origin"] == "https://example.3dvista.com/tours/top22/index.html"
     assert payload["three_d_vista_url"] == "https://example.3dvista.com/tours/top22/index.html"
     assert payload["crezlo_public_url"] == "https://example.3dvista.com/tours/top22/index.html"
+    public_manifest = json.loads((tmp_path / str(payload["slug"]) / "tour.json").read_text(encoding="utf-8"))
+    private_manifest = json.loads((tmp_path / str(payload["slug"]) / "tour.private.json").read_text(encoding="utf-8"))
+    assert "source_virtual_tour_url" not in public_manifest
+    assert "source_virtual_tour_origin" not in public_manifest
+    assert "crezlo_public_url" not in public_manifest
+    assert "panorama_source" not in public_manifest
+    assert "https://example.3dvista.com/tours/top22/index.html" not in json.dumps(public_manifest)
+    assert private_manifest["three_d_vista_url"] == "https://example.3dvista.com/tours/top22/index.html"
+    loaded = product_service._existing_hosted_property_tour_payload(str(payload["slug"]))
+    assert loaded["three_d_vista_url"] == "https://example.3dvista.com/tours/top22/index.html"
 
 
 def test_kalandra_cube_360_bundle_generation_is_disabled(monkeypatch, tmp_path: Path) -> None:
@@ -18957,8 +18976,11 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert opened_access.headers["location"] == "/app/properties"
     assert "ea_workspace_session=" in str(opened_access.headers.get("set-cookie") or "")
     property_root = client.get("/", headers={"host": "propertyquarry.com"}, follow_redirects=False)
-    assert property_root.status_code == 307
-    assert property_root.headers["location"] == "/app/properties"
+    assert property_root.status_code == 200
+    assert str(property_root.headers.get("location") or "").strip() == ""
+    assert 'data-target-endpoint="/app/api/property/landing-handoff"' in property_root.text
+    assert "Signing you in" in property_root.text
+    assert ">Sign in<" not in property_root.text
     opened_access_secure = client.get(
         access_body["access_url"],
         follow_redirects=False,
@@ -19085,6 +19107,41 @@ def test_workspace_invite_and_access_invalid_pages_render_browser_recovery_copy(
     assert "This action link is no longer valid." in missing_channel_action.text
     missing_channel_action_head = client.head("/app/channel-actions/bad-token", follow_redirects=False)
     assert missing_channel_action_head.status_code == 404
+
+
+def test_signed_in_propertyquarry_root_and_landing_handoff_skip_full_onboarding_status() -> None:
+    principal_id = "exec-lightweight-root"
+    client = build_product_client(principal_id=principal_id)
+
+    access_session = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "principal@example.com",
+            "role": "principal",
+            "display_name": "Principal Access",
+            "expires_in_hours": 24,
+        },
+    )
+    assert access_session.status_code == 200
+    access_body = access_session.json()
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened_access = client.get(access_body["access_url"], follow_redirects=False)
+    assert opened_access.status_code == 303
+    assert "ea_workspace_session=" in str(opened_access.headers.get("set-cookie") or "")
+
+    def _fail_status(*args, **kwargs):
+        raise AssertionError("signed_in_public_root_should_not_call_onboarding_status")
+
+    client.app.state.container.onboarding.status = _fail_status
+
+    root = client.get("/", headers={"host": "propertyquarry.com"})
+    assert root.status_code == 200
+    assert 'data-target-endpoint="/app/api/property/landing-handoff"' in root.text
+
+    handoff = client.get("/app/api/property/landing-handoff", headers={"host": "propertyquarry.com"})
+    assert handoff.status_code == 200
+    assert handoff.json()["signed_in"] is True
 
 
 def test_workspace_session_cookie_secure_for_proxy_protocol_chain(

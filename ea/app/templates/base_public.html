@@ -698,17 +698,23 @@
       </a>
       <nav class="nav">
         {% for item in public_nav %}
+        {% if not (signing_in_progress and (item.key == "sign-in" or "/sign-in" in ((item.href | default('')) | string))) %}
         <a href="{{ item.href }}" class="{% if current_nav == item.key %}active{% endif %}">{{ item.label }}</a>
+        {% endif %}
         {% endfor %}
       </nav>
       <div class="actions">
-        <a class="btn ghost" href="{% if access_identity %}{{ brand.app_home or '/app/properties' }}{% else %}/sign-in{% endif %}">{% if access_identity %}Open current session{% else %}{{ brand.sign_in_label }}{% endif %}</a>
+        {% if not signing_in_progress %}
+        <a class="btn ghost" href="{% if access_identity %}{{ brand.app_home or '/app/properties' }}{% else %}/sign-in?signing_in=1{% endif %}">{% if access_identity %}Open current session{% else %}{{ brand.sign_in_label }}{% endif %}</a>
         <a class="btn primary" href="/register">{{ brand.create_label }}</a>
+        {% endif %}
       </div>
     </div>
     <div class="wrap mobile-nav" aria-label="Mobile navigation">
       {% for item in public_nav %}
+      {% if not (signing_in_progress and (item.key == "sign-in" or "/sign-in" in ((item.href | default('')) | string))) %}
       <a href="{{ item.href }}" class="{% if current_nav == item.key %}active{% endif %}">{{ item.label }}</a>
+      {% endif %}
       {% endfor %}
       <a href="/docs" class="{% if current_nav == 'docs' %}active{% endif %}">Docs</a>
       <a href="/integrations" class="{% if current_nav == 'integrations' %}active{% endif %}">Integrations</a>
@@ -726,7 +732,9 @@
       <div>{{ brand.name }}</div>
       <nav>
         {% for item in public_nav %}
+        {% if not (signing_in_progress and (item.key == "sign-in" or "/sign-in" in ((item.href | default('')) | string))) %}
         <a href="{{ item.href }}">{{ item.label }}</a>
+        {% endif %}
         {% endfor %}
         <a href="/docs">Docs</a>
         <a href="/integrations">Integrations</a>

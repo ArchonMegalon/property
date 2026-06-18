@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import urllib.parse
 from typing import Any
 
@@ -133,8 +134,33 @@ def _google_maps_url(payload: dict[str, object]) -> str:
     facts = dict(payload.get("facts") or {}) if isinstance(payload.get("facts"), dict) else {}
     if isinstance(payload.get("property_facts"), dict):
         facts = {**facts, **dict(payload.get("property_facts") or {})}
-    if isinstance(facts.get("listing_research_snapshot"), dict):
-        facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
+    snapshot = dict(facts.get("listing_research_snapshot") or {}) if isinstance(facts.get("listing_research_snapshot"), dict) else {}
+    if snapshot:
+        merged = {**snapshot, **facts}
+
+        def _normalized(value: object) -> str:
+            return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
+
+        source_scope_location = str(facts.get("source_scope_location") or merged.get("source_scope_location") or "").strip()
+        source_city = str(facts.get("source_city") or merged.get("source_city") or "").strip()
+        source_postal_code = str(facts.get("source_postal_code") or merged.get("source_postal_code") or "").strip()
+        source_scope_candidates = {
+            _normalized(source_scope_location),
+            _normalized(source_city),
+        }
+        if source_postal_code and source_city:
+            source_scope_candidates.add(_normalized(f"{source_postal_code} {source_city}"))
+        source_scope_candidates.discard("")
+
+        for key in ("district", "location", "postal_name", "address", "street_address", "exact_address", "city"):
+            snapshot_value = str(snapshot.get(key) or "").strip()
+            top_value = str(facts.get(key) or "").strip()
+            if snapshot_value and (
+                not top_value
+                or _normalized(top_value) in source_scope_candidates
+            ):
+                merged[key] = snapshot_value
+        facts = merged
 
     def _text(*values: object) -> str:
         return next((str(value or "").strip() for value in values if str(value or "").strip()), "")
@@ -147,6 +173,7 @@ def _google_maps_url(payload: dict[str, object]) -> str:
     query = _text(
         facts.get("exact_address"),
         facts.get("street_address"),
+        facts.get("address"),
         address_lines,
         facts.get("postal_name"),
         facts.get("location"),

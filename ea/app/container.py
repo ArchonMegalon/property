@@ -68,6 +68,28 @@ def _database_url(settings: Settings) -> str:
 class ReadinessService:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
+        self._startup_gates: dict[str, tuple[bool, str]] = {}
+
+    def register_startup_gate(self, name: str) -> None:
+        normalized = str(name or "").strip()
+        if normalized and normalized not in self._startup_gates:
+            self._startup_gates[normalized] = (False, "pending")
+
+    def mark_startup_gate_ready(self, name: str, reason: str = "ready") -> None:
+        normalized = str(name or "").strip()
+        if normalized:
+            self._startup_gates[normalized] = (True, str(reason or "ready").strip() or "ready")
+
+    def mark_startup_gate_failed(self, name: str, reason: str = "failed") -> None:
+        normalized = str(name or "").strip()
+        if normalized:
+            self._startup_gates[normalized] = (False, str(reason or "failed").strip() or "failed")
+
+    def _startup_gate_blocker(self) -> str:
+        for name, (ready, reason) in sorted(self._startup_gates.items()):
+            if not ready:
+                return f"{name}:{reason or 'pending'}"
+        return ""
 
     def check(self) -> tuple[bool, str]:
         try:
@@ -80,12 +102,21 @@ class ReadinessService:
                 return False, "database_url_missing"
             return False, "startup_validation_failed"
         if profile.storage_backend == "memory":
+            startup_blocker = self._startup_gate_blocker()
+            if startup_blocker:
+                return False, startup_blocker
             if str(self._settings.storage.backend or "").strip().lower() == "memory":
                 return True, "memory_ready"
             return True, "auto_memory_ready"
         if not _database_url(self._settings):
             return False, "database_url_missing"
-        return self._probe_database()
+        ready, reason = self._probe_database()
+        if not ready:
+            return ready, reason
+        startup_blocker = self._startup_gate_blocker()
+        if startup_blocker:
+            return False, startup_blocker
+        return ready, reason
 
     def _probe_database(self) -> tuple[bool, str]:
         try:

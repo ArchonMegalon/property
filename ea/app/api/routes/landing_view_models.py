@@ -1082,8 +1082,22 @@ def _property_keyword_options_cached() -> tuple[tuple[str, str, str], ...]:
         {"value": "public pool nearby", "label": "Public pool nearby", "detail": "Swimming and sport access nearby"},
         {"value": "medical care nearby", "label": "Medical care nearby", "detail": "Doctors, clinics, and hospitals nearby"},
         {"value": "supermarket nearby", "label": "Supermarket nearby", "detail": "Daily errands close by"},
+        {"value": "market nearby", "label": "Market nearby", "detail": "Produce markets and district-life errands nearby"},
+        {"value": "Baumarkt nearby", "label": "Baumarkt nearby", "detail": "DIY and practical errands nearby"},
+        {"value": "shopping center nearby", "label": "Shopping center nearby", "detail": "Bad-weather fallback for errands nearby"},
+        {"value": "flaniermeile nearby", "label": "Flaniermeile nearby", "detail": "Walkable promenade and city-life access nearby"},
+        {"value": "theatre nearby", "label": "Theatre nearby", "detail": "Culture and evening-life access nearby"},
         {"value": "pharmacy nearby", "label": "Pharmacy nearby", "detail": "Healthcare basics nearby"},
         {"value": "underground nearby", "label": "Underground nearby", "detail": "Fast transit access"},
+        {"value": "good air quality", "label": "Good air quality", "detail": "Treat air burden as a real quality signal"},
+        {"value": "avoid noise-risk area", "label": "Avoid noise-risk area", "detail": "Treat official noise burden as a genuine location risk"},
+        {"value": "high-speed internet", "label": "High-speed internet evidence", "detail": "Broadband evidence matters for the final call"},
+        {"value": "low crime area", "label": "Low crime area", "detail": "Treat quarter-level safety burden as a real signal"},
+        {"value": "water and groundwater check", "label": "Water source and groundwater check", "detail": "Research water source and groundwater burden"},
+        {"value": "parking pressure check", "label": "Parking pressure check", "detail": "Check parking situation if the listing has no garage"},
+        {"value": "avoid septic risk", "label": "Avoid septic risk", "detail": "Avoid Senkgrube or septic burden"},
+        {"value": "winter driving check", "label": "Winter driving check", "detail": "Check seasonal driving and slope burden"},
+        {"value": "avoid flood-risk area", "label": "Avoid flood-risk area", "detail": "Treat flooding and runoff exposure as a real risk"},
         {"value": "no gas", "label": "No gas heating", "detail": "Avoid gas-based systems"},
         {"value": "district heating", "label": "District heating", "detail": "Prefer Fernwärme"},
         {"value": "parking", "label": "Parking", "detail": "Car-friendly"},
@@ -1097,63 +1111,146 @@ def _property_keyword_options_cached() -> tuple[tuple[str, str, str], ...]:
 def _property_keyword_options() -> list[dict[str, str]]:
     preference_options = {
         "playground nearby": [
-            {"value": "any", "label": "No preference"},
+            {"value": "any", "label": "Neutral"},
             {"value": "avoid", "label": "Avoid"},
             {"value": "nice_to_have", "label": "Nice to have"},
             {"value": "important", "label": "Strong wish"},
             {"value": "must_have", "label": "Must have"},
         ],
         "library nearby": [
-            {"value": "any", "label": "No preference"},
+            {"value": "any", "label": "Neutral"},
             {"value": "avoid", "label": "Avoid"},
             {"value": "nice_to_have", "label": "Nice to have"},
             {"value": "important", "label": "Strong wish"},
             {"value": "must_have", "label": "Must have"},
         ],
         "zoo nearby": [
-            {"value": "any", "label": "No preference"},
+            {"value": "any", "label": "Neutral"},
             {"value": "avoid", "label": "Avoid"},
             {"value": "nice_to_have", "label": "Nice to have"},
             {"value": "important", "label": "Strong wish"},
             {"value": "must_have", "label": "Must have"},
         ],
         "public pool nearby": [
-            {"value": "any", "label": "No preference"},
+            {"value": "any", "label": "Neutral"},
             {"value": "avoid", "label": "Avoid"},
             {"value": "nice_to_have", "label": "Nice to have"},
             {"value": "important", "label": "Strong wish"},
             {"value": "must_have", "label": "Must have"},
         ],
         "medical care nearby": [
-            {"value": "any", "label": "No preference"},
+            {"value": "any", "label": "Neutral"},
             {"value": "avoid", "label": "Avoid"},
             {"value": "nice_to_have", "label": "Nice to have"},
             {"value": "important", "label": "Strong wish"},
             {"value": "must_have", "label": "Must have"},
         ],
         "supermarket nearby": [
-            {"value": "any", "label": "No preference"},
+            {"value": "any", "label": "Neutral"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "market nearby": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "Baumarkt nearby": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "shopping center nearby": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "flaniermeile nearby": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "theatre nearby": [
+            {"value": "any", "label": "Neutral"},
             {"value": "avoid", "label": "Avoid"},
             {"value": "nice_to_have", "label": "Nice to have"},
             {"value": "important", "label": "Strong wish"},
             {"value": "must_have", "label": "Must have"},
         ],
         "pharmacy nearby": [
-            {"value": "any", "label": "No preference"},
+            {"value": "any", "label": "Neutral"},
             {"value": "avoid", "label": "Avoid"},
             {"value": "nice_to_have", "label": "Nice to have"},
             {"value": "important", "label": "Strong wish"},
             {"value": "must_have", "label": "Must have"},
         ],
         "underground nearby": [
-            {"value": "any", "label": "No preference"},
+            {"value": "any", "label": "Neutral"},
             {"value": "avoid", "label": "Avoid"},
             {"value": "nice_to_have", "label": "Nice to have"},
             {"value": "important", "label": "Strong wish"},
             {"value": "must_have", "label": "Must have"},
         ],
+        "good air quality": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "avoid noise-risk area": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "must_have", "label": "Must avoid"},
+        ],
+        "high-speed internet": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "low crime area": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "water and groundwater check": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "important", "label": "Check it"},
+            {"value": "must_have", "label": "Must check"},
+        ],
+        "parking pressure check": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "important", "label": "Check it"},
+            {"value": "must_have", "label": "Must check"},
+        ],
+        "avoid septic risk": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "must_have", "label": "Must avoid"},
+        ],
+        "winter driving check": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "important", "label": "Check it"},
+            {"value": "must_have", "label": "Must check"},
+        ],
+        "avoid flood-risk area": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "must_have", "label": "Must avoid"},
+        ],
     }
-    distance_options = [
+    default_distance_options = [
         {"value": "100", "label": "100 m"},
         {"value": "250", "label": "250 m"},
         {"value": "500", "label": "500 m"},
@@ -1161,13 +1258,28 @@ def _property_keyword_options() -> list[dict[str, str]]:
         {"value": "2000", "label": "2 km"},
         {"value": "5000", "label": "5 km"},
     ]
+    long_distance_options = [
+        {"value": "250", "label": "250 m"},
+        {"value": "500", "label": "500 m"},
+        {"value": "1000", "label": "1 km"},
+        {"value": "2000", "label": "2 km"},
+        {"value": "5000", "label": "5 km"},
+        {"value": "7000", "label": "7 km"},
+    ]
+    distance_options = {
+        "market nearby": long_distance_options,
+        "Baumarkt nearby": long_distance_options,
+        "shopping center nearby": long_distance_options,
+        "flaniermeile nearby": long_distance_options,
+        "theatre nearby": long_distance_options,
+    }
     return [
         {
             "value": value,
             "label": label,
             "detail": detail,
             **({"preference_options": preference_options[value]} if value in preference_options else {}),
-            **({"distance_options": distance_options} if value in preference_options else {}),
+            **({"distance_options": distance_options.get(value, default_distance_options)} if value in {"playground nearby", "library nearby", "zoo nearby", "public pool nearby", "medical care nearby", "supermarket nearby", "market nearby", "Baumarkt nearby", "shopping center nearby", "flaniermeile nearby", "theatre nearby", "pharmacy nearby", "underground nearby"} else {}),
         }
         for value, label, detail in _property_keyword_options_cached()
     ]
@@ -1177,10 +1289,10 @@ def _property_school_preference_options(
     *,
     selected_school_stage_preferences: list[str],
     require_school_evidence: bool,
-    school_quality_priority: str,
+    school_evidence_priority: str,
 ) -> list[dict[str, str]]:
     selected = {str(item or "").strip().lower() for item in selected_school_stage_preferences if str(item or "").strip()}
-    evidence_priority = str(school_quality_priority or "any").strip().lower()
+    evidence_priority = str(school_evidence_priority or "any").strip().lower()
     if require_school_evidence and evidence_priority == "very_important":
         selected_state = "must_have"
     elif require_school_evidence and evidence_priority == "important":
@@ -1713,7 +1825,7 @@ def app_section_payload(
     show_distressed_review_controls = bool(search_form_state.get("show_distressed_review_controls"))
     show_search_agent_detail_controls = bool(search_form_state.get("show_search_agent_detail_controls"))
     show_preference_profile_controls = bool(search_form_state.get("show_preference_profile_controls"))
-    show_school_quality_priority_controls = bool(search_form_state.get("show_school_quality_priority_controls"))
+    show_school_evidence_priority_controls = bool(search_form_state.get("show_school_evidence_priority_controls"))
     show_playground_importance_controls = bool(search_form_state.get("show_playground_importance_controls"))
     show_library_importance_controls = bool(search_form_state.get("show_library_importance_controls"))
     show_supermarket_importance_controls = bool(search_form_state.get("show_supermarket_importance_controls"))
@@ -1806,7 +1918,7 @@ def app_section_payload(
     school_preference_options = _property_school_preference_options(
         selected_school_stage_preferences=selected_school_stage_preferences,
         require_school_evidence=bool(property_preferences.get("require_school_evidence")),
-        school_quality_priority=str(property_preferences.get("school_quality_priority") or "any"),
+        school_evidence_priority=str(property_preferences.get("school_evidence_priority") or "any"),
     )
     selected_location_values, custom_location_values = _split_known_and_custom_values(location_options, selected_location_values)
     selected_keyword_values, custom_keyword_values = _split_known_and_custom_values(keyword_options, selected_keyword_values)
@@ -1821,6 +1933,11 @@ def app_section_payload(
         "public pool nearby": "max_distance_to_public_pool_m",
         "medical care nearby": "max_distance_to_medical_care_m",
         "supermarket nearby": "max_distance_to_supermarket_m",
+        "market nearby": "max_distance_to_market_m",
+        "Baumarkt nearby": "max_distance_to_hardware_store_m",
+        "shopping center nearby": "max_distance_to_shopping_center_m",
+        "flaniermeile nearby": "max_distance_to_shopping_street_m",
+        "theatre nearby": "max_distance_to_theatre_m",
         "pharmacy nearby": "max_distance_to_medical_care_m",
         "underground nearby": "max_distance_to_subway_m",
     }
@@ -1831,6 +1948,11 @@ def app_section_payload(
         "public pool nearby": "",
         "medical care nearby": "",
         "supermarket nearby": "max_distance_to_supermarket_importance",
+        "market nearby": "",
+        "Baumarkt nearby": "",
+        "shopping center nearby": "",
+        "flaniermeile nearby": "",
+        "theatre nearby": "",
         "pharmacy nearby": "",
         "underground nearby": "",
     }
@@ -1870,7 +1992,7 @@ def app_section_payload(
                         state = "nice_to_have"
                 else:
                     state = "any"
-        elif option_value in {"library nearby", "zoo nearby", "public pool nearby", "medical care nearby", "supermarket nearby", "pharmacy nearby"}:
+        elif option_value in {"library nearby", "zoo nearby", "public pool nearby", "medical care nearby", "supermarket nearby", "market nearby", "Baumarkt nearby", "shopping center nearby", "flaniermeile nearby", "theatre nearby", "pharmacy nearby"}:
             if state not in {"avoid", "nice_to_have", "important", "must_have"}:
                 distance_field = nearby_keyword_distance_fields.get(option_value) or ""
                 importance_field = nearby_keyword_importance_fields.get(option_value) or ""
@@ -1893,6 +2015,33 @@ def app_section_payload(
                         state = "nice_to_have"
                 else:
                     state = "any"
+        elif option_value == "good air quality":
+            if state not in {"nice_to_have", "important", "must_have"}:
+                state = "important" if bool(property_preferences.get("prefer_good_air_quality")) else "any"
+        elif option_value == "avoid noise-risk area":
+            if state not in {"avoid", "must_have"}:
+                state = "avoid" if bool(property_preferences.get("avoid_noise_risk_area")) else "any"
+        elif option_value == "high-speed internet":
+            if state not in {"nice_to_have", "important", "must_have"}:
+                state = "must_have" if bool(property_preferences.get("require_high_speed_internet")) else "any"
+        elif option_value == "low crime area":
+            if state not in {"nice_to_have", "important", "must_have"}:
+                state = "important" if bool(property_preferences.get("prefer_low_crime_area")) else "any"
+        elif option_value == "water and groundwater check":
+            if state not in {"important", "must_have"}:
+                state = "important" if bool(property_preferences.get("require_drinking_water_quality_research")) else "any"
+        elif option_value == "parking pressure check":
+            if state not in {"important", "must_have"}:
+                state = "important" if bool(property_preferences.get("require_parking_pressure_check")) else "any"
+        elif option_value == "avoid septic risk":
+            if state not in {"avoid", "must_have"}:
+                state = "avoid" if bool(property_preferences.get("avoid_cesspit_or_septic_risk")) else "any"
+        elif option_value == "winter driving check":
+            if state not in {"important", "must_have"}:
+                state = "important" if bool(property_preferences.get("require_winter_access_research")) else "any"
+        elif option_value == "avoid flood-risk area":
+            if state not in {"avoid", "must_have"}:
+                state = "avoid" if bool(property_preferences.get("avoid_flood_risk_area")) else "any"
         elif option_value == "barrier-free":
             if state not in {"avoid", "nice_to_have", "important", "must_have"}:
                 if option_value in selected_avoid_keyword_values:
@@ -1912,7 +2061,7 @@ def app_section_payload(
                 stored_distance = int(float(stored_distance)) if stored_distance not in (None, "") else 0
             except Exception:
                 stored_distance = 0
-            if stored_distance in {100, 250, 500, 1000, 2000, 5000}:
+            if stored_distance in {100, 250, 500, 1000, 2000, 5000, 7000}:
                 distance_state = str(stored_distance)
         keyword_preference_options.append(
             {
@@ -2201,7 +2350,7 @@ def app_section_payload(
     property_search_mode_requested = str(property_preferences.get("search_mode") or "strict").strip().lower()
     if property_search_mode_requested not in {"strict", "discovery"}:
         property_search_mode_requested = "strict"
-    if surface_scope.section == "search" or surface_scope.wants_agent_views:
+    if surface_scope.wants_agent_views:
         property_search_agents, property_search_agent = build_property_search_agents(
             property_preferences,
             selected_platforms=selected_platforms,
@@ -2800,9 +2949,9 @@ def app_section_payload(
             },
             {
                 "type": "select",
-                "name": "school_quality_priority",
+                "name": "school_evidence_priority",
                 "label": "School evidence priority",
-                "value": str(property_preferences.get("school_quality_priority") or "any"),
+                "value": str(property_preferences.get("school_evidence_priority") or "any"),
                 "options": [
                     {"value": "any", "label": "Any"},
                     {"value": "important", "label": "Important"},

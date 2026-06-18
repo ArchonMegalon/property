@@ -886,10 +886,27 @@ def _property_search_execution_preferences(preferences: dict[str, object] | None
     search_mode = _property_search_mode(request_preferences)
     require_floorplan = _property_truthy_flag(request_preferences.get("require_floorplan"))
     enforce_floorplan_filter = _property_search_floorplan_hard_filter_enabled(request_preferences)
+    raw_property_type = normalize_property_type_values(request_preferences.get("property_type"))
+    if isinstance(raw_property_type, tuple):
+        raw_property_type = list(raw_property_type)
+    requested_property_types = [str(item).strip().lower() for item in list(raw_property_type or []) if str(item).strip()]
+    requested_property_type_is_any = bool(requested_property_types and requested_property_types != ["any"])
+    discovery_min_area_m2 = _float_or_none(request_preferences.get("min_area_m2")) or 0.0
+    discovery_availability_years = 0
+    try:
+        discovery_availability_years = max(0, int(float(str(request_preferences.get("available_within_years") or "0").strip())))
+    except Exception:
+        discovery_availability_years = 0
     discovery_relaxed_filters: list[str] = []
     if search_mode == "discovery" and enforce_floorplan_filter:
         enforce_floorplan_filter = False
         discovery_relaxed_filters.append("require_floorplan")
+    if search_mode == "discovery" and requested_property_type_is_any:
+        discovery_relaxed_filters.append("property_type")
+    if search_mode == "discovery" and discovery_min_area_m2 > 0.0:
+        discovery_relaxed_filters.append("min_area_m2")
+    if search_mode == "discovery" and discovery_availability_years > 0:
+        discovery_relaxed_filters.append("available_within_years")
     request_preferences["search_mode"] = search_mode
     request_preferences["require_floorplan"] = require_floorplan
     request_preferences["floorplan_requirement_mode"] = "hard" if enforce_floorplan_filter else ("soft" if require_floorplan else "off")
@@ -2064,11 +2081,27 @@ def _property_search_prefetch_listing_urls(
 
 def _property_candidate_supports_live_tour(candidate: dict[str, object]) -> bool:
     facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    source_virtual_tour_url = _safe_provider_live_360_url(facts.get("source_virtual_tour_url"))
     return bool(
         facts.get("has_360")
-        or str(facts.get("source_virtual_tour_url") or "").strip()
+        or source_virtual_tour_url
         or _property_facts_have_floorplan(facts)
     )
+
+
+def _safe_provider_live_360_url(value: object) -> str:
+    normalized = _safe_live_property_tour_url(value)
+    if not normalized:
+        return ""
+    try:
+        parsed = urllib.parse.urlparse(normalized)
+    except Exception:
+        return ""
+    host = str(parsed.hostname or "").strip().lower().rstrip(".")
+    path = str(parsed.path or "").strip().lower()
+    if host == "api.willhaben.at" and ("/logevent/" in path or path.endswith("/virtual-tour-link-clicked")):
+        return ""
+    return normalized
 
 
 def _property_tour_status_is_pending(value: object) -> bool:
@@ -2131,6 +2164,7 @@ def _list_property_search_run_records(
     limit: int = 20,
     statuses: tuple[str, ...] = (),
     principal_id: str = "",
+    admin: bool = False,
 ) -> tuple[dict[str, object], ...]:
     with _PROPERTY_SEARCH_RUN_LOCK:
         registry_snapshot = {
@@ -2142,6 +2176,7 @@ def _list_property_search_run_records(
         limit=limit,
         statuses=statuses,
         principal_id=principal_id,
+        admin=admin,
         registry=registry_snapshot,
     )
 
@@ -5389,6 +5424,26 @@ def _property_search_location_hints(preferences: dict[str, object] | None) -> tu
         )
         if explicit_values:
             return explicit_values
+    selected_district_values = preference_payload.get("selected_districts")
+    if isinstance(selected_district_values, (list, tuple, set)):
+        explicit_values = tuple(
+            str(item or "").strip()
+            for item in selected_district_values
+            if str(item or "").strip()
+        )
+        if explicit_values:
+            return explicit_values
+    if isinstance(preference_payload.get("raw_preferences"), dict):
+        raw_preferences = dict(preference_payload.get("raw_preferences") or {})
+        raw_selected_district_values = raw_preferences.get("selected_districts")
+        if isinstance(raw_selected_district_values, (list, tuple, set)):
+            explicit_values = tuple(
+                str(item or "").strip()
+                for item in raw_selected_district_values
+                if str(item or "").strip()
+            )
+            if explicit_values:
+                return explicit_values
     raw_value = str(preference_payload.get("location_query") or "").strip()
     if not raw_value and isinstance(preference_payload.get("raw_preferences"), dict):
         raw_value = str(dict(preference_payload.get("raw_preferences") or {}).get("location_query") or "").strip()
@@ -5568,6 +5623,16 @@ def _property_search_floorplan_hard_filter_enabled(preferences: dict[str, object
         return True
     raw_policy = str(payload.get("floorplan_requirement_mode") or "").strip().lower()
     return raw_policy in {"hard", "strict", "required"}
+
+
+def _property_search_hard_filtered_total(payload: dict[str, object] | None) -> int:
+    summary = dict(payload or {})
+    return (
+        int(summary.get("filtered_area_total") or 0)
+        + int(summary.get("filtered_property_type_total") or 0)
+        + int(summary.get("filtered_floorplan_total") or 0)
+        + int(summary.get("filtered_availability_total") or 0)
+    )
 
 
 def _property_review_page_neuronwriter_payload(
@@ -6142,12 +6207,45 @@ def _property_candidate_has_concrete_area(property_facts: dict[str, object] | No
     return isinstance(_property_investment_area_sqm(facts), float)
 
 
+def _property_candidate_display_facts(payload: dict[str, object]) -> dict[str, object]:
+    top_level_facts = dict(payload.get("property_facts") or {}) if isinstance(payload.get("property_facts"), dict) else {}
+    if isinstance(payload.get("property_facts_json"), dict):
+        top_level_facts = {**top_level_facts, **dict(payload.get("property_facts_json") or {})}
+    snapshot = dict(top_level_facts.get("listing_research_snapshot") or {}) if isinstance(top_level_facts.get("listing_research_snapshot"), dict) else {}
+    merged = {**snapshot, **top_level_facts}
+    if not snapshot:
+        return merged
+
+    def _normalized(value: object) -> str:
+        return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
+
+    source_scope_location = str(top_level_facts.get("source_scope_location") or merged.get("source_scope_location") or "").strip()
+    source_city = str(top_level_facts.get("source_city") or merged.get("source_city") or "").strip()
+    source_postal_code = str(top_level_facts.get("source_postal_code") or merged.get("source_postal_code") or "").strip()
+    source_scope_candidates = {
+        _normalized(source_scope_location),
+        _normalized(source_city),
+    }
+    if source_postal_code and source_city:
+        source_scope_candidates.add(_normalized(f"{source_postal_code} {source_city}"))
+    source_scope_candidates.discard("")
+
+    def _is_scope_placeholder(value: object) -> bool:
+        normalized_value = _normalized(value)
+        if not normalized_value:
+            return False
+        return normalized_value in source_scope_candidates
+
+    for key in ("district", "location", "postal_name", "address", "street_address", "exact_address", "city"):
+        snapshot_value = str(snapshot.get(key) or "").strip()
+        top_value = str(top_level_facts.get(key) or "").strip()
+        if snapshot_value and (not top_value or _is_scope_placeholder(top_value)):
+            merged[key] = snapshot_value
+    return merged
+
+
 def _property_candidate_google_maps_url(candidate: dict[str, object]) -> str:
-    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-    if isinstance(candidate.get("property_facts_json"), dict):
-        facts = {**facts, **dict(candidate.get("property_facts_json") or {})}
-    if isinstance(facts.get("listing_research_snapshot"), dict):
-        facts = {**dict(facts.get("listing_research_snapshot") or {}), **facts}
+    facts = _property_candidate_display_facts(candidate)
 
     def _text(*values: object) -> str:
         return next((str(value or "").strip() for value in values if str(value or "").strip()), "")
@@ -8149,7 +8247,7 @@ def _property_alert_fit_summary(assessment: dict[str, object] | None) -> str:
     parts: list[str] = []
     if fit_score > 0.0:
         parts.append(f"Personal fit {int(round(fit_score)):d}/100")
-    if recommendation:
+    if recommendation and recommendation not in {"ask for clarification", "view if compelling"}:
         parts.append(recommendation)
     if learned_conflicts:
         parts.append(_best_reason(learned_conflicts, allow_tour_only=False))
@@ -9955,7 +10053,7 @@ def _property_alert_review_telegram_text(
             extra_lines.append(f"Second conflict: {compact_text(learned_conflicts[1], fallback='', limit=160)}")
     elif learned_matches:
         extra_lines.append(f"Why this fits you: {compact_text(learned_matches[0], fallback='', limit=160)}")
-    extra_lines.append("EA queued a property review and can score it, compare it, generate a tour, or ignore it.")
+    extra_lines.append("EA queued a property review and can score it, compare it, request a 3D tour or walkthrough, or ignore it.")
     if str(preference_person_id or "").strip() and str(preference_person_id or "").strip() != "self":
         extra_lines.append(f"Preference profile: {str(preference_person_id or '').strip()}")
     visible_property_url = (
@@ -11632,13 +11730,13 @@ def _willhaben_packet_source_virtual_tour_url(packet: dict[str, object]) -> str:
     for candidate in attribute_candidates:
         discovered_urls.extend(_extract_urls_from_text(candidate))
     for url in discovered_urls:
-        normalized = str(url or "").strip()
+        normalized = _safe_provider_live_360_url(url)
         lowered = normalized.lower()
         if normalized and any(token in lowered for token in ("matterport", "virtual", "tour", "rundgang", "360")):
             return normalized
     return _first_non_empty_text(
-        packet.get("source_virtual_tour_url"),
-        property_facts.get("source_virtual_tour_url"),
+        _safe_provider_live_360_url(packet.get("source_virtual_tour_url")),
+        _safe_provider_live_360_url(property_facts.get("source_virtual_tour_url")),
     )
 
 
@@ -23664,25 +23762,6 @@ class ProductService:
         if not wants_tour and auto_create_spec is not None:
             wants_tour = True
         if not wants_tour:
-            property_url_for_policy = _first_non_empty_text(
-                auto_create_spec.get("property_url") if auto_create_spec is not None else "",
-                _willhaben_property_url_from_signal(
-                    title=title,
-                    summary=summary,
-                    text=text,
-                    source_ref=source_ref,
-                    external_id=external_id,
-                    payload=payload,
-                ),
-            )
-            if bool(policy.get("auto_generate_tour_for_good_fit")) and property_url_for_policy:
-                assessment = _property_alert_personal_fit_assessment(
-                    preference_profiles=self._preference_profiles,
-                    principal_id=principal_id,
-                    property_url=property_url_for_policy,
-                )
-                wants_tour = _property_alert_is_good_fit(assessment, policy=policy)
-        if not wants_tour:
             return None
         property_url = _first_non_empty_text(
             auto_create_spec.get("property_url") if auto_create_spec is not None else "",
@@ -27187,9 +27266,6 @@ class ProductService:
                 tour_url = str(candidate_row.get("tour_url") or existing_tour_url).strip()
                 tour_status = str(candidate_row.get("tour_status") or existing_status).strip().lower()
                 blocked_reason = str(candidate_row.get("blocked_reason") or blocked_reason).strip()
-                if supports_tour and not tour_url and not tour_status:
-                    tour_status = "queued"
-                    candidate_row["tour_status"] = tour_status
                 if tour_url:
                     ready_total += 1
                     candidate_row["tour_status"] = str(candidate_row.get("tour_status") or "created").strip() or "created"
@@ -28038,12 +28114,7 @@ class ProductService:
         held_back_total = int(
             summary.get("held_back_total")
             or summary.get("filtered_total")
-            or (
-                int(summary.get("filtered_area_total") or 0)
-                + int(summary.get("filtered_floorplan_total") or 0)
-                + int(summary.get("filtered_low_fit_total") or 0)
-                + int(summary.get("notification_budget_suppressed_total") or 0)
-            )
+            or _property_search_hard_filtered_total(summary)
             or 0
         )
         if held_back_total > 0:
@@ -28241,6 +28312,7 @@ class ProductService:
             limit=max(int(limit or 0), 1),
             statuses=("processed", "completed"),
             principal_id=normalized_principal,
+            admin=not bool(normalized_principal),
         )
         for state in records:
             state_principal = str(state.get("principal_id") or "").strip()
@@ -28614,7 +28686,7 @@ class ProductService:
         def _run_elapsed_ms() -> float:
             return round((time.perf_counter() - run_started_at) * 1000.0, 2)
         policy = self.property_alert_policy(principal_id=principal_id)
-        auto_visual_exception_enabled = paid_plan or bool(policy.get("auto_generate_tour_for_good_fit"))
+        auto_visual_exception_enabled = False
         recent_source_fetch_repair_memory = self._recent_property_source_fetch_repair_memory(
             principal_id=principal_id,
         )
@@ -28634,6 +28706,56 @@ class ProductService:
             "max_distance_to_dog_park_m",
             "max_distance_to_good_cafe_m",
         }
+        discovery_relaxed_filter_keys = set(str(item or "").strip() for item in list(execution_policy.get("discovery_relaxed_filters") or []))
+        allow_soft_property_type_filter = "property_type" in discovery_relaxed_filter_keys
+        allow_soft_area_filter = "min_area_m2" in discovery_relaxed_filter_keys
+        allow_soft_availability_filter = "available_within_years" in discovery_relaxed_filter_keys
+
+        def _record_discovery_filter_penalty(
+            *,
+            facts: dict[str, object],
+            filter_key: str,
+            label: str,
+            reason: str,
+            penalty: float,
+            source_label: str,
+            ordinal: int,
+            analysis_limit: int,
+            requested_value: object | None = None,
+            observed_value: object | None = None,
+        ) -> None:
+            facts["discovery_soft_penalty_points"] = round(float(facts.get("discovery_soft_penalty_points") or 0.0) + float(penalty), 1)
+            facts.setdefault("discovery_soft_failures_json", []).append(
+                {
+                    "label": label,
+                    "filter_key": filter_key,
+                    "requested": requested_value,
+                    "observed": observed_value,
+                    "mode": "discovery_soft_fail",
+                    "penalty_points": float(penalty),
+                }
+            )
+            facts["unknowns_json"] = list(
+                dict.fromkeys(
+                    [
+                        *[
+                            str(item or "").strip()
+                            for item in list(facts.get("unknowns_json") or [])
+                            if str(item or "").strip()
+                        ],
+                        reason,
+                    ]
+                )
+            )
+            _report(
+                step="source_discovery_penalty",
+                message=(
+                    f"Kept shortlist candidate {ordinal} of {analysis_limit} in discovery despite a {label.lower()} miss for {source_label}. "
+                    f"{reason}"
+                ),
+                status="in_progress",
+                steps_delta=0,
+            )
         for source_spec in specs:
             source_started_at = time.perf_counter()
             source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
@@ -29036,16 +29158,28 @@ class ProductService:
                     summary=preview_summary,
                     property_facts=preview_facts,
                 ):
-                    filtered_property_type_total += 1
-                    filtered_property_type_for_source += 1
-                    _report(
-                        step="source_type_filter",
-                        message=f"Skipped non-residential candidate {ordinal} of {len(listing_urls)} for {source_label}.",
-                        status="in_progress",
-                        steps_delta=0,
-                        summary_updates={"filtered_property_type_total": filtered_property_type_total},
-                    )
-                    continue
+                    if discovery_mode and allow_soft_property_type_filter:
+                        _record_discovery_filter_penalty(
+                            facts=preview_facts,
+                            filter_key="property_type",
+                            label="Property type",
+                            reason="Type does not match requested type, so discovery keeps it with reduced score.",
+                            penalty=4.0,
+                            source_label=source_label,
+                            ordinal=ordinal,
+                            analysis_limit=len(listing_urls),
+                        )
+                    else:
+                        filtered_property_type_total += 1
+                        filtered_property_type_for_source += 1
+                        _report(
+                            step="source_type_filter",
+                            message=f"Skipped non-residential candidate {ordinal} of {len(listing_urls)} for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                            summary_updates={"filtered_property_type_total": filtered_property_type_total},
+                        )
+                        continue
                 area_filter_status = _property_candidate_min_area_status(
                     min_area_m2=min_area_m2,
                     property_url=property_url,
@@ -29109,26 +29243,48 @@ class ProductService:
                         property_facts=preview_facts,
                     )
                 if min_area_m2 > 0.0 and area_filter_status == "fail":
-                    _remember_filter_near_miss(
-                        row={"fit_score": min_match_score},
-                        property_url=property_url,
-                        title=preview_title,
-                        summary=preview_summary,
-                        filter_key="min_area_m2",
-                    )
-                    filtered_area_total += 1
-                    filtered_area_for_source += 1
-                    _report(
-                        step="source_area_filter",
-                        message=f"Skipped candidate {ordinal} of {len(listing_urls)} below {int(min_area_m2)}/m2 for {source_label}.",
-                        status="in_progress",
-                        steps_delta=0,
-                        summary_updates={
-                            "filtered_area_total": filtered_area_total,
-                            "min_area_m2": request_preferences.get("min_area_m2") or 0,
-                        },
-                    )
-                    continue
+                    if discovery_mode and allow_soft_area_filter:
+                        observed_area = _property_candidate_area_sqm(
+                            property_url=property_url,
+                            title=preview_title,
+                            summary=preview_summary,
+                            property_facts=preview_facts,
+                        )
+                        area_deficit = max(0.0, min_area_m2 - (observed_area or 0.0))
+                        area_penalty = 3.0 + min(6.0, area_deficit / 15.0)
+                        _record_discovery_filter_penalty(
+                            facts=preview_facts,
+                            filter_key="min_area_m2",
+                            label="Area",
+                            reason="Area is below requested minimum, so discovery kept it with reduced score.",
+                            penalty=round(area_penalty, 1),
+                            source_label=source_label,
+                            ordinal=ordinal,
+                            analysis_limit=len(listing_urls),
+                            requested_value=min_area_m2,
+                            observed_value=observed_area,
+                        )
+                    else:
+                        _remember_filter_near_miss(
+                            row={"fit_score": min_match_score},
+                            property_url=property_url,
+                            title=preview_title,
+                            summary=preview_summary,
+                            filter_key="min_area_m2",
+                        )
+                        filtered_area_total += 1
+                        filtered_area_for_source += 1
+                        _report(
+                            step="source_area_filter",
+                            message=f"Skipped candidate {ordinal} of {len(listing_urls)} below {int(min_area_m2)}/m2 for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                            summary_updates={
+                                "filtered_area_total": filtered_area_total,
+                                "min_area_m2": request_preferences.get("min_area_m2") or 0,
+                            },
+                        )
+                        continue
                 if min_area_m2 > 0.0 and area_filter_status == "unknown":
                     preview_facts["area_research_status"] = "unknown_after_provider_preview"
                     preview_facts["min_area_m2_requested"] = int(min_area_m2) if float(min_area_m2).is_integer() else round(min_area_m2, 2)
@@ -29148,19 +29304,34 @@ class ProductService:
                     available_within_years=available_within_years,
                     property_facts=preview_facts,
                 ):
-                    filtered_availability_total += 1
-                    filtered_availability_for_source += 1
-                    _report(
-                        step="source_availability_filter",
-                        message=f"Skipped candidate {ordinal} of {len(listing_urls)} outside the move-in horizon for {source_label}.",
-                        status="in_progress",
-                        steps_delta=0,
-                        summary_updates={
-                            "filtered_availability_total": filtered_availability_total,
-                            "available_within_years": available_within_years,
-                        },
-                    )
-                    continue
+                    if discovery_mode and allow_soft_availability_filter:
+                        available_at = _property_candidate_availability_date(property_facts=preview_facts)
+                        _record_discovery_filter_penalty(
+                            facts=preview_facts,
+                            filter_key="available_within_years",
+                            label="Move-in window",
+                            reason="Availability is outside requested window, so discovery keeps it with reduced score.",
+                            penalty=4.0,
+                            source_label=source_label,
+                            ordinal=ordinal,
+                            analysis_limit=len(listing_urls),
+                            requested_value=available_within_years,
+                            observed_value=available_at.isoformat() if available_at else None,
+                        )
+                    else:
+                        filtered_availability_total += 1
+                        filtered_availability_for_source += 1
+                        _report(
+                            step="source_availability_filter",
+                            message=f"Skipped candidate {ordinal} of {len(listing_urls)} outside the move-in horizon for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                            summary_updates={
+                                "filtered_availability_total": filtered_availability_total,
+                                "available_within_years": available_within_years,
+                            },
+                        )
+                        continue
                 has_preview_floorplan = _property_candidate_has_floorplan(
                     property_url=property_url,
                     title=preview_title,
@@ -29598,16 +29769,28 @@ class ProductService:
                     summary=detailed_summary,
                     property_facts=detailed_facts,
                 ):
-                    filtered_property_type_total += 1
-                    filtered_property_type_for_source += 1
-                    _report(
-                        step="source_type_filter",
-                        message=f"Skipped non-residential shortlist candidate {ordinal} of {analysis_limit} for {source_label}.",
-                        status="in_progress",
-                        steps_delta=0,
-                        summary_updates={"filtered_property_type_total": filtered_property_type_total},
-                    )
-                    continue
+                    if discovery_mode and allow_soft_property_type_filter:
+                        _record_discovery_filter_penalty(
+                            facts=detailed_facts,
+                            filter_key="property_type",
+                            label="Property type",
+                            reason="Type does not match requested type, so discovery keeps it with reduced score.",
+                            penalty=4.0,
+                            source_label=source_label,
+                            ordinal=ordinal,
+                            analysis_limit=analysis_limit,
+                        )
+                    else:
+                        filtered_property_type_total += 1
+                        filtered_property_type_for_source += 1
+                        _report(
+                            step="source_type_filter",
+                            message=f"Skipped non-residential shortlist candidate {ordinal} of {analysis_limit} for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                            summary_updates={"filtered_property_type_total": filtered_property_type_total},
+                        )
+                        continue
                 shortlist_area_filter_status = _property_candidate_min_area_status(
                     min_area_m2=min_area_m2,
                     property_url=property_url,
@@ -29616,26 +29799,50 @@ class ProductService:
                     property_facts=detailed_facts,
                 )
                 if min_area_m2 > 0.0 and shortlist_area_filter_status == "fail":
-                    _remember_filter_near_miss(
-                        row=row,
-                        property_url=property_url,
-                        title=detailed_title,
-                        summary=detailed_summary,
-                        filter_key="min_area_m2",
-                    )
-                    filtered_area_total += 1
-                    filtered_area_for_source += 1
-                    _report(
-                        step="source_area_filter",
-                        message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} below {int(min_area_m2)}/m2 for {source_label}.",
-                        status="in_progress",
-                        steps_delta=0,
-                        summary_updates={
-                            "filtered_area_total": filtered_area_total,
-                            "min_area_m2": request_preferences.get("min_area_m2") or 0,
-                        },
-                    )
-                    continue
+                    if discovery_mode and allow_soft_area_filter:
+                        area_deficit = max(0.0, min_area_m2 - (detailed_facts.get("area_sqm") or 0.0))
+                        area_penalty = 3.0 + min(6.0, area_deficit / 15.0)
+                        if isinstance(area_penalty, float):
+                            if area_penalty <= 0.0:
+                                area_penalty = 3.0
+                        _record_discovery_filter_penalty(
+                            facts=detailed_facts,
+                            filter_key="min_area_m2",
+                            label="Area",
+                            reason="Area is below requested minimum, so discovery kept it with reduced score.",
+                            penalty=round(float(area_penalty), 1),
+                            source_label=source_label,
+                            ordinal=ordinal,
+                            analysis_limit=analysis_limit,
+                            requested_value=min_area_m2,
+                            observed_value=detailed_facts.get("area_sqm") if "area_sqm" in detailed_facts else _property_candidate_area_sqm(
+                                property_url=property_url,
+                                title=detailed_title,
+                                summary=detailed_summary,
+                                property_facts=detailed_facts,
+                            ),
+                        )
+                    else:
+                        _remember_filter_near_miss(
+                            row=row,
+                            property_url=property_url,
+                            title=detailed_title,
+                            summary=detailed_summary,
+                            filter_key="min_area_m2",
+                        )
+                        filtered_area_total += 1
+                        filtered_area_for_source += 1
+                        _report(
+                            step="source_area_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} below {int(min_area_m2)}/m2 for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                            summary_updates={
+                                "filtered_area_total": filtered_area_total,
+                                "min_area_m2": request_preferences.get("min_area_m2") or 0,
+                            },
+                        )
+                        continue
                 if min_area_m2 > 0.0 and shortlist_area_filter_status == "unknown":
                     detailed_facts["area_research_status"] = "unknown_after_detailed_provider_preview"
                     detailed_facts["min_area_m2_requested"] = int(min_area_m2) if float(min_area_m2).is_integer() else round(min_area_m2, 2)
@@ -29655,26 +29862,41 @@ class ProductService:
                     available_within_years=available_within_years,
                     property_facts=detailed_facts,
                 ):
-                    _remember_filter_near_miss(
-                        row=row,
-                        property_url=property_url,
-                        title=detailed_title,
-                        summary=detailed_summary,
-                        filter_key="available_within_years",
-                    )
-                    filtered_availability_total += 1
-                    filtered_availability_for_source += 1
-                    _report(
-                        step="source_availability_filter",
-                        message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the move-in horizon for {source_label}.",
-                        status="in_progress",
-                        steps_delta=0,
-                        summary_updates={
-                            "filtered_availability_total": filtered_availability_total,
-                            "available_within_years": available_within_years,
-                        },
-                    )
-                    continue
+                    if discovery_mode and allow_soft_availability_filter:
+                        available_at = _property_candidate_availability_date(property_facts=detailed_facts)
+                        _record_discovery_filter_penalty(
+                            facts=detailed_facts,
+                            filter_key="available_within_years",
+                            label="Move-in window",
+                            reason="Availability is outside requested window, so discovery keeps it with reduced score.",
+                            penalty=4.0,
+                            source_label=source_label,
+                            ordinal=ordinal,
+                            analysis_limit=analysis_limit,
+                            requested_value=available_within_years,
+                            observed_value=available_at.isoformat() if available_at else None,
+                        )
+                    else:
+                        _remember_filter_near_miss(
+                            row=row,
+                            property_url=property_url,
+                            title=detailed_title,
+                            summary=detailed_summary,
+                            filter_key="available_within_years",
+                        )
+                        filtered_availability_total += 1
+                        filtered_availability_for_source += 1
+                        _report(
+                            step="source_availability_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the move-in horizon for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                            summary_updates={
+                                "filtered_availability_total": filtered_availability_total,
+                                "available_within_years": available_within_years,
+                            },
+                        )
+                        continue
                 distance_gate_failed = False
                 for preference_key, fact_key, label, report_step in (
                     ("max_distance_to_supermarket_m", "nearest_supermarket_m", "supermarket", "source_location_filter"),
@@ -30911,9 +31133,9 @@ class ProductService:
         timing_ms["results_compiled"] = _run_elapsed_ms()
         held_back_total = (
             int(filtered_area_total or 0)
+            + int(filtered_property_type_total or 0)
             + int(filtered_floorplan_total or 0)
-            + int(filtered_low_fit_total or 0)
-            + int(notification_budget_suppressed_total or 0)
+            + int(filtered_availability_total or 0)
         )
         payload = {
             "generated_at": _now_iso(),
@@ -30929,6 +31151,7 @@ class ProductService:
             "filtered_low_fit_total": filtered_low_fit_total,
             "held_back_total": held_back_total,
             "filtered_total": held_back_total,
+            "score_demoted_total": filtered_low_fit_total,
             "provider_repair_task_opened_total": provider_repair_task_opened_total,
             "provider_repair_task_existing_total": provider_repair_task_existing_total,
             "provider_cache_hit_total": provider_cache_hit_total,
@@ -30974,6 +31197,7 @@ class ProductService:
             },
             "provider_workers": dict(provider_worker_state),
             "notification_budget_suppressed_total": notification_budget_suppressed_total,
+            "notification_suppressed_total": notification_budget_suppressed_total,
             "tour_created_total": tour_created_total,
             "tour_existing_total": tour_existing_total,
             "tour_auto_min_score": _PROPERTY_SCOUT_AUTO_TOUR_MIN_SCORE,

@@ -374,7 +374,7 @@ class PropertySearchFormStateSnapshot:
     show_distressed_review_controls: bool = False
     show_search_agent_detail_controls: bool = False
     show_preference_profile_controls: bool = True
-    show_school_quality_priority_controls: bool = False
+    show_school_evidence_priority_controls: bool = False
     show_playground_importance_controls: bool = False
     show_library_importance_controls: bool = False
     show_supermarket_importance_controls: bool = False

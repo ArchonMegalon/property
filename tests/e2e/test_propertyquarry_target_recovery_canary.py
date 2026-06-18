@@ -535,9 +535,11 @@ def _matching_repair_tasks(
     case: TargetListing,
     *,
     baseline_task_ids: set[str],
+    run_id: str = "",
 ) -> list[dict[str, object]]:
     matches: list[dict[str, object]] = []
     normalized_target_url = _normalize_url(case.canonical_url)
+    normalized_run_id = str(run_id or "").strip()
     for task in tasks:
         task_id = str(task.get("human_task_id") or "").strip()
         if task_id in baseline_task_ids:
@@ -545,8 +547,11 @@ def _matching_repair_tasks(
         if str(task.get("task_type") or "").strip() != "property_provider_repair_ooda":
             continue
         input_json = dict(task.get("input_json") or {}) if isinstance(task.get("input_json"), dict) else {}
+        task_run_id = str(input_json.get("run_id") or "").strip()
+        if normalized_run_id and task_run_id and task_run_id == normalized_run_id:
+            matches.append(task)
+            continue
         property_url = _normalize_url(input_json.get("property_url") or input_json.get("source_url"))
-        source_platform = str(input_json.get("source_platform") or "").strip()
         if normalized_target_url and property_url and normalized_target_url == property_url:
             matches.append(task)
             continue
@@ -554,9 +559,6 @@ def _matching_repair_tasks(
             matches.append(task)
             continue
         if case.title and _normalize_text(input_json.get("title")) == _normalize_text(case.title):
-            matches.append(task)
-            continue
-        if case.provider and source_platform and case.provider == source_platform:
             matches.append(task)
     return matches
 
@@ -592,6 +594,34 @@ def _case_key(case: TargetListing) -> str:
 
 def _provider_seed_text() -> str:
     return str(os.environ.get("PROPERTYQUARRY_TARGET_RECOVERY_SEED") or "tibor-watch").strip()
+
+
+def _provider_probe_limit() -> int:
+    try:
+        return max(1, int(os.environ.get("PROPERTYQUARRY_TARGET_RECOVERY_PROBE_LIMIT") or 8))
+    except Exception:
+        return 8
+
+
+def _provider_pick_window_size(total: int) -> int:
+    if total <= 0:
+        return 0
+    default_window = max(_provider_probe_limit() * 2, 12)
+    try:
+        configured = int(os.environ.get("PROPERTYQUARRY_TARGET_RECOVERY_PICK_WINDOW") or default_window)
+    except Exception:
+        configured = default_window
+    return max(1, min(total, configured))
+
+
+def _ordered_probe_candidates(urls: list[str], *, seed_basis: str) -> list[tuple[int, str]]:
+    if not urls:
+        return []
+    pick_window = _provider_pick_window_size(len(urls))
+    start_index = _stable_pick_index(seed_basis, pick_window)
+    indexed_window = list(enumerate(urls[:pick_window]))
+    rotated = indexed_window[start_index:] + indexed_window[:start_index]
+    return rotated[: min(len(rotated), _provider_probe_limit())]
 
 
 def _country_codes() -> tuple[str, ...]:
@@ -712,6 +742,17 @@ def _preview_is_probe_usable(*, property_url: str, preview: dict[str, object], s
         )
     if not title or title == property_url:
         return False
+    compact_title = re.sub(r"[^a-z0-9äöüß]+", "", title.lower())
+    if len(compact_title) < 8:
+        return False
+    normalized_title = _normalize_text(title)
+    normalized_source_label = _normalize_text(source_label)
+    if normalized_title == normalized_source_label:
+        return False
+    title_tokens = {token for token in normalized_title.split() if len(token) >= 4}
+    source_tokens = {token for token in normalized_source_label.split() if len(token) >= 4}
+    if title_tokens and source_tokens and title_tokens.issubset(source_tokens):
+        return False
     if not location_query:
         return False
     if _normalize_text(location_query) == _normalize_text(source_label):
@@ -744,12 +785,16 @@ def _discover_target_case_for_provider(
     if not urls:
         return None
     seed = _provider_seed_text()
-    start_index = _stable_pick_index(f"{seed}|{spec.country_code}|{spec.key}|{len(urls)}", len(urls))
-    ordered_urls = urls[start_index:] + urls[:start_index]
-    max_probe = min(len(ordered_urls), max(int(os.environ.get("PROPERTYQUARRY_TARGET_RECOVERY_PROBE_LIMIT") or 8), 1))
+    ordered_candidates = _ordered_probe_candidates(
+        urls,
+        seed_basis=f"{seed}|{spec.country_code}|{spec.key}|{len(urls)}",
+    )
+    if not ordered_candidates:
+        return None
     chosen_url = ""
     chosen_preview: dict[str, object] = {}
-    for candidate_url in ordered_urls[:max_probe]:
+    chosen_pool_index = 0
+    for candidate_index, candidate_url in ordered_candidates:
         try:
             preview = property_service_module._property_scout_page_preview_with_timeout(candidate_url, prefer_fast=True)
         except Exception:
@@ -757,6 +802,7 @@ def _discover_target_case_for_provider(
         if _preview_is_probe_usable(property_url=candidate_url, preview=preview, source_label=str(source_spec.get("label") or "").strip()):
             chosen_url = candidate_url
             chosen_preview = dict(preview)
+            chosen_pool_index = candidate_index
             break
     if not chosen_url or not chosen_preview:
         return None
@@ -807,7 +853,7 @@ def _discover_target_case_for_provider(
         country_code=spec.country_code,
         selected_platforms=(spec.key,),
         pool_size=len(urls),
-        picked_index=start_index,
+        picked_index=chosen_pool_index,
     )
 
 
@@ -961,7 +1007,12 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                             first_target_match = match
                             break
 
-                tasks = _matching_repair_tasks(_list_repair_tasks(client), case, baseline_task_ids=baseline_task_ids)
+                tasks = _matching_repair_tasks(
+                    _list_repair_tasks(client),
+                    case,
+                    baseline_task_ids=baseline_task_ids,
+                    run_id=run_id,
+                )
                 if tasks:
                     repair_trace.repair_triggered = True
                     repair_trace.task_ids = [str(task.get("human_task_id") or "") for task in tasks]
@@ -1066,3 +1117,71 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
     if successful_case_total <= 0 and volatility_skipped_total > 0:
         pytest.skip("all target-recovery cases became provider-volatile before recovery validation")
     assert successful_case_total > 0, "no target-recovery case completed successfully"
+
+
+def test_ordered_probe_candidates_stays_within_fresh_pick_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_TARGET_RECOVERY_PROBE_LIMIT", "4")
+    monkeypatch.setenv("PROPERTYQUARRY_TARGET_RECOVERY_PICK_WINDOW", "6")
+    urls = [f"https://example.test/{index}" for index in range(12)]
+    ordered = _ordered_probe_candidates(urls, seed_basis="AT|willhaben|demo")
+    assert len(ordered) == 4
+    assert all(index < 6 for index, _url in ordered)
+    assert len({index for index, _url in ordered}) == 4
+
+
+def test_provider_pick_window_size_scales_from_probe_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PROPERTYQUARRY_TARGET_RECOVERY_PICK_WINDOW", raising=False)
+    monkeypatch.setenv("PROPERTYQUARRY_TARGET_RECOVERY_PROBE_LIMIT", "5")
+    assert _provider_pick_window_size(40) == 12
+    assert _provider_pick_window_size(7) == 7
+
+
+def test_preview_probe_usable_rejects_provider_label_junk_target() -> None:
+    preview = {
+        "title": "| Gesiba",
+        "summary": "Wohnung in Wien.",
+        "property_facts_json": {
+            "postal_name": "1100 Wien",
+            "area_m2": 63,
+        },
+    }
+    assert _preview_is_probe_usable(
+        property_url="https://example.test/gesiba/123",
+        preview=preview,
+        source_label="GESIBA | Austria | Rent | Vienna",
+    ) is False
+
+
+def test_matching_repair_tasks_prefers_run_id_over_provider_broad_match() -> None:
+    case = TargetListing(
+        provider="willhaben",
+        country_code="AT",
+        canonical_url="https://www.willhaben.at/iad/object?adId=123",
+        title="Target flat",
+        listing_mode="rent",
+        property_type="apartment",
+        location_query="1010 Vienna",
+    )
+    tasks = [
+        {
+            "human_task_id": "human_task:other",
+            "task_type": "property_provider_repair_ooda",
+            "input_json": {
+                "run_id": "run-other",
+                "source_platform": "willhaben",
+                "title": "Different flat",
+                "property_url": "https://www.willhaben.at/iad/object?adId=999",
+            },
+        },
+        {
+            "human_task_id": "human_task:current",
+            "task_type": "property_provider_repair_ooda",
+            "input_json": {
+                "run_id": "run-123",
+                "source_platform": "willhaben",
+                "source_url": "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien",
+            },
+        },
+    ]
+    matches = _matching_repair_tasks(tasks, case, baseline_task_ids=set(), run_id="run-123")
+    assert [str(task.get("human_task_id") or "") for task in matches] == ["human_task:current"]

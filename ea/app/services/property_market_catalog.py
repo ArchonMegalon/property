@@ -3675,10 +3675,13 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         payload["university_name"] = raw_university_name[:240]
     else:
         payload.pop("university_name", None)
-    school_quality_priority = str(payload.get("school_quality_priority") or "").strip().lower()
-    if school_quality_priority not in {"", "any", "important", "very_important"}:
-        school_quality_priority = "any"
-    payload["school_quality_priority"] = school_quality_priority or "any"
+    school_evidence_priority = str(
+        payload.get("school_evidence_priority") or payload.get("school_quality_priority") or ""
+    ).strip().lower()
+    if school_evidence_priority not in {"", "any", "important", "very_important"}:
+        school_evidence_priority = "any"
+    payload["school_evidence_priority"] = school_evidence_priority or "any"
+    payload.pop("school_quality_priority", None)
     raw_school_stages = payload.get("school_stage_preferences")
     if isinstance(raw_school_stages, (list, tuple, set)):
         school_stage_preferences = [
@@ -3757,7 +3760,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         payload["enable_lifestyle_research"] = False
         payload["school_stage_preferences"] = []
         payload["require_school_evidence"] = False
-        payload["school_quality_priority"] = "any"
+        payload["school_evidence_priority"] = "any"
         payload["preferred_reachability_modes"] = []
         payload.pop("commute_destination", None)
         payload.pop("additional_reachability_targets", None)

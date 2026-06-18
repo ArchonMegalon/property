@@ -87,6 +87,12 @@ def _public_tour_private_receipt(payload: dict[str, object]) -> dict[str, object
         "source_ref": str(payload.get("source_ref") or "").strip(),
         "external_id": str(payload.get("external_id") or "").strip(),
         "recipient_email": str(payload.get("recipient_email") or "").strip().lower(),
+        "crezlo_public_url": str(payload.get("crezlo_public_url") or "").strip(),
+        "source_virtual_tour_url": str(payload.get("source_virtual_tour_url") or "").strip(),
+        "source_virtual_tour_origin": str(payload.get("source_virtual_tour_origin") or "").strip(),
+        "panorama_source": str(payload.get("panorama_source") or "").strip(),
+        "three_d_vista_url": str(payload.get("three_d_vista_url") or "").strip(),
+        "matterport_url": str(payload.get("matterport_url") or "").strip(),
     }
 
 
@@ -238,6 +244,10 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
     if not payload:
         return ""
     scenes = [dict(entry) for entry in (payload.get("scenes") or []) if isinstance(entry, dict)]
+    source_virtual_tour_url = str(payload.get("source_virtual_tour_url") or "").strip()
+    hosted_url = f"{base_url}/{slug}"
+    if source_virtual_tour_url and not scenes:
+        return f"{hosted_url}#live-360"
     if not scenes:
         return ""
     has_asset = False
@@ -252,13 +262,9 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
             has_asset = True
             break
     if not has_asset:
-        source_virtual_tour_url = str(payload.get("source_virtual_tour_url") or "").strip()
         if source_virtual_tour_url:
-            hosted_url = f"{base_url}/{slug}"
             return f"{hosted_url}#live-360"
         return ""
-    hosted_url = f"{base_url}/{slug}"
-    source_virtual_tour_url = str(payload.get("source_virtual_tour_url") or "").strip()
     if source_virtual_tour_url:
         return f"{hosted_url}#live-360"
     return hosted_url

@@ -27,6 +27,7 @@ from app.api.routes.landing_property_workspace_helpers import (
     _property_candidate_orientation_preview,
     _property_candidate_preview_image,
     _property_candidate_route_evidence,
+    _property_candidate_display_facts,
     _property_counterfactual_rows,
     _property_family_filters_active,
     _property_market_filter_capabilities,
@@ -356,6 +357,110 @@ def property_workspace_payload(
         include_full_manager=wants_full_preference_manager,
         schema=_property_preference_schema() if wants_full_preference_manager else {},
     )
+    if normalized_section == "search":
+        decision_workbench = PropertyDecisionWorkbenchContract(
+            run=PropertyDecisionWorkbenchRunContract(
+                run_id="",
+                status="not_started",
+                status_label="Ready",
+                progress=0,
+                message="",
+                status_url="",
+                summary={},
+                filtered_total=0,
+                held_back_total=0,
+                events=[],
+                worker_state=[],
+                reliability={},
+                research_task_total=0,
+                open_research_task_total=0,
+                filled_research_task_total=0,
+                dismissed_research_task_total=0,
+                route_previews=[],
+            ),
+            brief=PropertyDecisionWorkbenchBriefContract(
+                country=str(property_state.get("country_label") or "Market"),
+                search_goal=selected_search_goal,
+                search_goal_label=property_search_goal_label,
+                mode=mode_visibility_label,
+                investment_strategy_label=property_investment_strategy_label if property_is_investment_search else "",
+                region=str(property_state.get("region_label") or property_preferences.get("region_code") or "").strip(),
+                areas=selected_locations,
+                priorities=selected_keywords,
+                providers=selected_platforms,
+                plan=current_plan_label,
+                plan_key=str(commercial.get("current_plan_key") or "free").strip().lower() or "free",
+                research_depth=str(commercial.get("research_depth") or "deep").strip(),
+            ),
+            brief_preferences=brief_preferences_payload,
+            endpoints={
+                "preferences": str(property_meta.get("preferences_endpoint") or "").strip(),
+                "start": str(property_meta.get("start_endpoint") or "").strip(),
+                "billing_order": str(property_meta.get("billing_order_endpoint") or "").strip(),
+                "delete_run_template": "/app/api/property/search-runs/__RUN_ID__",
+            },
+            counterfactual_rows=counterfactual_rows,
+            recent_packets=[],
+            previous_search_runs=[],
+            search_agents=[],
+            search_agent={},
+            results=[],
+            search_guard_rows=[],
+            suppression_rows=[],
+            delivery_proof_rows=[],
+            artifact_receipt_rows=[],
+            research_tasks=[],
+            research_task_counts={"total": 0, "open": 0, "filled": 0, "dismissed": 0},
+            selected_candidate_ref="",
+            selected={},
+            empty_outcome={},
+            show_brief_default=True,
+        )
+        return PropertySurfacePayloadContract(
+            title="Search",
+            summary="Set the market, filters, source mix, and what matters before launching the next run.",
+            stats=list(base.get("stats") or []),
+            current_plan_label=current_plan_label,
+            run_payload={},
+            run_summary={},
+            preference_manager=preference_manager,
+            decision_workbench=decision_workbench,
+            extras={
+                "hero_kicker": "Search",
+                "hero_title": "Shape the next property run.",
+                "hero_summary": "Brief, sources, priorities.",
+                "hero_actions": [],
+                "hero_highlights": [
+                    {
+                        "label": "Areas",
+                        "value": str(len(selected_locations) or 0),
+                        "detail": ", ".join(selected_locations[:3]) or "Choose the target areas.",
+                        "href": f"/app/search{run_suffix}",
+                    },
+                    {
+                        "label": "Priorities",
+                        "value": str(len(selected_keywords) or 0),
+                        "detail": ", ".join(selected_keywords[:3]) or "Record what should drive the ranking.",
+                        "href": f"/app/search{run_suffix}",
+                    },
+                    {
+                        "label": "Providers",
+                        "value": str(len(selected_platforms) or 0),
+                        "detail": "The selected portals for the next sweep.",
+                        "href": f"/app/search{run_suffix}",
+                    },
+                ],
+                "primary_cards": [card for card in (search_posture_card, market_coverage_card) if card],
+                "secondary_cards": [],
+                "console_form": property_form,
+                "show_brief_form": True,
+                "show_run_panel": False,
+                "show_shortlist_cards": False,
+                "show_results_table": False,
+                "results_table_headers": [],
+                "results_table_rows": [],
+            },
+        ).to_dict()
 
     def _tour_source_gap_detail(candidate: dict[str, object]) -> str:
         blocked_reason = str(candidate.get("blocked_reason") or "").strip()
@@ -516,8 +621,21 @@ def property_workspace_payload(
         )
 
     def _tour_status_line(candidate: dict[str, object]) -> str:
+        provider_tour_url = str(
+            candidate.get("source_virtual_tour_url")
+            or (
+                dict(candidate.get("property_facts") or {}).get("source_virtual_tour_url")
+                if isinstance(candidate.get("property_facts"), dict)
+                else ""
+            )
+            or ""
+        ).strip()
+        if "api.willhaben.at/restapi/v2/logevent/" in provider_tour_url.lower():
+            provider_tour_url = ""
         if str(candidate.get("tour_url") or "").strip():
             return "Ready | Live now"
+        if provider_tour_url:
+            return "Ready | Provider 360"
         status = str(candidate.get("tour_status") or "").strip().lower()
         eta_minutes = int(candidate.get("tour_eta_minutes") or 0) if str(candidate.get("tour_eta_minutes") or "").strip() else 0
         if status in {"queued", "pending"}:
@@ -876,6 +994,17 @@ def property_workspace_payload(
 
     def _tour_payload(candidate: dict[str, object]) -> dict[str, str]:
         tour_url = str(candidate.get("tour_url") or "").strip()
+        provider_tour_url = str(
+            candidate.get("source_virtual_tour_url")
+            or (
+                dict(candidate.get("property_facts") or {}).get("source_virtual_tour_url")
+                if isinstance(candidate.get("property_facts"), dict)
+                else ""
+            )
+            or ""
+        ).strip()
+        if "api.willhaben.at/restapi/v2/logevent/" in provider_tour_url.lower():
+            provider_tour_url = ""
         status = str(candidate.get("tour_status") or "").strip().lower()
         eta_minutes = str(candidate.get("tour_eta_minutes") or "").strip()
         if tour_url:
@@ -903,6 +1032,14 @@ def property_workspace_payload(
                 }
             embed_url = "" if "myexternalbrain.com" in tour_url.lower() else tour_url
             return {"status": "ready", "label": "360 ready", "url": tour_url, "embed_url": embed_url, "eta_label": ""}
+        if provider_tour_url:
+            return {
+                "status": "ready",
+                "label": "360 ready",
+                "url": provider_tour_url,
+                "embed_url": provider_tour_url,
+                "eta_label": "Provider 360",
+            }
         if status in {"queued", "pending"}:
             return {"status": "queued", "label": "360 queued", "url": "", "embed_url": "", "eta_label": f"about {eta_minutes or '10'} min"}
         if status in {"processing", "running", "in_progress", "started"}:
@@ -930,7 +1067,7 @@ def property_workspace_payload(
                 "status": "queued",
                 "label": "Walkthrough queued",
                 "url": "",
-                "detail": "Queued. Processing will start automatically.",
+                "detail": "Queued after your request.",
                 "progress_pct": 18,
                 "eta_label": "about 10 min",
             }
@@ -939,7 +1076,7 @@ def property_workspace_payload(
                 "status": "processing",
                 "label": "Walkthrough processing",
                 "url": "",
-                "detail": "Rendering from the top-ranked home.",
+                "detail": "Rendering after your request.",
                 "progress_pct": 64,
                 "eta_label": "about 5 min",
             }
@@ -1323,7 +1460,7 @@ def property_workspace_payload(
         return ("", "")
 
     for candidate in shortlist_candidates:
-        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        facts = _property_candidate_display_facts(candidate)
         if run_has_explicit_listing_context and _obvious_listing_mode_mismatch(facts, listing_mode=effective_listing_mode):
             continue
         if not _candidate_is_shortlist_admissible(

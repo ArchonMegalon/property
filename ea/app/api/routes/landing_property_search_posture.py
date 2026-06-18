@@ -77,11 +77,12 @@ def build_property_market_summary_items(
         items.append(row_item("All-day school", "Required", "Family"))
     if not property_is_investment_search and bool(property_preferences.get("require_school_evidence")):
         items.append(row_item("School evidence", "Required", "Evidence"))
-    if not property_is_investment_search and school_evidence_controls_enabled and str(property_preferences.get("school_quality_priority") or "any") not in {"", "any"}:
+    school_evidence_priority = str(property_preferences.get("school_evidence_priority") or "any")
+    if not property_is_investment_search and school_evidence_controls_enabled and school_evidence_priority not in {"", "any"}:
         items.append(
             row_item(
                 "School evidence priority",
-                str(property_preferences.get("school_quality_priority") or "any").replace("_", " ").title(),
+                school_evidence_priority.replace("_", " ").title(),
                 "Evidence",
             )
         )

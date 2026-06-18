@@ -10,6 +10,10 @@ ea/third_party/
 ea/third_party/**
 .venv/
 .venv/**
+.venv-playwright/
+.venv-playwright/**
+.venv-playwright-ss/
+.venv-playwright-ss/**
 .pytest_cache/
 .smoke_tmp/
 .codex-design/
@@ -27,3 +31,5 @@ docs/chummer_organizer_packets/
 scripts/bootstrap_chummer6_guide_skill.py
 artifacts/
 logs/
+state/
+state/**

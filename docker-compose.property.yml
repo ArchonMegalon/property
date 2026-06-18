@@ -16,6 +16,8 @@ services:
       EA_ARTIFACTS_DIR: /data/artifacts
       EA_PUBLIC_TOUR_DIR: /data/public_property_tours
       EA_RESPONSES_PROVIDER_LEDGER_DIR: /data/provider-ledger
+      EA_SCHEDULER_HEARTBEAT_PATH: /data/artifacts/propertyquarry-scheduler-heartbeat.json
+      EA_SCHEDULER_HEARTBEAT_MAX_AGE_SECONDS: "${EA_SCHEDULER_HEARTBEAT_MAX_AGE_SECONDS:-900}"
       DATABASE_URL: "${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for property compose}@propertyquarry-db:5432/postgres}"
       TEABLE_BASE_URL: "${TEABLE_BASE_URL:-https://app.teable.ai}"
       TEABLE_TABLE_SYNC_CONFIG_JSON: "${TEABLE_TABLE_SYNC_CONFIG_JSON:-}"
@@ -80,7 +82,11 @@ services:
       propertyquarry-api:
         condition: service_started
     healthcheck:
-      disable: true
+      test: ["CMD", "python", "-m", "app.scheduler_healthcheck"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 5
 
   propertyquarry-db:
     image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229

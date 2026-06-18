@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw
 
 uvicorn = pytest.importorskip("uvicorn")
 pytest.importorskip("playwright.sync_api")
-from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Page, expect, sync_playwright
 
 Config = uvicorn.Config
 Server = uvicorn.Server
@@ -522,15 +522,17 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         assert 'data-property-mobile-dock' in content
         page.locator("[data-workbench-row]").first.wait_for(timeout=5000)
         assert page.locator('[data-workbench-mobile-mode="results"]').is_visible()
-        assert page.locator('[data-workbench-mobile-mode="property"]').count() == 0
+        assert page.locator('[data-workbench-mobile-mode="property"]').is_visible()
         mode_box = page.locator('[data-workbench-mobile-mode="results"]').bounding_box()
         assert mode_box is not None and mode_box["width"] <= 430
         mobile_dock = page.locator("[data-property-mobile-dock]")
         assert mobile_dock.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
-        assert "/app/research/" in page.url
+        assert "/app/shortlist" in page.url
         assert "run_id=run-42" in page.url
+        assert "candidate=" in page.url
+        assert page.locator('[data-workbench-mobile-mode="property"]').is_visible()
         assert page.locator("body", has_text="Family flat near Tiergarten").is_visible()
     finally:
         context.close()
@@ -546,12 +548,21 @@ def test_propertyquarry_results_filtered_link_opens_filtered_breakdown_when_no_r
     try:
         response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
-        filtered_button = page.get_by_role("button", name=re.compile(r"2 filtered", re.I))
+        filtered_button = page.locator('[data-pqx-filtered-open]').first
         filtered_button.wait_for(timeout=5000)
+        expect(filtered_button).to_contain_text(re.compile(r"adjust filters|relax this brief", re.I), timeout=5000)
         filtered_button.click()
-        details = page.locator("details").filter(has_text=re.compile(r"How this search was filtered", re.I)).first
-        expect(details).to_have_js_property("open", True, timeout=5000)
-        expect(page.locator("[data-pqx-source-breakdown]").first).to_be_visible(timeout=5000)
+        page.wait_for_function(
+            """
+            () => {
+              const dialog = document.querySelector('[data-pqx-filtered-dialog]');
+              const details = [...document.querySelectorAll('details')]
+                .find((node) => ((node.textContent || '').toLowerCase().includes('how this search was filtered')));
+              return Boolean((dialog && dialog.open) || (details && details.open));
+            }
+            """,
+            timeout=5000,
+        )
     finally:
         context.close()
 
@@ -903,7 +914,20 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
         assert page.locator("body", has_text="Ways to get more matches").is_visible()
         assert page.locator("[data-pqx-counterfactuals]").is_visible()
         assert page.get_by_role("button", name=re.compile("Apply|Allow|Use|Raise|Relax|Reopen")).first.is_visible()
-        page.get_by_text("How this search was filtered", exact=True).click()
+        page.locator("[data-pqx-filtered-open]").first.click()
+        page.wait_for_function(
+            """
+            () => {
+              const breakdown = document.querySelector('[data-pqx-source-breakdown]');
+              const details = document.querySelector('details#pqx-filtered-breakdown');
+              return Boolean(
+                (details && details.open)
+                || (breakdown && /Genossenschaften Austria/i.test(String(breakdown.textContent || '')))
+              );
+            }
+            """,
+            timeout=5000,
+        )
         assert page.locator("[data-pqx-source-breakdown]", has_text="Genossenschaften Austria").is_visible()
         assert page.evaluate("window.localStorage.getItem('pq-test-notification-title')") == "PropertyQuarry results are ready"
         assert "0 high-fit matches" in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
@@ -1171,9 +1195,9 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
 
         page.locator('[data-property-step-trigger="children"]').click()
         assert page.locator('[data-property-what-matters-panel]').is_visible()
-        assert page.locator('[data-property-field-name="max_distance_to_market_m"]').is_visible()
-        assert page.locator('[data-property-field-name="prefer_good_air_quality"]').is_visible()
-        assert page.locator('[data-property-field-name="avoid_flood_risk_area"]').is_visible()
+        assert page.locator('[data-keyword-priority-row][data-keyword-value="market nearby"]').is_visible()
+        assert page.locator('[data-keyword-priority-row][data-keyword-value="good air quality"]').is_visible()
+        assert page.locator('[data-keyword-priority-row][data-keyword-value="avoid flood-risk area"]').is_visible()
 
         page.locator('[data-property-step-trigger="providers"]').click()
         page.locator('input[name="min_match_score"]').wait_for(state="visible")
@@ -1450,6 +1474,8 @@ def test_propertyquarry_setup_wizard_numeric_sliders_are_mobile_friendly(
         response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
         assert response is not None and response.ok
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'search'")
+        page.locator('[data-property-step-trigger="what"]').click()
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'what'")
 
         expected_search_sliders = {
             "max_price_eur": "Any budget",
@@ -1470,7 +1496,11 @@ def test_propertyquarry_setup_wizard_numeric_sliders_are_mobile_friendly(
         price_slider = page.locator('input[name="max_price_eur"]')
         assert price_slider.get_attribute("max") == "6000"
         assert page.locator('[data-range-value-for="max_price_eur"]').inner_text().strip() == "Any budget"
+        page.locator('[data-property-step-trigger="search"]').click()
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'search'")
         page.select_option('select[name="listing_mode"]', "buy")
+        page.locator('[data-property-step-trigger="what"]').click()
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'what'")
         assert price_slider.get_attribute("max") == "2000000"
         assert page.locator('[data-range-control="max_price_eur"] [data-range-scale-max]').inner_text().strip() == "EUR 2M"
 
@@ -1508,8 +1538,6 @@ def test_propertyquarry_start_failure_explains_backend_reason(
         response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
         assert response is not None and response.ok
         page.select_option('select[name="country_code"]', "AT")
-        page.locator('[data-property-step-trigger="areas"]').click()
-        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'areas'")
         page.get_by_role("button", name="Select all areas", exact=True).click()
         page.locator('[data-property-step-trigger="providers"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
@@ -1575,33 +1603,25 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
         assert response is not None and response.ok
         page.select_option('select[name="country_code"]', "AT")
-        page.locator('[data-property-step-trigger="areas"]').click()
-        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'areas'")
         page.get_by_role("button", name="Select all areas", exact=True).click()
-        page.locator('details[data-property-advanced-panel="location_research"] summary').click()
-        page.locator('input[name="prefer_good_air_quality"]').check()
-        page.locator('input[name="prefer_low_crime_area"]').check()
-        page.locator('input[name="require_parking_pressure_check"]').check()
-        page.locator('input[name="require_drinking_water_quality_research"]').check()
-        page.locator('input[name="avoid_cesspit_or_septic_risk"]').check()
-        page.locator('input[name="require_winter_access_research"]').check()
-        page.locator('input[name="avoid_flood_risk_area"]').check()
-        page.locator('input[name="max_distance_to_market_m"]').evaluate(
-            "(node) => { node.value = '900'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
-        )
-        page.locator('input[name="max_distance_to_hardware_store_m"]').evaluate(
-            "(node) => { node.value = '1800'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
-        )
         page.locator('[data-property-step-trigger="children"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'")
         assert page.locator('[data-property-field-name="enable_family_mode"]').count() == 0
-        page.locator('details[data-property-advanced-panel="children_distances"] summary').click()
-        page.locator('input[name="max_distance_to_library_m"]').evaluate(
-            "(node) => { node.value = '700'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
-        )
-        page.locator('input[name="max_distance_to_medical_care_m"]').evaluate(
-            "(node) => { node.value = '1200'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
-        )
+        page.locator('[data-keyword-priority-row][data-keyword-value="good air quality"] [data-keyword-preference-select]').select_option("important")
+        page.locator('[data-keyword-priority-row][data-keyword-value="low crime area"] [data-keyword-preference-select]').select_option("important")
+        page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"] [data-keyword-preference-select]').select_option("important")
+        page.locator('[data-keyword-priority-row][data-keyword-value="water and groundwater check"] [data-keyword-preference-select]').select_option("must_have")
+        page.locator('[data-keyword-priority-row][data-keyword-value="avoid septic risk"] [data-keyword-preference-select]').select_option("avoid")
+        page.locator('[data-keyword-priority-row][data-keyword-value="winter driving check"] [data-keyword-preference-select]').select_option("must_have")
+        page.locator('[data-keyword-priority-row][data-keyword-value="avoid flood-risk area"] [data-keyword-preference-select]').select_option("avoid")
+        page.locator('[data-keyword-priority-row][data-keyword-value="market nearby"] [data-keyword-preference-select]').select_option("important")
+        page.locator('[data-keyword-priority-row][data-keyword-value="market nearby"] [data-keyword-distance-select]').select_option("1000")
+        page.locator('[data-keyword-priority-row][data-keyword-value="Baumarkt nearby"] [data-keyword-preference-select]').select_option("important")
+        page.locator('[data-keyword-priority-row][data-keyword-value="Baumarkt nearby"] [data-keyword-distance-select]').select_option("2000")
+        page.locator('[data-keyword-priority-row][data-keyword-value="library nearby"] [data-keyword-preference-select]').select_option("nice_to_have")
+        page.locator('[data-keyword-priority-row][data-keyword-value="library nearby"] [data-keyword-distance-select]').select_option("1000")
+        page.locator('[data-keyword-priority-row][data-keyword-value="medical care nearby"] [data-keyword-preference-select]').select_option("important")
+        page.locator('[data-keyword-priority-row][data-keyword-value="medical care nearby"] [data-keyword-distance-select]').select_option("1000")
         page.locator('[data-property-step-trigger="providers"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
         providerCount = page.locator('input[name="selected_platforms"]').count()
@@ -1669,10 +1689,10 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert preferences["avoid_cesspit_or_septic_risk"] is True
         assert preferences["require_winter_access_research"] is True
         assert preferences["avoid_flood_risk_area"] is True
-        assert preferences["max_distance_to_market_m"] == 900
-        assert preferences["max_distance_to_hardware_store_m"] == 1800
-        assert preferences["max_distance_to_medical_care_m"] == 1200
-        assert preferences["max_distance_to_library_m"] == 700
+        assert preferences["max_distance_to_market_m"] == 1000
+        assert preferences["max_distance_to_hardware_store_m"] == 2000
+        assert preferences["max_distance_to_medical_care_m"] == 1000
+        assert preferences["max_distance_to_library_m"] == 1000
         assert preferences["min_match_score"] == 45
         assert preferences["require_floorplan"] is True
         assert len(observed["selected_platforms"]) == 3
@@ -1680,7 +1700,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert page.locator("body", has_text="Open property").is_visible()
         assert page.locator("body", has_text="360 ready").is_visible()
         page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
-        assert "/app/properties" in page.url
+        assert "/app/shortlist" in page.url
         assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()
         assert urllib.parse.parse_qs(urllib.parse.urlparse(page.url).query).get("candidate", [""])[0]
         assert page.locator("body", has_text="Open property").is_visible()
@@ -1770,15 +1790,12 @@ def test_propertyquarry_austria_region_selection_keeps_region_specific_area_choi
         page.select_option('select[name="region_code"]', "salzburg")
         page.wait_for_timeout(250)
         assert page.locator('select[name="region_code"]').input_value() == "salzburg"
-        page.locator('[data-property-step-next]').click()
         page.locator('[data-property-field-name="location_query"]').wait_for(state="visible")
         assert page.locator('label.pqx-check', has_text='Hallein').count() >= 1
 
-        page.locator('[data-property-step-trigger="search"]').click()
         page.select_option('select[name="region_code"]', "lower_austria")
         page.wait_for_timeout(250)
         assert page.locator('select[name="region_code"]').input_value() == "lower_austria"
-        page.locator('[data-property-step-next]').click()
         page.locator('[data-property-field-name="location_query"]').wait_for(state="visible")
         assert page.locator('label.pqx-check', has_text='Baden').count() >= 1
     finally:

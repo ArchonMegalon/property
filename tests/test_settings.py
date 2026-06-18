@@ -261,6 +261,52 @@ def test_readiness_service_rejects_prod_postgres_without_database_url() -> None:
     assert reason == "database_url_missing"
 
 
+def test_readiness_service_blocks_registered_pending_startup_gate() -> None:
+    settings = SimpleNamespace(
+        runtime=SimpleNamespace(mode="dev"),
+        storage=SimpleNamespace(backend="memory", database_url=""),
+        auth=SimpleNamespace(api_token="", signing_secret=""),
+    )
+    readiness = ReadinessService(settings)
+    readiness.register_startup_gate("property_search_shell_prewarm")
+
+    ready, reason = readiness.check()
+
+    assert ready is False
+    assert reason == "property_search_shell_prewarm:pending"
+
+
+def test_readiness_service_reports_failed_startup_gate_reason() -> None:
+    settings = SimpleNamespace(
+        runtime=SimpleNamespace(mode="dev"),
+        storage=SimpleNamespace(backend="memory", database_url=""),
+        auth=SimpleNamespace(api_token="", signing_secret=""),
+    )
+    readiness = ReadinessService(settings)
+    readiness.mark_startup_gate_failed("property_search_shell_prewarm", "failed")
+
+    ready, reason = readiness.check()
+
+    assert ready is False
+    assert reason == "property_search_shell_prewarm:failed"
+
+
+def test_readiness_service_allows_ready_startup_gate() -> None:
+    settings = SimpleNamespace(
+        runtime=SimpleNamespace(mode="dev"),
+        storage=SimpleNamespace(backend="memory", database_url=""),
+        auth=SimpleNamespace(api_token="", signing_secret=""),
+    )
+    readiness = ReadinessService(settings)
+    readiness.register_startup_gate("property_search_shell_prewarm")
+    readiness.mark_startup_gate_ready("property_search_shell_prewarm")
+
+    ready, reason = readiness.check()
+
+    assert ready is True
+    assert reason == "memory_ready"
+
+
 def test_readiness_service_rejects_missing_psycopg_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
     original_import = builtins.__import__
 

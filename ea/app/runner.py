@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import logging
 import os
+from pathlib import Path
 import re
 import signal
 import time
@@ -33,6 +34,39 @@ _SCHEDULER_TELEGRAM_ASYNC_RECOVERY_MIN_AGE_SECONDS = 0.0
 _SCHEDULER_MORNING_MEMO_DELIVERY_WINDOW_MINUTES = 120
 _SCHEDULER_MORNING_MEMO_RETRY_AFTER_MINUTES = 60
 _SCHEDULER_GOOGLE_SIGNAL_SYNC_FORBIDDEN_COOLDOWNS: dict[str, float] = {}
+
+
+def _scheduler_heartbeat_path() -> Path:
+    return Path(
+        str(
+            os.environ.get("EA_SCHEDULER_HEARTBEAT_PATH")
+            or "/data/artifacts/propertyquarry-scheduler-heartbeat.json"
+        ).strip()
+    )
+
+
+def _write_scheduler_heartbeat(*, role: str, status: str) -> None:
+    if role != "scheduler":
+        return
+    path = _scheduler_heartbeat_path()
+    if not str(path):
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        now = time.time()
+        payload = {
+            "role": role,
+            "status": str(status or "loop").strip() or "loop",
+            "epoch": now,
+            "observed_at": datetime.fromtimestamp(now, timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "pid": os.getpid(),
+            "profile": _propertyquarry_scheduler_profile(),
+        }
+        tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        tmp_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        tmp_path.replace(path)
+    except Exception:
+        logging.getLogger("ea.runner").debug("scheduler heartbeat write failed", exc_info=True)
 
 
 def _env_float(name: str, default: float) -> float:
@@ -845,9 +879,10 @@ def _scheduler_property_scout_principal_ids(container) -> tuple[str, ...]:  # ty
         values = tuple(sorted({part.strip() for part in raw.split(",") if part.strip()}))
         if values:
             return values
+    settings = getattr(container, "settings", None)
     principal_candidates = {
         str(os.environ.get("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID") or "").strip(),
-        str(getattr(getattr(container.settings, "auth", None), "default_principal_id", "") or "").strip(),
+        str(getattr(getattr(settings, "auth", None), "default_principal_id", "") or "").strip(),
         str(os.environ.get("EA_DEFAULT_PRINCIPAL_ID") or "").strip(),
     }
     return tuple(sorted(value for value in principal_candidates if value))
@@ -1412,9 +1447,11 @@ def _run_execution_worker(role: str) -> None:
     property_only_scheduler = role == "scheduler" and _scheduler_property_only_profile_enabled()
     property_only_worker = role == "worker" and _worker_property_only_profile_enabled()
     log.info("role=%s started worker loop", role)
+    _write_scheduler_heartbeat(role=role, status="started")
     while not stop["flag"]:
         if role == "scheduler":
             now = time.time()
+            _write_scheduler_heartbeat(role=role, status="loop")
             if not property_only_scheduler and now - last_horizon_scan_at >= _SCHEDULER_SCAN_INTERVAL_SECONDS:
                 observed_at = datetime.now(timezone.utc)
                 try:
@@ -1578,6 +1615,7 @@ def _run_execution_worker(role: str) -> None:
                     last_telegram_async_recovery_at = now
             if property_only_scheduler:
                 log.debug("role=%s property-only scheduler idle; sleeping %.1fs", role, idle_backoff_seconds)
+                _write_scheduler_heartbeat(role=role, status="idle")
                 time.sleep(idle_backoff_seconds)
                 idle_backoff_seconds = min(idle_backoff_seconds * 2.0, _IDLE_BACKOFF_MAX_SECONDS)
                 continue

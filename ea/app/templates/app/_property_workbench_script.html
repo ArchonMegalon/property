@@ -1226,7 +1226,10 @@
         || summary.filtered_total
         || summary.held_back_total
         || summary.filtered_out_total
-        || summary.filtered_low_fit_total
+        || summary.filtered_area_total
+        || summary.filtered_property_type_total
+        || summary.filtered_availability_total
+        || summary.filtered_floorplan_total
         || 0
       );
       const body = rows.map((candidate, index) => {
@@ -1298,6 +1301,12 @@
       }).join('');
       const summaryLabel = investmentSearch ? 'ranked opportunities' : 'ranked homes';
       const filteredLabel = filteredTotal > 0 ? `<button class="pqx-results-summary-link pqx-results-filter-link" type="button" data-pqx-filtered-open aria-label="${escapeHtml(filteredTotal)} filtered">${escapeHtml(filteredTotal)} filtered</button>` : '';
+      const filteredBreakdown = filteredTotal > 0 ? `
+          <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
+            <summary><strong>Filtered by rules: How this search was filtered</strong></summary>
+            <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
+          </details>
+      ` : '';
       return `
         <section class="pqx-result-panel active" data-pqx-mobile-panel="results" data-pqx-ranked-candidates>
           <div class="pqx-result-panel-head">
@@ -1309,6 +1318,7 @@
             </div>
           </div>
           <div class="pqx-results-list" id="results-list" data-workbench-results-table>${body}</div>
+          ${filteredBreakdown}
         </section>
       `;
     };
@@ -1538,7 +1548,7 @@
         const normalizedKey = String(stepKey || '').trim();
         if (!normalizedKey) return;
         const visibleSteps = activeSteps();
-        const targetIndex = visibleSteps.findIndex((step) => String(step?.key || '').trim() === normalizedKey);
+        let targetIndex = visibleSteps.findIndex((step) => String(step?.key || '').trim() === normalizedKey);
         if (targetIndex < 0) return;
         applyStep(targetIndex);
       };
@@ -1549,7 +1559,8 @@
             .map((value) => String(value || '').trim())
             .filter(Boolean)
         );
-        return steps.filter((step) => !excluded.has(String(step?.key || '').trim()));
+        const visible = steps.filter((step) => !excluded.has(String(step?.key || '').trim()));
+        return visible.length ? visible : steps.slice();
       };
       const refreshStepLabels = () => {
         const isInvestment = String(form.querySelector('select[name="search_goal"]')?.value || 'home').trim().toLowerCase() === 'investment';
@@ -1565,7 +1576,8 @@
         const silent = Boolean(options && options.silent);
         const visibleSteps = activeSteps();
         if (!visibleSteps.length) return;
-        current = Math.max(0, Math.min(visibleSteps.length - 1, index));
+        const safeIndex = Math.max(0, Math.min(visibleSteps.length - 1, index));
+        current = Number.isFinite(safeIndex) ? safeIndex : 0;
         const step = visibleSteps[current] || {};
         const stepKey = String(step.key || '').trim();
         const isInvestment = String(form.querySelector('select[name="search_goal"]')?.value || 'home').trim().toLowerCase() === 'investment';
@@ -1574,9 +1586,10 @@
         fieldNodes.forEach((node) => {
           const stepVisible = String(node.getAttribute('data-property-field-step') || '') === stepKey;
           const semanticallyHidden = String(node.dataset.propertySemanticHidden || '').trim() === 'true';
+          const collapsedBy = String(node.dataset.propertyCollapsedBy || '').trim();
           node.dataset.propertyStepVisible = stepVisible ? 'true' : 'false';
-          node.hidden = !stepVisible || semanticallyHidden;
-          node.setAttribute('aria-hidden', stepVisible && !semanticallyHidden ? 'false' : 'true');
+          node.hidden = !stepVisible || semanticallyHidden || Boolean(collapsedBy);
+          node.setAttribute('aria-hidden', stepVisible && !semanticallyHidden && !collapsedBy ? 'false' : 'true');
         });
         triggers.forEach((node) => {
           const triggerStep = String(node.getAttribute('data-property-step-trigger') || '').trim();
@@ -1597,14 +1610,9 @@
           form.dispatchEvent(new CustomEvent('propertyquarry:stepchange', { detail: { step: stepKey } }));
         }
       };
-      triggers.forEach((node) => node.addEventListener('click', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        goToStepByKey(node.getAttribute('data-property-step-trigger') || '');
-      }));
       root.addEventListener('click', (event) => {
         const trigger = event.target?.closest?.('[data-property-step-trigger]');
-        if (!trigger || !form.contains(trigger)) return;
+        if (!trigger || !root.contains(trigger)) return;
         event.preventDefault();
         event.stopPropagation();
         goToStepByKey(trigger.getAttribute('data-property-step-trigger') || '');
@@ -1613,7 +1621,6 @@
       next?.addEventListener('click', () => applyStep(current + 1));
       form.addEventListener('propertyquarry:wizardrefresh', () => applyStep(current, { silent: true }));
       fieldNodes.forEach((node) => {
-        if (node.hidden) node.dataset.propertySemanticHidden = 'true';
         node.hidden = false;
       });
       refreshStepLabels();
@@ -1652,6 +1659,19 @@
             field.setAttribute('disabled', 'disabled');
           }
         });
+      };
+      const setConditionalWrapVisibility = (wrap, visible, reason, { disableFieldset = false } = {}) => {
+        if (!(wrap instanceof HTMLElement)) return;
+        const normalizedReason = String(reason || 'conditional').trim() || 'conditional';
+        const currentReason = String(wrap.dataset.propertyCollapsedBy || '').trim();
+        if (visible) {
+          if (currentReason === normalizedReason) wrap.dataset.propertyCollapsedBy = '';
+        } else if (!currentReason || currentReason === normalizedReason) {
+          wrap.dataset.propertyCollapsedBy = normalizedReason;
+        }
+        syncFieldWrapVisibility(wrap);
+        wrap.setAttribute('aria-hidden', wrap.hidden ? 'true' : 'false');
+        if (disableFieldset) setFieldsetEnabled(wrap, !wrap.hidden);
       };
       const investmentGuardrailWraps = [
         form.querySelector('[data-property-field-name="investment_require_floorplan"]'),
@@ -1700,7 +1720,7 @@
         form.querySelector('[data-property-field-name="max_distance_to_good_cafe_m"]'),
       ].filter(Boolean);
       const schoolStageWrap = form.querySelector('[data-property-field-name="school_stage_preferences"]');
-      const schoolQualityWrap = form.querySelector('[data-property-field-name="school_quality_priority"]');
+      const schoolQualityWrap = form.querySelector('[data-property-field-name="school_evidence_priority"]');
       const schoolEvidenceWrap = form.querySelector('[data-property-field-name="require_school_evidence"]');
       const playgroundDistanceWrap = form.querySelector('[data-property-field-name="max_distance_to_playground_m"]');
       const playgroundImportanceWrap = form.querySelector('[data-property-field-name="max_distance_to_playground_importance"]');
@@ -1750,7 +1770,7 @@
         setCheckboxValues(form, 'school_stage_preferences', selectedStages);
         const schoolEvidenceField = form.querySelector('input[name="require_school_evidence"]');
         if (schoolEvidenceField instanceof HTMLInputElement) schoolEvidenceField.checked = selectedStages.length > 0;
-        const schoolPriorityField = form.querySelector('[name="school_quality_priority"]');
+        const schoolPriorityField = form.querySelector('[name="school_evidence_priority"]');
         if (schoolPriorityField instanceof HTMLSelectElement) schoolPriorityField.value = strongest;
       };
       const syncSchoolPreferenceDetailRows = () => {
@@ -1839,7 +1859,7 @@
       const syncAdvancedPanels = () => {
         form.querySelectorAll('details[data-property-advanced-panel]').forEach((panel) => {
           const panelKey = String(panel.getAttribute('data-property-advanced-panel') || '').trim();
-          const visibleFields = [...panel.querySelectorAll('.pqx-field')].filter((node) => !node.hidden && !node.hasAttribute('aria-hidden'));
+          const visibleFields = [...panel.querySelectorAll('.pqx-field')].filter((node) => !node.hidden && String(node.getAttribute('aria-hidden') || '').trim() !== 'true');
           const shouldShow = panelKey === 'commute'
               ? Boolean(commuteResearchField?.checked) && visibleFields.length > 0
               : visibleFields.length > 0;
@@ -1851,10 +1871,7 @@
       const syncListingModeControls = () => {
         const isInvestment = String(searchGoalField?.value || 'home').trim().toLowerCase() === 'investment';
         const isBuy = effectiveListingMode() === 'buy';
-        if (investmentFieldWrap) {
-          investmentFieldWrap.hidden = !isInvestment || !isBuy || String(form.dataset.propertyActiveStep || '').trim() !== 'search';
-          investmentFieldWrap.toggleAttribute('aria-hidden', investmentFieldWrap.hidden);
-        }
+        setConditionalWrapVisibility(investmentFieldWrap, isInvestment && isBuy && String(form.dataset.propertyActiveStep || '').trim() === 'search', 'listing_mode');
         if ((!isBuy || !isInvestment) && investmentField) investmentField.value = 'off';
         syncAdvancedPanels();
         syncMarketAwareFields(form, meta);
@@ -1873,94 +1890,50 @@
         const searchAgentEnabled = Boolean(searchAgentEnabledField?.checked);
         const publicHousingSignalsEnabled = rentMode && Boolean(form.querySelector('input[name="include_public_housing_signals"]')?.checked);
         const distressedSignalsEnabled = buyMode && Boolean(form.querySelector('input[name="include_distressed_sale_signals"]')?.checked);
-        if (listingModeFieldWrap) {
-          listingModeFieldWrap.hidden = isInvestment || activeStep !== 'search';
-          listingModeFieldWrap.toggleAttribute('aria-hidden', listingModeFieldWrap.hidden);
-        }
+        setConditionalWrapVisibility(listingModeFieldWrap, !isInvestment && activeStep === 'search', 'search_goal');
         if (isInvestment && listingModeField) listingModeField.value = 'buy';
         investmentSearchDetailWraps.forEach((wrap) => {
-          wrap.hidden = !investmentResearchEnabled || activeStep !== 'search';
-          wrap.toggleAttribute('aria-hidden', wrap.hidden);
-          setFieldsetEnabled(wrap, !wrap.hidden);
+          setConditionalWrapVisibility(wrap, investmentResearchEnabled && activeStep === 'search', 'investment_research', { disableFieldset: true });
         });
         investmentGuardrailWraps.forEach((wrap) => {
-          wrap.hidden = !investmentResearchEnabled || activeStep !== 'areas';
-          wrap.toggleAttribute('aria-hidden', wrap.hidden);
-          setFieldsetEnabled(wrap, !wrap.hidden);
+          setConditionalWrapVisibility(wrap, investmentResearchEnabled && activeStep === 'areas', 'investment_research', { disableFieldset: true });
         });
         rentOnlyProviderPolicyWraps.forEach((wrap) => {
-          const shouldShow = rentMode && activeStep === 'providers';
-          wrap.hidden = !shouldShow;
-          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+          setConditionalWrapVisibility(wrap, rentMode && activeStep === 'providers', 'listing_mode');
         });
         communityValidationWraps.forEach((wrap) => {
-          const shouldShow = communitySignalsEnabled && activeStep === 'providers';
-          wrap.hidden = !shouldShow;
-          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+          setConditionalWrapVisibility(wrap, communitySignalsEnabled && activeStep === 'providers', 'community_signals');
         });
         developerProjectStageWraps.forEach((wrap) => {
-          const shouldShow = developerProjectSignalsEnabled && activeStep === 'research';
-          wrap.hidden = !shouldShow;
-          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+          setConditionalWrapVisibility(wrap, developerProjectSignalsEnabled && activeStep === 'research', 'developer_projects');
         });
-        if (preferencePersonWrap) {
-          preferencePersonWrap.hidden = true;
-          preferencePersonWrap.toggleAttribute('aria-hidden', true);
-        }
+        setConditionalWrapVisibility(preferencePersonWrap, false, 'disabled_preference_profile');
         searchAgentDetailWraps.forEach((wrap) => {
-          const shouldShow = searchAgentEnabled && activeStep === 'providers';
-          wrap.hidden = !shouldShow;
-          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+          setConditionalWrapVisibility(wrap, searchAgentEnabled && activeStep === 'providers', 'search_agent');
         });
         publicHousingChildWraps.forEach((wrap) => {
-          const shouldShow = publicHousingSignalsEnabled && activeStep === 'providers';
-          wrap.hidden = !shouldShow;
-          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+          setConditionalWrapVisibility(wrap, publicHousingSignalsEnabled && activeStep === 'providers', 'public_housing');
         });
         buyOnlyProviderPolicyWraps.forEach((wrap) => {
-          const shouldShow = buyMode && activeStep === 'providers';
-          wrap.hidden = !shouldShow;
-          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+          setConditionalWrapVisibility(wrap, buyMode && activeStep === 'providers', 'listing_mode');
         });
         buyOnlyResearchWraps.forEach((wrap) => {
-          const shouldShow = distressedSignalsEnabled && activeStep === 'research';
-          wrap.hidden = !shouldShow;
-          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+          setConditionalWrapVisibility(wrap, distressedSignalsEnabled && activeStep === 'research', 'distressed_sales');
         });
-        if (commuteResearchWrap) {
-          commuteResearchWrap.hidden = isInvestment || activeStep !== 'reachability';
-          commuteResearchWrap.toggleAttribute('aria-hidden', commuteResearchWrap.hidden);
-        }
-        if (lifestyleResearchWrap) {
-          lifestyleResearchWrap.hidden = true;
-          lifestyleResearchWrap.setAttribute('aria-hidden', 'true');
-        }
+        setConditionalWrapVisibility(commuteResearchWrap, !isInvestment && activeStep === 'reachability', 'search_goal');
+        setConditionalWrapVisibility(lifestyleResearchWrap, false, 'disabled_lifestyle');
         const selectedSchoolStages = !isInvestment ? checkedValues(form, 'school_stage_preferences') : [];
         const schoolEvidenceEnabled = !isInvestment && (
           selectedSchoolStages.length > 0
           || Boolean(form.querySelector('input[name="require_school_evidence"]')?.checked)
         );
-        if (schoolQualityWrap) {
-          schoolQualityWrap.hidden = true;
-          schoolQualityWrap.setAttribute('aria-hidden', 'true');
-        }
-        if (playgroundImportanceWrap) {
-          playgroundImportanceWrap.hidden = true;
-          playgroundImportanceWrap.setAttribute('aria-hidden', 'true');
-        }
-        if (libraryImportanceWrap) {
-          libraryImportanceWrap.hidden = true;
-          libraryImportanceWrap.setAttribute('aria-hidden', 'true');
-        }
-        if (supermarketImportanceWrap) {
-          supermarketImportanceWrap.hidden = true;
-          supermarketImportanceWrap.setAttribute('aria-hidden', 'true');
-        }
+        setConditionalWrapVisibility(schoolQualityWrap, false, 'what_matters');
+        setConditionalWrapVisibility(playgroundImportanceWrap, false, 'what_matters');
+        setConditionalWrapVisibility(libraryImportanceWrap, false, 'what_matters');
+        setConditionalWrapVisibility(supermarketImportanceWrap, false, 'what_matters');
         const lifestyleEnabled = !isInvestment && Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked);
         lifestyleDetailWraps.forEach((wrap) => {
-          const shouldShow = lifestyleEnabled && activeStep === 'children';
-          wrap.hidden = !shouldShow;
-          wrap.toggleAttribute('aria-hidden', wrap.hidden);
+          setConditionalWrapVisibility(wrap, lifestyleEnabled && activeStep === 'children', 'lifestyle_research');
         });
         if (isInvestment) {
           if (commuteResearchField) commuteResearchField.checked = false;
@@ -1997,7 +1970,7 @@
         }
         if (!schoolEvidenceEnabled) {
           const schoolEvidenceField = form.querySelector('input[name="require_school_evidence"]');
-          const schoolQualityField = form.querySelector('[name="school_quality_priority"]');
+          const schoolQualityField = form.querySelector('[name="school_evidence_priority"]');
           if (schoolEvidenceField && !selectedSchoolStages.length) schoolEvidenceField.checked = false;
           if (schoolQualityField) schoolQualityField.value = 'any';
         }
@@ -2057,17 +2030,13 @@
         const hasAreaOptions = form.querySelectorAll('input[name="location_query"]').length > 0;
         const selectedLocations = checkedValues(form, 'location_query');
         const allLocationsSelected = hasAreaOptions && selectedLocations.length > 0 && selectedLocations.length === form.querySelectorAll('input[name="location_query"]').length;
-        if (fullRegionScopeFieldWrap) {
-          fullRegionScopeFieldWrap.hidden = true;
-          fullRegionScopeFieldWrap.setAttribute('aria-hidden', 'true');
-        }
+        setConditionalWrapVisibility(fullRegionScopeFieldWrap, false, 'redundant_full_region_scope');
         if (!hasAreaOptions && fullRegionScopeField) fullRegionScopeField.checked = false;
         if (fullRegionScopeField) fullRegionScopeField.checked = allLocationsSelected;
-        if (locationFieldWrap) {
-          locationFieldWrap.hidden = !isSearchStep || !hasAreaOptions;
-          locationFieldWrap.toggleAttribute('aria-hidden', locationFieldWrap.hidden);
+        if (locationFieldWrap && String(locationFieldWrap.dataset.propertyCollapsedBy || '').trim() === 'area_scope') {
           locationFieldWrap.dataset.propertyCollapsedBy = '';
         }
+        setConditionalWrapVisibility(locationFieldWrap, isSearchStep && hasAreaOptions, 'area_scope');
         syncAdvancedPanels();
         syncMarketAwareFields(form, meta);
       };
@@ -2076,9 +2045,7 @@
         const commuteEnabled = Boolean(commuteResearchField?.checked);
         const showCommuteDetails = (!activeStep || activeStep === 'reachability') && commuteEnabled;
         commuteDetailWraps.forEach((wrap) => {
-          wrap.hidden = !showCommuteDetails;
-          wrap.toggleAttribute('aria-hidden', wrap.hidden);
-          wrap.dataset.propertyCollapsedBy = showCommuteDetails ? '' : 'enable_commute_research';
+          setConditionalWrapVisibility(wrap, showCommuteDetails, 'enable_commute_research');
         });
         syncAdvancedPanels();
         syncMarketAwareFields(form, meta);
@@ -2090,41 +2057,13 @@
         const showSchoolDetails = false;
         const showSchoolPriority = false;
         syncSchoolStageVariantVisibility(form);
-        if (schoolStageWrap) {
-          schoolStageWrap.hidden = !showSchoolDetails;
-          schoolStageWrap.toggleAttribute('aria-hidden', schoolStageWrap.hidden);
-          schoolStageWrap.dataset.propertyCollapsedBy = 'what_matters';
-        }
-        if (playgroundDistanceWrap) {
-          playgroundDistanceWrap.hidden = true;
-          playgroundDistanceWrap.setAttribute('aria-hidden', 'true');
-          playgroundDistanceWrap.dataset.propertyCollapsedBy = 'what_matters';
-        }
-        if (libraryDistanceWrap) {
-          libraryDistanceWrap.hidden = true;
-          libraryDistanceWrap.setAttribute('aria-hidden', 'true');
-          libraryDistanceWrap.dataset.propertyCollapsedBy = 'what_matters';
-        }
-        if (zooDistanceWrap) {
-          zooDistanceWrap.hidden = true;
-          zooDistanceWrap.setAttribute('aria-hidden', 'true');
-          zooDistanceWrap.dataset.propertyCollapsedBy = 'what_matters';
-        }
-        if (publicPoolDistanceWrap) {
-          publicPoolDistanceWrap.hidden = true;
-          publicPoolDistanceWrap.setAttribute('aria-hidden', 'true');
-          publicPoolDistanceWrap.dataset.propertyCollapsedBy = 'what_matters';
-        }
-        if (medicalCareDistanceWrap) {
-          medicalCareDistanceWrap.hidden = true;
-          medicalCareDistanceWrap.setAttribute('aria-hidden', 'true');
-          medicalCareDistanceWrap.dataset.propertyCollapsedBy = 'what_matters';
-        }
-        if (schoolQualityWrap) {
-          schoolQualityWrap.hidden = true;
-          schoolQualityWrap.setAttribute('aria-hidden', 'true');
-          schoolQualityWrap.dataset.propertyCollapsedBy = 'what_matters';
-        }
+        setConditionalWrapVisibility(schoolStageWrap, showSchoolDetails, 'what_matters');
+        setConditionalWrapVisibility(playgroundDistanceWrap, false, 'what_matters');
+        setConditionalWrapVisibility(libraryDistanceWrap, false, 'what_matters');
+        setConditionalWrapVisibility(zooDistanceWrap, false, 'what_matters');
+        setConditionalWrapVisibility(publicPoolDistanceWrap, false, 'what_matters');
+        setConditionalWrapVisibility(medicalCareDistanceWrap, false, 'what_matters');
+        setConditionalWrapVisibility(schoolQualityWrap, false, 'what_matters');
         syncAdvancedPanels();
         syncMarketAwareFields(form, meta);
       };
@@ -2848,9 +2787,27 @@
       if (scopeLightbox && typeof scopeLightbox.close === 'function' && scopeLightbox.open) scopeLightbox.close();
     };
     const filteredDialogHasActions = () => Boolean(filteredDialog?.querySelector('.pqx-filtered-dialog-rule'));
+    const openFilteredFallbackPanel = () => {
+      const fallbackCandidates = [
+        ...root.querySelectorAll('details#pqx-filtered-breakdown, details[data-pqx-filtered-breakdown]'),
+        root.querySelector('[data-pqx-source-breakdown]')?.closest?.('details'),
+        ...root.querySelectorAll('#pqx-filtered-breakdown, [data-pqx-filtered-breakdown]'),
+      ];
+      const fallbackPanel = fallbackCandidates.find((candidate) => candidate instanceof HTMLElement);
+      if (!fallbackPanel) return false;
+      if (fallbackPanel.tagName === 'DETAILS') {
+        fallbackPanel.open = true;
+      } else if (typeof fallbackPanel.scrollIntoView === 'function') {
+        fallbackPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      if (typeof fallbackPanel.scrollIntoView === 'function') {
+        fallbackPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      return true;
+    };
     const openFilteredDialog = () => {
       if (!filteredDialog) return false;
-      if (!filteredDialogHasActions()) return false;
+      if (!filteredDialogHasActions()) return openFilteredFallbackPanel();
       if (typeof filteredDialog.showModal === 'function') {
         try {
           if (!filteredDialog.open) filteredDialog.showModal();
@@ -2960,16 +2917,28 @@
       if (!button) return;
       event.preventDefault();
       event.stopPropagation();
-      if (openFilteredDialog()) {
+      const opened = openFilteredDialog();
+      const fallbackOpened = openFilteredFallbackPanel();
+      if (opened || fallbackOpened) {
         return;
       }
       const fallbackPanel = root.querySelector(
         '[data-pqx-empty-results] [data-pqx-counterfactuals], [data-pqx-counterfactuals], [data-pqx-suppression-summary], [data-pqx-source-breakdown], details'
       );
-      const details = fallbackPanel?.closest?.('details');
-      if (details) details.open = true;
+      const details = fallbackPanel?.closest?.('details') || fallbackPanel;
+      if (details && details.tagName === 'DETAILS') {
+        details.open = true;
+      }
       if (fallbackPanel && typeof fallbackPanel.scrollIntoView === 'function') {
         fallbackPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+      const href = String(button.getAttribute('href') || '').trim();
+      if (href.startsWith('#') && href.length > 1) {
+        const anchor = root.querySelector(href);
+        if (anchor) {
+          anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
       }
     };
     root.addEventListener('click', handleFilteredOpenClick);
