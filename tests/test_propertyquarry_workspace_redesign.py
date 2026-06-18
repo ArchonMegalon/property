@@ -461,6 +461,7 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert ">Neutral</option>" in section_html
     assert '.pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group="home_basics"]' in html
     assert 'grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));' in html
+    assert '.pqx-what-matters-panel .pqx-choice-groupbox:has(.pqx-keyword-priority-row[data-keyword-distance-enabled="true"])' in html
     assert "overflow-wrap: break-word;" in html
     assert ".pqx-what-matters-panel .pqx-school-priority-row {" in html
     template_source = (
@@ -472,11 +473,27 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert 'data-property-advanced-panel="location_research"' not in html
     assert 'data-property-field-step="children" data-property-field-name="keywords"' in html
     assert 'data-property-field-name="enable_lifestyle_research" hidden' in html
-    assert 'data-property-field-name="max_distance_to_supermarket_m" hidden' in html
-    assert 'data-property-field-name="school_stage_preferences" hidden' in html
-    assert 'data-property-field-name="max_distance_to_library_m" hidden' in html
+    assert re.search(
+        r'data-property-field-name="max_distance_to_supermarket_m"[^>]*data-property-semantic-hidden="true"[^>]*hidden',
+        html,
+    )
+    assert re.search(
+        r'data-property-field-name="require_school_evidence"[^>]*data-property-semantic-hidden="true"[^>]*hidden',
+        html,
+    )
+    assert re.search(
+        r'data-property-field-name="school_stage_preferences"[^>]*data-property-semantic-hidden="true"[^>]*hidden',
+        html,
+    )
+    assert re.search(
+        r'data-property-field-name="max_distance_to_library_m"[^>]*data-property-semantic-hidden="true"[^>]*hidden',
+        html,
+    )
     assert 'data-property-field-name="use_stored_feedback_preferences"' in html
-    assert 'data-property-field-name="use_stored_feedback_preferences" hidden' in html
+    assert re.search(
+        r'data-property-field-name="use_stored_feedback_preferences"[^>]*data-property-semantic-hidden="true"[^>]*hidden',
+        html,
+    )
     assert 'Load my what matters' in section_html
     assert 'Save my what matters' in section_html
     assert '>What<' in html
@@ -4625,7 +4642,10 @@ def test_propertyquarry_workspace_hides_school_evidence_priority_when_school_evi
 
     search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert search.status_code == 200
-    assert 'data-property-field-name="school_evidence_priority" hidden' in search.text
+    assert re.search(
+        r'data-property-field-name="school_evidence_priority"[^>]*data-property-semantic-hidden="true"[^>]*hidden',
+        search.text,
+    )
     assert 'data-property-field-name="school_quality_priority"' not in search.text
 
 

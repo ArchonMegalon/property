@@ -150,15 +150,22 @@
     };
     const syncSchoolPreferenceDetailRows = (form) => {
       form?.querySelectorAll('[data-school-priority-row]').forEach((row) => {
+        row.dataset.schoolParentActive = 'false';
+        row.dataset.schoolFamilyActive = 'false';
+      });
+      form?.querySelectorAll('[data-school-priority-row]').forEach((row) => {
         const parentValue = String(row.getAttribute('data-school-parent-value') || '').trim();
         if (!parentValue) return;
         const parentSelect = form.querySelector(`[data-school-preference-select][data-school-value="${CSS.escape(parentValue)}"]`);
         const detailSelect = row.querySelector('[data-school-preference-select]');
         const parentEnabled = parentSelect instanceof HTMLSelectElement
           && String(parentSelect.value || 'any').trim().toLowerCase() !== 'any';
+        const parentRow = parentSelect?.closest?.('[data-school-priority-row]');
         row.hidden = !parentEnabled;
         row.toggleAttribute('aria-hidden', !parentEnabled);
         row.dataset.schoolParentActive = parentEnabled ? 'true' : 'false';
+        row.dataset.schoolFamilyActive = parentEnabled ? 'true' : 'false';
+        if (parentRow) parentRow.dataset.schoolFamilyActive = parentEnabled ? 'true' : 'false';
         if (!parentEnabled && detailSelect instanceof HTMLSelectElement) detailSelect.value = 'any';
       });
       syncSchoolPreferenceFields(form);

@@ -2471,6 +2471,9 @@
     .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group="risk_evidence"] {
       grid-column: 2 / 3;
     }
+    .pqx-what-matters-panel .pqx-choice-groupbox:has(.pqx-keyword-priority-row[data-keyword-distance-enabled="true"]) {
+      grid-column: 1 / -1;
+    }
     .pqx-what-matters-panel .pqx-choice-groupbox-legend {
       display: block;
       padding: 0 2px;
@@ -2504,6 +2507,7 @@
       background: rgba(255, 253, 249, 0.58);
       min-height: 0;
       position: relative;
+      transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
     }
     .pqx-what-matters-panel .pqx-pref-row:hover {
       border-color: rgba(151, 124, 70, 0.38);
@@ -2550,7 +2554,8 @@
       width: 100%;
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] {
-      grid-template-columns: minmax(92px, 1fr) minmax(104px, 0.72fr) minmax(96px, 0.58fr);
+      grid-column: 1 / -1;
+      grid-template-columns: minmax(160px, 1fr) minmax(132px, 168px) minmax(104px, 136px);
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="false"] {
       grid-template-columns: minmax(108px, 1fr) minmax(112px, 128px);
@@ -2565,9 +2570,13 @@
       margin-left: 10px;
       box-shadow: inset 3px 0 0 rgba(189, 139, 47, 0.28);
     }
+    .pqx-what-matters-panel .pqx-school-priority-row[data-school-family-active="true"] {
+      border-color: rgba(84, 112, 156, 0.34);
+      background: linear-gradient(180deg, rgba(246, 250, 255, 0.96), rgba(236, 244, 255, 0.76));
+    }
     .pqx-what-matters-panel .pqx-school-priority-row[data-school-parent-active="true"] {
-      border-color: rgba(189, 139, 47, 0.38);
-      background: rgba(255, 250, 236, 0.78);
+      border-color: rgba(84, 112, 156, 0.38);
+      background: rgba(236, 244, 255, 0.86);
     }
     .pqx-what-matters-panel .pqx-school-priority-row[data-school-dependent-row]::before {
       content: "";
@@ -5470,10 +5479,25 @@
                 'require_parking_pressure_check',
                 'avoid_cesspit_or_septic_risk',
                 'require_winter_access_research',
-                'avoid_flood_risk_area'
+                'avoid_flood_risk_area',
+                'preference_person_id',
+                'use_stored_feedback_preferences',
+                'school_stage_preferences',
+                'school_evidence_priority',
+                'require_school_evidence',
+                'max_distance_to_playground_m',
+                'max_distance_to_playground_importance',
+                'max_distance_to_library_m',
+                'max_distance_to_library_importance',
+                'max_distance_to_zoo_m',
+                'max_distance_to_public_pool_m',
+                'max_distance_to_medical_care_m',
+                'max_distance_to_supermarket_m',
+                'max_distance_to_supermarket_importance'
               ] %}
               {% for field in console_form.get('fields') or [] %}
               {% set advanced_panel = field.get('advanced_panel') or '' %}
+              {% set integrated_what_matters_field = ((field.get('step') or '') == 'children' and field.name in integrated_what_matters_fields) %}
               {% if panel.open and (not advanced_panel or advanced_panel != panel.current) %}
               </div>
               </details>
@@ -5505,7 +5529,7 @@
                     <label><input type="checkbox" data-property-show-unavailable> Show locked filters</label>
                   </div>
               {% endif %}
-              <div class="pqx-field" data-property-field-step="{{ field.get('step') or 'search' }}" data-property-field-name="{{ field.name }}"{% if field.get('availability_key') %} data-property-availability-key="{{ field.get('availability_key') }}"{% endif %}{% if field.get('disabled_reason') %} data-property-disabled-reason="{{ field.get('disabled_reason') }}"{% endif %}{% if field.get('hidden') or ((field.get('step') or '') == 'children' and field.name in integrated_what_matters_fields) %} hidden{% endif %}>
+              <div class="pqx-field" data-property-field-step="{{ field.get('step') or 'search' }}" data-property-field-name="{{ field.name }}"{% if field.get('availability_key') %} data-property-availability-key="{{ field.get('availability_key') }}"{% endif %}{% if field.get('disabled_reason') %} data-property-disabled-reason="{{ field.get('disabled_reason') }}"{% endif %}{% if integrated_what_matters_field %} data-property-semantic-hidden="true"{% endif %}{% if field.get('hidden') or integrated_what_matters_field %} hidden{% endif %}>
                 {% if field.name == 'property_type' and (field.get('options') or []) %}
                 <fieldset class="pqx-choice-groupbox">
                   <legend class="pqx-choice-groupbox-legend">{{ field.label }}</legend>

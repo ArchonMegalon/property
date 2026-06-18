@@ -1025,6 +1025,16 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
         assert section.locator("select").count() >= 8
         assert section.locator('input[type="checkbox"]').count() == 0
         assert " nearby" not in section.inner_text().lower()
+        for field_name in (
+            "use_stored_feedback_preferences",
+            "require_school_evidence",
+            "school_stage_preferences",
+            "max_distance_to_hardware_store_m",
+            "max_distance_to_shopping_center_m",
+            "avoid_noise_risk_area",
+            "require_high_speed_internet",
+        ):
+            expect(desktop_page.locator(f'[data-property-field-name="{field_name}"]')).to_be_hidden()
         section.screenshot(path=str(desktop_shot))
         assert desktop_shot.exists()
 
@@ -1042,6 +1052,48 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
     finally:
         desktop.close()
         mobile.close()
+
+
+def test_propertyquarry_search_wizard_steps_replace_visible_controls_without_accumulating(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1360, height=1000)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
+        expected_fields = {
+            "search": "country_code",
+            "what": "property_type",
+            "children": "keywords",
+            "reachability": "enable_commute_research",
+            "research": None,
+            "providers": "selected_platforms",
+        }
+        for step, field_name in expected_fields.items():
+            page.locator(f'[data-property-step-trigger="{step}"]').click()
+            page.wait_for_function(
+                """(step) => document.querySelector('[data-console-form-variant="property_search"]')?.dataset.propertyActiveStep === step""",
+                arg=step,
+            )
+            visible_steps = page.evaluate(
+                """
+                () => Array.from(document.querySelectorAll('.pqx-field[data-property-field-step]'))
+                  .filter((node) => node.offsetParent !== null && !node.hidden)
+                  .map((node) => node.getAttribute('data-property-field-step'))
+                  .filter(Boolean)
+                """
+            )
+            assert visible_steps, step
+            assert set(visible_steps) == {step}, {"clicked": step, "visible_steps": visible_steps}
+            if field_name:
+                expect(page.locator(f'[data-property-field-name="{field_name}"]')).to_be_visible()
+            assert page.locator(".pqx-workflow-step.active").count() == 1
+    finally:
+        context.close()
 
 
 def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping(
@@ -1062,6 +1114,14 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
         page.wait_for_function(
             "document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'"
         )
+        for field_name in (
+            "max_distance_to_market_m",
+            "max_distance_to_hardware_store_m",
+            "max_distance_to_shopping_center_m",
+            "max_distance_to_theatre_m",
+            "avoid_flood_risk_area",
+        ):
+            expect(page.locator(f'[data-property-field-name="{field_name}"]')).to_be_hidden()
         for keyword in ("Baumarkt nearby", "shopping center nearby", "flaniermeile nearby", "theatre nearby"):
             row = page.locator(f'[data-keyword-priority-row][data-keyword-value="{keyword}"]')
             row.locator("[data-keyword-preference-select]").select_option("important")
@@ -1073,6 +1133,7 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
         school_child = page.locator('[data-school-priority-row][data-school-value="ganztags_volksschule"]')
         expect(school_child).to_be_visible()
         expect(school_child).to_have_attribute("data-school-parent-active", "true")
+        expect(school_parent).to_have_attribute("data-school-family-active", "true")
         section = page.locator('[data-what-matters-group="daily_life"]')
         section.scroll_into_view_if_needed()
         section.screenshot(path=str(screenshot_path))
@@ -1101,6 +1162,10 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
             """
         )
         assert len(rows) >= 4
+        inner_width = int(page.evaluate("window.innerWidth"))
+        group_width = float(section.bounding_box()["width"] or 0)
+        if inner_width >= 900:
+            assert group_width >= 640.0
         for row in rows:
             assert float(row["rowScrollWidth"]) <= float(row["rowWidth"]) + 1.0, row
             for control in row["controls"]:
