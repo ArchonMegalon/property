@@ -12,14 +12,12 @@ import mimetypes
 import os
 from pathlib import Path, PurePosixPath
 import re
-import socket
 import time
 import urllib.parse
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
-import requests
 
 from app.api.dependencies import get_container
 from app.container import AppContainer
@@ -64,6 +62,15 @@ _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT: OrderedDict[str, tuple[float, int]] = OrderedD
 _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_WINDOW_SECONDS = 60.0
 _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX = 12
 _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX_KEYS = 2048
+_PUBLIC_TOUR_DEFAULT_EXTERNAL_MEDIA_HOSTS = (
+    "propertyquarry.com",
+    "*.propertyquarry.com",
+    "my.matterport.com",
+    "*.matterport.com",
+    "3dvista.com",
+    "*.3dvista.com",
+    "360.kalandra.at",
+)
 log = logging.getLogger(__name__)
 
 
@@ -168,18 +175,6 @@ def _load_tour_with_private_receipt(slug: str) -> dict[str, object]:
     return {**payload, **private_payload} if private_payload else payload
 
 
-_PUBLIC_TOUR_RESEARCH_DEFAULT_HOST_SUFFIXES = (
-    "willhaben.at",
-    "immobilienscout24.at",
-    "immowelt.at",
-    "immonet.de",
-    "matterport.com",
-    "edikte2.justiz.gv.at",
-    "sreal.at",
-    "immobilien.derstandard.at",
-    "derstandard.at",
-)
-
 
 def _public_tour_key_is_private(key: object) -> bool:
     return _payload_public_tour_key_is_private(key)
@@ -264,10 +259,56 @@ def _public_tour_safe_http_url(value: object) -> str:
     return _payload_public_tour_safe_http_url(value)
 
 
+def _public_tour_static_media_allowed_hosts() -> tuple[str, ...]:
+    raw = str(os.getenv("PROPERTYQUARRY_PUBLIC_MEDIA_ALLOWED_HOSTS") or "").strip()
+    if not raw:
+        return _PUBLIC_TOUR_DEFAULT_EXTERNAL_MEDIA_HOSTS
+    hosts = tuple(item.strip().lower().rstrip(".") for item in raw.split(",") if item.strip())
+    return hosts or _PUBLIC_TOUR_DEFAULT_EXTERNAL_MEDIA_HOSTS
+
+
+def _public_tour_hostname_matches_allowed_pattern(hostname: str, pattern: str) -> bool:
+    normalized_host = str(hostname or "").strip().lower().rstrip(".")
+    normalized_pattern = str(pattern or "").strip().lower().rstrip(".")
+    if not normalized_host or not normalized_pattern:
+        return False
+    if normalized_pattern.startswith("*."):
+        suffix = normalized_pattern[1:]
+        return normalized_host.endswith(suffix) and normalized_host != suffix.lstrip(".")
+    return normalized_host == normalized_pattern
+
+
+def _public_tour_static_media_url_allowed(value: object) -> bool:
+    normalized = _public_tour_safe_http_url(value)
+    if not normalized:
+        return False
+    parsed = urllib.parse.urlparse(normalized)
+    host = str(parsed.hostname or "").strip().lower().rstrip(".")
+    if not host:
+        return False
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if address is not None and (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
+    ):
+        return False
+    return any(
+        _public_tour_hostname_matches_allowed_pattern(host, pattern)
+        for pattern in _public_tour_static_media_allowed_hosts()
+    )
+
+
 def _public_tour_external_media_url_allowed(value: object) -> bool:
     return _payload_public_tour_external_media_url_allowed(
         value,
-        url_allowed=_public_tour_listing_research_url_allowed,
+        url_allowed=_public_tour_static_media_url_allowed,
     )
 
 
@@ -292,7 +333,7 @@ def _redacted_public_tour_scenes(
     return _payload_redacted_public_tour_scenes(
         payload,
         expose_asset_relpaths=expose_asset_relpaths,
-        url_allowed=_public_tour_listing_research_url_allowed,
+        url_allowed=_public_tour_static_media_url_allowed,
     )
 
 
@@ -304,7 +345,7 @@ def _redacted_public_tour_payload(
     rendered = _payload_redacted_public_tour_payload(
         payload,
         expose_asset_relpaths=expose_asset_relpaths,
-        url_allowed=_public_tour_listing_research_url_allowed,
+        url_allowed=_public_tour_static_media_url_allowed,
         bundle_dir_resolver=_tour_bundle_dir,
     )
     for key in ("source_virtual_tour_url", "source_virtual_tour_origin"):
@@ -389,361 +430,10 @@ def _embedded_live_360_url(payload: dict[str, object]) -> str:
     )
 
 
-def _public_tour_listing_research_allowed_hosts() -> tuple[str, ...]:
-    raw = str(os.getenv("PROPERTYQUARRY_PUBLIC_RESEARCH_ALLOWED_HOSTS") or "").strip()
-    if not raw:
-        return _PUBLIC_TOUR_RESEARCH_DEFAULT_HOST_SUFFIXES
-    hosts = tuple(
-        item.strip().lower().lstrip(".")
-        for item in raw.split(",")
-        if item.strip().lower().lstrip(".")
-    )
-    return hosts or _PUBLIC_TOUR_RESEARCH_DEFAULT_HOST_SUFFIXES
-
-
-def _public_tour_hostname_matches_suffix(hostname: str, suffix: str) -> bool:
-    normalized_host = str(hostname or "").strip().lower().rstrip(".")
-    normalized_suffix = str(suffix or "").strip().lower().rstrip(".").lstrip(".")
-    if not normalized_host or not normalized_suffix:
-        return False
-    return normalized_host == normalized_suffix or normalized_host.endswith(f".{normalized_suffix}")
-
-
-def _public_tour_host_resolves_to_public_ips(hostname: str) -> bool:
-    try:
-        addresses = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
-    except OSError:
-        return False
-    if not addresses:
-        return False
-    for row in addresses:
-        try:
-            ip_value = str(row[4][0])
-            address = ipaddress.ip_address(ip_value)
-        except (IndexError, TypeError, ValueError):
-            return False
-        if (
-            address.is_private
-            or address.is_loopback
-            or address.is_link_local
-            or address.is_multicast
-            or address.is_reserved
-            or address.is_unspecified
-        ):
-            return False
-    return True
-
-
-def _public_tour_listing_research_url_allowed(url: str) -> bool:
-    parsed = urlparse(str(url or "").strip())
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
-        return False
-    hostname = parsed.hostname.strip().lower().rstrip(".")
-    if not any(
-        _public_tour_hostname_matches_suffix(hostname, suffix)
-        for suffix in _public_tour_listing_research_allowed_hosts()
-    ):
-        return False
-    return _public_tour_host_resolves_to_public_ips(hostname)
-
-
-def _haversine_distance_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> int:
-    from math import atan2, cos, radians, sin, sqrt
-
-    earth_radius_m = 6_371_000.0
-    phi_a = radians(lat_a)
-    phi_b = radians(lat_b)
-    delta_phi = radians(lat_b - lat_a)
-    delta_lambda = radians(lon_b - lon_a)
-    arc = sin(delta_phi / 2.0) ** 2 + cos(phi_a) * cos(phi_b) * sin(delta_lambda / 2.0) ** 2
-    return int(round(2.0 * earth_radius_m * atan2(sqrt(arc), sqrt(max(1.0 - arc, 0.0)))))
-
-
-@lru_cache(maxsize=128)
-def _reverse_geocode(lat: float, lon: float) -> dict[str, object]:
-    url = (
-        "https://nominatim.openstreetmap.org/reverse?"
-        f"format=jsonv2&lat={lat:.8f}&lon={lon:.8f}&zoom=18&addressdetails=1"
-    )
-    try:
-        # Fixed OpenStreetMap reverse-geocode endpoint for map context.
-        response = requests.get(url, headers={"User-Agent": "EA/1.0"}, timeout=6.0)
-        response.raise_for_status()
-        payload = response.json()
-    except (requests.RequestException, ValueError, json.JSONDecodeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-@lru_cache(maxsize=128)
-def _fetch_nearby_poi_research(lat: float, lon: float) -> dict[str, object]:
-    query = f"""
-[out:json][timeout:20];
-(
-  node["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
-  way["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
-  node["shop"="convenience"](around:5000,{lat:.8f},{lon:.8f});
-  way["shop"="convenience"](around:5000,{lat:.8f},{lon:.8f});
-  node["shop"="greengrocer"](around:5000,{lat:.8f},{lon:.8f});
-  way["shop"="greengrocer"](around:5000,{lat:.8f},{lon:.8f});
-  node["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
-  way["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
-  node["amenity"="library"](around:5000,{lat:.8f},{lon:.8f});
-  way["amenity"="library"](around:5000,{lat:.8f},{lon:.8f});
-  node["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
-  way["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
-  node["shop"="doityourself"](around:7000,{lat:.8f},{lon:.8f});
-  way["shop"="doityourself"](around:7000,{lat:.8f},{lon:.8f});
-  node["shop"="hardware"](around:7000,{lat:.8f},{lon:.8f});
-  way["shop"="hardware"](around:7000,{lat:.8f},{lon:.8f});
-  node["amenity"="marketplace"](around:7000,{lat:.8f},{lon:.8f});
-  way["amenity"="marketplace"](around:7000,{lat:.8f},{lon:.8f});
-  node["shop"="mall"](around:7000,{lat:.8f},{lon:.8f});
-  way["shop"="mall"](around:7000,{lat:.8f},{lon:.8f});
-  node["highway"="pedestrian"](around:7000,{lat:.8f},{lon:.8f});
-  way["highway"="pedestrian"](around:7000,{lat:.8f},{lon:.8f});
-  node["amenity"="theatre"](around:7000,{lat:.8f},{lon:.8f});
-  way["amenity"="theatre"](around:7000,{lat:.8f},{lon:.8f});
-  node["leisure"="swimming_pool"](around:7000,{lat:.8f},{lon:.8f});
-  way["leisure"="swimming_pool"](around:7000,{lat:.8f},{lon:.8f});
-  node["amenity"="doctors"](around:7000,{lat:.8f},{lon:.8f});
-  way["amenity"="doctors"](around:7000,{lat:.8f},{lon:.8f});
-  node["amenity"="clinic"](around:7000,{lat:.8f},{lon:.8f});
-  way["amenity"="clinic"](around:7000,{lat:.8f},{lon:.8f});
-  node["amenity"="hospital"](around:7000,{lat:.8f},{lon:.8f});
-  way["amenity"="hospital"](around:7000,{lat:.8f},{lon:.8f});
-  node["railway"="tram_stop"](around:7000,{lat:.8f},{lon:.8f});
-  way["railway"="tram_stop"](around:7000,{lat:.8f},{lon:.8f});
-  node["highway"="bus_stop"](around:7000,{lat:.8f},{lon:.8f});
-  way["highway"="bus_stop"](around:7000,{lat:.8f},{lon:.8f});
-  node["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
-  way["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
-);
-out center tags;
-"""
-    try:
-        # Fixed Overpass API endpoint for nearby POI context.
-        response = requests.post(
-            "https://overpass-api.de/api/interpreter",
-            data=query.encode("utf-8"),
-            headers={"User-Agent": "EA/1.0"},
-            timeout=15.0,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except (requests.RequestException, ValueError, json.JSONDecodeError):
-        return {}
-    elements = list(payload.get("elements") or []) if isinstance(payload, dict) else []
-    if not elements:
-        return {}
-    closest: dict[str, tuple[int, str]] = {}
-    for row in elements:
-        if not isinstance(row, dict):
-            continue
-        tags = dict(row.get("tags") or {})
-        point_lat = row.get("lat")
-        point_lon = row.get("lon")
-        if point_lat is None or point_lon is None:
-            center = dict(row.get("center") or {})
-            point_lat = center.get("lat")
-            point_lon = center.get("lon")
-        if not isinstance(point_lat, (int, float)) or not isinstance(point_lon, (int, float)):
-            continue
-        distance_m = _haversine_distance_m(lat, lon, float(point_lat), float(point_lon))
-        if tags.get("shop") in {"supermarket", "convenience", "greengrocer"}:
-            key = "nearest_supermarket_m"
-            name_key = "nearest_supermarket_name"
-        elif tags.get("amenity") == "pharmacy":
-            key = "nearest_pharmacy_m"
-            name_key = "nearest_pharmacy_name"
-        elif tags.get("amenity") == "library":
-            key = "nearest_library_m"
-            name_key = "nearest_library_name"
-        elif tags.get("leisure") == "playground":
-            key = "nearest_playground_m"
-            name_key = "nearest_playground_name"
-        elif tags.get("shop") in {"doityourself", "hardware"}:
-            key = "nearest_hardware_store_m"
-            name_key = "nearest_hardware_store_name"
-        elif tags.get("amenity") == "marketplace":
-            key = "nearest_market_m"
-            name_key = "nearest_market_name"
-        elif tags.get("shop") == "mall":
-            key = "nearest_shopping_center_m"
-            name_key = "nearest_shopping_center_name"
-        elif tags.get("highway") == "pedestrian":
-            key = "nearest_shopping_street_m"
-            name_key = "nearest_shopping_street_name"
-        elif tags.get("amenity") == "theatre":
-            key = "nearest_theatre_m"
-            name_key = "nearest_theatre_name"
-        elif tags.get("leisure") == "swimming_pool":
-            key = "nearest_public_pool_m"
-            name_key = "nearest_public_pool_name"
-        elif tags.get("amenity") in {"doctors", "clinic", "hospital"}:
-            key = "nearest_medical_care_m"
-            name_key = "nearest_medical_care_name"
-        elif tags.get("railway") == "tram_stop" or tags.get("highway") == "bus_stop":
-            key = "nearest_tram_bus_m"
-            name_key = "nearest_tram_bus_name"
-        elif tags.get("railway") == "subway_entrance":
-            key = "nearest_subway_m"
-            name_key = "nearest_subway_name"
-        else:
-            continue
-        current = closest.get(key)
-        if current is None or distance_m < current[0]:
-            closest[key] = (distance_m, str(tags.get("name") or "").strip())
-            closest[name_key] = (distance_m, str(tags.get("name") or "").strip())
-    result: dict[str, object] = {}
-    for key, value in closest.items():
-        if key.endswith("_name"):
-            result[key] = value[1]
-        else:
-            result[key] = value[0]
-    return result
-
-
-@lru_cache(maxsize=128)
-def _fetch_listing_research(url: str) -> dict[str, object]:
-    normalized = str(url or "").strip()
-    parsed = urlparse(normalized)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        return {}
-    if not _public_tour_listing_research_url_allowed(normalized):
-        return {}
-    try:
-        # Listing URL fetch is guarded by host allowlist and public-IP checks above.
-        response = requests.get(
-            normalized,
-            headers={
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
-                "Accept-Language": "de-AT,de;q=0.9,en;q=0.8",
-            },
-            timeout=4.0,
-        )
-        response.raise_for_status()
-        raw_html = response.text
-    except (requests.RequestException, ValueError):
-        return {}
-    text = html.unescape(re.sub(r"<[^>]+>", " ", raw_html))
-    lowered = " ".join(text.split()).lower()
-    findings: dict[str, object] = {}
-    raw_lower = raw_html.lower()
-
-    lat_match = re.search(r'data-map-lat="([0-9.]+)"', raw_html)
-    lon_match = re.search(r'data-map-lng="([0-9.]+)"', raw_html)
-    if lat_match and lon_match:
-        try:
-            map_lat = float(lat_match.group(1))
-            map_lon = float(lon_match.group(1))
-            findings["map_lat"] = map_lat
-            findings["map_lng"] = map_lon
-            reverse = _reverse_geocode(map_lat, map_lon)
-            display_name = str(reverse.get("display_name") or "").strip()
-            if display_name:
-                findings["exact_address"] = display_name
-            address = dict(reverse.get("address") or {}) if isinstance(reverse.get("address"), dict) else {}
-            road = str(address.get("road") or "").strip()
-            house_number = str(address.get("house_number") or "").strip()
-            postcode = str(address.get("postcode") or "").strip()
-            city = str(address.get("city") or address.get("town") or address.get("village") or "").strip()
-            if road and house_number:
-                findings["street_address"] = f"{road} {house_number}"
-                findings["address_lines"] = [f"{road} {house_number}", " ".join(part for part in (postcode, city) if part).strip()]
-            poi = _fetch_nearby_poi_research(map_lat, map_lon)
-            if poi:
-                findings.update(poi)
-        except ValueError:
-            pass
-
-    if any(token in lowered for token in ("personenaufzug", "aufzug", "lift")):
-        findings["lift"] = True
-    if any(token in lowered for token in ("plan_top", "plan top", "raumskizze", "grundriss", "floor plan")):
-        findings["has_floorplan"] = True
-    if "beziehbar sofort" in lowered:
-        findings["availability"] = "Sofort"
-    if "hauszentralheizung (gas)" in lowered or "house central heating (by gas)" in lowered:
-        findings["heating_type"] = "Hauszentralheizung (Gas)"
-    elif "gasheizung" in lowered or " gas " in lowered:
-        findings["heating_type"] = "Gasheizung"
-    if "8 wohneinheiten" in lowered or "8 residential units" in lowered:
-        findings["building_units"] = 8
-    if "tiefgaragenstellplatz" in lowered or "underground parking space" in lowered:
-        findings["garage"] = True
-    if "mietverhältnis" in lowered or "lease agreement" in lowered:
-        findings["limited_lease"] = True
-    if "5 jahre befristetes mietverhältnis" in lowered or "up to 5 years duration" in lowered:
-        findings["lease_term_years_max"] = 5
-    elif "max. mietdauer" in lowered:
-        findings["lease_term_years_max"] = 10
-    if "neuwertig" in lowered:
-        findings["state"] = "neuwertig"
-
-    bus_match = re.search(r"Bus</span>\s*<span[^>]*>\s*(\d+)\s*m", raw_html, flags=re.IGNORECASE)
-    tram_bus_match = re.search(r"Straßenbahn / Bus</span>\s*<span[^>]*>\s*(\d+)\s*m", raw_html, flags=re.IGNORECASE)
-    subway_match = re.search(r"U-Bahn</span>\s*<span[^>]*>\s*(\d+)\s*m", raw_html, flags=re.IGNORECASE)
-    pharmacy_match = re.search(r"Apotheke</span>\s*<span[^>]*>\s*(\d+)\s*m", raw_html, flags=re.IGNORECASE)
-    clinic_match = re.search(r"Klinik</span>\s*<span[^>]*>\s*(\d+)\s*m", raw_html, flags=re.IGNORECASE)
-    hospital_match = re.search(r"Krankenhaus</span>\s*<span[^>]*>\s*(\d+)\s*m", raw_html, flags=re.IGNORECASE)
-    if bus_match:
-        findings["nearest_transit_m"] = int(bus_match.group(1))
-    elif tram_bus_match:
-        findings["nearest_transit_m"] = int(tram_bus_match.group(1))
-    if tram_bus_match:
-        findings["nearest_tram_bus_m"] = int(tram_bus_match.group(1))
-    if subway_match:
-        findings["nearest_subway_m"] = int(subway_match.group(1))
-    if pharmacy_match:
-        findings["nearest_pharmacy_m"] = int(pharmacy_match.group(1))
-    if clinic_match:
-        findings["nearest_clinic_m"] = int(clinic_match.group(1))
-    if hospital_match:
-        findings["nearest_hospital_m"] = int(hospital_match.group(1))
-
-    rooms_match = re.search(r"zimmer\s+(\d+(?:[.,]\d+)?)", text, flags=re.IGNORECASE)
-    if rooms_match:
-        try:
-            findings["rooms"] = float(rooms_match.group(1).replace(",", "."))
-        except ValueError:
-            pass
-    area_match = re.search(r"Wohnfl[aä]che\s+ca\.\s*(\d+(?:[.,]\d+)?)\s*m", text, flags=re.IGNORECASE)
-    if area_match:
-        try:
-            findings["area_sqm"] = float(area_match.group(1).replace(",", "."))
-        except ValueError:
-            pass
-    terrace_area_match = re.search(r"Terrassenfl[aä]che\s+ca\.\s*(\d+(?:[.,]\d+)?)\s*m", text, flags=re.IGNORECASE)
-    if terrace_area_match:
-        try:
-            findings["terrace_area_sqm"] = float(terrace_area_match.group(1).replace(",", "."))
-        except ValueError:
-            pass
-    price_match = re.search(r"Gesamtmiete:\s*(\d[\d\.,]*)\s*€", text, flags=re.IGNORECASE)
-    if price_match:
-        normalized_price = price_match.group(1).replace(".", "").replace(",", ".")
-        try:
-            findings["total_rent_eur"] = float(normalized_price)
-        except ValueError:
-            pass
-    parking_match = re.search(r"Euro\s*120,00", text, flags=re.IGNORECASE)
-    if parking_match:
-        findings["parking_monthly_eur"] = 120.0
-    district_match = re.search(r"\b(1\d{3}\s+Wien)\b", text, flags=re.IGNORECASE)
-    if district_match:
-        findings["postal_name"] = district_match.group(1)
-    if "salmannsdorf" in lowered:
-        findings["district"] = "Salmannsdorf"
-    return findings
-
-
 def _merged_facts_with_listing_research(payload: dict[str, object], facts: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
     merged = dict(facts)
     stored_research = dict(facts.get("listing_research_snapshot") or {}) if isinstance(facts.get("listing_research_snapshot"), dict) else {}
     research = stored_research
-    if not research and str(os.getenv("EA_PUBLIC_TOUR_ENABLE_RENDER_RESEARCH_FALLBACK") or "").strip().lower() in {"1", "true", "yes", "on"}:
-        listing_url = str(payload.get("listing_url") or payload.get("property_url") or "").strip()
-        research = _fetch_listing_research(listing_url) if listing_url else {}
     if not research:
         return merged, {}
     for key, value in research.items():
