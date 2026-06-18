@@ -44,6 +44,13 @@ def test_env_example_lists_flagship_property_provider_switches() -> None:
         assert required in env
 
 
+def test_env_example_keeps_property_source_cache_inside_property_repo() -> None:
+    env = (ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert "EA_PROPERTY_SOURCE_LISTING_CACHE_PATH=/docker/property/state/property_source_listing_cache.json" in env
+    assert "/docker/fleet/state/property_source_listing_cache.json" not in env
+
+
 def test_prod_compose_keeps_fastestvpn_repo_local_and_default_off() -> None:
     compose = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
 
