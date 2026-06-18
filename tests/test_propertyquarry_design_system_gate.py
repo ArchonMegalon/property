@@ -162,6 +162,7 @@ def test_propertyquarry_surface_registry_defines_all_product_surfaces() -> None:
     )
     assert matrix["public_tour"]["clickrank_allowed"] is False
     assert matrix["public_tour"]["routes"] == ("/tours/:slug", "/tours/:slug.json", "/tours/files/:slug/:asset")
+    assert matrix["agents"]["routes"] == ("/app/agents", "/app/automation", "/app/automations")
     assert matrix["premium_dossier"]["routes"] == ("/app/api/properties/packets/:publication_id/pdf",)
     assert "/app/api/signals/willhaben/property-tour" in matrix["floorplan_and_tour_control"]["routes"]
     assert "/app/api/property-video/requests/dadan" in matrix["video_walkthrough"]["routes"]

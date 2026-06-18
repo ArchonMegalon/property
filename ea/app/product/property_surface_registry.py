@@ -177,7 +177,7 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         key="agents",
         group="authenticated_app",
         label="Saved searches and automation",
-        routes=("/app/agents", "/app/automations"),
+        routes=("/app/agents", "/app/automation", "/app/automations"),
         templates=("app/property_decision_workbench.html", "app/_property_search_agents_panel.html"),
     ),
     PropertySurface(
