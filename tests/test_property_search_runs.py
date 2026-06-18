@@ -184,6 +184,19 @@ def test_property_scout_notification_source_hides_search_scope_metadata() -> Non
     assert "Source: DER STANDARD Immobilien" in text
     assert "Source: DER STANDARD Immobilien | Austria | Rent | 1010 Vienna" not in text
 
+    willhaben = product_service._property_alert_review_telegram_text(
+        title="#W2 Moderne Schöne Zwei-Zimmer Wohnung mit großem Ess- & Wohnbereich",
+        summary="Wählen Sie aus 113.217 Angeboten. Immobilien suchen und finden auf willhaben.",
+        counterparty="Willhaben | Austria | Rent | 1010 Vienna",
+        account_email="",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/demo-1631373932/",
+        personal_fit_assessment={"fit_score": 54.0, "recommendation": "ask_for_clarification"},
+    )
+
+    assert "Source: Willhaben" in willhaben
+    assert "1010 Vienna" not in willhaben
+    assert "Austria | Rent" not in willhaben
+
     cooperative = product_service._property_alert_review_telegram_text(
         title="Geförderte Wohnung",
         summary="Review candidate.",
