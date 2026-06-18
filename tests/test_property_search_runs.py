@@ -1879,6 +1879,80 @@ def test_property_location_match_uses_listing_postal_evidence_over_source_scope(
     )
 
 
+@pytest.mark.parametrize(
+    ("title", "summary", "property_url", "expected_postal"),
+    [
+        (
+            "Wohnung mieten in 1200 Wien, Brigittenau | 81.98 m² | 3 Zimmer | € 1.649",
+            "Stilvolle 3-Zimmer-Wohnung mit Garten & Terrasse im 20. Bezirk, Miete €1.649,- in 1200 Wien.",
+            "https://immobilien.derstandard.at/detail/wohnung-mieten-in-1200-wien-brigittenau",
+            "1200",
+        ),
+        (
+            "Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | € 1.090 | DER STANDARD",
+            "2-Zimmer Wohnung mit Traumblick / UNO und U-Bahn ums Eck in 1220 Wien.",
+            "https://immobilien.derstandard.at/detail/wohnung-mieten-in-1220-wien",
+            "1220",
+        ),
+        (
+            "#W2 Moderne Schöne Zwei-Zimmer Wohnung mit großem Ess- & Wohnbereich",
+            "Moderne Zwei-Zimmer Wohnung mit Terrasse in Salzburg.",
+            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/demo",
+            "",
+        ),
+        (
+            "Einziehen sorgenfrei starten - Ihre Traumwohnung mit Balkon",
+            "Unbefristeter Vertrag ab sofort verfügbar in Schärding.",
+            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/oberoesterreich/schaerding/demo",
+            "",
+        ),
+        (
+            "Traumwohnung mit Balkon in Schärding | 84 m² | 3 Zimmer",
+            "Sofort verfügbare Mietwohnung in 4780 Schärding.",
+            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/oberoesterreich/schaerding/demo",
+            "4780",
+        ),
+    ],
+)
+def test_property_location_match_rejects_reported_off_scope_austrian_hits(
+    title: str,
+    summary: str,
+    property_url: str,
+    expected_postal: str,
+) -> None:
+    dirty_scope_facts = {
+        "postal_name": "1010 Vienna",
+        "source_scope_location": "1010 Vienna",
+        "source_postal_code": "1010",
+        "source_city": "Vienna",
+        "country_code": "AT",
+        "region_code": "vienna",
+    }
+
+    enriched = product_service._property_enrich_facts_from_listing_text(
+        facts=dirty_scope_facts,
+        title=title,
+        summary=summary,
+        listing_mode="rent",
+    )
+
+    if expected_postal:
+        assert any(
+            str(row.get("postal_code") or "") == expected_postal
+            for row in list(enriched.get("listing_postal_evidence") or [])
+            if isinstance(row, dict)
+        )
+    assert not _property_candidate_matches_requested_location(
+        location_hints=("1010 Vienna",),
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=dirty_scope_facts,
+        country_code="AT",
+        region_code="vienna",
+    )
+
+
 def test_property_scout_hit_sender_suppresses_dirty_source_scope_when_listing_postal_conflicts(monkeypatch) -> None:
     principal_id = "exec-property-hit-dirty-postal-gate"
     client = build_property_client(principal_id=principal_id)
