@@ -547,6 +547,12 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert 'name="school_preference__private_kindergarten"' in section_html
     assert 'name="school_preference__ganztags_volksschule"' in section_html
     assert 'name="school_preference__halbtags_volksschule"' in section_html
+    assert "General kindergarten coverage nearby" not in section_html
+    assert "Primary school nearby" not in section_html
+    assert "Full-day primary school nearby" not in section_html
+    assert "General kindergarten coverage" in section_html
+    assert "Primary school coverage" in section_html
+    assert "Full-day primary school coverage" in section_html
     assert 'data-keyword-distance-select' in section_html
     assert 'data-keyword-distance-enabled="false"' in section_html
     assert 'name="keyword_distance__playground nearby" data-keyword-distance-select data-keyword-value="playground nearby" disabled' in section_html
