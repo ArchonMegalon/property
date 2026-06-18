@@ -6034,6 +6034,9 @@ def test_property_workspace_primary_internal_links_resolve() -> None:
     automation_redirect = client.get("/app/automations", headers=headers, follow_redirects=False)
     assert automation_redirect.status_code == 307
     assert automation_redirect.headers["location"] == "/app/agents"
+    automation_singular_redirect = client.get("/app/automation", headers=headers, follow_redirects=False)
+    assert automation_singular_redirect.status_code == 307
+    assert automation_singular_redirect.headers["location"] == "/app/agents"
     pages = [
         "/app/search",
         "/app/properties",
@@ -6043,6 +6046,7 @@ def test_property_workspace_primary_internal_links_resolve() -> None:
         "/app/account#profile",
         "/app/profile",
         "/app/alerts",
+        "/app/settings/access",
     ]
     checked: set[str] = set()
     failures: list[str] = []
