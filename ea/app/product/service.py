@@ -6524,12 +6524,53 @@ def _property_candidate_google_maps_url(candidate: dict[str, object]) -> str:
 def _property_search_ranked_candidates_from_sources(sources: object, *, limit: int = 50) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     seen: set[str] = set()
+
+    def _candidate_is_rankable(candidate: dict[str, object]) -> bool:
+        status_fields = (
+            "status",
+            "review_status",
+            "candidate_status",
+            "filter_status",
+            "repair_status",
+        )
+        blocked_statuses = {
+            "dismissed",
+            "filtered",
+            "filtered_out",
+            "hard_filtered",
+            "maybe_false",
+            "maybe_false_positive",
+            "false_positive",
+            "not_a_listing",
+            "repair_only",
+            "queued_for_repair",
+        }
+        if any(str(candidate.get(field) or "").strip().lower() in blocked_statuses for field in status_fields):
+            return False
+        blocked_flags = (
+            "maybe_false",
+            "maybe_false_positive",
+            "false_positive",
+            "flagged_for_repair",
+            "repair_only",
+            "filtered_out",
+            "hard_filtered",
+            "not_a_listing",
+        )
+        if any(_property_truthy_flag(candidate.get(flag)) for flag in blocked_flags):
+            return False
+        if str(candidate.get("hard_filter_reason") or candidate.get("filter_reason") or "").strip():
+            return False
+        return True
+
     for source in list(sources or []):
         if not isinstance(source, dict):
             continue
         source_label = str(source.get("source_label") or source.get("platform") or "Property scout").strip() or "Property scout"
         for candidate in list(source.get("research_candidates") or source.get("top_candidates") or []):
             if not isinstance(candidate, dict):
+                continue
+            if not _candidate_is_rankable(candidate):
                 continue
             row = dict(candidate)
             dedupe_key = str(row.get("source_ref") or row.get("property_url") or row.get("listing_id") or "").strip()

@@ -132,6 +132,25 @@ def test_ranked_candidates_prefer_explicit_ranking_score_when_present() -> None:
     assert [row["source_ref"] for row in ranked[:2]] == ["b", "a"]
 
 
+def test_ranked_candidates_exclude_false_positive_and_repair_only_rows() -> None:
+    ranked = product_service._property_search_ranked_candidates_from_sources(
+        [
+            {
+                "source_label": "Source A",
+                "top_candidates": [
+                    {"source_ref": "good", "fit_score": 92, "title": "Real ranked home"},
+                    {"source_ref": "maybe", "fit_score": 99, "title": "Maybe false", "maybe_false": True},
+                    {"source_ref": "repair", "fit_score": 98, "title": "Repair only", "flagged_for_repair": True},
+                    {"source_ref": "filtered", "fit_score": 97, "title": "Hard filtered", "hard_filter_reason": "area_mismatch"},
+                    {"source_ref": "status", "fit_score": 96, "title": "Status false positive", "candidate_status": "false_positive"},
+                ],
+            }
+        ]
+    )
+
+    assert [row["source_ref"] for row in ranked] == ["good"]
+
+
 def test_property_requested_location_match_keeps_title_postal_match_even_when_scope_shares_same_postal() -> None:
     assert _property_candidate_matches_requested_location(
         location_hints=("8055 Graz",),
