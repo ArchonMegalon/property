@@ -11578,7 +11578,7 @@ def test_hosted_property_tour_writer_keeps_raw_public_manifest_narrow(monkeypatc
 
     assert public_manifest["slug"] == slug
     assert public_manifest["facts"] == {"rooms": 3, "area_sqm": 84, "postal_name": "1020 Wien"}
-    assert public_manifest["brief"] == {}
+    assert "brief" not in public_manifest
     assert public_manifest["scenes"] == [
         {
             "name": "Living room",
@@ -19042,6 +19042,49 @@ def test_workspace_sign_in_email_links_fall_back_to_google_gmail_when_emailit_is
     sessions = product.list_workspace_access_sessions(principal_id=principal_id, status="active", limit=10)
     assert sessions
     assert sessions[0]["default_target"] == "/app/settings/access"
+
+
+def test_workspace_access_revocation_survives_recent_observation_window_noise() -> None:
+    principal_id = "exec-product-access-durable-revoke"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Durable Access")
+    product = ProductService(client.app.state.container)
+
+    session = product.issue_workspace_access_session(
+        principal_id=principal_id,
+        email="principal@example.com",
+        role="principal",
+        display_name="Principal Access",
+        source_kind="test_access",
+        expires_in_hours=24,
+    )
+    session_id = str(session["session_id"])
+    revoked = product.revoke_workspace_access_session(
+        principal_id=principal_id,
+        session_id=session_id,
+        actor="test",
+    )
+    assert revoked is not None
+    assert revoked["status"] == "revoked"
+
+    for index in range(1105):
+        client.app.state.container.channel_runtime.ingest_observation(
+            principal_id=principal_id,
+            channel="test",
+            event_type="workspace_access_noise",
+            payload={"index": index},
+            source_id=f"noise-{index}",
+        )
+
+    stored = product.get_workspace_access_session(principal_id=principal_id, session_id=session_id)
+    assert stored is not None
+    assert stored["status"] == "revoked"
+    active_sessions = product.list_workspace_access_sessions(principal_id=principal_id, status="active", limit=20)
+    assert all(str(row.get("session_id") or "") != session_id for row in active_sessions)
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    blocked = client.get(str(session["access_url"]), follow_redirects=False)
+    assert blocked.status_code == 404
 
 
 def test_memo_digest_delivery_refreshes_stale_google_signals_before_issue(monkeypatch) -> None:

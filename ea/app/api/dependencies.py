@@ -14,6 +14,10 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.params import Depends as DependsMarker
 
 from app.container import AppContainer
+from app.product.workspace_access_storage import (
+    get_workspace_access_session_record,
+    update_workspace_access_session_record,
+)
 from app.services.cloudflare_access import (
     CloudflareAccessIdentity,
     build_operator_id,
@@ -197,6 +201,39 @@ def _workspace_session_payload(request: Request, container: AppContainer) -> dic
     if not principal_id or not session_id:
         setattr(request.state, "workspace_access_session_payload", False)
         return None
+    database_url = str(getattr(container.settings, "database_url", "") or "").strip()
+    stored_session = get_workspace_access_session_record(
+        principal_id=principal_id,
+        session_id=session_id,
+        database_url=database_url,
+    )
+    if stored_session:
+        if str(stored_session.get("status") or "").strip().lower() == "revoked":
+            setattr(request.state, "workspace_access_session_payload", False)
+            return None
+        expires_raw = str(stored_session.get("expires_at") or "").strip()
+        if expires_raw:
+            try:
+                expires_at = datetime.fromisoformat(expires_raw)
+            except ValueError:
+                setattr(request.state, "workspace_access_session_payload", False)
+                return None
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at <= datetime.now(timezone.utc):
+                setattr(request.state, "workspace_access_session_payload", False)
+                return None
+        try:
+            update_workspace_access_session_record(
+                principal_id=principal_id,
+                session_id=session_id,
+                updates={"last_seen_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat()},
+                database_url=database_url,
+            )
+        except Exception:
+            pass
+        setattr(request.state, "workspace_access_session_payload", payload)
+        return payload
     rows = list(container.channel_runtime.list_recent_observations(limit=1000, principal_id=principal_id))
     rows.sort(key=lambda row: (str(row.created_at or ""), str(row.observation_id or "")))
     revoked = False

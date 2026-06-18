@@ -154,6 +154,13 @@ from app.product.property_search_storage import (
     _prune_property_search_run_records,
     _store_property_search_run_record,
 )
+from app.product.workspace_access_storage import (
+    get_workspace_access_session_record,
+    get_workspace_access_session_record_by_session_id,
+    list_workspace_access_session_records,
+    put_workspace_access_session_record,
+    update_workspace_access_session_record,
+)
 from app.product.property_search_run_state import (
     property_search_run_apply_event as _state_property_search_run_apply_event,
     property_search_run_terminal_outcome as _state_property_search_run_terminal_outcome,
@@ -717,6 +724,18 @@ def _property_search_platforms_for_country(
         if platform not in kept:
             kept.append(platform)
     return tuple(kept), tuple(removed)
+
+
+def _property_search_single_country_for_platforms(selected_platforms: tuple[str, ...]) -> str:
+    countries: set[str] = set()
+    for platform in _normalize_property_search_platform_inputs(selected_platforms):
+        if platform == "all":
+            continue
+        provider = property_provider_for_platform(platform)
+        provider_country = normalize_country_code(getattr(provider, "country_code", "") or "")
+        if provider_country:
+            countries.add(provider_country)
+    return next(iter(countries)) if len(countries) == 1 else ""
 
 
 def _property_search_broaden_suggestions(
@@ -6351,7 +6370,12 @@ def _property_candidate_is_generic_listing_page(
     url = str(property_url or "").strip().lower()
     parsed_url = urllib.parse.urlparse(url)
     path = parsed_url.path.rstrip("/")
-    if any(marker in path for marker in ("/d/", "/expose/", "/detail/", "/objekt/")):
+    query = str(parsed_url.query or "").lower()
+    if (
+        any(marker in path for marker in ("/d/", "/expose/", "/detail/", "/objekt/", "/object/"))
+        or path.endswith(("/detail", "/objekt", "/object"))
+        or any(marker in query for marker in ("objektnummer=", "objectid=", "object_id=", "adid=", "ad_id="))
+    ):
         return False
     concrete_signals = any(
         str(facts.get(key) or "").strip()
@@ -18125,6 +18149,9 @@ class ProductService:
     def _workspace_access_secret(self) -> str:
         return resolve_signing_secret(self._container.settings, purpose="workspace-access")
 
+    def _workspace_access_database_url(self) -> str:
+        return str(getattr(self._container.settings, "database_url", "") or "").strip()
+
     def _sign_workspace_access_launch_token(self, *, session_id: str, expires_at: str) -> str:
         normalized_session_id = str(session_id or "").strip()
         normalized_expires_at = str(expires_at or "").strip()
@@ -18149,6 +18176,12 @@ class ProductService:
         normalized_session_id = str(session_id or "").strip()
         if not normalized_session_id:
             return ""
+        stored = get_workspace_access_session_record_by_session_id(
+            session_id=normalized_session_id,
+            database_url=self._workspace_access_database_url(),
+        )
+        if stored:
+            return str(stored.get("principal_id") or "").strip()
         for row in self._container.channel_runtime.list_recent_observations(limit=max(int(limit or 5000), 100)):
             if str(row.event_type or "").strip().lower() != "workspace_access_session_issued":
                 continue
@@ -28857,6 +28890,10 @@ class ProductService:
             principal_id=principal_id,
             property_preferences=property_search_preferences,
         )
+        if not normalize_country_code(request_preferences.get("country_code")):
+            inferred_country_code = _property_search_single_country_for_platforms(run_platforms)
+            if inferred_country_code:
+                request_preferences["country_code"] = inferred_country_code
         property_search_run_id = str(request_preferences.pop("__property_search_run_id__", "") or "").strip()
         public_preview_cache = self._property_public_preview_cache_index()
         if (
@@ -37723,6 +37760,10 @@ class ProductService:
         )
         payload["access_launch_token"] = launch_token
         payload["access_launch_url"] = f"/workspace-access/{launch_token}"
+        put_workspace_access_session_record(
+            payload,
+            database_url=self._workspace_access_database_url(),
+        )
         self._record_product_event(
             principal_id=principal_id,
             event_type="workspace_access_session_issued",
@@ -37740,7 +37781,16 @@ class ProductService:
         limit: int = 100,
     ) -> tuple[dict[str, object], ...]:
         wanted_status = str(status or "").strip().lower()
-        sessions: dict[str, dict[str, object]] = {}
+        sessions: dict[str, dict[str, object]] = {
+            str(row.get("session_id") or "").strip(): dict(row)
+            for row in list_workspace_access_session_records(
+                principal_id=principal_id,
+                status="",
+                limit=max(int(limit or 100), 1000),
+                database_url=self._workspace_access_database_url(),
+            )
+            if str(row.get("session_id") or "").strip()
+        }
         rows = list(self._container.channel_runtime.list_recent_observations(limit=1000, principal_id=principal_id))
         rows.sort(key=lambda row: (str(row.created_at or ""), str(row.observation_id or "")))
         for row in rows:
@@ -37749,7 +37799,7 @@ class ProductService:
             session_id = str(payload.get("session_id") or row.source_id or "").strip()
             if not session_id:
                 continue
-            if event_type == "workspace_access_session_issued":
+            if event_type == "workspace_access_session_issued" and session_id not in sessions:
                 normalized_role = str(payload.get("role") or "principal").strip().lower() or "principal"
                 sessions[session_id] = {
                     "session_id": session_id,
@@ -37766,6 +37816,8 @@ class ProductService:
                     "expires_at": str(payload.get("expires_at") or "").strip(),
                     "access_token": str(payload.get("access_token") or "").strip(),
                     "access_url": str(payload.get("access_url") or "").strip(),
+                    "access_launch_token": str(payload.get("access_launch_token") or "").strip(),
+                    "access_launch_url": str(payload.get("access_launch_url") or "").strip(),
                     "default_target": str(payload.get("default_target") or ("/admin/office" if normalized_role == "operator" else "/app/properties")).strip(),
                 }
             elif event_type == "workspace_access_session_revoked" and session_id in sessions:
@@ -37786,6 +37838,13 @@ class ProductService:
         normalized = str(session_id or "").strip()
         if not normalized:
             return None
+        stored = get_workspace_access_session_record(
+            principal_id=principal_id,
+            session_id=normalized,
+            database_url=self._workspace_access_database_url(),
+        )
+        if stored:
+            return dict(stored)
         for row in self.list_workspace_access_sessions(principal_id=principal_id, limit=200):
             if str(row.get("session_id") or "").strip() == normalized:
                 return row
@@ -37845,6 +37904,18 @@ class ProductService:
         principal_id = str(session.get("principal_id") or "").strip()
         session_id = str(session.get("session_id") or "").strip()
         if principal_id and session_id:
+            opened_at = _now_iso()
+            update_workspace_access_session_record(
+                principal_id=principal_id,
+                session_id=session_id,
+                updates={
+                    "opened_at": opened_at,
+                    "opened_by": str(actor or session.get("email") or principal_id or "workspace_access").strip(),
+                    "last_seen_at": opened_at,
+                    "status": str(session.get("status") or "active").strip().lower() or "active",
+                },
+                database_url=self._workspace_access_database_url(),
+            )
             self._record_product_event(
                 principal_id=principal_id,
                 event_type="workspace_access_session_opened",
@@ -37854,7 +37925,7 @@ class ProductService:
                     "role": str(session.get("role") or "principal").strip().lower() or "principal",
                     "operator_id": str(session.get("operator_id") or "").strip(),
                     "source_kind": str(session.get("source_kind") or "").strip(),
-                    "opened_at": _now_iso(),
+                    "opened_at": opened_at,
                     "opened_by": str(actor or session.get("email") or principal_id or "workspace_access").strip(),
                 },
                 source_id=session_id,
@@ -37873,12 +37944,23 @@ class ProductService:
             return None
         if str(current.get("status") or "").strip().lower() == "revoked":
             return current
+        revoked_at = _now_iso()
+        update_workspace_access_session_record(
+            principal_id=principal_id,
+            session_id=session_id,
+            updates={
+                "status": "revoked",
+                "revoked_at": revoked_at,
+                "revoked_by": str(actor or "").strip() or "workspace",
+            },
+            database_url=self._workspace_access_database_url(),
+        )
         self._record_product_event(
             principal_id=principal_id,
             event_type="workspace_access_session_revoked",
             payload={
                 "session_id": str(session_id or "").strip(),
-                "revoked_at": _now_iso(),
+                "revoked_at": revoked_at,
                 "revoked_by": str(actor or "").strip() or "workspace",
             },
             source_id=str(session_id or "").strip(),
