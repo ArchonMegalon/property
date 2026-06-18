@@ -3277,6 +3277,16 @@ def test_property_workspace_sign_out_clears_workspace_session_cookie() -> None:
     assert "Upgrade" in workspace.text
     assert "Log out" in workspace.text
 
+    hostile_sign_out = client.post(
+        "/app/actions/sign-out",
+        data={"return_to": "/"},
+        headers={"Origin": "https://attacker.example"},
+        follow_redirects=False,
+    )
+    assert hostile_sign_out.status_code == 403
+    assert hostile_sign_out.json()["error"]["code"] == "cross_site_browser_mutation"
+    assert client.cookies.get("ea_workspace_session")
+
     signed_out = client.post("/app/actions/sign-out", data={"return_to": "/"}, follow_redirects=False)
     assert signed_out.status_code == 303
     assert signed_out.headers["location"] == "/"
@@ -3287,6 +3297,39 @@ def test_property_workspace_sign_out_clears_workspace_session_cookie() -> None:
 
     signed_out_workspace = client.get("/app/properties")
     assert signed_out_workspace.status_code == 200
+
+
+def test_property_workspace_browser_forms_accept_same_origin_mutations() -> None:
+    principal_id = "pq-account-same-origin-post"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    access_session = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "principal@example.com",
+            "role": "principal",
+            "display_name": "Principal Access",
+            "expires_in_hours": 24,
+        },
+    )
+    assert access_session.status_code == 200, access_session.text
+    access_body = access_session.json()
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened_access = client.get(access_body["access_url"], follow_redirects=False)
+    assert opened_access.status_code == 303
+    assert client.cookies.get("ea_workspace_session")
+
+    signed_out = client.post(
+        "/app/actions/sign-out",
+        data={"return_to": "/"},
+        headers={"Origin": "https://propertyquarry.com"},
+        follow_redirects=False,
+    )
+    assert signed_out.status_code == 303
+    assert signed_out.headers["location"] == "/"
+    assert not client.cookies.get("ea_workspace_session")
 
 
 def test_property_properties_surface_skips_recent_runs_load_without_explicit_run(monkeypatch) -> None:

@@ -20,6 +20,9 @@ except Exception:  # pragma: no cover - psycopg is optional in some test modes
 
 _LOG = logging.getLogger(__name__)
 
+_BROWSER_MUTATION_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_BROWSER_MUTATION_PATH_PREFIXES = ("/app/", "/admin/")
+
 _DEFAULT_BROWSER_SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self'; "
@@ -127,6 +130,49 @@ def _request_is_https(request: Request) -> bool:
     return str(getattr(request.url, "scheme", "") or "").strip().lower() in {"https", "wss"}
 
 
+def _request_origin(request: Request) -> str:
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip().lower()
+    scheme_tokens = [token.strip() for token in forwarded_proto.split(",") if token.strip()]
+    scheme = "https" if "https" in scheme_tokens or "wss" in scheme_tokens else ""
+    if not scheme:
+        scheme = scheme_tokens[0] if scheme_tokens else str(getattr(request.url, "scheme", "") or "http").strip().lower()
+    if scheme == "wss":
+        scheme = "https"
+    forwarded_host = str(request.headers.get("x-forwarded-host") or "").strip()
+    host = forwarded_host.split(",", 1)[0].strip() if forwarded_host else str(request.headers.get("host") or request.url.netloc or "").strip()
+    return f"{scheme}://{host}".rstrip("/")
+
+
+def _origin_of_url(raw_value: str) -> str:
+    normalized = str(raw_value or "").strip()
+    if not normalized:
+        return ""
+    try:
+        parsed = urllib.parse.urlsplit(normalized)
+    except ValueError:
+        return ""
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}".rstrip("/")
+
+
+def _browser_mutation_request_is_cross_site(request: Request) -> bool:
+    method = str(request.method or "").upper()
+    if method not in _BROWSER_MUTATION_METHODS:
+        return False
+    path = str(request.url.path or "").strip()
+    if not any(path.startswith(prefix) for prefix in _BROWSER_MUTATION_PATH_PREFIXES):
+        return False
+    expected = _request_origin(request).lower()
+    origin = _origin_of_url(str(request.headers.get("origin") or ""))
+    if origin:
+        return origin != expected
+    referer = _origin_of_url(str(request.headers.get("referer") or ""))
+    if referer:
+        return referer != expected
+    return False
+
+
 def _apply_default_browser_security_headers(request: Request, response: Any) -> None:
     for name, value in _DEFAULT_BROWSER_SECURITY_HEADERS.items():
         if name not in response.headers:
@@ -139,6 +185,17 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.middleware("http")
     async def correlation_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
         request.state.correlation_id = request.headers.get("x-correlation-id") or str(uuid.uuid4())
+        if _browser_mutation_request_is_cross_site(request):
+            response = _error_payload(
+                request=request,
+                status_code=403,
+                code="cross_site_browser_mutation",
+                message="cross-site browser mutation blocked",
+                details="unsafe browser requests must originate from the same site",
+            )
+            response.headers["x-correlation-id"] = _correlation_id(request)
+            _apply_default_browser_security_headers(request, response)
+            return response
         response = await call_next(request)
         response.headers["x-correlation-id"] = _correlation_id(request)
         _apply_default_browser_security_headers(request, response)
