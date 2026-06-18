@@ -11328,6 +11328,144 @@ def test_generic_property_tour_creates_hosted_floorplan_when_crezlo_fails(
     assert manifest["scenes"][0]["mime_type"] == "application/pdf"
 
 
+def test_hosted_property_tour_writer_keeps_raw_public_manifest_narrow(monkeypatch, tmp_path: Path) -> None:
+    from app.product.property_tour_hosting import _write_hosted_property_tour_payload
+
+    slug = "raw-public-manifest-safe"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01.jpg").write_bytes(b"public-scene")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    _write_hosted_property_tour_payload(
+        bundle_dir,
+        {
+            "slug": slug,
+            "title": "Manifest Safety Test",
+            "display_title": "Manifest Safety Test",
+            "principal_id": "cf-email:tibor@example.com",
+            "recipient_email": "viewer@example.com",
+            "source_ref": "property-scout:private-source",
+            "external_id": "external-private-id",
+            "listing_url": "https://www.willhaben.at/iad/private-listing",
+            "property_url": "https://broker.example.test/private-property",
+            "source_virtual_tour_url": "https://private.example.test/not-a-public-live-tour",
+            "facts": {
+                "rooms": 3,
+                "area_sqm": 84,
+                "postal_name": "1020 Wien",
+                "exact_address": "Private Street 7, 1020 Wien",
+                "street_address": "Private Street 7",
+                "map_lat": 48.22,
+                "map_lng": 16.39,
+                "public_preference_snapshot": {"principal_id": "cf-email:tibor@example.com"},
+            },
+            "brief": {
+                "creative_brief": "Show Private Street 7 clearly.",
+                "call_to_action": "Contact the private recipient.",
+            },
+            "scenes": [
+                {
+                    "name": "Living room",
+                    "role": "photo",
+                    "asset_relpath": "scene-01.jpg",
+                    "source_url": "https://private.example.test/source-image.jpg",
+                    "property_url": "https://broker.example.test/private-property",
+                    "privacy_class": "public",
+                    "mime_type": "image/jpeg",
+                }
+            ],
+        },
+    )
+
+    public_manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    private_manifest = json.loads((bundle_dir / "tour.private.json").read_text(encoding="utf-8"))
+    serialized_public = json.dumps(public_manifest, sort_keys=True)
+
+    assert public_manifest["slug"] == slug
+    assert public_manifest["facts"] == {"rooms": 3, "area_sqm": 84, "postal_name": "1020 Wien"}
+    assert public_manifest["brief"] == {}
+    assert public_manifest["scenes"] == [
+        {
+            "name": "Living room",
+            "role": "photo",
+            "asset_relpath": "scene-01.jpg",
+            "mime_type": "image/jpeg",
+        }
+    ]
+    for private_marker in (
+        "listing_url",
+        "property_url",
+        "source_url",
+        "principal_id",
+        "recipient_email",
+        "source_ref",
+        "external_id",
+        "source_virtual_tour_url",
+        "Private Street",
+        "map_lat",
+        "map_lng",
+        "public_preference_snapshot",
+        "private.example.test",
+        "broker.example.test",
+        "willhaben.at",
+    ):
+        assert private_marker not in serialized_public
+    assert private_manifest["listing_url"] == "https://www.willhaben.at/iad/private-listing"
+    assert private_manifest["property_url"] == "https://broker.example.test/private-property"
+    assert private_manifest["source_virtual_tour_url"] == "https://private.example.test/not-a-public-live-tour"
+
+
+def test_hosted_floorplan_tour_revalidates_asset_suffix_after_content_type(monkeypatch, tmp_path: Path) -> None:
+    from app.product.property_tour_hosting import _write_hosted_floorplan_property_tour_bundle
+
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    downloaded: list[str] = []
+
+    def _fake_download(url: str, target: Path) -> str:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(f"downloaded:{url}".encode("utf-8"))
+        downloaded.append(target.name)
+        if url.endswith(".html") or url.endswith(".json") or url.endswith(".zip"):
+            return "application/octet-stream"
+        if "html-disguised" in url:
+            return "text/html"
+        return "application/pdf"
+
+    monkeypatch.setattr("app.product.property_tour_hosting._download_public_tour_asset_with_type", _fake_download)
+
+    payload = _write_hosted_floorplan_property_tour_bundle(
+        principal_id="cf-email:tibor@example.com",
+        title="Floorplan suffix revalidation",
+        listing_id="floorplan-suffix-revalidation",
+        property_url="https://example.test/listing/floorplan-suffix-revalidation",
+        variant_key="floorplan",
+        floorplan_urls=[
+            "https://example.test/floorplan.html",
+            "https://example.test/floorplan.json",
+            "https://example.test/floorplan.zip",
+            "https://example.test/html-disguised.pdf",
+            "https://example.test/real-floorplan.pdf",
+        ],
+        property_facts_json={"rooms": 2},
+        source_host="example.test",
+    )
+
+    bundle_dir = tmp_path / str(payload["slug"])
+    public_manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert [scene["asset_relpath"] for scene in public_manifest["scenes"]] == ["floorplan-05.pdf"]
+    assert (bundle_dir / "floorplan-05.pdf").read_bytes() == b"downloaded:https://example.test/real-floorplan.pdf"
+    for rejected in ("floorplan-01.pdf", "floorplan-02.pdf", "floorplan-03.pdf", "floorplan-04.pdf"):
+        assert not (bundle_dir / rejected).exists()
+    assert downloaded == [
+        "floorplan-01.pdf",
+        "floorplan-02.pdf",
+        "floorplan-03.pdf",
+        "floorplan-04.pdf",
+        "floorplan-05.pdf",
+    ]
+
+
 def test_property_tour_binding_bootstraps_crezlo_metadata_from_runtime_state(monkeypatch, tmp_path: Path) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
