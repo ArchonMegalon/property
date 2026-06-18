@@ -7130,6 +7130,14 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     bundle_dir.mkdir(parents=True)
     asset_path = bundle_dir / "scene-01.jpg"
     asset_path.write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "private-secret.jpg").write_bytes(b"private-jpeg-data")
+    for generated_relpath in (
+        "tour.mp4",
+        "telegram-preview-private.jpg",
+        "diorama-preview-private.jpg",
+        "magicfit-still-private.jpg",
+    ):
+        (bundle_dir / generated_relpath).write_bytes(b"unmanifested-generated-data")
     (bundle_dir / "debug.log").write_text("debug-token", encoding="utf-8")
     (bundle_dir / "raw-payload.json").write_text('{"principal_id":"exec-public-tour"}', encoding="utf-8")
     (bundle_dir / "notes.txt").write_text("recipient@example.test", encoding="utf-8")
@@ -7175,7 +7183,7 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
                     "theme_name": "Calm daylight",
                     "tour_style": "layout first",
                     "audience": "flat hunters",
-                    "creative_brief": "Lead with plan clarity.",
+                    "creative_brief": "Lead with plan clarity at Kahlenberger Strasse 1.",
                     "call_to_action": "Book a viewing.",
                 },
                 "scenes": [
@@ -7185,6 +7193,29 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
                         "image_url": "https://example.test/original.jpg",
                         "source_url": "https://example.test/original.jpg",
                         "asset_relpath": "scene-01.jpg",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.private.json").write_text(
+        json.dumps(
+            {
+                "principal_id": "exec-public-tour",
+                "recipient_email": "recipient@example.test",
+                "source_ref": "private-source-ref",
+                "external_id": "external-private-id",
+                "listing_url": "https://private.example.test/listing",
+                "property_url": "https://private.example.test/property",
+                "facts": {"exact_address": "Private Receipt Street 7, 1190 Wien"},
+                "scenes": [{"name": "Private receipt asset", "role": "photo", "asset_relpath": "private-secret.jpg"}],
+                "public_assets": [
+                    {
+                        "path": "private-secret.jpg",
+                        "role": "photo",
+                        "privacy_class": "public",
                     }
                 ],
             },
@@ -7224,6 +7255,7 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
         }
     ]
     serialized_payload = json.dumps(payload_body, sort_keys=True)
+    assert payload_body["brief"] == {}
     for private_marker in (
         "principal_id",
         "recipient@example.test",
@@ -7239,6 +7271,10 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
         "address_lines",
         "exact_address",
         "street_address",
+        "Kahlenberger Strasse 1",
+        "Private Receipt Street",
+        "private-secret",
+        "private.example.test",
     ):
         assert private_marker not in serialized_payload
 
@@ -7252,6 +7288,11 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert client.get(f"/tours/files/{slug}/raw-payload.json").status_code == 404
     assert client.get(f"/tours/files/{slug}/debug.log").status_code == 404
     assert client.get(f"/tours/files/{slug}/notes.txt").status_code == 404
+    assert client.get(f"/tours/files/{slug}/private-secret.jpg").status_code == 404
+    assert client.get(f"/tours/files/{slug}/tour.mp4").status_code == 404
+    assert client.get(f"/tours/files/{slug}/telegram-preview-private.jpg").status_code == 404
+    assert client.get(f"/tours/files/{slug}/diorama-preview-private.jpg").status_code == 404
+    assert client.get(f"/tours/files/{slug}/magicfit-still-private.jpg").status_code == 404
 
 
 def test_public_tour_routes_drop_untrusted_external_scene_media(

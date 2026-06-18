@@ -145,17 +145,29 @@ def _load_tour(slug: str) -> dict[str, object]:
         raise HTTPException(status_code=500, detail="tour_payload_invalid") from exc
     if not isinstance(payload, dict):
         raise HTTPException(status_code=500, detail="tour_payload_invalid")
-    bundle_dir = _tour_bundle_dir(slug)
-    if bundle_dir is not None:
-        private_manifest_path = bundle_dir / "tour.private.json"
-        if private_manifest_path.exists():
-            try:
-                private_payload = json.loads(private_manifest_path.read_text())
-            except Exception as exc:
-                raise HTTPException(status_code=500, detail="tour_payload_invalid") from exc
-            if isinstance(private_payload, dict):
-                payload = {**dict(payload), **dict(private_payload)}
     return payload
+
+
+def _load_private_tour_receipt(slug: str) -> dict[str, object]:
+    bundle_dir = _tour_bundle_dir(slug)
+    if bundle_dir is None:
+        return {}
+    private_manifest_path = bundle_dir / "tour.private.json"
+    if not private_manifest_path.exists():
+        return {}
+    try:
+        private_payload = json.loads(private_manifest_path.read_text())
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="tour_payload_invalid") from exc
+    return dict(private_payload) if isinstance(private_payload, dict) else {}
+
+
+def _load_tour_with_private_receipt(slug: str) -> dict[str, object]:
+    payload = _load_tour(slug)
+    private_payload = _load_private_tour_receipt(slug)
+    return {**payload, **private_payload} if private_payload else payload
+
+
 _PUBLIC_TOUR_RESEARCH_DEFAULT_HOST_SUFFIXES = (
     "willhaben.at",
     "immobilienscout24.at",
@@ -289,12 +301,24 @@ def _redacted_public_tour_payload(
     *,
     expose_asset_relpaths: bool = False,
 ) -> dict[str, object]:
-    return _payload_redacted_public_tour_payload(
+    rendered = _payload_redacted_public_tour_payload(
         payload,
         expose_asset_relpaths=expose_asset_relpaths,
         url_allowed=_public_tour_listing_research_url_allowed,
         bundle_dir_resolver=_tour_bundle_dir,
     )
+    for key in ("source_virtual_tour_url", "source_virtual_tour_origin"):
+        safe_url = _safe_live_360_url(payload.get(key))
+        if safe_url:
+            rendered[key] = safe_url
+    for key in ("matterport_url", "three_d_vista_url", "threedvista_url", "3dvista_url", "crezlo_public_url"):
+        raw_url = payload.get(key)
+        safe_url = _safe_matterport_external_url(raw_url) or _safe_3dvista_external_url(raw_url) or _safe_live_360_url(raw_url)
+        if safe_url:
+            rendered[key] = safe_url
+    if (rendered.get("source_virtual_tour_url") or rendered.get("source_virtual_tour_origin")) and payload.get("panorama_source"):
+        rendered["panorama_source"] = str(payload.get("panorama_source") or "").strip()[:120]
+    return rendered
 
 
 def _asset_file(slug: str, asset_path: str) -> Path:
@@ -310,14 +334,7 @@ def _asset_file(slug: str, asset_path: str) -> Path:
     if not safe_relpath or bundle_dir is None:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
     if safe_relpath not in manifest:
-        generated_public_asset = (
-            safe_relpath == "tour.mp4"
-            or safe_relpath.startswith("telegram-preview")
-            or safe_relpath.startswith("diorama-preview")
-            or safe_relpath.startswith("magicfit-still-")
-        )
-        if not generated_public_asset:
-            raise HTTPException(status_code=404, detail="tour_file_not_found")
+        raise HTTPException(status_code=404, detail="tour_file_not_found")
     candidate = (bundle_dir / safe_relpath).resolve()
     if bundle_dir.resolve() not in candidate.parents:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
@@ -2128,13 +2145,35 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     rent_value = _money(facts.get("total_rent_eur") or facts.get("price_eur") or facts.get("purchase_price_eur"))
     rent = html.escape("" if rent_value == "EUR ?" else rent_value)
     availability = html.escape(_fact_text("availability", "availability_text") or "Availability under research")
-    address = "<br>".join(html.escape(str(value)) for value in (facts.get("address_lines") or []))
     teaser = " · ".join(html.escape(str(value)) for value in (facts.get("teaser_attributes") or []))
     creative_brief = html.escape(str(brief.get("creative_brief") or "").strip())
     theme_name = html.escape(str(brief.get("theme_name") or "").strip())
     tour_style = html.escape(str(brief.get("tour_style") or "").strip())
     audience = html.escape(str(brief.get("audience") or "").strip())
     cta = html.escape(str(brief.get("call_to_action") or "").strip())
+    brief_rows = "".join(
+        f'<div class="kv"><b>{label}</b>{value}</div>'
+        for label, value in (
+            ("Theme", theme_name),
+            ("Style", tour_style),
+            ("Audience", audience),
+            ("Creative Brief", creative_brief),
+            ("CTA", cta),
+        )
+        if value
+    )
+    tour_brief_panel = (
+        f"""
+        <aside class="panel">
+          <h2>Tour Brief</h2>
+          <div class="stack">
+            {brief_rows}
+          </div>
+        </aside>
+        """
+        if brief_rows
+        else ""
+    )
     brand_html = html.escape(brand_name)
     listing_link = f'<a class="ghost" href="{html.escape(listing_url)}" target="_blank" rel="noreferrer">Open Listing</a>' if listing_url else ""
     hosted_link = f'<a class="ghost" href="{html.escape(hosted_url)}">Permalink</a>' if hosted_url else ""
@@ -4524,17 +4563,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             {hosted_link}
           </div>
         </div>
-        <aside class="panel">
-          <h2>Tour Brief</h2>
-          <div class="stack">
-            <div class="kv"><b>Theme</b>{theme_name}</div>
-            <div class="kv"><b>Style</b>{tour_style}</div>
-            <div class="kv"><b>Audience</b>{audience}</div>
-            <div class="kv"><b>Creative Brief</b>{creative_brief}</div>
-            <div class="kv"><b>CTA</b>{cta}</div>
-            <div class="kv"><b>Adresse</b>{address}</div>
-          </div>
-        </aside>
+        {tour_brief_panel}
       </section>
       <section class="stage">
         {legacy_decision_panel}
@@ -5066,7 +5095,7 @@ async def public_tour_request_details(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> JSONResponse:
-    payload = _load_tour(slug)
+    payload = _load_tour_with_private_receipt(slug)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
     principal_id = str(payload.get("principal_id") or "").strip()
@@ -5088,7 +5117,7 @@ async def public_tour_feedback(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> JSONResponse:
-    payload = _load_tour(slug)
+    payload = _load_tour_with_private_receipt(slug)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
     principal_id = str(payload.get("principal_id") or "").strip()
@@ -5168,7 +5197,7 @@ async def public_tour_filter_update(
     body: dict[str, object] = Body(default_factory=dict),
     container: AppContainer = Depends(get_container),
 ) -> JSONResponse:
-    payload = _load_tour(slug)
+    payload = _load_tour_with_private_receipt(slug)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
     principal_id = str(payload.get("principal_id") or "").strip()

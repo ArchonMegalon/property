@@ -223,7 +223,6 @@ _PUBLIC_TOUR_TOP_LEVEL_KEYS = frozenset(
         "hosted_url",
         "public_url",
         "facts",
-        "brief",
         "control_mode",
         "scenes",
         "video_relpath",
@@ -639,15 +638,12 @@ def redacted_public_tour_payload(
     for key in _PUBLIC_TOUR_TOP_LEVEL_KEYS:
         if key not in payload or public_tour_key_is_private(key):
             continue
-        if key in {"facts", "brief"}:
-            if key == "facts":
-                rendered[key] = redacted_public_tour_facts(
-                    payload,
-                    payload.get(key) if isinstance(payload.get(key), dict) else {},
-                    privacy_mode=privacy_mode,
-                )
-            else:
-                rendered[key] = redact_public_tour_value(payload.get(key) if isinstance(payload.get(key), dict) else {})
+        if key == "facts":
+            rendered[key] = redacted_public_tour_facts(
+                payload,
+                payload.get(key) if isinstance(payload.get(key), dict) else {},
+                privacy_mode=privacy_mode,
+            )
             continue
         if key == "scenes":
             rendered[key] = redacted_public_tour_scenes(
