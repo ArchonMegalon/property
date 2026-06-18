@@ -2628,9 +2628,19 @@
       }
       .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group] {
         grid-column: 1 / -1;
+        min-width: 0;
+        max-width: 100%;
+      }
+      .pqx-what-matters-panel .pqx-choice-groupbox[data-active-distance-rows="true"] .pqx-pref-list,
+      .pqx-what-matters-panel .pqx-pref-list {
+        grid-template-columns: minmax(0, 1fr);
+        min-width: 0;
+        max-width: 100%;
       }
       .pqx-what-matters-panel .pqx-pref-row {
         grid-template-columns: 1fr;
+        min-width: 0;
+        max-width: 100%;
       }
       .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] {
         grid-column: auto;
@@ -2640,6 +2650,8 @@
       .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] [data-keyword-preference-select],
       .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] [data-keyword-distance-select] {
         grid-column: auto;
+        width: 100%;
+        max-width: 100%;
       }
       .pqx-what-matters-panel .pqx-pref-row > div {
         grid-column: 1 / -1;

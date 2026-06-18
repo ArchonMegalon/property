@@ -1239,6 +1239,24 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
         section.scroll_into_view_if_needed()
         section.screenshot(path=str(screenshot_path))
         assert screenshot_path.exists()
+        group_overflow = page.evaluate(
+            """
+            () => {
+              const group = document.querySelector('[data-what-matters-group="daily_life"]');
+              const list = group?.querySelector('.pqx-pref-list');
+              const groupRect = group?.getBoundingClientRect();
+              const listRect = list?.getBoundingClientRect();
+              return {
+                groupWidth: groupRect ? groupRect.width : 0,
+                groupScrollWidth: group ? group.scrollWidth : 0,
+                listWidth: listRect ? listRect.width : 0,
+                listScrollWidth: list ? list.scrollWidth : 0,
+              };
+            }
+            """
+        )
+        assert float(group_overflow["groupScrollWidth"]) <= float(group_overflow["groupWidth"]) + 1.0, group_overflow
+        assert float(group_overflow["listScrollWidth"]) <= float(group_overflow["listWidth"]) + 1.0, group_overflow
         rows = page.evaluate(
             """
             () => Array.from(document.querySelectorAll('[data-keyword-priority-row][data-keyword-distance-enabled="true"]'))
