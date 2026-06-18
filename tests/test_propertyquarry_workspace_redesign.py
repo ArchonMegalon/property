@@ -13,6 +13,7 @@ from app.api.routes import landing_property_shortlist_panel
 from app.api.routes import landing_property_workspace_payload
 from app.api.routes import public_tours
 from app.api.routes import landing_view_models
+from app.services import public_branding
 from app.services import property_market_catalog
 from app.product import property_surface_state
 from app.product.models import HandoffNote
@@ -130,6 +131,35 @@ def test_propertyquarry_candidate_display_facts_use_listing_postal_over_dirty_so
 def test_propertyquarry_shortlist_does_not_surface_willhaben_tracking_endpoint_as_provider_360() -> None:
     body = _read_workbench_bundle()
     assert "api.willhaben.at/restapi/v2/logevent" not in body
+
+
+def test_propertyquarry_register_surface_uses_property_search_language() -> None:
+    client = build_property_client(principal_id="pq-register-copy")
+
+    page = client.get("/register", headers={"host": "propertyquarry.com"})
+
+    assert page.status_code == 200
+    assert "Start an account that finds and ranks the right properties" in page.text
+    assert "Create the account and start the first search" in page.text
+    assert "first useful memo" not in page.text
+    assert 'data-milestone="commitments"' not in page.text
+    assert "Executive Assistant" not in page.text
+
+    get_started_template = (
+        Path(__file__).resolve().parents[1] / "ea/app/templates/get_started.html"
+    )
+    get_started_body = get_started_template.read_text(encoding="utf-8")
+    assert "first useful property search" in get_started_body
+    assert "first useful memo" not in get_started_body
+    assert "workspace narrow" not in get_started_body
+
+
+def test_public_branding_repo_urls_stay_in_property_repository(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
+    assert public_branding.brand_from_hostname("propertyquarry.com")["repo_url"] == "https://github.com/ArchonMegalon/property"
+
+    monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "0")
+    assert public_branding.brand_from_hostname("legacy.invalid")["repo_url"] == "https://github.com/ArchonMegalon/property"
 
 
 def test_propertyquarry_search_surface_prewarm_touches_templates_and_catalogs(monkeypatch) -> None:

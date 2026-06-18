@@ -78,7 +78,7 @@ def brand_from_hostname(hostname: str | None) -> dict[str, str]:
         "workspace_label": "Assistant account",
         "app_home": "/app/today",
         "public_base_url": str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/"),
-        "repo_url": "https://github.com/ArchonMegalon/executive-assistant/blob/main/ARCHITECTURE_MAP.md",
+        "repo_url": "https://github.com/ArchonMegalon/property",
     }
 
 

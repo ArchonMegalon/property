@@ -260,8 +260,8 @@
         <div class="register-milestones">
           <div class="register-milestone" data-milestone="calendar"><span>Saving your profile</span><strong>Pending</strong></div>
           <div class="register-milestone" data-milestone="email"><span>{% if brand.key == 'propertyquarry' %}Opening PropertyQuarry{% else %}Finishing Google connect{% endif %}</span><strong>Pending</strong></div>
-          <div class="register-milestone" data-milestone="queue"><span>{% if brand.key == 'propertyquarry' %}Preparing saved defaults{% else %}Build first morning memo{% endif %}</span><strong>Pending</strong></div>
-          <div class="register-milestone" data-milestone="commitments"><span>{% if brand.key == 'propertyquarry' %}Getting the first shortlist ready{% else %}Preparing the follow-up queue{% endif %}</span><strong>Pending</strong></div>
+          <div class="register-milestone" data-milestone="defaults"><span>{% if brand.key == 'propertyquarry' %}Preparing saved defaults{% else %}Build first morning memo{% endif %}</span><strong>Pending</strong></div>
+          <div class="register-milestone" data-milestone="shortlist"><span>{% if brand.key == 'propertyquarry' %}Getting the first shortlist ready{% else %}Preparing the follow-up queue{% endif %}</span><strong>Pending</strong></div>
         </div>
         <div class="register-inline" data-build-inline></div>
       </section>
@@ -398,7 +398,7 @@
   };
 
   const markMilestones = async () => {
-    const milestones = ['calendar', 'email', 'queue', 'commitments'];
+    const milestones = ['calendar', 'email', 'defaults', 'shortlist'];
     for (const key of milestones) {
       const row = document.querySelector(`[data-milestone="${key}"]`);
       if (!row) continue;
