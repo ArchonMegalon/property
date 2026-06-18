@@ -5315,6 +5315,8 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls() -> None:
     assert account.status_code == 200
     assert "Export account data" in account.text
     assert 'href="/app/api/property/account/export?download=1"' in account.text
+    assert "Clear search history" in account.text
+    assert 'action="/app/api/property/search-runs/clear"' in account.text
     assert "Manage access links" in account.text
     assert 'href="/app/settings/access"' in account.text
     access_links = client.get("/app/settings/access", headers=headers)

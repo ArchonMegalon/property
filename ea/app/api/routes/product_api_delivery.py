@@ -1285,6 +1285,35 @@ def property_search_run_events_v2(
     }
 
 
+@router.delete("/property/search-runs", response_model=dict[str, object])
+def clear_property_search_runs_v2(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_product_service(container)
+    result = service.clear_property_search_runs(principal_id=context.principal_id)
+    return {
+        "generated_at": now_iso(),
+        "principal_id": context.principal_id,
+        "deleted_count": int(result.get("deleted_count") or 0),
+        "run_ids": list(result.get("run_ids") or []),
+    }
+
+
+@router.post("/property/search-runs/clear")
+def clear_property_search_runs_form(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    service = build_product_service(container)
+    result = service.clear_property_search_runs(principal_id=context.principal_id)
+    deleted_count = int(result.get("deleted_count") or 0)
+    return RedirectResponse(
+        url=f"/app/account?history_cleared={deleted_count}#data-export",
+        status_code=303,
+    )
+
+
 @router.delete("/property/search-runs/{run_id}", response_model=dict[str, object])
 def delete_property_search_run_v2(
     run_id: str,

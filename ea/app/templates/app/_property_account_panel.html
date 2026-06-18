@@ -70,6 +70,17 @@
       <a class="pqx-link-button" href="/app/api/property/account/export?download=1">Export data</a>
     </section>
 
+    <section class="pqx-account-action-card" id="search-history">
+      <div>
+        <span class="pqx-small">History</span>
+        <h2>Clear search history</h2>
+        <p>Remove saved search runs from this account. Shortlisted homes remain until you delete them from the shortlist.</p>
+      </div>
+      <form action="/app/api/property/search-runs/clear" method="post" onsubmit="return confirm('Clear saved search history for this account?');">
+        <button class="pqx-link-button subtle" type="submit">Clear history</button>
+      </form>
+    </section>
+
     <section class="pqx-account-action-card" id="access-links">
       <div>
         <span class="pqx-small">Access</span>

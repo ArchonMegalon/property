@@ -4182,6 +4182,64 @@ def test_property_search_run_can_be_deleted_from_api(monkeypatch) -> None:
     assert missing.status_code == 404, missing.text
 
 
+def test_property_search_runs_can_be_cleared_for_current_principal_only() -> None:
+    principal_id = "exec-property-search-run-clear"
+    other_principal_id = "exec-property-search-run-clear-other"
+    client = build_property_client(principal_id=principal_id)
+    current_run_id = "clear-current-run"
+    other_run_id = "clear-other-run"
+    current_form_run_id = "clear-current-form-run"
+
+    current_record = product_service._new_property_search_run_record(
+        run_id=current_run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT"},
+        force_refresh=False,
+    )
+    other_record = product_service._new_property_search_run_record(
+        run_id=other_run_id,
+        principal_id=other_principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT"},
+        force_refresh=False,
+    )
+    current_form_record = product_service._new_property_search_run_record(
+        run_id=current_form_run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT"},
+        force_refresh=False,
+    )
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        previous_registry = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY)
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[current_run_id] = current_record
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[other_run_id] = other_record
+    try:
+        cleared = client.delete("/app/api/property/search-runs")
+        assert cleared.status_code == 200, cleared.text
+        body = cleared.json()
+        assert body["deleted_count"] == 1
+        assert body["run_ids"] == [current_run_id]
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            assert current_run_id not in product_service._PROPERTY_SEARCH_RUN_REGISTRY
+            assert other_run_id in product_service._PROPERTY_SEARCH_RUN_REGISTRY
+
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY[current_form_run_id] = current_form_record
+        form_cleared = client.post("/app/api/property/search-runs/clear", follow_redirects=False)
+        assert form_cleared.status_code == 303, form_cleared.text
+        assert form_cleared.headers["location"] == "/app/account?history_cleared=1#data-export"
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            assert current_form_run_id not in product_service._PROPERTY_SEARCH_RUN_REGISTRY
+            assert other_run_id in product_service._PROPERTY_SEARCH_RUN_REGISTRY
+    finally:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.update(previous_registry)
+
+
 def test_property_provider_catalog_generates_remax_austria_sources() -> None:
     rows = property_market_catalog.generated_source_specs(
         preferences={

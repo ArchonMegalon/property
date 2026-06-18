@@ -28414,6 +28414,33 @@ class ProductService:
             _PROPERTY_SEARCH_RUN_REGISTRY.pop(normalized_run_id, None)
         return deleted
 
+    def clear_property_search_runs(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 1000,
+    ) -> dict[str, object]:
+        normalized_principal = str(principal_id or "").strip()
+        if not normalized_principal:
+            return {"deleted_count": 0, "run_ids": []}
+        records = _list_property_search_run_records(
+            limit=max(int(limit or 0), 1),
+            principal_id=normalized_principal,
+        )
+        deleted_run_ids: list[str] = []
+        for record in records:
+            if str(record.get("principal_id") or "").strip() != normalized_principal:
+                continue
+            run_id = str(record.get("run_id") or "").strip()
+            if not run_id:
+                continue
+            if self.delete_property_search_run(principal_id=normalized_principal, run_id=run_id):
+                deleted_run_ids.append(run_id)
+        return {
+            "deleted_count": len(deleted_run_ids),
+            "run_ids": deleted_run_ids,
+        }
+
     def update_property_search_research_task(
         self,
         *,
