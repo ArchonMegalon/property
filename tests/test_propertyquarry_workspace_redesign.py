@@ -2849,6 +2849,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Preferred because: Includes a live 360 source" not in search.text
     assert "Open property page" in search.text
     assert 'data-candidate-packet-url="/app/research/' in search.text
+    assert 'data-candidate-listing-url="https://www.immobilienscout24.de/expose/altbau-u6"' in search.text
     assert "Filtered" in search.text
     assert "Missing floorplan evidence" in search.text
     assert "Floorplan gate" not in search.text
@@ -4008,6 +4009,11 @@ def test_property_shortlist_surface_is_single_column_and_results_first() -> None
     assert 'data-pw-decision-state="archived"' in body
     assert "data-pw-remove-row" in body
     assert "No price published" in body
+    assert 'data-candidate-listing-url="${escapeHtml(propertyUrl)}"' in body
+    assert "const openRowTarget = () => {" in body
+    assert "window.location.href = packetUrl;" in body
+    assert "window.open(listingUrl, '_blank', 'noopener,noreferrer');" in body
+    assert "event.key !== 'Enter' && event.key !== ' '" in body
     assert 'aria-label="Account navigation"' in body
     assert ">Me<" not in body
     assert "Tell us what to find." not in body

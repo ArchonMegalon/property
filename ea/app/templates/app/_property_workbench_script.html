@@ -1316,7 +1316,7 @@
           packetUrl ? `<a class="pqx-result-open" href="${escapeHtml(packetUrl)}">Open property</a>` : '',
         ].filter(Boolean).join('');
         return `
-          <article class="pqx-result pqx-card${index === 0 ? ' is-top-ranked' : ''}" role="button" tabindex="0" aria-selected="${index === 0 ? 'true' : 'false'}" data-candidate-ref="${escapeHtml(candidateRef)}" data-candidate-packet-url="${escapeHtml(packetUrl)}" data-workbench-row>
+          <article class="pqx-result pqx-card${index === 0 ? ' is-top-ranked' : ''}" role="button" tabindex="0" aria-selected="${index === 0 ? 'true' : 'false'}" data-candidate-ref="${escapeHtml(candidateRef)}" data-candidate-packet-url="${escapeHtml(packetUrl)}" data-candidate-listing-url="${escapeHtml(propertyUrl)}" data-workbench-row>
             <span class="pqx-result-main">
               <span class="pqx-result-media${previewUrl ? '' : ' no-thumb'}">
                 ${thumb}
@@ -3160,6 +3160,29 @@
             window.location.reload();
           }
         }
+      });
+    });
+    root.querySelectorAll('[data-workbench-row]').forEach((row) => {
+      const openRowTarget = () => {
+        const packetUrl = String(row.getAttribute('data-candidate-packet-url') || '').trim();
+        const listingUrl = String(row.getAttribute('data-candidate-listing-url') || '').trim();
+        if (packetUrl) {
+          window.location.href = packetUrl;
+          return;
+        }
+        if (listingUrl) {
+          window.open(listingUrl, '_blank', 'noopener,noreferrer');
+        }
+      };
+      row.addEventListener('click', (event) => {
+        if (event.target?.closest?.('a,button,input,select,textarea,label,summary,[data-tooltip-trigger]')) return;
+        openRowTarget();
+      });
+      row.addEventListener('keydown', (event) => {
+        if (event.target !== row) return;
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        openRowTarget();
       });
     });
     if (data.run && typeof data.run === 'object') {
