@@ -1355,18 +1355,28 @@
       `;
     };
     const rankedCandidatesFromRunPayload = (runPayload) => {
-      const direct = Array.isArray(runPayload?.summary?.ranked_candidates) ? runPayload.summary.ranked_candidates.filter((row) => row && typeof row === 'object') : [];
+      const isRankableCandidate = (candidate) => {
+        if (!candidate || typeof candidate !== 'object') return false;
+        const status = String(candidate.candidate_status || candidate.status || '').trim().toLowerCase();
+        if (['false_positive', 'maybe_false', 'repair_only', 'filtered', 'suppressed'].includes(status)) return false;
+        if (candidate.maybe_false || candidate.maybe_false_positive || candidate.false_positive || candidate.flagged_for_repair) return false;
+        if (String(candidate.hard_filter_reason || candidate.filter_reason || '').trim()) return false;
+        return true;
+      };
+      const direct = Array.isArray(runPayload?.summary?.ranked_candidates)
+        ? runPayload.summary.ranked_candidates.filter(isRankableCandidate)
+        : [];
       if (direct.length) return direct;
       const sources = Array.isArray(runPayload?.summary?.sources) ? runPayload.summary.sources : [];
       const collected = [];
       sources.forEach((source) => {
         const topCandidates = Array.isArray(source?.top_candidates) ? source.top_candidates : [];
         topCandidates.forEach((candidate) => {
-          if (!candidate || typeof candidate !== 'object') return;
+          if (!isRankableCandidate(candidate)) return;
           collected.push({ ...candidate, source_label: candidate.source_label || source?.source_label || source?.label || '' });
         });
       });
-      collected.sort((left, right) => Number(right?.fit_score || 0) - Number(left?.fit_score || 0));
+      collected.sort((left, right) => Number(right?.ranking_score || right?.investment_score || right?.fit_score || 0) - Number(left?.ranking_score || left?.investment_score || left?.fit_score || 0));
       return collected.slice(0, 50).map((candidate, index) => ({
         rank: candidate.rank || index + 1,
         ...candidate,

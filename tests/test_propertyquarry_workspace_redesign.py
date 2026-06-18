@@ -4005,6 +4005,17 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert "Best homes first" not in body
 
 
+def test_property_live_ranked_candidates_filter_repair_and_false_positive_rows() -> None:
+    body = _read_workbench_bundle()
+
+    assert "const isRankableCandidate = (candidate) => {" in body
+    assert "candidate.maybe_false || candidate.maybe_false_positive || candidate.false_positive || candidate.flagged_for_repair" in body
+    assert "String(candidate.hard_filter_reason || candidate.filter_reason || '').trim()" in body
+    assert "topCandidates.forEach((candidate) => {" in body
+    assert "if (!isRankableCandidate(candidate)) return;" in body
+    assert "Number(right?.ranking_score || right?.investment_score || right?.fit_score || 0)" in body
+
+
 def test_property_decision_save_uses_canonical_endpoint_and_renders_consequences() -> None:
     body = _read_workbench_bundle()
 
