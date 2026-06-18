@@ -51,6 +51,15 @@ def test_env_example_keeps_property_source_cache_inside_property_repo() -> None:
     assert "/docker/fleet/state/property_source_listing_cache.json" not in env
 
 
+def test_property_public_tour_scripts_default_to_property_state() -> None:
+    backfill = (ROOT / "scripts/backfill_public_tour_research_snapshots.py").read_text(encoding="utf-8")
+    comparison = (ROOT / "scripts/build_comparison_dossiers.py").read_text(encoding="utf-8")
+
+    for body in (backfill, comparison):
+        assert "/docker/property/state/public_property_tours" in body
+        assert "/docker/fleet/state/public_property_tours" not in body
+
+
 def test_env_example_keeps_external_investment_feeds_fail_closed_and_durable() -> None:
     env = (ROOT / ".env.example").read_text(encoding="utf-8")
 

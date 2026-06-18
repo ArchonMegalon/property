@@ -278,7 +278,7 @@ def _build_flythrough_video(listing: ListingSpec, hero_path: Path, floorplan_pat
 
 
 def _write_bundle_with_video(bundle: dict[str, Any], *, video_path: Path, review_label: str) -> dict[str, Any]:
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours")).expanduser()
     slug = str(bundle.get("slug") or "").strip()
     bundle_dir = public_dir / slug
     if not bundle_dir.exists():
