@@ -1,0 +1,2 @@
+"""PropertyQuarry domain contracts."""
+

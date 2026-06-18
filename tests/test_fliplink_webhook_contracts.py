@@ -116,6 +116,16 @@ def test_fliplink_manual_packet_lane_and_url_validation(monkeypatch, tmp_path: P
     )
     assert archived.status_code == 200, archived.text
     assert archived.json()["publication"]["status"] == "archived"
+    assert archived.json()["publication"]["artifact_download_path"] == ""
+    assert archived.json()["publication"]["public_pdf_path"] == ""
+    revoked_public_pdf = public_client.get(listed["artifact_download_path"])
+    assert revoked_public_pdf.status_code == 404
+    listing_after_archive = client.get("/app/api/properties/packets")
+    assert listing_after_archive.status_code == 200
+    archived_row = next(item for item in listing_after_archive.json()["items"] if item["publication_id"] == publication_id)
+    assert archived_row["status"] == "archived"
+    assert archived_row["artifact_download_path"] == ""
+    assert archived_row["public_pdf_path"] == ""
     events = client.get(f"/app/api/properties/packets/{publication_id}")
     assert events.status_code == 200
     assert any(event["event_type"] == "fliplink_publication_archived" for event in events.json()["events"])

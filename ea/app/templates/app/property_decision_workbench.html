@@ -1642,6 +1642,50 @@
     .pqx-loaded-agent[data-visible="true"] {
       display: grid;
     }
+    .pqx-search-utility-strip {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      padding: 6px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, 0.72);
+    }
+    .pqx-search-utility-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 34px;
+      padding: 7px 9px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      color: var(--pq-ink);
+      text-decoration: none;
+      transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+    }
+    .pqx-search-utility-link:hover,
+    .pqx-search-utility-link:focus-visible {
+      border-color: var(--pq-line-strong);
+      background: #fff8ea;
+      outline: none;
+      transform: translateY(-1px);
+    }
+    .pqx-search-utility-link strong {
+      min-width: 0;
+      font-size: 12px;
+      line-height: 1.15;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pqx-search-utility-link span {
+      flex: 0 0 auto;
+      color: var(--pq-muted);
+      font-size: 11px;
+      font-weight: 720;
+      white-space: nowrap;
+    }
     .pqx-fact {
       display: grid;
       gap: 2px;
@@ -2268,6 +2312,14 @@
       .pqx-surface-search .pqx-loaded-agent .pqx-actions {
         gap: 6px;
       }
+      .pqx-surface-search .pqx-search-utility-strip {
+        gap: 5px;
+        padding: 4px;
+      }
+      .pqx-surface-search .pqx-search-utility-link {
+        min-height: 30px;
+        padding: 5px 7px;
+      }
       .pqx-surface-search .pqx-form {
         gap: 8px;
       }
@@ -2715,74 +2767,11 @@
       color: var(--pq-ink);
       font-size: 13px;
     }
-    .pqx-automation-table-wrap {
-      overflow: auto;
-      border: 1px solid var(--pq-line);
-      border-radius: 10px;
-      background: #fffefa;
-    }
-    .pqx-automation-table {
-      width: 100%;
-      min-width: 700px;
-      border-collapse: collapse;
-      font-size: 12px;
-      line-height: 1.4;
-    }
-    .pqx-automation-table th,
-    .pqx-automation-table td {
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--pq-line);
-      text-align: left;
-      vertical-align: middle;
-    }
-    .pqx-automation-table th {
-      color: var(--pq-muted);
-      font-size: 10px;
-      font-weight: 780;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      background: rgba(244, 239, 230, 0.78);
-    }
-    .pqx-automation-table tbody tr:last-child td {
-      border-bottom: 0;
-    }
-    .pqx-automation-table tbody tr.is-selected {
-      background: rgba(255, 248, 234, 0.72);
-      box-shadow: inset 3px 0 0 #c79c48;
-    }
-    .pqx-automation-table td {
-      min-width: 0;
-    }
-    .pqx-automation-table td > strong,
-    .pqx-automation-table td > span {
-      display: block;
-      color: var(--pq-ink);
-      max-width: 320px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .pqx-automation-table td small {
-      display: block;
-      margin-top: 3px;
-      color: var(--pq-muted);
-      font-size: 11px;
-      line-height: 1.35;
-    }
-    .pqx-automation-row-meta,
-    .pqx-automation-table .pqx-actions {
+    .pqx-automation-row-meta {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
       margin-top: 6px;
-    }
-    .pqx-automation-table .pqx-actions {
-      min-width: 172px;
-      margin-top: 0;
-    }
-    .pqx-automation-table .pqx-button {
-      min-height: 34px;
-      padding-inline: 10px;
     }
     .pqx-automation-history-strip {
       display: grid;
@@ -2853,7 +2842,7 @@
     .pqx-automation-grid {
       display: grid;
       gap: 12px;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
     }
     .pqx-automation-layout {
       display: grid;
@@ -2917,16 +2906,18 @@
       line-height: 1.35;
     }
     .pqx-automation-card {
+      position: relative;
       display: grid;
-      gap: 12px;
-      padding: 12px;
+      grid-template-columns: minmax(150px, 0.38fr) minmax(0, 1fr);
+      gap: 10px;
+      min-height: 154px;
+      padding: 10px;
       border: 1px solid var(--pq-line);
-      border-radius: 12px;
+      border-radius: 10px;
       background: #fffefa;
       box-shadow: var(--pq-shadow-soft);
       transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
-      content-visibility: auto;
-      contain-intrinsic-size: 360px;
+      overflow: hidden;
     }
     .pqx-automation-card:hover {
       transform: translateY(-1px);
@@ -2936,6 +2927,80 @@
       border-color: #c79c48;
       box-shadow: 0 0 0 1px rgba(199, 156, 72, 0.15);
       background: #fff9ed;
+    }
+    .pqx-automation-thumbnail {
+      position: relative;
+      display: block;
+      width: 100%;
+      min-height: 132px;
+      padding: 0;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: #f3eee5;
+      color: var(--pq-ink);
+      cursor: pointer;
+      overflow: hidden;
+      text-align: left;
+      transition: border-color 140ms ease, transform 140ms ease, filter 140ms ease;
+    }
+    .pqx-automation-thumbnail:hover,
+    .pqx-automation-thumbnail:focus-visible {
+      border-color: var(--pq-line-strong);
+      outline: none;
+      transform: translateY(-1px);
+      filter: saturate(1.04);
+    }
+    .pqx-automation-thumbnail img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 132px;
+      object-fit: cover;
+      object-position: center;
+    }
+    .pqx-automation-thumbnail-action {
+      position: absolute;
+      right: 7px;
+      bottom: 7px;
+      min-height: 24px;
+      padding: 4px 8px;
+      border: 1px solid rgba(255, 255, 255, 0.44);
+      border-radius: 999px;
+      background: rgba(23, 21, 19, 0.76);
+      color: #fffdf9;
+      font-size: 11px;
+      font-weight: 760;
+      line-height: 1;
+      backdrop-filter: blur(8px);
+    }
+    .pqx-automation-delete {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      z-index: 4;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 1px solid rgba(96, 78, 61, 0.18);
+      border-radius: 999px;
+      background: rgba(255, 253, 248, 0.9);
+      color: var(--pq-muted);
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+      transition: border-color 140ms ease, background 140ms ease, color 140ms ease, transform 140ms ease;
+    }
+    .pqx-automation-delete:hover,
+    .pqx-automation-delete:focus-visible {
+      border-color: rgba(166, 83, 71, 0.38);
+      background: #fff1ed;
+      color: var(--pq-red);
+      outline: none;
+      transform: translateY(-1px);
     }
     .pqx-automation-card-top {
       display: grid;
@@ -2951,10 +3016,8 @@
       display: grid;
       gap: 4px;
       align-content: start;
-      min-height: 124px;
+      min-height: 132px;
       padding: 12px;
-      border: 1px dashed var(--pq-line-strong);
-      border-radius: 10px;
       background: #fffdf7;
     }
     .pqx-automation-scope-empty small {
@@ -2964,20 +3027,29 @@
     }
     .pqx-automation-meta {
       display: grid;
-      gap: 8px;
+      gap: 7px;
       min-width: 0;
     }
     .pqx-automation-headline {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       align-items: flex-start;
       justify-content: space-between;
+      padding-right: 28px;
     }
     .pqx-automation-headline strong {
+      display: -webkit-box;
+      overflow: hidden;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
       font-size: 1rem;
       line-height: 1.25;
     }
     .pqx-automation-subhead {
+      display: -webkit-box;
+      overflow: hidden;
+      -webkit-line-clamp: 1;
+      -webkit-box-orient: vertical;
       color: var(--pq-ink);
       font-size: 13px;
       line-height: 1.4;
@@ -2996,11 +3068,32 @@
       align-items: baseline;
       min-width: 0;
     }
-    .pqx-automation-actions {
+    .pqx-automation-rhythm {
       display: grid;
-      gap: 8px;
+      gap: 2px;
+      color: var(--pq-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .pqx-automation-rhythm span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pqx-automation-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
       padding-top: 2px;
       border-top: 1px solid var(--pq-line);
+    }
+    .pqx-automation-actions .pqx-button {
+      min-height: 32px;
+      padding-inline: 10px;
+    }
+    .pqx-automation-empty {
+      min-height: 154px;
+      align-content: center;
     }
     .pqx-account-board {
       display: grid;
@@ -4793,6 +4886,9 @@
         overflow-wrap: break-word;
         hyphens: auto;
       }
+      .pqx-search-utility-strip {
+        grid-template-columns: minmax(0, 1fr);
+      }
       .pqx-setup,
       .pqx-setup.pqx-surface-search {
         grid-template-columns: minmax(0, 1fr);
@@ -4932,6 +5028,8 @@
       .pqx-automation-summary,
       .pqx-automation-history-strip,
       .pqx-automation-layout,
+      .pqx-automation-grid,
+      .pqx-automation-card,
       .pqx-automation-card-top,
       .pqx-account-summary,
       .pqx-account-action-grid,
@@ -4946,80 +5044,21 @@
         align-items: flex-start;
         flex-direction: column;
       }
+      .pqx-automation-card {
+        min-height: 0;
+      }
+      .pqx-automation-thumbnail,
+      .pqx-automation-thumbnail img,
+      .pqx-automation-scope-empty {
+        min-height: 156px;
+      }
+      .pqx-automation-headline {
+        padding-right: 30px;
+      }
       .pqx-account-action-card {
         grid-template-columns: minmax(0, 1fr);
         align-items: stretch;
         scroll-margin-top: 86px;
-      }
-      .pqx-automation-table-wrap {
-        overflow: visible;
-      }
-      .pqx-automation-table {
-        display: block;
-        min-width: 0;
-        border-collapse: separate;
-        border-spacing: 0;
-      }
-      .pqx-automation-table thead {
-        display: none;
-      }
-      .pqx-automation-table tbody {
-        display: grid;
-        gap: 10px;
-      }
-      .pqx-automation-table tr {
-        display: grid;
-        gap: 8px;
-        padding: 12px;
-        border: 1px solid var(--pq-line);
-        border-radius: 12px;
-        background: #fffefa;
-      }
-      .pqx-automation-table tbody tr.is-selected {
-        box-shadow: inset 3px 0 0 #c79c48;
-      }
-      .pqx-automation-table tbody tr:last-child td {
-        border-bottom: 0;
-      }
-      .pqx-automation-table td {
-        display: grid;
-        grid-template-columns: minmax(72px, 0.34fr) minmax(0, 1fr);
-        gap: 8px;
-        align-items: start;
-        min-width: 0;
-        padding: 0;
-        border: 0;
-      }
-      .pqx-automation-table td::before {
-        content: attr(data-label);
-        color: var(--pq-muted);
-        font-size: 10px;
-        font-weight: 780;
-        line-height: 1.25;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }
-      .pqx-automation-table td:first-child,
-      .pqx-automation-table td:last-child {
-        grid-template-columns: minmax(0, 1fr);
-      }
-      .pqx-automation-table td:first-child::before,
-      .pqx-automation-table td:last-child::before {
-        display: none;
-      }
-      .pqx-automation-table .pqx-actions {
-        min-width: 0;
-        width: 100%;
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 6px;
-        margin-top: 2px;
-      }
-      .pqx-automation-table .pqx-button {
-        width: 100%;
-        justify-content: center;
-        min-height: 38px;
-        padding-inline: 8px;
       }
       .pqx-result {
         grid-template-columns: minmax(0, 1fr);
@@ -5589,7 +5628,23 @@
           {% endif %}
           {% endfor %}
           {% endif %}
-          {% if console_form and show_form_controls %}
+          {% if console_form and show_form_controls and surface_mode != 'agents' %}
+          {% set search_agents = property_meta.get('search_agents') or [] %}
+          {% set active_search_agent_total = (search_agents|selectattr('enabled')|list)|length %}
+          {% set preference_manager = preference_manager or {} %}
+          {% set preference_rule_total = (preference_manager.get('active_nodes') or [])|length %}
+          {% if surface_mode not in ['agents', 'account', 'billing'] %}
+          <nav class="pqx-search-utility-strip" data-property-search-utility-strip aria-label="Search utilities">
+            <a class="pqx-search-utility-link" href="/app/agents" data-property-search-utility="automation">
+              <strong>Automation</strong>
+              <span>{{ active_search_agent_total }} active</span>
+            </a>
+            <a class="pqx-search-utility-link" href="/app/account#profile" data-property-search-utility="preferences">
+              <strong>Saved preferences</strong>
+              <span>{{ preference_rule_total }} rules</span>
+            </a>
+          </nav>
+          {% endif %}
           <div class="pqx-loaded-agent" data-search-agent-loaded-state>
             <strong data-search-agent-loaded-label>Saved search loaded</strong>
             <span class="pqx-note" data-search-agent-dirty-label>Edit, run, save, or duplicate.</span>
@@ -5956,9 +6011,6 @@
             <div class="pqx-inline-status" data-property-inline-status></div>
             <div class="pqx-inline-error" data-property-inline-error></div>
           </form>
-          {% set search_agents = property_meta.get('search_agents') or [] %}
-          {% include "app/_property_search_agents_panel.html" %}
-          {% set preference_manager = preference_manager or {} %}
           {% if surface_mode == 'account' %}
           <details
             class="pqx-advanced-panel pqx-pref-manager"
@@ -6065,19 +6117,6 @@
             </form>
             </div>
           </details>
-          {% else %}
-          <section class="pqx-card">
-            <div class="pqx-section-head">
-              <div>
-                <h2>Saved preferences</h2>
-                <div class="pqx-note">Manage durable rules in Account.</div>
-              </div>
-              <span class="pqx-pill">{{ (preference_manager.get('active_nodes') or [])|length }} active</span>
-            </div>
-            <div class="pqx-actions">
-              <a class="pqx-link-button" href="/app/account#profile">Open preferences</a>
-            </div>
-          </section>
           {% endif %}
           {% elif not static_surface %}
           <div class="pqx-empty">Search settings are locked while this search is running or already completed.</div>

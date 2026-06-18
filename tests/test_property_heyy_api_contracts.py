@@ -147,6 +147,73 @@ def test_heyy_whatsapp_send_template_endpoint_requires_enabled_flag(monkeypatch)
     assert response.json()["error"]["details"] == "heyy_disabled"
 
 
+def test_heyy_whatsapp_stop_blocks_templates_until_start(monkeypatch) -> None:
+    client = build_product_client(principal_id="heyy-api-owner")
+    start_workspace(client, mode="personal", workspace_name="Heyy STOP Office", selected_channels=["whatsapp"])
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_WEBHOOK_SECRET", "heyy-secret")
+
+    stopped = client.post(
+        "/v1/integrations/heyy/whatsapp/webhook",
+        json={
+            "type": "message.received",
+            "message": {"id": "msg-stop", "text": "STOP"},
+            "contact": {"phoneNumber": "+436647916419"},
+            "metadata": {"principal_id": "heyy-api-owner"},
+        },
+        headers={"X-PropertyQuarry-Heyy-Secret": "heyy-secret"},
+    )
+    assert stopped.status_code == 200, stopped.text
+
+    blocked = client.post(
+        "/app/api/integrations/heyy/whatsapp/send-template",
+        json={
+            "phone_number": "+436647916419",
+            "template_id": "tmpl-1",
+            "channel_id": "channel-1",
+            "variables": [{"name": "property_title", "value": "Altbau near U6"}],
+        },
+    )
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["error"]["details"] == "heyy_whatsapp_stopped"
+
+    restarted = client.post(
+        "/v1/integrations/heyy/whatsapp/webhook",
+        json={
+            "type": "message.received",
+            "message": {"id": "msg-start", "text": "START"},
+            "contact": {"phoneNumber": "+436647916419"},
+            "metadata": {"principal_id": "heyy-api-owner"},
+        },
+        headers={"X-PropertyQuarry-Heyy-Secret": "heyy-secret"},
+    )
+    assert restarted.status_code == 200, restarted.text
+
+    monkeypatch.setattr(
+        "app.api.routes.product_api.HeyyWhatsAppBridgeService.send_template",
+        lambda self, **kwargs: {
+            "status": "sent",
+            "provider": "heyy",
+            "channel_id": kwargs.get("channel_id") or "channel-1",
+            "message_id": "msg-after-start",
+            "delivery_status": "queued",
+            "phone_e164_hash": hashlib.sha256("+436647916419".encode("utf-8")).hexdigest(),
+            "phone_last4": "6419",
+        },
+    )
+    allowed = client.post(
+        "/app/api/integrations/heyy/whatsapp/send-template",
+        json={
+            "phone_number": "+436647916419",
+            "template_id": "tmpl-1",
+            "channel_id": "channel-1",
+            "variables": [{"name": "property_title", "value": "Altbau near U6"}],
+        },
+    )
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["message_id"] == "msg-after-start"
+
+
 def test_heyy_property_match_notification_endpoint_records_event(monkeypatch) -> None:
     client = build_product_client(principal_id="heyy-api-owner")
     start_workspace(client, mode="personal", workspace_name="Heyy Property Match Office", selected_channels=["whatsapp"])

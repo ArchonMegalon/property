@@ -941,7 +941,7 @@ def test_property_listing_mode_mismatch_uses_transaction_text_not_parser_price_f
     ) is True
 
 
-def test_property_search_location_matching_accepts_source_scope_location() -> None:
+def test_property_search_location_matching_rejects_source_scope_only_for_exact_postal_scope() -> None:
     hints = _property_search_location_hints({"location_query": "1200 Vienna, 1020 Vienna, 1090"})
     facts = product_service._property_facts_with_source_scope(
         facts={"street_address": "Rotensterngasse 21", "provider_channel": "justiz_edikte_at"},
@@ -957,6 +957,13 @@ def test_property_search_location_matching_accepts_source_scope_location() -> No
         location_hints=hints,
         property_url="https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/alldoc/example!OpenDocument",
         title="BG Leopoldstadt, 082 25 E 89/25g",
+        summary="Sparse judicial auction detail page.",
+        property_facts=facts,
+    ) is False
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/alldoc/example-1020-wien!OpenDocument",
+        title="BG Leopoldstadt, 1020 Wien, 082 25 E 89/25g",
         summary="Sparse judicial auction detail page.",
         property_facts=facts,
     ) is True
@@ -1777,6 +1784,224 @@ def test_property_scout_hit_sender_suppresses_location_conflicts_and_opens_repai
     assert repair_tasks[0].status in {"pending", "returned"}
 
 
+def test_property_location_match_uses_listing_postal_evidence_over_source_scope() -> None:
+    dirty_scope_facts = {
+        "postal_name": "1010 Vienna",
+        "source_scope_location": "1010 Vienna",
+        "source_postal_code": "1010",
+        "source_city": "Vienna",
+    }
+    title = "Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | € 1.090 | DER STANDARD"
+    summary = "2-Zimmer Wohnung mit Traumblick / UNO und U-Bahn ums Eck in 1220 Wien."
+
+    enriched = product_service._property_enrich_facts_from_listing_text(
+        facts=dirty_scope_facts,
+        title=title,
+        summary=summary,
+        listing_mode="rent",
+    )
+
+    assert enriched["postal_name"] == "1220 Wien"
+    assert [row["postal_code"] for row in enriched["listing_postal_evidence"]] == ["1220"]
+    assert not _property_candidate_matches_requested_location(
+        location_hints=("1010 Vienna",),
+        property_url="https://www.derstandard.at/immobilien/wohnung-1220-wien",
+        title=title,
+        summary=summary,
+        property_facts=dirty_scope_facts,
+        country_code="AT",
+        region_code="vienna",
+    )
+    assert _property_candidate_matches_requested_location(
+        location_hints=("1220 Vienna",),
+        property_url="https://www.derstandard.at/immobilien/wohnung-1220-wien",
+        title=title,
+        summary=summary,
+        property_facts=dirty_scope_facts,
+        country_code="AT",
+        region_code="vienna",
+    )
+
+    assert not _property_candidate_matches_requested_location(
+        location_hints=("90210 Beverly Hills",),
+        property_url="https://example.test/apartment-10001-new-york",
+        title="Apartment in 10001 New York | 70 m2 | USD 3,200",
+        summary="Sunny apartment in 10001 New York.",
+        property_facts={
+            "postal_name": "90210 Beverly Hills",
+            "source_scope_location": "90210 Beverly Hills",
+            "source_postal_code": "90210",
+            "source_city": "Beverly Hills",
+        },
+        country_code="US",
+        region_code="ny",
+    )
+    assert _property_candidate_matches_requested_location(
+        location_hints=("10001 New York",),
+        property_url="https://example.test/apartment-10001-new-york",
+        title="Apartment in 10001 New York | 70 m2 | USD 3,200",
+        summary="Sunny apartment in 10001 New York.",
+        property_facts={},
+        country_code="US",
+        region_code="ny",
+    )
+
+
+def test_property_scout_hit_sender_suppresses_dirty_source_scope_when_listing_postal_conflicts(monkeypatch) -> None:
+    principal_id = "exec-property-hit-dirty-postal-gate"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Dirty Postal Gate Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_platforms": ["derstandard_at"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    service = ProductService(client.app.state.container)
+    sent: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: sent.append(dict(kwargs)) or SimpleNamespace(chat_id="1354554303", message_ids=("8",)),
+    )
+
+    title = "Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | € 1.090 | DER STANDARD"
+    summary = "2-Zimmer Wohnung mit Traumblick / UNO und U-Bahn ums Eck in 1220 Wien."
+    result = service._send_property_scout_hit_telegram(
+        principal_id=principal_id,
+        actor="test",
+        title=title,
+        summary=summary,
+        counterparty="DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
+        account_email="",
+        property_url="https://www.derstandard.at/immobilien/wohnung-1220-wien",
+        source_ref="property-scout:derstandard-1220-dirty-scope",
+        assessment={"fit_score": 50.0, "recommendation": "review"},
+        fit_score=50.0,
+        preference_person_id="self",
+        candidate_properties=(
+            {
+                "property_url": "https://www.derstandard.at/immobilien/wohnung-1220-wien",
+                "listing_title": title,
+                "summary": summary,
+                "source_platform": "derstandard_at",
+                "source_family": "broker_portal",
+                "property_facts_json": {
+                    "postal_name": "1010 Vienna",
+                    "source_scope_location": "1010 Vienna",
+                    "source_postal_code": "1010",
+                    "source_city": "Vienna",
+                    "price_display": "€ 1.090",
+                },
+            },
+        ),
+        requested_location_hints=("1010 Vienna",),
+        requested_country_code="AT",
+        requested_region_code="vienna",
+        render_dossier=False,
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+    assert sent == []
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert repair_tasks
+    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "location_scope"
+
+
+def test_property_scout_hit_sender_suppresses_source_scope_only_exact_area_match(monkeypatch) -> None:
+    principal_id = "exec-property-hit-source-scope-only-gate"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Source Scope Only Gate")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_districts": ["1010 Vienna"],
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    service = ProductService(client.app.state.container)
+    sent: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: sent.append(dict(kwargs)) or SimpleNamespace(chat_id="1354554303", message_ids=("9",)),
+    )
+
+    title = "#W2 Moderne Schöne Zwei-Zimmer Wohnung mit Terrasse"
+    summary = "Wählen Sie aus 113.217 Angeboten. Immobilien suchen und finden auf willhaben."
+    result = service._send_property_scout_hit_telegram(
+        principal_id=principal_id,
+        actor="test",
+        title=title,
+        summary=summary,
+        counterparty="Willhaben | Austria | Rent | 1010 Vienna",
+        account_email="",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/demo-1631373932/",
+        source_ref="property-scout:willhaben-salzburg-dirty-scope",
+        assessment={"fit_score": 54.0, "recommendation": "review"},
+        fit_score=54.0,
+        preference_person_id="self",
+        candidate_properties=(
+            {
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/demo-1631373932/",
+                "listing_title": title,
+                "summary": summary,
+                "source_platform": "willhaben",
+                "source_family": "core_portal",
+                "property_facts_json": {
+                    "postal_name": "1010 Vienna",
+                    "source_scope_location": "1010 Vienna",
+                    "source_postal_code": "1010",
+                    "source_city": "Vienna",
+                    "price_display": "€ 1.190",
+                },
+            },
+        ),
+        requested_location_hints=("1010 Vienna",),
+        requested_country_code="AT",
+        requested_region_code="vienna",
+        render_dossier=False,
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+    assert sent == []
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert repair_tasks
+    diagnostics = dict(repair_tasks[0].input_json or {}).get("diagnostics") or {}
+    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "location_scope"
+    assert diagnostics["location_hints"] == ["1010 Vienna"]
+
+
 def test_property_scout_hit_sender_suppresses_generic_pages_missing_concrete_facts(monkeypatch) -> None:
     principal_id = "exec-property-hit-generic-gate"
     client = build_property_client(principal_id=principal_id)
@@ -2592,6 +2817,104 @@ def test_property_search_keeps_review_candidate_when_only_score_threshold_fails(
     assert candidate["property_url"] == listing_url
     assert 0 < float(candidate["fit_score"]) < 95
     assert candidate["recommendation"] == "review"
+
+
+def test_property_search_filters_dirty_source_scope_postal_conflict_before_shortlist(monkeypatch) -> None:
+    principal_id = "exec-property-run-dirty-postal-gate"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Run Dirty Postal Gate Office")
+    service = ProductService(client.app.state.container)
+
+    source_url = "https://www.derstandard.at/immobilien/mieten/wien/1010"
+    listing_url = "https://www.derstandard.at/immobilien/wohnung-1220-wien"
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": source_url,
+                "label": "DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
+                "platform": "derstandard_at",
+                "provider_family": "broker_portal",
+                "country_code": "AT",
+                "max_results": 1,
+            }
+        ],
+    )
+    monkeypatch.setattr(product_service, "_property_search_interleave_by_provider_group", lambda specs: list(specs))
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_prefetch_listing_urls",
+        lambda **kwargs: {
+            ("derstandard_at", source_url): {
+                "listing_urls": [listing_url],
+                "provider_cache_state": {"status": "miss", "cache_key": "derstandard:dirty-postal"},
+                "timing_ms": {"provider_fetch": 1.0},
+            }
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview_with_timeout",
+        lambda property_url, *, prefer_fast=False: {
+            "listing_id": "derstandard-1220",
+            "title": "Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | € 1.090 | DER STANDARD",
+            "summary": "2-Zimmer Wohnung mit Traumblick / UNO und U-Bahn ums Eck in 1220 Wien.",
+            "property_facts_json": {
+                "postal_name": "1010 Vienna",
+                "source_scope_location": "1010 Vienna",
+                "source_postal_code": "1010",
+                "source_city": "Vienna",
+                "area_sqm": 60,
+                "rooms": 2,
+                "total_rent_eur": 1090,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {
+            "fit_score": 94.0,
+            "recommendation": "strong_fit",
+            "match_reasons_json": ["Would otherwise rank highly."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+        },
+    )
+    monkeypatch.setattr(ProductService, "_warm_property_public_preview_cache_for_sources", lambda self, **kwargs: {})
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("outside-area candidate must not notify")),
+    )
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("derstandard_at",),
+        property_search_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "property_type": "apartment",
+            "min_match_score": 50,
+            "require_floorplan": False,
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 0
+    assert result["high_fit_total"] == 0
+    assert result["review_created_total"] == 0
+    source = dict(result["sources"][0])
+    assert source["raw_listing_total"] == 1
+    assert source["scanned_listing_total"] == 1
+    assert source["top_candidates"] == []
+    assert source["location_mismatch_candidate_total"] >= 1
+    assert source["location_mismatch_reason"] == "provider_returned_candidates_outside_selected_location"
 
 
 def test_property_search_type_filter_blocks_garage_for_residential_searches() -> None:

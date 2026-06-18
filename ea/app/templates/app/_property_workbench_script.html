@@ -2788,6 +2788,13 @@
             await loadSearchAgentRow(row, false);
             return;
           }
+          if (action === 'delete') {
+            const label = String(row?.querySelector('.pqx-automation-headline strong')?.textContent || 'this saved search').trim();
+            if (!window.confirm(`Delete ${label}?`)) {
+              if (status) status.textContent = '';
+              return;
+            }
+          }
           if (action === 'run') {
             if (!form) {
               await updateSearchAgent(agentId, 'resume', {});

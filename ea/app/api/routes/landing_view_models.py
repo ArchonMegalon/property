@@ -310,7 +310,7 @@ def _scope_preview_layout(country_code: str, region_code: str, options: list[dic
 
 
 def _svg_to_data_url(svg: str) -> str:
-    encoded = urllib.parse.quote(svg, safe=":/?&=,+-_.!~*'()#")
+    encoded = urllib.parse.quote(svg, safe=":/?&=,+-_.!~*'()")
     return f"data:image/svg+xml;charset=utf-8,{encoded}"
 
 

@@ -303,9 +303,30 @@ def _heyy_template_budget_ok(*, container: AppContainer, principal_id: str) -> b
     return True
 
 
-def _require_heyy_send_allowed(*, container: AppContainer, principal_id: str) -> None:
+def _heyy_latest_opt_out_command(*, container: AppContainer, principal_id: str, phone_number: str = "") -> str:
+    packet_service = build_fliplink_packet_service(container)
+    target_hash = redact_phone_number(phone_number).get("phone_e164_hash", "")
+    rows = packet_service.list_events(principal_id=principal_id, event_type="heyy_whatsapp_message_received", limit=100)
+    for row in rows:
+        payload = dict(row.get("payload_json") or {}) if isinstance(row.get("payload_json"), dict) else {}
+        command = str(payload.get("opt_command") or "").strip().upper()
+        if command not in {"STOP", "START", "PAUSE"}:
+            continue
+        event_hash = str(payload.get("phone_e164_hash") or "").strip()
+        if target_hash and event_hash and event_hash != target_hash:
+            continue
+        if command == "START":
+            return ""
+        if command in {"STOP", "PAUSE"}:
+            return command
+    return ""
+
+
+def _require_heyy_send_allowed(*, container: AppContainer, principal_id: str, phone_number: str = "") -> None:
     if not _heyy_selected_for_principal(container=container, principal_id=principal_id):
         raise HTTPException(status_code=409, detail="heyy_whatsapp_not_opted_in")
+    if _heyy_latest_opt_out_command(container=container, principal_id=principal_id, phone_number=phone_number):
+        raise HTTPException(status_code=409, detail="heyy_whatsapp_stopped")
     if not _heyy_template_budget_ok(container=container, principal_id=principal_id):
         raise HTTPException(status_code=429, detail="heyy_daily_template_budget_exhausted")
 
@@ -1775,7 +1796,7 @@ def send_heyy_whatsapp_template(
         require_heyy_enabled()
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    _require_heyy_send_allowed(container=container, principal_id=context.principal_id)
+    _require_heyy_send_allowed(container=container, principal_id=context.principal_id, phone_number=body.phone_number)
     service = HeyyWhatsAppBridgeService(tool_runtime=container.tool_runtime)
     try:
         result = service.send_template(
@@ -1804,7 +1825,7 @@ def send_heyy_property_match_notification(
         require_heyy_enabled()
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    _require_heyy_send_allowed(container=container, principal_id=context.principal_id)
+    _require_heyy_send_allowed(container=container, principal_id=context.principal_id, phone_number=body.phone_number)
     service = HeyyWhatsAppBridgeService(tool_runtime=container.tool_runtime)
     variables = [
         {"name": "property_title", "value": body.property_title},
@@ -1854,7 +1875,7 @@ def send_heyy_search_agent_digest_notification(
         require_heyy_enabled()
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    _require_heyy_send_allowed(container=container, principal_id=context.principal_id)
+    _require_heyy_send_allowed(container=container, principal_id=context.principal_id, phone_number=body.phone_number)
     service = HeyyWhatsAppBridgeService(tool_runtime=container.tool_runtime)
     variables = [
         {"name": "agent_name", "value": body.agent_name},

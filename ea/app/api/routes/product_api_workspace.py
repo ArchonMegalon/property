@@ -21,6 +21,7 @@ from app.api.routes.product_api_contracts import (
 )
 from app.container import AppContainer
 from app.product.property_canonical_graph import build_property_passport_snapshot
+from app.product.property_tour_hosting import revoke_hosted_property_tour_bundle
 from app.product.service import build_product_service
 
 router = APIRouter(prefix="/app/api", tags=["product"])
@@ -168,6 +169,40 @@ def export_property_account_data(
     if download:
         headers["Content-Disposition"] = f'attachment; filename="{_property_account_export_filename(bundle)}"'
     return JSONResponse(content=bundle, headers=headers)
+
+
+@router.post("/property/public-tours/{slug}/revoke")
+def revoke_property_public_tour(
+    slug: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> JSONResponse:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    result = revoke_hosted_property_tour_bundle(
+        slug=slug,
+        principal_id=context.principal_id,
+        actor=actor,
+    )
+    if str(result.get("status") or "").strip() != "revoked":
+        raise HTTPException(status_code=404, detail="property_public_tour_not_found")
+    service.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="property_public_tour_revoked",
+        surface="property_account_lifecycle",
+        actor=actor,
+        metadata={
+            "slug": str(result.get("slug") or "").strip(),
+            "removed_file_count": int(result.get("removed_file_count") or 0),
+        },
+    )
+    return JSONResponse(
+        content=result,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+        },
+    )
 
 
 @router.get("/diagnostics", response_model=WorkspaceDiagnosticsOut)

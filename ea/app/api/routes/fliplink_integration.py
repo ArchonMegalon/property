@@ -51,6 +51,7 @@ FeedbackReviewAction = Literal[
     "block_reviewer",
     "convert_to_hard_rule",
 ]
+_REVOKED_PACKET_STATUSES = {"archived", "revoked", "deleted"}
 
 
 class PropertyPacketRenderIn(BaseModel):
@@ -177,10 +178,13 @@ def _publication_out(
     change_log: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     summary = dict(row.get("packet_summary_json") or {}) if isinstance(row.get("packet_summary_json"), dict) else {}
-    public_pdf_path = _public_packet_pdf_path(
-        publication_id=str(row.get("publication_id") or ""),
-        source_pdf_sha256=str(row.get("source_pdf_sha256") or ""),
-    )
+    status = str(row.get("status") or "").strip().lower()
+    public_pdf_path = ""
+    if status not in _REVOKED_PACKET_STATUSES:
+        public_pdf_path = _public_packet_pdf_path(
+            publication_id=str(row.get("publication_id") or ""),
+            source_pdf_sha256=str(row.get("source_pdf_sha256") or ""),
+        )
     analytics_out = {
         "views": None,
         "unique_visitors": None,
@@ -213,7 +217,7 @@ def _publication_out(
         "published_at": str(row.get("published_at") or ""),
         "recommended_title": str(row.get("recommended_title") or ""),
         "recommended_format": str(row.get("recommended_format") or ""),
-        "artifact_download_path": public_pdf_path or str(row.get("artifact_download_path") or ""),
+        "artifact_download_path": "" if status in _REVOKED_PACKET_STATUSES else (public_pdf_path or str(row.get("artifact_download_path") or "")),
         "public_pdf_path": public_pdf_path,
         "recommended_folder": str(summary.get("recommended_folder") or ""),
         "recommended_custom_domain": str(summary.get("recommended_custom_domain") or ""),
@@ -717,6 +721,8 @@ def download_public_property_packet_pdf(
     service = build_fliplink_packet_service(container)
     row = service.get_publication(publication_id=publication_id, principal_id=None)
     if row is None:
+        raise HTTPException(status_code=404, detail="property_packet_pdf_not_found")
+    if str(row.get("status") or "").strip().lower() in _REVOKED_PACKET_STATUSES:
         raise HTTPException(status_code=404, detail="property_packet_pdf_not_found")
     actual_sha = str(row.get("source_pdf_sha256") or "").strip().lower()
     if not actual_sha or not hmac.compare_digest(actual_sha, expected_sha):

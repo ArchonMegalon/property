@@ -7338,6 +7338,73 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert client.get(f"/tours/files/{slug}/magicfit-still-private.jpg").status_code == 404
 
 
+def test_authenticated_public_tour_revocation_removes_served_manifest_and_assets(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    slug = "revocable-kahlenberg-tour"
+    owner_principal = "exec-public-tour-owner"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01.jpg").write_bytes(b"served-scene")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Revocable Kahlenberg Tour",
+                "display_title": "Revocable Kahlenberg Tour",
+                "scene_count": 1,
+                "principal_id": owner_principal,
+                "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+                "facts": {"rooms": 2, "postal_name": "1190 Wien"},
+                "scenes": [
+                    {
+                        "name": "Scene",
+                        "role": "photo",
+                        "asset_relpath": "scene-01.jpg",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.private.json").write_text(
+        json.dumps({"principal_id": owner_principal, "listing_url": "https://private.example.test/listing"}),
+        encoding="utf-8",
+    )
+
+    intruder = _client(principal_id="exec-public-tour-other")
+    denied = intruder.post(f"/app/api/property/public-tours/{slug}/revoke")
+    assert denied.status_code == 404
+    assert bundle_dir.exists()
+
+    owner = _client(principal_id=owner_principal)
+    assert owner.get(f"/tours/{slug}.json").status_code == 200
+    assert owner.get(f"/tours/files/{slug}/scene-01.jpg").status_code == 200
+
+    revoked = owner.post(f"/app/api/property/public-tours/{slug}/revoke")
+    assert revoked.status_code == 200, revoked.text
+    body = revoked.json()
+    assert body["status"] == "revoked"
+    assert body["slug"] == slug
+    assert body["removed_file_count"] >= 3
+    assert not bundle_dir.exists()
+    receipt_path = tmp_path / ".revocations" / f"{slug}.json"
+    assert receipt_path.exists()
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "revoked"
+    assert receipt["principal_id_sha256"]
+    assert "private.example.test" not in json.dumps(receipt)
+
+    assert owner.get(f"/tours/{slug}").status_code == 404
+    assert owner.get(f"/tours/{slug}.json").status_code == 404
+    assert owner.get(f"/tours/files/{slug}/scene-01.jpg").status_code == 404
+    assert owner.get(f"/tours/.revocations").status_code == 404
+
+
 def test_public_tour_removed_cube_file_gate_respects_privacy_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

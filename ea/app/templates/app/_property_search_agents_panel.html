@@ -12,6 +12,7 @@
     <div>
       <div class="pqx-small">Recurring watches</div>
       <h2>Saved searches</h2>
+      <div class="pqx-note">Recurring briefs, delivery budgets, and recent outcomes.</div>
     </div>
     <div class="pqx-actions">
       <span class="pqx-pill">{{ active_total }} active</span>
@@ -25,66 +26,61 @@
     <span><strong>{{ (outcomes_card.value.get('items') or [])|length }}</strong> recent runs</span>
   </div>
 
-  <div class="pqx-automation-table-wrap">
-    <table class="pqx-automation-table">
-      <thead>
-        <tr>
-          <th>Watch</th>
-          <th>Scope</th>
-          <th>Cadence</th>
-          <th>Delivery</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for agent in search_agents %}
-        <tr class="{% if agent.get('is_active') %}is-selected{% endif %}" data-property-search-agent-row data-search-agent-id="{{ agent.get('agent_id') or 'current' }}" data-search-agent-payload='{{ (agent.get("load_payload") or {})|tojson|safe }}'>
-          <td data-label="Watch">
-            <strong>{{ agent.get('name') or 'Saved search' }}</strong>
-            <div class="pqx-automation-row-meta">
-              <span class="pqx-pill">{{ agent.get('status_label') or ('Active' if agent.get('enabled') else 'Paused') }}</span>
-              {% if agent.get('is_active') %}<span class="pqx-pill good">Selected</span>{% endif %}
-            </div>
-          </td>
-          <td data-label="Scope">
-            <span>{{ agent.get('scope_label') or 'No scope saved' }}</span>
-            <small>{{ agent.get('provider_count') or 0 }} provider{{ '' if agent.get('provider_count') == 1 else 's' }}</small>
-          </td>
-          <td data-label="Cadence">
-            <span>{{ agent.get('run_label') or 'Waiting' }}</span>
-            <small>{{ agent.get('duration_label') or 'No window set' }}</small>
-          </td>
-          <td data-label="Delivery">
-            <span>{{ agent.get('delivery_label') or 'Delivery not set' }}</span>
-            <small>{{ agent.get('notification_label') or 'No cap set' }}</small>
-          </td>
-          <td data-label="Actions">
-            <div class="pqx-actions">
-              <button class="pqx-button primary" type="button" data-search-agent-action="run">Run</button>
-              <button class="pqx-button" type="button" data-search-agent-action="load">Edit</button>
-              {% if agent.get('enabled') %}
-              <button class="pqx-button subtle" type="button" data-search-agent-action="pause">Pause</button>
-              {% else %}
-              <button class="pqx-button" type="button" data-search-agent-action="resume">Resume</button>
-              {% endif %}
-            </div>
-          </td>
-        </tr>
+  <div class="pqx-automation-grid" data-property-search-agent-grid>
+    {% for agent in search_agents %}
+    {% set scope_preview = agent.get('scope_preview') or {} %}
+    <article class="pqx-automation-card{% if agent.get('is_active') %} is-selected{% endif %}" data-property-search-agent-row data-search-agent-id="{{ agent.get('agent_id') or 'current' }}" data-search-agent-payload='{{ (agent.get("load_payload") or {})|tojson|safe }}'>
+      <button class="pqx-automation-delete" type="button" data-search-agent-action="delete" aria-label="Delete {{ agent.get('name') or 'saved search' }}" title="Delete saved search">&times;</button>
+      <button class="pqx-automation-thumbnail" type="button" data-search-agent-action="load" aria-label="Edit {{ agent.get('name') or 'saved search' }}">
+        {% if scope_preview.get('image_url') %}
+        <img src="{{ scope_preview.get('image_url') }}" alt="{{ scope_preview.get('alt') or 'Search area preview' }}" loading="lazy">
         {% else %}
-        <tr data-property-search-agent-row data-search-agent-id="current" data-search-agent-payload="{}">
-          <td colspan="5" data-label="Saved search">
-            <div class="pqx-empty">
-              <strong>No saved search yet</strong>
-              <span>Save a search brief to create the first recurring watch.</span>
-              <div class="pqx-actions">
-                <a class="pqx-link-button primary" href="/app/search{{ run_suffix }}">Create saved search</a>
-              </div>
-            </div>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        <span class="pqx-automation-scope-empty">
+          <strong>{{ agent.get('area_label') or agent.get('location_query') or 'Search area' }}</strong>
+          <small>{{ scope_preview.get('summary') or agent.get('scope_label') or 'No map preview yet' }}</small>
+        </span>
+        {% endif %}
+        <span class="pqx-automation-thumbnail-action">Edit</span>
+      </button>
+      <div class="pqx-automation-meta">
+        <div class="pqx-automation-headline">
+          <div>
+            <strong>{{ agent.get('name') or 'Saved search' }}</strong>
+            <span class="pqx-automation-subhead">{{ agent.get('scope_label') or 'No scope saved' }}</span>
+          </div>
+          <div class="pqx-automation-row-meta">
+            <span class="pqx-pill{% if agent.get('enabled') %} good{% endif %}">{{ agent.get('status_label') or ('Active' if agent.get('enabled') else 'Paused') }}</span>
+            {% if agent.get('is_active') %}<span class="pqx-pill good">Selected</span>{% endif %}
+          </div>
+        </div>
+        <div class="pqx-automation-metrics">
+          <span><b>{{ agent.get('provider_count') or 0 }}</b> provider{{ '' if agent.get('provider_count') == 1 else 's' }}</span>
+          <span><b>{{ agent.get('duration_label') or 'Window' }}</b></span>
+          <span><b>{{ agent.get('notification_label') or 'No cap' }}</b></span>
+        </div>
+        <div class="pqx-automation-rhythm">
+          <span>{{ agent.get('run_label') or 'Waiting for first run' }}</span>
+          <span>{{ agent.get('delivery_label') or 'Delivery not set' }}</span>
+        </div>
+        <div class="pqx-automation-actions">
+          <button class="pqx-button primary" type="button" data-search-agent-action="run">Run</button>
+          {% if agent.get('enabled') %}
+          <button class="pqx-button subtle" type="button" data-search-agent-action="pause">Pause</button>
+          {% else %}
+          <button class="pqx-button" type="button" data-search-agent-action="resume">Resume</button>
+          {% endif %}
+        </div>
+      </div>
+    </article>
+    {% else %}
+    <div class="pqx-empty pqx-automation-empty" data-property-search-agent-row data-search-agent-id="current" data-search-agent-payload="{}">
+      <strong>No saved search yet</strong>
+      <span>Save a search brief to create the first recurring watch.</span>
+      <div class="pqx-actions">
+        <a class="pqx-link-button primary" href="/app/search{{ run_suffix }}">Create saved search</a>
+      </div>
+    </div>
+    {% endfor %}
   </div>
 
   {% if outcomes_card.value and outcomes_card.value.get('items') %}

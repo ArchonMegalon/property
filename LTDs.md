@@ -68,6 +68,7 @@ Updated: 2026-04-30
 | `Prompt Architects` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | `PROMPTING_SYSTEMS_API_KEY` in local `.env`; governed Prompt Foundry Accelerator is integrated for template seed/operator assist | AppSumo Tier 4 capture is confirmed for 20 team members, 20,000 prompts/month, unlimited prompt history/context, JSON/image/video prompt support, Chrome/sidebar/hotkeys, template tags, refine/shorten modes, and claimed MCP. Runtime GM assist remains disabled until API/MCP automation, export semantics, retention, and tenant isolation are verified. |
 | `PeekShot` | `3x code-based` | `3 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; suitable for newsroom thumbnail, poster, and contact-sheet adapter work when wired. |
 | `Signitic` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 4 and account identity were seeded manually; local credentials now exist for later structured verification or BrowserAct capture. |
+| `Subscribr` | `License Tier 7 / Scale 3` | `1 lifetime license` | `Owned / activated` |  | `Tier 4` | PropertyQuarry source-packet, validation, local receipt, disabled-by-default API, and webhook contracts | Acquired as PropertyQuarry governed video-script and content pre-production infrastructure. Tier 7 is allocated to product tutorials, renter/buyer education, cited city and relocation guides, approved listing-dossier summaries, tour narration, viewing-question scripts, titles, descriptions, shot lists, and thumbnail candidates. Subscribr must not own listing truth, ranking truth, research truth, market-price truth, investment suitability, legal conclusions, tour truth, billing, entitlement, publication approval, or direct publishing. Raw provider payloads, portal credentials, private preference profiles, private feedback, payment data, and seller contact details are forbidden. Promote only after live provider/API verification, channel mapping, signed webhook proof, Markdown export receipt, listing-freshness validation, privacy/fair-housing gates, media-rights checks, and human approval enforcement pass. |
 | `Syllabbles` | `Max tier` | `1 account` | `Activated` |  | `Tier 2` | Local `.env` credentials plus dispatch-draft adapter, template, and dry-run tests | Use as a Black Ledger Dispatch draft workbench only. Drafts stay non-authoritative until Chummer gates and publishes them. |
 | `blipai.app` | `Max tier` | `1 account` | `Owned` |  | `Tier 2` | Local `.env` credentials/token plus operator-capture packet transform and tests | Use for operator voice capture, prompt capture, and audit-note capture. Never publish directly from this lane. |
 | `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Local API key plus projection adapter and dry-run sync receipt | Use only as a curated operator projection surface for product signals, dispatches, tick-news delivery, package pressure, adapter readiness, and newsroom production tracking. |
@@ -76,7 +77,7 @@ Updated: 2026-04-30
 
 ## Summary
 
-- `52` total LTD products tracked
+- `53` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `katteb.com`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`12 licenses / 12 accounts`)
 

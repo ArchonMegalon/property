@@ -153,6 +153,53 @@ def _load_hosted_property_tour_payload(bundle_dir: Path) -> dict[str, object]:
     return payload
 
 
+def revoke_hosted_property_tour_bundle(*, slug: str, principal_id: str = "", actor: str = "") -> dict[str, object]:
+    normalized_slug = str(slug or "").strip()
+    if not normalized_slug or "/" in normalized_slug or ".." in normalized_slug:
+        return {"status": "not_found", "slug": normalized_slug}
+    public_dir = _public_tour_dir()
+    root = public_dir.resolve()
+    bundle_dir = (public_dir / normalized_slug).resolve()
+    if bundle_dir == root or root not in bundle_dir.parents or not bundle_dir.exists() or not bundle_dir.is_dir():
+        return {"status": "not_found", "slug": normalized_slug}
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists():
+        return {"status": "not_found", "slug": normalized_slug}
+    payload = _load_hosted_property_tour_payload(bundle_dir)
+    owner_principal = str(payload.get("principal_id") or "").strip()
+    requested_principal = str(principal_id or "").strip()
+    if requested_principal and owner_principal and owner_principal != requested_principal:
+        return {"status": "not_found", "slug": normalized_slug}
+    revoked_at = _now_iso()
+    file_count = sum(1 for path in bundle_dir.rglob("*") if path.is_file())
+    receipt_dir = public_dir / ".revocations"
+    receipt_dir.mkdir(parents=True, exist_ok=True)
+    (receipt_dir / f"{normalized_slug}.json").write_text(
+        json.dumps(
+            {
+                "slug": normalized_slug,
+                "status": "revoked",
+                "revoked_at": revoked_at,
+                "principal_id_sha256": hashlib.sha256(owner_principal.encode("utf-8")).hexdigest() if owner_principal else "",
+                "actor": str(actor or "").strip()[:120],
+                "removed_file_count": file_count,
+                "previous_public_url": str(payload.get("hosted_url") or payload.get("public_url") or "").strip(),
+                "previous_title": str(payload.get("display_title") or payload.get("title") or "").strip()[:220],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    shutil.rmtree(bundle_dir, ignore_errors=True)
+    return {
+        "status": "revoked",
+        "slug": normalized_slug,
+        "revoked_at": revoked_at,
+        "removed_file_count": file_count,
+    }
+
+
 def _configured_public_tour_hosts() -> tuple[str, ...]:
     hosts: list[str] = []
     for raw in (

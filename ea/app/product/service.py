@@ -4420,12 +4420,36 @@ def _property_enrich_facts_from_listing_text(
             enriched["rooms"] = float(str(rooms_match.group(1) or "").replace(",", "."))
         except Exception:
             pass
-    postal_match = re.search(r"\((\d{4}\s+[A-Za-zÄÖÜäöüß][^)]*)\)", text)
-    if postal_match and "postal_name" not in enriched and "address" not in enriched and "district" not in enriched:
-        postal_name = str(postal_match.group(1) or "").strip()[:160]
-        if postal_name:
+    postal_evidence = _property_postal_location_evidence(text)
+    if postal_evidence:
+        existing_evidence = [
+            dict(item)
+            for item in list(enriched.get("listing_postal_evidence") or [])
+            if isinstance(item, dict)
+        ]
+        enriched["listing_postal_evidence"] = [*existing_evidence, *[dict(row) for row in postal_evidence]][:8]
+        postal_name = str(postal_evidence[0].get("postal_name") or "").strip()[:160]
+        source_scope_candidates = {
+            str(enriched.get("source_scope_location") or "").strip().casefold(),
+            " ".join(
+                str(enriched.get(key) or "").strip()
+                for key in ("source_postal_code", "source_city")
+                if str(enriched.get(key) or "").strip()
+            ).casefold(),
+        }
+        source_scope_candidates.discard("")
+        current_postal_name = str(enriched.get("postal_name") or "").strip()
+        current_address = str(enriched.get("address") or "").strip()
+        if postal_name and (
+            not current_postal_name
+            or current_postal_name.casefold() in source_scope_candidates
+            or _property_postal_code_core(current_postal_name) in _property_source_scope_postal_codes(enriched)
+        ):
             enriched["postal_name"] = postal_name
+        if postal_name and (not current_address or current_address.casefold() in source_scope_candidates):
             enriched.setdefault("address", postal_name)
+            if current_address.casefold() in source_scope_candidates:
+                enriched["address"] = postal_name
     return enriched
 
 
@@ -5281,6 +5305,93 @@ def _property_facts_with_source_scope(
     return enriched
 
 
+_PROPERTY_POSTAL_LOCATION_RE = re.compile(
+    r"\b(?P<code>(?:[A-Z]{1,3}[-\s]?)?\d{4,5}(?:-\d{3})?|\d{2}-\d{3}|\d{3}\s?\d{2}|\d{4}\s?[A-Z]{2})\s+"
+    r"(?P<locality>[A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-/]{1,60})",
+    flags=re.IGNORECASE,
+)
+
+
+def _property_postal_code_core(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    match = re.search(r"\b(\d{4,5})\b", normalized)
+    if match:
+        return match.group(1)
+    compact = re.sub(r"\D+", "", normalized)
+    return compact[:5] if len(compact) >= 4 else ""
+
+
+def _property_postal_location_evidence(value: object) -> tuple[dict[str, str], ...]:
+    raw_text = html.unescape(str(value or ""))
+    if not raw_text.strip():
+        return ()
+    text = " ".join(raw_text.replace("|", " ").replace("·", " ").split())
+    rows: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for match in _PROPERTY_POSTAL_LOCATION_RE.finditer(text):
+        code = _property_postal_code_core(match.group("code"))
+        locality = compact_text(str(match.group("locality") or ""), fallback="", limit=80)
+        locality = re.sub(
+            r"\s+(?:m(?:²|2)|sqm|zimmer|rooms?|eur|€|usd|der\s+standard|willhaben|immobilien)\b.*$",
+            "",
+            locality,
+            flags=re.IGNORECASE,
+        ).strip(" ,.;:-")
+        if not code or not locality or not re.search(r"[A-Za-zÄÖÜäöüß]", locality):
+            continue
+        key = (code, locality.casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({"postal_code": code, "postal_name": f"{code} {locality}".strip()})
+    return tuple(rows)
+
+
+def _property_source_scope_postal_codes(facts: dict[str, object] | None) -> frozenset[str]:
+    payload = dict(facts or {})
+    return frozenset(
+        code
+        for code in (
+            _property_postal_code_core(payload.get("source_postal_code")),
+            _property_postal_code_core(payload.get("source_scope_location")),
+            _property_postal_code_core(
+                " ".join(
+                    str(payload.get(key) or "").strip()
+                    for key in ("source_postal_code", "source_city")
+                    if str(payload.get(key) or "").strip()
+                )
+            ),
+        )
+        if code
+    )
+
+
+def _property_listing_observed_postal_codes(
+    *,
+    title: str = "",
+    summary: str = "",
+    property_facts: dict[str, object] | None = None,
+) -> tuple[str, ...]:
+    facts = dict(property_facts or {})
+    source_codes = _property_source_scope_postal_codes(facts)
+    evidence_parts: list[object] = [title, summary]
+    for key in ("exact_address", "street_address", "address", "postal_name", "location", "district", "city"):
+        value = str(facts.get(key) or "").strip()
+        if value:
+            evidence_parts.append(value)
+    evidence_parts.extend(str(item or "").strip() for item in list(facts.get("address_lines") or []) if str(item or "").strip())
+    evidence_parts.extend(str(item.get("postal_name") or "").strip() for item in list(facts.get("listing_postal_evidence") or []) if isinstance(item, dict))
+    codes: list[str] = []
+    for part in evidence_parts:
+        for row in _property_postal_location_evidence(part):
+            code = str(row.get("postal_code") or "").strip()
+            if code and (code not in source_codes or str(part or "").strip() in {str(title or "").strip(), str(summary or "").strip()}):
+                codes.append(code)
+    return tuple(dict.fromkeys(codes))
+
+
 def _property_scout_objective_review_boost(*, property_url: str, preview: dict[str, object]) -> float:
     facts = dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {}
     boost = 0.0
@@ -5892,6 +6003,7 @@ def _property_candidate_matches_requested_location(
     normalized_concrete_text = re.sub(r"[^a-z0-9äöüß]+", "", concrete_text)
     real_concrete_text = " ".join(part for part in real_concrete_parts if part).lower()
     strong_concrete_text = " ".join(part for part in strong_concrete_parts if part).lower()
+    normalized_real_concrete_text = re.sub(r"[^a-z0-9äöüß]+", "", real_concrete_text)
 
     def _matches_text(raw_text: str, normalized_text: str) -> bool:
         for hint in hints:
@@ -5909,10 +6021,21 @@ def _property_candidate_matches_requested_location(
         return False
 
     hint_text = " ".join(hints).lower()
-    explicit_hint_postal_codes = frozenset(re.findall(r"\b\d{4}\b", hint_text))
+    explicit_hint_postal_codes = frozenset(re.findall(r"\b\d{4,5}\b", hint_text))
     wants_vienna = "wien" in hint_text or "vienna" in hint_text or any(str(code).startswith("1") for code in explicit_hint_postal_codes)
-    real_concrete_postal_codes = tuple(re.findall(r"\b\d{4}\b", real_concrete_text))
-    strong_concrete_postal_codes = tuple(re.findall(r"\b\d{4}\b", strong_concrete_text))
+    observed_listing_postal_codes = _property_listing_observed_postal_codes(
+        title=title,
+        summary=summary,
+        property_facts=facts,
+    )
+    if explicit_hint_postal_codes and observed_listing_postal_codes and not any(
+        code in explicit_hint_postal_codes for code in observed_listing_postal_codes
+    ):
+        return False
+    if wants_vienna and observed_listing_postal_codes and not any(str(code).startswith("1") for code in observed_listing_postal_codes):
+        return False
+    real_concrete_postal_codes = tuple(re.findall(r"\b\d{4,5}\b", real_concrete_text))
+    strong_concrete_postal_codes = tuple(re.findall(r"\b\d{4,5}\b", strong_concrete_text))
     exact_postal_match = bool(
         explicit_hint_postal_codes
         and real_concrete_postal_codes
@@ -5941,12 +6064,17 @@ def _property_candidate_matches_requested_location(
     ) and not strong_exact_postal_match:
         return False
 
-    concrete_postal_codes = tuple(re.findall(r"\b\d{4}\b", concrete_text))
+    concrete_postal_codes = tuple(re.findall(r"\b\d{4,5}\b", concrete_text))
     if concrete_postal_codes:
         if explicit_hint_postal_codes and not any(code in explicit_hint_postal_codes for code in concrete_postal_codes):
             return False
         if wants_vienna and not any(str(code).startswith("1") for code in concrete_postal_codes):
             return False
+
+    if explicit_hint_postal_codes:
+        # Exact postal/district selections are hard filters. A provider/search-page
+        # scope such as "Willhaben | ... | 1010 Vienna" is not listing evidence.
+        return bool(exact_postal_match or _matches_text(real_concrete_text, normalized_real_concrete_text))
 
     if _matches_text(concrete_text, normalized_concrete_text):
         return True
@@ -6476,11 +6604,15 @@ def _property_candidate_has_concrete_location(property_facts: dict[str, object] 
     district = str(facts.get("district") or "").strip()
     postal_name = str(facts.get("postal_name") or "").strip()
     location = str(facts.get("location") or "").strip()
+    source_scope_location = str(facts.get("source_scope_location") or "").strip().lower()
+    source_postal_code = str(facts.get("source_postal_code") or "").strip()
     if exact_address or street_address or district:
         return True
     for value in (postal_name, location):
         lowered = value.lower()
         if not lowered:
+            continue
+        if lowered == source_scope_location or (source_postal_code and _property_postal_code_core(lowered) == source_postal_code):
             continue
         if re.search(r"\b\d{4,5}\b", lowered):
             return True
@@ -31215,6 +31347,9 @@ class ProductService:
                                 "tour_result": tour_result,
                                 "candidate_properties": candidate_properties,
                                 "render_dossier": False,
+                                "requested_location_hints": location_hints,
+                                "requested_country_code": str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
+                                "requested_region_code": str(request_preferences.get("region_code") or "").strip(),
                             },
                         }
                     )
@@ -35134,9 +35269,16 @@ class ProductService:
         candidate_properties: tuple[dict[str, object], ...] = (),
         diorama_style_hint: str = "",
         render_dossier: bool = True,
+        requested_location_hints: tuple[str, ...] = (),
+        requested_country_code: str = "",
+        requested_region_code: str = "",
     ) -> dict[str, object]:
         current_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
-        location_hints = _property_search_location_hints(current_preferences)
+        location_hints = tuple(
+            str(item or "").strip()
+            for item in list(requested_location_hints or ())
+            if str(item or "").strip()
+        ) or _property_search_location_hints(current_preferences)
         search_goal = str(current_preferences.get("search_goal") or "").strip().lower()
         listing_mode = "buy" if search_goal == "investment" else normalize_listing_mode(current_preferences.get("listing_mode"))
         first_candidate = dict(candidate_properties[0] or {}) if candidate_properties else {}
@@ -35150,8 +35292,24 @@ class ProductService:
         candidate_property_url = str(first_candidate.get("property_url") or property_url or "").strip()
         candidate_title = str(first_candidate.get("listing_title") or first_candidate.get("title") or title or "").strip()
         candidate_summary = str(first_candidate.get("summary") or first_candidate.get("fit_summary") or summary or "").strip()
+        candidate_facts = _property_facts_with_source_scope(
+            facts=candidate_facts,
+            source_url=candidate_property_url or property_url,
+            source_label=str(counterparty or source_ref or "").strip(),
+        )
+        candidate_facts = _property_enrich_facts_from_listing_text(
+            facts=candidate_facts,
+            title=candidate_title,
+            summary=candidate_summary,
+            listing_mode=listing_mode,
+        )
         suppression_reason = ""
         repair_filter_key = ""
+        candidate_listing_postal_codes = _property_listing_observed_postal_codes(
+            title=candidate_title,
+            summary=candidate_summary,
+            property_facts=candidate_facts,
+        )
         candidate_semantic_probe_available = any(
             str(candidate_facts.get(key) or "").strip()
             for key in (
@@ -35185,15 +35343,21 @@ class ProductService:
                 "buy_price_eur",
             )
         )
-        if candidate_semantic_probe_available and location_hints and not _property_candidate_matches_requested_location(
-            location_hints=location_hints,
-            property_url=candidate_property_url,
-            title=candidate_title,
-            summary=candidate_summary,
-            property_facts=candidate_facts,
-            country_code=str(current_preferences.get("country_code") or "").strip(),
-            region_code=str(current_preferences.get("region_code") or "").strip(),
-        ):
+        candidate_has_listing_location_probe = bool(candidate_listing_postal_codes) or _property_candidate_has_concrete_location(candidate_facts)
+        candidate_location_mismatch = bool(
+            (candidate_semantic_probe_available or candidate_listing_postal_codes)
+            and location_hints
+            and not _property_candidate_matches_requested_location(
+                location_hints=location_hints,
+                property_url=candidate_property_url,
+                title=candidate_title,
+                summary=candidate_summary,
+                property_facts=candidate_facts,
+                country_code=str(requested_country_code or current_preferences.get("country_code") or "").strip(),
+                region_code=str(requested_region_code or current_preferences.get("region_code") or "").strip(),
+            )
+        )
+        if candidate_location_mismatch and candidate_has_listing_location_probe:
             suppression_reason = "property_location_conflicts_with_active_search"
             repair_filter_key = "location_scope"
         elif _property_candidate_is_generic_listing_page(
@@ -35204,6 +35368,9 @@ class ProductService:
         ):
             suppression_reason = "property_generic_listing_page"
             repair_filter_key = "missing_price"
+        elif candidate_location_mismatch:
+            suppression_reason = "property_location_conflicts_with_active_search"
+            repair_filter_key = "location_scope"
         elif candidate_semantic_probe_available and not _property_candidate_has_concrete_location(candidate_facts):
             suppression_reason = "property_missing_concrete_location"
             repair_filter_key = "missing_location"

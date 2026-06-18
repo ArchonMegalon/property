@@ -55,6 +55,7 @@ def _include_public_routes(
     landing_workspace_router: APIRouter,
     landing_router: APIRouter,
     fliplink_public_router: APIRouter,
+    subscribr_public_router: APIRouter,
     dadan_public_router: APIRouter,
     heyy_public_router: APIRouter,
     health_router: APIRouter,
@@ -68,6 +69,7 @@ def _include_public_routes(
     app.include_router(landing_workspace_router)
     app.include_router(landing_router)
     app.include_router(fliplink_public_router)
+    app.include_router(subscribr_public_router)
     app.include_router(dadan_public_router)
     app.include_router(heyy_public_router)
     if settings.public_results_enabled:
@@ -99,6 +101,7 @@ def _include_authenticated_routes(
     product_api_workspace_router: APIRouter,
     product_api_router: APIRouter,
     fliplink_authenticated_router: APIRouter,
+    property_content_studio_router: APIRouter,
     policy_router: APIRouter,
     providers_router: APIRouter,
     plans_router: APIRouter,
@@ -114,6 +117,7 @@ def _include_authenticated_routes(
     app.include_router(product_api_workspace_router, dependencies=auth_dependency)
     app.include_router(product_api_router, dependencies=auth_dependency)
     app.include_router(fliplink_authenticated_router, dependencies=auth_dependency)
+    app.include_router(property_content_studio_router, dependencies=auth_dependency)
     app.include_router(policy_router, dependencies=auth_dependency)
     app.include_router(providers_router, dependencies=auth_dependency)
     app.include_router(plans_router, dependencies=auth_dependency)
@@ -171,6 +175,7 @@ def _include_legacy_authenticated_routes(
 def _load_core_route_modules() -> dict[str, object]:
     modules = {
         "fliplink_integration": import_module("app.api.routes.fliplink_integration"),
+        "admin_property_content_studio": import_module("app.api.routes.admin_property_content_studio"),
         "dadan_integration": import_module("app.api.routes.dadan_integration"),
         "heyy_integration": import_module("app.api.routes.heyy_integration"),
         "google_oauth": import_module("app.api.routes.google_oauth"),
@@ -230,6 +235,8 @@ def create_app() -> FastAPI:
     route_modules = _load_core_route_modules()
     fliplink_authenticated_router = route_modules["fliplink_integration"].authenticated_router
     fliplink_public_router = route_modules["fliplink_integration"].public_router
+    property_content_studio_router = route_modules["admin_property_content_studio"].authenticated_router
+    subscribr_public_router = route_modules["admin_property_content_studio"].public_router
     dadan_public_router = route_modules["dadan_integration"].router
     heyy_public_router = route_modules["heyy_integration"].router
     google_oauth_router = route_modules["google_oauth"].router
@@ -274,6 +281,7 @@ def create_app() -> FastAPI:
         landing_workspace_router=landing_workspace_router,
         landing_router=landing_router,
         fliplink_public_router=fliplink_public_router,
+        subscribr_public_router=subscribr_public_router,
         dadan_public_router=dadan_public_router,
         heyy_public_router=heyy_public_router,
         health_router=health_router,
@@ -292,6 +300,7 @@ def create_app() -> FastAPI:
         product_api_workspace_router=product_api_workspace_router,
         product_api_router=product_api_router,
         fliplink_authenticated_router=fliplink_authenticated_router,
+        property_content_studio_router=property_content_studio_router,
         policy_router=policy_router,
         providers_router=(
             providers_router

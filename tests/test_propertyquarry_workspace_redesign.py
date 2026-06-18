@@ -1528,7 +1528,10 @@ def test_property_scope_preview_uses_generic_boundary_projection(monkeypatch) ->
 def test_property_scope_preview_without_boundary_data_uses_local_layout_fallback(monkeypatch) -> None:
     monkeypatch.setattr(landing_view_models, "_nominatim_boundary_record", lambda query: {})
     preview = landing_view_models._property_scope_preview("AT", "vienna", "1020 Vienna")
-    assert str(preview["image_url"]).startswith("data:image/svg+xml")
+    image_url = str(preview["image_url"])
+    assert image_url.startswith("data:image/svg+xml")
+    assert "#" not in image_url
+    assert "%23" in image_url
     assert preview["district_rows"] == []
 
 
@@ -2370,9 +2373,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'No practical zoo or Tiergarten signal is configured for this market yet.' in setup.text
     assert 'data-property-pulse-strip' not in setup.text
     assert "Min area" in setup.text
-    assert "Automation" in setup.text
-    assert "Recurring searches, delivery, reports, and repair policy live in the dedicated automation view." in setup.text
-    assert "Open automation" in setup.text
+    assert 'data-property-search-utility-strip' in setup.text
+    assert 'data-property-search-utility="automation"' in setup.text
+    assert 'data-property-search-utility="preferences"' in setup.text
+    assert "Recurring searches, delivery, reports, and repair policy live in the dedicated automation view." not in setup.text
+    assert "Manage durable rules in Account." not in setup.text
+    assert "Open automation" not in setup.text
     assert 'data-keyword-preference-select' in setup.text
     assert "Neutral" in setup.text
     assert "Avoid" in setup.text
@@ -2388,6 +2394,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     search_surface = client.get("/app/search", headers=headers)
     assert search_surface.status_code == 200
     assert 'data-property-decision-workbench' in search_surface.text
+    assert search_surface.text.count('data-property-search-utility-strip') == 1
+    assert search_surface.text.count('data-property-search-utility="automation"') == 1
+    assert search_surface.text.count('data-property-search-utility="preferences"') == 1
+    assert "Recurring searches, delivery, reports, and repair policy live in the dedicated automation view." not in search_surface.text
+    assert "Manage durable rules in Account." not in search_surface.text
+    assert "Open automation" not in search_surface.text
     assert "Search people, threads, commitments, decisions, deadlines, evidence, rules, and handoffs." not in search_surface.text
 
     search = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)
@@ -2764,13 +2776,17 @@ def test_property_search_agents_can_load_saved_filters_into_form() -> None:
 
     assert '{% include "app/_property_search_agents_panel.html" %}' in body
     assert "data-search-agent-payload" in agents_body
+    assert 'class="pqx-automation-thumbnail"' in agents_body
     assert 'data-search-agent-action="load"' in agents_body
-    assert ">Edit</button>" in agents_body
+    assert 'class="pqx-automation-thumbnail-action">Edit</span>' in agents_body
+    assert 'data-search-agent-action="delete"' in agents_body
+    assert ">Edit</button>" not in agents_body
     assert "Load filters" not in body
     assert "applySearchAgentPayloadToForm" in script_body
     assert "resetSearchBriefForm" in script_body
     assert "resetSearchBriefForm();" in script_body
     assert "Saved search ready to edit. Tweak the filters or run it again." in script_body
+    assert "Delete ${label}?" in script_body
     assert "data-search-agent-loaded-state" in body
     assert "Loaded: ${label}" in script_body
     assert "data-search-agent-dirty-label" in body
@@ -3234,23 +3250,29 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "Vienna apartments" in page.text
     assert "Monteverde land" in page.text
     assert "Saved searches" in page.text
-    assert "pqx-automation-table" in page.text
-    assert 'td data-label="Actions"' in page.text
-    assert 'td data-label="Delivery"' in page.text
+    assert 'data-property-search-agent-grid' in page.text
+    assert "pqx-automation-table" not in page.text
+    assert 'class="pqx-automation-card' in page.text
+    assert 'class="pqx-automation-thumbnail"' in page.text
+    assert 'data-search-agent-action="load"' in page.text
+    assert 'data-search-agent-action="delete"' in page.text
+    assert 'title="Delete saved search"' in page.text
     assert "Selected watch, delivery, repair" not in page.text
     assert "Limits" not in page.text
     assert 'href="/app/agents"' in page.text
     assert 'href="/app/search' in page.text
     assert "Run</button>" in page.text
-    assert "Edit</button>" in page.text
+    assert 'class="pqx-automation-thumbnail-action">Edit</span>' in page.text
     assert "Pause</button>" in page.text
-    assert "Delete</button>" not in page.text
     assert "/app/search?load_agent=" in page.text
     assert "/app/search?run_agent=" in page.text
     template = _read_workbench_bundle()
-    assert ".pqx-automation-table thead {\n        display: none;" in template
-    assert ".pqx-automation-table td::before" in template
-    assert "content: attr(data-label);" in template
+    assert ".pqx-automation-grid" in template
+    assert ".pqx-automation-thumbnail" in template
+    assert ".pqx-automation-delete" in template
+    assert ".pqx-automation-card" in template
+    assert "grid-template-columns: minmax(150px, 0.38fr) minmax(0, 1fr);" in template
+    assert ".pqx-automation-table" not in template
     assert '.pqx-shell[data-pqx-surface="agents"] .pqx-mobile-switch' in template
     assert '.pqx-shell[data-pqx-surface="account"] .pqx-mobile-switch' in template
     assert "position: static;" in template
@@ -4188,7 +4210,8 @@ def test_propertyquarry_workspace_supports_area_select_all_actions() -> None:
     assert search.status_code == 200
     assert 'data-workbench-brief-drawer' in search.text
     assert "<h2>Search profile</h2>" not in search.text
-    assert 'href="/app/account#profile">Open preferences</a>' in search.text
+    assert 'data-property-search-utility="preferences"' in search.text
+    assert 'href="/app/account#profile"' in search.text
     assert "Prefer Outdoor Space (Soft Preference)" not in search.text
     assert 'data-checkbox-group-select-all="location_query"' in search.text
     assert 'data-checkbox-group-clear-all="location_query"' in search.text

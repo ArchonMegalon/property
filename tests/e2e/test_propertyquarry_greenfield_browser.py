@@ -1536,6 +1536,127 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         mobile.close()
 
 
+def test_propertyquarry_automation_page_uses_compact_card_cockpit(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    client = propertyquarry_browser_server["client"]
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "1020 Vienna",
+            "selected_platforms": ["willhaben", "derstandard_at"],
+            "active_search_agent_id": "watch-1020",
+            "search_agents": [
+                {
+                    "agent_id": "watch-1020",
+                    "name": "Leopoldstadt rent watch",
+                    "enabled": True,
+                    "country_code": "AT",
+                    "region_code": "vienna",
+                    "location_query": "1020 Vienna",
+                    "listing_mode": "rent",
+                    "property_type": "apartment",
+                    "duration_days": 90,
+                    "notification_limit": 3,
+                    "notification_period": "day",
+                    "last_run_at": "2026-06-18T08:00:00+02:00",
+                    "next_run_at": "2026-06-19T08:00:00+02:00",
+                    "sent_in_current_window": 1,
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "location_query": "1020 Vienna",
+                        "listing_mode": "rent",
+                        "property_type": "apartment",
+                        "selected_platforms": ["willhaben", "derstandard_at"],
+                    },
+                },
+                {
+                    "agent_id": "watch-1130",
+                    "name": "Hietzing buy watch",
+                    "enabled": False,
+                    "country_code": "AT",
+                    "region_code": "vienna",
+                    "location_query": "1130 Vienna",
+                    "listing_mode": "buy",
+                    "property_type": "apartment",
+                    "duration_days": 180,
+                    "notification_limit": 5,
+                    "notification_period": "week",
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "location_query": "1130 Vienna",
+                        "listing_mode": "buy",
+                        "property_type": "apartment",
+                        "selected_platforms": ["willhaben"],
+                    },
+                },
+            ],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, width=1440, height=900)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/agents", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(page.locator("[data-property-search-agent-grid]")).to_be_visible()
+        screenshot_path = tmp_path / "automation-premium-cockpit.png"
+        page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
+        assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
+
+        layout = page.evaluate(
+            """
+            () => {
+              const cards = [...document.querySelectorAll('.pqx-automation-card')];
+              const board = document.querySelector('[data-property-search-agent-management]');
+              const grid = document.querySelector('[data-property-search-agent-grid]');
+              const cardBoxes = cards.map((card) => card.getBoundingClientRect());
+              return {
+                cardCount: cards.length,
+                thumbnailCount: document.querySelectorAll('.pqx-automation-thumbnail').length,
+                deleteCount: document.querySelectorAll('.pqx-automation-delete[data-search-agent-action="delete"]').length,
+                formCount: document.querySelectorAll('form.pqx-form').length,
+                tableCount: document.querySelectorAll('.pqx-automation-table').length,
+                horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
+                boardBottom: board?.getBoundingClientRect().bottom || 0,
+                gridBottom: grid?.getBoundingClientRect().bottom || 0,
+                viewportHeight: window.innerHeight,
+                maxCardHeight: Math.max(...cardBoxes.map((box) => box.height)),
+                maxCardRight: Math.max(...cardBoxes.map((box) => box.right)),
+              };
+            }
+            """
+        )
+        assert layout["cardCount"] == 2
+        assert layout["thumbnailCount"] == 2
+        assert layout["deleteCount"] == 2
+        assert layout["formCount"] == 0
+        assert layout["tableCount"] == 0
+        assert layout["horizontalOverflow"] is False
+        assert layout["gridBottom"] <= layout["viewportHeight"]
+        assert layout["boardBottom"] <= layout["viewportHeight"]
+        assert layout["maxCardHeight"] <= 210
+        assert layout["maxCardRight"] <= 1440
+
+        with page.expect_navigation(wait_until="domcontentloaded"):
+            page.locator(".pqx-automation-thumbnail").first.click()
+        assert "/app/search" in page.url
+        assert "load_agent=watch-1020" in page.url
+    finally:
+        context.close()
+
+
 def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_compact(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],

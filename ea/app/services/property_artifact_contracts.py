@@ -120,6 +120,17 @@ def property_artifact_provider_lanes() -> tuple[PropertyArtifactProviderLane, ..
             fail_closed_rule="If required, missing config must block with an explicit receipt.",
         ),
         PropertyArtifactProviderLane(
+            provider_key="subscribr",
+            title="Subscribr",
+            role="Content Studio",
+            allowed_use="Governed video-script, narration, title, hook, description, and shot-list drafts from approved PropertyQuarry packets.",
+            forbidden_use="Cannot own listing truth, ranking truth, market truth, tour truth, billing, publication approval, or direct publishing.",
+            privacy_posture="sanitized source packets only; no raw provider payloads, private profiles, payment data, or portal credentials",
+            configured=_configured("SUBSCRIBR_PROPERTY_SCRIPT_API_TOKEN", "SUBSCRIBR_PROPERTY_TEAM_ID"),
+            live_tested_env="PROPERTYQUARRY_SUBSCRIBR_LIVE_SMOKE=1",
+            fail_closed_rule="Provider output is review-required draft content and must never publish without PropertyQuarry validation and human approval.",
+        ),
+        PropertyArtifactProviderLane(
             provider_key="pixefy",
             title="Pixefy",
             role="Visual QA",
