@@ -29,8 +29,8 @@ LEGACY_APP_ROUTE_REDIRECTS = {
     "/app/follow-ups": "/app/commitments",
     "/app/memory": "/app/people",
     "/app/contacts": "/app/evidence",
-    "/app/channels": "/app/settings",
-    "/app/automations": "/app/settings",
+    "/app/channels": "/app/account#delivery",
+    "/app/automations": "/app/agents",
 }
 
 
@@ -112,11 +112,14 @@ def test_app_surface_routes_render_without_product_drift() -> None:
         assert principal_id not in response.text
 
     properties = client.get("/app/properties")
-    assert "Run a premium market sweep" in properties.text
-    assert "What this search is optimizing for" in properties.text
+    assert str(properties.url).endswith("/app/search")
+    assert "Launch search" in properties.text
+    assert "Search flow" in properties.text
 
     settings = client.get("/app/settings")
-    assert "Rules" in settings.text or "Preferences" in settings.text
+    assert str(settings.url).endswith("/app/account")
+    assert "Useful account controls" in settings.text
+    assert "Identity, plan, delivery, and editable defaults." in settings.text
 
 
 def test_legacy_app_aliases_redirect_to_canonical_routes() -> None:

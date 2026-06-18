@@ -5444,6 +5444,12 @@ def test_property_workspace_primary_internal_links_resolve() -> None:
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Link Audit")
     headers = {"host": "propertyquarry.com"}
+    channel_redirect = client.get("/app/channels", headers=headers, follow_redirects=False)
+    assert channel_redirect.status_code == 307
+    assert channel_redirect.headers["location"] == "/app/account#delivery"
+    automation_redirect = client.get("/app/automations", headers=headers, follow_redirects=False)
+    assert automation_redirect.status_code == 307
+    assert automation_redirect.headers["location"] == "/app/agents"
     pages = [
         "/app/search",
         "/app/properties",
@@ -5451,6 +5457,8 @@ def test_property_workspace_primary_internal_links_resolve() -> None:
         "/app/agents",
         "/app/account",
         "/app/account#profile",
+        "/app/profile",
+        "/app/alerts",
     ]
     checked: set[str] = set()
     failures: list[str] = []
@@ -5458,6 +5466,7 @@ def test_property_workspace_primary_internal_links_resolve() -> None:
     for page_path in pages:
         page = client.get(page_path, headers=headers, follow_redirects=True)
         assert page.status_code == 200, page.text[:500]
+        assert not re.search(r'href="/app/settings(?=[?#"])', page.text), page_path
         for href in re.findall(r'href="([^"]+)"', page.text):
             if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
                 continue

@@ -2997,6 +2997,8 @@ def app_shell(
         "automations": "/app/settings",
     }
     property_legacy_redirects = {
+        "automations": "/app/agents",
+        "channels": "/app/account#delivery",
         "research": "/app/properties",
         "profile": "/app/account",
         "alerts": "/app/account",

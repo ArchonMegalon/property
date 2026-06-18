@@ -1697,12 +1697,12 @@ def property_workspace_payload(
         "profile": [
             {"href": f"/app/properties{run_suffix}", "label": "Refine search", "tone": "primary"},
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
-            {"href": f"/app/settings{run_suffix}", "label": "Settings"},
+            {"href": "/app/account#settings", "label": "Account"},
         ],
         "alerts": [
             {"href": f"/app/properties{run_suffix}", "label": "Open search desk", "tone": "primary"},
             {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
-            {"href": f"/app/settings{run_suffix}", "label": "Notifications"},
+            {"href": "/app/account#delivery", "label": "Delivery"},
         ],
         "agents": [
             {"href": f"/app/search{run_suffix}", "label": "New watch", "tone": "primary"},
@@ -1769,8 +1769,8 @@ def property_workspace_payload(
             {"label": "Per source", "value": str(commercial.get("max_results_per_source") or 2), "detail": "Maximum ranked results per provider.", "href": f"/app/billing{run_suffix}"},
         ],
         "settings": [
-            {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": f"/app/settings{run_suffix}"},
-            {"label": "Account", "value": str(workspace.get("name") or "PropertyQuarry"), "detail": str(workspace.get("timezone") or "Europe/Vienna"), "href": f"/app/settings{run_suffix}"},
+            {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account#settings"},
+            {"label": "Account", "value": str(workspace.get("name") or "PropertyQuarry"), "detail": str(workspace.get("timezone") or "Europe/Vienna"), "href": "/app/account#profile"},
             {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": f"/app/billing{run_suffix}"},
             {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/profile{run_suffix}"},
         ],
@@ -1998,9 +1998,9 @@ def property_workspace_payload(
             "title": "Delivery path",
             "detail": "Telegram and email stay secondary until the shortlist is credible enough to notify.",
             "tag": "Alerts",
-            "action_href": f"/app/settings{run_suffix}",
+            "action_href": "/app/account#delivery",
             "action_method": "get",
-            "action_label": "Review settings",
+            "action_label": "Review delivery",
         },
     ]
     agent_management_rows = build_agent_management_rows(property_search_agents, run_id=run_id)
