@@ -44,6 +44,57 @@ def _property_search_run_connect():  # type: ignore[no-untyped-def]
     return psycopg.connect(database_url, autocommit=True)
 
 
+def _quote_pg_identifier(value: str) -> str:
+    return '"' + str(value or "").replace('"', '""') + '"'
+
+
+def _property_search_run_primary_key_columns(cur) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
+    cur.execute(
+        """
+        SELECT a.attname
+        FROM pg_index i
+        JOIN pg_class t ON t.oid = i.indrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        JOIN unnest(i.indkey) WITH ORDINALITY AS key_columns(attnum, ordinal) ON TRUE
+        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = key_columns.attnum
+        WHERE n.nspname = current_schema()
+          AND t.relname = 'property_search_runs'
+          AND i.indisprimary
+        ORDER BY key_columns.ordinal
+        """
+    )
+    return tuple(str(row[0]) for row in cur.fetchall())
+
+
+def _ensure_property_search_run_primary_key(cur) -> None:  # type: ignore[no-untyped-def]
+    desired_columns = ("principal_id", "run_id")
+    if _property_search_run_primary_key_columns(cur) == desired_columns:
+        return
+    cur.execute(
+        """
+        SELECT conname
+        FROM pg_constraint
+        WHERE conrelid = 'property_search_runs'::regclass
+          AND contype = 'p'
+        """
+    )
+    row = cur.fetchone()
+    if row and row[0]:
+        cur.execute(f"ALTER TABLE property_search_runs DROP CONSTRAINT {_quote_pg_identifier(str(row[0]))}")
+    cur.execute(
+        """
+        DELETE FROM property_search_runs a
+        USING property_search_runs b
+        WHERE a.ctid < b.ctid
+          AND a.principal_id = b.principal_id
+          AND a.run_id = b.run_id
+        """
+    )
+    cur.execute("ALTER TABLE property_search_runs ALTER COLUMN principal_id SET NOT NULL")
+    cur.execute("ALTER TABLE property_search_runs ALTER COLUMN run_id SET NOT NULL")
+    cur.execute("ALTER TABLE property_search_runs ADD PRIMARY KEY (principal_id, run_id)")
+
+
 def _ensure_property_search_run_schema() -> None:
     global _PROPERTY_SEARCH_RUN_SCHEMA_READY
     if _PROPERTY_SEARCH_RUN_SCHEMA_READY or not _property_search_run_database_url():
@@ -56,14 +107,16 @@ def _ensure_property_search_run_schema() -> None:
                 cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS property_search_runs (
-                        run_id TEXT PRIMARY KEY,
                         principal_id TEXT NOT NULL,
+                        run_id TEXT NOT NULL,
                         payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
                         created_at TIMESTAMPTZ NOT NULL,
-                        updated_at TIMESTAMPTZ NOT NULL
+                        updated_at TIMESTAMPTZ NOT NULL,
+                        PRIMARY KEY (principal_id, run_id)
                     )
                     """
                 )
+                _ensure_property_search_run_primary_key(cur)
                 cur.execute(
                     """
                     CREATE INDEX IF NOT EXISTS idx_property_search_runs_updated
@@ -95,10 +148,9 @@ def _store_property_search_run_record(record: dict[str, object]) -> None:
                 """
                 INSERT INTO property_search_runs (run_id, principal_id, payload_json, created_at, updated_at)
                 VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (run_id) DO UPDATE
+                ON CONFLICT (principal_id, run_id) DO UPDATE
                 SET payload_json = EXCLUDED.payload_json,
                     updated_at = EXCLUDED.updated_at
-                WHERE property_search_runs.principal_id = EXCLUDED.principal_id
                 """,
                 (
                     run_id,

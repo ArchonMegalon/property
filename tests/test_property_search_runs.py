@@ -5496,8 +5496,11 @@ def test_property_search_run_listing_requires_principal_unless_admin(monkeypatch
 def test_property_search_run_upsert_does_not_change_existing_owner() -> None:
     source = Path(property_search_storage.__file__).read_text(encoding="utf-8")
 
+    assert "PRIMARY KEY (principal_id, run_id)" in source
+    assert "ALTER TABLE property_search_runs ADD PRIMARY KEY (principal_id, run_id)" in source
     assert "SET principal_id = EXCLUDED.principal_id" not in source
-    assert "WHERE property_search_runs.principal_id = EXCLUDED.principal_id" in source
+    assert "ON CONFLICT (run_id)" not in source
+    assert "ON CONFLICT (principal_id, run_id) DO UPDATE" in source
 
 
 def test_property_source_listing_cache_postgres_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
