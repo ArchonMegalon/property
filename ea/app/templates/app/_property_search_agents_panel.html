@@ -31,7 +31,7 @@
     {% set scope_preview = agent.get('scope_preview') or {} %}
     <article class="pqx-automation-card{% if agent.get('is_active') %} is-selected{% endif %}" data-property-search-agent-row data-search-agent-id="{{ agent.get('agent_id') or 'current' }}" data-search-agent-payload='{{ (agent.get("load_payload") or {})|tojson|safe }}'>
       <button class="pqx-automation-delete" type="button" data-search-agent-action="delete" aria-label="Delete {{ agent.get('name') or 'saved search' }}" title="Delete saved search">&times;</button>
-      <button class="pqx-automation-thumbnail" type="button" data-search-agent-action="load" aria-label="Edit {{ agent.get('name') or 'saved search' }}">
+      <button class="pqx-automation-thumbnail" type="button" data-search-agent-action="load" data-scope-preview-kind="{{ scope_preview.get('preview_kind') or 'empty' }}" data-scope-overlay="{{ 'true' if scope_preview.get('has_district_overlay') else 'false' }}" aria-label="Edit {{ agent.get('name') or 'saved search' }}">
         {% if scope_preview.get('image_url') %}
         <img src="{{ scope_preview.get('image_url') }}" alt="{{ scope_preview.get('alt') or 'Search area preview' }}" loading="lazy">
         {% else %}

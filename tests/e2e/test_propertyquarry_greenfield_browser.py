@@ -1625,6 +1625,13 @@ def test_propertyquarry_automation_page_uses_compact_card_cockpit(
               return {
                 cardCount: cards.length,
                 thumbnailCount: document.querySelectorAll('.pqx-automation-thumbnail').length,
+                overlayThumbCount: document.querySelectorAll('.pqx-automation-thumbnail[data-scope-overlay="true"]').length,
+                osmThumbCount: document.querySelectorAll('.pqx-automation-thumbnail[data-scope-preview-kind="osm_district_overlay"]').length,
+                previewUrlCount: [...document.querySelectorAll('.pqx-automation-thumbnail img')]
+                  .filter((img) => {
+                    const src = String(img.getAttribute('src') || '');
+                    return src.startsWith('/app/api/property/map-previews/') && src.endsWith('.png');
+                  }).length,
                 deleteCount: document.querySelectorAll('.pqx-automation-delete[data-search-agent-action="delete"]').length,
                 formCount: document.querySelectorAll('form.pqx-form').length,
                 tableCount: document.querySelectorAll('.pqx-automation-table').length,
@@ -1640,6 +1647,9 @@ def test_propertyquarry_automation_page_uses_compact_card_cockpit(
         )
         assert layout["cardCount"] == 2
         assert layout["thumbnailCount"] == 2
+        assert layout["overlayThumbCount"] == 2
+        assert layout["osmThumbCount"] == 2
+        assert layout["previewUrlCount"] == 2
         assert layout["deleteCount"] == 2
         assert layout["formCount"] == 0
         assert layout["tableCount"] == 0

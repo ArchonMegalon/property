@@ -147,6 +147,11 @@ def _magic_fit_reference_root(container: AppContainer, *, principal_id: str) -> 
     return base / _api_safe_token(principal_id, "principal")
 
 
+def _property_map_preview_root(container: AppContainer) -> Path:
+    root = Path(str(os.environ.get("EA_ARTIFACTS_DIR") or container.settings.storage.artifacts_dir or "/tmp/ea_artifacts")).resolve()
+    return root / "map_previews"
+
+
 class StructuredPropertyFeedbackIn(BaseModel):
     stakeholder_id: str = Field(min_length=1, max_length=160)
     stakeholder_label: str = Field(default="", max_length=160)
@@ -1599,6 +1604,26 @@ def get_property_magic_fit_reference_file(
         media_type=str(metadata.get("mime_type") or "application/octet-stream"),
         filename=str(metadata.get("file_name") or file_path.name),
         headers={"Cache-Control": "private, max-age=3600", "X-Robots-Tag": "noindex, nofollow"},
+    )
+
+
+@router.get("/property/map-previews/{preview_id}.png")
+def get_property_map_preview_file(
+    preview_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> FileResponse:
+    del context
+    safe_preview_id = _api_safe_token(preview_id, "preview")
+    if not re.fullmatch(r"[0-9a-f]{40}", safe_preview_id):
+        raise HTTPException(status_code=404, detail="property_map_preview_not_found")
+    file_path = _property_map_preview_root(container) / f"{safe_preview_id}.png"
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="property_map_preview_not_found")
+    return FileResponse(
+        file_path,
+        media_type="image/png",
+        headers={"Cache-Control": "private, max-age=86400", "X-Robots-Tag": "noindex, nofollow"},
     )
 
 

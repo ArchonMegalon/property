@@ -1541,15 +1541,21 @@ def test_property_scope_preview_uses_generic_boundary_projection(monkeypatch) ->
         return {}
 
     monkeypatch.setattr(landing_view_models, "_nominatim_boundary_record", fake_record)
-    monkeypatch.setattr(
-        landing_view_models,
-        "_cached_preview_data_url",
-        lambda **kwargs: "data:image/png;base64,scopepreview",
-    )
+    preview_render_calls: list[dict[str, object]] = []
+
+    def fake_cached_preview_image_url(**kwargs) -> str:
+        preview_render_calls.append(dict(kwargs))
+        return "/app/api/property/map-previews/scopepreview.png"
+
+    monkeypatch.setattr(landing_view_models, "_cached_preview_image_url", fake_cached_preview_image_url)
     preview = landing_view_models._property_scope_preview("AT", "vienna", "1020 Vienna, 1200 Vienna")
-    assert preview["image_url"] == "data:image/png;base64,scopepreview"
+    assert preview["image_url"] == "/app/api/property/map-previews/scopepreview.png"
     assert len(preview["district_rows"]) == 2
     assert all(str(row.get("path") or "").startswith("M") for row in preview["district_rows"])
+    assert preview["preview_kind"] == "osm_district_overlay"
+    assert preview["has_district_overlay"] is True
+    assert len(preview_render_calls) == 1
+    assert len(preview_render_calls[0]["overlay_rows"]) == 2
 
 
 def test_property_scope_preview_without_boundary_data_uses_local_layout_fallback(monkeypatch) -> None:
@@ -1560,6 +1566,29 @@ def test_property_scope_preview_without_boundary_data_uses_local_layout_fallback
     assert "#" not in image_url
     assert "%23" in image_url
     assert preview["district_rows"] == []
+
+
+def test_property_map_preview_route_serves_private_cached_png(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))
+    preview_id = "a" * 40
+    preview_root = tmp_path / "map_previews"
+    preview_root.mkdir(parents=True)
+    preview_root.joinpath(f"{preview_id}.png").write_bytes(
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+        b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    client = build_property_client(principal_id="pq-map-preview-route")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    response = client.get(f"/app/api/property/map-previews/{preview_id}.png", headers={"host": "propertyquarry.com"})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/png")
+    assert response.headers["cache-control"] == "private, max-age=86400"
+    assert response.headers["x-robots-tag"] == "noindex, nofollow"
+
+    missing = client.get("/app/api/property/map-previews/not-a-preview.png", headers={"host": "propertyquarry.com"})
+    assert missing.status_code == 404
 
 
 def test_property_lookup_candidate_falls_back_to_shortlist_candidates_from_context() -> None:
@@ -3306,8 +3335,8 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert '.pqx-shell[data-pqx-surface="account"] .pqx-brief-drawer-panel > .pqx-section-head' in template
 
 
-def test_property_agents_surface_uses_fast_scope_preview(monkeypatch) -> None:
-    principal_id = "pq-agent-fast-first-paint"
+def test_property_agents_surface_uses_osm_scope_preview_for_cards_and_fast_preview_for_history(monkeypatch) -> None:
+    principal_id = "pq-agent-map-thumbnail"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Search Agent Fast")
 
@@ -3341,8 +3370,26 @@ def test_property_agents_surface_uses_fast_scope_preview(monkeypatch) -> None:
     )
     assert stored.status_code == 200, stored.text
 
-    def _fail_slow_preview(*args, **kwargs):
-        raise AssertionError("agents first paint must not call the slow boundary preview builder")
+    preview_calls: list[tuple[str, str, str]] = []
+    fast_preview_calls: list[tuple[str, str, str]] = []
+
+    def _rich_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
+        preview_calls.append((country_code, region_code, location_query))
+        return {
+            "image_url": "data:image/png;base64,richscope",
+            "summary": location_query,
+            "preview_kind": "osm_district_overlay",
+            "has_district_overlay": True,
+        }
+
+    def _fast_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
+        fast_preview_calls.append((country_code, region_code, location_query))
+        return {
+            "image_url": "data:image/svg+xml;charset=utf-8,fastscope",
+            "summary": location_query,
+            "preview_kind": "fast_district_layout",
+            "has_district_overlay": False,
+        }
 
     def _fake_runs(self, *, principal_id: str, limit: int = 8):
         return [
@@ -3363,7 +3410,8 @@ def test_property_agents_surface_uses_fast_scope_preview(monkeypatch) -> None:
             }
         ]
 
-    monkeypatch.setattr(landing_view_models, "_property_scope_preview", _fail_slow_preview)
+    monkeypatch.setattr(landing_view_models, "_property_scope_preview", _rich_scope_preview)
+    monkeypatch.setattr(landing_view_models, "_property_scope_preview_fast", _fast_scope_preview)
     monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_runs)
 
     page = client.get("/app/agents", headers={"host": "propertyquarry.com"})
@@ -3371,6 +3419,10 @@ def test_property_agents_surface_uses_fast_scope_preview(monkeypatch) -> None:
     assert page.status_code == 200
     assert "Vienna rent watch" in page.text
     assert "agent-run-fast" in page.text
+    assert 'data-scope-preview-kind="osm_district_overlay"' in page.text
+    assert 'data-scope-overlay="true"' in page.text
+    assert preview_calls == [("AT", "vienna", "1020 Vienna")]
+    assert fast_preview_calls == [("AT", "vienna", "1020 Vienna")]
 
 
 def test_static_property_surfaces_skip_full_fleet_digest_on_first_paint(monkeypatch) -> None:

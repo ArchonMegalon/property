@@ -449,7 +449,7 @@ def _preview_zoom_for_bounds(
     return zoom
 
 
-def _cached_preview_data_url(
+def _cached_preview_png_path(
     *,
     cache_key: dict[str, object],
     center_lat: float,
@@ -461,12 +461,12 @@ def _cached_preview_data_url(
     draw_overlay: bool = True,
     width: int = 640,
     height: int = 368,
-) -> str:
+) -> Path:
     normalized_key = json.dumps(cache_key, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     digest = hashlib.sha1(normalized_key.encode("utf-8")).hexdigest()
     cache_path = _map_preview_cache_root() / f"{digest}.png"
     if cache_path.exists():
-        return _png_file_to_data_url(cache_path)
+        return cache_path
 
     tile_x, tile_y = _latlon_to_tile(center_lat, center_lon, zoom)
     tile_size = 256
@@ -529,7 +529,63 @@ def _cached_preview_data_url(
         draw.ellipse((marker_x - 5, marker_y - 10, marker_x + 5, marker_y), fill=(255, 248, 241, 255))
 
     cropped.save(cache_path, format="PNG", optimize=True)
+    return cache_path
+
+
+def _cached_preview_data_url(
+    *,
+    cache_key: dict[str, object],
+    center_lat: float,
+    center_lon: float,
+    zoom: int,
+    overlay_rows: list[dict[str, object]] | None = None,
+    boundary_paths: list[str] | None = None,
+    pin: tuple[float, float] | None = None,
+    draw_overlay: bool = True,
+    width: int = 640,
+    height: int = 368,
+) -> str:
+    cache_path = _cached_preview_png_path(
+        cache_key=cache_key,
+        center_lat=center_lat,
+        center_lon=center_lon,
+        zoom=zoom,
+        overlay_rows=overlay_rows,
+        boundary_paths=boundary_paths,
+        pin=pin,
+        draw_overlay=draw_overlay,
+        width=width,
+        height=height,
+    )
     return _png_file_to_data_url(cache_path)
+
+
+def _cached_preview_image_url(
+    *,
+    cache_key: dict[str, object],
+    center_lat: float,
+    center_lon: float,
+    zoom: int,
+    overlay_rows: list[dict[str, object]] | None = None,
+    boundary_paths: list[str] | None = None,
+    pin: tuple[float, float] | None = None,
+    draw_overlay: bool = True,
+    width: int = 640,
+    height: int = 368,
+) -> str:
+    cache_path = _cached_preview_png_path(
+        cache_key=cache_key,
+        center_lat=center_lat,
+        center_lon=center_lon,
+        zoom=zoom,
+        overlay_rows=overlay_rows,
+        boundary_paths=boundary_paths,
+        pin=pin,
+        draw_overlay=draw_overlay,
+        width=width,
+        height=height,
+    )
+    return f"/app/api/property/map-previews/{cache_path.stem}.png"
 
 
 @lru_cache(maxsize=96)
@@ -729,7 +785,7 @@ def _build_scope_boundary_preview(
             if boundary_path:
                 boundary_paths.append(boundary_path)
 
-    image_url = _cached_preview_data_url(
+    image_url = _cached_preview_image_url(
         cache_key={
             "kind": "scope",
             "country": country_code,
@@ -737,11 +793,12 @@ def _build_scope_boundary_preview(
             "query": normalized_query,
             "areas": [row["label"] for row in district_rows],
             "zoom": zoom,
-            "overlay_mode": "svg_tile_crop_v2",
+            "overlay_mode": "svg_tile_crop_v3",
         },
         center_lat=center_lat,
         center_lon=center_lon,
         zoom=zoom,
+        overlay_rows=district_rows,
         boundary_paths=boundary_paths,
         draw_overlay=True,
     )
@@ -753,6 +810,8 @@ def _build_scope_boundary_preview(
         "market_label": market_label,
         "district_rows": district_rows,
         "district_overlay_svg": "",
+        "preview_kind": "osm_district_overlay",
+        "has_district_overlay": True,
     }
 
 
@@ -823,6 +882,8 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
             "market_label": market_label,
             "district_rows": [],
             "district_overlay_svg": "",
+            "preview_kind": "local_district_layout",
+            "has_district_overlay": False,
         }
 
     return {
@@ -833,6 +894,8 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
         "market_label": market_label,
         "district_rows": [],
         "district_overlay_svg": "",
+        "preview_kind": "empty",
+        "has_district_overlay": False,
     }
 
 
@@ -882,6 +945,8 @@ def _property_scope_preview_fast(country_code: str, region_code: str, location_q
                 if str(row.get("label") or row.get("value") or "").strip()
             ],
             "district_overlay_svg": "",
+            "preview_kind": "fast_district_layout",
+            "has_district_overlay": False,
         }
     return {
         "image_url": "",
@@ -891,6 +956,8 @@ def _property_scope_preview_fast(country_code: str, region_code: str, location_q
         "market_label": market_label,
         "district_rows": [],
         "district_overlay_svg": "",
+        "preview_kind": "empty",
+        "has_district_overlay": False,
     }
 
 
@@ -2445,7 +2512,7 @@ def app_section_payload(
             default_notification_limit=property_search_agent_notification_limit,
             default_notification_period=property_search_agent_notification_period,
             normalize_property_type_values=_normalize_property_type_values,
-            scope_preview_builder=_property_scope_preview_fast,
+            scope_preview_builder=_property_scope_preview,
         )
     else:
         property_search_agents, property_search_agent = [], {}
