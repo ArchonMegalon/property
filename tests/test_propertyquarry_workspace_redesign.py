@@ -5255,6 +5255,9 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Identity, plan, delivery, and editable defaults." in account.text
     assert "Search defaults" in account.text
     assert "Edit search" in account.text
+    assert account.text.count("Edit search") == 1
+    assert account.text.count("Open automation") == 1
+    assert account.text.count("Open pricing") == 1
     assert "Useful account controls" in account.text
     assert 'href="/app/search' in account.text
     assert "Operating posture" not in account.text
@@ -5280,6 +5283,10 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls() -> None:
     assert 'href="/app/api/property/account/export?download=1"' in account.text
     assert "Manage access links" in account.text
     assert 'href="/app/settings/access"' in account.text
+    access_links = client.get("/app/settings/access", headers=headers)
+    assert access_links.status_code == 200
+    assert "Create an access link" in access_links.text
+    assert "Live access links" in access_links.text
 
     export = client.get("/app/api/property/account/export", headers=headers)
     assert export.status_code == 200

@@ -2379,11 +2379,7 @@ def property_workspace_payload(
             "hero_kicker": "Account",
             "hero_title": "Account.",
             "hero_summary": "Identity, plan, delivery, and editable defaults.",
-            "hero_actions": [
-                {"href": f"/app/search{run_suffix}", "label": "Edit search", "tone": "primary"},
-                {"href": f"/app/agents{run_suffix}", "label": "Open automation"},
-                {"href": "/pricing", "label": "Open pricing"},
-            ],
+            "hero_actions": [],
             "hero_highlights": [
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account#settings"},
                 {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": "/app/account#plans"},
