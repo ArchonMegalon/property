@@ -3652,7 +3652,10 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert ".pqx-automation-delete" in template
     assert ".pqx-automation-card" in template
     assert 'pqx-automation-scope-empty--fallback' in template
-    assert 'transform: scale(1.72);' in template
+    assert 'transform: scale(1.45);' in template
+    assert 'transform: scale(1.92);' in template
+    assert ".pqx-automation-scope-empty::after" in template
+    assert "linear-gradient(90deg, rgba(96, 78, 61, 0.08) 1px, transparent 1px)" in template
     script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
     assert "const showPreviewFallback = () => {" in script
     assert "img.complete && img.naturalWidth === 0" in script

@@ -2942,11 +2942,11 @@
       object-position: center;
       transition: transform 180ms ease;
       transform-origin: center center;
-      transform: scale(1.32);
+      transform: scale(1.45);
     }
     .pqx-automation-thumbnail[data-scope-preview-kind="osm_district_overlay"] img,
     .pqx-automation-thumbnail[data-scope-preview-kind="osm_point_fallback"] img {
-      transform: scale(1.72);
+      transform: scale(1.92);
     }
     .pqx-automation-thumbnail.is-preview-error img {
       display: none;
@@ -3013,12 +3013,32 @@
       margin-right: 0;
     }
     .pqx-automation-scope-empty {
+      position: relative;
       display: grid;
       gap: 4px;
       align-content: start;
       min-height: 132px;
       padding: 12px;
-      background: #fffdf7;
+      overflow: hidden;
+      background:
+        linear-gradient(140deg, rgba(184, 72, 58, 0.16) 0 12%, transparent 12% 100%),
+        linear-gradient(28deg, transparent 0 42%, rgba(184, 72, 58, 0.14) 42% 48%, transparent 48% 100%),
+        linear-gradient(90deg, rgba(96, 78, 61, 0.08) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(96, 78, 61, 0.08) 1px, transparent 1px),
+        #fffdf7;
+      background-size: auto, auto, 32px 32px, 32px 32px, auto;
+    }
+    .pqx-automation-scope-empty::after {
+      content: "";
+      position: absolute;
+      right: 16px;
+      bottom: 14px;
+      width: 28px;
+      height: 28px;
+      border: 6px solid rgba(184, 72, 58, 0.2);
+      border-radius: 999px;
+      box-shadow: 0 0 0 1px rgba(184, 72, 58, 0.22), 0 9px 18px rgba(58, 49, 40, 0.1);
+      background: rgba(255, 253, 247, 0.84);
     }
     .pqx-automation-scope-empty--fallback {
       display: none;
